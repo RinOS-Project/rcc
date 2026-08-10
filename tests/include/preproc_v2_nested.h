@@ -1,0 +1,4 @@
+#ifndef RCC_PREPROC_V2_NESTED_H
+#define RCC_PREPROC_V2_NESTED_H
+#define RCC_NESTED_VALUE 7
+#endif
