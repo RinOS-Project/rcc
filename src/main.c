@@ -35,6 +35,7 @@ static void print_usage(void) {
     printf("  --rinsign <file>    Isolated v3 signer program\n");
     printf("  --sign-key <file>   Explicit RSA private key (final outputs)\n");
     printf("  --public-key <file> Provisioned PKCS#1 public DER key\n");
+    printf("  --sign-profile <p>  Build profile: debug or release\n");
     printf("  -O<level>       Optimization level (0-3)\n");
     printf("  -g              Generate debug info\n");
     printf("\n");
@@ -197,6 +198,23 @@ static int parse_args(int argc, char** argv) {
             else if (strcmp(arg, "--sign-key") == 0) g_opts.sign_key = argv[++i];
             else if (strcmp(arg, "--public-key") == 0) g_opts.public_key = argv[++i];
             else g_opts.python_path = argv[++i];
+        } else if (strcmp(arg, "--sign-profile") == 0 ||
+                   strncmp(arg, "--sign-profile=", 15) == 0) {
+            const char* profile;
+            if (strcmp(arg, "--sign-profile") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "rcc: error: --sign-profile requires an argument\n");
+                    return -1;
+                }
+                profile = argv[++i];
+            } else {
+                profile = arg + 15;
+            }
+            if (!rcc_parse_signing_profile(profile, &g_opts.signing_profile)) {
+                fprintf(stderr, "rcc: error: signing profile must be debug or release\n");
+                return -1;
+            }
+            g_opts.signing_profile_explicit = true;
         } else if (strcmp(arg, "--emit-unsigned-v3") == 0) {
             g_opts.emit_unsigned_v3 = true;
         } else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
@@ -307,12 +325,11 @@ static int parse_args(int argc, char** argv) {
             return -1;
         }
     }
-    if ((g_opts.output_format == OUTPUT_RIN ||
-         g_opts.output_format == OUTPUT_RLL ||
-         g_opts.output_format == OUTPUT_DRV) && !g_opts.preprocess_only &&
-        !g_opts.emit_unsigned_v3 &&
-        (!g_opts.rinsign_path || !g_opts.sign_key || !g_opts.public_key)) {
-        fprintf(stderr, "rcc: error: final v3 output requires --rinsign, --sign-key and --public-key\n");
+    if (!rcc_validate_signing_options(
+            "rcc", !g_opts.preprocess_only &&
+                   (g_opts.output_format == OUTPUT_RIN ||
+                    g_opts.output_format == OUTPUT_RLL ||
+                    g_opts.output_format == OUTPUT_DRV))) {
         return -1;
     }
 
@@ -549,12 +566,12 @@ int main(int argc, char** argv) {
     bool final_artifact = g_opts.output_format == OUTPUT_RIN ||
                           g_opts.output_format == OUTPUT_RLL ||
                           g_opts.output_format == OUTPUT_DRV;
-    char unsigned_path[RCC_MAX_PATH + 32];
+    char unsigned_path[RCC_MAX_PATH + 64];
     const char* emit_path = g_opts.output_file;
     if (final_artifact && !g_opts.emit_unsigned_v3) {
-        if (snprintf(unsigned_path, sizeof(unsigned_path), "%s.rcc-unsigned.tmp",
-                     g_opts.output_file) >= (int)sizeof(unsigned_path)) {
-            fprintf(stderr, "rcc: output path is too long for signing stage\n");
+        if (!rcc_create_signing_temp(g_opts.output_file, "rcc-unsigned",
+                                     unsigned_path, sizeof(unsigned_path))) {
+            perror("rcc: cannot create unsigned staging file");
             return 1;
         }
         emit_path = unsigned_path;
@@ -579,8 +596,8 @@ int main(int argc, char** argv) {
             fprintf(stderr, "rcc: unsupported output format\n");
             break;
     }
-    if (emit_ok && final_artifact && !g_opts.emit_unsigned_v3) {
-        emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
+    if (final_artifact && !g_opts.emit_unsigned_v3) {
+        if (emit_ok) emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
         remove(emit_path);
     }
 

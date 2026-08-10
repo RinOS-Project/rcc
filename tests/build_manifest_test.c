@@ -18,6 +18,8 @@ int main(void)
     assert(manifest.schema == 1u && manifest.target_arch == ARCH_X64);
     assert(manifest.artifact == RCC_MANIFEST_ARTIFACT_LIBRARY);
     assert(manifest.entry_present && strcmp(manifest.entry, "rin_start") == 0);
+    assert(manifest.signing_present &&
+           manifest.signing_profile == SIGN_PROFILE_RELEASE);
     assert(!rcc_manifest_apply_compiler(&manifest, &options,
                                         error, sizeof(error)));
     assert(strstr(error, "only accepted by rld") != NULL);
@@ -25,6 +27,10 @@ int main(void)
     assert(!rcc_manifest_load("tests/build_manifest_invalid.rbm", &manifest,
                               error, sizeof(error)));
     assert(strstr(error, "duplicate target") != NULL);
+
+    assert(!rcc_manifest_load("tests/build_manifest_object_signed.rbm",
+                              &manifest, error, sizeof(error)));
+    assert(strstr(error, "object artifacts cannot declare signing") != NULL);
 
     assert(rcc_manifest_load("tests/build_manifest_compiler.rbm", &manifest,
                              error, sizeof(error)));
@@ -36,6 +42,8 @@ int main(void)
     assert(options.target_arch == ARCH_X64 && options.target_explicit);
     assert(options.output_format == OUTPUT_RLL &&
            options.output_format_explicit);
+    assert(options.signing_profile == SIGN_PROFILE_DEBUG &&
+           options.signing_profile_explicit);
 
     memset(&options, 0, sizeof(options));
     options.output_format = OUTPUT_OBJ;

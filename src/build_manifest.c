@@ -164,6 +164,16 @@ bool rcc_manifest_load(const char* path, RccBuildManifest* manifest,
             }
             strcpy(manifest->entry, value);
             manifest->entry_present = true;
+        } else if (strcmp(key, "signing") == 0) {
+            if (manifest->signing_present ||
+                !rcc_parse_signing_profile(value,
+                                           &manifest->signing_profile)) {
+                fclose(file);
+                return manifest_error(error, error_capacity,
+                                      "%s:%u: invalid or duplicate signing profile",
+                                      path, line_number);
+            }
+            manifest->signing_present = true;
         } else {
             fclose(file);
             return manifest_error(error, error_capacity,
@@ -182,6 +192,31 @@ bool rcc_manifest_load(const char* path, RccBuildManifest* manifest,
         return manifest_error(error, error_capacity,
                               "%s: target and artifact are required", path);
     }
+    if (manifest->artifact == RCC_MANIFEST_ARTIFACT_OBJECT &&
+        manifest->signing_present) {
+        return manifest_error(error, error_capacity,
+                              "%s: object artifacts cannot declare signing",
+                              path);
+    }
+    return true;
+}
+
+bool rcc_manifest_apply_signing(const RccBuildManifest* manifest,
+                                CompilerOptions* options,
+                                char* error, size_t error_capacity)
+{
+    if (!manifest || manifest->struct_size != sizeof(*manifest) ||
+        manifest->schema != RCC_BUILD_MANIFEST_SCHEMA || !options) {
+        return manifest_error(error, error_capacity, "invalid build manifest");
+    }
+    if (!manifest->signing_present) return true;
+    if (options->signing_profile_explicit &&
+        options->signing_profile != manifest->signing_profile) {
+        return manifest_error(error, error_capacity,
+                              "CLI signing profile conflicts with build manifest");
+    }
+    options->signing_profile = manifest->signing_profile;
+    options->signing_profile_explicit = true;
     return true;
 }
 
@@ -225,5 +260,6 @@ bool rcc_manifest_apply_compiler(const RccBuildManifest* manifest,
     options->target_explicit = true;
     options->output_format = format;
     options->output_format_explicit = true;
-    return true;
+    return rcc_manifest_apply_signing(manifest, options, error,
+                                      error_capacity);
 }

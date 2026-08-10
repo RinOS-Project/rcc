@@ -39,6 +39,13 @@ typedef enum {
     ARCH_X64,       /* 64-bit x86-64 */
 } TargetArch;
 
+/* The key itself is always supplied by the invoking RinOS build profile. */
+typedef enum {
+    SIGN_PROFILE_UNSPECIFIED = 0,
+    SIGN_PROFILE_DEBUG,
+    SIGN_PROFILE_RELEASE,
+} SigningProfile;
+
 /* Maximum include paths and defines */
 #define RCC_MAX_INCLUDES 64
 #define RCC_MAX_DEFINES 128
@@ -79,6 +86,8 @@ typedef struct {
     const char* rinsign_path;
     const char* python_path;
     const char* manifest_path;
+    SigningProfile signing_profile;
+    bool signing_profile_explicit;
     bool emit_unsigned_v3;      /* Internal packaging/debug stage only. */
 } CompilerOptions;
 
@@ -88,6 +97,11 @@ typedef struct {
 
 bool rcc_parse_target_triple(const char* triple, TargetArch* arch_out);
 const char* rcc_target_triple(TargetArch arch);
+bool rcc_parse_signing_profile(const char* value, SigningProfile* profile_out);
+const char* rcc_signing_profile_name(SigningProfile profile);
+bool rcc_validate_signing_options(const char* tool_name, bool final_artifact);
+bool rcc_create_signing_temp(const char* output_path, const char* stage,
+                             char* temp_path, size_t capacity);
 bool rcc_run_rinsign(const char* unsigned_path, const char* output_path);
 
 /* Source location */

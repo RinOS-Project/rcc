@@ -21,8 +21,10 @@ typedef struct RccBuildManifest {
     bool target_present;
     bool artifact_present;
     bool entry_present;
+    bool signing_present;
     TargetArch target_arch;
     RccManifestArtifact artifact;
+    SigningProfile signing_profile;
     char entry[RCC_MAX_IDENT];
 } RccBuildManifest;
 
@@ -32,5 +34,9 @@ bool rcc_manifest_load(const char* path, RccBuildManifest* manifest,
 bool rcc_manifest_apply_compiler(const RccBuildManifest* manifest,
                                  CompilerOptions* options,
                                  char* error, size_t error_capacity);
+
+bool rcc_manifest_apply_signing(const RccBuildManifest* manifest,
+                                CompilerOptions* options,
+                                char* error, size_t error_capacity);
 
 #endif /* RCC_BUILD_MANIFEST_H */

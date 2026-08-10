@@ -11,6 +11,7 @@ INCDIR = include
 OBJDIR = obj
 BINDIR = .
 TEST_OUT = build/tests
+SIGN_TEST_DIR = $(TEST_OUT)/signing
 
 # Common source files (shared between rcc and rcc++)
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
@@ -45,7 +46,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -157,7 +158,7 @@ test-static-assert: $(RCC_TARGET)
 test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/build_manifest_test \
-		tests/build_manifest_test.c $(SRCDIR)/build_manifest.c
+		tests/build_manifest_test.c $(SRCDIR)/build_manifest.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/build_manifest_test
 	$(RCC_TARGET) --manifest tests/build_manifest_compiler.rbm \
 		--emit-unsigned-v3 -o $(TEST_OUT)/manifest_direct.rll tests/hello.c
@@ -176,7 +177,76 @@ test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		--emit-unsigned-v3 tests/missing.ro
 	! $(RLD_TARGET) --manifest tests/build_manifest_executable.rbm -shared \
 		--emit-unsigned-v3 tests/missing.ro
+	! $(RCC_TARGET) --manifest tests/build_manifest_compiler.rbm \
+		--sign-profile release --emit-unsigned-v3 tests/hello.c
 	@echo "Versioned build manifest conflict tests completed"
+
+test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
+	mkdir -p "$(SIGN_TEST_DIR)/argv ; spaces"
+	cp tests/fake_rinsign.py "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py"
+	$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
+		--python python3 --rinsign "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py" \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/direct x86.rin" tests/hello.c
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -shared --sign-profile debug \
+		--python python3 --rinsign "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py" \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/direct cxx x64.rll" tests/hello.cpp
+	$(RCC_TARGET) --manifest tests/build_manifest_compiler.rbm \
+		--python python3 --rinsign tests/fake_rinsign.py \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/manifest debug.rll" tests/hello.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --sign-profile release \
+		--python python3 --rinsign "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py" \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/direct x64.drv" tests/driver_policy_ok.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o "$(SIGN_TEST_DIR)/main x64.ro" tests/main.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o "$(SIGN_TEST_DIR)/lib x64.ro" tests/lib.c
+	$(RLD_TARGET) --target x86_64-unknown-rinos --sign-profile release \
+		--python python3 --rinsign "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py" \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/linked x64.rin" \
+		"$(SIGN_TEST_DIR)/main x64.ro" "$(SIGN_TEST_DIR)/lib x64.ro"
+	! $(RCC_TARGET) --target i686-unknown-rinos \
+		--python python3 --rinsign tests/fake_rinsign.py \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/missing profile.rin" tests/hello.c
+	cp "$(SIGN_TEST_DIR)/direct x86.rin" "$(SIGN_TEST_DIR)/preserved.rin"
+	! $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
+		--python python3 --rinsign tests/fake_rinsign.py \
+		--sign-key tests/signing_test_fail.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/preserved.rin" tests/hello.c
+	cmp "$(SIGN_TEST_DIR)/direct x86.rin" "$(SIGN_TEST_DIR)/preserved.rin"
+	! $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
+		--python python3 --rinsign tests/fake_rinsign.py \
+		--sign-key tests/signing_test_invalid.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/invalid signer.rin" tests/hello.c
+	test ! -e "$(SIGN_TEST_DIR)/invalid signer.rin"
+	$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
+		--python python3 --rinsign tests/fake_rinsign.py \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & first=$$!; \
+	$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
+		--python python3 --rinsign tests/fake_rinsign.py \
+		--sign-key tests/signing_test_private.key \
+		--public-key tests/signing_test_public.der \
+		-o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & second=$$!; \
+	wait $$first; wait $$second
+	test -z "$$(find "$(SIGN_TEST_DIR)" -type f \
+		\( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' \
+		-o -name '*.rcc-signed-*' \) -print -quit)"
+	@echo "Isolated final signing and atomic publication tests completed"
 
 test-driver-policy: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)

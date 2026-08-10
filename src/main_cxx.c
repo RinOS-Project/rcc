@@ -38,6 +38,7 @@ static void print_usage_cxx(void) {
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
     printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign/--sign-key/--public-key  Required final v3 signing inputs\n");
+    printf("  --sign-profile <p>  Build profile: debug or release\n");
     printf("  -O<level>       Optimization level (0-3)\n");
     printf("  -std=c++<ver>   C++ standard (11, 14, 17, 20)\n");
     printf("  -g              Generate debug info\n");
@@ -82,6 +83,7 @@ static int parse_cxx_args(int argc, char** argv) {
         {"ffreestanding", no_argument, 0, 13},
         {"pedantic", no_argument, 0, 14},
         {"manifest", required_argument, 0, 15},
+        {"sign-profile", required_argument, 0, 16},
         {0, 0, 0, 0}
     };
 
@@ -221,6 +223,14 @@ static int parse_cxx_args(int argc, char** argv) {
             case 13: g_opts.freestanding = true; break;
             case 14: g_opts.pedantic = true; break;
             case 15: g_opts.manifest_path = optarg; break;
+            case 16:
+                if (!rcc_parse_signing_profile(optarg,
+                                               &g_opts.signing_profile)) {
+                    fprintf(stderr, "rcc++: error: signing profile must be debug or release\n");
+                    return -1;
+                }
+                g_opts.signing_profile_explicit = true;
+                break;
             default:
                 return -1;
         }
@@ -246,12 +256,11 @@ static int parse_cxx_args(int argc, char** argv) {
         }
     }
 
-    if ((g_opts.output_format == OUTPUT_RIN ||
-         g_opts.output_format == OUTPUT_RLL ||
-         g_opts.output_format == OUTPUT_DRV) && !g_opts.preprocess_only &&
-        !g_opts.emit_unsigned_v3 &&
-        (!g_opts.rinsign_path || !g_opts.sign_key || !g_opts.public_key)) {
-        fprintf(stderr, "rcc++: error: final v3 output requires --rinsign, --sign-key and --public-key\n");
+    if (!rcc_validate_signing_options(
+            "rcc++", !g_opts.preprocess_only &&
+                     (g_opts.output_format == OUTPUT_RIN ||
+                      g_opts.output_format == OUTPUT_RLL ||
+                      g_opts.output_format == OUTPUT_DRV))) {
         return -1;
     }
 
@@ -465,12 +474,12 @@ int main(int argc, char** argv) {
     bool final_artifact = g_opts.output_format == OUTPUT_RIN ||
                           g_opts.output_format == OUTPUT_RLL ||
                           g_opts.output_format == OUTPUT_DRV;
-    char unsigned_path[RCC_MAX_PATH + 32];
+    char unsigned_path[RCC_MAX_PATH + 64];
     const char* emit_path = g_opts.output_file;
     if (final_artifact && !g_opts.emit_unsigned_v3) {
-        if (snprintf(unsigned_path, sizeof(unsigned_path), "%s.rcc-unsigned.tmp",
-                     g_opts.output_file) >= (int)sizeof(unsigned_path)) {
-            fprintf(stderr, "rcc++: output path is too long for signing stage\n");
+        if (!rcc_create_signing_temp(g_opts.output_file, "rcc-unsigned",
+                                     unsigned_path, sizeof(unsigned_path))) {
+            perror("rcc++: cannot create unsigned staging file");
             return 1;
         }
         emit_path = unsigned_path;
@@ -495,8 +504,8 @@ int main(int argc, char** argv) {
             fprintf(stderr, "rcc++: unsupported output format\n");
             break;
     }
-    if (emit_ok && final_artifact && !g_opts.emit_unsigned_v3) {
-        emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
+    if (final_artifact && !g_opts.emit_unsigned_v3) {
+        if (emit_ok) emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
         remove(emit_path);
     }
 

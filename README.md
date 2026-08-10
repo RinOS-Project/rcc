@@ -12,10 +12,13 @@ RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・ア�
 - image/library: 256-byte header、64-bit RVA、typed import/exportを持つRIN v3
 - driver: 256-byte headerとresource/match metadataを持つNDRV v3
 - final `.rin/.rll/.drv`: 別processの`rinsign`によるRDS1署名が必須
-- build contract: `RIN-BUILD-MANIFEST 1`のtarget/artifact/entryをCLIと照合
+- build contract: `RIN-BUILD-MANIFEST 1`のtarget/artifact/entry/signingをCLIと照合
 
 秘密鍵をcompilerや成果物へ埋め込む経路はありません。最終出力には
-`--rinsign`、`--sign-key`、`--public-key`を明示します。
+`--sign-profile debug|release`、`--rinsign`、`--sign-key`、`--public-key`を明示します。
+debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はrelease buildごとに
+必ず明示します。compiler側の既定鍵や鍵materialはありません。unsigned/signedの一時成果物は
+出力先directoryに排他的に作成し、署名成功とRDS1構造確認後に最終名へ原子的に公開します。
 `--emit-unsigned-v3`はlinker/validatorの試験専用です。
 
 ## 実装済みの基盤
@@ -31,6 +34,7 @@ RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・ア�
 - 文字列literalのread-only `.rodata`分離と独立RVA mapping
 - `.ro/.ra v2` reader/writer、typed import、依存libraryを扱う`rld`
 - external signerを安全な引数配列で起動する最終v3出力
+- debug/release署名profile、衝突しないprivate staging、失敗時の既存成果物保持
 
 `-O1`以上では安全な整数constant folding、短絡式・定数分岐の除去を行いますが、各levelの
 SSA最適化pipelineと完全なDWARF生成は未完成です。C++ frontendも実験段階で、classの基本構文を
@@ -61,7 +65,7 @@ rcc --target x86_64-unknown-rinos -S -o app.s app.c
 rar r libsample.ra sample.ro
 rld --target x86_64-unknown-rinos --shared \
   --dep rinbase.rll --import rin_log_write=rinbase.rll@function \
-  --rinsign ../scripts/rinsign.py --sign-key debug.pem \
+  --sign-profile debug --rinsign ../scripts/rinsign.py --sign-key debug.pem \
   --public-key debug-public.der -o sample.rll sample.ro
 ```
 
@@ -74,6 +78,7 @@ make test-link
 make test-archive
 make test-archive-link
 make test-manifest
+make test-signing
 make test-driver-policy
 make test-weak-link
 make test-comdat-link
@@ -88,6 +93,9 @@ make test-alignof
 
 `test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
 FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
+`test-signing`は`rcc/rcc++/rld`の最終出力でdebug/release profile、空白やshell
+metacharacterを含むsigner/output path、署名失敗時の既存成果物保持、不正signer出力の拒否、
+同一出力への並行実行、およびstaging fileの確実な後始末を確認します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、
