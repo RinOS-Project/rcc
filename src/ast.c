@@ -358,6 +358,16 @@ Expr* expr_sizeof_type(Type* type, SourceLoc loc) {
     return e;
 }
 
+Expr* expr_alignof_type(Type* type, SourceLoc loc) {
+    Expr* expression = rcc_alloc(sizeof(*expression));
+    expression->kind = EXPR_ALIGNOF;
+    expression->loc = loc;
+    expression->unary_operand = NULL;
+    expression->sizeof_type = type;
+    expression->type = type_uint;
+    return expression;
+}
+
 Expr* expr_generic(Expr* control, GenericAssociation* associations,
                    SourceLoc loc) {
     Expr* expression = rcc_alloc(sizeof(*expression));

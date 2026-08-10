@@ -31,6 +31,7 @@
 - [x] 式、制御文、scope、基本type conversion
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic
+  - [x] `_Alignof(type-name)`の定数式・static/runtime codegen
 - [ ] qualifierとeffective typeの完全なC17規則
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き

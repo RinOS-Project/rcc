@@ -209,6 +209,10 @@ static bool eval_integer_constant(Expr* expr, int64_t* value) {
             if (!expr->sizeof_type || expr->sizeof_type->size <= 0) return false;
             *value = expr->sizeof_type->size;
             return true;
+        case EXPR_ALIGNOF:
+            if (!expr->sizeof_type || expr->sizeof_type->align <= 0) return false;
+            *value = expr->sizeof_type->align;
+            return true;
         case EXPR_CAST:
             if (!expr->cast_type || !type_is_integer(expr->cast_type) ||
                 !eval_integer_constant(expr->cast_expr, &left)) {
@@ -433,6 +437,22 @@ static Expr* parse_primary(void) {
         Expr* e = parse_expression();
         expect(TOK_RPAREN, ")");
         return e;
+    }
+    if (match(TOK__ALIGNOF)) {
+        Type* type;
+        expect(TOK_LPAREN, "(");
+        if (!is_type_start()) {
+            rcc_error(peek()->loc, "_Alignof requires a type name");
+            type = type_int;
+        } else {
+            type = parse_type_spec();
+            type = parse_declarator(type, NULL, NULL);
+        }
+        expect(TOK_RPAREN, ")");
+        if (!type_is_complete(type) || type->kind == TYPE_FUNC) {
+            rcc_error(loc, "_Alignof requires a complete object type");
+        }
+        return expr_alignof_type(type, loc);
     }
     if (match(TOK_SIZEOF)) {
         if (match(TOK_LPAREN)) {

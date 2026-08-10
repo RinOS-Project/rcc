@@ -1234,6 +1234,12 @@ static void gen64_expr(Module* mod, Expr* expr) {
             }
             break;
 
+        case EXPR_ALIGNOF:
+            emit64_mov_reg_imm32(
+                mod, RAX,
+                expr->sizeof_type ? expr->sizeof_type->align : 1);
+            break;
+
         case EXPR_COMMA:
             gen64_expr(mod, expr->binary_lhs);
             gen64_expr(mod, expr->binary_rhs);

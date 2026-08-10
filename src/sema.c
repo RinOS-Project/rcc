@@ -192,6 +192,10 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
+        case EXPR_ALIGNOF:
+            expr->type = type_uint;
+            break;
+
         case EXPR_GENERIC: {
             Type* control = generic_selection_type(
                 sema_expr(expr->generic_control));

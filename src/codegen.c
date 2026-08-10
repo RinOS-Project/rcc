@@ -267,6 +267,12 @@ static bool codegen_static_integer(Expr* expression, int64_t* value) {
         *value = type->size;
         return true;
     }
+    if (expression->kind == EXPR_ALIGNOF) {
+        Type* type = expression->sizeof_type;
+        if (!type || type->align <= 0) return false;
+        *value = type->align;
+        return true;
+    }
     if (expression->kind == EXPR_COND) {
         if (!codegen_static_integer(expression->cond_test, &left)) return false;
         return codegen_static_integer(left ? expression->cond_then
@@ -1622,6 +1628,11 @@ static void gen_expr(Module* mod, Expr* expr) {
             } else {
                 emit_mov_reg_imm(mod, EAX, 4);
             }
+            break;
+
+        case EXPR_ALIGNOF:
+            emit_mov_reg_imm(mod, EAX,
+                             expr->sizeof_type ? expr->sizeof_type->align : 1);
             break;
 
         case EXPR_COMMA:

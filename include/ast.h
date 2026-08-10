@@ -246,7 +246,7 @@ struct Expr {
         /* Unary expressions */
         struct {
             Expr* unary_operand;
-            Type* sizeof_type;      /* For EXPR_SIZEOF with type */
+            Type* sizeof_type;      /* For EXPR_SIZEOF/EXPR_ALIGNOF type */
         };
 
         /* Binary expressions */
@@ -316,6 +316,7 @@ Expr* expr_member(Expr* base, const char* name, SourceLoc loc);
 Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_type(Type* type, SourceLoc loc);
+Expr* expr_alignof_type(Type* type, SourceLoc loc);
 Expr* expr_initializer_list(ExprList* items, SourceLoc loc);
 Expr* expr_generic(Expr* control, GenericAssociation* associations,
                    SourceLoc loc);

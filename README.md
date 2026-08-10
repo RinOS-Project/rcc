@@ -83,6 +83,7 @@ make test-direct-relocation
 make test-optimize
 make test-generic
 make test-initializer-overrides
+make test-alignof
 ```
 
 `test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
@@ -113,6 +114,8 @@ array/function conversion、非評価controlを両archで検査し、重複assoc
 不完全type、matchなしを拒否します。
 `test-initializer-overrides`はarray/struct/unionおよびネストdesignatorで、後続の
 initializerが同じsubobjectを置換するC17規則をglobal/local・両archで検査します。
+`test-alignof`はC17 `_Alignof(type-name)`をinteger constant expression、static
+initializer、通常式として両archで検査し、不完全・function typeを拒否します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。
