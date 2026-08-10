@@ -6,6 +6,8 @@
 #include "linker.h"
 #include "objfile.h"
 #include "rin_formats_v3.h"
+#include <inttypes.h>
+#include <limits.h>
 #include <string.h>
 
 /* Global linker options */
@@ -151,21 +153,30 @@ static LinkedSection* find_or_create_section(Linker* ld, const char* name,
     return s;
 }
 
-static void linked_section_ensure_capacity(LinkedSection* s, uint32_t need) {
-    if (s->size + need <= s->capacity) return;
-
-    uint32_t new_cap = s->capacity * 2;
-    while (new_cap < s->size + need) {
-        new_cap *= 2;
+static void linked_section_ensure_capacity(LinkedSection* s, uint64_t need) {
+    uint64_t required;
+    uint64_t new_cap;
+    if (need > UINT64_MAX - s->size) rcc_fatal("linked section size overflow");
+    required = s->size + need;
+    if (required <= s->capacity) return;
+    if (required > SIZE_MAX) rcc_fatal("linked section exceeds host memory limit");
+    new_cap = s->capacity;
+    while (new_cap < required) {
+        if (new_cap > UINT64_MAX / 2u) {
+            new_cap = required;
+            break;
+        }
+        new_cap *= 2u;
     }
-    s->data = rcc_realloc(s->data, new_cap);
+    s->data = rcc_realloc(s->data, (size_t)new_cap);
     s->capacity = new_cap;
 }
 
-static uint32_t linked_section_add_data(LinkedSection* s, const void* data, uint32_t size) {
+static uint64_t linked_section_add_data(LinkedSection* s, const void* data,
+                                        uint64_t size) {
     linked_section_ensure_capacity(s, size);
-    uint32_t offset = s->size;
-    memcpy(s->data + s->size, data, size);
+    uint64_t offset = s->size;
+    memcpy(s->data + (size_t)s->size, data, (size_t)size);
     s->size += size;
     return offset;
 }
@@ -176,7 +187,8 @@ static void linked_section_align(LinkedSection* s, uint32_t align) {
 
     while (s->size % align != 0) {
         linked_section_ensure_capacity(s, 1);
-        s->data[s->size++] = 0;
+        s->data[(size_t)s->size] = 0;
+        ++s->size;
     }
 }
 
@@ -189,7 +201,7 @@ bool linker_merge_sections(Linker* ld) {
     typedef struct {
         int obj_idx;
         int sect_idx;
-        uint32_t offset;  /* Offset in linked section */
+        uint64_t offset;  /* Offset in linked section */
     } SectionOffset;
 
     SectionOffset* offsets = NULL;
@@ -219,7 +231,7 @@ bool linker_merge_sections(Linker* ld) {
             linked_section_add_data(linked, sect->data, sect->size);
 
             if (g_linker_opts.verbose) {
-                printf("    %s:%s -> %s (+%u bytes at %u)\n",
+                printf("    %s:%s -> %s (+%" PRIu64 " bytes at %" PRIu64 ")\n",
                        obj->filename, sect->name, linked->name,
                        sect->size, offsets[offset_count-1].offset);
             }
@@ -284,7 +296,7 @@ static int linker_dependency_index(const char* name) {
     return -1;
 }
 
-static void add_symbol(Linker* ld, const char* name, uint32_t value, uint32_t size,
+static void add_symbol(Linker* ld, const char* name, uint64_t value, uint64_t size,
                        SymbolType type, SymbolBinding binding, int section,
                        const char* source, bool resolved) {
     GlobalSymbol* sym = rcc_alloc(sizeof(GlobalSymbol));
@@ -315,12 +327,12 @@ bool linker_collect_symbols(Linker* ld) {
 
     /* Track section offsets per object */
     /* For now, we need to recalculate these */
-    uint32_t** sect_offsets = rcc_alloc(sizeof(uint32_t*) * ld->object_count);
+    uint64_t** sect_offsets = rcc_alloc(sizeof(uint64_t*) * ld->object_count);
 
     /* Calculate section offsets */
     for (int obj_idx = 0; obj_idx < ld->object_count; obj_idx++) {
         ObjectFile* obj = ld->objects[obj_idx];
-        sect_offsets[obj_idx] = rcc_alloc(sizeof(uint32_t) * obj->section_count);
+        sect_offsets[obj_idx] = rcc_alloc(sizeof(uint64_t) * obj->section_count);
 
         int sect_idx = 0;
         for (ObjSection* sect = obj->sections; sect; sect = sect->next, sect_idx++) {
@@ -335,12 +347,12 @@ bool linker_collect_symbols(Linker* ld) {
             }
 
             if (linked) {
-                uint32_t offset = 0;
+                uint64_t offset = 0;
                 for (int i = 0; i <= obj_idx; i++) {
                     ObjectFile* prev = ld->objects[i];
                     for (ObjSection* ps = prev->sections; ps; ps = ps->next) {
                         if (strcmp(ps->name, sect->name) == 0) {
-                            uint32_t mask = ps->align - 1u;
+                            uint64_t mask = ps->align - 1u;
                             offset = (offset + mask) & ~mask;
                             if (i == obj_idx && ps == sect) {
                                 sect_offsets[obj_idx][sect_idx] = offset;
@@ -358,7 +370,7 @@ bool linker_collect_symbols(Linker* ld) {
         ObjectFile* obj = ld->objects[obj_idx];
 
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
-            uint32_t value;
+            uint64_t value;
             int linked_sect = -1;
 
             /* Skip undefined symbols on first pass */
@@ -413,7 +425,7 @@ bool linker_collect_symbols(Linker* ld) {
                       linked_sect, obj->filename, true);
 
             if (g_linker_opts.verbose) {
-                printf("    %s: %s = 0x%x (sect %d)\n",
+                printf("    %s: %s = 0x%" PRIx64 " (sect %d)\n",
                        obj->filename, sym->name, value, linked_sect);
             }
         }
@@ -450,7 +462,7 @@ static bool linker_materialize_import_slots(Linker* ld) {
          import_index++) {
         LinkImportSpec* import = &g_linker_opts.imports[import_index];
         uint64_t zero = 0u;
-        uint32_t slot;
+        uint64_t slot;
         int previous;
         if (linker_dependency_index(import->dependency) < 0) {
             fprintf(stderr, "rld: import %s references undeclared dependency %s\n",
@@ -514,13 +526,22 @@ bool linker_resolve_symbols(Linker* ld) {
  * Memory Layout
  * ═══════════════════════════════════════ */
 
-bool linker_layout(Linker* ld, uint32_t base_addr) {
+static bool linker_align_address(uint64_t value, uint32_t alignment,
+                                 uint64_t* result) {
+    uint64_t mask = (uint64_t)alignment - 1u;
+    if (!alignment || (alignment & (alignment - 1u)) != 0u ||
+        value > UINT64_MAX - mask) return false;
+    *result = (value + mask) & ~mask;
+    return true;
+}
+
+bool linker_layout(Linker* ld, uint64_t base_addr) {
     if (g_linker_opts.verbose) {
-        printf("Layout at base 0x%x...\n", base_addr);
+        printf("Layout at base 0x%" PRIx64 "...\n", base_addr);
     }
 
     ld->base_addr = base_addr;
-    uint32_t addr = base_addr;
+    uint64_t addr = base_addr;
 
     /* Standard section order: .text, .rodata, .data, .bss */
     const char* order[] = {".text", ".rodata", ".data", ".bss", NULL};
@@ -530,13 +551,18 @@ bool linker_layout(Linker* ld, uint32_t base_addr) {
             if (strcmp(s->name, order[i]) != 0) continue;
 
             /* Align to section alignment */
-            while (addr % s->align != 0) addr++;
+            if (!linker_align_address(addr, s->align, &addr) ||
+                s->size > UINT64_MAX - addr) {
+                fprintf(stderr, "rld: section layout overflow\n");
+                return false;
+            }
 
             s->vaddr = addr;
             addr += s->size;
 
             if (g_linker_opts.verbose) {
-                printf("    %s: 0x%x - 0x%x (%u bytes)\n",
+                printf("    %s: 0x%" PRIx64 " - 0x%" PRIx64
+                       " (%" PRIu64 " bytes)\n",
                        s->name, s->vaddr, s->vaddr + s->size, s->size);
             }
         }
@@ -546,14 +572,24 @@ bool linker_layout(Linker* ld, uint32_t base_addr) {
     for (LinkedSection* s = ld->sections; s; s = s->next) {
         if (s->vaddr != 0) continue;  /* Already placed */
 
-        while (addr % s->align != 0) addr++;
+        if (!linker_align_address(addr, s->align, &addr) ||
+            s->size > UINT64_MAX - addr) {
+            fprintf(stderr, "rld: section layout overflow\n");
+            return false;
+        }
         s->vaddr = addr;
         addr += s->size;
 
         if (g_linker_opts.verbose) {
-            printf("    %s: 0x%x - 0x%x (%u bytes)\n",
+            printf("    %s: 0x%" PRIx64 " - 0x%" PRIx64
+                   " (%" PRIu64 " bytes)\n",
                    s->name, s->vaddr, s->vaddr + s->size, s->size);
         }
+    }
+
+    if (g_linker_opts.arch == ARCH_X86 && addr >= UINT64_C(0xC0000000)) {
+        fprintf(stderr, "rld: x86 image layout must remain below 3 GiB\n");
+        return false;
     }
 
     /* Update symbol values with final addresses */
@@ -576,7 +612,8 @@ bool linker_layout(Linker* ld, uint32_t base_addr) {
     if (entry) {
         ld->entry_addr = entry->value;
         if (g_linker_opts.verbose) {
-            printf("  Entry point: %s = 0x%x\n", entry_name, ld->entry_addr);
+            printf("  Entry point: %s = 0x%" PRIx64 "\n",
+                   entry_name, ld->entry_addr);
         }
     } else if (!g_linker_opts.shared) {
         fprintf(stderr, "rld: warning: entry point '%s' not found\n", entry_name);
@@ -621,35 +658,86 @@ bool linker_apply_relocations(Linker* ld) {
             return false;
         }
 
-        uint8_t* patch = sect->data + r->offset;
-        uint32_t target = sym->value + r->addend;
+        uint8_t* patch = sect->data + (size_t)r->offset;
+        uint64_t target;
+        if (r->addend >= 0) {
+            if ((uint64_t)r->addend > UINT64_MAX - sym->value) {
+                fprintf(stderr, "rld: relocation target overflow for '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            target = sym->value + (uint64_t)r->addend;
+        } else {
+            uint64_t magnitude = UINT64_C(0) - (uint64_t)r->addend;
+            if (magnitude > sym->value) {
+                fprintf(stderr, "rld: relocation target underflow for '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            target = sym->value - magnitude;
+        }
 
         switch (r->type) {
             case RELOC_ABS32: {
                 /* 32-bit absolute address */
-                *(uint32_t*)patch = target;
+                uint32_t value;
+                if (target > UINT32_MAX) {
+                    fprintf(stderr, "rld: ABS32 relocation overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                value = (uint32_t)target;
+                memcpy(patch, &value, sizeof(value));
                 break;
             }
             case RELOC_ABS64: {
-                *(uint64_t*)patch = (uint64_t)target;
+                memcpy(patch, &target, sizeof(target));
                 break;
             }
             case RELOC_REL32: {
                 /* 32-bit PC-relative (relative to next instruction) */
-                uint32_t pc = sect->vaddr + r->offset + 4;
-                *(int32_t*)patch = (int32_t)(target - pc);
+                uint64_t pc = sect->vaddr + r->offset + 4u;
+                int32_t delta;
+                if (target >= pc) {
+                    uint64_t distance = target - pc;
+                    if (distance > INT32_MAX) goto rel32_overflow;
+                    delta = (int32_t)distance;
+                } else {
+                    uint64_t distance = pc - target;
+                    if (distance > UINT64_C(2147483648)) goto rel32_overflow;
+                    delta = distance == UINT64_C(2147483648)
+                        ? INT32_MIN : -(int32_t)distance;
+                }
+                memcpy(patch, &delta, sizeof(delta));
                 break;
+rel32_overflow:
+                fprintf(stderr, "rld: REL32 relocation overflow for '%s'\n",
+                        r->symbol);
+                return false;
             }
             case RELOC_REL8: {
                 /* 8-bit PC-relative */
-                uint32_t pc = sect->vaddr + r->offset + 1;
-                int32_t delta = (int32_t)(target - pc);
-                if (delta < -128 || delta > 127) {
+                uint64_t pc = sect->vaddr + r->offset + 1u;
+                int64_t delta;
+                if (target >= pc) {
+                    uint64_t distance = target - pc;
+                    if (distance > INT8_MAX) goto rel8_overflow;
+                    delta = (int64_t)distance;
+                } else {
+                    uint64_t distance = pc - target;
+                    if (distance > UINT64_C(128)) goto rel8_overflow;
+                    delta = -(int64_t)distance;
+                }
+                {
+                    int8_t value = (int8_t)delta;
+                    memcpy(patch, &value, sizeof(value));
+                }
+                break;
+rel8_overflow:
+                {
                     fprintf(stderr, "rld: 8-bit relocation overflow for '%s'\n", r->symbol);
                     return false;
                 }
-                *(int8_t*)patch = (int8_t)delta;
-                break;
             }
             default:
                 fprintf(stderr, "rld: unsupported relocation type %d\n", r->type);
@@ -657,7 +745,7 @@ bool linker_apply_relocations(Linker* ld) {
         }
 
         if (g_linker_opts.verbose) {
-            printf("    %s+0x%x -> %s = 0x%x\n",
+            printf("    %s+0x%" PRIx64 " -> %s = 0x%" PRIx64 "\n",
                    sect->name, r->offset, r->symbol, target);
         }
     }

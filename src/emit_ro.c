@@ -124,33 +124,43 @@ ObjSection* objfile_get_section(ObjectFile* obj, const char* name) {
     return NULL;
 }
 
-static void section_ensure_capacity(ObjSection* sect, uint32_t need) {
-    if (sect->size + need <= sect->capacity) return;
+static void section_ensure_capacity(ObjSection* sect, uint64_t need) {
+    uint64_t required;
+    uint64_t new_cap;
+    if (need > UINT64_MAX - sect->size) rcc_fatal("object section size overflow");
+    required = sect->size + need;
+    if (required <= sect->capacity) return;
+    if (required > SIZE_MAX) rcc_fatal("object section exceeds host memory limit");
 
-    uint32_t new_cap = sect->capacity * 2;
-    while (new_cap < sect->size + need) {
-        new_cap *= 2;
+    new_cap = sect->capacity;
+    while (new_cap < required) {
+        if (new_cap > UINT64_MAX / 2u) {
+            new_cap = required;
+            break;
+        }
+        new_cap *= 2u;
     }
-    sect->data = rcc_realloc(sect->data, new_cap);
+    sect->data = rcc_realloc(sect->data, (size_t)new_cap);
     sect->capacity = new_cap;
 }
 
-uint32_t section_add_data(ObjSection* sect, const void* data, uint32_t size) {
+uint64_t section_add_data(ObjSection* sect, const void* data, uint64_t size) {
     section_ensure_capacity(sect, size);
-    uint32_t offset = sect->size;
-    memcpy(sect->data + sect->size, data, size);
+    uint64_t offset = sect->size;
+    memcpy(sect->data + (size_t)sect->size, data, (size_t)size);
     sect->size += size;
     return offset;
 }
 
-uint32_t section_add_byte(ObjSection* sect, uint8_t byte) {
+uint64_t section_add_byte(ObjSection* sect, uint8_t byte) {
     section_ensure_capacity(sect, 1);
-    uint32_t offset = sect->size;
-    sect->data[sect->size++] = byte;
+    uint64_t offset = sect->size;
+    sect->data[(size_t)sect->size] = byte;
+    ++sect->size;
     return offset;
 }
 
-uint32_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint32_t count) {
+uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t count) {
     return section_add_data(sect, bytes, count);
 }
 
@@ -168,7 +178,8 @@ void section_align(ObjSection* sect, uint32_t align) {
  * ═══════════════════════════════════════ */
 
 ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type,
-                              SymbolBinding binding, int section, uint32_t value, uint32_t size) {
+                              SymbolBinding binding, int section, uint64_t value,
+                              uint64_t size) {
     ObjSymbol* sym = rcc_alloc(sizeof(ObjSymbol));
     sym->name = rcc_strdup(name);
     sym->value = value;
@@ -204,8 +215,8 @@ ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name) {
  * Relocation Operations
  * ═══════════════════════════════════════ */
 
-void objfile_add_reloc(ObjectFile* obj, int section_idx, uint32_t offset,
-                       const char* symbol, RelocType type, int32_t addend) {
+void objfile_add_reloc(ObjectFile* obj, int section_idx, uint64_t offset,
+                       const char* symbol, RelocType type, int64_t addend) {
     /* Find section */
     int idx = 0;
     ObjSection* sect = obj->sections;
@@ -501,7 +512,7 @@ ObjectFile* objfile_read(const char* filename) {
                     (size_t)hdr.strtab_size - sh->name) ||
             sh->type > SECT_BSS || sh->align == 0u ||
             (sh->align & (sh->align - 1u)) != 0u ||
-            sh->size > UINT32_MAX || sh->memory_size < sh->size ||
+            sh->size > SIZE_MAX || sh->memory_size < sh->size ||
             !ro_range(sh->offset, sh->size, actual_size) ||
             (sh->reloc_count != 0u &&
              !ro_range(sh->reloc_off,
@@ -515,12 +526,12 @@ ObjectFile* objfile_read(const char* filename) {
         sect_ptrs[i] = sect;
 
         if (sh->size > 0) {
-            section_ensure_capacity(sect, (uint32_t)sh->size);
+            section_ensure_capacity(sect, sh->size);
             if (!ro_seek(f, sh->offset, SEEK_SET) ||
                 fread(sect->data, (size_t)sh->size, 1, f) != 1) {
                 goto read_failed;
             }
-            sect->size = (uint32_t)sh->size;
+            sect->size = sh->size;
         }
     }
 
@@ -528,21 +539,32 @@ ObjectFile* objfile_read(const char* filename) {
     if (!ro_seek(f, hdr.symbol_off, SEEK_SET)) goto read_failed;
     for (uint32_t i = 0; i < hdr.symbol_count; i++) {
         RoSymbol rs;
-        if (fread(&rs, sizeof(rs), 1, f) != 1 ||
-            rs.name >= hdr.strtab_size ||
+        if (fread(&rs, sizeof(rs), 1, f) != 1) goto read_failed;
+        if (rs.name >= hdr.strtab_size ||
             !memchr(obj->strtab + rs.name, '\0',
                     (size_t)hdr.strtab_size - rs.name) ||
             rs.type > SYM_WEAK || rs.binding > BIND_ABS ||
-            rs.section > hdr.section_count || rs.value > UINT32_MAX ||
-            rs.size > UINT32_MAX || rs.flags != 0u || rs.reserved != 0u) {
+            rs.section > hdr.section_count || rs.flags != 0u ||
+            rs.reserved != 0u) {
             goto read_failed;
+        }
+        if (rs.section == 0u) {
+            if (rs.type != SYM_UNDEF && rs.binding != BIND_ABS) {
+                goto read_failed;
+            }
+        } else {
+            RoSection* owner = &sections[rs.section - 1u];
+            if (rs.type == SYM_UNDEF || rs.binding == BIND_ABS ||
+                rs.value > owner->memory_size ||
+                rs.size > owner->memory_size - rs.value) {
+                goto read_failed;
+            }
         }
 
         const char* name = obj->strtab + rs.name;
         sym_ptrs[i] = objfile_add_symbol(obj, name, rs.type, rs.binding,
                                          (int)rs.section - 1,
-                                         (uint32_t)rs.value,
-                                         (uint32_t)rs.size);
+                                         rs.value, rs.size);
     }
 
     for (uint32_t i = 0; i < hdr.section_count; i++) {
@@ -552,11 +574,15 @@ ObjectFile* objfile_read(const char* filename) {
         if (!ro_seek(f, sh->reloc_off, SEEK_SET)) goto read_failed;
         for (uint32_t j = 0; j < sh->reloc_count; j++) {
             RoReloc rr;
+            uint64_t width;
             if (fread(&rr, sizeof(rr), 1, f) != 1 ||
-                rr.offset > UINT32_MAX || rr.symbol >= hdr.symbol_count ||
+                rr.symbol >= hdr.symbol_count ||
                 rr.type > RELOC_PLT32 || rr.flags != 0u ||
-                rr.addend < INT32_MIN || rr.addend > INT32_MAX ||
                 rr.reserved != 0u) goto read_failed;
+            width = rr.type == RELOC_ABS64 ? 8u :
+                    rr.type == RELOC_REL8 ? 1u : 4u;
+            if (rr.offset > sh->memory_size ||
+                width > sh->memory_size - rr.offset) goto read_failed;
 
             const char* sym_name = NULL;
             if (rr.symbol < hdr.symbol_count && sym_ptrs[rr.symbol]) {
@@ -564,8 +590,8 @@ ObjectFile* objfile_read(const char* filename) {
             }
 
             if (sym_name) {
-                objfile_add_reloc(obj, (int)i, (uint32_t)rr.offset,
-                                  sym_name, rr.type, (int32_t)rr.addend);
+                objfile_add_reloc(obj, (int)i, rr.offset,
+                                  sym_name, rr.type, rr.addend);
             }
         }
     }

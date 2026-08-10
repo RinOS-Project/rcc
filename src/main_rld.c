@@ -6,7 +6,9 @@
 #include "rcc.h"
 #include "linker.h"
 #include "build_manifest.h"
+#include <errno.h>
 #include <getopt.h>
+#include <inttypes.h>
 #include <string.h>
 
 static void print_usage(void) {
@@ -70,9 +72,18 @@ static int parse_args(int argc, char** argv) {
                 g_linker_opts.entry = optarg;
                 g_linker_opts.entry_explicit = true;
                 break;
-            case 'T':
-                g_linker_opts.base_addr = strtoul(optarg, NULL, 0);
+            case 'T': {
+                char* end = NULL;
+                unsigned long long value;
+                errno = 0;
+                value = strtoull(optarg, &end, 0);
+                if (errno == ERANGE || end == optarg || !end || *end != '\0') {
+                    fprintf(stderr, "rld: invalid base address: %s\n", optarg);
+                    return -1;
+                }
+                g_linker_opts.base_addr = (uint64_t)value;
                 break;
+            }
             case 'm':
                 if (strcmp(optarg, "32") == 0) {
                     if (g_linker_opts.arch_explicit && g_linker_opts.arch != ARCH_X86) {
@@ -248,7 +259,7 @@ int main(int argc, char** argv) {
         printf("Target: %s\n",
                g_linker_opts.arch_explicit ? rcc_target_triple(g_linker_opts.arch)
                                            : "auto (from .ro v2)");
-        printf("Base:   0x%x\n", g_linker_opts.base_addr);
+        printf("Base:   0x%" PRIx64 "\n", g_linker_opts.base_addr);
         printf("Entry:  %s\n", g_linker_opts.entry);
         printf("Input:  %d files\n", g_linker_opts.input_count);
     }

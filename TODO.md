@@ -7,7 +7,9 @@
 
 - [x] `i686-unknown-rinos` / `x86_64-unknown-rinos`
 - [x] `.ro v2` 64-bit section/symbol/relocation
+  - [x] host ObjectFileとrld layout/relocationの64-bit化
 - [x] `.ra v2` archive
+  - [x] host Archive member sizeの64-bit化
 - [x] canonical RIN v3 / NDRV v3 header生成
 - [x] typed importとdependency metadata
 - [x] external `rinsign`必須の最終link

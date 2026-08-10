@@ -44,7 +44,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-static-assert test-manifest test-driver-policy test-weak-link
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-static-assert test-manifest test-driver-policy test-weak-link test-object-width
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -171,6 +171,23 @@ test-weak-link:
 		$(SRCDIR)/utils.c
 	$(TEST_OUT)/weak_link_test $(TEST_OUT)/weak.ro $(TEST_OUT)/strong.ro
 	@echo "Weak-to-strong linker replacement test completed"
+
+test-object-width: $(RCC_TARGET) $(RLD_TARGET)
+	mkdir -p $(TEST_OUT)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/object_width_test \
+		tests/object_width_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/object_width_test $(TEST_OUT)/wide.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/wide_main.ro tests/main.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/wide_lib.ro tests/lib.c
+	$(RLD_TARGET) -m64 -T 0x100000000 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/wide_base.rin $(TEST_OUT)/wide_main.ro \
+		$(TEST_OUT)/wide_lib.ro
+	! $(RLD_TARGET) -T invalid-address --emit-unsigned-v3 \
+		-o $(TEST_OUT)/invalid_base.rin $(TEST_OUT)/wide_main.ro
+	@echo "64-bit object/linker width tests completed"
 
 # Dependencies
 $(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h

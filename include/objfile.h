@@ -134,8 +134,8 @@ _Static_assert(sizeof(RoReloc) == 32, "RoReloc v2 ABI drift");
 /* Symbol table entry (in-memory) */
 typedef struct ObjSymbol {
     const char* name;
-    uint32_t value;
-    uint32_t size;
+    uint64_t value;
+    uint64_t size;
     SymbolType type;
     SymbolBinding binding;
     int section;            /* -1 for undefined */
@@ -144,11 +144,11 @@ typedef struct ObjSymbol {
 
 /* Relocation entry (in-memory) */
 typedef struct ObjReloc {
-    uint32_t offset;
+    uint64_t offset;
     const char* symbol_name;
     int symbol_idx;
     RelocType type;
-    int32_t addend;
+    int64_t addend;
     int section;            /* Which section this reloc is in */
     struct ObjReloc* next;
 } ObjReloc;
@@ -159,8 +159,8 @@ typedef struct ObjSection {
     SectionType type;
     uint32_t flags;
     uint8_t* data;
-    uint32_t size;
-    uint32_t capacity;
+    uint64_t size;
+    uint64_t capacity;
     uint32_t align;
     ObjReloc* relocs;
     struct ObjSection* next;
@@ -196,19 +196,20 @@ void objfile_free(ObjectFile* obj);
 /* Section operations */
 ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType type, uint32_t flags);
 ObjSection* objfile_get_section(ObjectFile* obj, const char* name);
-uint32_t section_add_data(ObjSection* sect, const void* data, uint32_t size);
-uint32_t section_add_byte(ObjSection* sect, uint8_t byte);
-uint32_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint32_t count);
+uint64_t section_add_data(ObjSection* sect, const void* data, uint64_t size);
+uint64_t section_add_byte(ObjSection* sect, uint8_t byte);
+uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t count);
 void section_align(ObjSection* sect, uint32_t align);
 
 /* Symbol operations */
 ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type,
-                              SymbolBinding binding, int section, uint32_t value, uint32_t size);
+                              SymbolBinding binding, int section, uint64_t value,
+                              uint64_t size);
 ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name);
 
 /* Relocation operations */
-void objfile_add_reloc(ObjectFile* obj, int section, uint32_t offset,
-                       const char* symbol, RelocType type, int32_t addend);
+void objfile_add_reloc(ObjectFile* obj, int section, uint64_t offset,
+                       const char* symbol, RelocType type, int64_t addend);
 
 /* String table */
 uint32_t objfile_add_string(ObjectFile* obj, const char* str);

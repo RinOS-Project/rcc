@@ -38,3 +38,4 @@ jobs:
           make test-manifest
           make test-driver-policy
           make test-weak-link
+          make test-object-width

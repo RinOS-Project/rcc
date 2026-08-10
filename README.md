@@ -73,12 +73,15 @@ make test-archive
 make test-manifest
 make test-driver-policy
 make test-weak-link
+make test-object-width
 ```
 
 `test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
 FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
+`test-object-width`は4 GiB超の`.ro v2` symbol/addendとAMD64配置を保持し、
+ABS32 overflowおよびx86の3 GiB境界を拒否することを確認します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。
