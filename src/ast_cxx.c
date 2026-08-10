@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <string.h>
 
+/* C++ semantic objects share the translation-unit arena with the C AST. */
+#define rcc_alloc ast_arena_alloc
+#define rcc_strdup ast_arena_strdup
+
 /* Global namespace */
 CxxNamespace* g_global_namespace = NULL;
 
@@ -186,8 +190,9 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
 }
 
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual) {
-    cls->bases = rcc_realloc(cls->bases,
-        sizeof(cls->bases[0]) * (cls->base_count + 1));
+    cls->bases = ast_arena_grow(
+        cls->bases, sizeof(cls->bases[0]) * (size_t)cls->base_count,
+        sizeof(cls->bases[0]) * (size_t)(cls->base_count + 1));
     cls->bases[cls->base_count].base = base;
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = is_virtual;
@@ -429,8 +434,9 @@ CxxClass* cxx_class_new(const char* name, SourceLoc loc) {
 
 /* Add base class by name (deferred resolution) */
 void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access) {
-    cls->bases = rcc_realloc(cls->bases,
-        sizeof(cls->bases[0]) * (cls->base_count + 1));
+    cls->bases = ast_arena_grow(
+        cls->bases, sizeof(cls->bases[0]) * (size_t)cls->base_count,
+        sizeof(cls->bases[0]) * (size_t)(cls->base_count + 1));
     cls->bases[cls->base_count].base = NULL;  /* Will be resolved later */
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = false;
@@ -521,8 +527,9 @@ CxxNamespace* cxx_namespace_new(const char* name, SourceLoc loc) {
 /* Add class to namespace */
 void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
     cls->ns = ns;
-    ns->classes = rcc_realloc(ns->classes,
-        sizeof(CxxClass*) * (ns->class_count + 1));
+    ns->classes = ast_arena_grow(
+        ns->classes, sizeof(CxxClass*) * (size_t)ns->class_count,
+        sizeof(CxxClass*) * (size_t)(ns->class_count + 1));
     ns->classes[ns->class_count++] = cls;
 }
 
@@ -541,8 +548,9 @@ CxxTemplate* cxx_template_new(SourceLoc loc) {
 
 /* Add type parameter to template */
 void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
-    tmpl->params = rcc_realloc(tmpl->params,
-        sizeof(TemplateParam) * (tmpl->param_count + 1));
+    tmpl->params = ast_arena_grow(
+        tmpl->params, sizeof(TemplateParam) * (size_t)tmpl->param_count,
+        sizeof(TemplateParam) * (size_t)(tmpl->param_count + 1));
     tmpl->params[tmpl->param_count].kind = TPARAM_TYPE;
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = NULL;
@@ -552,8 +560,9 @@ void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
 
 /* Add value parameter to template */
 void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* type) {
-    tmpl->params = rcc_realloc(tmpl->params,
-        sizeof(TemplateParam) * (tmpl->param_count + 1));
+    tmpl->params = ast_arena_grow(
+        tmpl->params, sizeof(TemplateParam) * (size_t)tmpl->param_count,
+        sizeof(TemplateParam) * (size_t)(tmpl->param_count + 1));
     tmpl->params[tmpl->param_count].kind = TPARAM_NONTYPE;
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = type;

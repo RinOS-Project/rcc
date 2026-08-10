@@ -6,6 +6,85 @@
 #include "rcc.h"
 #include "ast.h"
 
+#define AST_ARENA_BLOCK_SIZE (64u * 1024u)
+
+typedef struct AstArenaBlock {
+    struct AstArenaBlock* next;
+    size_t used;
+    size_t capacity;
+    max_align_t alignment;
+    unsigned char data[];
+} AstArenaBlock;
+
+static AstArenaBlock* ast_arena_blocks;
+static bool ast_arena_exit_registered;
+
+static void ast_arena_reset(void) {
+    AstArenaBlock* block = ast_arena_blocks;
+    while (block) {
+        AstArenaBlock* next = block->next;
+        rcc_free(block);
+        block = next;
+    }
+    ast_arena_blocks = NULL;
+}
+
+static void ast_arena_reset_at_exit(void) {
+    ast_arena_reset();
+}
+
+void* ast_arena_alloc(size_t size) {
+    const size_t alignment = _Alignof(max_align_t);
+    AstArenaBlock* block = ast_arena_blocks;
+    size_t aligned_used;
+    size_t capacity;
+    if (size == 0u) size = 1u;
+    if (size > SIZE_MAX - alignment) rcc_fatal("AST allocation is too large");
+    aligned_used = block ? (block->used + alignment - 1u) & ~(alignment - 1u)
+                         : 0u;
+    if (!block || aligned_used > block->capacity ||
+        size > block->capacity - aligned_used) {
+        capacity = size > AST_ARENA_BLOCK_SIZE ? size : AST_ARENA_BLOCK_SIZE;
+        if (capacity > SIZE_MAX - sizeof(*block)) {
+            rcc_fatal("AST arena block is too large");
+        }
+        block = rcc_alloc(sizeof(*block) + capacity);
+        block->next = ast_arena_blocks;
+        block->capacity = capacity;
+        ast_arena_blocks = block;
+        aligned_used = 0u;
+        if (!ast_arena_exit_registered) {
+            if (atexit(ast_arena_reset_at_exit) != 0) {
+                rcc_fatal("cannot register AST arena cleanup");
+            }
+            ast_arena_exit_registered = true;
+        }
+    }
+    block->used = aligned_used + size;
+    return block->data + aligned_used;
+}
+
+void* ast_arena_grow(void* pointer, size_t old_size, size_t new_size) {
+    void* replacement = ast_arena_alloc(new_size);
+    if (pointer && old_size != 0u) {
+        memcpy(replacement, pointer, old_size < new_size ? old_size : new_size);
+    }
+    return replacement;
+}
+
+char* ast_arena_strdup(const char* text) {
+    size_t length;
+    char* copy;
+    if (!text) return NULL;
+    length = strlen(text) + 1u;
+    copy = ast_arena_alloc(length);
+    memcpy(copy, text, length);
+    return copy;
+}
+
+/* Every allocation below belongs to the current translation unit. */
+#define rcc_alloc ast_arena_alloc
+
 /* ═══════════════════════════════════════
  * Built-in Types
  * ═══════════════════════════════════════ */

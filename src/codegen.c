@@ -59,7 +59,27 @@ Module* codegen_new(void) {
 }
 
 void codegen_free(Module* mod) {
+    Reloc* relocation;
+    StringLit* string_literal;
     if (!mod) return;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        rcc_free((void*)mod->symbols[index].name);
+    }
+    for (int index = 0; index < mod->reloc_count; ++index) {
+        rcc_free((void*)mod->relocs_arr[index].symbol_name);
+    }
+    relocation = mod->relocs;
+    while (relocation) {
+        Reloc* next = relocation->next;
+        rcc_free(relocation);
+        relocation = next;
+    }
+    string_literal = mod->strings;
+    while (string_literal) {
+        StringLit* next = string_literal->next;
+        rcc_free(string_literal);
+        string_literal = next;
+    }
     rcc_free(mod->code.data);
     rcc_free(mod->rodata.data);
     rcc_free(mod->data.data);

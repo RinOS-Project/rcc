@@ -813,6 +813,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     for (int i = 0; i < mod->symbol_count; i++) {
         ModuleSymbol* ms = &mod->symbols[i];
         const char* object_name = ms->name;
+        char* scoped_name = NULL;
         bool referenced = ms->is_defined;
         if (!referenced) {
             for (int relocation_index = 0;
@@ -852,11 +853,13 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         }
 
         if (ms->is_defined && !ms->is_global) {
-            object_name = module_scoped_symbol(filename, ms->name);
+            scoped_name = module_scoped_symbol(filename, ms->name);
+            object_name = scoped_name;
         }
 
         objfile_add_symbol(obj, object_name, type, binding, section,
                            ms->offset, 0);
+        rcc_free(scoped_name);
     }
 
     /* Add relocations */
@@ -891,12 +894,14 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
 
         /* Use symbol name directly if available */
         const char* sym_name = mr->symbol_name;
+        char* scoped_name = NULL;
         const ModuleSymbol* module_symbol = sym_name
             ? module_find_symbol(mod, sym_name) : NULL;
 
         if (module_symbol && module_symbol->is_defined &&
             !module_symbol->is_global) {
-            sym_name = module_scoped_symbol(filename, sym_name);
+            scoped_name = module_scoped_symbol(filename, sym_name);
+            sym_name = scoped_name;
         }
 
         /* If no symbol name, try to find by offset */
@@ -914,6 +919,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
             objfile_add_reloc(obj, source_section, mr->offset, sym_name, type,
                               (int64_t)mr->target);
         }
+        rcc_free(scoped_name);
     }
 
     return obj;

@@ -104,6 +104,12 @@ extern Type* type_double;
  * before lexing/parsing a translation unit. */
 void type_configure_target(TargetArch architecture);
 
+/* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
+ * process exit by the single-shot host compiler. */
+void* ast_arena_alloc(size_t size);
+void* ast_arena_grow(void* pointer, size_t old_size, size_t new_size);
+char* ast_arena_strdup(const char* text);
+
 /* Type constructors */
 Type* type_ptr(Type* base);
 Type* type_array(Type* base, int len);

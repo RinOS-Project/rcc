@@ -47,7 +47,7 @@ static Type* parser_lookup_type(const char* name) {
 }
 
 static void parser_define_type(const char* name, Type* type) {
-    ParserTypeName* entry = rcc_alloc(sizeof(*entry));
+    ParserTypeName* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->type = type;
     entry->next = parser_type_names;
@@ -66,7 +66,7 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
     Type* type = kind == TYPE_STRUCT ? type_struct(name) :
                  kind == TYPE_UNION ? type_union(name) : type_enum(name);
     if (name) {
-        entry = rcc_alloc(sizeof(*entry));
+        entry = ast_arena_alloc(sizeof(*entry));
         entry->name = name;
         entry->kind = kind;
         entry->type = type;
@@ -77,7 +77,7 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
 }
 
 static void parser_define_enum_constant(const char* name, int64_t value) {
-    ParserEnumConstant* entry = rcc_alloc(sizeof(*entry));
+    ParserEnumConstant* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->value = value;
     entry->next = parser_enum_constants;
@@ -942,7 +942,7 @@ static void parse_enum_body(void) {
 }
 
 static void parser_append_field(Type* aggregate, const char* name, Type* type) {
-    TypeField* field = rcc_alloc(sizeof(*field));
+    TypeField* field = ast_arena_alloc(sizeof(*field));
     TypeField** tail = &aggregate->fields;
     int alignment = type && type->align > 0 ? type->align : 1;
     int size = type && type->size > 0 ? type->size : 0;
@@ -1060,7 +1060,7 @@ static Type* parse_type_spec(void) {
 
     if (is_const && t) {
         /* Make a copy with const flag */
-        Type* ct = rcc_alloc(sizeof(Type));
+        Type* ct = ast_arena_alloc(sizeof(Type));
         *ct = *t;
         ct->is_const = true;
         t = ct;
@@ -1075,7 +1075,7 @@ static TypeParam* parser_type_params(DeclList* parameters, bool* variadic) {
     DeclList* item;
     (void)variadic;
     for (item = parameters; item; item = item->next) {
-        TypeParam* param = rcc_alloc(sizeof(*param));
+        TypeParam* param = ast_arena_alloc(sizeof(*param));
         param->name = item->decl->name;
         param->type = item->decl->type;
         *tail = param;

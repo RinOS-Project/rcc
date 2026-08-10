@@ -896,6 +896,7 @@ static void sema_decl(Decl* decl) {
  * ═══════════════════════════════════════ */
 
 bool rcc_sema(AST* ast) {
+    bool valid;
     /* Create symbol table */
     g_symtab = symtab_new();
 
@@ -904,5 +905,8 @@ bool rcc_sema(AST* ast) {
         sema_decl(d->decl);
     }
 
-    return g_error_count == 0;
+    valid = g_error_count == 0;
+    symtab_free(g_symtab);
+    g_symtab = NULL;
+    return valid;
 }

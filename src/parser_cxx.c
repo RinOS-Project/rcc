@@ -463,7 +463,7 @@ static Type* parse_cxx_type_spec(void) {
     }
 
     if (is_const && t) {
-        Type* ct = rcc_alloc(sizeof(Type));
+        Type* ct = ast_arena_alloc(sizeof(Type));
         *ct = *t;
         ct->is_const = true;
         t = ct;

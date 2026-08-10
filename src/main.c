@@ -426,6 +426,7 @@ int main(int argc, char** argv) {
     char* pp_source = pp_process_file(pp, g_opts.input_file);
     if (!pp_source || g_error_count > 0) {
         fprintf(stderr, "rcc: %d error(s) in preprocessing\n", g_error_count);
+        rcc_free(pp_source);
         pp_free(pp);
         return 1;
     }
@@ -462,6 +463,9 @@ int main(int argc, char** argv) {
     TokenList* tokens = rcc_lex_string(pp_source, g_opts.input_file);
     if (g_error_count > 0) {
         fprintf(stderr, "rcc: %d error(s) in lexical analysis\n", g_error_count);
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -490,6 +494,8 @@ int main(int argc, char** argv) {
     if (g_error_count > 0) {
         fprintf(stderr, "rcc: %d error(s) in parsing\n", g_error_count);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -520,12 +526,16 @@ int main(int argc, char** argv) {
     if (!rcc_sema(ast)) {
         fprintf(stderr, "rcc: %d error(s) in semantic analysis\n", g_error_count);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
     if (g_opts.output_format == OUTPUT_DRV &&
         !rcc_validate_driver_policy(ast)) {
         fprintf(stderr, "rcc: driver policy validation failed\n");
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
     if (g_opts.opt_level > 0) {
@@ -549,6 +559,8 @@ int main(int argc, char** argv) {
                 g_error_count);
         if (mod) codegen_free(mod);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -572,6 +584,10 @@ int main(int argc, char** argv) {
         if (!rcc_create_signing_temp(g_opts.output_file, "rcc-unsigned",
                                      unsigned_path, sizeof(unsigned_path))) {
             perror("rcc: cannot create unsigned staging file");
+            codegen_free(mod);
+            tokenlist_free(tokens);
+            rcc_free(pp_source);
+            pp_free(pp);
             return 1;
         }
         emit_path = unsigned_path;
@@ -605,6 +621,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "rcc: failed to write output\n");
         codegen_free(mod);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 

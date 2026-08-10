@@ -12,6 +12,7 @@ OBJDIR = obj
 BINDIR = .
 TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
+SANITIZER_ROOT = build/sanitizers
 
 # Common source files (shared between rcc and rcc++)
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
@@ -46,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -247,6 +248,27 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		\( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' \
 		-o -name '*.rcc-signed-*' \) -print -quit)"
 	@echo "Isolated final signing and atomic publication tests completed"
+
+test-sanitize:
+	$(MAKE) OBJDIR=$(SANITIZER_ROOT)/obj BINDIR=$(SANITIZER_ROOT)/bin \
+		TEST_OUT=$(SANITIZER_ROOT)/tests \
+		CFLAGS="$(CFLAGS) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
+		LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" \
+		all test-manifest test-signing
+	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/class.ro tests/class_test.cpp
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/direct-x86.ro tests/direct_relocation.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -O1 -c \
+		-o $(SANITIZER_ROOT)/tests/direct-x64.ro tests/direct_relocation.c
+	$(SANITIZER_ROOT)/bin/rcc -E -Itests/include \
+		-DRCC_CXX_CLI_VALUE=23 tests/preproc_v2.c > /dev/null
+	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/invalid.ro \
+		tests/invalid_designated_initializer.c
+	! $(SANITIZER_ROOT)/bin/rcc++ -driver --emit-unsigned-v3 \
+		-o $(SANITIZER_ROOT)/tests/invalid.drv tests/driver_policy_float.cpp
+	@echo "ASan/UBSan and translation-unit lifetime tests completed"
 
 test-driver-policy: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)

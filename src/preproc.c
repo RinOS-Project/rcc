@@ -82,11 +82,29 @@ Preprocessor* pp_new(void) {
     return pp;
 }
 
+static void macro_release_storage(Macro* macro, bool release_name) {
+    int parameter_count;
+    if (!macro) return;
+    parameter_count = macro->param_count > 0 ? macro->param_count : 0;
+    if (release_name) rcc_free((void*)macro->name);
+    rcc_free((void*)macro->value);
+    for (int index = 0; index < parameter_count; ++index) {
+        rcc_free((void*)macro->params[index]);
+    }
+    rcc_free(macro->params);
+    rcc_free((void*)macro->body);
+    macro->value = NULL;
+    macro->params = NULL;
+    macro->body = NULL;
+}
+
 void pp_free(Preprocessor* pp) {
+    if (!pp) return;
     /* Free macros */
     Macro* m = pp->macros;
     while (m) {
         Macro* next = m->next;
+        macro_release_storage(m, true);
         rcc_free(m);
         m = next;
     }
@@ -117,15 +135,15 @@ void pp_define(Preprocessor* pp, const char* name, const char* value) {
     Macro* existing = pp_get_macro(pp, name);
     if (existing) {
         /* Redefine */
-        existing->value = value ? rcc_strdup(value) : "";
+        macro_release_storage(existing, false);
+        existing->value = rcc_strdup(value ? value : "");
         existing->param_count = -1;
-        existing->body = NULL;
         return;
     }
 
     Macro* m = rcc_alloc(sizeof(Macro));
     m->name = rcc_strdup(name);
-    m->value = value ? rcc_strdup(value) : "";
+    m->value = rcc_strdup(value ? value : "");
     m->params = NULL;
     m->param_count = -1;  /* Object-like macro */
     m->body = NULL;
@@ -136,18 +154,24 @@ void pp_define(Preprocessor* pp, const char* name, const char* value) {
 
 void pp_define_func(Preprocessor* pp, const char* name, const char** params,
                     int param_count, const char* body) {
-    Macro* m = rcc_alloc(sizeof(Macro));
-    m->name = rcc_strdup(name);
+    Macro* m = pp_get_macro(pp, name);
+    if (m) {
+        macro_release_storage(m, false);
+    } else {
+        m = rcc_alloc(sizeof(Macro));
+        m->name = rcc_strdup(name);
+        m->next = pp->macros;
+        pp->macros = m;
+    }
     m->value = NULL;
-    m->params = rcc_alloc(sizeof(const char*) * param_count);
+    m->params = param_count > 0
+        ? rcc_alloc(sizeof(const char*) * (size_t)param_count) : NULL;
     for (int i = 0; i < param_count; i++) {
         m->params[i] = rcc_strdup(params[i]);
     }
     m->param_count = param_count;
     m->body = rcc_strdup(body);
     m->is_builtin = false;
-    m->next = pp->macros;
-    pp->macros = m;
 }
 
 void pp_undef(Preprocessor* pp, const char* name) {
@@ -156,6 +180,7 @@ void pp_undef(Preprocessor* pp, const char* name) {
         if (strcmp((*mp)->name, name) == 0) {
             Macro* m = *mp;
             *mp = m->next;
+            macro_release_storage(m, true);
             rcc_free(m);
             return;
         }

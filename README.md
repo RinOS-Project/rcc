@@ -79,6 +79,7 @@ make test-archive
 make test-archive-link
 make test-manifest
 make test-signing
+make test-sanitize
 make test-driver-policy
 make test-weak-link
 make test-comdat-link
@@ -96,6 +97,8 @@ FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
 `test-signing`は`rcc/rcc++/rld`の最終出力でdebug/release profile、空白やshell
 metacharacterを含むsigner/output path、署名失敗時の既存成果物保持、不正signer出力の拒否、
 同一出力への並行実行、およびstaging fileの確実な後始末を確認します。
+`test-sanitize`はASan/UBSanとLeakSanitizerを有効にした別buildで、両archの大きな
+translation unit、C++ class、preprocessor、成功・診断・署名失敗経路を検査します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、
