@@ -26,6 +26,16 @@ static uint64_t required_bytes(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
+static ObjSection* required_section(ObjectFile* object, SectionType type)
+{
+    for (ObjSection* section = object->sections; section;
+         section = section->next) {
+        if (section->type == type) return section;
+    }
+    assert(!"required object section was not found");
+    return NULL;
+}
+
 static void verify_artifact(const char* object_path, const char* image_path,
                             uint16_t expected_architecture,
                             uint32_t expected_magic)
@@ -262,9 +272,114 @@ static void verify_artifact(const char* object_path, const char* image_path,
     objfile_free(object);
 }
 
+static void verify_external_data_relocation(const char* reference_path,
+                                            const char* definition_path,
+                                            const char* image_path,
+                                            uint16_t expected_architecture)
+{
+    ObjectFile* reference = objfile_read(reference_path);
+    ObjectFile* definition = objfile_read(definition_path);
+    ObjSymbol* pointer;
+    ObjSymbol* undefined_data;
+    ObjSymbol* defined_data;
+    ObjSection* reference_data;
+    ObjSection* definition_data;
+    RinHeaderV3 header;
+    RinSectionV3* sections;
+    RinSectionV3* data = NULL;
+    RinSectionV3* relocation_section = NULL;
+    RinRelocationV3* relocations;
+    FILE* image;
+    uint64_t definition_offset;
+    uint64_t expected_value;
+    uint64_t actual_value = 0u;
+    size_t width = expected_architecture == RIN_ARCH_X86_64 ? 8u : 4u;
+    RelocType object_type = expected_architecture == RIN_ARCH_X86_64
+        ? RELOC_ABS64 : RELOC_ABS32U;
+    uint16_t image_type = expected_architecture == RIN_ARCH_X86_64
+        ? RIN_IMAGE_RELOCATION_ABS64 : RIN_IMAGE_RELOCATION_ABS32U;
+    int saw_object_relocation = 0;
+    int saw_image_relocation = 0;
+
+    assert(reference != NULL && definition != NULL);
+    pointer = required_symbol(reference, "external_pointer");
+    undefined_data = objfile_find_symbol(reference, "external_data");
+    defined_data = required_symbol(definition, "external_data");
+    assert(undefined_data != NULL && undefined_data->section < 0);
+    reference_data = required_section(reference, SECT_DATA);
+    definition_data = required_section(definition, SECT_DATA);
+    for (ObjReloc* relocation = reference_data->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset == pointer->value &&
+            strcmp(relocation->symbol_name, "external_data") == 0) {
+            assert(relocation->type == object_type);
+            assert(relocation->addend == 0);
+            saw_object_relocation = 1;
+        }
+    }
+    assert(saw_object_relocation);
+
+    image = fopen(image_path, "rb");
+    assert(image != NULL);
+    assert(fread(&header, sizeof(header), 1u, image) == 1u);
+    assert(header.magic == RIN_IMAGE_MAGIC);
+    assert(header.version == RIN_IMAGE_VERSION_3);
+    assert(header.architecture == expected_architecture);
+    sections = calloc(header.section_count, sizeof(*sections));
+    assert(sections != NULL);
+    assert(fseek(image, (long)header.section_table_offset, SEEK_SET) == 0);
+    assert(fread(sections, sizeof(*sections), header.section_count, image) ==
+           header.section_count);
+    for (uint32_t index = 0u; index < header.section_count; ++index) {
+        if (sections[index].type == RIN_IMAGE_SECTION_DATA) data = &sections[index];
+        if (sections[index].type == RIN_IMAGE_SECTION_RELOCATIONS) {
+            relocation_section = &sections[index];
+        }
+    }
+    assert(data != NULL && relocation_section != NULL);
+    assert(pointer->value + width <= data->file_size);
+    relocations = calloc(
+        (size_t)(relocation_section->file_size / sizeof(*relocations)),
+        sizeof(*relocations));
+    assert(relocations != NULL);
+    assert(fseek(image, (long)relocation_section->file_offset, SEEK_SET) == 0);
+    assert(fread(relocations, sizeof(*relocations),
+                 (size_t)(relocation_section->file_size /
+                          sizeof(*relocations)), image) ==
+           (size_t)(relocation_section->file_size / sizeof(*relocations)));
+    for (size_t index = 0u;
+         index < relocation_section->file_size / sizeof(*relocations);
+         ++index) {
+        if (relocations[index].virtual_address ==
+            data->virtual_address + pointer->value) {
+            assert(relocations[index].type == image_type);
+            saw_image_relocation = 1;
+        }
+    }
+    assert(saw_image_relocation);
+    assert(fseek(image, (long)(data->file_offset + pointer->value),
+                 SEEK_SET) == 0);
+    assert(fread(&actual_value, width, 1u, image) == 1u);
+
+    definition_offset = reference_data->memory_size;
+    if (definition_data->align > 1u) {
+        uint64_t mask = definition_data->align - 1u;
+        definition_offset = (definition_offset + mask) & ~mask;
+    }
+    expected_value = header.preferred_base + data->virtual_address +
+                     definition_offset + defined_data->value;
+    assert(actual_value == expected_value);
+
+    free(relocations);
+    free(sections);
+    assert(fclose(image) == 0);
+    objfile_free(reference);
+    objfile_free(definition);
+}
+
 int main(int argc, char** argv)
 {
-    assert(argc == 13);
+    assert(argc == 19);
     verify_artifact(argv[1], argv[2], RIN_ARCH_X86, RIN_IMAGE_MAGIC);
     verify_artifact(argv[3], argv[4], RIN_ARCH_X86_64, RIN_IMAGE_MAGIC);
     verify_artifact(argv[5], argv[6], RIN_ARCH_X86,
@@ -273,5 +388,9 @@ int main(int argc, char** argv)
                     RIN_DRIVER_IMAGE_MAGIC);
     verify_artifact(argv[9], argv[10], RIN_ARCH_X86, RIN_IMAGE_MAGIC);
     verify_artifact(argv[11], argv[12], RIN_ARCH_X86_64, RIN_IMAGE_MAGIC);
+    verify_external_data_relocation(argv[13], argv[14], argv[15],
+                                    RIN_ARCH_X86);
+    verify_external_data_relocation(argv[16], argv[17], argv[18],
+                                    RIN_ARCH_X86_64);
     return 0;
 }

@@ -265,6 +265,8 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/direct/definition-x86.ro
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unresolved-x64.ro tests/direct_unresolved.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/unresolved-x64.rin tests/direct_unresolved.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/definition-x64.ro \
 		tests/direct_unresolved_definition.c
@@ -314,7 +316,13 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/direct/x86.ro $(TEST_OUT)/direct/x86.drv \
 		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64.drv \
 		$(TEST_OUT)/direct/x86.ro $(TEST_OUT)/direct/x86-linked.rin \
-		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64-linked.rin
+		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64-linked.rin \
+		$(TEST_OUT)/direct/unresolved.ro \
+		$(TEST_OUT)/direct/definition-x86.ro \
+		$(TEST_OUT)/direct/resolved-x86.rin \
+		$(TEST_OUT)/direct/unresolved-x64.ro \
+		$(TEST_OUT)/direct/definition-x64.ro \
+		$(TEST_OUT)/direct/resolved-x64.rin
 	@echo "Direct RIN/NDRV v3 symbol relocation tests completed"
 
 # Dependencies

@@ -1,4 +1,6 @@
+int external_data = 37;
+
 int external_target(void)
 {
-    return 37;
+    return external_data;
 }
