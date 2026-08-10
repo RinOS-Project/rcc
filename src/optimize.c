@@ -327,10 +327,35 @@ static void optimize_stmt(Stmt* statement) {
             break;
         case STMT_IF:
             optimize_expr(&statement->if_cond);
+            {
+                int64_t condition;
+                if (integer_literal(statement->if_cond, &condition)) {
+                    Stmt* selected = condition != 0
+                        ? statement->if_then : statement->if_else;
+                    if (selected) {
+                        optimize_stmt(selected);
+                        *statement = *selected;
+                    } else {
+                        statement->kind = STMT_NULL;
+                    }
+                    return;
+                }
+            }
             optimize_stmt(statement->if_then);
             optimize_stmt(statement->if_else);
             break;
         case STMT_WHILE:
+            optimize_expr(&statement->while_cond);
+            {
+                int64_t condition;
+                if (integer_literal(statement->while_cond, &condition) &&
+                    condition == 0) {
+                    statement->kind = STMT_NULL;
+                    return;
+                }
+            }
+            optimize_stmt(statement->while_body);
+            break;
         case STMT_DO:
             optimize_expr(&statement->while_cond);
             optimize_stmt(statement->while_body);

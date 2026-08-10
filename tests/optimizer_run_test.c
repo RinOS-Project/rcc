@@ -58,12 +58,16 @@ int main(int argc, char** argv)
         ObjSymbol* choice_symbol = function_symbol(object, "folded_choice");
         ObjSymbol* short_circuit_symbol = function_symbol(
             object, "folded_short_circuit");
+        ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
+        ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
         int (*folded_arithmetic)(void);
         int (*folded_choice)(int);
         int (*folded_short_circuit)(int*);
+        int (*folded_branch)(int*);
+        int (*removed_loop)(int*);
         void* address;
         int value = 3;
         assert(page_size > 0);
@@ -82,9 +86,17 @@ int main(int argc, char** argv)
         address = mapping + short_circuit_symbol->value;
         memcpy(&folded_short_circuit, &address,
                sizeof(folded_short_circuit));
+        address = mapping + branch_symbol->value;
+        memcpy(&folded_branch, &address, sizeof(folded_branch));
+        address = mapping + loop_symbol->value;
+        memcpy(&removed_loop, &address, sizeof(removed_loop));
         assert(folded_arithmetic() == 19);
         assert(folded_choice(7) == 42);
         assert(folded_short_circuit(&value) == 1);
+        assert(value == 3);
+        assert(folded_branch(&value) == 5);
+        assert(value == 3);
+        assert(removed_loop(&value) == 3);
         assert(value == 3);
 
         assert(munmap(mapping, mapping_size) == 0);

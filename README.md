@@ -32,7 +32,7 @@ RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・ア�
 - `.ro/.ra v2` reader/writer、typed import、依存libraryを扱う`rld`
 - external signerを安全な引数配列で起動する最終v3出力
 
-`-O1`以上では安全な整数constant foldingと短絡式除去を行いますが、各levelの
+`-O1`以上では安全な整数constant folding、短絡式・定数分岐の除去を行いますが、各levelの
 SSA最適化pipelineと完全なDWARF生成は未完成です。C++ frontendも実験段階で、classの基本構文を
 越えるtemplates、exceptions、RTTI、modules、coroutines等は完成していません。
 
@@ -99,8 +99,9 @@ array幅、同名section metadataの矛盾を拒否します。
 extern、tentative
 definition、重複・型衝突も検査し、未解決direct imageを拒否する一方、同じ参照を
 `.ro v2`経由のmulti-object linkでは解決できることを確認します。
-`test-optimize`は`-O0`と`-O1`の両arch objectを比較し、整数constant foldingと
-副作用を実行しない短絡式のコード縮小、およびx86_64生成コードの実行結果を確認します。
+`test-optimize`は`-O0`と`-O1`の両arch objectを比較し、整数constant folding、
+短絡式、定数`if`、ゼロ回`while`のコード縮小と副作用除去、およびx86_64生成コードの
+実行結果を確認します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。
