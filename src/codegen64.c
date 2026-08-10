@@ -207,6 +207,25 @@ static void emit64_imul_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, modrm64(3, dst, src));
 }
 
+static uint32_t gen64_pointer_element_size(const Type* type) {
+    if (type && (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+        type->base && type->base->size > 0) {
+        return (uint32_t)type->base->size;
+    }
+    return 0u;
+}
+
+static uint32_t gen64_increment_size(const Type* type) {
+    uint32_t size = gen64_pointer_element_size(type);
+    return size == 0u ? 1u : size;
+}
+
+static void emit64_scale_reg(Module* mod, int reg, uint32_t scale) {
+    if (scale <= 1u) return;
+    emit64_mov_reg_imm32(mod, RDX, scale);
+    emit64_imul_reg_reg(mod, reg, RDX);
+}
+
 /* IDIV r64 */
 static void emit64_idiv_reg(Module* mod, int reg) {
     emit_rex_w(mod, 0, reg);
@@ -659,6 +678,8 @@ static void gen64_expr(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen64_symbol_address(mod, decl->name, 0u);
+            } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
+                gen64_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen64_symbol_address(mod, decl->name, 0u);
                 emit64_load_typed(mod, RAX, RAX, 0, decl->type);
@@ -701,9 +722,11 @@ static void gen64_expr(Module* mod, Expr* expr) {
             emit64_push_reg(mod, RAX);
             emit64_load_typed(mod, RAX, RAX, 0, expr->type);
             if (expr->kind == EXPR_PREINC) {
-                emit64_add_reg_imm(mod, RAX, 1);
+                emit64_add_reg_imm(
+                    mod, RAX, (int32_t)gen64_increment_size(expr->type));
             } else {
-                emit64_sub_reg_imm(mod, RAX, 1);
+                emit64_sub_reg_imm(
+                    mod, RAX, (int32_t)gen64_increment_size(expr->type));
             }
             emit64_pop_reg(mod, RCX);
             emit64_store_typed(mod, RCX, 0, RAX, expr->type);
@@ -716,9 +739,11 @@ static void gen64_expr(Module* mod, Expr* expr) {
             emit64_load_typed(mod, RAX, RAX, 0, expr->type);
             emit64_mov_reg_reg(mod, RDX, RAX);
             if (expr->kind == EXPR_POSTINC) {
-                emit64_add_reg_imm(mod, RDX, 1);
+                emit64_add_reg_imm(
+                    mod, RDX, (int32_t)gen64_increment_size(expr->type));
             } else {
-                emit64_sub_reg_imm(mod, RDX, 1);
+                emit64_sub_reg_imm(
+                    mod, RDX, (int32_t)gen64_increment_size(expr->type));
             }
             emit64_pop_reg(mod, RCX);
             emit64_store_typed(mod, RCX, 0, RDX, expr->type);
@@ -730,6 +755,18 @@ static void gen64_expr(Module* mod, Expr* expr) {
             gen64_expr(mod, expr->binary_rhs);
             emit64_mov_reg_reg(mod, RCX, RAX);
             emit64_pop_reg(mod, RAX);
+            if (gen64_pointer_element_size(expr->binary_lhs->type) != 0u &&
+                type_is_integer(expr->binary_rhs->type)) {
+                emit64_scale_reg(
+                    mod, RCX,
+                    gen64_pointer_element_size(expr->binary_lhs->type));
+            } else if (type_is_integer(expr->binary_lhs->type) &&
+                       gen64_pointer_element_size(
+                           expr->binary_rhs->type) != 0u) {
+                emit64_scale_reg(
+                    mod, RAX,
+                    gen64_pointer_element_size(expr->binary_rhs->type));
+            }
             emit64_add_reg_reg(mod, RAX, RCX);
             break;
 
@@ -739,7 +776,23 @@ static void gen64_expr(Module* mod, Expr* expr) {
             gen64_expr(mod, expr->binary_rhs);
             emit64_mov_reg_reg(mod, RCX, RAX);
             emit64_pop_reg(mod, RAX);
+            if (gen64_pointer_element_size(expr->binary_lhs->type) != 0u &&
+                type_is_integer(expr->binary_rhs->type)) {
+                emit64_scale_reg(
+                    mod, RCX,
+                    gen64_pointer_element_size(expr->binary_lhs->type));
+            }
             emit64_sub_reg_reg(mod, RAX, RCX);
+            if (gen64_pointer_element_size(expr->binary_lhs->type) != 0u &&
+                gen64_pointer_element_size(expr->binary_rhs->type) != 0u) {
+                uint32_t element_size = gen64_pointer_element_size(
+                    expr->binary_lhs->type);
+                if (element_size > 1u) {
+                    emit64_mov_reg_imm32(mod, RCX, element_size);
+                    emit64_cqo(mod);
+                    emit64_idiv_reg(mod, RCX);
+                }
+            }
             break;
 
         case EXPR_MUL:
@@ -878,6 +931,30 @@ static void gen64_expr(Module* mod, Expr* expr) {
                                expr->binary_lhs->type);
             emit64_mov_reg_reg(mod, RAX, RCX);
             break;
+
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN: {
+            uint32_t scale = gen64_pointer_element_size(
+                expr->binary_lhs->type);
+            gen64_lvalue(mod, expr->binary_lhs);
+            emit64_push_reg(mod, RAX);
+            emit64_load_typed(mod, RAX, RAX, 0,
+                              expr->binary_lhs->type);
+            emit64_push_reg(mod, RAX);
+            gen64_expr(mod, expr->binary_rhs);
+            emit64_scale_reg(mod, RAX, scale);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_pop_reg(mod, RAX);
+            if (expr->kind == EXPR_ADD_ASSIGN) {
+                emit64_add_reg_reg(mod, RAX, RDX);
+            } else {
+                emit64_sub_reg_reg(mod, RAX, RDX);
+            }
+            emit64_pop_reg(mod, RCX);
+            emit64_store_typed(mod, RCX, 0, RAX,
+                               expr->binary_lhs->type);
+            break;
+        }
 
         case EXPR_COND: {
             int else_label = new_label64();

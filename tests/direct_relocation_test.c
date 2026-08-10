@@ -26,6 +26,16 @@ static uint64_t required_bytes(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
+static int contains_bytes(const uint8_t* data, uint64_t size,
+                          const uint8_t* pattern, size_t pattern_size)
+{
+    if (!data || !pattern || pattern_size > size) return 0;
+    for (uint64_t offset = 0u; offset + pattern_size <= size; ++offset) {
+        if (memcmp(data + offset, pattern, pattern_size) == 0) return 1;
+    }
+    return 0;
+}
+
 static ObjSection* required_section(ObjectFile* object, SectionType type)
 {
     for (ObjSection* section = object->sections; section;
@@ -34,6 +44,21 @@ static ObjSection* required_section(ObjectFile* object, SectionType type)
     }
     assert(!"required object section was not found");
     return NULL;
+}
+
+static uint64_t symbol_extent(ObjectFile* object, ObjSymbol* symbol,
+                              uint64_t section_size)
+{
+    uint64_t end = section_size;
+    assert(symbol->value < section_size);
+    for (ObjSymbol* candidate = object->symbols; candidate;
+         candidate = candidate->next) {
+        if (candidate->section == symbol->section &&
+            candidate->value > symbol->value && candidate->value < end) {
+            end = candidate->value;
+        }
+    }
+    return end - symbol->value;
 }
 
 static void verify_artifact(const char* object_path, const char* image_path,
@@ -46,10 +71,16 @@ static void verify_artifact(const char* object_path, const char* image_path,
     ObjSymbol* zero;
     ObjSymbol* target;
     ObjSymbol* static_literal;
+    ObjSymbol* static_suffix;
     ObjSymbol* static_zero;
     ObjSymbol* static_values;
     ObjSymbol* static_second;
     ObjSymbol* static_target;
+    ObjSymbol* pointer_add;
+    ObjSymbol* integer_add;
+    ObjSymbol* pointer_distance;
+    ObjSymbol* pointer_update;
+    ObjSection* object_code = NULL;
     ObjSection* object_rodata = NULL;
     ObjSection* object_data = NULL;
     RinHeaderV3 header;
@@ -71,6 +102,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
     int saw_bss_symbol = 0;
     int saw_code_symbol = 0;
     int saw_static_literal = 0;
+    int saw_static_suffix = 0;
     int saw_static_zero = 0;
     int saw_static_second = 0;
     int saw_static_target = 0;
@@ -83,10 +115,15 @@ static void verify_artifact(const char* object_path, const char* image_path,
     zero = required_symbol(object, "zero_value");
     target = required_symbol(object, "target");
     static_literal = required_symbol(object, "static_literal");
+    static_suffix = required_symbol(object, "static_suffix");
     static_zero = required_symbol(object, "static_zero");
     static_values = required_symbol(object, "static_values");
     static_second = required_symbol(object, "static_second");
     static_target = required_symbol(object, "static_target");
+    pointer_add = required_symbol(object, "pointer_add");
+    integer_add = required_symbol(object, "integer_add");
+    pointer_distance = required_symbol(object, "pointer_distance");
+    pointer_update = required_symbol(object, "pointer_update");
     assert(first->section == second->section);
     assert(first->value != second->value);
     assert(zero->binding == BIND_BSS);
@@ -95,8 +132,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
          section = section->next) {
         if (section->type == SECT_RODATA) object_rodata = section;
         if (section->type == SECT_DATA) object_data = section;
+        if (section->type == SECT_CODE) object_code = section;
     }
-    assert(object_rodata != NULL && object_data != NULL);
+    assert(object_code != NULL && object_rodata != NULL && object_data != NULL);
     assert(object_rodata->flags == SECT_FLAG_ALLOC);
     static_literal_offset = required_bytes(object_rodata->data,
                                            object_rodata->size,
@@ -118,6 +156,12 @@ static void verify_artifact(const char* object_path, const char* image_path,
                               "__rcc_rodata_base") != NULL);
                 assert(relocation->addend == (int64_t)static_literal_offset);
                 saw_static_literal = 1;
+            } else if (relocation->offset == static_suffix->value) {
+                assert(strstr(relocation->symbol_name,
+                              "__rcc_rodata_base") != NULL);
+                assert(relocation->addend ==
+                       (int64_t)static_literal_offset + 6);
+                saw_static_suffix = 1;
             } else if (relocation->offset == static_zero->value) {
                 assert(strcmp(relocation->symbol_name, "zero_value") == 0);
                 assert(relocation->addend == 0);
@@ -132,11 +176,90 @@ static void verify_artifact(const char* object_path, const char* image_path,
                 saw_static_target = 1;
             }
         }
-        assert(saw_static_literal && saw_static_zero && saw_static_second &&
-               saw_static_target);
+        assert(saw_static_literal && saw_static_suffix && saw_static_zero &&
+               saw_static_second && saw_static_target);
+    }
+    if (expected_architecture == RIN_ARCH_X86_64) {
+        static const uint8_t scale_left[] = {
+            0x48, 0xc7, 0xc2, 0x04, 0x00, 0x00, 0x00,
+            0x48, 0x0f, 0xaf, 0xc2,
+        };
+        static const uint8_t scale_right[] = {
+            0x48, 0xc7, 0xc2, 0x04, 0x00, 0x00, 0x00,
+            0x48, 0x0f, 0xaf, 0xca,
+        };
+        static const uint8_t pointer_difference[] = {
+            0x48, 0xc7, 0xc1, 0x04, 0x00, 0x00, 0x00,
+            0x48, 0x99, 0x48, 0xf7, 0xf9,
+        };
+        static const uint8_t post_increment[] = {0x48, 0x83, 0xc2, 0x04};
+        static const uint8_t pre_increment[] = {0x48, 0x83, 0xc0, 0x04};
+        assert(contains_bytes(object_code->data + integer_add->value,
+                              symbol_extent(object, integer_add,
+                                            object_code->size),
+                              scale_left, sizeof(scale_left)));
+        assert(contains_bytes(object_code->data + pointer_add->value,
+                              symbol_extent(object, pointer_add,
+                                            object_code->size),
+                              scale_right, sizeof(scale_right)));
+        assert(contains_bytes(object_code->data + pointer_distance->value,
+                              symbol_extent(object, pointer_distance,
+                                            object_code->size),
+                              pointer_difference,
+                              sizeof(pointer_difference)));
+        assert(contains_bytes(object_code->data + pointer_update->value,
+                              symbol_extent(object, pointer_update,
+                                            object_code->size),
+                              scale_left, sizeof(scale_left)));
+        assert(contains_bytes(object_code->data + pointer_update->value,
+                              symbol_extent(object, pointer_update,
+                                            object_code->size),
+                              post_increment, sizeof(post_increment)));
+        assert(contains_bytes(object_code->data + pointer_update->value,
+                              symbol_extent(object, pointer_update,
+                                            object_code->size),
+                              pre_increment, sizeof(pre_increment)));
+    } else {
+        static const uint8_t scale_left[] = {
+            0xba, 0x04, 0x00, 0x00, 0x00, 0x0f, 0xaf, 0xc2,
+        };
+        static const uint8_t scale_right[] = {
+            0xba, 0x04, 0x00, 0x00, 0x00, 0x0f, 0xaf, 0xca,
+        };
+        static const uint8_t pointer_difference[] = {
+            0xb9, 0x04, 0x00, 0x00, 0x00, 0x99, 0xf7, 0xf9,
+        };
+        static const uint8_t post_increment[] = {0x83, 0xc2, 0x04};
+        static const uint8_t pre_increment[] = {0x83, 0xc0, 0x04};
+        assert(contains_bytes(object_code->data + integer_add->value,
+                              symbol_extent(object, integer_add,
+                                            object_code->size),
+                              scale_left, sizeof(scale_left)));
+        assert(contains_bytes(object_code->data + pointer_add->value,
+                              symbol_extent(object, pointer_add,
+                                            object_code->size),
+                              scale_right, sizeof(scale_right)));
+        assert(contains_bytes(object_code->data + pointer_distance->value,
+                              symbol_extent(object, pointer_distance,
+                                            object_code->size),
+                              pointer_difference,
+                              sizeof(pointer_difference)));
+        assert(contains_bytes(object_code->data + pointer_update->value,
+                              symbol_extent(object, pointer_update,
+                                            object_code->size),
+                              scale_left, sizeof(scale_left)));
+        assert(contains_bytes(object_code->data + pointer_update->value,
+                              symbol_extent(object, pointer_update,
+                                            object_code->size),
+                              post_increment, sizeof(post_increment)));
+        assert(contains_bytes(object_code->data + pointer_update->value,
+                              symbol_extent(object, pointer_update,
+                                            object_code->size),
+                              pre_increment, sizeof(pre_increment)));
     }
 
     saw_static_literal = 0;
+    saw_static_suffix = 0;
     saw_static_zero = 0;
     saw_static_second = 0;
     saw_static_target = 0;
@@ -240,6 +363,11 @@ static void verify_artifact(const char* object_path, const char* image_path,
                          static_literal_offset) {
                 saw_static_literal = 1;
             }
+            if (source_offset == static_suffix->value &&
+                value == preferred_base + rodata->virtual_address +
+                         static_literal_offset + 6u) {
+                saw_static_suffix = 1;
+            }
             if (source_offset == static_zero->value &&
                 value == preferred_base + bss->virtual_address + zero->value) {
                 saw_static_zero = 1;
@@ -260,8 +388,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
     assert(saw_rodata_symbol);
     assert(saw_bss_symbol);
     assert(saw_code_symbol);
-    assert(data_source_relocations >= 4u);
+    assert(data_source_relocations >= 5u);
     assert(saw_static_literal);
+    assert(saw_static_suffix);
     assert(saw_static_zero);
     assert(saw_static_second);
     assert(saw_static_target);

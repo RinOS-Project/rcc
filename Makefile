@@ -308,8 +308,17 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unsupported-static-x64.ro \
 		tests/unsupported_static_pointer.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-pointer-x86.ro \
+		tests/invalid_pointer_arithmetic.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-pointer-x64.ro \
+		tests/invalid_pointer_arithmetic.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/direct_relocation_test \
 		tests/direct_relocation_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/pointer_arithmetic_run_test \
+		tests/pointer_arithmetic_run_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
 	$(TEST_OUT)/direct_relocation_test \
 		$(TEST_OUT)/direct/x86.ro $(TEST_OUT)/direct/x86.rin \
 		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64.rin \
@@ -323,6 +332,7 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/direct/unresolved-x64.ro \
 		$(TEST_OUT)/direct/definition-x64.ro \
 		$(TEST_OUT)/direct/resolved-x64.rin
+	$(TEST_OUT)/pointer_arithmetic_run_test $(TEST_OUT)/direct/x64.ro
 	@echo "Direct RIN/NDRV v3 symbol relocation tests completed"
 
 # Dependencies

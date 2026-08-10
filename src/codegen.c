@@ -228,65 +228,144 @@ static Decl* codegen_global_variable(AST* ast, const char* name) {
     return tentative ? tentative : external;
 }
 
-static bool codegen_emit_static_pointer(Module* mod, Decl* declaration,
-                                        uint32_t offset) {
-    Expr* initializer = declaration->var_init;
-    const char* symbol_name = NULL;
-    uint32_t addend = 0u;
-    uint32_t width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
-
-    while (initializer && initializer->kind == EXPR_CAST) {
-        initializer = initializer->cast_expr;
+static bool codegen_static_integer(Expr* expression, int64_t* value) {
+    while (expression && expression->kind == EXPR_CAST) {
+        expression = expression->cast_expr;
     }
-    if (!initializer || declaration->type->size < (int)width) return false;
+    if (!expression || !value) return false;
+    if (expression->kind == EXPR_INT_LIT) {
+        *value = expression->int_val;
+        return true;
+    }
+    if (expression->kind == EXPR_CHAR_LIT) {
+        *value = (uint8_t)expression->char_val;
+        return true;
+    }
+    if (expression->kind == EXPR_NEG && expression->unary_operand &&
+        codegen_static_integer(expression->unary_operand, value) &&
+        *value != INT64_MIN) {
+        *value = -*value;
+        return true;
+    }
+    return false;
+}
 
-    if (initializer->kind == EXPR_STRING_LIT) {
-        addend = emit_string(mod, initializer->str_val);
+static uint32_t codegen_pointer_element_size(const Type* type) {
+    if (type && (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+        type->base && type->base->size > 0) {
+        return (uint32_t)type->base->size;
+    }
+    return 0u;
+}
+
+static uint32_t codegen_increment_size(const Type* type) {
+    uint32_t size = codegen_pointer_element_size(type);
+    return size == 0u ? 1u : size;
+}
+
+static bool codegen_add_static_offset(uint32_t* addend, int64_t index,
+                                      uint32_t element_size) {
+    int64_t delta;
+    if (!addend || element_size == 0u ||
+        (index > 0 && index > INT64_MAX / (int64_t)element_size) ||
+        (index < 0 && index < INT64_MIN / (int64_t)element_size)) {
+        return false;
+    }
+    delta = index * (int64_t)element_size;
+    if (delta >= 0) {
+        if ((uint64_t)delta > UINT32_MAX - *addend) return false;
+        *addend += (uint32_t)delta;
+    } else {
+        uint64_t magnitude = UINT64_C(0) - (uint64_t)delta;
+        if (magnitude > *addend) return false;
+        *addend -= (uint32_t)magnitude;
+    }
+    return true;
+}
+
+static bool codegen_static_address(Module* mod, Expr* expression,
+                                   const char** symbol_name,
+                                   uint32_t* addend) {
+    while (expression && expression->kind == EXPR_CAST) {
+        expression = expression->cast_expr;
+    }
+    if (!expression || !symbol_name || !addend) return false;
+
+    if (expression->kind == EXPR_STRING_LIT) {
+        *addend = emit_string(mod, expression->str_val);
         module_ensure_rodata_base_symbol(mod);
-        symbol_name = "__rcc_rodata_base";
-    } else if (initializer->kind == EXPR_ADDR &&
-               initializer->unary_operand) {
-        Expr* addressed = initializer->unary_operand;
+        *symbol_name = "__rcc_rodata_base";
+        return true;
+    }
+    if (expression->kind == EXPR_ADDR && expression->unary_operand) {
+        Expr* addressed = expression->unary_operand;
         Decl* target = NULL;
         if (addressed->kind == EXPR_IDENT) {
             target = addressed->ident_decl;
         } else if (addressed->kind == EXPR_INDEX &&
                    addressed->index_base &&
                    addressed->index_base->kind == EXPR_IDENT &&
-                   addressed->index_expr &&
-                   addressed->index_expr->kind == EXPR_INT_LIT) {
-            int64_t index = addressed->index_expr->int_val;
-            uint64_t element_size;
-            uint64_t byte_offset;
+                   addressed->index_expr) {
+            int64_t index;
             target = addressed->index_base->ident_decl;
             if (!target || target->kind != DECL_VAR ||
                 !target->var_is_global || !target->type ||
-                target->type->kind != TYPE_ARRAY || !target->type->base ||
-                target->type->base->size <= 0 || index < 0) {
+                target->type->kind != TYPE_ARRAY ||
+                !codegen_static_integer(addressed->index_expr, &index) ||
+                !codegen_add_static_offset(
+                    addend, index,
+                    codegen_pointer_element_size(target->type))) {
                 return false;
             }
-            element_size = (uint64_t)target->type->base->size;
-            byte_offset = (uint64_t)index * element_size;
-            if (index != 0 && byte_offset / (uint64_t)index != element_size) {
-                return false;
-            }
-            if (byte_offset > UINT32_MAX) return false;
-            addend = (uint32_t)byte_offset;
         }
         if (!target || (target->kind != DECL_FUNC &&
             (target->kind != DECL_VAR || !target->var_is_global))) {
             return false;
         }
-        symbol_name = target->name;
-    } else if (initializer->kind == EXPR_IDENT &&
-               initializer->ident_decl &&
-               (initializer->ident_decl->kind == DECL_FUNC ||
-                (initializer->ident_decl->kind == DECL_VAR &&
-                 initializer->ident_decl->var_is_global &&
-                 initializer->ident_decl->type &&
-                 initializer->ident_decl->type->kind == TYPE_ARRAY))) {
-        symbol_name = initializer->ident_decl->name;
-    } else {
+        *symbol_name = target->name;
+        return true;
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_decl &&
+        (expression->ident_decl->kind == DECL_FUNC ||
+         (expression->ident_decl->kind == DECL_VAR &&
+          expression->ident_decl->var_is_global &&
+          expression->ident_decl->type &&
+          expression->ident_decl->type->kind == TYPE_ARRAY))) {
+        *symbol_name = expression->ident_decl->name;
+        return true;
+    }
+    if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
+        Expr* address = expression->binary_lhs;
+        Expr* integer = expression->binary_rhs;
+        int64_t index;
+        if (expression->kind == EXPR_ADD &&
+            !codegen_static_integer(integer, &index)) {
+            address = expression->binary_rhs;
+            integer = expression->binary_lhs;
+        }
+        if (!codegen_static_integer(integer, &index) ||
+            !codegen_static_address(mod, address, symbol_name, addend)) {
+            return false;
+        }
+        if (expression->kind == EXPR_SUB) {
+            if (index == INT64_MIN) return false;
+            index = -index;
+        }
+        return codegen_add_static_offset(
+            addend, index, codegen_pointer_element_size(address->type));
+    }
+    return false;
+}
+
+static bool codegen_emit_static_pointer(Module* mod, Decl* declaration,
+                                        uint32_t offset) {
+    const char* symbol_name = NULL;
+    uint32_t addend = 0u;
+    uint32_t width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+
+    if (!declaration->var_init || declaration->type->size < (int)width ||
+        !codegen_static_address(mod, declaration->var_init, &symbol_name,
+                                &addend)) {
         return false;
     }
 
@@ -542,6 +621,12 @@ static void emit_imul_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, 0x0F);
     emit_byte(mod, 0xAF);
     emit_byte(mod, modrm(3, dst, src));
+}
+
+static void emit_scale_reg(Module* mod, int reg, uint32_t scale) {
+    if (scale <= 1u) return;
+    emit_mov_reg_imm(mod, EDX, scale);
+    emit_imul_reg_reg(mod, reg, EDX);
 }
 
 static void emit_idiv_reg(Module* mod, int reg) {
@@ -896,6 +981,8 @@ static void gen_expr(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen_symbol_address(mod, decl->name, 0u);
+            } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
+                gen_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl->name, 0u);
                 emit_mov_reg_mem(mod, EAX, EAX, 0);
@@ -939,9 +1026,11 @@ static void gen_expr(Module* mod, Expr* expr) {
             emit_push_reg(mod, EAX);
             emit_mov_reg_mem(mod, EAX, EAX, 0);
             if (expr->kind == EXPR_PREINC) {
-                emit_add_reg_imm(mod, EAX, 1);
+                emit_add_reg_imm(mod, EAX,
+                                 (int)codegen_increment_size(expr->type));
             } else {
-                emit_sub_reg_imm(mod, EAX, 1);
+                emit_sub_reg_imm(mod, EAX,
+                                 (int)codegen_increment_size(expr->type));
             }
             emit_pop_reg(mod, ECX);
             emit_mov_mem_reg(mod, ECX, 0, EAX);
@@ -954,9 +1043,11 @@ static void gen_expr(Module* mod, Expr* expr) {
             emit_mov_reg_mem(mod, EAX, EAX, 0);
             emit_mov_reg_reg(mod, EDX, EAX);
             if (expr->kind == EXPR_POSTINC) {
-                emit_add_reg_imm(mod, EDX, 1);
+                emit_add_reg_imm(mod, EDX,
+                                 (int)codegen_increment_size(expr->type));
             } else {
-                emit_sub_reg_imm(mod, EDX, 1);
+                emit_sub_reg_imm(mod, EDX,
+                                 (int)codegen_increment_size(expr->type));
             }
             emit_pop_reg(mod, ECX);
             emit_mov_mem_reg(mod, ECX, 0, EDX);
@@ -968,6 +1059,18 @@ static void gen_expr(Module* mod, Expr* expr) {
             gen_expr(mod, expr->binary_rhs);
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_pop_reg(mod, EAX);
+            if (codegen_pointer_element_size(expr->binary_lhs->type) != 0u &&
+                type_is_integer(expr->binary_rhs->type)) {
+                emit_scale_reg(
+                    mod, ECX,
+                    codegen_pointer_element_size(expr->binary_lhs->type));
+            } else if (type_is_integer(expr->binary_lhs->type) &&
+                       codegen_pointer_element_size(
+                           expr->binary_rhs->type) != 0u) {
+                emit_scale_reg(
+                    mod, EAX,
+                    codegen_pointer_element_size(expr->binary_rhs->type));
+            }
             emit_add_reg_reg(mod, EAX, ECX);
             break;
 
@@ -977,7 +1080,23 @@ static void gen_expr(Module* mod, Expr* expr) {
             gen_expr(mod, expr->binary_rhs);
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_pop_reg(mod, EAX);
+            if (codegen_pointer_element_size(expr->binary_lhs->type) != 0u &&
+                type_is_integer(expr->binary_rhs->type)) {
+                emit_scale_reg(
+                    mod, ECX,
+                    codegen_pointer_element_size(expr->binary_lhs->type));
+            }
             emit_sub_reg_reg(mod, EAX, ECX);
+            if (codegen_pointer_element_size(expr->binary_lhs->type) != 0u &&
+                codegen_pointer_element_size(expr->binary_rhs->type) != 0u) {
+                uint32_t element_size = codegen_pointer_element_size(
+                    expr->binary_lhs->type);
+                if (element_size > 1u) {
+                    emit_mov_reg_imm(mod, ECX, element_size);
+                    emit_cdq(mod);
+                    emit_idiv_reg(mod, ECX);
+                }
+            }
             break;
 
         case EXPR_MUL:
@@ -1121,6 +1240,28 @@ static void gen_expr(Module* mod, Expr* expr) {
             emit_mov_mem_reg(mod, EAX, 0, ECX);
             emit_mov_reg_reg(mod, EAX, ECX);
             break;
+
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN: {
+            uint32_t scale = codegen_pointer_element_size(
+                expr->binary_lhs->type);
+            gen_lvalue(mod, expr->binary_lhs);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_mem(mod, EAX, EAX, 0);
+            emit_push_reg(mod, EAX);
+            gen_expr(mod, expr->binary_rhs);
+            emit_scale_reg(mod, EAX, scale);
+            emit_mov_reg_reg(mod, EDX, EAX);
+            emit_pop_reg(mod, EAX);
+            if (expr->kind == EXPR_ADD_ASSIGN) {
+                emit_add_reg_reg(mod, EAX, EDX);
+            } else {
+                emit_sub_reg_reg(mod, EAX, EDX);
+            }
+            emit_pop_reg(mod, ECX);
+            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            break;
+        }
 
         case EXPR_COND: {
             int else_label = new_label();

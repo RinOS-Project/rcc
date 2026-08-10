@@ -38,6 +38,12 @@ static Type* get_pointer_base(Type* t) {
     return NULL;
 }
 
+static bool is_pointer_arithmetic_type(Type* type) {
+    Type* base = get_pointer_base(type);
+    return base && base->kind != TYPE_VOID && base->kind != TYPE_FUNC &&
+           base->size > 0;
+}
+
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
@@ -153,6 +159,11 @@ static Type* sema_expr(Expr* expr) {
             if (!is_lvalue(expr->unary_operand)) {
                 rcc_error(expr->loc, "increment/decrement requires lvalue");
             }
+            if (!type_is_arithmetic(t) &&
+                !(type_is_pointer(t) && is_pointer_arithmetic_type(t))) {
+                rcc_error(expr->loc,
+                          "increment/decrement requires arithmetic or object pointer type");
+            }
             expr->type = t;
             break;
         }
@@ -177,13 +188,35 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_SUB: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
+            bool left_pointer = type_is_pointer(lt) || type_is_array(lt);
+            bool right_pointer = type_is_pointer(rt) || type_is_array(rt);
+            Type* left_result = type_is_array(lt) ? type_ptr(lt->base) : lt;
+            Type* right_result = type_is_array(rt) ? type_ptr(rt->base) : rt;
 
             /* Pointer arithmetic */
-            if (type_is_pointer(lt) && type_is_integer(rt)) {
-                expr->type = lt;
-            } else if (type_is_integer(lt) && type_is_pointer(rt) && expr->kind == EXPR_ADD) {
-                expr->type = rt;
-            } else if (type_is_pointer(lt) && type_is_pointer(rt) && expr->kind == EXPR_SUB) {
+            if (left_pointer && type_is_integer(rt)) {
+                if (!is_pointer_arithmetic_type(lt)) {
+                    rcc_error(expr->loc,
+                              "pointer arithmetic requires a complete object type");
+                }
+                expr->type = left_result;
+            } else if (type_is_integer(lt) && right_pointer &&
+                       expr->kind == EXPR_ADD) {
+                if (!is_pointer_arithmetic_type(rt)) {
+                    rcc_error(expr->loc,
+                              "pointer arithmetic requires a complete object type");
+                }
+                expr->type = right_result;
+            } else if (left_pointer && right_pointer &&
+                       expr->kind == EXPR_SUB) {
+                Type* left_base = get_pointer_base(lt);
+                Type* right_base = get_pointer_base(rt);
+                if (!is_pointer_arithmetic_type(lt) ||
+                    !is_pointer_arithmetic_type(rt) ||
+                    !type_is_compatible(left_base, right_base)) {
+                    rcc_error(expr->loc,
+                              "pointer subtraction requires compatible complete object types");
+                }
                 expr->type = type_long;  /* ptrdiff_t */
             } else if (type_is_arithmetic(lt) && type_is_arithmetic(rt)) {
                 expr->type = type_common(lt, rt);
@@ -240,9 +273,24 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
-        case EXPR_ASSIGN:
         case EXPR_ADD_ASSIGN:
-        case EXPR_SUB_ASSIGN:
+        case EXPR_SUB_ASSIGN: {
+            Type* lt = sema_expr(expr->binary_lhs);
+            Type* rt = sema_expr(expr->binary_rhs);
+            if (!is_lvalue(expr->binary_lhs)) {
+                rcc_error(expr->loc, "assignment requires lvalue");
+            }
+            if (!((type_is_pointer(lt) && is_pointer_arithmetic_type(lt) &&
+                   type_is_integer(rt)) ||
+                  (type_is_arithmetic(lt) && type_is_arithmetic(rt)))) {
+                rcc_error(expr->loc,
+                          "invalid operands to compound pointer arithmetic");
+            }
+            expr->type = lt;
+            break;
+        }
+
+        case EXPR_ASSIGN:
         case EXPR_MUL_ASSIGN:
         case EXPR_DIV_ASSIGN:
         case EXPR_MOD_ASSIGN:
