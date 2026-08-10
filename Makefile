@@ -44,7 +44,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width test-special-sections
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width test-special-sections test-direct-relocation
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -233,6 +233,49 @@ test-special-sections:
 		$(TEST_OUT)/special/wx.ro $(TEST_OUT)/special/bad-array.ro \
 		$(TEST_OUT)/special/conflict-a.ro $(TEST_OUT)/special/conflict-b.ro
 	@echo "TLS/unwind/init/fini section propagation tests completed"
+
+test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
+	mkdir -p $(TEST_OUT)/direct
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/x86.ro tests/direct_relocation.c
+	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x86.rin tests/direct_relocation.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/x64.ro tests/direct_relocation.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x64.rin tests/direct_relocation.c
+	$(RCC_TARGET) --target i686-unknown-rinos -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x86.drv tests/direct_relocation.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x64.drv tests/direct_relocation.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/unresolved.ro tests/direct_unresolved.c
+	! $(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/unresolved.rin tests/direct_unresolved.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/definition-x86.ro \
+		tests/direct_unresolved_definition.c
+	$(RLD_TARGET) -m32 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/resolved-x86.rin \
+		$(TEST_OUT)/direct/unresolved.ro \
+		$(TEST_OUT)/direct/definition-x86.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/unresolved-x64.ro tests/direct_unresolved.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/definition-x64.ro \
+		tests/direct_unresolved_definition.c
+	$(RLD_TARGET) -m64 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/resolved-x64.rin \
+		$(TEST_OUT)/direct/unresolved-x64.ro \
+		$(TEST_OUT)/direct/definition-x64.ro
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/direct_relocation_test \
+		tests/direct_relocation_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/direct_relocation_test \
+		$(TEST_OUT)/direct/x86.ro $(TEST_OUT)/direct/x86.rin \
+		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64.rin \
+		$(TEST_OUT)/direct/x86.ro $(TEST_OUT)/direct/x86.drv \
+		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64.drv
+	@echo "Direct RIN/NDRV v3 symbol relocation tests completed"
 
 # Dependencies
 $(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h

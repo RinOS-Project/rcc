@@ -60,6 +60,7 @@
 - [x] i386基本integer/cdecl code generation
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路
 - [x] basic global dataと`ABS32U/ABS32S/ABS64`
+  - [x] direct RIN/NDRVのDATA/CODE symbol解決と関数ポインタ
 - [ ] i386での完全な64-bit整数演算と戻り値
 - [ ] SysV aggregate分類、variadic、floating-point ABI
 - [ ] PIC/PIE、GOT/PLT、TLS relocation

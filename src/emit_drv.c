@@ -214,21 +214,30 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     if (mod->data.size > 0u) memcpy(output + data_file_offset, mod->data.data, mod->data.size);
     for (source_relocation = mod->relocs; source_relocation;
          source_relocation = source_relocation->next) {
+        uint64_t resolved;
+        bool is_64bit = source_relocation->type == RIN_RELOC_ABS64;
+        if (!module_resolve_image_relocation(mod, source_relocation->offset,
+                                             is_64bit, data_rva,
+                                             &resolved)) {
+            rcc_error((SourceLoc){outfile, 0, 0},
+                      "unresolved NDRV relocation at code offset %u",
+                      source_relocation->offset);
+            rcc_free(relocations);
+            rcc_free(output);
+            return false;
+        }
         if (source_relocation->type == RIN_RELOC_ABS64) {
-            uint64_t value;
-            memcpy(&value, output + code_file_offset + source_relocation->offset, 8u);
-            value += data_rva;
-            memcpy(output + code_file_offset + source_relocation->offset, &value, 8u);
+            memcpy(output + code_file_offset + source_relocation->offset,
+                   &resolved, sizeof(resolved));
         } else {
             uint32_t value;
-            memcpy(&value, output + code_file_offset + source_relocation->offset, 4u);
-            if (data_rva > UINT32_MAX - value) {
+            if (resolved > UINT32_MAX) {
                 rcc_error((SourceLoc){outfile, 0, 0}, "NDRV ABS32U relocation overflow");
                 rcc_free(relocations);
                 rcc_free(output);
                 return false;
             }
-            value += (uint32_t)data_rva;
+            value = (uint32_t)resolved;
             memcpy(output + code_file_offset + source_relocation->offset, &value, 4u);
         }
     }

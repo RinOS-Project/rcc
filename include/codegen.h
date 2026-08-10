@@ -110,6 +110,9 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
 void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,
                           const char* symbol_name);
+bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
+                                     bool is_64bit, uint64_t data_rva,
+                                     uint64_t* value);
 void codegen_emit_global_data(Module* mod, AST* ast);
 
 /* Object file output */

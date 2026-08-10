@@ -100,6 +100,18 @@ uint32_t code_offset(Module* mod) {
 
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
                        bool is_defined, bool is_code, bool is_global) {
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        ModuleSymbol* existing = &mod->symbols[index];
+        if (strcmp(existing->name, name) != 0) continue;
+        if (is_defined && !existing->is_defined) {
+            existing->offset = offset;
+            existing->is_defined = true;
+            existing->is_code = is_code;
+            existing->is_global = is_global;
+        }
+        return;
+    }
+
     /* Expand if needed */
     if (mod->symbol_count >= mod->symbol_capacity) {
         int new_cap = mod->symbol_capacity == 0 ? 16 : mod->symbol_capacity * 2;
@@ -132,6 +144,40 @@ void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
     rel->is_relative = is_relative;
     rel->is_64bit = is_64bit;
     rel->symbol_name = symbol_name ? rcc_strdup(symbol_name) : NULL;
+}
+
+bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
+                                     bool is_64bit, uint64_t data_rva,
+                                     uint64_t* value) {
+    const ModuleReloc* relocation = NULL;
+    const ModuleSymbol* symbol = NULL;
+    uint64_t base;
+
+    if (!mod || !value) return false;
+    for (int index = 0; index < mod->reloc_count; ++index) {
+        const ModuleReloc* candidate = &mod->relocs_arr[index];
+        if (candidate->offset == offset && !candidate->is_relative &&
+            candidate->is_64bit == is_64bit) {
+            if (relocation) return false;
+            relocation = candidate;
+        }
+    }
+    if (!relocation || !relocation->symbol_name) return false;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        if (strcmp(mod->symbols[index].name,
+                   relocation->symbol_name) == 0) {
+            symbol = &mod->symbols[index];
+            break;
+        }
+    }
+    if (!symbol || !symbol->is_defined) return false;
+    base = symbol->is_code ? 0u : data_rva;
+    if (symbol->offset > UINT64_MAX - base ||
+        relocation->target > UINT64_MAX - base - symbol->offset) {
+        return false;
+    }
+    *value = base + symbol->offset + relocation->target;
+    return true;
 }
 
 void codegen_emit_global_data(Module* mod, AST* ast) {
@@ -620,7 +666,7 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 emit_mov_reg_imm(mod, EAX, 0);
                 break;
             }
-            if (decl->var_is_global) {
+            if (decl->kind == DECL_FUNC || decl->var_is_global) {
                 gen_symbol_address(mod, decl->name, 0u);
             } else {
                 /* Local: EBP + offset */
@@ -693,8 +739,7 @@ static void gen_expr(Module* mod, Expr* expr) {
                 break;
             }
             if (decl->kind == DECL_FUNC) {
-                /* Function pointer - not loaded */
-                emit_mov_reg_imm(mod, EAX, 0);
+                gen_symbol_address(mod, decl->name, 0u);
             } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl->name, 0u);
                 emit_mov_reg_mem(mod, EAX, EAX, 0);

@@ -595,7 +595,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 emit64_mov_reg_imm32(mod, RAX, 0);
                 break;
             }
-            if (decl->var_is_global) {
+            if (decl->kind == DECL_FUNC || decl->var_is_global) {
                 gen64_symbol_address(mod, decl->name, 0u);
             } else {
                 emit64_lea(mod, RAX, RBP, decl->var_offset);
@@ -663,7 +663,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
                 break;
             }
             if (decl->kind == DECL_FUNC) {
-                emit64_mov_reg_imm32(mod, RAX, 0);
+                gen64_symbol_address(mod, decl->name, 0u);
             } else if (decl->var_is_global) {
                 gen64_symbol_address(mod, decl->name, 0u);
                 emit64_load_typed(mod, RAX, RAX, 0, decl->type);

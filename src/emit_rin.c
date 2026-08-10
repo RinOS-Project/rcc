@@ -178,21 +178,30 @@ bool rcc_emit(Module* mod, const char* outfile) {
         memcpy(output + data_file_offset, mod->data.data, mod->data.size);
     }
     for (relocation = mod->relocs; relocation; relocation = relocation->next) {
+        uint64_t resolved;
+        bool is_64bit = relocation->type == RIN_RELOC_ABS64;
+        if (!module_resolve_image_relocation(mod, relocation->offset,
+                                             is_64bit, data_rva,
+                                             &resolved)) {
+            rcc_error((SourceLoc){outfile, 0, 0},
+                      "unresolved direct-image relocation at code offset %u",
+                      relocation->offset);
+            rcc_free(relocations);
+            rcc_free(output);
+            return false;
+        }
         if (relocation->type == RIN_RELOC_ABS64) {
-            uint64_t value;
-            memcpy(&value, output + code_file_offset + relocation->offset, sizeof(value));
-            value += data_rva;
-            memcpy(output + code_file_offset + relocation->offset, &value, sizeof(value));
+            memcpy(output + code_file_offset + relocation->offset,
+                   &resolved, sizeof(resolved));
         } else {
             uint32_t value;
-            memcpy(&value, output + code_file_offset + relocation->offset, sizeof(value));
-            if (data_rva > UINT32_MAX - value) {
+            if (resolved > UINT32_MAX) {
                 rcc_error((SourceLoc){outfile, 0, 0}, "ABS32U relocation overflow");
                 rcc_free(relocations);
                 rcc_free(output);
                 return false;
             }
-            value += (uint32_t)data_rva;
+            value = (uint32_t)resolved;
             memcpy(output + code_file_offset + relocation->offset, &value, sizeof(value));
         }
     }
