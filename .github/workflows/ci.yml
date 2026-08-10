@@ -1,0 +1,37 @@
+name: rcc-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  host-toolchain:
+    name: host-${{ matrix.cc }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc:
+          - gcc
+          - clang
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build rcc, rcc++, rld and rar
+        run: make -j2 all
+
+      - name: Run compiler and format smoke tests
+        run: |
+          make test
+          make test-cxx
+          make test-cxx-cli
+          make test-static-assert
+          make test-link
+          make test-archive

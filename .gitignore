@@ -6,6 +6,8 @@
 *.ko
 *.obj
 *.elf
+/obj/
+/build/
 
 # Linker output
 *.ilk
@@ -41,6 +43,19 @@
 *.su
 *.idb
 *.pdb
+
+# Native RCC tools (POSIX hosts)
+/rcc
+/rcc++
+/rld
+/rar
+
+# Generated RinOS compiler/linker fixtures
+*.ro
+*.ra
+*.rin
+*.rll
+*.drv
 
 # Kernel Module Compile Results
 *.mod*
