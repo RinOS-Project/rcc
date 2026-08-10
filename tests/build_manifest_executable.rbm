@@ -1,0 +1,4 @@
+RIN-BUILD-MANIFEST 1
+target = i686-unknown-rinos
+artifact = executable
+entry = main

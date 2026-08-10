@@ -35,3 +35,4 @@ jobs:
           make test-static-assert
           make test-link
           make test-archive
+          make test-manifest

@@ -12,6 +12,7 @@ RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・ア�
 - image/library: 256-byte header、64-bit RVA、typed import/exportを持つRIN v3
 - driver: 256-byte headerとresource/match metadataを持つNDRV v3
 - final `.rin/.rll/.drv`: 別processの`rinsign`によるRDS1署名が必須
+- build contract: `RIN-BUILD-MANIFEST 1`のtarget/artifact/entryをCLIと照合
 
 秘密鍵をcompilerや成果物へ埋め込む経路はありません。最終出力には
 `--rinsign`、`--sign-key`、`--public-key`を明示します。
@@ -53,6 +54,7 @@ make -j OBJDIR="$PWD/../build/rcc/obj" BINDIR="$PWD/../build/rcc/bin"
 
 ```sh
 rcc --target i686-unknown-rinos -c -MMD -MF app.d -o app.ro app.c
+rcc --manifest app.rinbuild --emit-unsigned-v3 -o app.rin app.c
 rcc --target x86_64-unknown-rinos -S -o app.s app.c
 rar r libsample.ra sample.ro
 rld --target x86_64-unknown-rinos --shared \
@@ -68,6 +70,7 @@ make test-static-assert
 make test-cxx-cli
 make test-link
 make test-archive
+make test-manifest
 ```
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、

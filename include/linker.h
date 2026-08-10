@@ -22,14 +22,19 @@ typedef struct LinkImportSpec {
 /* Linker options */
 typedef struct {
     char output_file[RCC_MAX_PATH];
+    bool output_explicit;
     char** input_files;
     int input_count;
     uint16_t arch;
     bool arch_explicit;
     bool verbose;
     bool shared;        /* Create shared library (.rll) */
+    bool shared_explicit;
     uint32_t base_addr; /* Base load address */
     const char* entry;  /* Entry point symbol */
+    bool entry_explicit;
+    char manifest_entry[RCC_MAX_IDENT];
+    const char* manifest_path;
     const char* dependencies[RLD_MAX_DEPENDENCIES];
     int dependency_count;
     LinkImportSpec imports[RLD_MAX_IMPORTS];

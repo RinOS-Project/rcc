@@ -5,6 +5,7 @@
 
 #include "rcc.h"
 #include "linker.h"
+#include "build_manifest.h"
 #include <getopt.h>
 #include <string.h>
 
@@ -22,6 +23,7 @@ static void print_usage(void) {
     printf("  -m32          Link for 32-bit (default)\n");
     printf("  -m64          Link for 64-bit\n");
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
+    printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign/--sign-key/--public-key  Required final v3 signing inputs\n");
     printf("  --dep <name.rll>                  Add a signed dependency\n");
     printf("  --import <symbol>=<dep>@<kind>    Add function/data import\n");
@@ -37,7 +39,6 @@ static void print_usage(void) {
 static int parse_args(int argc, char** argv) {
     /* Default options */
     memset(&g_linker_opts, 0, sizeof(g_linker_opts));
-    strcpy(g_linker_opts.output_file, "a.rin");
     g_linker_opts.arch = ARCH_X86;
     g_linker_opts.base_addr = 0x10000;
     g_linker_opts.entry = "main";
@@ -54,6 +55,7 @@ static int parse_args(int argc, char** argv) {
         {"emit-unsigned-v3", no_argument, 0, 7},
         {"dep", required_argument, 0, 8},
         {"import", required_argument, 0, 9},
+        {"manifest", required_argument, 0, 10},
         {0, 0, 0, 0}
     };
 
@@ -62,9 +64,11 @@ static int parse_args(int argc, char** argv) {
         switch (opt) {
             case 'o':
                 strncpy(g_linker_opts.output_file, optarg, RCC_MAX_PATH - 1);
+                g_linker_opts.output_explicit = true;
                 break;
             case 'e':
                 g_linker_opts.entry = optarg;
+                g_linker_opts.entry_explicit = true;
                 break;
             case 'T':
                 g_linker_opts.base_addr = strtoul(optarg, NULL, 0);
@@ -101,6 +105,7 @@ static int parse_args(int argc, char** argv) {
                 exit(0);
             case 1:  /* --shared */
                 g_linker_opts.shared = true;
+                g_linker_opts.shared_explicit = true;
                 break;
             case 2: { /* --target */
                 TargetArch target_arch;
@@ -116,6 +121,9 @@ static int parse_args(int argc, char** argv) {
                 g_linker_opts.arch_explicit = true;
                 break;
             }
+            case 10:
+                g_linker_opts.manifest_path = optarg;
+                break;
             case 3: g_opts.rinsign_path = optarg; break;
             case 4: g_opts.sign_key = optarg; break;
             case 5: g_opts.public_key = optarg; break;
@@ -171,6 +179,50 @@ static int parse_args(int argc, char** argv) {
 
     g_linker_opts.input_files = &argv[optind];
     g_linker_opts.input_count = argc - optind;
+
+    if (g_linker_opts.manifest_path) {
+        RccBuildManifest manifest;
+        char error[RCC_BUILD_MANIFEST_ERROR_MAX];
+        bool manifest_shared;
+        if (!rcc_manifest_load(g_linker_opts.manifest_path, &manifest,
+                               error, sizeof(error))) {
+            fprintf(stderr, "rld: error: %s\n", error);
+            return -1;
+        }
+        if (manifest.artifact != RCC_MANIFEST_ARTIFACT_EXECUTABLE &&
+            manifest.artifact != RCC_MANIFEST_ARTIFACT_LIBRARY) {
+            fprintf(stderr, "rld: error: manifest artifact is not linkable by rld\n");
+            return -1;
+        }
+        manifest_shared = manifest.artifact == RCC_MANIFEST_ARTIFACT_LIBRARY;
+        if (g_linker_opts.arch_explicit &&
+            g_linker_opts.arch != manifest.target_arch) {
+            fprintf(stderr, "rld: error: CLI target conflicts with build manifest\n");
+            return -1;
+        }
+        if (g_linker_opts.shared_explicit &&
+            g_linker_opts.shared != manifest_shared) {
+            fprintf(stderr, "rld: error: CLI artifact conflicts with build manifest\n");
+            return -1;
+        }
+        if (g_linker_opts.entry_explicit && manifest.entry_present &&
+            strcmp(g_linker_opts.entry, manifest.entry) != 0) {
+            fprintf(stderr, "rld: error: CLI entry conflicts with build manifest\n");
+            return -1;
+        }
+        g_linker_opts.arch = manifest.target_arch;
+        g_linker_opts.arch_explicit = true;
+        g_linker_opts.shared = manifest_shared;
+        g_linker_opts.shared_explicit = true;
+        if (manifest.entry_present) {
+            strcpy(g_linker_opts.manifest_entry, manifest.entry);
+            g_linker_opts.entry = g_linker_opts.manifest_entry;
+        }
+    }
+    if (!g_linker_opts.output_explicit) {
+        strcpy(g_linker_opts.output_file,
+               g_linker_opts.shared ? "a.rll" : "a.rin");
+    }
 
     if (!g_opts.emit_unsigned_v3 &&
         (!g_opts.rinsign_path || !g_opts.sign_key || !g_opts.public_key)) {

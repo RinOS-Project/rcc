@@ -11,7 +11,7 @@
 - [x] canonical RIN v3 / NDRV v3 header生成
 - [x] typed importとdependency metadata
 - [x] external `rinsign`必須の最終link
-- [ ] versioned build manifestとCLI矛盾検査
+- [x] versioned build manifestとCLI矛盾検査
 - [ ] COMDAT、weak symbol、完全なarchive選択規則
 - [ ] TLS、INIT/FINI、UNWIND sectionの完全link
 

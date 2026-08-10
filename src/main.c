@@ -9,6 +9,7 @@
 #include "symtab.h"
 #include "codegen.h"
 #include "preproc.h"
+#include "build_manifest.h"
 #include <getopt.h>
 
 /* Print usage */
@@ -28,6 +29,7 @@ static void print_usage(void) {
     printf("  -m32            Generate 32-bit code (default)\n");
     printf("  -m64            Generate 64-bit code\n");
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
+    printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign <file>    Isolated v3 signer program\n");
     printf("  --sign-key <file>   Explicit RSA private key (final outputs)\n");
     printf("  --public-key <file> Provisioned PKCS#1 public DER key\n");
@@ -90,10 +92,12 @@ static int parse_args(int argc, char** argv) {
         /* Options starting with - */
         if (strcmp(arg, "-c") == 0) {
             g_opts.output_format = OUTPUT_OBJ;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-E") == 0) {
             g_opts.preprocess_only = true;
         } else if (strcmp(arg, "-S") == 0) {
             g_opts.output_format = OUTPUT_ASM;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-MMD") == 0) {
             g_opts.emit_dependencies = true;
         } else if (strcmp(arg, "-MF") == 0) {
@@ -122,8 +126,10 @@ static int parse_args(int argc, char** argv) {
             g_opts.freestanding = true;
         } else if (strcmp(arg, "-shared") == 0 || strcmp(arg, "--shared") == 0) {
             g_opts.output_format = OUTPUT_RLL;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-driver") == 0 || strcmp(arg, "--driver") == 0) {
             g_opts.output_format = OUTPUT_DRV;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-m32") == 0) {
             if (g_opts.target_explicit && g_opts.target_arch != ARCH_X86) {
                 fprintf(stderr, "rcc: error: -m32 conflicts with --target=%s\n",
@@ -162,6 +168,21 @@ static int parse_args(int argc, char** argv) {
             }
             g_opts.target_arch = target_arch;
             g_opts.target_explicit = true;
+        } else if (strcmp(arg, "--manifest") == 0 ||
+                   strncmp(arg, "--manifest=", 11) == 0) {
+            if (strcmp(arg, "--manifest") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "rcc: error: --manifest requires an argument\n");
+                    return -1;
+                }
+                g_opts.manifest_path = argv[++i];
+            } else {
+                g_opts.manifest_path = arg + 11;
+            }
+            if (!g_opts.manifest_path[0]) {
+                fprintf(stderr, "rcc: error: empty --manifest path\n");
+                return -1;
+            }
         } else if (strcmp(arg, "--rinsign") == 0 ||
                    strcmp(arg, "--sign-key") == 0 ||
                    strcmp(arg, "--public-key") == 0 ||
@@ -272,6 +293,17 @@ static int parse_args(int argc, char** argv) {
     if (g_opts.input_file[0] == '\0') {
         fprintf(stderr, "rcc: error: no input file\n");
         return -1;
+    }
+    if (g_opts.manifest_path) {
+        RccBuildManifest manifest;
+        char error[RCC_BUILD_MANIFEST_ERROR_MAX];
+        if (!rcc_manifest_load(g_opts.manifest_path, &manifest,
+                               error, sizeof(error)) ||
+            !rcc_manifest_apply_compiler(&manifest, &g_opts,
+                                         error, sizeof(error))) {
+            fprintf(stderr, "rcc: error: %s\n", error);
+            return -1;
+        }
     }
     if ((g_opts.output_format == OUTPUT_RIN ||
          g_opts.output_format == OUTPUT_RLL ||

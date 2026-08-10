@@ -10,6 +10,7 @@
 #include "symtab.h"
 #include "codegen.h"
 #include "preproc.h"
+#include "build_manifest.h"
 #include <stdarg.h>
 #include <getopt.h>
 
@@ -33,6 +34,7 @@ static void print_usage_cxx(void) {
     printf("  -m32            Generate 32-bit code (default)\n");
     printf("  -m64            Generate 64-bit code\n");
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
+    printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign/--sign-key/--public-key  Required final v3 signing inputs\n");
     printf("  -O<level>       Optimization level (0-3)\n");
     printf("  -std=c++<ver>   C++ standard (11, 14, 17, 20)\n");
@@ -77,6 +79,7 @@ static int parse_cxx_args(int argc, char** argv) {
         {"nostdinc", no_argument, 0, 12},
         {"ffreestanding", no_argument, 0, 13},
         {"pedantic", no_argument, 0, 14},
+        {"manifest", required_argument, 0, 15},
         {0, 0, 0, 0}
     };
 
@@ -85,6 +88,7 @@ static int parse_cxx_args(int argc, char** argv) {
         switch (opt) {
             case 'c':
                 g_opts.output_format = OUTPUT_OBJ;
+                g_opts.output_format_explicit = true;
                 break;
             case 'o':
                 strncpy(g_opts.output_file, optarg, RCC_MAX_PATH - 1);
@@ -118,6 +122,7 @@ static int parse_cxx_args(int argc, char** argv) {
                 break;
             case 'S':
                 g_opts.output_format = OUTPUT_ASM;
+                g_opts.output_format_explicit = true;
                 break;
             case 'E':
                 g_opts.preprocess_only = true;
@@ -169,9 +174,11 @@ static int parse_cxx_args(int argc, char** argv) {
                 exit(0);
             case 1:  /* --shared */
                 g_opts.output_format = OUTPUT_RLL;
+                g_opts.output_format_explicit = true;
                 break;
             case 2:  /* --driver */
                 g_opts.output_format = OUTPUT_DRV;
+                g_opts.output_format_explicit = true;
                 break;
             case 3: { /* --target */
                 TargetArch target_arch;
@@ -211,6 +218,7 @@ static int parse_cxx_args(int argc, char** argv) {
             case 12: g_opts.nostdinc = true; break;
             case 13: g_opts.freestanding = true; break;
             case 14: g_opts.pedantic = true; break;
+            case 15: g_opts.manifest_path = optarg; break;
             default:
                 return -1;
         }
@@ -223,6 +231,18 @@ static int parse_cxx_args(int argc, char** argv) {
     }
 
     strncpy(g_opts.input_file, argv[optind], RCC_MAX_PATH - 1);
+
+    if (g_opts.manifest_path) {
+        RccBuildManifest manifest;
+        char error[RCC_BUILD_MANIFEST_ERROR_MAX];
+        if (!rcc_manifest_load(g_opts.manifest_path, &manifest,
+                               error, sizeof(error)) ||
+            !rcc_manifest_apply_compiler(&manifest, &g_opts,
+                                         error, sizeof(error))) {
+            fprintf(stderr, "rcc++: error: %s\n", error);
+            return -1;
+        }
+    }
 
     if ((g_opts.output_format == OUTPUT_RIN ||
          g_opts.output_format == OUTPUT_RLL ||

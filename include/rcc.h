@@ -48,6 +48,7 @@ typedef struct {
     char input_file[RCC_MAX_PATH];
     char output_file[RCC_MAX_PATH];
     OutputFormat output_format;
+    bool output_format_explicit;
     TargetArch target_arch;
     bool target_explicit;
     int opt_level;              /* 0-3 */
@@ -77,6 +78,7 @@ typedef struct {
     const char* public_key;
     const char* rinsign_path;
     const char* python_path;
+    const char* manifest_path;
     bool emit_unsigned_v3;      /* Internal packaging/debug stage only. */
 } CompilerOptions;
 
