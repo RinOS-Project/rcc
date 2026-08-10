@@ -579,12 +579,12 @@ static void gen64_symbol_address(Module* mod, const char* symbol,
     add_reloc(mod, code_offset(mod) - 8u, RIN_RELOC_ABS64);
 }
 
-static void gen64_ensure_data_base_symbol(Module* mod) {
+static void gen64_ensure_rodata_base_symbol(Module* mod) {
     for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name, "__rcc_data_base") == 0) return;
+        if (strcmp(mod->symbols[index].name, "__rcc_rodata_base") == 0) return;
     }
-    module_add_symbol(mod, "__rcc_data_base", 0u, true,
-                      MODULE_SYMBOL_DATA, false);
+    module_add_symbol(mod, "__rcc_rodata_base", 0u, true,
+                      MODULE_SYMBOL_RODATA, false);
 }
 
 /* Generate lvalue address in RAX */
@@ -652,8 +652,8 @@ static void gen64_expr(Module* mod, Expr* expr) {
 
         case EXPR_STRING_LIT: {
             uint32_t offset = emit_string(mod, expr->str_val);
-            gen64_ensure_data_base_symbol(mod);
-            gen64_symbol_address(mod, "__rcc_data_base", offset);
+            gen64_ensure_rodata_base_symbol(mod);
+            gen64_symbol_address(mod, "__rcc_rodata_base", offset);
             break;
         }
 

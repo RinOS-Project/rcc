@@ -27,24 +27,29 @@ static uint32_t append_name(char* strings, uint32_t* size, const char* name) {
 
 bool rcc_emit(Module* mod, const char* outfile) {
     RinHeaderV3 header;
-    RinSectionV3 sections[4];
+    RinSectionV3 sections[5];
     RinRelocationV3* relocations = NULL;
     uint32_t relocation_count = 0u;
     uint32_t section_count = 1u;
     uint32_t relocation_index = 0u;
     uint32_t strings_size = 1u;
     uint32_t text_name;
+    uint32_t rodata_name = 0u;
     uint32_t data_name = 0u;
     uint32_t bss_name = 0u;
     uint32_t reloc_name = 0u;
-    char strings[32] = {0};
+    char strings[40] = {0};
     uint64_t section_table_offset = sizeof(RinHeaderV3);
     uint64_t dependency_table_offset;
     uint64_t string_table_offset;
     uint64_t code_file_offset;
+    uint64_t rodata_file_offset = 0u;
     uint64_t data_file_offset = 0u;
     uint64_t relocation_file_offset = 0u;
     uint64_t unsigned_size;
+    uint64_t payload_file_end;
+    uint64_t mapped_end;
+    uint64_t rodata_rva = 0u;
     uint64_t data_rva = 0u;
     uint64_t bss_rva = 0u;
     uint64_t image_size;
@@ -53,19 +58,23 @@ bool rcc_emit(Module* mod, const char* outfile) {
     Reloc* relocation;
 
     if (!mod || !outfile || mod->code.size == 0u ||
-        mod->code.size > UINT32_MAX || mod->data.size > UINT32_MAX ||
-        mod->bss.size > UINT32_MAX) {
+        mod->code.size > UINT32_MAX || mod->rodata.size > UINT32_MAX ||
+        mod->data.size > UINT32_MAX || mod->bss.size > UINT32_MAX) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for RIN v3 output");
         return false;
     }
     for (relocation = mod->relocs; relocation; relocation = relocation->next) {
         ++relocation_count;
     }
+    if (mod->rodata.size > 0u) ++section_count;
     if (mod->data.size > 0u) ++section_count;
     if (mod->bss.size > 0u) ++section_count;
     if (relocation_count > 0u) ++section_count;
 
     text_name = append_name(strings, &strings_size, ".text");
+    if (mod->rodata.size > 0u) {
+        rodata_name = append_name(strings, &strings_size, ".rodata");
+    }
     if (mod->data.size > 0u) data_name = append_name(strings, &strings_size, ".data");
     if (mod->bss.size > 0u) bss_name = append_name(strings, &strings_size, ".bss");
     if (relocation_count > 0u) reloc_name = append_name(strings, &strings_size, ".reloc");
@@ -74,31 +83,32 @@ bool rcc_emit(Module* mod, const char* outfile) {
         (uint64_t)section_count * sizeof(RinSectionV3);
     string_table_offset = dependency_table_offset;
     code_file_offset = align_up_u64(string_table_offset + strings_size, 16u);
+    payload_file_end = code_file_offset + mod->code.size;
+    mapped_end = mod->code.size;
+    if (mod->rodata.size > 0u) {
+        rodata_file_offset = align_up_u64(payload_file_end, 16u);
+        payload_file_end = rodata_file_offset + mod->rodata.size;
+        rodata_rva = align_up_u64(mapped_end, 4096u);
+        mapped_end = rodata_rva + mod->rodata.size;
+    }
     if (mod->data.size > 0u) {
-        data_file_offset = align_up_u64(code_file_offset + mod->code.size, 16u);
-        data_rva = align_up_u64(mod->code.size, 4096u);
+        data_file_offset = align_up_u64(payload_file_end, 16u);
+        payload_file_end = data_file_offset + mod->data.size;
+        data_rva = align_up_u64(mapped_end, 4096u);
+        mapped_end = data_rva + mod->data.size;
     }
     if (mod->bss.size > 0u) {
-        uint64_t mapped_end = mod->data.size > 0u
-            ? data_rva + mod->data.size : mod->code.size;
         bss_rva = align_up_u64(mapped_end, 4096u);
+        mapped_end = bss_rva + mod->bss.size;
     }
     if (relocation_count > 0u) {
-        uint64_t payload_end = mod->data.size > 0u
-            ? data_file_offset + mod->data.size
-            : code_file_offset + mod->code.size;
-        relocation_file_offset = align_up_u64(payload_end, 8u);
+        relocation_file_offset = align_up_u64(payload_file_end, 8u);
         unsigned_size = relocation_file_offset +
             (uint64_t)relocation_count * sizeof(RinRelocationV3);
     } else {
-        unsigned_size = mod->data.size > 0u
-            ? data_file_offset + mod->data.size
-            : code_file_offset + mod->code.size;
+        unsigned_size = payload_file_end;
     }
-    image_size = align_up_u64(mod->bss.size > 0u
-        ? bss_rva + mod->bss.size
-        : mod->data.size > 0u ? data_rva + mod->data.size : mod->code.size,
-        4096u);
+    image_size = align_up_u64(mapped_end, 4096u);
     if (unsigned_size > SIZE_MAX || image_size == 0u ||
         (g_opts.target_arch == ARCH_X86 && image_size >= UINT64_C(0xC0000000))) {
         rcc_error((SourceLoc){outfile, 0, 0}, "RIN v3 image exceeds target limits");
@@ -132,6 +142,17 @@ bool rcc_emit(Module* mod, const char* outfile) {
     sections[0].memory_size = mod->code.size;
     sections[0].name_offset = text_name;
     uint32_t next_section = 1u;
+    if (mod->rodata.size > 0u) {
+        RinSectionV3* rodata_section = &sections[next_section++];
+        rodata_section->type = RIN_IMAGE_SECTION_RODATA;
+        rodata_section->flags = RIN_IMAGE_SECTION_READ;
+        rodata_section->alignment = 16u;
+        rodata_section->file_offset = rodata_file_offset;
+        rodata_section->file_size = mod->rodata.size;
+        rodata_section->virtual_address = rodata_rva;
+        rodata_section->memory_size = mod->rodata.size;
+        rodata_section->name_offset = rodata_name;
+    }
     if (mod->data.size > 0u) {
         RinSectionV3* data_section = &sections[next_section++];
         data_section->type = RIN_IMAGE_SECTION_DATA;
@@ -194,6 +215,10 @@ bool rcc_emit(Module* mod, const char* outfile) {
            (size_t)section_count * sizeof(RinSectionV3));
     memcpy(output + string_table_offset, strings, strings_size);
     memcpy(output + code_file_offset, mod->code.data, mod->code.size);
+    if (mod->rodata.size > 0u) {
+        memcpy(output + rodata_file_offset, mod->rodata.data,
+               mod->rodata.size);
+    }
     if (mod->data.size > 0u) {
         memcpy(output + data_file_offset, mod->data.data, mod->data.size);
     }
@@ -201,7 +226,8 @@ bool rcc_emit(Module* mod, const char* outfile) {
         uint64_t resolved;
         bool is_64bit = relocation->type == RIN_RELOC_ABS64;
         if (!module_resolve_image_relocation(mod, relocation->offset,
-                                             is_64bit, data_rva, bss_rva,
+                                             is_64bit, rodata_rva, data_rva,
+                                             bss_rva,
                                              &resolved)) {
             rcc_error((SourceLoc){outfile, 0, 0},
                       "unresolved direct-image relocation at code offset %u",

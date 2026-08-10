@@ -724,6 +724,8 @@ static char* module_scoped_symbol(const char* filename, const char* name) {
 
 ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjectFile* obj = objfile_new(filename, g_opts.target_arch);
+    int next_section = 1;
+    int rodata_section = -1;
     int data_section = -1;
     int bss_section = -1;
 
@@ -732,12 +734,18 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                                            SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
     section_add_data(text, mod->code.data, mod->code.size);
 
-    /* Create .data section */
+    if (mod->rodata.size > 0u) {
+        ObjSection* rodata = objfile_add_section(
+            obj, ".rodata", SECT_RODATA, SECT_FLAG_ALLOC);
+        section_add_data(rodata, mod->rodata.data, mod->rodata.size);
+        rodata_section = next_section++;
+    }
+
     if (mod->data.size > 0) {
         ObjSection* data = objfile_add_section(obj, ".data", SECT_DATA,
                                                SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
         section_add_data(data, mod->data.data, mod->data.size);
-        data_section = 1;
+        data_section = next_section++;
     }
 
     if (mod->bss.size > 0u) {
@@ -745,11 +753,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                                               SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
         section_set_memory_size(bss, mod->bss.size);
         bss->align = mod->bss.align;
-        bss_section = data_section >= 0 ? 2 : 1;
+        bss_section = next_section++;
     }
-
-    /* Create .rodata section for string literals etc */
-    /* TODO: separate from .data */
 
     /* Add symbols from module */
     for (int i = 0; i < mod->symbol_count; i++) {
@@ -779,6 +784,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         int section = -1;
         if (ms->is_defined) {
             section = ms->section == MODULE_SYMBOL_CODE ? 0
+                : ms->section == MODULE_SYMBOL_RODATA ? rodata_section
                 : ms->section == MODULE_SYMBOL_BSS ? bss_section
                 : data_section;
             if (section < 0) {

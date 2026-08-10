@@ -240,10 +240,14 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/direct/x86.ro tests/direct_relocation.c
 	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/direct/x86.rin tests/direct_relocation.c
+	$(RLD_TARGET) -m32 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x86-linked.rin $(TEST_OUT)/direct/x86.ro
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/x64.ro tests/direct_relocation.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/direct/x64.rin tests/direct_relocation.c
+	$(RLD_TARGET) -m64 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x64-linked.rin $(TEST_OUT)/direct/x64.ro
 	$(RCC_TARGET) --target i686-unknown-rinos -driver --emit-unsigned-v3 \
 		-o $(TEST_OUT)/direct/x86.drv tests/direct_relocation.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --emit-unsigned-v3 \

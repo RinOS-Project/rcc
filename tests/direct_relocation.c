@@ -23,7 +23,13 @@ int* zero_address(void)
     return &zero_value;
 }
 
+char* literal_address(void)
+{
+    return "RinOS";
+}
+
 int main(void)
 {
-    return *(&second_value) + *zero_address() + (target_address() != 0);
+    return *(&second_value) + *zero_address() + (target_address() != 0) +
+           (literal_address() != 0);
 }

@@ -43,12 +43,13 @@ typedef struct Reloc {
 /* String literal entry */
 typedef struct StringLit {
     const char* value;
-    uint32_t offset;        /* Offset in data section */
+    uint32_t offset;        /* Offset in read-only data section */
     struct StringLit* next;
 } StringLit;
 
 typedef enum ModuleSymbolSection {
     MODULE_SYMBOL_CODE,
+    MODULE_SYMBOL_RODATA,
     MODULE_SYMBOL_DATA,
     MODULE_SYMBOL_BSS,
 } ModuleSymbolSection;
@@ -75,6 +76,7 @@ typedef struct ModuleReloc {
 /* Compiled module */
 typedef struct Module {
     CodeSection code;
+    DataSection rodata;
     DataSection data;
     BssSection bss;
     Reloc* relocs;
@@ -124,8 +126,9 @@ void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,
                           const char* symbol_name);
 bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
-                                     bool is_64bit, uint64_t data_rva,
-                                     uint64_t bss_rva, uint64_t* value);
+                                     bool is_64bit, uint64_t rodata_rva,
+                                     uint64_t data_rva, uint64_t bss_rva,
+                                     uint64_t* value);
 void codegen_emit_global_data(Module* mod, AST* ast);
 
 /* Object file output */

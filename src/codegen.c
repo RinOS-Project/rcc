@@ -25,6 +25,10 @@ Module* codegen_new(void) {
     mod->code.size = 0;
     mod->code.capacity = INIT_CAPACITY;
 
+    mod->rodata.data = rcc_alloc(INIT_CAPACITY);
+    mod->rodata.size = 0;
+    mod->rodata.capacity = INIT_CAPACITY;
+
     mod->data.data = rcc_alloc(INIT_CAPACITY);
     mod->data.size = 0;
     mod->data.capacity = INIT_CAPACITY;
@@ -51,6 +55,7 @@ Module* codegen_new(void) {
 void codegen_free(Module* mod) {
     if (!mod) return;
     rcc_free(mod->code.data);
+    rcc_free(mod->rodata.data);
     rcc_free(mod->data.data);
     rcc_free(mod->symbols);
     rcc_free(mod->relocs_arr);
@@ -151,8 +156,9 @@ void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
 }
 
 bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
-                                     bool is_64bit, uint64_t data_rva,
-                                     uint64_t bss_rva, uint64_t* value) {
+                                     bool is_64bit, uint64_t rodata_rva,
+                                     uint64_t data_rva, uint64_t bss_rva,
+                                     uint64_t* value) {
     const ModuleReloc* relocation = NULL;
     const ModuleSymbol* symbol = NULL;
     uint64_t base;
@@ -177,6 +183,7 @@ bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
     if (!symbol || !symbol->is_defined) return false;
     switch (symbol->section) {
         case MODULE_SYMBOL_CODE: base = 0u; break;
+        case MODULE_SYMBOL_RODATA: base = rodata_rva; break;
         case MODULE_SYMBOL_DATA: base = data_rva; break;
         case MODULE_SYMBOL_BSS: base = bss_rva; break;
         default: return false;
@@ -281,8 +288,20 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
 
 static void ensure_data_capacity(Module* mod, size_t needed) {
     if (mod->data.size + needed > mod->data.capacity) {
-        mod->data.capacity *= 2;
+        while (mod->data.size + needed > mod->data.capacity) {
+            mod->data.capacity *= 2;
+        }
         mod->data.data = rcc_realloc(mod->data.data, mod->data.capacity);
+    }
+}
+
+static void ensure_rodata_capacity(Module* mod, size_t needed) {
+    if (mod->rodata.size + needed > mod->rodata.capacity) {
+        while (mod->rodata.size + needed > mod->rodata.capacity) {
+            mod->rodata.capacity *= 2;
+        }
+        mod->rodata.data = rcc_realloc(mod->rodata.data,
+                                       mod->rodata.capacity);
     }
 }
 
@@ -296,11 +315,11 @@ uint32_t emit_string(Module* mod, const char* str) {
 
     /* Add new string */
     size_t len = strlen(str) + 1;
-    uint32_t offset = (uint32_t)mod->data.size;
+    uint32_t offset = (uint32_t)mod->rodata.size;
 
-    ensure_data_capacity(mod, len);
-    memcpy(mod->data.data + mod->data.size, str, len);
-    mod->data.size += len;
+    ensure_rodata_capacity(mod, len);
+    memcpy(mod->rodata.data + mod->rodata.size, str, len);
+    mod->rodata.size += len;
 
     /* Record in string list */
     StringLit* lit = rcc_alloc(sizeof(StringLit));
@@ -703,12 +722,12 @@ static void gen_symbol_address(Module* mod, const char* symbol,
     add_reloc(mod, code_offset(mod) - 4u, RIN_RELOC_ABS32);
 }
 
-static void gen_ensure_data_base_symbol(Module* mod) {
+static void gen_ensure_rodata_base_symbol(Module* mod) {
     for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name, "__rcc_data_base") == 0) return;
+        if (strcmp(mod->symbols[index].name, "__rcc_rodata_base") == 0) return;
     }
-    module_add_symbol(mod, "__rcc_data_base", 0u, true,
-                      MODULE_SYMBOL_DATA, false);
+    module_add_symbol(mod, "__rcc_rodata_base", 0u, true,
+                      MODULE_SYMBOL_RODATA, false);
 }
 
 /* Generate lvalue address in EAX */
@@ -782,8 +801,8 @@ static void gen_expr(Module* mod, Expr* expr) {
 
         case EXPR_STRING_LIT: {
             uint32_t offset = emit_string(mod, expr->str_val);
-            gen_ensure_data_base_symbol(mod);
-            gen_symbol_address(mod, "__rcc_data_base", offset);
+            gen_ensure_rodata_base_symbol(mod);
+            gen_symbol_address(mod, "__rcc_rodata_base", offset);
             break;
         }
 

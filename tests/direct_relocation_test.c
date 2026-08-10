@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static ObjSymbol* required_symbol(ObjectFile* object, const char* name)
 {
@@ -26,6 +27,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
     RinDriverHeaderV3 driver_header;
     RinSectionV3* sections;
     RinSectionV3* code = NULL;
+    RinSectionV3* rodata = NULL;
     RinSectionV3* data = NULL;
     RinSectionV3* bss = NULL;
     RinSectionV3* relocation_section = NULL;
@@ -35,6 +37,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
     uint32_t section_count;
     uint64_t section_table_offset;
     int saw_data_symbol = 0;
+    int saw_rodata_symbol = 0;
     int saw_bss_symbol = 0;
     int saw_code_symbol = 0;
 
@@ -47,6 +50,14 @@ static void verify_artifact(const char* object_path, const char* image_path,
     assert(first->value != second->value);
     assert(zero->binding == BIND_BSS);
     assert(zero->section != first->section);
+    {
+        ObjSection* section = object->sections;
+        while (section && section->type != SECT_RODATA) section = section->next;
+        assert(section != NULL);
+        assert(section->flags == SECT_FLAG_ALLOC);
+        assert(section->size == 6u);
+        assert(memcmp(section->data, "RinOS", 6u) == 0);
+    }
 
     image = fopen(image_path, "rb");
     assert(image != NULL);
@@ -73,14 +84,18 @@ static void verify_artifact(const char* object_path, const char* image_path,
            section_count);
     for (uint32_t index = 0u; index < section_count; ++index) {
         if (sections[index].type == RIN_IMAGE_SECTION_CODE) code = &sections[index];
+        if (sections[index].type == RIN_IMAGE_SECTION_RODATA) rodata = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_DATA) data = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_BSS) bss = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_RELOCATIONS) {
             relocation_section = &sections[index];
         }
     }
-    assert(code != NULL && data != NULL && bss != NULL &&
+    assert(code != NULL && rodata != NULL && data != NULL && bss != NULL &&
            relocation_section != NULL);
+    assert(rodata->flags == RIN_IMAGE_SECTION_READ);
+    assert(rodata->file_size == 6u && rodata->memory_size == 6u);
+    assert(rodata->virtual_address != data->virtual_address);
     assert(bss->file_offset == 0u && bss->file_size == 0u);
     assert(bss->memory_size >= zero->value + 4u);
     assert(relocation_section->file_size % sizeof(RinRelocationV3) == 0u);
@@ -107,6 +122,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
         if (value == data->virtual_address + second->value) {
             saw_data_symbol = 1;
         }
+        if (value == rodata->virtual_address) {
+            saw_rodata_symbol = 1;
+        }
         if (value == bss->virtual_address + zero->value) {
             saw_bss_symbol = 1;
         }
@@ -115,6 +133,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
         }
     }
     assert(saw_data_symbol);
+    assert(saw_rodata_symbol);
     assert(saw_bss_symbol);
     assert(saw_code_symbol);
 
