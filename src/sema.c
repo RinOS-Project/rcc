@@ -492,9 +492,25 @@ static void sema_decl(Decl* decl) {
 
     switch (decl->kind) {
         case DECL_VAR: {
-            Symbol* sym = symtab_define(g_symtab, decl->name, SYM_VAR, decl->type, decl->loc);
+            bool is_global = g_symtab->current == g_symtab->global;
+            Symbol* sym = is_global
+                ? symtab_lookup_local(g_symtab, decl->name) : NULL;
+            if (sym) {
+                if (sym->kind != SYM_VAR ||
+                    !type_is_compatible(sym->type, decl->type)) {
+                    rcc_error(decl->loc,
+                              "conflicting declaration of variable '%s'",
+                              decl->name);
+                } else if (decl->var_init && sym->is_defined) {
+                    rcc_error(decl->loc, "redefinition of variable '%s'",
+                              decl->name);
+                }
+            } else {
+                sym = symtab_define(g_symtab, decl->name, SYM_VAR,
+                                    decl->type, decl->loc);
+            }
             sym->decl = decl;
-            sym->is_defined = true;
+            if (!is_global || decl->var_init) sym->is_defined = true;
             decl->var_offset = sym->offset;
             decl->var_is_global = sym->is_global;
 

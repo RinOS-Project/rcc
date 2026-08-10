@@ -27,7 +27,7 @@ RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・ア�
 - nested include、function-like/variadic macro、条件付きpreprocess
 - C17 `_Static_assert`の整数定数式評価と失敗diagnostic
 - x86_64 SysVの整数引数、基本scalar/aggregate load-store、global data
-- direct RIN/NDRVとobject linkでのDATA/CODE symbol relocation、関数ポインタ
+- direct RIN/NDRVとobject linkでのDATA/CODE/BSS symbol relocation、関数ポインタ
 - `.ro/.ra v2` reader/writer、typed import、依存libraryを扱う`rld`
 - external signerを安全な引数配列で起動する最終v3出力
 
@@ -92,9 +92,10 @@ symbol tableとmember実体が矛盾する改変archiveを拒否します。
 `test-special-sections`はTLS、unwind、init/fini arrayを`.ro v2`からRIN v3へ
 両archで保持し、TLS zero-fillとBSSのfile/memory sizeを分離します。またW^X、
 array幅、同名section metadataの矛盾を拒否します。
-`test-direct-relocation`は複数globalと関数ポインタが実symbol RVAへ解決されることを
-RIN/NDRVの両archで検査し、未解決direct imageを拒否する一方、同じ参照を`.ro v2`
-経由のmulti-object linkでは解決できることを確認します。
+`test-direct-relocation`は複数global、zero-file-size BSS、関数ポインタが実symbol
+RVAへ解決されることをRIN/NDRVの両archで検査します。extern、tentative
+definition、重複・型衝突も検査し、未解決direct imageを拒否する一方、同じ参照を
+`.ro v2`経由のmulti-object linkでは解決できることを確認します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。

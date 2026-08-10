@@ -724,6 +724,8 @@ static char* module_scoped_symbol(const char* filename, const char* name) {
 
 ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjectFile* obj = objfile_new(filename, g_opts.target_arch);
+    int data_section = -1;
+    int bss_section = -1;
 
     /* Create .text section */
     ObjSection* text = objfile_add_section(obj, ".text", SECT_CODE,
@@ -735,6 +737,15 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         ObjSection* data = objfile_add_section(obj, ".data", SECT_DATA,
                                                SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
         section_add_data(data, mod->data.data, mod->data.size);
+        data_section = 1;
+    }
+
+    if (mod->bss.size > 0u) {
+        ObjSection* bss = objfile_add_section(obj, ".bss", SECT_BSS,
+                                              SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+        section_set_memory_size(bss, mod->bss.size);
+        bss->align = mod->bss.align;
+        bss_section = data_section >= 0 ? 2 : 1;
     }
 
     /* Create .rodata section for string literals etc */
@@ -762,8 +773,22 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         SymbolType type = ms->is_defined
             ? (ms->is_global ? SYM_GLOBAL : SYM_LOCAL)
             : SYM_UNDEF;
-        SymbolBinding binding = ms->is_code ? BIND_CODE : BIND_DATA;
-        int section = ms->is_defined ? (ms->is_code ? 0 : 1) : -1;
+        SymbolBinding binding = ms->section == MODULE_SYMBOL_CODE
+            ? BIND_CODE : ms->section == MODULE_SYMBOL_BSS
+                ? BIND_BSS : BIND_DATA;
+        int section = -1;
+        if (ms->is_defined) {
+            section = ms->section == MODULE_SYMBOL_CODE ? 0
+                : ms->section == MODULE_SYMBOL_BSS ? bss_section
+                : data_section;
+            if (section < 0) {
+                rcc_error((SourceLoc){filename, 0, 0},
+                          "defined symbol '%s' has no output section",
+                          ms->name);
+                objfile_free(obj);
+                return NULL;
+            }
+        }
 
         if (ms->is_defined && !ms->is_global) {
             object_name = module_scoped_symbol(filename, ms->name);
@@ -792,7 +817,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         /* If no symbol name, try to find by offset */
         if (!sym_name) {
             for (int j = 0; j < mod->symbol_count; j++) {
-                if (mod->symbols[j].offset == mr->target && !mod->symbols[j].is_code) {
+                if (mod->symbols[j].offset == mr->target &&
+                    mod->symbols[j].section != MODULE_SYMBOL_CODE) {
                     sym_name = mod->symbols[j].name;
                     break;
                 }
@@ -811,7 +837,9 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
 /* Emit object file from Module */
 bool rcc_emit_obj(Module* mod, const char* filename) {
     ObjectFile* obj = module_to_objfile(mod, filename);
-    bool ok = objfile_write(obj, filename);
+    bool ok;
+    if (!obj) return false;
+    ok = objfile_write(obj, filename);
     objfile_free(obj);
     return ok;
 }

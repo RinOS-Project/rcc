@@ -29,6 +29,9 @@ Module* codegen_new(void) {
     mod->data.size = 0;
     mod->data.capacity = INIT_CAPACITY;
 
+    mod->bss.size = 0;
+    mod->bss.align = 1u;
+
     mod->relocs = NULL;
     mod->strings = NULL;
     mod->entry_point = 0;
@@ -99,14 +102,15 @@ uint32_t code_offset(Module* mod) {
  * ═══════════════════════════════════════ */
 
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
-                       bool is_defined, bool is_code, bool is_global) {
+                       bool is_defined, ModuleSymbolSection section,
+                       bool is_global) {
     for (int index = 0; index < mod->symbol_count; ++index) {
         ModuleSymbol* existing = &mod->symbols[index];
         if (strcmp(existing->name, name) != 0) continue;
         if (is_defined && !existing->is_defined) {
             existing->offset = offset;
             existing->is_defined = true;
-            existing->is_code = is_code;
+            existing->section = section;
             existing->is_global = is_global;
         }
         return;
@@ -124,7 +128,7 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
     sym->offset = offset;
     sym->size = 0;
     sym->is_defined = is_defined;
-    sym->is_code = is_code;
+    sym->section = section;
     sym->is_global = is_global;
 }
 
@@ -148,7 +152,7 @@ void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
 
 bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
                                      bool is_64bit, uint64_t data_rva,
-                                     uint64_t* value) {
+                                     uint64_t bss_rva, uint64_t* value) {
     const ModuleReloc* relocation = NULL;
     const ModuleSymbol* symbol = NULL;
     uint64_t base;
@@ -171,13 +175,37 @@ bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
         }
     }
     if (!symbol || !symbol->is_defined) return false;
-    base = symbol->is_code ? 0u : data_rva;
+    switch (symbol->section) {
+        case MODULE_SYMBOL_CODE: base = 0u; break;
+        case MODULE_SYMBOL_DATA: base = data_rva; break;
+        case MODULE_SYMBOL_BSS: base = bss_rva; break;
+        default: return false;
+    }
     if (symbol->offset > UINT64_MAX - base ||
         relocation->target > UINT64_MAX - base - symbol->offset) {
         return false;
     }
     *value = base + symbol->offset + relocation->target;
     return true;
+}
+
+static Decl* codegen_global_variable(AST* ast, const char* name) {
+    Decl* tentative = NULL;
+    Decl* external = NULL;
+    for (DeclList* item = ast->decls; item; item = item->next) {
+        Decl* candidate = item->decl;
+        if (candidate->kind != DECL_VAR || !candidate->var_is_global ||
+            strcmp(candidate->name, name) != 0) {
+            continue;
+        }
+        if (candidate->var_init) return candidate;
+        if (candidate->storage != STORAGE_EXTERN) {
+            if (!tentative) tentative = candidate;
+        } else if (!external) {
+            external = candidate;
+        }
+    }
+    return tentative ? tentative : external;
 }
 
 void codegen_emit_global_data(Module* mod, AST* ast) {
@@ -189,10 +217,35 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         uint32_t offset;
         if (declaration->kind != DECL_VAR || !declaration->var_is_global ||
             !declaration->type || declaration->type->size <= 0) continue;
+        if (codegen_global_variable(ast, declaration->name) != declaration) {
+            continue;
+        }
         size = (uint32_t)declaration->type->size;
         alignment = declaration->type->align > 0
             ? (uint32_t)declaration->type->align : 1u;
         if (alignment > 16u) alignment = 16u;
+        if (declaration->storage == STORAGE_EXTERN &&
+            !declaration->var_init) {
+            module_add_symbol(mod, declaration->name, 0u, false,
+                              MODULE_SYMBOL_DATA, true);
+            continue;
+        }
+        if (!declaration->var_init) {
+            uint64_t aligned = ((uint64_t)mod->bss.size + alignment - 1u) &
+                               ~((uint64_t)alignment - 1u);
+            if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+                rcc_error(declaration->loc, "BSS exceeds compiler limits");
+                continue;
+            }
+            offset = (uint32_t)aligned;
+            mod->bss.size = (size_t)(aligned + size);
+            if (alignment > mod->bss.align) mod->bss.align = alignment;
+            declaration->var_offset = offset;
+            module_add_symbol(mod, declaration->name, offset, true,
+                              MODULE_SYMBOL_BSS,
+                              declaration->storage != STORAGE_STATIC);
+            continue;
+        }
         while ((mod->data.size & (alignment - 1u)) != 0u) {
             emit_data(mod, zero, 1u);
         }
@@ -216,7 +269,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                     (uint8_t)(initial >> (byte * 8u));
             }
         }
-        module_add_symbol(mod, declaration->name, offset, true, false,
+        module_add_symbol(mod, declaration->name, offset, true,
+                          MODULE_SYMBOL_DATA,
                           declaration->storage != STORAGE_STATIC);
     }
 }
@@ -653,7 +707,8 @@ static void gen_ensure_data_base_symbol(Module* mod) {
     for (int index = 0; index < mod->symbol_count; ++index) {
         if (strcmp(mod->symbols[index].name, "__rcc_data_base") == 0) return;
     }
-    module_add_symbol(mod, "__rcc_data_base", 0u, true, false, false);
+    module_add_symbol(mod, "__rcc_data_base", 0u, true,
+                      MODULE_SYMBOL_DATA, false);
 }
 
 /* Generate lvalue address in EAX */
@@ -1641,8 +1696,8 @@ Module* rcc_codegen(AST* ast) {
     for (DeclList* d = ast->decls; d; d = d->next) {
         if (d->decl->kind == DECL_FUNC && !d->decl->func_body) {
             /* External function declaration */
-            module_add_symbol(mod, d->decl->name, 0,
-                             false, true, true);  /* undefined, code, global */
+            module_add_symbol(mod, d->decl->name, 0, false,
+                              MODULE_SYMBOL_CODE, true);
         }
     }
 
@@ -1663,8 +1718,8 @@ Module* rcc_codegen(AST* ast) {
             gen_function(mod, d->decl);
 
             /* Add symbol for function */
-            module_add_symbol(mod, d->decl->name, func_start,
-                             true, true,
+            module_add_symbol(mod, d->decl->name, func_start, true,
+                              MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
         }
     }

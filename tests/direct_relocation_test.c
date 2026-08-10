@@ -20,12 +20,14 @@ static void verify_artifact(const char* object_path, const char* image_path,
     ObjectFile* object = objfile_read(object_path);
     ObjSymbol* first;
     ObjSymbol* second;
+    ObjSymbol* zero;
     ObjSymbol* target;
     RinHeaderV3 header;
     RinDriverHeaderV3 driver_header;
     RinSectionV3* sections;
     RinSectionV3* code = NULL;
     RinSectionV3* data = NULL;
+    RinSectionV3* bss = NULL;
     RinSectionV3* relocation_section = NULL;
     RinRelocationV3* relocations;
     FILE* image;
@@ -33,14 +35,18 @@ static void verify_artifact(const char* object_path, const char* image_path,
     uint32_t section_count;
     uint64_t section_table_offset;
     int saw_data_symbol = 0;
+    int saw_bss_symbol = 0;
     int saw_code_symbol = 0;
 
     assert(object != NULL);
     first = required_symbol(object, "first_value");
     second = required_symbol(object, "second_value");
+    zero = required_symbol(object, "zero_value");
     target = required_symbol(object, "target");
     assert(first->section == second->section);
     assert(first->value != second->value);
+    assert(zero->binding == BIND_BSS);
+    assert(zero->section != first->section);
 
     image = fopen(image_path, "rb");
     assert(image != NULL);
@@ -68,11 +74,15 @@ static void verify_artifact(const char* object_path, const char* image_path,
     for (uint32_t index = 0u; index < section_count; ++index) {
         if (sections[index].type == RIN_IMAGE_SECTION_CODE) code = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_DATA) data = &sections[index];
+        if (sections[index].type == RIN_IMAGE_SECTION_BSS) bss = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_RELOCATIONS) {
             relocation_section = &sections[index];
         }
     }
-    assert(code != NULL && data != NULL && relocation_section != NULL);
+    assert(code != NULL && data != NULL && bss != NULL &&
+           relocation_section != NULL);
+    assert(bss->file_offset == 0u && bss->file_size == 0u);
+    assert(bss->memory_size >= zero->value + 4u);
     assert(relocation_section->file_size % sizeof(RinRelocationV3) == 0u);
     relocation_count = (size_t)(relocation_section->file_size /
                                 sizeof(RinRelocationV3));
@@ -97,11 +107,15 @@ static void verify_artifact(const char* object_path, const char* image_path,
         if (value == data->virtual_address + second->value) {
             saw_data_symbol = 1;
         }
+        if (value == bss->virtual_address + zero->value) {
+            saw_bss_symbol = 1;
+        }
         if (value == code->virtual_address + target->value) {
             saw_code_symbol = 1;
         }
     }
     assert(saw_data_symbol);
+    assert(saw_bss_symbol);
     assert(saw_code_symbol);
 
     free(relocations);

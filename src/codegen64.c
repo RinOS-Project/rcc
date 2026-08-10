@@ -583,7 +583,8 @@ static void gen64_ensure_data_base_symbol(Module* mod) {
     for (int index = 0; index < mod->symbol_count; ++index) {
         if (strcmp(mod->symbols[index].name, "__rcc_data_base") == 0) return;
     }
-    module_add_symbol(mod, "__rcc_data_base", 0u, true, false, false);
+    module_add_symbol(mod, "__rcc_data_base", 0u, true,
+                      MODULE_SYMBOL_DATA, false);
 }
 
 /* Generate lvalue address in RAX */
@@ -1283,8 +1284,8 @@ Module* rcc_codegen64(AST* ast) {
     for (DeclList* d = ast->decls; d; d = d->next) {
         if (d->decl->kind == DECL_FUNC && !d->decl->func_body) {
             /* External function declaration */
-            module_add_symbol(mod, d->decl->name, 0,
-                             false, true, true);  /* undefined, code, global */
+            module_add_symbol(mod, d->decl->name, 0, false,
+                              MODULE_SYMBOL_CODE, true);
         }
     }
 
@@ -1302,8 +1303,8 @@ Module* rcc_codegen64(AST* ast) {
             gen64_function(mod, d->decl);
 
             /* Add symbol for function */
-            module_add_symbol(mod, d->decl->name, func_start,
-                             true, true,
+            module_add_symbol(mod, d->decl->name, func_start, true,
+                              MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
         }
     }

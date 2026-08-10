@@ -23,6 +23,11 @@ typedef struct {
     size_t capacity;
 } DataSection;
 
+typedef struct {
+    size_t size;
+    uint32_t align;
+} BssSection;
+
 /* .rin relocation entry types (must match kernel/make_rin.py) */
 #define RIN_RELOC_ABS32 1
 #define RIN_RELOC_ABS64 2
@@ -42,13 +47,19 @@ typedef struct StringLit {
     struct StringLit* next;
 } StringLit;
 
+typedef enum ModuleSymbolSection {
+    MODULE_SYMBOL_CODE,
+    MODULE_SYMBOL_DATA,
+    MODULE_SYMBOL_BSS,
+} ModuleSymbolSection;
+
 /* Module symbol entry (for object files) */
 typedef struct ModuleSymbol {
     const char* name;
     uint32_t offset;
     uint32_t size;
     bool is_defined;
-    bool is_code;
+    ModuleSymbolSection section;
     bool is_global;
 } ModuleSymbol;
 
@@ -65,6 +76,7 @@ typedef struct ModuleReloc {
 typedef struct Module {
     CodeSection code;
     DataSection data;
+    BssSection bss;
     Reloc* relocs;
     StringLit* strings;
     uint32_t entry_point;
@@ -106,13 +118,14 @@ Module* rcc_codegen64(AST* ast);
 
 /* Symbol table functions */
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
-                       bool is_defined, bool is_code, bool is_global);
+                       bool is_defined, ModuleSymbolSection section,
+                       bool is_global);
 void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,
                           const char* symbol_name);
 bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
                                      bool is_64bit, uint64_t data_rva,
-                                     uint64_t* value);
+                                     uint64_t bss_rva, uint64_t* value);
 void codegen_emit_global_data(Module* mod, AST* ast);
 
 /* Object file output */

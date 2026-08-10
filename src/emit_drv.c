@@ -33,7 +33,7 @@ static void driver_name(const char* path, char* output, size_t capacity) {
 
 bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     RinDriverHeaderV3 header;
-    RinSectionV3 sections[3];
+    RinSectionV3 sections[4];
     RinDriverMatchV3 match;
     RinRelocationV3* relocations = NULL;
     Reloc* source_relocation;
@@ -46,6 +46,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     uint32_t strings_size = 1u;
     uint32_t text_name;
     uint32_t data_name = 0u;
+    uint32_t bss_name = 0u;
     uint32_t relocation_name = 0u;
     uint32_t driver_name_offset;
     uint64_t section_table_offset = sizeof(RinDriverHeaderV3);
@@ -55,6 +56,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     uint64_t data_file_offset = 0u;
     uint64_t relocation_file_offset = 0u;
     uint64_t data_rva = 0u;
+    uint64_t bss_rva = 0u;
     uint64_t unsigned_size;
     uint64_t image_size;
     uint8_t* output;
@@ -64,13 +66,15 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     (void)ast;
 
     if (!mod || !outfile || mod->code.size == 0u ||
-        mod->code.size > UINT32_MAX || mod->data.size > UINT32_MAX) {
+        mod->code.size > UINT32_MAX || mod->data.size > UINT32_MAX ||
+        mod->bss.size > UINT32_MAX) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for NDRV v3 output");
         return false;
     }
     for (source_relocation = mod->relocs; source_relocation;
          source_relocation = source_relocation->next) ++relocation_count;
     if (mod->data.size > 0u) ++section_count;
+    if (mod->bss.size > 0u) ++section_count;
     if (relocation_count > 0u) ++section_count;
 
 #define ADD_STRING(value, result) do { \
@@ -85,6 +89,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
 } while (0)
     ADD_STRING(".text", text_name);
     if (mod->data.size > 0u) ADD_STRING(".data", data_name);
+    if (mod->bss.size > 0u) ADD_STRING(".bss", bss_name);
     if (relocation_count > 0u) ADD_STRING(".reloc", relocation_name);
     driver_name(g_opts.input_file, name, sizeof(name));
     if (name[0] == '\0') strcpy(name, "rcc-driver");
@@ -99,6 +104,11 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         data_file_offset = drv_align(code_file_offset + mod->code.size, 16u);
         data_rva = drv_align(mod->code.size, 4096u);
     }
+    if (mod->bss.size > 0u) {
+        uint64_t mapped_end = mod->data.size > 0u
+            ? data_rva + mod->data.size : mod->code.size;
+        bss_rva = drv_align(mapped_end, 4096u);
+    }
     if (relocation_count > 0u) {
         uint64_t payload_end = mod->data.size > 0u
             ? data_file_offset + mod->data.size
@@ -111,11 +121,12 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
             ? data_file_offset + mod->data.size
             : code_file_offset + mod->code.size;
     }
-    image_size = drv_align(
-        mod->data.size > 0u ? data_rva + mod->data.size : mod->code.size,
+    image_size = drv_align(mod->bss.size > 0u
+        ? bss_rva + mod->bss.size
+        : mod->data.size > 0u ? data_rva + mod->data.size : mod->code.size,
         4096u);
     if (unsigned_size > SIZE_MAX || image_size == 0u ||
-        (g_opts.target_arch == ARCH_X86 && image_size > UINT64_C(0xC0000000))) {
+        (g_opts.target_arch == ARCH_X86 && image_size >= UINT64_C(0xC0000000))) {
         rcc_error((SourceLoc){outfile, 0, 0}, "NDRV v3 image exceeds target limits");
         return false;
     }
@@ -158,6 +169,15 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         section->virtual_address = data_rva;
         section->memory_size = mod->data.size;
         section->name_offset = data_name;
+    }
+    if (mod->bss.size > 0u) {
+        RinSectionV3* section = &sections[next_section++];
+        section->type = RIN_IMAGE_SECTION_BSS;
+        section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
+        section->alignment = mod->bss.align;
+        section->virtual_address = bss_rva;
+        section->memory_size = mod->bss.size;
+        section->name_offset = bss_name;
     }
     if (relocation_count > 0u) {
         RinSectionV3* section = &sections[next_section];
@@ -217,7 +237,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         uint64_t resolved;
         bool is_64bit = source_relocation->type == RIN_RELOC_ABS64;
         if (!module_resolve_image_relocation(mod, source_relocation->offset,
-                                             is_64bit, data_rva,
+                                             is_64bit, data_rva, bss_rva,
                                              &resolved)) {
             rcc_error((SourceLoc){outfile, 0, 0},
                       "unresolved NDRV relocation at code offset %u",
