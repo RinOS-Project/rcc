@@ -6,6 +6,7 @@
 #include "rcc.h"
 #include "ast.h"
 #include "symtab.h"
+#include <limits.h>
 
 /* Current function return type */
 static Type* current_func_ret = NULL;
@@ -541,6 +542,38 @@ static void sema_decl(Decl* decl) {
     switch (decl->kind) {
         case DECL_VAR: {
             bool is_global = g_symtab->current == g_symtab->global;
+            bool string_array_initializer = decl->type &&
+                decl->type->kind == TYPE_ARRAY && decl->type->base &&
+                decl->type->base->kind == TYPE_CHAR && decl->var_init &&
+                decl->var_init->kind == EXPR_STRING_LIT;
+            if (string_array_initializer) {
+                size_t characters = strlen(decl->var_init->str_val);
+                size_t storage = characters + 1u;
+                if (!is_global) {
+                    rcc_error(decl->loc,
+                              "local character array initialization is not yet supported");
+                } else if (decl->type->array_len < 0) {
+                    if (storage > INT_MAX ||
+                        decl->type->base->size <= 0 ||
+                        storage > (size_t)INT_MAX /
+                                  (size_t)decl->type->base->size) {
+                        rcc_error(decl->loc,
+                                  "character array initializer is too large");
+                    } else {
+                        decl->type->array_len = (int)storage;
+                        decl->type->size = (int)storage *
+                                           decl->type->base->size;
+                    }
+                } else if ((size_t)decl->type->array_len < characters) {
+                    rcc_error(decl->loc,
+                              "initializer string is too long for character array");
+                }
+            } else if (decl->type && decl->type->kind == TYPE_ARRAY &&
+                       decl->type->array_len < 0 &&
+                       !(decl->storage == STORAGE_EXTERN && !decl->var_init)) {
+                rcc_error(decl->loc,
+                          "incomplete array requires an initializer with known size");
+            }
             Symbol* sym = is_global
                 ? symtab_lookup_local(g_symtab, decl->name) : NULL;
             if (sym) {
@@ -563,8 +596,9 @@ static void sema_decl(Decl* decl) {
             decl->var_is_global = sym->is_global;
 
             if (decl->var_init) {
-                Type* t = sema_expr(decl->var_init);
-                if (!implicit_cast(decl->var_init, decl->type)) {
+                sema_expr(decl->var_init);
+                if (!string_array_initializer &&
+                    !implicit_cast(decl->var_init, decl->type)) {
                     rcc_warning(decl->loc, "incompatible types in initialization");
                 }
             }

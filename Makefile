@@ -309,6 +309,18 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/direct/unsupported-static-x64.ro \
 		tests/unsupported_static_pointer.c
 	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-array-x86.ro \
+		tests/invalid_array_initializer.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-array-x64.ro \
+		tests/invalid_array_initializer.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-constant-x86.ro \
+		tests/invalid_static_constant.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-constant-x64.ro \
+		tests/invalid_static_constant.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-pointer-x86.ro \
 		tests/invalid_pointer_arithmetic.c
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \

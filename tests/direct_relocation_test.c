@@ -36,6 +36,16 @@ static int contains_bytes(const uint8_t* data, uint64_t size,
     return 0;
 }
 
+static uint64_t read_little_endian(const uint8_t* data, size_t size)
+{
+    uint64_t value = 0u;
+    assert(size <= sizeof(value));
+    for (size_t byte = 0u; byte < size; ++byte) {
+        value |= (uint64_t)data[byte] << (byte * 8u);
+    }
+    return value;
+}
+
 static ObjSection* required_section(ObjectFile* object, SectionType type)
 {
     for (ObjSection* section = object->sections; section;
@@ -76,6 +86,15 @@ static void verify_artifact(const char* object_path, const char* image_path,
     ObjSymbol* static_values;
     ObjSymbol* static_second;
     ObjSymbol* static_target;
+    ObjSymbol* static_null;
+    ObjSymbol* static_array;
+    ObjSymbol* static_fixed;
+    ObjSymbol* static_constant;
+    ObjSymbol* static_logic;
+    ObjSymbol* static_bits;
+    ObjSymbol* static_choice;
+    ObjSymbol* static_bool;
+    ObjSymbol* static_unary;
     ObjSymbol* pointer_add;
     ObjSymbol* integer_add;
     ObjSymbol* pointer_distance;
@@ -107,6 +126,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
     int saw_static_second = 0;
     int saw_static_target = 0;
     size_t data_source_relocations = 0u;
+    size_t pointer_width = expected_architecture == RIN_ARCH_X86_64 ? 8u : 4u;
     uint64_t static_literal_offset;
 
     assert(object != NULL);
@@ -120,6 +140,15 @@ static void verify_artifact(const char* object_path, const char* image_path,
     static_values = required_symbol(object, "static_values");
     static_second = required_symbol(object, "static_second");
     static_target = required_symbol(object, "static_target");
+    static_null = required_symbol(object, "static_null");
+    static_array = required_symbol(object, "static_array");
+    static_fixed = required_symbol(object, "static_fixed");
+    static_constant = required_symbol(object, "static_constant");
+    static_logic = required_symbol(object, "static_logic");
+    static_bits = required_symbol(object, "static_bits");
+    static_choice = required_symbol(object, "static_choice");
+    static_bool = required_symbol(object, "static_bool");
+    static_unary = required_symbol(object, "static_unary");
     pointer_add = required_symbol(object, "pointer_add");
     integer_add = required_symbol(object, "integer_add");
     pointer_distance = required_symbol(object, "pointer_distance");
@@ -136,6 +165,31 @@ static void verify_artifact(const char* object_path, const char* image_path,
     }
     assert(object_code != NULL && object_rodata != NULL && object_data != NULL);
     assert(object_rodata->flags == SECT_FLAG_ALLOC);
+    assert(static_array->value + 9u <= object_data->size);
+    assert(memcmp(object_data->data + static_array->value,
+                  "ArrayRin", 9u) == 0);
+    assert(static_fixed->value + 12u <= object_data->size);
+    assert(memcmp(object_data->data + static_fixed->value, "Fixed", 6u) == 0);
+    for (uint64_t byte = 6u; byte < 12u; ++byte) {
+        assert(object_data->data[static_fixed->value + byte] == 0u);
+    }
+    assert(static_constant->value + 4u <= object_data->size);
+    assert(object_data->data[static_constant->value] == 30u);
+    assert(object_data->data[static_constant->value + 1u] == 0u);
+    assert(static_logic->value + 4u <= object_data->size);
+    assert(read_little_endian(object_data->data + static_logic->value, 4u) ==
+           1u);
+    assert(static_bits->value + 4u <= object_data->size);
+    assert(read_little_endian(object_data->data + static_bits->value, 4u) ==
+           55u);
+    assert(static_choice->value + 4u <= object_data->size);
+    assert(read_little_endian(object_data->data + static_choice->value, 4u) ==
+           4u);
+    assert(static_bool->value + 1u <= object_data->size);
+    assert(object_data->data[static_bool->value] == 1u);
+    assert(static_unary->value + 4u <= object_data->size);
+    assert(read_little_endian(object_data->data + static_unary->value, 4u) ==
+           UINT32_C(0xfffffffc));
     static_literal_offset = required_bytes(object_rodata->data,
                                            object_rodata->size,
                                            "StaticRinOS");
@@ -357,6 +411,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
             saw_code_symbol = 1;
         }
         if (source == data) {
+            assert(source_offset != static_null->value);
             ++data_source_relocations;
             if (source_offset == static_literal->value &&
                 value == preferred_base + rodata->virtual_address +
@@ -394,6 +449,26 @@ static void verify_artifact(const char* object_path, const char* image_path,
     assert(saw_static_zero);
     assert(saw_static_second);
     assert(saw_static_target);
+    {
+        uint8_t initialized[12];
+        uint64_t null_value = 0u;
+        assert(fseek(image, (long)(data->file_offset + static_null->value),
+                     SEEK_SET) == 0);
+        assert(fread(&null_value, pointer_width, 1u, image) == 1u);
+        assert(null_value == 0u);
+        assert(fseek(image, (long)(data->file_offset + static_array->value),
+                     SEEK_SET) == 0);
+        assert(fread(initialized, 1u, 9u, image) == 9u);
+        assert(memcmp(initialized, "ArrayRin", 9u) == 0);
+        assert(fseek(image, (long)(data->file_offset + static_fixed->value),
+                     SEEK_SET) == 0);
+        assert(fread(initialized, 1u, sizeof(initialized), image) ==
+               sizeof(initialized));
+        assert(memcmp(initialized, "Fixed", 6u) == 0);
+        for (size_t byte = 6u; byte < sizeof(initialized); ++byte) {
+            assert(initialized[byte] == 0u);
+        }
+    }
 
     free(relocations);
     free(sections);

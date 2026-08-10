@@ -229,6 +229,8 @@ static Decl* codegen_global_variable(AST* ast, const char* name) {
 }
 
 static bool codegen_static_integer(Expr* expression, int64_t* value) {
+    int64_t left;
+    int64_t right;
     while (expression && expression->kind == EXPR_CAST) {
         expression = expression->cast_expr;
     }
@@ -247,7 +249,109 @@ static bool codegen_static_integer(Expr* expression, int64_t* value) {
         *value = -*value;
         return true;
     }
-    return false;
+    if (expression->kind == EXPR_BITNOT && expression->unary_operand &&
+        codegen_static_integer(expression->unary_operand, value)) {
+        *value = ~*value;
+        return true;
+    }
+    if (expression->kind == EXPR_NOT && expression->unary_operand &&
+        codegen_static_integer(expression->unary_operand, value)) {
+        *value = *value == 0;
+        return true;
+    }
+    if (expression->kind == EXPR_SIZEOF) {
+        Type* type = expression->sizeof_type ? expression->sizeof_type :
+            expression->unary_operand ? expression->unary_operand->type : NULL;
+        if (!type || type->size <= 0) return false;
+        *value = type->size;
+        return true;
+    }
+    if (expression->kind == EXPR_COND) {
+        if (!codegen_static_integer(expression->cond_test, &left)) return false;
+        return codegen_static_integer(left ? expression->cond_then
+                                           : expression->cond_else,
+                                      value);
+    }
+    if (expression->kind == EXPR_AND || expression->kind == EXPR_OR) {
+        if (!codegen_static_integer(expression->binary_lhs, &left)) {
+            return false;
+        }
+        if ((expression->kind == EXPR_AND && left == 0) ||
+            (expression->kind == EXPR_OR && left != 0)) {
+            *value = expression->kind == EXPR_OR;
+            return true;
+        }
+        if (!codegen_static_integer(expression->binary_rhs, &right)) {
+            return false;
+        }
+        *value = right != 0;
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD: case EXPR_SUB: case EXPR_MUL: case EXPR_DIV:
+        case EXPR_MOD: case EXPR_BITAND: case EXPR_BITOR: case EXPR_BITXOR:
+        case EXPR_LSHIFT: case EXPR_RSHIFT: case EXPR_EQ: case EXPR_NE:
+        case EXPR_LT: case EXPR_GT: case EXPR_LE: case EXPR_GE:
+            break;
+        default:
+            return false;
+    }
+    if (!expression->binary_lhs || !expression->binary_rhs ||
+        !codegen_static_integer(expression->binary_lhs, &left) ||
+        !codegen_static_integer(expression->binary_rhs, &right)) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+            if ((right > 0 && left > INT64_MAX - right) ||
+                (right < 0 && left < INT64_MIN - right)) return false;
+            *value = left + right;
+            return true;
+        case EXPR_SUB:
+            if ((right < 0 && left > INT64_MAX + right) ||
+                (right > 0 && left < INT64_MIN + right)) return false;
+            *value = left - right;
+            return true;
+        case EXPR_MUL:
+            if (left == 0 || right == 0) {
+                *value = 0;
+                return true;
+            }
+            if ((left == -1 && right == INT64_MIN) ||
+                (right == -1 && left == INT64_MIN)) return false;
+            if (left > 0 ? (right > 0 ? left > INT64_MAX / right
+                                     : right < INT64_MIN / left)
+                         : (right > 0 ? left < INT64_MIN / right
+                                      : left < INT64_MAX / right)) {
+                return false;
+            }
+            *value = left * right;
+            return true;
+        case EXPR_DIV:
+        case EXPR_MOD:
+            if (right == 0 || (left == INT64_MIN && right == -1)) return false;
+            *value = expression->kind == EXPR_DIV ? left / right : left % right;
+            return true;
+        case EXPR_BITAND: *value = left & right; return true;
+        case EXPR_BITOR: *value = left | right; return true;
+        case EXPR_BITXOR: *value = left ^ right; return true;
+        case EXPR_LSHIFT:
+            if (left < 0 || right < 0 || right >= 64 ||
+                left > (INT64_MAX >> right)) return false;
+            *value = left << right;
+            return true;
+        case EXPR_RSHIFT:
+            if (right < 0 || right >= 64) return false;
+            *value = left >> right;
+            return true;
+        case EXPR_EQ: *value = left == right; return true;
+        case EXPR_NE: *value = left != right; return true;
+        case EXPR_LT: *value = left < right; return true;
+        case EXPR_GT: *value = left > right; return true;
+        case EXPR_LE: *value = left <= right; return true;
+        case EXPR_GE: *value = left >= right; return true;
+        default: return false;
+    }
 }
 
 static uint32_t codegen_pointer_element_size(const Type* type) {
@@ -362,9 +466,16 @@ static bool codegen_emit_static_pointer(Module* mod, Decl* declaration,
     const char* symbol_name = NULL;
     uint32_t addend = 0u;
     uint32_t width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    int64_t integer;
 
-    if (!declaration->var_init || declaration->type->size < (int)width ||
-        !codegen_static_address(mod, declaration->var_init, &symbol_name,
+    if (!declaration->var_init || declaration->type->size < (int)width) {
+        return false;
+    }
+    if (codegen_static_integer(declaration->var_init, &integer) &&
+        integer == 0) {
+        return true;
+    }
+    if (!codegen_static_address(mod, declaration->var_init, &symbol_name,
                                 &addend)) {
         return false;
     }
@@ -424,22 +535,42 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         }
         if (size) emit_data(mod, zero, size);
         declaration->var_offset = offset;
-        if (declaration->var_init->kind == EXPR_INT_LIT ||
-            declaration->var_init->kind == EXPR_CHAR_LIT) {
-            uint64_t initial = declaration->var_init->kind == EXPR_INT_LIT
-                ? (uint64_t)declaration->var_init->int_val
-                : (uint64_t)(uint8_t)declaration->var_init->char_val;
-            uint32_t initial_size = (uint32_t)declaration->type->size;
-            if (initial_size > 8u) initial_size = 8u;
-            for (uint32_t byte = 0u; byte < initial_size; ++byte) {
-                mod->data.data[offset + byte] =
-                    (uint8_t)(initial >> (byte * 8u));
+        {
+            int64_t constant;
+            if (declaration->type->kind == TYPE_ARRAY &&
+                declaration->type->base &&
+                declaration->type->base->kind == TYPE_CHAR &&
+                declaration->var_init->kind == EXPR_STRING_LIT) {
+                size_t text_size = strlen(declaration->var_init->str_val) + 1u;
+                size_t copy_size = (size_t)declaration->type->size < text_size
+                    ? (size_t)declaration->type->size : text_size;
+                memcpy(mod->data.data + offset, declaration->var_init->str_val,
+                       copy_size);
+            } else if (declaration->type->kind == TYPE_PTR) {
+                if (!codegen_emit_static_pointer(mod, declaration, offset)) {
+                    rcc_error(declaration->loc,
+                              "unsupported static pointer initializer for '%s'",
+                              declaration->name);
+                }
+            } else if ((type_is_integer(declaration->type) ||
+                        declaration->type->kind == TYPE_ENUM) &&
+                       codegen_static_integer(declaration->var_init,
+                                              &constant)) {
+                if (declaration->type->kind == TYPE_BOOL) {
+                    constant = constant != 0;
+                }
+                uint64_t initial = (uint64_t)constant;
+                uint32_t initial_size = (uint32_t)declaration->type->size;
+                if (initial_size > 8u) initial_size = 8u;
+                for (uint32_t byte = 0u; byte < initial_size; ++byte) {
+                    mod->data.data[offset + byte] =
+                        (uint8_t)(initial >> (byte * 8u));
+                }
+            } else {
+                rcc_error(declaration->loc,
+                          "unsupported static initializer for '%s'",
+                          declaration->name);
             }
-        } else if (declaration->type->kind == TYPE_PTR &&
-                   !codegen_emit_static_pointer(mod, declaration, offset)) {
-            rcc_error(declaration->loc,
-                      "unsupported static pointer initializer for '%s'",
-                      declaration->name);
         }
         module_add_symbol(mod, declaration->name, offset, true,
                           MODULE_SYMBOL_DATA,
