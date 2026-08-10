@@ -14,6 +14,9 @@
 /* Global linker options */
 LinkerOpts g_linker_opts;
 
+static bool linker_section_selected(const ObjSection* section);
+static ObjSection* object_section_at(const ObjectFile* object, int index);
+
 /* ═══════════════════════════════════════
  * Linker Creation/Destruction
  * ═══════════════════════════════════════ */
@@ -89,6 +92,22 @@ static bool linker_append_object(Linker* ld, ObjectFile* obj) {
         return false;
     }
 
+    for (ObjSection* section = obj->sections; section;
+         section = section->next) {
+        if ((section->flags & SECT_FLAG_COMDAT) == 0u) continue;
+        for (int previous = 0; previous < ld->object_count; previous++) {
+            for (ObjSection* candidate = ld->objects[previous]->sections;
+                 candidate; candidate = candidate->next) {
+                if ((candidate->flags & SECT_FLAG_COMDAT) != 0u &&
+                    strcmp(candidate->comdat_key, section->comdat_key) == 0) {
+                    section->comdat_selected = false;
+                    break;
+                }
+            }
+            if (!section->comdat_selected) break;
+        }
+    }
+
     /* Expand object array */
     ld->objects = rcc_realloc(ld->objects, sizeof(ObjectFile*) * (ld->object_count + 1));
     ld->objects[ld->object_count++] = obj;
@@ -117,6 +136,11 @@ static bool linker_has_definition(const Linker* ld, const char* name) {
             if (strcmp(symbol->name, name) == 0 &&
                 (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
                 (symbol->section >= 0 || symbol->binding == BIND_ABS)) {
+                ObjSection* owner = symbol->section < 0 ? NULL :
+                    object_section_at(ld->objects[index], symbol->section);
+                if (owner && !linker_section_selected(owner)) {
+                    continue;
+                }
                 return true;
             }
         }
@@ -386,6 +410,19 @@ static uint64_t linked_section_add_object_section(LinkedSection* linked,
     return offset;
 }
 
+/* COMDAT ANY keeps the first input object that contributes a group key.  All
+ * sections with that key in the winning object are retained as one group. */
+static bool linker_section_selected(const ObjSection* section) {
+    return (section->flags & SECT_FLAG_COMDAT) == 0u ||
+           section->comdat_selected;
+}
+
+static ObjSection* object_section_at(const ObjectFile* object, int index) {
+    ObjSection* section = object->sections;
+    while (section && index-- > 0) section = section->next;
+    return section;
+}
+
 bool linker_merge_sections(Linker* ld) {
     if (g_linker_opts.verbose) {
         printf("Merging sections...\n");
@@ -407,9 +444,19 @@ bool linker_merge_sections(Linker* ld) {
 
         int sect_idx = 0;
         for (ObjSection* sect = obj->sections; sect; sect = sect->next, sect_idx++) {
+            uint32_t output_flags;
+            if (!linker_section_selected(sect)) {
+                if (g_linker_opts.verbose) {
+                    printf("    %s:%s discarded (COMDAT %s)\n",
+                           obj->filename, sect->name, sect->comdat_key);
+                }
+                continue;
+            }
+            output_flags = sect->flags & ~SECT_FLAG_COMDAT;
             /* Find or create linked section */
             LinkedSection* linked = find_or_create_section(ld, sect->name,
-                                                           sect->type, sect->flags);
+                                                           sect->type,
+                                                           output_flags);
             if (!linked) {
                 rcc_free(offsets);
                 return false;
@@ -529,6 +576,7 @@ bool linker_collect_symbols(Linker* ld) {
 
         int sect_idx = 0;
         for (ObjSection* sect = obj->sections; sect; sect = sect->next, sect_idx++) {
+            if (!linker_section_selected(sect)) continue;
             /* Find this section's offset in the linked output */
             LinkedSection* linked = NULL;
 
@@ -544,7 +592,8 @@ bool linker_collect_symbols(Linker* ld) {
                 for (int i = 0; i <= obj_idx; i++) {
                     ObjectFile* prev = ld->objects[i];
                     for (ObjSection* ps = prev->sections; ps; ps = ps->next) {
-                        if (strcmp(ps->name, sect->name) == 0) {
+                        if (linker_section_selected(ps) &&
+                            strcmp(ps->name, sect->name) == 0) {
                             uint64_t mask = ps->align - 1u;
                             offset = (offset + mask) & ~mask;
                             if (i == obj_idx && ps == sect) {
@@ -565,21 +614,23 @@ bool linker_collect_symbols(Linker* ld) {
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
             uint64_t value;
             int linked_sect = -1;
+            ObjSection* owner = NULL;
 
             /* Skip undefined symbols on first pass */
             if (sym->type == SYM_UNDEF) continue;
 
+            if (sym->section >= 0) {
+                owner = object_section_at(obj, sym->section);
+                if (!owner || !linker_section_selected(owner)) {
+                    continue;
+                }
+            }
+
             value = sym->value;
             if (sym->section >= 0) {
-                const char* sect_name = NULL;
+                const char* sect_name = owner->name;
                 int idx = 0;
                 value = sect_offsets[obj_idx][sym->section] + sym->value;
-                for (ObjSection* s = obj->sections; s; s = s->next, idx++) {
-                    if (idx == sym->section) {
-                        sect_name = s->name;
-                        break;
-                    }
-                }
                 if (sect_name) {
                     idx = 0;
                     for (LinkedSection* ls = ld->sections; ls;
@@ -599,6 +650,10 @@ bool linker_collect_symbols(Linker* ld) {
                     fprintf(stderr, "rld: multiple definition of '%s'\n", sym->name);
                     fprintf(stderr, "     first defined in %s\n", existing->source);
                     fprintf(stderr, "     also defined in %s\n", obj->filename);
+                    for (int i = 0; i < ld->object_count; i++) {
+                        rcc_free(sect_offsets[i]);
+                    }
+                    rcc_free(sect_offsets);
                     return false;
                 }
                 /* Weak symbols can be overridden */
@@ -696,7 +751,24 @@ bool linker_resolve_symbols(Linker* ld) {
         ObjectFile* obj = ld->objects[obj_idx];
 
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
+            bool referenced = false;
+            bool retained_reference = false;
             if (sym->type != SYM_UNDEF) continue;
+
+            for (ObjSection* section = obj->sections; section;
+                 section = section->next) {
+                for (ObjReloc* relocation = section->relocs; relocation;
+                     relocation = relocation->next) {
+                    if (strcmp(relocation->symbol_name, sym->name) != 0) {
+                        continue;
+                    }
+                    referenced = true;
+                    if (linker_section_selected(section)) {
+                        retained_reference = true;
+                    }
+                }
+            }
+            if (referenced && !retained_reference) continue;
 
             /* Look for definition */
             GlobalSymbol* def = find_symbol(ld, sym->name);

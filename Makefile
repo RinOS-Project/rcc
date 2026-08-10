@@ -45,7 +45,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width test-special-sections test-direct-relocation test-optimize
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -205,6 +205,21 @@ test-weak-link:
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/weak_link_test $(TEST_OUT)/weak.ro $(TEST_OUT)/strong.ro
 	@echo "Weak-to-strong linker replacement test completed"
+
+test-comdat-link:
+	mkdir -p $(TEST_OUT)/comdat
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/comdat_link_test \
+		tests/comdat_link_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/comdat_link_test \
+		$(TEST_OUT)/comdat/x86-first.ro $(TEST_OUT)/comdat/x86-second.ro \
+		$(TEST_OUT)/comdat/x86-duplicate-a.ro \
+		$(TEST_OUT)/comdat/x86-duplicate-b.ro x86
+	$(TEST_OUT)/comdat_link_test \
+		$(TEST_OUT)/comdat/x64-first.ro $(TEST_OUT)/comdat/x64-second.ro \
+		$(TEST_OUT)/comdat/x64-duplicate-a.ro \
+		$(TEST_OUT)/comdat/x64-duplicate-b.ro x64
+	@echo "COMDAT ANY group selection and metadata rejection tests completed"
 
 test-object-width: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)

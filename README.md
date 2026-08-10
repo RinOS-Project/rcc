@@ -76,6 +76,7 @@ make test-archive-link
 make test-manifest
 make test-driver-policy
 make test-weak-link
+make test-comdat-link
 make test-object-width
 make test-special-sections
 make test-direct-relocation
@@ -86,6 +87,9 @@ make test-optimize
 FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
+`test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、
+group内section・symbol・relocationを一体で保持します。非COMDATのstrong重複と、
+未対応selection、範囲外key、flagなしreserved metadataはfail closedにします。
 `test-object-width`は4 GiB超の`.ro v2` symbol/addendとAMD64配置を保持し、
 ABS32U/ABS32S overflow、legacy ABS32の新規出力、x86の3 GiB境界を拒否します。
 `test-archive-link`は両archで未解決symbol駆動のmember選択と推移抽出を行い、

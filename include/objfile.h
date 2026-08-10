@@ -86,14 +86,18 @@ typedef struct {
     uint64_t memory_size;   /* Runtime size */
     uint64_t reloc_off;     /* Offset to relocation entries */
     uint32_t reloc_count;   /* Number of relocation entries */
-    uint32_t reserved0;
-    uint64_t reserved1;
+    uint32_t reserved0;     /* COMDAT selection, otherwise zero */
+    uint64_t reserved1;     /* COMDAT key string offset, otherwise zero */
 } RoSection;
 
 /* Section flags */
 #define SECT_FLAG_WRITE     0x01    /* Writable */
 #define SECT_FLAG_EXEC      0x02    /* Executable */
 #define SECT_FLAG_ALLOC     0x04    /* Occupies memory at runtime */
+#define SECT_FLAG_COMDAT    0x08    /* Link-time COMDAT group member */
+
+/* RoSection.reserved0 selection values when SECT_FLAG_COMDAT is set. */
+#define RO_COMDAT_SELECT_ANY 1u
 
 /* ═══════════════════════════════════════
  * Symbol Entry (20 bytes)
@@ -164,6 +168,9 @@ typedef struct ObjSection {
     const char* name;
     SectionType type;
     uint32_t flags;
+    uint32_t comdat_selection;
+    const char* comdat_key;
+    bool comdat_selected;    /* Transient linker decision, not serialized */
     uint8_t* data;
     uint64_t size;           /* Bytes stored in the object */
     uint64_t memory_size;    /* Bytes occupied after zero-fill */
@@ -203,6 +210,8 @@ void objfile_free(ObjectFile* obj);
 /* Section operations */
 ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType type, uint32_t flags);
 ObjSection* objfile_get_section(ObjectFile* obj, const char* name);
+bool objfile_set_comdat(ObjSection* sect, const char* key,
+                        uint32_t selection);
 uint64_t section_add_data(ObjSection* sect, const void* data, uint64_t size);
 uint64_t section_add_byte(ObjSection* sect, uint8_t byte);
 uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t count);

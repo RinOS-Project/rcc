@@ -39,7 +39,8 @@ static bool ro_relocation_type_valid(uint16_t type) {
 
 static bool ro_section_policy(uint16_t arch, const RoSection* section) {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
-    uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC | SECT_FLAG_ALLOC;
+    uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC |
+                             SECT_FLAG_ALLOC | SECT_FLAG_COMDAT;
     if (section->type < SECT_CODE || section->type > SECT_FINI_ARRAY ||
         (section->flags & ~allowed_flags) != 0u ||
         (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
@@ -100,6 +101,7 @@ void objfile_free(ObjectFile* obj) {
     while (sect) {
         ObjSection* next = sect->next;
         rcc_free((void*)sect->name);
+        rcc_free((void*)sect->comdat_key);
         rcc_free(sect->data);
         /* Free relocs */
         ObjReloc* r = sect->relocs;
@@ -136,6 +138,9 @@ ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType t
     sect->name = rcc_strdup(name);
     sect->type = type;
     sect->flags = flags;
+    sect->comdat_selection = 0u;
+    sect->comdat_key = NULL;
+    sect->comdat_selected = true;
     sect->data = rcc_alloc(256);
     sect->size = 0;
     sect->memory_size = 0;
@@ -155,6 +160,17 @@ ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType t
     obj->section_count++;
 
     return sect;
+}
+
+bool objfile_set_comdat(ObjSection* sect, const char* key,
+                        uint32_t selection) {
+    if (!sect || !key || key[0] == '\0' ||
+        selection != RO_COMDAT_SELECT_ANY) return false;
+    rcc_free((void*)sect->comdat_key);
+    sect->comdat_key = rcc_strdup(key);
+    sect->comdat_selection = selection;
+    sect->flags |= SECT_FLAG_COMDAT;
+    return true;
 }
 
 ObjSection* objfile_get_section(ObjectFile* obj, const char* name) {
@@ -343,6 +359,17 @@ uint32_t objfile_add_string(ObjectFile* obj, const char* str) {
 
 bool objfile_write(ObjectFile* obj, const char* filename) {
     for (ObjSection* section = obj->sections; section; section = section->next) {
+        bool is_comdat = (section->flags & SECT_FLAG_COMDAT) != 0u;
+        if ((is_comdat &&
+             (section->comdat_selection != RO_COMDAT_SELECT_ANY ||
+              !section->comdat_key || section->comdat_key[0] == '\0')) ||
+            (!is_comdat &&
+             (section->comdat_selection != 0u || section->comdat_key))) {
+            rcc_error((SourceLoc){filename, 0, 0},
+                      "invalid .ro v2 section metadata for '%s'",
+                      section->name);
+            return false;
+        }
         for (ObjReloc* relocation = section->relocs; relocation;
              relocation = relocation->next) {
             if (!ro_relocation_type_valid((uint16_t)relocation->type)) {
@@ -438,6 +465,10 @@ bool objfile_write(ObjectFile* obj, const char* filename) {
         sh.align = s->align;
         sh.reloc_off = reloc_off[sect_idx];
         sh.reloc_count = reloc_count[sect_idx];
+        if ((s->flags & SECT_FLAG_COMDAT) != 0u) {
+            sh.reserved0 = s->comdat_selection;
+            sh.reserved1 = objfile_add_string(obj, s->comdat_key);
+        }
         fwrite(&sh, sizeof(sh), 1, f);
         sect_idx++;
     }
@@ -568,6 +599,14 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
 
     for (uint32_t i = 0; i < hdr.section_count; i++) {
         RoSection* sh = &sections[i];
+        bool is_comdat = (sh->flags & SECT_FLAG_COMDAT) != 0u;
+        bool comdat_valid = !is_comdat
+            ? sh->reserved0 == 0u && sh->reserved1 == 0u
+            : sh->reserved0 == RO_COMDAT_SELECT_ANY &&
+              sh->reserved1 < hdr.strtab_size &&
+              obj->strtab[sh->reserved1] != '\0' &&
+              memchr(obj->strtab + (size_t)sh->reserved1, '\0',
+                     (size_t)(hdr.strtab_size - sh->reserved1)) != NULL;
         if (sh->name >= hdr.strtab_size ||
             !memchr(obj->strtab + sh->name, '\0',
                     (size_t)hdr.strtab_size - sh->name) ||
@@ -578,12 +617,15 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
             (sh->reloc_count != 0u &&
              !ro_range(sh->reloc_off,
                        (uint64_t)sh->reloc_count * sizeof(RoReloc),
-                       size)) ||
-            sh->reserved0 != 0u || sh->reserved1 != 0u) goto read_failed;
+                       size)) || !comdat_valid) goto read_failed;
         const char* name = obj->strtab + sh->name;
 
         ObjSection* sect = objfile_add_section(obj, name, sh->type, sh->flags);
         sect->align = sh->align;
+        if (is_comdat &&
+            !objfile_set_comdat(sect,
+                                obj->strtab + (size_t)sh->reserved1,
+                                sh->reserved0)) goto read_failed;
 
         if (sh->size > 0) {
             section_ensure_capacity(sect, sh->size);
