@@ -163,7 +163,8 @@ typedef struct ObjSection {
     SectionType type;
     uint32_t flags;
     uint8_t* data;
-    uint64_t size;
+    uint64_t size;           /* Bytes stored in the object */
+    uint64_t memory_size;    /* Bytes occupied after zero-fill */
     uint64_t capacity;
     uint32_t align;
     ObjReloc* relocs;
@@ -204,6 +205,7 @@ uint64_t section_add_data(ObjSection* sect, const void* data, uint64_t size);
 uint64_t section_add_byte(ObjSection* sect, uint8_t byte);
 uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t count);
 void section_align(ObjSection* sect, uint32_t align);
+void section_set_memory_size(ObjSection* sect, uint64_t memory_size);
 
 /* Symbol operations */
 ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type,

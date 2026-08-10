@@ -19,6 +19,7 @@
     - [x] 入力順を保つ未解決symbol駆動の`.ra v2` member推移選択
 - [ ] TLS、INIT/FINI、UNWIND sectionの完全link
     - [x] `.ro v2` typed sectionのRIN v3伝播、W^X/幅/metadata検証
+    - [x] BSSとTLS zero-fill tailのfile size / memory size分離
 
 ## 2. C17 frontend
 

@@ -46,17 +46,23 @@ static bool ro_section_policy(uint16_t arch, const RoSection* section) {
         return (section->flags & SECT_FLAG_EXEC) != 0u &&
                (section->flags & SECT_FLAG_WRITE) == 0u;
     case SECT_DATA:
-    case SECT_BSS:
     case SECT_TLS:
         return (section->flags & SECT_FLAG_WRITE) != 0u &&
+               (section->flags & SECT_FLAG_EXEC) == 0u;
+    case SECT_BSS:
+        return section->size == 0u &&
+               (section->flags & SECT_FLAG_WRITE) != 0u &&
                (section->flags & SECT_FLAG_EXEC) == 0u;
     case SECT_INIT_ARRAY:
     case SECT_FINI_ARRAY:
         return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u &&
+               section->size == section->memory_size &&
                section->memory_size % pointer_size == 0u;
     case SECT_RODATA:
-    case SECT_UNWIND:
         return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u;
+    case SECT_UNWIND:
+        return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u &&
+               section->size == section->memory_size;
     default:
         return false;
     }
@@ -127,6 +133,7 @@ ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType t
     sect->flags = flags;
     sect->data = rcc_alloc(256);
     sect->size = 0;
+    sect->memory_size = 0;
     sect->capacity = 256;
     sect->align = 1;
     sect->relocs = NULL;
@@ -175,19 +182,22 @@ static void section_ensure_capacity(ObjSection* sect, uint64_t need) {
 }
 
 uint64_t section_add_data(ObjSection* sect, const void* data, uint64_t size) {
+    if (sect->memory_size > sect->size) {
+        uint64_t gap = sect->memory_size - sect->size;
+        section_ensure_capacity(sect, gap);
+        memset(sect->data + (size_t)sect->size, 0, (size_t)gap);
+        sect->size = sect->memory_size;
+    }
     section_ensure_capacity(sect, size);
     uint64_t offset = sect->size;
     memcpy(sect->data + (size_t)sect->size, data, (size_t)size);
     sect->size += size;
+    sect->memory_size = sect->size;
     return offset;
 }
 
 uint64_t section_add_byte(ObjSection* sect, uint8_t byte) {
-    section_ensure_capacity(sect, 1);
-    uint64_t offset = sect->size;
-    sect->data[(size_t)sect->size] = byte;
-    ++sect->size;
-    return offset;
+    return section_add_data(sect, &byte, 1u);
 }
 
 uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t count) {
@@ -195,12 +205,29 @@ uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t coun
 }
 
 void section_align(ObjSection* sect, uint32_t align) {
+    uint64_t mask;
     if (align <= 1) return;
     if (align > sect->align) sect->align = align;
+
+    if (sect->memory_size > sect->size) {
+        mask = (uint64_t)align - 1u;
+        if (sect->memory_size > UINT64_MAX - mask) {
+            rcc_fatal("object section alignment overflow");
+        }
+        sect->memory_size = (sect->memory_size + mask) & ~mask;
+        return;
+    }
 
     while (sect->size % align != 0) {
         section_add_byte(sect, 0);
     }
+}
+
+void section_set_memory_size(ObjSection* sect, uint64_t memory_size) {
+    if (memory_size < sect->size) {
+        rcc_fatal("object section memory size is smaller than file size");
+    }
+    sect->memory_size = memory_size;
 }
 
 /* ═══════════════════════════════════════
@@ -386,7 +413,7 @@ bool objfile_write(ObjectFile* obj, const char* filename) {
         sh.flags = s->flags;
         sh.offset = section_data_off[sect_idx];
         sh.size = s->size;
-        sh.memory_size = s->size;
+        sh.memory_size = s->memory_size;
         sh.align = s->align;
         sh.reloc_off = reloc_off[sect_idx];
         sh.reloc_count = reloc_count[sect_idx];
@@ -543,6 +570,7 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
                    (size_t)sh->size);
             sect->size = sh->size;
         }
+        sect->memory_size = sh->memory_size;
     }
 
     if (hdr.symbol_count != 0u) {

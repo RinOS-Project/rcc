@@ -28,18 +28,25 @@ static void write_special_object(const char* path, uint16_t arch)
         object, ".init_array", SECT_INIT_ARRAY, SECT_FLAG_ALLOC);
     ObjSection* fini = objfile_add_section(
         object, ".fini_array", SECT_FINI_ARRAY, SECT_FLAG_ALLOC);
+    ObjSection* bss = objfile_add_section(
+        object, ".bss", SECT_BSS, SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
 
     add_bytes(text, 16u, 0x90u);
     add_bytes(tls, pointer_size, 0x5au);
     add_bytes(unwind, 8u, 0x11u);
     add_bytes(init, pointer_size, 0u);
     add_bytes(fini, pointer_size, 0u);
+    section_set_memory_size(tls, pointer_size * 2u);
+    section_set_memory_size(bss, pointer_size * 4u);
     tls->align = pointer_size;
     unwind->align = 4u;
     init->align = pointer_size;
     fini->align = pointer_size;
+    bss->align = pointer_size;
 
     objfile_add_symbol(object, "main", SYM_GLOBAL, BIND_CODE, 0, 0u, 16u);
+    objfile_add_symbol(object, "zero_data", SYM_GLOBAL, BIND_BSS, 5, 0u,
+                       pointer_size * 4u);
     objfile_add_reloc(object, 3, 0u, "main", pointer_reloc, 0);
     objfile_add_reloc(object, 4, 0u, "main", pointer_reloc, 0);
     assert(objfile_write(object, path));
@@ -49,7 +56,8 @@ static void write_special_object(const char* path, uint16_t arch)
 static void verify_object_sections(const char* path)
 {
     static const SectionType expected[] = {
-        SECT_CODE, SECT_TLS, SECT_UNWIND, SECT_INIT_ARRAY, SECT_FINI_ARRAY
+        SECT_CODE, SECT_TLS, SECT_UNWIND, SECT_INIT_ARRAY, SECT_FINI_ARRAY,
+        SECT_BSS
     };
     ObjectFile* object = objfile_read(path);
     ObjSection* section;
@@ -58,6 +66,10 @@ static void verify_object_sections(const char* path)
     for (section = object->sections; section; section = section->next) {
         assert(index < sizeof(expected) / sizeof(expected[0]));
         assert(section->type == expected[index++]);
+        if (section->type == SECT_TLS) assert(section->memory_size > section->size);
+        if (section->type == SECT_BSS) {
+            assert(section->size == 0u && section->memory_size > 0u);
+        }
     }
     assert(index == sizeof(expected) / sizeof(expected[0]));
     objfile_free(object);
@@ -75,7 +87,7 @@ static void verify_image(const char* path, uint16_t expected_arch)
     assert(header.magic == RIN_IMAGE_MAGIC);
     assert(header.architecture == expected_arch);
     assert((header.flags & RIN_IMAGE_USES_TLS) != 0u);
-    assert(header.section_count == 10u);
+    assert(header.section_count == 11u);
     sections = calloc(header.section_count, sizeof(*sections));
     assert(sections != NULL);
     assert(fseek(file, (long)header.section_table_offset, SEEK_SET) == 0);
@@ -94,6 +106,7 @@ static void verify_image(const char* path, uint16_t expected_arch)
             break;
         case RIN_IMAGE_SECTION_TLS:
             assert(section->flags == RIN_IMAGE_SECTION_READ);
+            assert(section->file_size < section->memory_size);
             seen |= 1u << 1;
             break;
         case RIN_IMAGE_SECTION_UNWIND:
@@ -121,11 +134,18 @@ static void verify_image(const char* path, uint16_t expected_arch)
             assert(section->flags == RIN_IMAGE_SECTION_READ);
             ++owner_count;
             break;
+        case RIN_IMAGE_SECTION_BSS:
+            assert(section->flags ==
+                   (RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE));
+            assert(section->file_offset == 0u && section->file_size == 0u);
+            assert(section->memory_size > 0u);
+            seen |= 1u << 6;
+            break;
         default:
             assert(0 && "unexpected RIN v3 section type");
         }
     }
-    assert(seen == 0x3fu);
+    assert(seen == 0x7fu);
     assert(owner_count == 4u);
     free(sections);
     assert(fclose(file) == 0);

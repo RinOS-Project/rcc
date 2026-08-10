@@ -88,7 +88,8 @@ ABS32 overflowおよびx86の3 GiB境界を拒否することを確認します�
 未使用member、入力順に対する過去archiveの再走査、異種arch member、および
 symbol tableとmember実体が矛盾する改変archiveを拒否します。
 `test-special-sections`はTLS、unwind、init/fini arrayを`.ro v2`からRIN v3へ
-両archで保持し、W^Xやarray幅、同名section metadataの矛盾を拒否します。
+両archで保持し、TLS zero-fillとBSSのfile/memory sizeを分離します。またW^X、
+array幅、同名section metadataの矛盾を拒否します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。

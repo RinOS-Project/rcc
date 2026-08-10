@@ -296,6 +296,7 @@ static LinkedSection* find_or_create_section(Linker* ld, const char* name,
     s->flags = flags;
     s->data = rcc_alloc(1024);
     s->size = 0;
+    s->memory_size = 0;
     s->capacity = 1024;
     s->align = 1;
     s->vaddr = 0;
@@ -314,11 +315,9 @@ static LinkedSection* find_or_create_section(Linker* ld, const char* name,
     return s;
 }
 
-static void linked_section_ensure_capacity(LinkedSection* s, uint64_t need) {
-    uint64_t required;
+static void linked_section_ensure_capacity(LinkedSection* s,
+                                           uint64_t required) {
     uint64_t new_cap;
-    if (need > UINT64_MAX - s->size) rcc_fatal("linked section size overflow");
-    required = s->size + need;
     if (required <= s->capacity) return;
     if (required > SIZE_MAX) rcc_fatal("linked section exceeds host memory limit");
     new_cap = s->capacity;
@@ -335,10 +334,17 @@ static void linked_section_ensure_capacity(LinkedSection* s, uint64_t need) {
 
 static uint64_t linked_section_add_data(LinkedSection* s, const void* data,
                                         uint64_t size) {
-    linked_section_ensure_capacity(s, size);
-    uint64_t offset = s->size;
-    memcpy(s->data + (size_t)s->size, data, (size_t)size);
-    s->size += size;
+    uint64_t offset = s->memory_size;
+    uint64_t required;
+    if (size > UINT64_MAX - offset) rcc_fatal("linked section size overflow");
+    required = offset + size;
+    linked_section_ensure_capacity(s, required);
+    if (s->size < offset) {
+        memset(s->data + (size_t)s->size, 0, (size_t)(offset - s->size));
+    }
+    memcpy(s->data + (size_t)offset, data, (size_t)size);
+    s->size = required;
+    s->memory_size = required;
     return offset;
 }
 
@@ -346,11 +352,38 @@ static void linked_section_align(LinkedSection* s, uint32_t align) {
     if (align <= 1) return;
     if (align > s->align) s->align = align;
 
-    while (s->size % align != 0) {
-        linked_section_ensure_capacity(s, 1);
-        s->data[(size_t)s->size] = 0;
-        ++s->size;
+    uint64_t mask = (uint64_t)align - 1u;
+    if (s->memory_size > UINT64_MAX - mask) {
+        rcc_fatal("linked section alignment overflow");
     }
+    s->memory_size = (s->memory_size + mask) & ~mask;
+}
+
+static uint64_t linked_section_add_object_section(LinkedSection* linked,
+                                                  const ObjSection* input) {
+    uint64_t offset;
+    uint64_t file_end;
+    uint64_t memory_end;
+    linked_section_align(linked, input->align);
+    offset = linked->memory_size;
+    if (input->size > UINT64_MAX - offset ||
+        input->memory_size > UINT64_MAX - offset) {
+        rcc_fatal("linked section size overflow");
+    }
+    file_end = offset + input->size;
+    memory_end = offset + input->memory_size;
+    if (input->size != 0u) {
+        linked_section_ensure_capacity(linked, file_end);
+        if (linked->size < offset) {
+            memset(linked->data + (size_t)linked->size, 0,
+                   (size_t)(offset - linked->size));
+        }
+        memcpy(linked->data + (size_t)offset, input->data,
+               (size_t)input->size);
+        linked->size = file_end;
+    }
+    linked->memory_size = memory_end;
+    return offset;
 }
 
 bool linker_merge_sections(Linker* ld) {
@@ -382,18 +415,13 @@ bool linker_merge_sections(Linker* ld) {
                 return false;
             }
 
-            /* Align section */
-            linked_section_align(linked, sect->align);
-
             /* Record offset for relocation adjustment */
             offsets = rcc_realloc(offsets, sizeof(SectionOffset) * (offset_count + 1));
             offsets[offset_count].obj_idx = obj_idx;
             offsets[offset_count].sect_idx = sect_idx;
-            offsets[offset_count].offset = linked->size;
+            offsets[offset_count].offset =
+                linked_section_add_object_section(linked, sect);
             offset_count++;
-
-            /* Copy section data */
-            linked_section_add_data(linked, sect->data, sect->size);
 
             if (g_linker_opts.verbose) {
                 printf("    %s:%s -> %s (+%" PRIu64 " bytes at %" PRIu64 ")\n",
@@ -522,7 +550,7 @@ bool linker_collect_symbols(Linker* ld) {
                             if (i == obj_idx && ps == sect) {
                                 sect_offsets[obj_idx][sect_idx] = offset;
                             }
-                            offset += ps->size;
+                            offset += ps->memory_size;
                         }
                     }
                 }
@@ -718,18 +746,19 @@ bool linker_layout(Linker* ld, uint64_t base_addr) {
 
             /* Align to section alignment */
             if (!linker_align_address(addr, s->align, &addr) ||
-                s->size > UINT64_MAX - addr) {
+                s->memory_size > UINT64_MAX - addr) {
                 fprintf(stderr, "rld: section layout overflow\n");
                 return false;
             }
 
             s->vaddr = addr;
-            addr += s->size;
+            addr += s->memory_size;
 
             if (g_linker_opts.verbose) {
                 printf("    %s: 0x%" PRIx64 " - 0x%" PRIx64
                        " (%" PRIu64 " bytes)\n",
-                       s->name, s->vaddr, s->vaddr + s->size, s->size);
+                       s->name, s->vaddr, s->vaddr + s->memory_size,
+                       s->memory_size);
             }
         }
     }
@@ -739,17 +768,18 @@ bool linker_layout(Linker* ld, uint64_t base_addr) {
         if (s->vaddr != 0) continue;  /* Already placed */
 
         if (!linker_align_address(addr, s->align, &addr) ||
-            s->size > UINT64_MAX - addr) {
+            s->memory_size > UINT64_MAX - addr) {
             fprintf(stderr, "rld: section layout overflow\n");
             return false;
         }
         s->vaddr = addr;
-        addr += s->size;
+        addr += s->memory_size;
 
         if (g_linker_opts.verbose) {
             printf("    %s: 0x%" PRIx64 " - 0x%" PRIx64
                    " (%" PRIu64 " bytes)\n",
-                   s->name, s->vaddr, s->vaddr + s->size, s->size);
+                   s->name, s->vaddr, s->vaddr + s->memory_size,
+                   s->memory_size);
         }
     }
 
@@ -1011,7 +1041,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     GlobalSymbol* symbol;
 
     for (linked = ld->sections; linked; linked = linked->next) {
-        if (!linker_image_section_type(linked->type) || linked->size == 0u) {
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) {
             continue;
         }
         load_section_count += linker_alias_section_type(linked->type) ? 2u : 1u;
@@ -1086,7 +1117,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         RinSectionV3* alias = NULL;
         uint64_t rva;
         size_t name_length;
-        if (!linker_image_section_type(linked->type) || linked->size == 0u) {
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) {
             continue;
         }
         if (linked->vaddr < ld->base_addr) {
@@ -1106,7 +1138,7 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
                 ? linker_alias_owner_type(linked->type) : linked->type);
         section->alignment = linker_power_of_two(linked->align) ? linked->align : 1u;
         section->virtual_address = rva;
-        section->memory_size = linked->size;
+        section->memory_size = linked->memory_size;
         name_length = strlen(linked->name) + 1u;
         section->name_offset = string_size;
         memcpy(strings + string_size, linked->name, name_length);
@@ -1117,12 +1149,14 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             alias->flags = RIN_IMAGE_SECTION_READ;
             alias->alignment = section->alignment;
             alias->virtual_address = rva;
-            alias->memory_size = linked->size;
+            alias->memory_size = linked->memory_size;
             alias->name_offset = string_size;
             memcpy(strings + string_size, linked->name, name_length);
             string_size += (uint32_t)name_length;
         }
-        if (rva + linked->size > image_size) image_size = rva + linked->size;
+        if (rva + linked->memory_size > image_size) {
+            image_size = rva + linked->memory_size;
+        }
     }
     if (absolute_relocation_count) {
         RinSectionV3* section = &sections[section_index++];
@@ -1254,7 +1288,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     section_index = 0u;
     for (linked = ld->sections; linked; linked = linked->next) {
         RinSectionV3* section;
-        if (!linker_image_section_type(linked->type) || linked->size == 0u) continue;
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) continue;
         section = &sections[section_index++];
         if (linked->type == SECT_BSS) continue;
         cursor = linker_align_u64(cursor, section->alignment);
@@ -1329,7 +1364,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     section_index = 0u;
     for (linked = ld->sections; linked; linked = linked->next) {
         RinSectionV3* section;
-        if (!linker_image_section_type(linked->type) || linked->size == 0u) continue;
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) continue;
         section = &sections[section_index++];
         if (linked->type != SECT_BSS) memcpy(output + section->file_offset, linked->data, linked->size);
         if (linker_alias_section_type(linked->type)) ++section_index;

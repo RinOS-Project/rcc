@@ -50,7 +50,8 @@ typedef struct LinkedSection {
     SectionType type;
     uint32_t flags;
     uint8_t* data;
-    uint64_t size;
+    uint64_t size;        /* Bytes stored in the output image */
+    uint64_t memory_size; /* Bytes occupied after zero-fill */
     uint64_t capacity;
     uint32_t align;
     uint64_t vaddr;     /* Virtual address after linking */
