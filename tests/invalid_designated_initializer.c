@@ -10,6 +10,14 @@ struct InvalidDesignator missing_field = {.missing = 1};
 struct InvalidDesignator index_on_struct = {[0] = 1};
 struct InvalidDesignator duplicate_field = {1, .member = 2};
 
+struct NestedInvalidDesignator {
+    struct InvalidDesignator nested;
+    int values[2];
+};
+
+struct NestedInvalidDesignator missing_nested = {.nested.missing = 1};
+struct NestedInvalidDesignator out_of_bounds_nested = {.values[2] = 1};
+
 int main(void)
 {
     return 0;

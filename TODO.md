@@ -26,7 +26,7 @@
 
 - [x] 基本declaration、function、struct/union/enum/typedef
   - [x] global/local文字配列のstring初期化、未指定長推論、末尾zero-fill
-  - [x] global/local配列・struct・unionのbrace初期化、単一designator、zero-fill
+  - [x] global/local配列・struct・unionのbrace初期化、ネストdesignator列、zero-fill
 - [x] 式、制御文、scope、基本type conversion
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic

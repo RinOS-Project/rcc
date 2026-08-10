@@ -56,6 +56,11 @@ struct AggregateContainer aggregate_nested = {
     },
 };
 
+struct AggregateContainer aggregate_path = {
+    .record.pointer = &aggregate_target,
+    .values[2] = 17,
+};
+
 union AggregateUnion {
     int number;
     char bytes[4];
@@ -150,12 +155,17 @@ int local_aggregate_initializer_value(void)
             .pointer = &target_value,
         },
     };
+    struct AggregateContainer path = {
+        .record.pointer = &target_value,
+        .values[2] = 9,
+    };
     union AggregateUnion choice = {.number = 6};
     return values[0] + values[1] + values[3] + values[4] +
            *pointers[0] + *pointers[1] + record.first + record.marker +
            *record.pointer + nested.values[0] + nested.values[1] +
            nested.values[3] + nested.record.first + nested.record.marker +
-           *nested.record.pointer + choice.number + scalar;
+           *nested.record.pointer + choice.number + scalar +
+           *path.record.pointer + path.values[2];
 }
 
 int main(void)

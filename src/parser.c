@@ -710,6 +710,14 @@ static bool is_type_start(void) {
     }
 }
 
+typedef struct ParsedInitializerDesignator {
+    InitDesignatorKind kind;
+    int64_t index;
+    const char* field;
+    SourceLoc loc;
+    struct ParsedInitializerDesignator* next;
+} ParsedInitializerDesignator;
+
 static Expr* parse_initializer(void) {
     ExprList* items = NULL;
     SourceLoc loc;
@@ -719,27 +727,69 @@ static Expr* parse_initializer(void) {
         rcc_error(loc, "empty initializer list is not valid C17");
     } else {
         for (;;) {
-            InitDesignatorKind kind = INIT_DESIGNATOR_NONE;
-            int64_t index = 0;
-            const char* field = NULL;
-            if (match(TOK_DOT)) {
-                Token* name = expect(TOK_IDENT, "field designator");
-                kind = INIT_DESIGNATOR_FIELD;
-                if (name) field = name->value.str_val;
-                expect(TOK_ASSIGN, "=");
-            } else if (match(TOK_LBRACKET)) {
-                Expr* designator = parse_assignment();
-                kind = INIT_DESIGNATOR_INDEX;
-                if (!eval_integer_constant(designator, &index) || index < 0) {
-                    rcc_error(designator->loc,
-                              "array designator must be a non-negative integer constant");
-                    index = 0;
+            ParsedInitializerDesignator* designators = NULL;
+            ParsedInitializerDesignator** designator_tail = &designators;
+            while (check(TOK_DOT) || check(TOK_LBRACKET)) {
+                ParsedInitializerDesignator* designator =
+                    rcc_alloc(sizeof(*designator));
+                if (match(TOK_DOT)) {
+                    Token* name;
+                    designator->kind = INIT_DESIGNATOR_FIELD;
+                    designator->loc = previous()->loc;
+                    name = expect(TOK_IDENT, "field designator");
+                    if (name) designator->field = name->value.str_val;
+                } else {
+                    Expr* index_expression;
+                    match(TOK_LBRACKET);
+                    designator->kind = INIT_DESIGNATOR_INDEX;
+                    designator->loc = previous()->loc;
+                    index_expression = parse_assignment();
+                    if (!eval_integer_constant(index_expression,
+                                               &designator->index) ||
+                        designator->index < 0) {
+                        rcc_error(
+                            index_expression->loc,
+                            "array designator must be a non-negative integer constant");
+                        designator->index = 0;
+                    }
+                    expect(TOK_RBRACKET, "]");
                 }
-                expect(TOK_RBRACKET, "]");
+                *designator_tail = designator;
+                designator_tail = &designator->next;
+            }
+            if (designators) {
                 expect(TOK_ASSIGN, "=");
             }
-            exprlist_append_designated(&items, parse_initializer(), kind,
-                                       index, field);
+            {
+                Expr* value = parse_initializer();
+                if (designators) {
+                    ParsedInitializerDesignator* reversed = NULL;
+                    ParsedInitializerDesignator* item = designators->next;
+                    while (item) {
+                        ParsedInitializerDesignator* next = item->next;
+                        item->next = reversed;
+                        reversed = item;
+                        item = next;
+                    }
+                    while (reversed) {
+                        ParsedInitializerDesignator* next = reversed->next;
+                        ExprList* nested = NULL;
+                        exprlist_append_designated(
+                            &nested, value, reversed->kind,
+                            reversed->index, reversed->field);
+                        value = expr_initializer_list(nested, reversed->loc);
+                        rcc_free(reversed);
+                        reversed = next;
+                    }
+                    exprlist_append_designated(
+                        &items, value, designators->kind,
+                        designators->index, designators->field);
+                    rcc_free(designators);
+                } else {
+                    exprlist_append_designated(
+                        &items, value, INIT_DESIGNATOR_NONE, 0, NULL);
+                }
+            }
             if (!match(TOK_COMMA) || check(TOK_RBRACE)) break;
         }
     }

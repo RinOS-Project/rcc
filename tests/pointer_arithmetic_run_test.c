@@ -106,7 +106,7 @@ int main(int argc, char** argv)
         struct LocalAggregate value = {10, 20, 3};
         assert(aggregate_parameter_value(value) == 33);
     }
-    assert(local_aggregate_initializer_value() == 244);
+    assert(local_aggregate_initializer_value() == 264);
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);
