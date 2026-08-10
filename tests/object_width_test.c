@@ -31,6 +31,19 @@ static void write_wide_object(const char* path)
     objfile_free(object);
 }
 
+static void reject_legacy_object(const char* path)
+{
+    uint32_t zero = 0u;
+    ObjectFile* object = objfile_new(path, ARCH_X64);
+    ObjSection* text = objfile_add_section(
+        object, ".text", SECT_CODE, SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
+    section_add_data(text, &zero, sizeof(zero));
+    objfile_add_symbol(object, "main", SYM_GLOBAL, BIND_CODE, 0, 0u, 4u);
+    objfile_add_reloc(object, 0, 0u, "main", RELOC_ABS32, 0);
+    assert(!objfile_write(object, path));
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
     ObjectFile* roundtrip;
@@ -39,7 +52,7 @@ int main(int argc, char** argv)
     LinkedSection* text;
     uint64_t patched = 0u;
 
-    assert(argc == 2);
+    assert(argc == 3);
     write_wide_object(argv[1]);
 
     roundtrip = objfile_read(argv[1]);
@@ -71,10 +84,15 @@ int main(int argc, char** argv)
     memcpy(&patched, text->data, sizeof(patched));
     assert(patched == UINT64_C(0x300000128));
 
+    linker->relocs->type = RELOC_ABS32U;
+    assert(!linker_apply_relocations(linker));
+    linker->relocs->type = RELOC_ABS32S;
+    assert(!linker_apply_relocations(linker));
     linker->relocs->type = RELOC_ABS32;
     assert(!linker_apply_relocations(linker));
     g_linker_opts.arch = ARCH_X86;
     assert(!linker_layout(linker, UINT64_C(0xC0000000)));
     linker_free(linker);
+    reject_legacy_object(argv[2]);
     return 0;
 }

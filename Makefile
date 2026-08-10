@@ -210,7 +210,7 @@ test-object-width: $(RCC_TARGET) $(RLD_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/object_width_test \
 		tests/object_width_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
-	$(TEST_OUT)/object_width_test $(TEST_OUT)/wide.ro
+	$(TEST_OUT)/object_width_test $(TEST_OUT)/wide.ro $(TEST_OUT)/legacy-abs32.ro
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/wide_main.ro tests/main.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -220,7 +220,7 @@ test-object-width: $(RCC_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/wide_lib.ro
 	! $(RLD_TARGET) -T invalid-address --emit-unsigned-v3 \
 		-o $(TEST_OUT)/invalid_base.rin $(TEST_OUT)/wide_main.ro
-	@echo "64-bit object/linker width tests completed"
+	@echo "64-bit object/linker width and typed relocation tests completed"
 
 test-special-sections:
 	mkdir -p $(TEST_OUT)/special

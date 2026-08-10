@@ -32,6 +32,11 @@ static bool ro_range(uint64_t offset, uint64_t size, uint64_t limit) {
     return offset <= limit && size <= limit - offset;
 }
 
+static bool ro_relocation_type_valid(uint16_t type) {
+    return type <= RELOC_PLT32 || type == RELOC_ABS32U ||
+           type == RELOC_ABS32S;
+}
+
 static bool ro_section_policy(uint16_t arch, const RoSection* section) {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
     uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC | SECT_FLAG_ALLOC;
@@ -337,6 +342,22 @@ uint32_t objfile_add_string(ObjectFile* obj, const char* str) {
  * ═══════════════════════════════════════ */
 
 bool objfile_write(ObjectFile* obj, const char* filename) {
+    for (ObjSection* section = obj->sections; section; section = section->next) {
+        for (ObjReloc* relocation = section->relocs; relocation;
+             relocation = relocation->next) {
+            if (!ro_relocation_type_valid((uint16_t)relocation->type)) {
+                rcc_error((SourceLoc){filename, 0, 0},
+                          "unsupported .ro v2 relocation type %u",
+                          (unsigned)relocation->type);
+                return false;
+            }
+            if (relocation->type == RELOC_ABS32) {
+                rcc_error((SourceLoc){filename, 0, 0},
+                          "new .ro v2 objects must use ABS32U or ABS32S");
+                return false;
+            }
+        }
+    }
     FILE* f = fopen(filename, "wb");
     uint64_t* section_data_off = NULL;
     uint64_t* reloc_off = NULL;
@@ -617,7 +638,7 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
             memcpy(&rr, bytes + (size_t)sh->reloc_off +
                         (size_t)j * sizeof(rr), sizeof(rr));
             if (rr.symbol >= hdr.symbol_count ||
-                rr.type > RELOC_PLT32 || rr.flags != 0u ||
+                !ro_relocation_type_valid(rr.type) || rr.flags != 0u ||
                 rr.reserved != 0u) goto read_failed;
             width = rr.type == RELOC_ABS64 ? 8u :
                     rr.type == RELOC_REL8 ? 1u : 4u;
@@ -756,7 +777,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     for (int i = 0; i < mod->reloc_count; i++) {
         ModuleReloc* mr = &mod->relocs_arr[i];
         RelocType type = mr->is_relative ? RELOC_REL32 :
-            (mr->is_64bit ? RELOC_ABS64 : RELOC_ABS32);
+            (mr->is_64bit ? RELOC_ABS64 : RELOC_ABS32U);
 
         /* Use symbol name directly if available */
         const char* sym_name = mr->symbol_name;

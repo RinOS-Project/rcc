@@ -83,7 +83,7 @@ FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-object-width`は4 GiB超の`.ro v2` symbol/addendとAMD64配置を保持し、
-ABS32 overflowおよびx86の3 GiB境界を拒否することを確認します。
+ABS32U/ABS32S overflow、legacy ABS32の新規出力、x86の3 GiB境界を拒否します。
 `test-archive-link`は両archで未解決symbol駆動のmember選択と推移抽出を行い、
 未使用member、入力順に対する過去archiveの再走査、異種arch member、および
 symbol tableとmember実体が矛盾する改変archiveを拒否します。

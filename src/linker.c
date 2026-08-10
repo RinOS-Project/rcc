@@ -875,14 +875,36 @@ bool linker_apply_relocations(Linker* ld) {
 
         switch (r->type) {
             case RELOC_ABS32: {
-                /* 32-bit absolute address */
                 uint32_t value;
-                if (target > UINT32_MAX) {
-                    fprintf(stderr, "rld: ABS32 relocation overflow for '%s'\n",
+                if (target > INT32_MAX) {
+                    fprintf(stderr,
+                            "rld: legacy ABS32 relocation is ambiguous for '%s'\n",
                             r->symbol);
                     return false;
                 }
                 value = (uint32_t)target;
+                memcpy(patch, &value, sizeof(value));
+                break;
+            }
+            case RELOC_ABS32U: {
+                uint32_t value;
+                if (target > UINT32_MAX) {
+                    fprintf(stderr, "rld: ABS32U relocation overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                value = (uint32_t)target;
+                memcpy(patch, &value, sizeof(value));
+                break;
+            }
+            case RELOC_ABS32S: {
+                int32_t value;
+                if (target > INT32_MAX) {
+                    fprintf(stderr, "rld: ABS32S relocation overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                value = (int32_t)target;
                 memcpy(patch, &value, sizeof(value));
                 break;
             }
@@ -1069,7 +1091,10 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         string_capacity += strlen(g_linker_opts.imports[index].symbol) + 1u;
     }
     for (pending = ld->relocs; pending; pending = pending->next) {
-        if (pending->type == RELOC_ABS32 || pending->type == RELOC_ABS64) {
+        if (pending->type == RELOC_ABS32 ||
+            pending->type == RELOC_ABS32U ||
+            pending->type == RELOC_ABS32S ||
+            pending->type == RELOC_ABS64) {
             ++absolute_relocation_count;
         }
     }
@@ -1174,7 +1199,10 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             LinkedSection* target_section;
             int index = 0;
             uint64_t width;
-            if (pending->type != RELOC_ABS32 && pending->type != RELOC_ABS64) continue;
+            if (pending->type != RELOC_ABS32 &&
+                pending->type != RELOC_ABS32U &&
+                pending->type != RELOC_ABS32S &&
+                pending->type != RELOC_ABS64) continue;
             target_section = ld->sections;
             while (target_section && index++ < pending->section) target_section = target_section->next;
             width = pending->type == RELOC_ABS64 ? 8u : 4u;
@@ -1192,7 +1220,10 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             relocations[relocation_index].virtual_address =
                 target_section->vaddr - ld->base_addr + pending->offset;
             relocations[relocation_index].type = width == 8u
-                ? RIN_IMAGE_RELOCATION_ABS64 : RIN_IMAGE_RELOCATION_ABS32U;
+                ? RIN_IMAGE_RELOCATION_ABS64
+                : pending->type == RELOC_ABS32U
+                    ? RIN_IMAGE_RELOCATION_ABS32U
+                    : RIN_IMAGE_RELOCATION_ABS32S;
             ++relocation_index;
         }
         qsort(relocations, absolute_relocation_count, sizeof(RinRelocationV3),

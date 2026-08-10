@@ -38,6 +38,8 @@ typedef enum {
     RELOC_REL8 = 3,     /* 8-bit PC-relative */
     RELOC_GOT32 = 4,    /* 32-bit GOT offset (for shared libs) */
     RELOC_PLT32 = 5,    /* 32-bit PLT offset (for shared libs) */
+    RELOC_ABS32U = 6,   /* Unsigned 32-bit absolute address */
+    RELOC_ABS32S = 7,   /* Signed 32-bit absolute address */
 } RelocType;
 
 /* Section types */

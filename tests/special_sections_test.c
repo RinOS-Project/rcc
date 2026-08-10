@@ -16,7 +16,7 @@ static void add_bytes(ObjSection* section, uint64_t count, uint8_t value)
 static void write_special_object(const char* path, uint16_t arch)
 {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
-    RelocType pointer_reloc = arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32;
+    RelocType pointer_reloc = arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U;
     ObjectFile* object = objfile_new(path, arch);
     ObjSection* text = objfile_add_section(
         object, ".text", SECT_CODE, SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
@@ -30,6 +30,9 @@ static void write_special_object(const char* path, uint16_t arch)
         object, ".fini_array", SECT_FINI_ARRAY, SECT_FLAG_ALLOC);
     ObjSection* bss = objfile_add_section(
         object, ".bss", SECT_BSS, SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+    ObjSection* signed_data = objfile_add_section(
+        object, ".signed_data", SECT_DATA,
+        SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
 
     add_bytes(text, 16u, 0x90u);
     add_bytes(tls, pointer_size, 0x5au);
@@ -38,17 +41,20 @@ static void write_special_object(const char* path, uint16_t arch)
     add_bytes(fini, pointer_size, 0u);
     section_set_memory_size(tls, pointer_size * 2u);
     section_set_memory_size(bss, pointer_size * 4u);
+    add_bytes(signed_data, 4u, 0u);
     tls->align = pointer_size;
     unwind->align = 4u;
     init->align = pointer_size;
     fini->align = pointer_size;
     bss->align = pointer_size;
+    signed_data->align = 4u;
 
     objfile_add_symbol(object, "main", SYM_GLOBAL, BIND_CODE, 0, 0u, 16u);
     objfile_add_symbol(object, "zero_data", SYM_GLOBAL, BIND_BSS, 5, 0u,
                        pointer_size * 4u);
     objfile_add_reloc(object, 3, 0u, "main", pointer_reloc, 0);
     objfile_add_reloc(object, 4, 0u, "main", pointer_reloc, 0);
+    objfile_add_reloc(object, 6, 0u, "main", RELOC_ABS32S, 0);
     assert(objfile_write(object, path));
     objfile_free(object);
 }
@@ -57,7 +63,7 @@ static void verify_object_sections(const char* path)
 {
     static const SectionType expected[] = {
         SECT_CODE, SECT_TLS, SECT_UNWIND, SECT_INIT_ARRAY, SECT_FINI_ARRAY,
-        SECT_BSS
+        SECT_BSS, SECT_DATA
     };
     ObjectFile* object = objfile_read(path);
     ObjSection* section;
@@ -87,7 +93,7 @@ static void verify_image(const char* path, uint16_t expected_arch)
     assert(header.magic == RIN_IMAGE_MAGIC);
     assert(header.architecture == expected_arch);
     assert((header.flags & RIN_IMAGE_USES_TLS) != 0u);
-    assert(header.section_count == 11u);
+    assert(header.section_count == 12u);
     sections = calloc(header.section_count, sizeof(*sections));
     assert(sections != NULL);
     assert(fseek(file, (long)header.section_table_offset, SEEK_SET) == 0);
@@ -122,9 +128,27 @@ static void verify_image(const char* path, uint16_t expected_arch)
             seen |= 1u << 4;
             break;
         case RIN_IMAGE_SECTION_RELOCATIONS:
-            assert(section->file_size == 2u * sizeof(RinRelocationV3));
+        {
+            RinRelocationV3 entries[3];
+            unsigned signed_count = 0u;
+            unsigned pointer_count = 0u;
+            assert(section->file_size == 3u * sizeof(RinRelocationV3));
+            assert(fseek(file, (long)section->file_offset, SEEK_SET) == 0);
+            assert(fread(entries, sizeof(entries), 1, file) == 1);
+            for (size_t entry = 0u; entry < 3u; ++entry) {
+                if (entries[entry].type == RIN_IMAGE_RELOCATION_ABS32S) {
+                    ++signed_count;
+                } else if (entries[entry].type ==
+                           (expected_arch == RIN_ARCH_X86
+                                ? RIN_IMAGE_RELOCATION_ABS32U
+                                : RIN_IMAGE_RELOCATION_ABS64)) {
+                    ++pointer_count;
+                }
+            }
+            assert(signed_count == 1u && pointer_count == 2u);
             seen |= 1u << 5;
             break;
+        }
         case RIN_IMAGE_SECTION_DATA:
             assert(section->flags ==
                    (RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE));
@@ -146,7 +170,7 @@ static void verify_image(const char* path, uint16_t expected_arch)
         }
     }
     assert(seen == 0x7fu);
-    assert(owner_count == 4u);
+    assert(owner_count == 5u);
     free(sections);
     assert(fclose(file) == 0);
 }
