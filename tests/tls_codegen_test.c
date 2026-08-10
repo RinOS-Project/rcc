@@ -83,6 +83,8 @@ static void verify_image(const char* path, uint16_t architecture)
     RinSectionV3* data = NULL;
     RinSectionV3* tls = NULL;
     RinSectionV3* relocation_section = NULL;
+    unsigned data_count = 0u;
+    unsigned rodata_count = 0u;
     RinRelocationV3* relocations;
     uint64_t relocation_count;
     assert(size >= sizeof(*header));
@@ -96,14 +98,26 @@ static void verify_image(const char* path, uint16_t architecture)
     sections = (RinSectionV3*)(bytes + header->section_table_offset);
     for (uint32_t index = 0u; index < header->section_count; ++index) {
         if (sections[index].type == RIN_IMAGE_SECTION_CODE) code = &sections[index];
-        if (sections[index].type == RIN_IMAGE_SECTION_DATA) data = &sections[index];
+        if (sections[index].type == RIN_IMAGE_SECTION_DATA) {
+            data = &sections[index];
+            ++data_count;
+        }
+        if (sections[index].type == RIN_IMAGE_SECTION_RODATA) {
+            ++rodata_count;
+        }
         if (sections[index].type == RIN_IMAGE_SECTION_TLS) tls = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_RELOCATIONS) {
             relocation_section = &sections[index];
         }
     }
-    assert(code != NULL && data != NULL && tls != NULL &&
+    assert(code != NULL && data != NULL && data_count == 1u && tls != NULL &&
            relocation_section != NULL);
+    assert(rodata_count == 0u && code->virtual_address == 0u &&
+           code->file_size == code->memory_size &&
+           data->virtual_address == code->memory_size &&
+           data->file_offset == code->file_offset + code->file_size &&
+           data->file_size == data->memory_size &&
+           header->image_size == data->virtual_address + data->memory_size);
     assert(tls->flags == RIN_IMAGE_SECTION_READ && tls->memory_size >= 8u &&
            tls->file_size == tls->memory_size &&
            tls->virtual_address >= data->virtual_address &&
@@ -112,6 +126,7 @@ static void verify_image(const char* path, uint16_t architecture)
            tls->file_offset + tls->file_size <= size);
     assert(read_u32(bytes + tls->file_offset) == 7u);
     assert(read_u32(bytes + tls->file_offset + 4u) == 0u);
+    assert(read_u32(bytes + data->file_offset) == 3u);
     assert(relocation_section->file_offset + relocation_section->file_size <= size);
     assert(relocation_section->file_size % sizeof(*relocations) == 0u);
     relocations = (RinRelocationV3*)(bytes + relocation_section->file_offset);

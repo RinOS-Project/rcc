@@ -91,12 +91,15 @@ static void verify_image(const char* path, uint16_t expected_arch)
     RinSectionV3* sections;
     unsigned seen = 0u;
     unsigned owner_count = 0u;
+    RinSectionV3* code = NULL;
+    RinSectionV3* data = NULL;
+    RinSectionV3* bss = NULL;
     assert(file != NULL);
     assert(fread(&header, sizeof(header), 1, file) == 1);
     assert(header.magic == RIN_IMAGE_MAGIC);
     assert(header.architecture == expected_arch);
     assert((header.flags & RIN_IMAGE_USES_TLS) != 0u);
-    assert(header.section_count == 12u);
+    assert(header.section_count == 8u);
     sections = calloc(header.section_count, sizeof(*sections));
     assert(sections != NULL);
     assert(fseek(file, (long)header.section_table_offset, SEEK_SET) == 0);
@@ -112,6 +115,7 @@ static void verify_image(const char* path, uint16_t expected_arch)
             assert(section->flags ==
                    (RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE));
             seen |= 1u << 0;
+            code = section;
             break;
         case RIN_IMAGE_SECTION_TLS:
             assert(section->flags == RIN_IMAGE_SECTION_READ);
@@ -161,6 +165,7 @@ static void verify_image(const char* path, uint16_t expected_arch)
             assert(section->flags ==
                    (RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE));
             ++owner_count;
+            data = section;
             break;
         case RIN_IMAGE_SECTION_RODATA:
             assert(section->flags == RIN_IMAGE_SECTION_READ);
@@ -172,13 +177,23 @@ static void verify_image(const char* path, uint16_t expected_arch)
             assert(section->file_offset == 0u && section->file_size == 0u);
             assert(section->memory_size > 0u);
             seen |= 1u << 6;
+            bss = section;
             break;
         default:
             assert(0 && "unexpected RIN v3 section type");
         }
     }
     assert(seen == 0x7fu);
-    assert(owner_count == 5u);
+    assert(owner_count == 1u);
+    assert(code != NULL && data != NULL && bss != NULL);
+    assert(code->virtual_address == 0u &&
+           code->file_size == code->memory_size &&
+           data->virtual_address == code->memory_size &&
+           data->file_offset == code->file_offset + code->file_size &&
+           data->file_size == data->memory_size &&
+           bss->virtual_address == data->virtual_address + data->memory_size &&
+           (bss->virtual_address & 4095u) == 0u &&
+           header.image_size == bss->virtual_address + bss->memory_size);
     free(sections);
     assert(fclose(file) == 0);
 }

@@ -809,12 +809,39 @@ bool linker_layout(Linker* ld, uint64_t base_addr) {
     ld->base_addr = base_addr;
     uint64_t addr = base_addr;
 
-    /* Standard section order: .text, .rodata, .data, .bss */
-    const char* order[] = {".text", ".rodata", ".data", ".bss", NULL};
+    /* Keep permission-compatible ranges adjacent.  In particular every
+     * initialized writable section precedes the TLS template so the final
+     * image can describe them with one DATA owner and a nested TLS alias. */
+    const SectionType order[] = {
+        SECT_CODE, SECT_RODATA, SECT_UNWIND, SECT_INIT_ARRAY,
+        SECT_FINI_ARRAY, SECT_DATA, SECT_TLS, SECT_BSS
+    };
+    bool has_initialized_writable = false;
+    bool has_bss = false;
 
-    for (int i = 0; order[i]; i++) {
+    for (LinkedSection* s = ld->sections; s; s = s->next) {
+        if (s->memory_size == 0u) continue;
+        if (s->type == SECT_DATA || s->type == SECT_TLS) {
+            has_initialized_writable = true;
+        } else if (s->type == SECT_BSS) {
+            has_bss = true;
+        }
+    }
+
+    for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); i++) {
+        if (order[i] == SECT_DATA && has_initialized_writable) {
+            if (!linker_align_address(addr, 4096u, &addr)) {
+                fprintf(stderr, "rld: section layout overflow\n");
+                return false;
+            }
+        } else if (order[i] == SECT_BSS && has_bss) {
+            if (!linker_align_address(addr, 4096u, &addr)) {
+                fprintf(stderr, "rld: section layout overflow\n");
+                return false;
+            }
+        }
         for (LinkedSection* s = ld->sections; s; s = s->next) {
-            if (strcmp(s->name, order[i]) != 0) continue;
+            if (s->type != order[i]) continue;
 
             /* Align to section alignment */
             if (!linker_align_address(addr, s->align, &addr) ||
@@ -1112,12 +1139,19 @@ static bool linker_image_section_type(SectionType type) {
     return type >= SECT_CODE && type <= SECT_FINI_ARRAY;
 }
 
-static bool linker_alias_section_type(SectionType type) {
-    return type >= SECT_TLS && type <= SECT_FINI_ARRAY;
+static bool linker_code_owner_section_type(SectionType type) {
+    return type == SECT_CODE || type == SECT_RODATA ||
+           type == SECT_UNWIND || type == SECT_INIT_ARRAY ||
+           type == SECT_FINI_ARRAY;
 }
 
-static SectionType linker_alias_owner_type(SectionType type) {
-    return type == SECT_TLS ? SECT_DATA : SECT_RODATA;
+static bool linker_readonly_alias_section_type(SectionType type) {
+    return type == SECT_UNWIND || type == SECT_INIT_ARRAY ||
+           type == SECT_FINI_ARRAY;
+}
+
+static bool linker_data_owner_section_type(SectionType type) {
+    return type == SECT_DATA || type == SECT_TLS;
 }
 
 static uint16_t linker_rin_section_type(SectionType type) {
@@ -1134,18 +1168,6 @@ static uint16_t linker_rin_section_type(SectionType type) {
     }
 }
 
-static uint16_t linker_rin_section_flags(SectionType type) {
-    switch (type) {
-    case SECT_CODE:
-        return RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE;
-    case SECT_DATA:
-    case SECT_BSS:
-        return RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-    default:
-        return RIN_IMAGE_SECTION_READ;
-    }
-}
-
 static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library) {
     RinHeaderV3 header;
     RinSectionV3* sections;
@@ -1153,6 +1175,9 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     RinRelocationV3* relocations = NULL;
     RinImportV3* imports = NULL;
     RinExportV3* exports = NULL;
+    RinSectionV3* code_owner_section = NULL;
+    RinSectionV3* data_owner_section = NULL;
+    RinSectionV3* bss_owner_section = NULL;
     uint32_t load_section_count = 0u;
     uint32_t absolute_relocation_count = 0u;
     uint32_t export_count = 0u;
@@ -1165,6 +1190,19 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     uint32_t import_index = 0u;
     uint32_t code_count = 0u;
     bool uses_tls = false;
+    bool has_code_owner = false;
+    bool has_data_owner = false;
+    bool has_bss_owner = false;
+    uint32_t tls_section_count = 0u;
+    uint32_t unwind_section_count = 0u;
+    uint32_t init_array_section_count = 0u;
+    uint32_t fini_array_section_count = 0u;
+    uint64_t code_owner_start = UINT64_MAX;
+    uint64_t code_owner_end = 0u;
+    uint64_t data_owner_start = UINT64_MAX;
+    uint64_t data_owner_end = 0u;
+    uint64_t bss_owner_start = UINT64_MAX;
+    uint64_t bss_owner_end = 0u;
     uint64_t image_size = 0u;
     uint64_t section_table_offset = sizeof(RinHeaderV3);
     uint64_t dependency_table_offset;
@@ -1181,18 +1219,86 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     GlobalSymbol* symbol;
 
     for (linked = ld->sections; linked; linked = linked->next) {
+        uint64_t end;
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) continue;
+        if (linked->vaddr > UINT64_MAX - linked->memory_size) {
+            fprintf(stderr, "rld: loadable section range overflows\n");
+            return false;
+        }
+        end = linked->vaddr + linked->memory_size;
+        if (linker_code_owner_section_type(linked->type)) {
+            if (!has_code_owner || linked->vaddr < code_owner_start) {
+                code_owner_start = linked->vaddr;
+            }
+            if (end > code_owner_end) code_owner_end = end;
+            has_code_owner = true;
+            if (linked->type == SECT_CODE) ++code_count;
+            if (linked->type == SECT_UNWIND) ++unwind_section_count;
+            if (linked->type == SECT_INIT_ARRAY) ++init_array_section_count;
+            if (linked->type == SECT_FINI_ARRAY) ++fini_array_section_count;
+        } else if (linker_data_owner_section_type(linked->type)) {
+            if (!has_data_owner || linked->vaddr < data_owner_start) {
+                data_owner_start = linked->vaddr;
+            }
+            if (end > data_owner_end) data_owner_end = end;
+            has_data_owner = true;
+            if (linked->type == SECT_TLS) ++tls_section_count;
+        } else if (linked->type == SECT_BSS) {
+            if (!has_bss_owner || linked->vaddr < bss_owner_start) {
+                bss_owner_start = linked->vaddr;
+            }
+            if (end > bss_owner_end) bss_owner_end = end;
+            has_bss_owner = true;
+        }
+    }
+    if (!has_code_owner || code_owner_start != ld->base_addr ||
+        code_count != 1u || tls_section_count > 1u ||
+        unwind_section_count > 1u || init_array_section_count > 1u ||
+        fini_array_section_count > 1u) {
+        fprintf(stderr,
+                "rld: canonical RIN v3 requires one code owner and unique runtime aliases\n");
+        return false;
+    }
+    if (has_data_owner) {
+        if (data_owner_start < code_owner_end) {
+            fprintf(stderr, "rld: initialized data overlaps read-only image\n");
+            return false;
+        }
+        code_owner_end = data_owner_start;
+    } else if (has_bss_owner) {
+        if (bss_owner_start < code_owner_end) {
+            fprintf(stderr, "rld: BSS overlaps read-only image\n");
+            return false;
+        }
+        code_owner_end = bss_owner_start;
+    }
+    if (has_data_owner && has_bss_owner) {
+        if (bss_owner_start < data_owner_end) {
+            fprintf(stderr, "rld: BSS overlaps initialized data\n");
+            return false;
+        }
+        data_owner_end = bss_owner_start;
+    }
+
+    load_section_count = 1u + (has_data_owner ? 1u : 0u) +
+                         (has_bss_owner ? 1u : 0u) + tls_section_count +
+                         unwind_section_count + init_array_section_count +
+                         fini_array_section_count;
+    string_capacity += sizeof(".code");
+    if (has_data_owner) string_capacity += sizeof(".data");
+    if (has_bss_owner) string_capacity += sizeof(".bss");
+    for (linked = ld->sections; linked; linked = linked->next) {
         if (!linker_image_section_type(linked->type) ||
             linked->memory_size == 0u) {
             continue;
         }
-        load_section_count += linker_alias_section_type(linked->type) ? 2u : 1u;
-        if (linked->type == SECT_CODE) ++code_count;
-        if (linked->type == SECT_TLS) uses_tls = true;
-        string_capacity += strlen(linked->name) + 1u;
-        if (linker_alias_section_type(linked->type)) {
+        if (linked->type == SECT_TLS ||
+            linker_readonly_alias_section_type(linked->type)) {
             string_capacity += strlen(linked->name) + 1u;
         }
     }
+    uses_tls = tls_section_count != 0u;
     for (int index = 0; index < g_linker_opts.dependency_count; index++) {
         int prior;
         string_capacity += strlen(g_linker_opts.dependencies[index]) + 1u;
@@ -1261,51 +1367,66 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         string_size += (uint32_t)name_length;
     }
 
+    {
+        size_t code_name_length = sizeof(".code");
+        code_owner_section = &sections[section_index++];
+        code_owner_section->type = RIN_IMAGE_SECTION_CODE;
+        code_owner_section->flags = RIN_IMAGE_SECTION_READ |
+                                    RIN_IMAGE_SECTION_EXECUTE;
+        code_owner_section->alignment = 4096u;
+        code_owner_section->memory_size = code_owner_end - code_owner_start;
+        code_owner_section->name_offset = string_size;
+        memcpy(strings + string_size, ".code", code_name_length);
+        string_size += (uint32_t)code_name_length;
+        image_size = code_owner_end - ld->base_addr;
+    }
+    if (has_data_owner) {
+        size_t data_name_length = sizeof(".data");
+        data_owner_section = &sections[section_index++];
+        data_owner_section->type = RIN_IMAGE_SECTION_DATA;
+        data_owner_section->flags = RIN_IMAGE_SECTION_READ |
+                                    RIN_IMAGE_SECTION_WRITE;
+        data_owner_section->alignment = 4096u;
+        data_owner_section->virtual_address = data_owner_start - ld->base_addr;
+        data_owner_section->memory_size = data_owner_end - data_owner_start;
+        data_owner_section->name_offset = string_size;
+        memcpy(strings + string_size, ".data", data_name_length);
+        string_size += (uint32_t)data_name_length;
+        image_size = data_owner_end - ld->base_addr;
+    }
+    if (has_bss_owner) {
+        size_t bss_name_length = sizeof(".bss");
+        bss_owner_section = &sections[section_index++];
+        bss_owner_section->type = RIN_IMAGE_SECTION_BSS;
+        bss_owner_section->flags = RIN_IMAGE_SECTION_READ |
+                                   RIN_IMAGE_SECTION_WRITE;
+        bss_owner_section->alignment = 4096u;
+        bss_owner_section->virtual_address = bss_owner_start - ld->base_addr;
+        bss_owner_section->memory_size = bss_owner_end - bss_owner_start;
+        bss_owner_section->name_offset = string_size;
+        memcpy(strings + string_size, ".bss", bss_name_length);
+        string_size += (uint32_t)bss_name_length;
+        image_size = bss_owner_end - ld->base_addr;
+    }
     for (linked = ld->sections; linked; linked = linked->next) {
-        RinSectionV3* section;
-        RinSectionV3* alias = NULL;
-        uint64_t rva;
-        size_t name_length;
-        if (!linker_image_section_type(linked->type) ||
-            linked->memory_size == 0u) {
+        RinSectionV3* alias;
+        size_t alias_name_length;
+        if (linked->memory_size == 0u ||
+            (linked->type != SECT_TLS &&
+             !linker_readonly_alias_section_type(linked->type))) {
             continue;
         }
-        if (linked->vaddr < ld->base_addr) {
-            fprintf(stderr, "rld: section %s precedes the preferred base\n", linked->name);
-            rcc_free(dependencies);
-            rcc_free(sections);
-            rcc_free(strings);
-            return false;
-        }
-        rva = linked->vaddr - ld->base_addr;
-        section = &sections[section_index++];
-        section->type = linker_rin_section_type(
-            linker_alias_section_type(linked->type)
-                ? linker_alias_owner_type(linked->type) : linked->type);
-        section->flags = linker_rin_section_flags(
-            linker_alias_section_type(linked->type)
-                ? linker_alias_owner_type(linked->type) : linked->type);
-        section->alignment = linker_power_of_two(linked->align) ? linked->align : 1u;
-        section->virtual_address = rva;
-        section->memory_size = linked->memory_size;
-        name_length = strlen(linked->name) + 1u;
-        section->name_offset = string_size;
-        memcpy(strings + string_size, linked->name, name_length);
-        string_size += (uint32_t)name_length;
-        if (linker_alias_section_type(linked->type)) {
-            alias = &sections[section_index++];
-            alias->type = linker_rin_section_type(linked->type);
-            alias->flags = RIN_IMAGE_SECTION_READ;
-            alias->alignment = section->alignment;
-            alias->virtual_address = rva;
-            alias->memory_size = linked->memory_size;
-            alias->name_offset = string_size;
-            memcpy(strings + string_size, linked->name, name_length);
-            string_size += (uint32_t)name_length;
-        }
-        if (rva + linked->memory_size > image_size) {
-            image_size = rva + linked->memory_size;
-        }
+        alias = &sections[section_index++];
+        alias->type = linker_rin_section_type(linked->type);
+        alias->flags = RIN_IMAGE_SECTION_READ;
+        alias->alignment = linker_power_of_two(linked->align)
+            ? linked->align : 1u;
+        alias->virtual_address = linked->vaddr - ld->base_addr;
+        alias->memory_size = linked->memory_size;
+        alias->name_offset = string_size;
+        alias_name_length = strlen(linked->name) + 1u;
+        memcpy(strings + string_size, linked->name, alias_name_length);
+        string_size += (uint32_t)alias_name_length;
     }
     if (absolute_relocation_count) {
         RinSectionV3* section = &sections[section_index++];
@@ -1443,23 +1564,42 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     string_table_offset = dependency_table_offset +
         (uint64_t)dependency_count * sizeof(RinDependencyV3);
     cursor = linker_align_u64(string_table_offset + string_size, 16u);
-    section_index = 0u;
-    for (linked = ld->sections; linked; linked = linked->next) {
-        RinSectionV3* section;
-        if (!linker_image_section_type(linked->type) ||
-            linked->memory_size == 0u) continue;
-        section = &sections[section_index++];
-        if (linked->type == SECT_BSS) continue;
-        cursor = linker_align_u64(cursor, section->alignment);
-        section->file_offset = cursor;
-        section->file_size = linked->size;
-        if (linker_alias_section_type(linked->type)) {
-            RinSectionV3* alias = &sections[section_index++];
-            alias->file_offset = cursor;
-            alias->file_size = linked->size;
-        }
-        cursor += linked->size;
+    code_owner_section->file_offset = cursor;
+    code_owner_section->file_size = code_owner_section->memory_size;
+    cursor += code_owner_section->file_size;
+    if (data_owner_section) {
+        data_owner_section->file_offset = cursor;
+        data_owner_section->file_size = data_owner_section->memory_size;
+        cursor += data_owner_section->file_size;
     }
+    for (linked = ld->sections; linked; linked = linked->next) {
+        RinSectionV3* alias = NULL;
+        RinSectionV3* owner;
+        if (linked->memory_size == 0u ||
+            (linked->type != SECT_TLS &&
+             !linker_readonly_alias_section_type(linked->type))) continue;
+        for (uint32_t alias_index = 0u; alias_index < load_section_count;
+             ++alias_index) {
+            if (sections[alias_index].type ==
+                linker_rin_section_type(linked->type)) {
+                alias = &sections[alias_index];
+                break;
+            }
+        }
+        owner = linked->type == SECT_TLS
+            ? data_owner_section : code_owner_section;
+        if (!alias || !owner) {
+            fprintf(stderr, "rld: missing canonical alias owner\n");
+            rcc_free(dependencies); rcc_free(relocations);
+            rcc_free(sections); rcc_free(strings);
+            return false;
+        }
+        alias->file_offset = owner->file_offset +
+            (linked->vaddr - (linked->type == SECT_TLS
+                ? data_owner_start : code_owner_start));
+        alias->file_size = linked->size;
+    }
+    section_index = load_section_count;
     if (absolute_relocation_count) {
         RinSectionV3* section = &sections[section_index++];
         cursor = linker_align_u64(cursor, section->alignment);
@@ -1479,7 +1619,6 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         cursor += section->file_size;
     }
     unsigned_size = cursor;
-    image_size = linker_align_u64(image_size, 4096u);
     if (unsigned_size > SIZE_MAX || image_size == 0u ||
         (g_linker_opts.arch == ARCH_X86 &&
          ((uint64_t)ld->base_addr + image_size >= UINT64_C(0xC0000000)))) {
@@ -1511,6 +1650,7 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     header.string_table_size = string_size;
 
     output = rcc_alloc((size_t)unsigned_size);
+    memset(output, 0, (size_t)unsigned_size);
     memcpy(output, &header, sizeof(header));
     memcpy(output + section_table_offset, sections,
            (size_t)section_count * sizeof(RinSectionV3));
@@ -1519,15 +1659,33 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
                (size_t)dependency_count * sizeof(RinDependencyV3));
     }
     memcpy(output + string_table_offset, strings, string_size);
-    section_index = 0u;
     for (linked = ld->sections; linked; linked = linked->next) {
-        RinSectionV3* section;
         if (!linker_image_section_type(linked->type) ||
             linked->memory_size == 0u) continue;
-        section = &sections[section_index++];
-        if (linked->type != SECT_BSS) memcpy(output + section->file_offset, linked->data, linked->size);
-        if (linker_alias_section_type(linked->type)) ++section_index;
+        if (linker_code_owner_section_type(linked->type)) {
+            if (linked->size != 0u) {
+                memcpy(output + code_owner_section->file_offset +
+                           (linked->vaddr - code_owner_start),
+                       linked->data, linked->size);
+            }
+            continue;
+        }
+        if (linker_data_owner_section_type(linked->type)) {
+            if (!data_owner_section) {
+                rcc_free(output); rcc_free(exports); rcc_free(imports);
+                rcc_free(dependencies); rcc_free(relocations);
+                rcc_free(sections); rcc_free(strings);
+                return false;
+            }
+            if (linked->size != 0u) {
+                memcpy(output + data_owner_section->file_offset +
+                           (linked->vaddr - data_owner_start),
+                       linked->data, linked->size);
+            }
+            continue;
+        }
     }
+    section_index = load_section_count;
     if (absolute_relocation_count) {
         memcpy(output + sections[section_index++].file_offset, relocations,
                (size_t)absolute_relocation_count * sizeof(RinRelocationV3));

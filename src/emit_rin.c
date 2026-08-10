@@ -65,7 +65,6 @@ bool rcc_emit(Module* mod, const char* outfile) {
     uint32_t relocation_index = 0u;
     uint32_t strings_size = 1u;
     uint32_t text_name;
-    uint32_t rodata_name = 0u;
     uint32_t data_name = 0u;
     uint32_t bss_name = 0u;
     uint32_t tls_name = 0u;
@@ -82,6 +81,8 @@ bool rcc_emit(Module* mod, const char* outfile) {
     uint64_t unsigned_size;
     uint64_t payload_file_end;
     uint64_t mapped_end;
+    uint64_t code_payload_size;
+    uint64_t code_owner_size;
     uint64_t rodata_rva = 0u;
     uint64_t data_rva = 0u;
     uint64_t tls_rva = 0u;
@@ -103,16 +104,12 @@ bool rcc_emit(Module* mod, const char* outfile) {
     for (relocation = mod->relocs; relocation; relocation = relocation->next) {
         ++relocation_count;
     }
-    if (mod->rodata.size > 0u) ++section_count;
     if (mod->data.size > 0u || mod->tls.size > 0u) ++section_count;
     if (mod->tls.size > 0u) ++section_count;
     if (mod->bss.size > 0u) ++section_count;
     if (relocation_count > 0u) ++section_count;
 
     text_name = append_name(strings, &strings_size, ".text");
-    if (mod->rodata.size > 0u) {
-        rodata_name = append_name(strings, &strings_size, ".rodata");
-    }
     if (mod->data.size > 0u || mod->tls.size > 0u) {
         data_name = append_name(strings, &strings_size, ".data");
     }
@@ -124,24 +121,32 @@ bool rcc_emit(Module* mod, const char* outfile) {
         (uint64_t)section_count * sizeof(RinSectionV3);
     string_table_offset = dependency_table_offset;
     code_file_offset = align_up_u64(string_table_offset + strings_size, 16u);
-    payload_file_end = code_file_offset + mod->code.size;
-    mapped_end = mod->code.size;
+    code_payload_size = mod->code.size;
+    if (mod->rodata.size > 0u) {
+        rodata_rva = align_up_u64(code_payload_size, 16u);
+        code_payload_size = rodata_rva + mod->rodata.size;
+    }
+    code_owner_size = code_payload_size;
+    if (mod->data.size > 0u || mod->tls.size > 0u || mod->bss.size > 0u) {
+        code_owner_size = align_up_u64(code_owner_size, 4096u);
+    }
+    rodata_file_offset = mod->rodata.size > 0u
+        ? code_file_offset + rodata_rva : 0u;
+    payload_file_end = code_file_offset + code_owner_size;
+    mapped_end = code_owner_size;
     data_payload_size = mod->data.size;
     if (mod->tls.size > 0u) {
         uint64_t tls_alignment = mod->tls_align < 16u ? 16u : mod->tls_align;
         tls_data_offset = align_up_u64(data_payload_size, tls_alignment);
         data_payload_size = tls_data_offset + mod->tls.size;
     }
-    if (mod->rodata.size > 0u) {
-        rodata_file_offset = align_up_u64(payload_file_end, 16u);
-        payload_file_end = rodata_file_offset + mod->rodata.size;
-        rodata_rva = align_up_u64(mapped_end, 4096u);
-        mapped_end = rodata_rva + mod->rodata.size;
-    }
     if (data_payload_size > 0u) {
-        data_file_offset = align_up_u64(payload_file_end, 16u);
+        data_file_offset = payload_file_end;
+        data_rva = mapped_end;
+        if (mod->bss.size > 0u) {
+            data_payload_size = align_up_u64(data_payload_size, 4096u);
+        }
         payload_file_end = data_file_offset + data_payload_size;
-        data_rva = align_up_u64(mapped_end, 4096u);
         mapped_end = data_rva + data_payload_size;
         if (mod->tls.size > 0u) {
             tls_file_offset = data_file_offset + tls_data_offset;
@@ -149,7 +154,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
         }
     }
     if (mod->bss.size > 0u) {
-        bss_rva = align_up_u64(mapped_end, 4096u);
+        bss_rva = mapped_end;
         mapped_end = bss_rva + mod->bss.size;
     }
     if (relocation_count > 0u) {
@@ -159,7 +164,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
     } else {
         unsigned_size = payload_file_end;
     }
-    image_size = align_up_u64(mapped_end, 4096u);
+    image_size = mapped_end;
     if (unsigned_size > SIZE_MAX || image_size == 0u ||
         (g_opts.target_arch == ARCH_X86 && image_size >= UINT64_C(0xC0000000))) {
         rcc_error((SourceLoc){outfile, 0, 0}, "RIN v3 image exceeds target limits");
@@ -190,26 +195,15 @@ bool rcc_emit(Module* mod, const char* outfile) {
     sections[0].flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE;
     sections[0].alignment = 16u;
     sections[0].file_offset = code_file_offset;
-    sections[0].file_size = mod->code.size;
-    sections[0].memory_size = mod->code.size;
+    sections[0].file_size = code_owner_size;
+    sections[0].memory_size = code_owner_size;
     sections[0].name_offset = text_name;
     uint32_t next_section = 1u;
-    if (mod->rodata.size > 0u) {
-        RinSectionV3* rodata_section = &sections[next_section++];
-        rodata_section->type = RIN_IMAGE_SECTION_RODATA;
-        rodata_section->flags = RIN_IMAGE_SECTION_READ;
-        rodata_section->alignment = 16u;
-        rodata_section->file_offset = rodata_file_offset;
-        rodata_section->file_size = mod->rodata.size;
-        rodata_section->virtual_address = rodata_rva;
-        rodata_section->memory_size = mod->rodata.size;
-        rodata_section->name_offset = rodata_name;
-    }
     if (data_payload_size > 0u) {
         RinSectionV3* data_section = &sections[next_section++];
         data_section->type = RIN_IMAGE_SECTION_DATA;
         data_section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-        data_section->alignment = 16u;
+        data_section->alignment = 4096u;
         data_section->file_offset = data_file_offset;
         data_section->file_size = data_payload_size;
         data_section->virtual_address = data_rva;
@@ -231,7 +225,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
         RinSectionV3* bss_section = &sections[next_section++];
         bss_section->type = RIN_IMAGE_SECTION_BSS;
         bss_section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-        bss_section->alignment = mod->bss.align;
+        bss_section->alignment = 4096u;
         bss_section->virtual_address = bss_rva;
         bss_section->memory_size = mod->bss.size;
         bss_section->name_offset = bss_name;
@@ -287,6 +281,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
     }
 
     output = rcc_alloc((size_t)unsigned_size);
+    memset(output, 0, (size_t)unsigned_size);
     memcpy(output, &header, sizeof(header));
     memcpy(output + section_table_offset, sections,
            (size_t)section_count * sizeof(RinSectionV3));

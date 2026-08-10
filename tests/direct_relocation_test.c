@@ -144,6 +144,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
     size_t data_source_relocations = 0u;
     size_t pointer_width = expected_architecture == RIN_ARCH_X86_64 ? 8u : 4u;
     uint64_t static_literal_offset;
+    uint64_t image_rodata_rva;
 
     assert(object != NULL);
     first = required_symbol(object, "first_value");
@@ -480,12 +481,35 @@ static void verify_artifact(const char* object_path, const char* image_path,
             relocation_section = &sections[index];
         }
     }
-    assert(code != NULL && rodata != NULL && data != NULL && bss != NULL &&
+    assert(code != NULL && data != NULL && bss != NULL &&
            relocation_section != NULL);
-    assert(rodata->flags == RIN_IMAGE_SECTION_READ);
-    assert(rodata->file_size == object_rodata->size &&
-           rodata->memory_size == object_rodata->size);
-    assert(rodata->virtual_address != data->virtual_address);
+    if (rodata != NULL) {
+        assert(rodata->flags == RIN_IMAGE_SECTION_READ);
+        assert(rodata->file_size == object_rodata->size &&
+               rodata->memory_size == object_rodata->size);
+        assert(rodata->virtual_address != data->virtual_address);
+        image_rodata_rva = rodata->virtual_address;
+    } else {
+        uint64_t alignment = preferred_base == 0u
+            ? 16u : object_rodata->align;
+        image_rodata_rva = (object_code->size + alignment - 1u) &
+                           ~(alignment - 1u);
+        assert(expected_magic == RIN_IMAGE_MAGIC);
+        assert(image_rodata_rva + object_rodata->size <= code->file_size);
+    }
+    if (expected_magic == RIN_IMAGE_MAGIC) {
+        assert(rodata == NULL);
+        assert(code->virtual_address == 0u &&
+               code->file_size == code->memory_size &&
+               data->virtual_address == code->memory_size &&
+               data->file_offset == code->file_offset + code->file_size &&
+               data->file_size == data->memory_size &&
+               bss->virtual_address == data->virtual_address +
+                   data->memory_size &&
+               (bss->virtual_address & 4095u) == 0u &&
+               header.image_size == bss->virtual_address +
+                   bss->memory_size);
+    }
     assert(bss->file_offset == 0u && bss->file_size == 0u);
     assert(bss->memory_size >= zero->value + 4u);
     assert(relocation_section->file_size % sizeof(RinRelocationV3) == 0u);
@@ -510,7 +534,8 @@ static void verify_artifact(const char* object_path, const char* image_path,
             relocations[index].virtual_address + width <=
                 code->virtual_address + code->file_size) {
             source = code;
-        } else if (relocations[index].virtual_address >=
+        } else if (rodata != NULL &&
+                   relocations[index].virtual_address >=
                        rodata->virtual_address &&
                    relocations[index].virtual_address + width <=
                        rodata->virtual_address + rodata->file_size) {
@@ -530,7 +555,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
         if (value == preferred_base + data->virtual_address + second->value) {
             saw_data_symbol = 1;
         }
-        if (value == preferred_base + rodata->virtual_address) {
+        if (value == preferred_base + image_rodata_rva) {
             saw_rodata_symbol = 1;
         }
         if (value == preferred_base + bss->virtual_address + zero->value) {
@@ -543,12 +568,12 @@ static void verify_artifact(const char* object_path, const char* image_path,
             assert(source_offset != static_null->value);
             ++data_source_relocations;
             if (source_offset == static_literal->value &&
-                value == preferred_base + rodata->virtual_address +
+                value == preferred_base + image_rodata_rva +
                          static_literal_offset) {
                 saw_static_literal = 1;
             }
             if (source_offset == static_suffix->value &&
-                value == preferred_base + rodata->virtual_address +
+                value == preferred_base + image_rodata_rva +
                          static_literal_offset + 6u) {
                 saw_static_suffix = 1;
             }

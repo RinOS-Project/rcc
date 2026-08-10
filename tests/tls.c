@@ -1,5 +1,6 @@
 _Thread_local int tls_counter = 7;
 static _Thread_local int tls_zero;
+int normal_data = 3;
 
 int main(void) {
     tls_counter += 5;
