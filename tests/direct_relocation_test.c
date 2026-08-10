@@ -99,6 +99,8 @@ static void verify_artifact(const char* object_path, const char* image_path,
     ObjSymbol* integer_add;
     ObjSymbol* pointer_distance;
     ObjSymbol* pointer_update;
+    ObjSymbol* local_array_value;
+    ObjSymbol* large_local_array_value;
     ObjSection* object_code = NULL;
     ObjSection* object_rodata = NULL;
     ObjSection* object_data = NULL;
@@ -153,6 +155,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
     integer_add = required_symbol(object, "integer_add");
     pointer_distance = required_symbol(object, "pointer_distance");
     pointer_update = required_symbol(object, "pointer_update");
+    local_array_value = required_symbol(object, "local_array_value");
+    large_local_array_value = required_symbol(object,
+                                               "large_local_array_value");
     assert(first->section == second->section);
     assert(first->value != second->value);
     assert(zero->binding == BIND_BSS);
@@ -234,6 +239,11 @@ static void verify_artifact(const char* object_path, const char* image_path,
                saw_static_second && saw_static_target);
     }
     if (expected_architecture == RIN_ARCH_X86_64) {
+        static const uint8_t large_stack_frame[] = {
+            0x55, 0x48, 0x89, 0xe5, 0x48, 0x81, 0xec,
+            0x40, 0x01, 0x00, 0x00,
+        };
+        static const uint8_t signed_char_load[] = {0x48, 0x0f, 0xbe};
         static const uint8_t scale_left[] = {
             0x48, 0xc7, 0xc2, 0x04, 0x00, 0x00, 0x00,
             0x48, 0x0f, 0xaf, 0xc2,
@@ -248,6 +258,14 @@ static void verify_artifact(const char* object_path, const char* image_path,
         };
         static const uint8_t post_increment[] = {0x48, 0x83, 0xc2, 0x04};
         static const uint8_t pre_increment[] = {0x48, 0x83, 0xc0, 0x04};
+        assert(contains_bytes(
+            object_code->data + large_local_array_value->value,
+            symbol_extent(object, large_local_array_value, object_code->size),
+            large_stack_frame, sizeof(large_stack_frame)));
+        assert(contains_bytes(
+            object_code->data + local_array_value->value,
+            symbol_extent(object, local_array_value, object_code->size),
+            signed_char_load, sizeof(signed_char_load)));
         assert(contains_bytes(object_code->data + integer_add->value,
                               symbol_extent(object, integer_add,
                                             object_code->size),
@@ -274,6 +292,10 @@ static void verify_artifact(const char* object_path, const char* image_path,
                                             object_code->size),
                               pre_increment, sizeof(pre_increment)));
     } else {
+        static const uint8_t large_stack_frame[] = {
+            0x55, 0x89, 0xe5, 0x81, 0xec, 0x40, 0x01, 0x00, 0x00,
+        };
+        static const uint8_t signed_char_load[] = {0x0f, 0xbe};
         static const uint8_t scale_left[] = {
             0xba, 0x04, 0x00, 0x00, 0x00, 0x0f, 0xaf, 0xc2,
         };
@@ -285,6 +307,14 @@ static void verify_artifact(const char* object_path, const char* image_path,
         };
         static const uint8_t post_increment[] = {0x83, 0xc2, 0x04};
         static const uint8_t pre_increment[] = {0x83, 0xc0, 0x04};
+        assert(contains_bytes(
+            object_code->data + large_local_array_value->value,
+            symbol_extent(object, large_local_array_value, object_code->size),
+            large_stack_frame, sizeof(large_stack_frame)));
+        assert(contains_bytes(
+            object_code->data + local_array_value->value,
+            symbol_extent(object, local_array_value, object_code->size),
+            signed_char_load, sizeof(signed_char_load)));
         assert(contains_bytes(object_code->data + integer_add->value,
                               symbol_extent(object, integer_add,
                                             object_code->size),

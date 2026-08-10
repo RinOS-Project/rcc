@@ -315,6 +315,12 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/direct/invalid-array-x64.ro \
 		tests/invalid_array_initializer.c
 	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/unsupported-local-array-x86.ro \
+		tests/unsupported_local_array_initializer.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/unsupported-local-array-x64.ro \
+		tests/unsupported_local_array_initializer.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-constant-x86.ro \
 		tests/invalid_static_constant.c
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \

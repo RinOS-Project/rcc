@@ -7,6 +7,7 @@
 #include "ast.h"
 #include "symtab.h"
 #include "codegen.h"
+#include <limits.h>
 
 /* Label management */
 static int label_counter = 0;
@@ -688,30 +689,66 @@ static void emit_mov_reg_imm(Module* mod, int reg, uint32_t imm) {
     emit_dword(mod, imm);
 }
 
-static void emit_mov_reg_mem(Module* mod, int reg, int base, int32_t disp) {
-    emit_byte(mod, 0x8B);
+static void emit_memory_operand32(Module* mod, int reg, int base,
+                                  int32_t disp) {
     if (disp == 0 && base != EBP) {
         emit_byte(mod, modrm(0, reg, base));
+        if (base == ESP) emit_byte(mod, 0x24);
     } else if (disp >= -128 && disp <= 127) {
         emit_byte(mod, modrm(1, reg, base));
+        if (base == ESP) emit_byte(mod, 0x24);
         emit_byte(mod, (uint8_t)disp);
     } else {
         emit_byte(mod, modrm(2, reg, base));
+        if (base == ESP) emit_byte(mod, 0x24);
         emit_dword(mod, (uint32_t)disp);
     }
 }
 
+static void emit_mov_reg_mem(Module* mod, int reg, int base, int32_t disp) {
+    emit_byte(mod, 0x8B);
+    emit_memory_operand32(mod, reg, base, disp);
+}
+
 static void emit_mov_mem_reg(Module* mod, int base, int32_t disp, int src) {
     emit_byte(mod, 0x89);
-    if (disp == 0 && base != EBP) {
-        emit_byte(mod, modrm(0, src, base));
-    } else if (disp >= -128 && disp <= 127) {
-        emit_byte(mod, modrm(1, src, base));
-        emit_byte(mod, (uint8_t)disp);
-    } else {
-        emit_byte(mod, modrm(2, src, base));
-        emit_dword(mod, (uint32_t)disp);
+    emit_memory_operand32(mod, src, base, disp);
+}
+
+static void emit_mov_mem_reg8(Module* mod, int base, int32_t disp, int src) {
+    emit_byte(mod, 0x88);
+    emit_memory_operand32(mod, src, base, disp);
+}
+
+static int gen_type_width32(const Type* type) {
+    if (type && (type->size == 1 || type->size == 2)) return type->size;
+    return 4;
+}
+
+static void emit_load_typed32(Module* mod, int reg, int base, int32_t disp,
+                              const Type* type) {
+    int width = gen_type_width32(type);
+    if (width == 4) {
+        emit_mov_reg_mem(mod, reg, base, disp);
+        return;
     }
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, type && !type->is_unsigned
+        ? (width == 1 ? 0xBE : 0xBF)
+        : (width == 1 ? 0xB6 : 0xB7));
+    emit_memory_operand32(mod, reg, base, disp);
+}
+
+static void emit_store_typed32(Module* mod, int base, int32_t disp, int src,
+                               const Type* type) {
+    int width = gen_type_width32(type);
+    if (width == 4) {
+        emit_mov_mem_reg(mod, base, disp, src);
+        return;
+    }
+    if (width == 2) emit_byte(mod, 0x66);
+    emit_byte(mod, width == 1 ? 0x88 : 0x89);
+    emit_memory_operand32(mod, src, base, disp);
 }
 
 static void emit_add_reg_imm(Module* mod, int reg, int32_t imm) {
@@ -1116,9 +1153,10 @@ static void gen_expr(Module* mod, Expr* expr) {
                 gen_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl->name, 0u);
-                emit_mov_reg_mem(mod, EAX, EAX, 0);
+                emit_load_typed32(mod, EAX, EAX, 0, decl->type);
             } else {
-                emit_mov_reg_mem(mod, EAX, EBP, decl->var_offset);
+                emit_load_typed32(mod, EAX, EBP, decl->var_offset,
+                                  decl->type);
             }
             break;
         }
@@ -1148,14 +1186,14 @@ static void gen_expr(Module* mod, Expr* expr) {
 
         case EXPR_DEREF:
             gen_expr(mod, expr->unary_operand);
-            emit_mov_reg_mem(mod, EAX, EAX, 0);
+            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
             break;
 
         case EXPR_PREINC:
         case EXPR_PREDEC:
             gen_lvalue(mod, expr->unary_operand);
             emit_push_reg(mod, EAX);
-            emit_mov_reg_mem(mod, EAX, EAX, 0);
+            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
             if (expr->kind == EXPR_PREINC) {
                 emit_add_reg_imm(mod, EAX,
                                  (int)codegen_increment_size(expr->type));
@@ -1164,14 +1202,14 @@ static void gen_expr(Module* mod, Expr* expr) {
                                  (int)codegen_increment_size(expr->type));
             }
             emit_pop_reg(mod, ECX);
-            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_store_typed32(mod, ECX, 0, EAX, expr->type);
             break;
 
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
             gen_lvalue(mod, expr->unary_operand);
             emit_push_reg(mod, EAX);
-            emit_mov_reg_mem(mod, EAX, EAX, 0);
+            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
             emit_mov_reg_reg(mod, EDX, EAX);
             if (expr->kind == EXPR_POSTINC) {
                 emit_add_reg_imm(mod, EDX,
@@ -1181,7 +1219,7 @@ static void gen_expr(Module* mod, Expr* expr) {
                                  (int)codegen_increment_size(expr->type));
             }
             emit_pop_reg(mod, ECX);
-            emit_mov_mem_reg(mod, ECX, 0, EDX);
+            emit_store_typed32(mod, ECX, 0, EDX, expr->type);
             break;
 
         case EXPR_ADD:
@@ -1368,7 +1406,8 @@ static void gen_expr(Module* mod, Expr* expr) {
             emit_push_reg(mod, EAX);
             gen_lvalue(mod, expr->binary_lhs);
             emit_pop_reg(mod, ECX);
-            emit_mov_mem_reg(mod, EAX, 0, ECX);
+            emit_store_typed32(mod, EAX, 0, ECX,
+                               expr->binary_lhs->type);
             emit_mov_reg_reg(mod, EAX, ECX);
             break;
 
@@ -1378,7 +1417,8 @@ static void gen_expr(Module* mod, Expr* expr) {
                 expr->binary_lhs->type);
             gen_lvalue(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
-            emit_mov_reg_mem(mod, EAX, EAX, 0);
+            emit_load_typed32(mod, EAX, EAX, 0,
+                              expr->binary_lhs->type);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
             emit_scale_reg(mod, EAX, scale);
@@ -1390,7 +1430,8 @@ static void gen_expr(Module* mod, Expr* expr) {
                 emit_sub_reg_reg(mod, EAX, EDX);
             }
             emit_pop_reg(mod, ECX);
-            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_store_typed32(mod, ECX, 0, EAX,
+                               expr->binary_lhs->type);
             break;
         }
 
@@ -1464,13 +1505,13 @@ static void gen_expr(Module* mod, Expr* expr) {
 
         case EXPR_INDEX:
             gen_lvalue(mod, expr);
-            emit_mov_reg_mem(mod, EAX, EAX, 0);
+            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
             break;
 
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
             gen_lvalue(mod, expr);
-            emit_mov_reg_mem(mod, EAX, EAX, 0);
+            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
             break;
 
         case EXPR_CAST:
@@ -1843,7 +1884,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
             if (operands[i].reg != EAX) {
                 emit_mov_reg_reg(mod, EAX, operands[i].reg);
             }
-            emit_mov_mem_reg(mod, ECX, 0, EAX);   /* Store */
+            emit_store_typed32(mod, ECX, 0, EAX,
+                               operands[i].op->expr->type);
         }
     }
 
@@ -1855,6 +1897,81 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 /* ═══════════════════════════════════════
  * Statement Code Generation
  * ═══════════════════════════════════════ */
+
+static int codegen_max_local_bytes(int first, int second) {
+    return first > second ? first : second;
+}
+
+int codegen_required_local_bytes(Stmt* statement) {
+    int required = 0;
+    if (!statement) return 0;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                required = codegen_max_local_bytes(
+                    required, codegen_required_local_bytes(item->stmt));
+            }
+            return required;
+        case STMT_IF:
+            required = codegen_required_local_bytes(statement->if_then);
+            return codegen_max_local_bytes(
+                required, codegen_required_local_bytes(statement->if_else));
+        case STMT_WHILE:
+        case STMT_DO:
+            return codegen_required_local_bytes(statement->while_body);
+        case STMT_FOR:
+            required = codegen_required_local_bytes(statement->for_init);
+            return codegen_max_local_bytes(
+                required, codegen_required_local_bytes(statement->for_body));
+        case STMT_SWITCH:
+            return codegen_required_local_bytes(statement->switch_body);
+        case STMT_CASE:
+            return codegen_required_local_bytes(statement->case_stmt);
+        case STMT_DEFAULT:
+            return codegen_required_local_bytes(statement->default_stmt);
+        case STMT_LABEL:
+            return codegen_required_local_bytes(statement->label_stmt);
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR &&
+                !statement->decl->var_is_global &&
+                statement->decl->var_offset < 0) {
+                int64_t extent = -(int64_t)statement->decl->var_offset;
+                return extent > INT_MAX ? INT_MAX : (int)extent;
+            }
+            return 0;
+        default:
+            return 0;
+    }
+}
+
+static void gen_local_string_array(Module* mod, Decl* declaration) {
+    size_t storage = (size_t)declaration->type->size;
+    size_t text_size = strlen(declaration->var_init->str_val) + 1u;
+    size_t offset = 0u;
+    while (offset + 4u <= storage) {
+        uint32_t packed = 0u;
+        for (size_t byte = 0u; byte < 4u; ++byte) {
+            if (offset + byte < text_size) {
+                packed |= (uint32_t)(uint8_t)
+                    declaration->var_init->str_val[offset + byte]
+                    << (byte * 8u);
+            }
+        }
+        emit_mov_reg_imm(mod, EAX, packed);
+        emit_mov_mem_reg(mod, EBP,
+                         declaration->var_offset + (int32_t)offset, EAX);
+        offset += 4u;
+    }
+    while (offset < storage) {
+        uint8_t byte = offset < text_size
+            ? (uint8_t)declaration->var_init->str_val[offset] : 0u;
+        emit_mov_reg_imm(mod, EAX, byte);
+        emit_mov_mem_reg8(mod, EBP,
+                          declaration->var_offset + (int32_t)offset, EAX);
+        ++offset;
+    }
+}
 
 static int break_label = -1;
 static int continue_label = -1;
@@ -2003,9 +2120,14 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_init) {
+            if (d->kind == DECL_VAR && d->var_init && d->type &&
+                d->type->kind == TYPE_ARRAY && d->type->base &&
+                d->type->base->kind == TYPE_CHAR &&
+                d->var_init->kind == EXPR_STRING_LIT) {
+                gen_local_string_array(mod, d);
+            } else if (d->kind == DECL_VAR && d->var_init) {
                 gen_expr(mod, d->var_init);
-                emit_mov_mem_reg(mod, EBP, d->var_offset, EAX);
+                emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
             }
             break;
         }
@@ -2027,12 +2149,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
  * ═══════════════════════════════════════ */
 
 static void gen_function(Module* mod, Decl* decl) {
+    int stack_size;
     if (!decl->func_body) return;
 
-    /* Calculate stack size */
-    int stack_size = 0;
-    /* TODO: Count local variables */
-    stack_size = 64;  /* Default */
+    stack_size = codegen_required_local_bytes(decl->func_body);
+    if (stack_size > INT_MAX - 15) {
+        rcc_error(decl->loc, "function stack frame exceeds compiler limits");
+        return;
+    }
+    stack_size = (stack_size + 15) & ~15;
 
     /* Function prologue */
     emit_push_reg(mod, EBP);

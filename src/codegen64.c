@@ -7,6 +7,7 @@
 #include "ast.h"
 #include "symtab.h"
 #include "codegen.h"
+#include <limits.h>
 
 /* Only compile if generating 64-bit code */
 #if 1
@@ -508,6 +509,36 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
     }
     emit_byte(mod, width == 1 ? 0x88 : 0x89);
     emit64_memory_operand(mod, src, base, disp);
+}
+
+static void gen64_local_string_array(Module* mod, Decl* declaration) {
+    size_t storage = (size_t)declaration->type->size;
+    size_t text_size = strlen(declaration->var_init->str_val) + 1u;
+    size_t offset = 0u;
+    while (offset + 4u <= storage) {
+        uint32_t packed = 0u;
+        for (size_t byte = 0u; byte < 4u; ++byte) {
+            if (offset + byte < text_size) {
+                packed |= (uint32_t)(uint8_t)
+                    declaration->var_init->str_val[offset + byte]
+                    << (byte * 8u);
+            }
+        }
+        emit64_mov_reg_imm32(mod, RAX, packed);
+        emit64_store_typed(mod, RBP,
+                           declaration->var_offset + (int32_t)offset,
+                           RAX, type_int);
+        offset += 4u;
+    }
+    while (offset < storage) {
+        uint8_t byte = offset < text_size
+            ? (uint8_t)declaration->var_init->str_val[offset] : 0u;
+        emit64_mov_reg_imm32(mod, RAX, byte);
+        emit64_store_typed(mod, RBP,
+                           declaration->var_offset + (int32_t)offset,
+                           RAX, type_char);
+        ++offset;
+    }
 }
 
 static void add_func_call_ref64(const char* name, uint32_t call_offset) {
@@ -1245,7 +1276,12 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_init) {
+            if (d->kind == DECL_VAR && d->var_init && d->type &&
+                d->type->kind == TYPE_ARRAY && d->type->base &&
+                d->type->base->kind == TYPE_CHAR &&
+                d->var_init->kind == EXPR_STRING_LIT) {
+                gen64_local_string_array(mod, d);
+            } else if (d->kind == DECL_VAR && d->var_init) {
                 gen64_expr(mod, d->var_init);
                 emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
             }
@@ -1264,14 +1300,102 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
  * Function Code Generation (64-bit)
  * ═══════════════════════════════════════ */
 
+static bool gen64_shift_local_offsets(Stmt* statement, int shift) {
+    if (!statement || shift == 0) return true;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!gen64_shift_local_offsets(item->stmt, shift)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_IF:
+            return gen64_shift_local_offsets(statement->if_then, shift) &&
+                   gen64_shift_local_offsets(statement->if_else, shift);
+        case STMT_WHILE:
+        case STMT_DO:
+            return gen64_shift_local_offsets(statement->while_body, shift);
+        case STMT_FOR:
+            return gen64_shift_local_offsets(statement->for_init, shift) &&
+                   gen64_shift_local_offsets(statement->for_body, shift);
+        case STMT_SWITCH:
+            return gen64_shift_local_offsets(statement->switch_body, shift);
+        case STMT_CASE:
+            return gen64_shift_local_offsets(statement->case_stmt, shift);
+        case STMT_DEFAULT:
+            return gen64_shift_local_offsets(statement->default_stmt, shift);
+        case STMT_LABEL:
+            return gen64_shift_local_offsets(statement->label_stmt, shift);
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR &&
+                !statement->decl->var_is_global &&
+                statement->decl->var_offset < 0) {
+                int64_t shifted = (int64_t)statement->decl->var_offset - shift;
+                if (shifted < INT_MIN) {
+                    rcc_error(statement->decl->loc,
+                              "function stack frame exceeds compiler limits");
+                    return false;
+                }
+                statement->decl->var_offset = (int)shifted;
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
 static void gen64_function(Module* mod, Decl* decl) {
     static const int argument_registers[] = {RDI, RSI, RDX, RCX, R8, R9};
-    int parameter_local_size = 0;
+    int64_t original_parameter_size = 0;
+    int64_t parameter_frame_size = 0;
     int register_cursor = 0;
     int stack_cursor = 16; /* saved RBP + return address */
+    int stack_size;
     if (!decl->func_body) return;
 
-    int stack_size = 128;  /* Default for 64-bit */
+    for (DeclList* parameter = decl->func_params; parameter;
+         parameter = parameter->next) {
+        Decl* value = parameter->decl;
+        int size = value->type && value->type->size > 0
+            ? value->type->size : 8;
+        int aggregate = value->type &&
+            (value->type->kind == TYPE_STRUCT ||
+             value->type->kind == TYPE_UNION ||
+             value->type->kind == TYPE_ARRAY);
+        int units = aggregate ? (size + 7) / 8 : 1;
+        int64_t storage = aggregate ? (int64_t)units * 8
+                                    : ((int64_t)size + 3) & ~INT64_C(3);
+        original_parameter_size += size;
+        original_parameter_size = (original_parameter_size + 3) &
+                                  ~INT64_C(3);
+        parameter_frame_size += storage;
+        if (parameter_frame_size > INT_MAX) {
+            rcc_error(decl->loc, "function stack frame exceeds compiler limits");
+            return;
+        }
+        value->var_offset = -(int)parameter_frame_size;
+    }
+    if (parameter_frame_size > original_parameter_size &&
+        !gen64_shift_local_offsets(
+            decl->func_body,
+            (int)(parameter_frame_size - original_parameter_size))) {
+        return;
+    }
+    stack_size = codegen_required_local_bytes(decl->func_body);
+    if (parameter_frame_size > stack_size) {
+        if (parameter_frame_size > INT_MAX) {
+            rcc_error(decl->loc, "function stack frame exceeds compiler limits");
+            return;
+        }
+        stack_size = (int)parameter_frame_size;
+    }
+    if (stack_size > INT_MAX - 15) {
+        rcc_error(decl->loc, "function stack frame exceeds compiler limits");
+        return;
+    }
+    stack_size = (stack_size + 15) & ~15;
 
     /* Function prologue */
     emit64_push_reg(mod, RBP);
@@ -1295,9 +1419,6 @@ static void gen64_function(Module* mod, Decl* decl) {
              value->type->kind == TYPE_UNION ||
              value->type->kind == TYPE_ARRAY);
         int units = aggregate ? (size + 7) / 8 : 1;
-        parameter_local_size += size;
-        parameter_local_size = (parameter_local_size + 3) & ~3;
-        value->var_offset = -parameter_local_size;
         if (units <= 2 && units <= 6 - register_cursor) {
             if (aggregate) {
                 for (int unit = 0; unit < units; ++unit) {

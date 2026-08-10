@@ -137,6 +137,7 @@ bool module_resolve_image_relocation(const Module* mod,
                                      uint64_t* value);
 void module_ensure_rodata_base_symbol(Module* mod);
 void codegen_emit_global_data(Module* mod, AST* ast);
+int codegen_required_local_bytes(Stmt* statement);
 
 /* Object file output */
 bool rcc_emit_obj(Module* mod, const char* filename);

@@ -19,6 +19,12 @@ static ObjSymbol* function_symbol(ObjectFile* object, const char* name)
     return symbol;
 }
 
+struct LocalAggregate {
+    int first;
+    int second;
+    char third;
+};
+
 int main(int argc, char** argv)
 {
     assert(argc == 2);
@@ -29,6 +35,9 @@ int main(int argc, char** argv)
     ObjSymbol* reverse_add_symbol;
     ObjSymbol* distance_symbol;
     ObjSymbol* update_symbol;
+    ObjSymbol* local_array_symbol;
+    ObjSymbol* large_array_symbol;
+    ObjSymbol* aggregate_symbol;
     long page_size;
     size_t mapping_size;
     uint8_t* mapping;
@@ -36,6 +45,9 @@ int main(int argc, char** argv)
     int* (*integer_add)(int, int*);
     long (*pointer_distance)(int*, int*);
     int* (*pointer_update)(int*);
+    int (*local_array_value)(void);
+    int (*large_local_array_value)(void);
+    int (*aggregate_parameter_value)(struct LocalAggregate);
     int values[4] = {1, 2, 3, 4};
     void* address;
 
@@ -47,6 +59,9 @@ int main(int argc, char** argv)
     reverse_add_symbol = function_symbol(object, "integer_add");
     distance_symbol = function_symbol(object, "pointer_distance");
     update_symbol = function_symbol(object, "pointer_update");
+    local_array_symbol = function_symbol(object, "local_array_value");
+    large_array_symbol = function_symbol(object, "large_local_array_value");
+    aggregate_symbol = function_symbol(object, "aggregate_parameter_value");
     page_size = sysconf(_SC_PAGESIZE);
     assert(page_size > 0);
     mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
@@ -65,11 +80,25 @@ int main(int argc, char** argv)
     memcpy(&pointer_distance, &address, sizeof(pointer_distance));
     address = mapping + update_symbol->value;
     memcpy(&pointer_update, &address, sizeof(pointer_update));
+    address = mapping + local_array_symbol->value;
+    memcpy(&local_array_value, &address, sizeof(local_array_value));
+    address = mapping + large_array_symbol->value;
+    memcpy(&large_local_array_value, &address,
+           sizeof(large_local_array_value));
+    address = mapping + aggregate_symbol->value;
+    memcpy(&aggregate_parameter_value, &address,
+           sizeof(aggregate_parameter_value));
 
     assert(pointer_add(values, 2) == values + 2);
     assert(integer_add(3, values) == values + 3);
     assert(pointer_distance(values, values + 3) == 3);
     assert(pointer_update(values) == values + 1);
+    assert(local_array_value() == 'R');
+    assert(large_local_array_value() == 'L');
+    {
+        struct LocalAggregate value = {10, 20, 3};
+        assert(aggregate_parameter_value(value) == 33);
+    }
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

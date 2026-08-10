@@ -25,6 +25,7 @@
 ## 2. C17 frontend
 
 - [x] 基本declaration、function、struct/union/enum/typedef
+  - [x] global/local文字配列のstring初期化、未指定長推論、末尾zero-fill
 - [x] 式、制御文、scope、基本type conversion
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic
@@ -58,6 +59,7 @@
 ## 5. backend
 
 - [x] i386基本integer/cdecl code generation
+  - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路
 - [x] basic global dataと`ABS32U/ABS32S/ABS64`
   - [x] direct RIN/NDRVのDATA/CODE symbol解決と関数ポインタ

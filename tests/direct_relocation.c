@@ -23,6 +23,12 @@ int static_choice = 0 ? 9 : sizeof(int);
 _Bool static_bool = 7;
 int static_unary = -5 + !0;
 
+struct LocalAggregate {
+    int first;
+    int second;
+    char third;
+};
+
 int target(void)
 {
     return second_value;
@@ -66,6 +72,25 @@ int* pointer_update(int* value)
     return value;
 }
 
+int local_array_value(void)
+{
+    char inferred[] = "LocalRin";
+    char padded[12] = "Pad";
+    return inferred[5] + padded[3] + padded[11];
+}
+
+int large_local_array_value(void)
+{
+    char large[320] = "Large";
+    return large[0] + large[319];
+}
+
+int aggregate_parameter_value(struct LocalAggregate value)
+{
+    char scratch[32] = "slot";
+    return value.first + value.second + value.third + scratch[31];
+}
+
 int main(void)
 {
     return *(&second_value) + *zero_address() + (target_address() != 0) +
@@ -74,5 +99,6 @@ int main(void)
            (static_target() != 0) + (static_null == 0) +
            (static_array[0] == 'A') + (static_fixed[5] == 0) +
            static_constant + static_logic + static_bits + static_choice +
-           static_bool + static_unary;
+           static_bool + static_unary + local_array_value() +
+           large_local_array_value();
 }

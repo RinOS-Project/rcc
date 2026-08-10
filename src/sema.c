@@ -549,10 +549,7 @@ static void sema_decl(Decl* decl) {
             if (string_array_initializer) {
                 size_t characters = strlen(decl->var_init->str_val);
                 size_t storage = characters + 1u;
-                if (!is_global) {
-                    rcc_error(decl->loc,
-                              "local character array initialization is not yet supported");
-                } else if (decl->type->array_len < 0) {
+                if (decl->type->array_len < 0) {
                     if (storage > INT_MAX ||
                         decl->type->base->size <= 0 ||
                         storage > (size_t)INT_MAX /
@@ -568,6 +565,11 @@ static void sema_decl(Decl* decl) {
                     rcc_error(decl->loc,
                               "initializer string is too long for character array");
                 }
+            } else if (decl->type && decl->type->kind == TYPE_ARRAY &&
+                       decl->var_init) {
+                rcc_error(decl->loc,
+                          "unsupported array initializer for '%s'",
+                          decl->name);
             } else if (decl->type && decl->type->kind == TYPE_ARRAY &&
                        decl->type->array_len < 0 &&
                        !(decl->storage == STORAGE_EXTERN && !decl->var_init)) {
@@ -598,6 +600,7 @@ static void sema_decl(Decl* decl) {
             if (decl->var_init) {
                 sema_expr(decl->var_init);
                 if (!string_array_initializer &&
+                    decl->type->kind != TYPE_ARRAY &&
                     !implicit_cast(decl->var_init, decl->type)) {
                     rcc_warning(decl->loc, "incompatible types in initialization");
                 }
