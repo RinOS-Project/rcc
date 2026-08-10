@@ -1,0 +1,212 @@
+/* SPDX-License-Identifier: MIT */
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "linker.h"
+#include "objfile.h"
+#include "rin_formats_v3.h"
+
+static void add_bytes(ObjSection* section, uint64_t count, uint8_t value)
+{
+    while (count-- != 0u) section_add_byte(section, value);
+}
+
+static void write_special_object(const char* path, uint16_t arch)
+{
+    uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
+    RelocType pointer_reloc = arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32;
+    ObjectFile* object = objfile_new(path, arch);
+    ObjSection* text = objfile_add_section(
+        object, ".text", SECT_CODE, SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
+    ObjSection* tls = objfile_add_section(
+        object, ".tls", SECT_TLS, SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+    ObjSection* unwind = objfile_add_section(
+        object, ".unwind", SECT_UNWIND, SECT_FLAG_ALLOC);
+    ObjSection* init = objfile_add_section(
+        object, ".init_array", SECT_INIT_ARRAY, SECT_FLAG_ALLOC);
+    ObjSection* fini = objfile_add_section(
+        object, ".fini_array", SECT_FINI_ARRAY, SECT_FLAG_ALLOC);
+
+    add_bytes(text, 16u, 0x90u);
+    add_bytes(tls, pointer_size, 0x5au);
+    add_bytes(unwind, 8u, 0x11u);
+    add_bytes(init, pointer_size, 0u);
+    add_bytes(fini, pointer_size, 0u);
+    tls->align = pointer_size;
+    unwind->align = 4u;
+    init->align = pointer_size;
+    fini->align = pointer_size;
+
+    objfile_add_symbol(object, "main", SYM_GLOBAL, BIND_CODE, 0, 0u, 16u);
+    objfile_add_reloc(object, 3, 0u, "main", pointer_reloc, 0);
+    objfile_add_reloc(object, 4, 0u, "main", pointer_reloc, 0);
+    assert(objfile_write(object, path));
+    objfile_free(object);
+}
+
+static void verify_object_sections(const char* path)
+{
+    static const SectionType expected[] = {
+        SECT_CODE, SECT_TLS, SECT_UNWIND, SECT_INIT_ARRAY, SECT_FINI_ARRAY
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* section;
+    size_t index = 0u;
+    assert(object != NULL);
+    for (section = object->sections; section; section = section->next) {
+        assert(index < sizeof(expected) / sizeof(expected[0]));
+        assert(section->type == expected[index++]);
+    }
+    assert(index == sizeof(expected) / sizeof(expected[0]));
+    objfile_free(object);
+}
+
+static void verify_image(const char* path, uint16_t expected_arch)
+{
+    FILE* file = fopen(path, "rb");
+    RinHeaderV3 header;
+    RinSectionV3* sections;
+    unsigned seen = 0u;
+    unsigned owner_count = 0u;
+    assert(file != NULL);
+    assert(fread(&header, sizeof(header), 1, file) == 1);
+    assert(header.magic == RIN_IMAGE_MAGIC);
+    assert(header.architecture == expected_arch);
+    assert((header.flags & RIN_IMAGE_USES_TLS) != 0u);
+    assert(header.section_count == 10u);
+    sections = calloc(header.section_count, sizeof(*sections));
+    assert(sections != NULL);
+    assert(fseek(file, (long)header.section_table_offset, SEEK_SET) == 0);
+    assert(fread(sections, sizeof(*sections), header.section_count, file) ==
+           header.section_count);
+    for (uint32_t index = 0; index < header.section_count; ++index) {
+        RinSectionV3* section = &sections[index];
+        assert((section->flags &
+                (RIN_IMAGE_SECTION_WRITE | RIN_IMAGE_SECTION_EXECUTE)) !=
+               (RIN_IMAGE_SECTION_WRITE | RIN_IMAGE_SECTION_EXECUTE));
+        switch (section->type) {
+        case RIN_IMAGE_SECTION_CODE:
+            assert(section->flags ==
+                   (RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE));
+            seen |= 1u << 0;
+            break;
+        case RIN_IMAGE_SECTION_TLS:
+            assert(section->flags == RIN_IMAGE_SECTION_READ);
+            seen |= 1u << 1;
+            break;
+        case RIN_IMAGE_SECTION_UNWIND:
+            assert(section->flags == RIN_IMAGE_SECTION_READ);
+            seen |= 1u << 2;
+            break;
+        case RIN_IMAGE_SECTION_INIT_ARRAY:
+            assert(section->flags == RIN_IMAGE_SECTION_READ);
+            seen |= 1u << 3;
+            break;
+        case RIN_IMAGE_SECTION_FINI_ARRAY:
+            assert(section->flags == RIN_IMAGE_SECTION_READ);
+            seen |= 1u << 4;
+            break;
+        case RIN_IMAGE_SECTION_RELOCATIONS:
+            assert(section->file_size == 2u * sizeof(RinRelocationV3));
+            seen |= 1u << 5;
+            break;
+        case RIN_IMAGE_SECTION_DATA:
+            assert(section->flags ==
+                   (RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE));
+            ++owner_count;
+            break;
+        case RIN_IMAGE_SECTION_RODATA:
+            assert(section->flags == RIN_IMAGE_SECTION_READ);
+            ++owner_count;
+            break;
+        default:
+            assert(0 && "unexpected RIN v3 section type");
+        }
+    }
+    assert(seen == 0x3fu);
+    assert(owner_count == 4u);
+    free(sections);
+    assert(fclose(file) == 0);
+}
+
+static void link_and_verify(const char* object_path, const char* image_path,
+                            uint16_t arch)
+{
+    Linker* linker;
+    memset(&g_linker_opts, 0, sizeof(g_linker_opts));
+    g_linker_opts.arch = arch;
+    g_linker_opts.arch_explicit = true;
+    g_linker_opts.entry = "main";
+    g_linker_opts.base_addr = 0x10000u;
+    linker = linker_new();
+    assert(linker_add_object(linker, object_path));
+    assert(linker_merge_sections(linker));
+    assert(linker_collect_symbols(linker));
+    assert(linker_resolve_symbols(linker));
+    assert(linker_layout(linker, g_linker_opts.base_addr));
+    assert(linker_apply_relocations(linker));
+    assert(linker_emit_rin(linker, image_path));
+    linker_free(linker);
+    verify_image(image_path,
+                 arch == ARCH_X64 ? RIN_ARCH_X86_64 : RIN_ARCH_X86);
+}
+
+static void verify_negative_objects(const char* wx_path,
+                                    const char* array_path,
+                                    const char* conflict_a,
+                                    const char* conflict_b)
+{
+    ObjectFile* object = objfile_new(wx_path, ARCH_X64);
+    ObjSection* section = objfile_add_section(
+        object, ".text", SECT_CODE,
+        SECT_FLAG_WRITE | SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
+    section_add_byte(section, 0x90u);
+    assert(objfile_write(object, wx_path));
+    objfile_free(object);
+    assert(objfile_read(wx_path) == NULL);
+
+    object = objfile_new(array_path, ARCH_X64);
+    section = objfile_add_section(
+        object, ".init_array", SECT_INIT_ARRAY, SECT_FLAG_ALLOC);
+    add_bytes(section, 9u, 0u);
+    assert(objfile_write(object, array_path));
+    objfile_free(object);
+    assert(objfile_read(array_path) == NULL);
+
+    object = objfile_new(conflict_a, ARCH_X64);
+    section = objfile_add_section(
+        object, ".same", SECT_RODATA, SECT_FLAG_ALLOC);
+    section_add_byte(section, 1u);
+    assert(objfile_write(object, conflict_a));
+    objfile_free(object);
+    object = objfile_new(conflict_b, ARCH_X64);
+    section = objfile_add_section(
+        object, ".same", SECT_DATA, SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+    section_add_byte(section, 2u);
+    assert(objfile_write(object, conflict_b));
+    objfile_free(object);
+
+    memset(&g_linker_opts, 0, sizeof(g_linker_opts));
+    g_linker_opts.arch = ARCH_X64;
+    g_linker_opts.arch_explicit = true;
+    Linker* linker = linker_new();
+    assert(linker_add_object(linker, conflict_a));
+    assert(linker_add_object(linker, conflict_b));
+    assert(!linker_merge_sections(linker));
+    linker_free(linker);
+}
+
+int main(int argc, char** argv)
+{
+    assert(argc == 9);
+    write_special_object(argv[1], ARCH_X86);
+    verify_object_sections(argv[1]);
+    link_and_verify(argv[1], argv[2], ARCH_X86);
+    write_special_object(argv[3], ARCH_X64);
+    verify_object_sections(argv[3]);
+    link_and_verify(argv[3], argv[4], ARCH_X64);
+    verify_negative_objects(argv[5], argv[6], argv[7], argv[8]);
+    return 0;
+}

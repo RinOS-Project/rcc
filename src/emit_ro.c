@@ -32,6 +32,36 @@ static bool ro_range(uint64_t offset, uint64_t size, uint64_t limit) {
     return offset <= limit && size <= limit - offset;
 }
 
+static bool ro_section_policy(uint16_t arch, const RoSection* section) {
+    uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
+    uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC | SECT_FLAG_ALLOC;
+    if (section->type < SECT_CODE || section->type > SECT_FINI_ARRAY ||
+        (section->flags & ~allowed_flags) != 0u ||
+        (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
+            (SECT_FLAG_WRITE | SECT_FLAG_EXEC) ||
+        (section->flags & SECT_FLAG_ALLOC) == 0u) return false;
+
+    switch ((SectionType)section->type) {
+    case SECT_CODE:
+        return (section->flags & SECT_FLAG_EXEC) != 0u &&
+               (section->flags & SECT_FLAG_WRITE) == 0u;
+    case SECT_DATA:
+    case SECT_BSS:
+    case SECT_TLS:
+        return (section->flags & SECT_FLAG_WRITE) != 0u &&
+               (section->flags & SECT_FLAG_EXEC) == 0u;
+    case SECT_INIT_ARRAY:
+    case SECT_FINI_ARRAY:
+        return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u &&
+               section->memory_size % pointer_size == 0u;
+    case SECT_RODATA:
+    case SECT_UNWIND:
+        return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u;
+    default:
+        return false;
+    }
+}
+
 /* ═══════════════════════════════════════
  * Object File Creation
  * ═══════════════════════════════════════ */
@@ -493,7 +523,7 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
         if (sh->name >= hdr.strtab_size ||
             !memchr(obj->strtab + sh->name, '\0',
                     (size_t)hdr.strtab_size - sh->name) ||
-            sh->type > SECT_BSS || sh->align == 0u ||
+            !ro_section_policy(hdr.arch, sh) || sh->align == 0u ||
             (sh->align & (sh->align - 1u)) != 0u ||
             sh->size > SIZE_MAX || sh->memory_size < sh->size ||
             !ro_range(sh->offset, sh->size, size) ||

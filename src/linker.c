@@ -279,6 +279,12 @@ static LinkedSection* find_or_create_section(Linker* ld, const char* name,
     /* Search for existing section */
     for (LinkedSection* s = ld->sections; s; s = s->next) {
         if (strcmp(s->name, name) == 0) {
+            if (s->type != type || s->flags != flags) {
+                fprintf(stderr,
+                        "rld: section '%s' has conflicting type or flags\n",
+                        name);
+                return NULL;
+            }
             return s;
         }
     }
@@ -371,6 +377,10 @@ bool linker_merge_sections(Linker* ld) {
             /* Find or create linked section */
             LinkedSection* linked = find_or_create_section(ld, sect->name,
                                                            sect->type, sect->flags);
+            if (!linked) {
+                rcc_free(offsets);
+                return false;
+            }
 
             /* Align section */
             linked_section_align(linked, sect->align);
@@ -610,6 +620,7 @@ static bool linker_materialize_import_slots(Linker* ld) {
     }
     data = find_or_create_section(ld, ".data", SECT_DATA,
                                   SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+    if (!data) return false;
     for (LinkedSection* section = ld->sections; section && section != data;
          section = section->next) data_section++;
 
@@ -927,6 +938,44 @@ static int linker_power_of_two(uint32_t value) {
     return value && (value & (value - 1u)) == 0u;
 }
 
+static bool linker_image_section_type(SectionType type) {
+    return type >= SECT_CODE && type <= SECT_FINI_ARRAY;
+}
+
+static bool linker_alias_section_type(SectionType type) {
+    return type >= SECT_TLS && type <= SECT_FINI_ARRAY;
+}
+
+static SectionType linker_alias_owner_type(SectionType type) {
+    return type == SECT_TLS ? SECT_DATA : SECT_RODATA;
+}
+
+static uint16_t linker_rin_section_type(SectionType type) {
+    switch (type) {
+    case SECT_CODE: return RIN_IMAGE_SECTION_CODE;
+    case SECT_RODATA: return RIN_IMAGE_SECTION_RODATA;
+    case SECT_DATA: return RIN_IMAGE_SECTION_DATA;
+    case SECT_BSS: return RIN_IMAGE_SECTION_BSS;
+    case SECT_TLS: return RIN_IMAGE_SECTION_TLS;
+    case SECT_UNWIND: return RIN_IMAGE_SECTION_UNWIND;
+    case SECT_INIT_ARRAY: return RIN_IMAGE_SECTION_INIT_ARRAY;
+    case SECT_FINI_ARRAY: return RIN_IMAGE_SECTION_FINI_ARRAY;
+    default: return RIN_IMAGE_SECTION_INVALID;
+    }
+}
+
+static uint16_t linker_rin_section_flags(SectionType type) {
+    switch (type) {
+    case SECT_CODE:
+        return RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE;
+    case SECT_DATA:
+    case SECT_BSS:
+        return RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
+    default:
+        return RIN_IMAGE_SECTION_READ;
+    }
+}
+
 static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library) {
     RinHeaderV3 header;
     RinSectionV3* sections;
@@ -945,6 +994,7 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     uint32_t export_index = 0u;
     uint32_t import_index = 0u;
     uint32_t code_count = 0u;
+    bool uses_tls = false;
     uint64_t image_size = 0u;
     uint64_t section_table_offset = sizeof(RinHeaderV3);
     uint64_t dependency_table_offset;
@@ -961,12 +1011,16 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     GlobalSymbol* symbol;
 
     for (linked = ld->sections; linked; linked = linked->next) {
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) {
+        if (!linker_image_section_type(linked->type) || linked->size == 0u) {
             continue;
         }
-        ++load_section_count;
+        load_section_count += linker_alias_section_type(linked->type) ? 2u : 1u;
         if (linked->type == SECT_CODE) ++code_count;
+        if (linked->type == SECT_TLS) uses_tls = true;
         string_capacity += strlen(linked->name) + 1u;
+        if (linker_alias_section_type(linked->type)) {
+            string_capacity += strlen(linked->name) + 1u;
+        }
     }
     for (int index = 0; index < g_linker_opts.dependency_count; index++) {
         int prior;
@@ -1029,9 +1083,10 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
 
     for (linked = ld->sections; linked; linked = linked->next) {
         RinSectionV3* section;
+        RinSectionV3* alias = NULL;
         uint64_t rva;
         size_t name_length;
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) {
+        if (!linker_image_section_type(linked->type) || linked->size == 0u) {
             continue;
         }
         if (linked->vaddr < ld->base_addr) {
@@ -1043,14 +1098,12 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         }
         rva = linked->vaddr - ld->base_addr;
         section = &sections[section_index++];
-        section->type = linked->type == SECT_CODE ? RIN_IMAGE_SECTION_CODE :
-                        linked->type == SECT_RODATA ? RIN_IMAGE_SECTION_RODATA :
-                        linked->type == SECT_DATA ? RIN_IMAGE_SECTION_DATA :
-                                                   RIN_IMAGE_SECTION_BSS;
-        section->flags = linked->type == SECT_CODE
-            ? RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE
-            : linked->type == SECT_RODATA ? RIN_IMAGE_SECTION_READ
-            : RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
+        section->type = linker_rin_section_type(
+            linker_alias_section_type(linked->type)
+                ? linker_alias_owner_type(linked->type) : linked->type);
+        section->flags = linker_rin_section_flags(
+            linker_alias_section_type(linked->type)
+                ? linker_alias_owner_type(linked->type) : linked->type);
         section->alignment = linker_power_of_two(linked->align) ? linked->align : 1u;
         section->virtual_address = rva;
         section->memory_size = linked->size;
@@ -1058,6 +1111,17 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         section->name_offset = string_size;
         memcpy(strings + string_size, linked->name, name_length);
         string_size += (uint32_t)name_length;
+        if (linker_alias_section_type(linked->type)) {
+            alias = &sections[section_index++];
+            alias->type = linker_rin_section_type(linked->type);
+            alias->flags = RIN_IMAGE_SECTION_READ;
+            alias->alignment = section->alignment;
+            alias->virtual_address = rva;
+            alias->memory_size = linked->size;
+            alias->name_offset = string_size;
+            memcpy(strings + string_size, linked->name, name_length);
+            string_size += (uint32_t)name_length;
+        }
         if (rva + linked->size > image_size) image_size = rva + linked->size;
     }
     if (absolute_relocation_count) {
@@ -1190,12 +1254,17 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     section_index = 0u;
     for (linked = ld->sections; linked; linked = linked->next) {
         RinSectionV3* section;
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) continue;
+        if (!linker_image_section_type(linked->type) || linked->size == 0u) continue;
         section = &sections[section_index++];
         if (linked->type == SECT_BSS) continue;
         cursor = linker_align_u64(cursor, section->alignment);
         section->file_offset = cursor;
         section->file_size = linked->size;
+        if (linker_alias_section_type(linked->type)) {
+            RinSectionV3* alias = &sections[section_index++];
+            alias->file_offset = cursor;
+            alias->file_size = linked->size;
+        }
         cursor += linked->size;
     }
     if (absolute_relocation_count) {
@@ -1236,7 +1305,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     header.abi_major = RIN_IMAGE_ABI_MAJOR;
     header.abi_minor = RIN_IMAGE_ABI_MINOR;
     header.flags = (library ? RIN_IMAGE_LIBRARY : RIN_IMAGE_EXECUTABLE | RIN_IMAGE_GUI) |
-                   RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR;
+                   RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR |
+                   (uses_tls ? RIN_IMAGE_USES_TLS : 0u);
     header.section_count = section_count;
     header.dependency_count = dependency_count;
     header.entry_rva = library ? 0u : ld->entry_addr - ld->base_addr;
@@ -1259,9 +1329,10 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     section_index = 0u;
     for (linked = ld->sections; linked; linked = linked->next) {
         RinSectionV3* section;
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) continue;
+        if (!linker_image_section_type(linked->type) || linked->size == 0u) continue;
         section = &sections[section_index++];
         if (linked->type != SECT_BSS) memcpy(output + section->file_offset, linked->data, linked->size);
+        if (linker_alias_section_type(linked->type)) ++section_index;
     }
     if (absolute_relocation_count) {
         memcpy(output + sections[section_index++].file_offset, relocations,

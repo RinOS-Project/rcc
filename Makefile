@@ -44,7 +44,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width test-special-sections
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -221,6 +221,18 @@ test-object-width: $(RCC_TARGET) $(RLD_TARGET)
 	! $(RLD_TARGET) -T invalid-address --emit-unsigned-v3 \
 		-o $(TEST_OUT)/invalid_base.rin $(TEST_OUT)/wide_main.ro
 	@echo "64-bit object/linker width tests completed"
+
+test-special-sections:
+	mkdir -p $(TEST_OUT)/special
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/special_sections_test \
+		tests/special_sections_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/special_sections_test \
+		$(TEST_OUT)/special/x86.ro $(TEST_OUT)/special/x86.rin \
+		$(TEST_OUT)/special/x64.ro $(TEST_OUT)/special/x64.rin \
+		$(TEST_OUT)/special/wx.ro $(TEST_OUT)/special/bad-array.ro \
+		$(TEST_OUT)/special/conflict-a.ro $(TEST_OUT)/special/conflict-b.ro
+	@echo "TLS/unwind/init/fini section propagation tests completed"
 
 # Dependencies
 $(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h

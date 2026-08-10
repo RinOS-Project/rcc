@@ -47,6 +47,10 @@ typedef enum {
     SECT_DATA = 2,      /* Initialized data (.data) */
     SECT_RODATA = 3,    /* Read-only data (.rodata) */
     SECT_BSS = 4,       /* Uninitialized data (.bss) */
+    SECT_TLS = 5,       /* Thread-local storage template */
+    SECT_UNWIND = 6,    /* DWARF unwind records */
+    SECT_INIT_ARRAY = 7,/* Process/library initializers */
+    SECT_FINI_ARRAY = 8,/* Process/library finalizers */
 } SectionType;
 
 /* ═══════════════════════════════════════
