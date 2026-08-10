@@ -16,6 +16,7 @@ TEST_OUT = build/tests
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
               $(SRCDIR)/symtab.c $(SRCDIR)/sema.c $(SRCDIR)/codegen.c \
               $(SRCDIR)/codegen64.c $(SRCDIR)/preproc.c \
+              $(SRCDIR)/optimize.c \
               $(SRCDIR)/emit_rin.c $(SRCDIR)/emit_rll.c $(SRCDIR)/emit_drv.c $(SRCDIR)/emit_ro.c \
               $(SRCDIR)/emit_asm.c $(SRCDIR)/build_manifest.c $(SRCDIR)/driver_policy.c
 COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
@@ -44,7 +45,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width test-special-sections test-direct-relocation
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width test-special-sections test-direct-relocation test-optimize
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -371,9 +372,34 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 	$(TEST_OUT)/pointer_arithmetic_run_test $(TEST_OUT)/direct/x64.ro
 	@echo "Direct RIN/NDRV v3 symbol relocation tests completed"
 
+test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/optimize
+	$(RCC_TARGET) --target i686-unknown-rinos -O0 -c \
+		-o $(TEST_OUT)/optimize/x86-o0.ro tests/optimizer_constant.c
+	$(RCC_TARGET) --target i686-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/x86-o1.ro tests/optimizer_constant.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O0 -c \
+		-o $(TEST_OUT)/optimize/x64-o0.ro tests/optimizer_constant.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/x64-o1.ro tests/optimizer_constant.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O3 -c \
+		-o $(TEST_OUT)/optimize/x64-o3.ro tests/optimizer_constant.c
+	cmp $(TEST_OUT)/optimize/x64-o1.ro $(TEST_OUT)/optimize/x64-o3.ro
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/cxx-o1.ro tests/hello.cpp
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -O1 -driver \
+		--emit-unsigned-v3 -o $(TEST_OUT)/optimize/forbidden.drv \
+		tests/driver_policy_float.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimizer_run_test \
+		tests/optimizer_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/optimizer_run_test \
+		$(TEST_OUT)/optimize/x86-o0.ro $(TEST_OUT)/optimize/x86-o1.ro \
+		$(TEST_OUT)/optimize/x64-o0.ro $(TEST_OUT)/optimize/x64-o1.ro
+	@echo "AST integer constant-folding tests completed"
+
 # Dependencies
-$(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h
-$(OBJDIR)/main_cxx.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/ast_cxx.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h
+$(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/optimize.h $(INCDIR)/preproc.h
+$(OBJDIR)/main_cxx.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/ast_cxx.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/optimize.h $(INCDIR)/preproc.h
 $(OBJDIR)/lexer.o: $(INCDIR)/rcc.h $(INCDIR)/token.h
 $(OBJDIR)/parser.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h
 $(OBJDIR)/ast.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h
@@ -383,6 +409,7 @@ $(OBJDIR)/symtab.o: $(INCDIR)/rcc.h $(INCDIR)/symtab.h
 $(OBJDIR)/sema.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/symtab.h
 $(OBJDIR)/codegen.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h
 $(OBJDIR)/codegen64.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h
+$(OBJDIR)/optimize.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/optimize.h
 $(OBJDIR)/preproc.o: $(INCDIR)/rcc.h $(INCDIR)/preproc.h
 $(OBJDIR)/emit_rin.o: $(INCDIR)/rcc.h $(INCDIR)/codegen.h
 $(OBJDIR)/emit_rll.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/codegen.h

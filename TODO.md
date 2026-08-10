@@ -52,6 +52,7 @@
 - [ ] typed SSA IRとCFG
 - [ ] target-independent MIR
 - [ ] constant propagation / folding
+  - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
 - [ ] mem2reg、DCE、CSE/GVN
 - [ ] loop optimization、inlining
 - [ ] `-O0..3`ごとのpass pipeline

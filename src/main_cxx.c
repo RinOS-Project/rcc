@@ -10,6 +10,7 @@
 #include "symtab.h"
 #include "codegen.h"
 #include "driver_policy.h"
+#include "optimize.h"
 #include "preproc.h"
 #include "build_manifest.h"
 #include <stdarg.h>
@@ -425,6 +426,10 @@ int main(int argc, char** argv) {
         fprintf(stderr, "rcc++: driver policy validation failed\n");
         tokenlist_free(tokens);
         return 1;
+    }
+    if (g_opts.opt_level > 0) {
+        if (g_opts.verbose) printf("Optimization (-O%d)...\n", g_opts.opt_level);
+        rcc_optimize(ast);
     }
 
     /* Phase 4: Code generation */
