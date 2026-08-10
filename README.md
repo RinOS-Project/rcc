@@ -72,10 +72,13 @@ make test-link
 make test-archive
 make test-manifest
 make test-driver-policy
+make test-weak-link
 ```
 
 `test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
 FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
+`test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
+最終RVAを完全に置換することを確認します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。

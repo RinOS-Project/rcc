@@ -44,7 +44,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-static-assert test-manifest test-driver-policy
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-static-assert test-manifest test-driver-policy test-weak-link
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -163,6 +163,14 @@ test-driver-policy: $(RCC_TARGET) $(RCXX_TARGET)
 	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
 		-o $(TEST_OUT)/driver_policy_mask_constraint.drv tests/driver_policy_mask_constraint.c
 	@echo "NDRV FPU/SIMD policy tests completed"
+
+test-weak-link:
+	mkdir -p $(TEST_OUT)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/weak_link_test \
+		tests/weak_link_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/weak_link_test $(TEST_OUT)/weak.ro $(TEST_OUT)/strong.ro
+	@echo "Weak-to-strong linker replacement test completed"
 
 # Dependencies
 $(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h

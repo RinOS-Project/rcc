@@ -43,6 +43,7 @@ void linker_free(Linker* ld) {
     LinkedSection* s = ld->sections;
     while (s) {
         LinkedSection* next = s->next;
+        rcc_free((void*)s->name);
         rcc_free(s->data);
         rcc_free(s);
         s = next;
@@ -52,6 +53,7 @@ void linker_free(Linker* ld) {
     GlobalSymbol* sym = ld->symbols;
     while (sym) {
         GlobalSymbol* next = sym->next;
+        rcc_free((void*)sym->name);
         rcc_free(sym);
         sym = next;
     }
@@ -60,6 +62,7 @@ void linker_free(Linker* ld) {
     PendingReloc* rel = ld->relocs;
     while (rel) {
         PendingReloc* next = rel->next;
+        rcc_free((void*)rel->symbol);
         rcc_free(rel);
         rel = next;
     }
@@ -355,8 +358,34 @@ bool linker_collect_symbols(Linker* ld) {
         ObjectFile* obj = ld->objects[obj_idx];
 
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
+            uint32_t value;
+            int linked_sect = -1;
+
             /* Skip undefined symbols on first pass */
             if (sym->type == SYM_UNDEF) continue;
+
+            value = sym->value;
+            if (sym->section >= 0) {
+                const char* sect_name = NULL;
+                int idx = 0;
+                value = sect_offsets[obj_idx][sym->section] + sym->value;
+                for (ObjSection* s = obj->sections; s; s = s->next, idx++) {
+                    if (idx == sym->section) {
+                        sect_name = s->name;
+                        break;
+                    }
+                }
+                if (sect_name) {
+                    idx = 0;
+                    for (LinkedSection* ls = ld->sections; ls;
+                         ls = ls->next, idx++) {
+                        if (strcmp(ls->name, sect_name) == 0) {
+                            linked_sect = idx;
+                            break;
+                        }
+                    }
+                }
+            }
 
             /* Check for duplicate global symbols */
             GlobalSymbol* existing = find_symbol(ld, sym->name);
@@ -369,39 +398,15 @@ bool linker_collect_symbols(Linker* ld) {
                 }
                 /* Weak symbols can be overridden */
                 if (existing->type == SYM_WEAK && sym->type == SYM_GLOBAL) {
-                    existing->value = sect_offsets[obj_idx][sym->section] + sym->value;
+                    existing->value = value;
+                    existing->size = sym->size;
+                    existing->binding = sym->binding;
+                    existing->section = linked_sect;
                     existing->source = obj->filename;
                     existing->type = SYM_GLOBAL;
+                    existing->resolved = true;
                 }
                 continue;
-            }
-
-            /* Add new symbol */
-            uint32_t value = sym->value;
-            if (sym->section >= 0) {
-                value = sect_offsets[obj_idx][sym->section] + sym->value;
-            }
-
-            /* Find linked section index */
-            int linked_sect = -1;
-            if (sym->section >= 0) {
-                const char* sect_name = NULL;
-                int idx = 0;
-                for (ObjSection* s = obj->sections; s; s = s->next, idx++) {
-                    if (idx == sym->section) {
-                        sect_name = s->name;
-                        break;
-                    }
-                }
-                if (sect_name) {
-                    idx = 0;
-                    for (LinkedSection* ls = ld->sections; ls; ls = ls->next, idx++) {
-                        if (strcmp(ls->name, sect_name) == 0) {
-                            linked_sect = idx;
-                            break;
-                        }
-                    }
-                }
             }
 
             add_symbol(ld, sym->name, value, sym->size, sym->type, sym->binding,

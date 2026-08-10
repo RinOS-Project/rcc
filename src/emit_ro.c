@@ -58,11 +58,13 @@ void objfile_free(ObjectFile* obj) {
     ObjSection* sect = obj->sections;
     while (sect) {
         ObjSection* next = sect->next;
+        rcc_free((void*)sect->name);
         rcc_free(sect->data);
         /* Free relocs */
         ObjReloc* r = sect->relocs;
         while (r) {
             ObjReloc* rn = r->next;
+            rcc_free((void*)r->symbol_name);
             rcc_free(r);
             r = rn;
         }
@@ -74,11 +76,13 @@ void objfile_free(ObjectFile* obj) {
     ObjSymbol* sym = obj->symbols;
     while (sym) {
         ObjSymbol* next = sym->next;
+        rcc_free((void*)sym->name);
         rcc_free(sym);
         sym = next;
     }
 
     rcc_free(obj->strtab);
+    rcc_free((void*)obj->filename);
     rcc_free(obj);
 }
 
