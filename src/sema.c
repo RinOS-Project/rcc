@@ -680,13 +680,8 @@ static void sema_initializer(Type* type, Expr* initializer) {
     initializer->type = type;
     if (type->kind == TYPE_ARRAY) {
         int64_t cursor = 0;
-        int item_count = exprlist_len(initializer->compound_init);
-        int initialized_count = 0;
-        int64_t* initialized = item_count > 0
-            ? rcc_alloc((size_t)item_count * sizeof(*initialized)) : NULL;
         for (ExprList* item = initializer->compound_init; item;
              item = item->next) {
-            bool duplicate = false;
             if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
                 rcc_error(item->expr->loc,
                           "field designator cannot initialize an array");
@@ -699,37 +694,18 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 rcc_error(item->expr->loc,
                           "array initializer index is out of bounds");
             } else {
-                for (int index = 0; index < initialized_count; ++index) {
-                    if (initialized[index] == cursor) {
-                        duplicate = true;
-                        break;
-                    }
-                }
-                if (duplicate) {
-                    rcc_error(item->expr->loc,
-                              "overlapping aggregate initializers are not yet supported");
-                } else {
-                    initialized[initialized_count++] = cursor;
-                    sema_initializer(type->base, item->expr);
-                }
+                sema_initializer(type->base, item->expr);
             }
             if (cursor < INT64_MAX) ++cursor;
         }
-        rcc_free(initialized);
         return;
     }
     if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
         TypeField* cursor = type->fields;
         int initialized = 0;
-        int item_count = exprlist_len(initializer->compound_init);
-        int initialized_count = 0;
-        TypeField** initialized_fields = item_count > 0
-            ? rcc_alloc((size_t)item_count * sizeof(*initialized_fields))
-            : NULL;
         if (!type->is_complete) {
             rcc_error(initializer->loc,
                       "initializer requires a complete aggregate type");
-            rcc_free(initialized_fields);
             return;
         }
         for (ExprList* item = initializer->compound_init; item;
@@ -750,29 +726,16 @@ static void sema_initializer(Type* type, Expr* initializer) {
                     continue;
                 }
             }
-            if (!field || (type->kind == TYPE_UNION && initialized != 0)) {
+            if (!field || (type->kind == TYPE_UNION && initialized != 0 &&
+                           item->designator_kind == INIT_DESIGNATOR_NONE)) {
                 rcc_error(item->expr->loc,
                           "too many initializers for aggregate");
                 continue;
             }
-            bool duplicate = false;
-            for (int index = 0; index < initialized_count; ++index) {
-                if (initialized_fields[index] == field) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (duplicate) {
-                rcc_error(item->expr->loc,
-                          "overlapping aggregate initializers are not yet supported");
-            } else {
-                initialized_fields[initialized_count++] = field;
-                sema_initializer(field->type, item->expr);
-            }
+            sema_initializer(field->type, item->expr);
             cursor = field->next;
             ++initialized;
         }
-        rcc_free(initialized_fields);
         return;
     }
     if (!initializer->compound_init || initializer->compound_init->next ||

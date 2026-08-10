@@ -82,6 +82,7 @@ make test-special-sections
 make test-direct-relocation
 make test-optimize
 make test-generic
+make test-initializer-overrides
 ```
 
 `test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
@@ -110,6 +111,8 @@ definition、重複・型衝突も検査し、未解決direct imageを拒否す�
 `test-generic`はC17 `_Generic`のsigned/unsigned、typedef、pointer、default、
 array/function conversion、非評価controlを両archで検査し、重複association、
 不完全type、matchなしを拒否します。
+`test-initializer-overrides`はarray/struct/unionおよびネストdesignatorで、後続の
+initializerが同じsubobjectを置換するC17規則をglobal/local・両archで検査します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。

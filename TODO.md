@@ -33,6 +33,7 @@
 - [x] `_Static_assert`整数定数式と失敗diagnostic
 - [ ] qualifierとeffective typeの完全なC17規則
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
+  - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
 - [ ] `_Generic`、atomics、thread-local storage
   - [x] `_Generic`のcompatible type選択、default、非評価control
 - [ ] parser error recoveryとdiagnostic品質の網羅試験

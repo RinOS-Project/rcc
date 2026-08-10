@@ -567,7 +567,9 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
                     field = codegen_initializer_field(
                         type, item->designator_field);
                 }
-                if (!field || (type->kind == TYPE_UNION && initialized != 0)) {
+                if (!field || (type->kind == TYPE_UNION && initialized != 0 &&
+                               item->designator_kind ==
+                                   INIT_DESIGNATOR_NONE)) {
                     return false;
                 }
                 field_offset = (uint64_t)offset + (uint64_t)field->offset;
@@ -2122,7 +2124,9 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                     field = codegen_initializer_field(
                         type, item->designator_field);
                 }
-                if (!field || (type->kind == TYPE_UNION && initialized != 0)) {
+                if (!field || (type->kind == TYPE_UNION && initialized != 0 &&
+                               item->designator_kind ==
+                                   INIT_DESIGNATOR_NONE)) {
                     return false;
                 }
                 field_offset = (int64_t)displacement + field->offset;
