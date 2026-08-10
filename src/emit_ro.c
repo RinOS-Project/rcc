@@ -452,59 +452,42 @@ write_failed:
     return false;
 }
 
-ObjectFile* objfile_read(const char* filename) {
-    FILE* f = fopen(filename, "rb");
+ObjectFile* objfile_read_memory(const void* data, uint64_t size,
+                                const char* display_name) {
+    const uint8_t* bytes = data;
     ObjectFile* obj = NULL;
     RoSection* sections = NULL;
-    ObjSection** sect_ptrs = NULL;
     ObjSymbol** sym_ptrs = NULL;
-    uint64_t actual_size;
-    if (!f) {
-        return NULL;
-    }
-
-    if (!ro_seek(f, 0, SEEK_END) ||
-        (actual_size = ro_tell(f)) == UINT64_MAX ||
-        !ro_seek(f, 0, SEEK_SET)) {
-        fclose(f);
-        return NULL;
-    }
-
     RoHeader hdr;
-    if (fread(&hdr, sizeof(hdr), 1, f) != 1) {
-        fclose(f);
-        return NULL;
-    }
+    if (!bytes || size < sizeof(hdr) || size > SIZE_MAX) return NULL;
+    memcpy(&hdr, bytes, sizeof(hdr));
     if (hdr.magic != RO_MAGIC || hdr.version != RO_VERSION ||
-        hdr.header_size != sizeof(RoHeader) || hdr.file_size != actual_size ||
+        hdr.header_size != sizeof(RoHeader) || hdr.flags != 0u ||
+        hdr.file_size != size ||
         hdr.arch > ARCH_X64 || hdr.section_count > 65535u ||
         hdr.symbol_count > 1048576u || hdr.strtab_size == 0u ||
         hdr.strtab_size > UINT32_MAX ||
         !ro_range(hdr.section_off,
-                  (uint64_t)hdr.section_count * sizeof(RoSection), actual_size) ||
+                  (uint64_t)hdr.section_count * sizeof(RoSection), size) ||
         !ro_range(hdr.symbol_off,
-                  (uint64_t)hdr.symbol_count * sizeof(RoSymbol), actual_size) ||
-        !ro_range(hdr.strtab_off, hdr.strtab_size, actual_size)) {
-        fclose(f);
-        return NULL;
-    }
+                  (uint64_t)hdr.symbol_count * sizeof(RoSymbol), size) ||
+        !ro_range(hdr.strtab_off, hdr.strtab_size, size)) return NULL;
 
-    obj = objfile_new(filename, hdr.arch);
+    obj = objfile_new(display_name ? display_name : "<memory>", hdr.arch);
 
     obj->strtab = rcc_realloc(obj->strtab, (size_t)hdr.strtab_size);
     obj->strtab_size = (uint32_t)hdr.strtab_size;
     obj->strtab_cap = (uint32_t)hdr.strtab_size;
-    if (!ro_seek(f, hdr.strtab_off, SEEK_SET) ||
-        fread(obj->strtab, (size_t)hdr.strtab_size, 1, f) != 1 ||
-        obj->strtab[0] != '\0') goto read_failed;
+    memcpy(obj->strtab, bytes + (size_t)hdr.strtab_off,
+           (size_t)hdr.strtab_size);
+    if (obj->strtab[0] != '\0') goto read_failed;
 
-    if (!ro_seek(f, hdr.section_off, SEEK_SET)) goto read_failed;
-    sections = rcc_alloc(sizeof(RoSection) * hdr.section_count);
-    if (hdr.section_count != 0u &&
-        fread(sections, sizeof(RoSection), hdr.section_count, f) !=
-            hdr.section_count) goto read_failed;
+    if (hdr.section_count != 0u) {
+        sections = rcc_alloc(sizeof(RoSection) * hdr.section_count);
+        memcpy(sections, bytes + (size_t)hdr.section_off,
+               sizeof(RoSection) * hdr.section_count);
+    }
 
-    sect_ptrs = rcc_alloc(sizeof(ObjSection*) * hdr.section_count);
     for (uint32_t i = 0; i < hdr.section_count; i++) {
         RoSection* sh = &sections[i];
         if (sh->name >= hdr.strtab_size ||
@@ -513,33 +496,32 @@ ObjectFile* objfile_read(const char* filename) {
             sh->type > SECT_BSS || sh->align == 0u ||
             (sh->align & (sh->align - 1u)) != 0u ||
             sh->size > SIZE_MAX || sh->memory_size < sh->size ||
-            !ro_range(sh->offset, sh->size, actual_size) ||
+            !ro_range(sh->offset, sh->size, size) ||
             (sh->reloc_count != 0u &&
              !ro_range(sh->reloc_off,
                        (uint64_t)sh->reloc_count * sizeof(RoReloc),
-                       actual_size)) ||
+                       size)) ||
             sh->reserved0 != 0u || sh->reserved1 != 0u) goto read_failed;
         const char* name = obj->strtab + sh->name;
 
         ObjSection* sect = objfile_add_section(obj, name, sh->type, sh->flags);
         sect->align = sh->align;
-        sect_ptrs[i] = sect;
 
         if (sh->size > 0) {
             section_ensure_capacity(sect, sh->size);
-            if (!ro_seek(f, sh->offset, SEEK_SET) ||
-                fread(sect->data, (size_t)sh->size, 1, f) != 1) {
-                goto read_failed;
-            }
+            memcpy(sect->data, bytes + (size_t)sh->offset,
+                   (size_t)sh->size);
             sect->size = sh->size;
         }
     }
 
-    sym_ptrs = rcc_alloc(sizeof(ObjSymbol*) * hdr.symbol_count);
-    if (!ro_seek(f, hdr.symbol_off, SEEK_SET)) goto read_failed;
+    if (hdr.symbol_count != 0u) {
+        sym_ptrs = rcc_alloc(sizeof(ObjSymbol*) * hdr.symbol_count);
+    }
     for (uint32_t i = 0; i < hdr.symbol_count; i++) {
         RoSymbol rs;
-        if (fread(&rs, sizeof(rs), 1, f) != 1) goto read_failed;
+        memcpy(&rs, bytes + (size_t)hdr.symbol_off +
+                    (size_t)i * sizeof(rs), sizeof(rs));
         if (rs.name >= hdr.strtab_size ||
             !memchr(obj->strtab + rs.name, '\0',
                     (size_t)hdr.strtab_size - rs.name) ||
@@ -571,12 +553,12 @@ ObjectFile* objfile_read(const char* filename) {
         RoSection* sh = &sections[i];
         if (sh->reloc_count == 0) continue;
 
-        if (!ro_seek(f, sh->reloc_off, SEEK_SET)) goto read_failed;
         for (uint32_t j = 0; j < sh->reloc_count; j++) {
             RoReloc rr;
             uint64_t width;
-            if (fread(&rr, sizeof(rr), 1, f) != 1 ||
-                rr.symbol >= hdr.symbol_count ||
+            memcpy(&rr, bytes + (size_t)sh->reloc_off +
+                        (size_t)j * sizeof(rr), sizeof(rr));
+            if (rr.symbol >= hdr.symbol_count ||
                 rr.type > RELOC_PLT32 || rr.flags != 0u ||
                 rr.reserved != 0u) goto read_failed;
             width = rr.type == RELOC_ABS64 ? 8u :
@@ -596,20 +578,44 @@ ObjectFile* objfile_read(const char* filename) {
         }
     }
 
-    rcc_free(sect_ptrs);
     rcc_free(sym_ptrs);
     rcc_free(sections);
-    fclose(f);
-
     return obj;
 
 read_failed:
-    rcc_free(sect_ptrs);
     rcc_free(sym_ptrs);
     rcc_free(sections);
     objfile_free(obj);
-    fclose(f);
     return NULL;
+}
+
+ObjectFile* objfile_read(const char* filename) {
+    FILE* f = fopen(filename, "rb");
+    uint8_t* data = NULL;
+    uint64_t size;
+    ObjectFile* obj;
+    if (!f) return NULL;
+
+    if (!ro_seek(f, 0, SEEK_END) ||
+        (size = ro_tell(f)) == UINT64_MAX || size > SIZE_MAX ||
+        !ro_seek(f, 0, SEEK_SET)) {
+        fclose(f);
+        return NULL;
+    }
+    data = rcc_alloc((size_t)(size == 0u ? 1u : size));
+    if (size != 0u && fread(data, (size_t)size, 1, f) != 1) {
+        rcc_free(data);
+        fclose(f);
+        return NULL;
+    }
+    if (fclose(f) != 0) {
+        rcc_free(data);
+        return NULL;
+    }
+
+    obj = objfile_read_memory(data, size, filename);
+    rcc_free(data);
+    return obj;
 }
 
 /* ═══════════════════════════════════════

@@ -4,6 +4,7 @@
  */
 
 #include "linker.h"
+#include "archive.h"
 #include "objfile.h"
 #include "rin_formats_v3.h"
 #include <inttypes.h>
@@ -76,19 +77,13 @@ void linker_free(Linker* ld) {
  * Object File Loading
  * ═══════════════════════════════════════ */
 
-bool linker_add_object(Linker* ld, const char* filename) {
-    ObjectFile* obj = objfile_read(filename);
-    if (!obj) {
-        fprintf(stderr, "rld: cannot read object file: %s\n", filename);
-        return false;
-    }
-
+static bool linker_append_object(Linker* ld, ObjectFile* obj) {
     if (ld->object_count == 0 && !g_linker_opts.arch_explicit) {
         g_linker_opts.arch = obj->arch;
     } else if (obj->arch != g_linker_opts.arch) {
         fprintf(stderr,
                 "rld: architecture mismatch: %s is %s, link target is %s\n",
-                filename, obj->arch == ARCH_X64 ? "x86_64" : "x86",
+                obj->filename, obj->arch == ARCH_X64 ? "x86_64" : "x86",
                 g_linker_opts.arch == ARCH_X64 ? "x86_64" : "x86");
         objfile_free(obj);
         return false;
@@ -100,15 +95,175 @@ bool linker_add_object(Linker* ld, const char* filename) {
 
     if (g_linker_opts.verbose) {
         printf("  + %s: %d sections, %d symbols\n",
-               filename, obj->section_count, obj->symbol_count);
+               obj->filename, obj->section_count, obj->symbol_count);
     }
 
     return true;
 }
 
+bool linker_add_object(Linker* ld, const char* filename) {
+    ObjectFile* obj = objfile_read(filename);
+    if (!obj) {
+        fprintf(stderr, "rld: cannot read object file: %s\n", filename);
+        return false;
+    }
+    return linker_append_object(ld, obj);
+}
+
+static bool linker_has_definition(const Linker* ld, const char* name) {
+    for (int index = 0; index < ld->object_count; ++index) {
+        for (ObjSymbol* symbol = ld->objects[index]->symbols; symbol;
+             symbol = symbol->next) {
+            if (strcmp(symbol->name, name) == 0 &&
+                (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
+                (symbol->section >= 0 || symbol->binding == BIND_ABS)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool linker_symbol_is_unresolved(const Linker* ld, const char* name) {
+    bool referenced = !g_linker_opts.shared && g_linker_opts.entry &&
+                      strcmp(g_linker_opts.entry, name) == 0;
+    if (linker_has_definition(ld, name)) return false;
+    for (int index = 0; index < ld->object_count; ++index) {
+        for (ObjSymbol* symbol = ld->objects[index]->symbols; symbol;
+             symbol = symbol->next) {
+            if (symbol->type == SYM_UNDEF &&
+                strcmp(symbol->name, name) == 0) return true;
+        }
+    }
+    return referenced;
+}
+
+static bool object_defines_symbol(const ObjectFile* obj, const char* name) {
+    for (ObjSymbol* symbol = obj->symbols; symbol; symbol = symbol->next) {
+        if (strcmp(symbol->name, name) == 0 &&
+            (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
+            (symbol->section >= 0 || symbol->binding == BIND_ABS)) return true;
+    }
+    return false;
+}
+
+static ArchiveMember* archive_member_at(Archive* archive, int member_index) {
+    ArchiveMember* member = archive->members;
+    while (member && member_index-- > 0) member = member->next;
+    return member;
+}
+
+static const char* archive_needed_symbol(const Linker* ld,
+                                         const Archive* archive,
+                                         int member_index) {
+    for (ArchiveSymbol* symbol = archive->symbols; symbol;
+         symbol = symbol->next) {
+        if (symbol->member_idx == member_index &&
+            linker_symbol_is_unresolved(ld, symbol->name)) return symbol->name;
+    }
+    return NULL;
+}
+
+static bool linker_add_archive(Linker* ld, const char* filename) {
+    Archive* archive = archive_read(filename);
+    bool* selected = NULL;
+    bool ok = false;
+    if (!archive) {
+        fprintf(stderr, "rld: cannot read archive: %s\n", filename);
+        return false;
+    }
+    if (archive->member_count != 0) {
+        selected = rcc_alloc(sizeof(bool) * (size_t)archive->member_count);
+    }
+
+    for (;;) {
+        int candidate = -1;
+        const char* needed = NULL;
+        for (int index = 0; index < archive->member_count; ++index) {
+            if (selected[index]) continue;
+            needed = archive_needed_symbol(ld, archive, index);
+            if (needed) {
+                candidate = index;
+                break;
+            }
+        }
+        if (candidate < 0) break;
+
+        ArchiveMember* member = archive_member_at(archive, candidate);
+        size_t filename_size;
+        size_t member_size;
+        size_t display_size;
+        char* display_name;
+        ObjectFile* obj;
+        if (!member) {
+            fprintf(stderr, "rld: invalid archive member index in %s\n", filename);
+            goto done;
+        }
+        filename_size = strlen(filename);
+        member_size = strlen(member->name);
+        if (member_size > SIZE_MAX - 3u ||
+            filename_size > SIZE_MAX - member_size - 3u) {
+            fprintf(stderr, "rld: archive member name is too long: %s\n", filename);
+            goto done;
+        }
+        display_size = filename_size + member_size + 3u;
+        display_name = rcc_alloc(display_size);
+        snprintf(display_name, display_size, "%s(%s)", filename, member->name);
+        obj = objfile_read_memory(member->data, member->size, display_name);
+        rcc_free(display_name);
+        if (!obj) {
+            fprintf(stderr, "rld: invalid object member %s(%s)\n",
+                    filename, member->name);
+            goto done;
+        }
+        if (!object_defines_symbol(obj, needed)) {
+            fprintf(stderr,
+                    "rld: archive symbol '%s' is not defined by %s(%s)\n",
+                    needed, filename, member->name);
+            objfile_free(obj);
+            goto done;
+        }
+        selected[candidate] = true;
+        if (g_linker_opts.verbose) {
+            printf("  archive %s: selecting %s for %s\n",
+                   filename, member->name, needed);
+        }
+        if (!linker_append_object(ld, obj)) goto done;
+    }
+
+    ok = true;
+done:
+    rcc_free(selected);
+    archive_free(archive);
+    return ok;
+}
+
+static bool linker_input_magic(const char* filename, uint32_t* magic) {
+    FILE* file = fopen(filename, "rb");
+    uint8_t bytes[sizeof(uint32_t)];
+    bool read_ok;
+    bool close_ok;
+    if (!file) return false;
+    read_ok = fread(bytes, sizeof(bytes), 1, file) == 1;
+    close_ok = fclose(file) == 0;
+    if (!read_ok || !close_ok) return false;
+    memcpy(magic, bytes, sizeof(*magic));
+    return true;
+}
+
 bool linker_add_objects(Linker* ld, char** files, int count) {
     for (int i = 0; i < count; i++) {
-        if (!linker_add_object(ld, files[i])) {
+        uint32_t magic;
+        if (!linker_input_magic(files[i], &magic)) {
+            fprintf(stderr, "rld: cannot read input file: %s\n", files[i]);
+            return false;
+        }
+        if (magic == RO_MAGIC) {
+            if (!linker_add_object(ld, files[i])) return false;
+        } else if (magic == RA_MAGIC) {
+            if (!linker_add_archive(ld, files[i])) return false;
+        } else {
+            fprintf(stderr, "rld: unsupported input format: %s\n", files[i]);
             return false;
         }
     }

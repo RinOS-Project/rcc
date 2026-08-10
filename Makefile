@@ -31,7 +31,7 @@ RCXX_OBJS = $(RCXX_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RCXX_TARGET = $(BINDIR)/rcc++
 
 # RLD (Linker) - uses minimal common code
-RLD_COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/emit_ro.c $(SRCDIR)/build_manifest.c
+RLD_COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/emit_ro.c $(SRCDIR)/archive.c $(SRCDIR)/build_manifest.c
 RLD_COMMON_OBJS = $(RLD_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RLD_SRCS = $(SRCDIR)/main_rld.c $(SRCDIR)/linker.c
 RLD_OBJS = $(RLD_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
@@ -44,7 +44,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-static-assert test-manifest test-driver-policy test-weak-link test-object-width
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-object-width
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -114,6 +114,39 @@ test-archive: $(RCC_TARGET) $(RAR_TARGET)
 	$(RAR_TARGET) t $(TEST_OUT)/libtest.ra
 	@echo "RAR archive test completed"
 
+test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
+	mkdir -p $(TEST_OUT)/archive-x86 $(TEST_OUT)/archive-x64
+	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/main.ro tests/archive_link_main.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/helper.ro tests/archive_link_helper.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/unused.ro tests/archive_link_unused.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/chosen.ro tests/archive_link_chosen.c
+	$(RAR_TARGET) r $(TEST_OUT)/archive-x86/libselect.ra \
+		$(TEST_OUT)/archive-x86/helper.ro $(TEST_OUT)/archive-x86/unused.ro \
+		$(TEST_OUT)/archive-x86/chosen.ro
+	$(RLD_TARGET) -m32 -v --emit-unsigned-v3 -o $(TEST_OUT)/archive-x86/selected.rin \
+		$(TEST_OUT)/archive-x86/main.ro $(TEST_OUT)/archive-x86/libselect.ra
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/archive_corrupt_test \
+		tests/archive_corrupt_test.c
+	cp $(TEST_OUT)/archive-x86/libselect.ra $(TEST_OUT)/archive-x86/corrupt.ra
+	$(TEST_OUT)/archive_corrupt_test $(TEST_OUT)/archive-x86/corrupt.ra
+	! $(RLD_TARGET) -m32 --emit-unsigned-v3 -o $(TEST_OUT)/archive-x86/corrupt.rin \
+		$(TEST_OUT)/archive-x86/main.ro $(TEST_OUT)/archive-x86/corrupt.ra
+	! $(RLD_TARGET) -m32 -e archive_order_root --emit-unsigned-v3 \
+		-o $(TEST_OUT)/archive-x86/wrong-order.rin \
+		$(TEST_OUT)/archive-x86/libselect.ra $(TEST_OUT)/archive-x86/main.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/archive-x64/main.ro tests/archive_link_main.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/archive-x64/helper.ro tests/archive_link_helper.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/archive-x64/unused.ro tests/archive_link_unused.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/archive-x64/chosen.ro tests/archive_link_chosen.c
+	$(RAR_TARGET) r $(TEST_OUT)/archive-x64/libselect.ra \
+		$(TEST_OUT)/archive-x64/helper.ro $(TEST_OUT)/archive-x64/unused.ro \
+		$(TEST_OUT)/archive-x64/chosen.ro
+	$(RLD_TARGET) -m64 -v --emit-unsigned-v3 -o $(TEST_OUT)/archive-x64/selected.rin \
+		$(TEST_OUT)/archive-x64/main.ro $(TEST_OUT)/archive-x64/libselect.ra
+	! $(RLD_TARGET) -m64 --emit-unsigned-v3 -o $(TEST_OUT)/archive-x64/wrong-arch.rin \
+		$(TEST_OUT)/archive-x64/main.ro $(TEST_OUT)/archive-x86/libselect.ra
+	@echo "RLD unresolved-symbol archive selection tests completed"
+
 test-static-assert: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)
 	$(RCC_TARGET) -c -o $(TEST_OUT)/static_assert_pass.ro tests/static_assert_pass.c
@@ -168,7 +201,7 @@ test-weak-link:
 	mkdir -p $(TEST_OUT)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/weak_link_test \
 		tests/weak_link_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/weak_link_test $(TEST_OUT)/weak.ro $(TEST_OUT)/strong.ro
 	@echo "Weak-to-strong linker replacement test completed"
 
@@ -176,7 +209,7 @@ test-object-width: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/object_width_test \
 		tests/object_width_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/object_width_test $(TEST_OUT)/wide.ro
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/wide_main.ro tests/main.c

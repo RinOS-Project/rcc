@@ -15,7 +15,8 @@
 - [x] external `rinsign`必須の最終link
 - [x] versioned build manifestとCLI矛盾検査
 - [ ] COMDAT、weak symbol、完全なarchive選択規則
-  - [x] weak→strong置換時のsection/binding/size/RVA更新
+    - [x] weak→strong置換時のsection/binding/size/RVA更新
+    - [x] 入力順を保つ未解決symbol駆動の`.ra v2` member推移選択
 - [ ] TLS、INIT/FINI、UNWIND sectionの完全link
 
 ## 2. C17 frontend

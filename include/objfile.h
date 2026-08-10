@@ -217,5 +217,7 @@ uint32_t objfile_add_string(ObjectFile* obj, const char* str);
 /* File I/O */
 bool objfile_write(ObjectFile* obj, const char* filename);
 ObjectFile* objfile_read(const char* filename);
+ObjectFile* objfile_read_memory(const void* data, uint64_t size,
+                                const char* display_name);
 
 #endif /* OBJFILE_H */

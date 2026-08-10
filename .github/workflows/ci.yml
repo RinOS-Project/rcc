@@ -35,6 +35,7 @@ jobs:
           make test-static-assert
           make test-link
           make test-archive
+          make test-archive-link
           make test-manifest
           make test-driver-policy
           make test-weak-link

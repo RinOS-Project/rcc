@@ -70,6 +70,7 @@ make test-static-assert
 make test-cxx-cli
 make test-link
 make test-archive
+make test-archive-link
 make test-manifest
 make test-driver-policy
 make test-weak-link
@@ -82,6 +83,9 @@ FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
 最終RVAを完全に置換することを確認します。
 `test-object-width`は4 GiB超の`.ro v2` symbol/addendとAMD64配置を保持し、
 ABS32 overflowおよびx86の3 GiB境界を拒否することを確認します。
+`test-archive-link`は両archで未解決symbol駆動のmember選択と推移抽出を行い、
+未使用member、入力順に対する過去archiveの再走査、異種arch member、および
+symbol tableとmember実体が矛盾する改変archiveを拒否します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。
