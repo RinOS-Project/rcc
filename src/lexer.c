@@ -61,6 +61,7 @@ static struct {
     {"_Alignas", TOK__ALIGNAS},
     {"_Static_assert", TOK_STATIC_ASSERT},
     {"static_assert", TOK_STATIC_ASSERT},
+    {"_Generic", TOK_GENERIC},
     /* GNU Extensions */
     {"asm", TOK_ASM},
     {"__asm", TOK_ASM},

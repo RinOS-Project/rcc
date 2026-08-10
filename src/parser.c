@@ -170,6 +170,13 @@ static bool is_type_start(void);
 static Type* parse_declarator(Type* base_type, const char** name,
                               DeclList** parameters);
 
+static Type* generic_selection_type(Type* type) {
+    if (!type) return NULL;
+    if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
+    if (type->kind == TYPE_FUNC) return type_ptr(type);
+    return type;
+}
+
 /* Evaluate the integer-constant-expression subset required by C17
  * _Static_assert.  Keep this in the frontend so a failed assertion never
  * reaches sema or either code generator. */
@@ -209,6 +216,24 @@ static bool eval_integer_constant(Expr* expr, int64_t* value) {
             }
             *value = left;
             return true;
+        case EXPR_GENERIC: {
+            Type* control = expr->generic_control
+                ? generic_selection_type(expr->generic_control->type) : NULL;
+            GenericAssociation* selected = NULL;
+            GenericAssociation* fallback = NULL;
+            if (!control) return false;
+            for (GenericAssociation* association =
+                     expr->generic_associations;
+                 association; association = association->next) {
+                if (!association->type) fallback = association;
+                else if (type_is_compatible(control, association->type)) {
+                    selected = association;
+                }
+            }
+            selected = selected ? selected : fallback;
+            return selected &&
+                   eval_integer_constant(selected->expr, value);
+        }
         case EXPR_AND:
             if (!eval_integer_constant(expr->binary_lhs, &left)) return false;
             if (left == 0) {
@@ -316,10 +341,74 @@ static void skip_attributes(void) {
  * Expression Parsing
  * ═══════════════════════════════════════ */
 
+static bool generic_association_type_valid(Type* type) {
+    return type && type->kind != TYPE_VOID && type->kind != TYPE_FUNC &&
+           type_is_complete(type);
+}
+
+static Expr* parse_generic_selection(SourceLoc loc) {
+    Expr* control;
+    GenericAssociation* associations = NULL;
+    bool have_default = false;
+
+    expect(TOK_LPAREN, "(");
+    control = parse_assignment();
+    expect(TOK_COMMA, ",");
+    if (check(TOK_RPAREN)) {
+        rcc_error(peek()->loc,
+                  "generic selection requires at least one association");
+    }
+    while (!check(TOK_RPAREN) && !at_end()) {
+        SourceLoc association_loc = peek()->loc;
+        Type* association_type = NULL;
+        Expr* association_expression;
+
+        if (match(TOK_DEFAULT)) {
+            if (have_default) {
+                rcc_error(association_loc,
+                          "generic selection has more than one default association");
+            }
+            have_default = true;
+        } else if (is_type_start()) {
+            association_type = parse_type_spec();
+            association_type = parse_declarator(
+                association_type, NULL, NULL);
+            if (!generic_association_type_valid(association_type)) {
+                rcc_error(association_loc,
+                          "generic association requires a complete object type");
+            }
+            for (GenericAssociation* previous = associations; previous;
+                 previous = previous->next) {
+                if (previous->type &&
+                    type_is_compatible(previous->type, association_type)) {
+                    rcc_error(association_loc,
+                              "generic selection has compatible duplicate types");
+                    break;
+                }
+            }
+        } else {
+            rcc_error(association_loc,
+                      "expected type name or default in generic association");
+            if (!check(TOK_COLON)) advance();
+        }
+        expect(TOK_COLON, ":");
+        association_expression = parse_assignment();
+        generic_association_append(&associations, association_type,
+                                   association_expression,
+                                   association_loc);
+        if (!match(TOK_COMMA)) break;
+    }
+    expect(TOK_RPAREN, ")");
+    return expr_generic(control, associations, loc);
+}
+
 /* Primary: literal, identifier, (expr) */
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (match(TOK_GENERIC)) {
+        return parse_generic_selection(loc);
+    }
     if (match(TOK_INT_LIT)) {
         return expr_int(previous()->value.int_val, loc);
     }

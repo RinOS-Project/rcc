@@ -268,6 +268,19 @@ static bool driver_validate_expr(Expr* expression)
             if (driver_reject_type(expression->compound_type,
                                    expression->loc)) return false;
             return driver_validate_expr_list(expression->compound_init);
+        case EXPR_GENERIC: {
+            GenericAssociation* association;
+            if (!driver_validate_expr(expression->generic_control)) {
+                return false;
+            }
+            for (association = expression->generic_associations; association;
+                 association = association->next) {
+                if (driver_reject_type(association->type,
+                                       association->loc) ||
+                    !driver_validate_expr(association->expr)) return false;
+            }
+            return true;
+        }
     }
     return true;
 }

@@ -81,6 +81,7 @@ make test-object-width
 make test-special-sections
 make test-direct-relocation
 make test-optimize
+make test-generic
 ```
 
 `test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
@@ -106,6 +107,9 @@ definition、重複・型衝突も検査し、未解決direct imageを拒否す�
 `test-optimize`は`-O0`と`-O1`の両arch objectを比較し、整数constant folding、
 短絡式、定数`if`、ゼロ回`while`のコード縮小と副作用除去、およびx86_64生成コードの
 実行結果を確認します。
+`test-generic`はC17 `_Generic`のsigned/unsigned、typedef、pointer、default、
+array/function conversion、非評価controlを両archで検査し、重複association、
+不完全type、matchなしを拒否します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。

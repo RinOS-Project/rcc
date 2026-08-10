@@ -34,6 +34,7 @@
 - [ ] qualifierとeffective typeの完全なC17規則
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
 - [ ] `_Generic`、atomics、thread-local storage
+  - [x] `_Generic`のcompatible type選択、default、非評価control
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
 

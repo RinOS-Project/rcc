@@ -45,7 +45,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -411,6 +411,24 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/optimize/x86-o0.ro $(TEST_OUT)/optimize/x86-o1.ro \
 		$(TEST_OUT)/optimize/x64-o0.ro $(TEST_OUT)/optimize/x64-o1.ro
 	@echo "AST integer constant-folding tests completed"
+
+test-generic: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/generic
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/generic/x86.ro tests/generic_selection.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/generic/x64.ro tests/generic_selection.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/generic/invalid.ro tests/invalid_generic.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/generic/invalid-match.ro \
+		tests/invalid_generic_match.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/generic_selection_run_test \
+		tests/generic_selection_run_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/generic_selection_run_test \
+		$(TEST_OUT)/generic/x86.ro $(TEST_OUT)/generic/x64.ro
+	@echo "C17 generic selection tests completed"
 
 # Dependencies
 $(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/optimize.h $(INCDIR)/preproc.h

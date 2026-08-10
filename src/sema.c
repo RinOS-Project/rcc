@@ -45,6 +45,13 @@ static bool is_pointer_arithmetic_type(Type* type) {
            base->size > 0;
 }
 
+static Type* generic_selection_type(Type* type) {
+    if (!type) return NULL;
+    if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
+    if (type->kind == TYPE_FUNC) return type_ptr(type);
+    return type;
+}
+
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
@@ -182,6 +189,40 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_CAST: {
             sema_expr(expr->cast_expr);
             expr->type = expr->cast_type;
+            break;
+        }
+
+        case EXPR_GENERIC: {
+            Type* control = generic_selection_type(
+                sema_expr(expr->generic_control));
+            GenericAssociation* selected = NULL;
+            GenericAssociation* fallback = NULL;
+            for (GenericAssociation* association =
+                     expr->generic_associations;
+                 association; association = association->next) {
+                sema_expr(association->expr);
+                if (!association->type) {
+                    fallback = association;
+                } else if (control &&
+                           type_is_compatible(control,
+                                              association->type)) {
+                    if (selected) {
+                        rcc_error(association->loc,
+                                  "generic selection matches more than one association");
+                    } else {
+                        selected = association;
+                    }
+                }
+            }
+            if (!selected) selected = fallback;
+            if (!selected) {
+                rcc_error(expr->loc,
+                          "generic selection has no compatible association");
+                expr->type = type_int;
+            } else {
+                Expr replacement = *selected->expr;
+                *expr = replacement;
+            }
             break;
         }
 

@@ -13,6 +13,7 @@ typedef struct Type Type;
 typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
+typedef struct GenericAssociation GenericAssociation;
 
 /* ═══════════════════════════════════════
  * Type System
@@ -194,6 +195,7 @@ typedef enum {
 
     /* Compound literal */
     EXPR_COMPOUND,      /* (type){...} */
+    EXPR_GENERIC,       /* _Generic(control, type: expression, ...) */
 } ExprKind;
 
 typedef enum {
@@ -209,6 +211,13 @@ typedef struct ExprList {
     const char* designator_field;
     struct ExprList* next;
 } ExprList;
+
+struct GenericAssociation {
+    Type* type;                 /* NULL for default */
+    Expr* expr;
+    SourceLoc loc;
+    struct GenericAssociation* next;
+};
 
 struct Expr {
     ExprKind kind;
@@ -283,6 +292,12 @@ struct Expr {
             Type* compound_type;
             ExprList* compound_init;
         };
+
+        /* EXPR_GENERIC */
+        struct {
+            Expr* generic_control;
+            GenericAssociation* generic_associations;
+        };
     };
 };
 
@@ -302,6 +317,10 @@ Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_type(Type* type, SourceLoc loc);
 Expr* expr_initializer_list(ExprList* items, SourceLoc loc);
+Expr* expr_generic(Expr* control, GenericAssociation* associations,
+                   SourceLoc loc);
+void generic_association_append(GenericAssociation** list, Type* type,
+                                Expr* expr, SourceLoc loc);
 
 /* ═══════════════════════════════════════
  * Statements

@@ -160,12 +160,38 @@ bool type_is_complete(Type* t) {
 }
 
 bool type_is_compatible(Type* a, Type* b) {
+    TypeParam* ap;
+    TypeParam* bp;
+    if (!a || !b) return false;
+    if (a == b) return true;
     if (a->kind != b->kind) return false;
+    if (type_is_integer(a) && a->is_unsigned != b->is_unsigned) return false;
     if (a->kind == TYPE_PTR) {
         return type_is_compatible(a->base, b->base);
     }
     if (a->kind == TYPE_ARRAY) {
-        return type_is_compatible(a->base, b->base);
+        return (a->array_len < 0 || b->array_len < 0 ||
+                a->array_len == b->array_len) &&
+               type_is_compatible(a->base, b->base);
+    }
+    if (a->kind == TYPE_FUNC) {
+        if (a->variadic != b->variadic ||
+            !type_is_compatible(a->ret_type, b->ret_type)) return false;
+        ap = a->params;
+        bp = b->params;
+        while (ap && bp) {
+            if (!type_is_compatible(ap->type, bp->type)) return false;
+            ap = ap->next;
+            bp = bp->next;
+        }
+        return ap == NULL && bp == NULL;
+    }
+    if (a->kind == TYPE_STRUCT || a->kind == TYPE_UNION) {
+        return a->tag && b->tag && strcmp(a->tag, b->tag) == 0;
+    }
+    if (a->kind == TYPE_ENUM) {
+        return a->enum_tag && b->enum_tag &&
+               strcmp(a->enum_tag, b->enum_tag) == 0;
     }
     return true;
 }
@@ -330,6 +356,27 @@ Expr* expr_sizeof_type(Type* type, SourceLoc loc) {
     e->sizeof_type = type;
     e->type = type_uint;
     return e;
+}
+
+Expr* expr_generic(Expr* control, GenericAssociation* associations,
+                   SourceLoc loc) {
+    Expr* expression = rcc_alloc(sizeof(*expression));
+    expression->kind = EXPR_GENERIC;
+    expression->loc = loc;
+    expression->generic_control = control;
+    expression->generic_associations = associations;
+    return expression;
+}
+
+void generic_association_append(GenericAssociation** list, Type* type,
+                                Expr* expression, SourceLoc loc) {
+    GenericAssociation* association = rcc_alloc(sizeof(*association));
+    GenericAssociation** tail = list;
+    association->type = type;
+    association->expr = expression;
+    association->loc = loc;
+    while (*tail) tail = &(*tail)->next;
+    *tail = association;
 }
 
 Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
