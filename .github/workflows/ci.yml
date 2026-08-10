@@ -36,3 +36,4 @@ jobs:
           make test-link
           make test-archive
           make test-manifest
+          make test-driver-policy

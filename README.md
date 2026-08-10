@@ -71,7 +71,11 @@ make test-cxx-cli
 make test-link
 make test-archive
 make test-manifest
+make test-driver-policy
 ```
+
+`test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
+FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
 
 RinOS親repositoryには、preprocessor、x86_64実行ABI、SDK v1 packaging、
 production RIN v3 validatorを組み合わせた統合試験もあります。

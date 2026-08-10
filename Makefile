@@ -17,7 +17,7 @@ COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/a
               $(SRCDIR)/symtab.c $(SRCDIR)/sema.c $(SRCDIR)/codegen.c \
               $(SRCDIR)/codegen64.c $(SRCDIR)/preproc.c \
               $(SRCDIR)/emit_rin.c $(SRCDIR)/emit_rll.c $(SRCDIR)/emit_drv.c $(SRCDIR)/emit_ro.c \
-              $(SRCDIR)/emit_asm.c $(SRCDIR)/build_manifest.c
+              $(SRCDIR)/emit_asm.c $(SRCDIR)/build_manifest.c $(SRCDIR)/driver_policy.c
 COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 # RCC (C compiler)
@@ -44,7 +44,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-static-assert test-manifest
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-static-assert test-manifest test-driver-policy
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -144,9 +144,29 @@ test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		--emit-unsigned-v3 tests/missing.ro
 	@echo "Versioned build manifest conflict tests completed"
 
+test-driver-policy: $(RCC_TARGET) $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)
+	$(RCC_TARGET) --target i686-unknown-rinos -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_x86.drv tests/driver_policy_ok.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_x64.drv tests/driver_policy_ok.c
+	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_float.drv tests/driver_policy_float.c
+	! $(RCXX_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_float_cxx.drv tests/driver_policy_float.cpp
+	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_asm.drv tests/driver_policy_asm.c
+	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_constraint.drv tests/driver_policy_constraint.c
+	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_clobber.drv tests/driver_policy_clobber.c
+	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_mask_constraint.drv tests/driver_policy_mask_constraint.c
+	@echo "NDRV FPU/SIMD policy tests completed"
+
 # Dependencies
-$(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/preproc.h
-$(OBJDIR)/main_cxx.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/ast_cxx.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/preproc.h
+$(OBJDIR)/main.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h
+$(OBJDIR)/main_cxx.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h $(INCDIR)/ast_cxx.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h $(INCDIR)/driver_policy.h $(INCDIR)/preproc.h
 $(OBJDIR)/lexer.o: $(INCDIR)/rcc.h $(INCDIR)/token.h
 $(OBJDIR)/parser.o: $(INCDIR)/rcc.h $(INCDIR)/token.h $(INCDIR)/ast.h
 $(OBJDIR)/ast.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h
@@ -164,6 +184,7 @@ $(OBJDIR)/emit_ro.o: $(INCDIR)/rcc.h $(INCDIR)/codegen.h $(INCDIR)/objfile.h
 $(OBJDIR)/emit_asm.o: $(INCDIR)/rcc.h $(INCDIR)/codegen.h
 $(OBJDIR)/utils.o: $(INCDIR)/rcc.h
 $(OBJDIR)/build_manifest.o: $(INCDIR)/rcc.h $(INCDIR)/build_manifest.h
+$(OBJDIR)/driver_policy.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/driver_policy.h
 $(OBJDIR)/main_rld.o: $(INCDIR)/rcc.h $(INCDIR)/linker.h
 $(OBJDIR)/linker.o: $(INCDIR)/rcc.h $(INCDIR)/linker.h $(INCDIR)/objfile.h
 $(OBJDIR)/main_rar.o: $(INCDIR)/rcc.h $(INCDIR)/archive.h

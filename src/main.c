@@ -8,6 +8,7 @@
 #include "ast.h"
 #include "symtab.h"
 #include "codegen.h"
+#include "driver_policy.h"
 #include "preproc.h"
 #include "build_manifest.h"
 #include <getopt.h>
@@ -500,6 +501,12 @@ int main(int argc, char** argv) {
     }
     if (!rcc_sema(ast)) {
         fprintf(stderr, "rcc: %d error(s) in semantic analysis\n", g_error_count);
+        tokenlist_free(tokens);
+        return 1;
+    }
+    if (g_opts.output_format == OUTPUT_DRV &&
+        !rcc_validate_driver_policy(ast)) {
+        fprintf(stderr, "rcc: driver policy validation failed\n");
         tokenlist_free(tokens);
         return 1;
     }

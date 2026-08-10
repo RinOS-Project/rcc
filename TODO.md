@@ -58,7 +58,7 @@
 - [ ] PIC/PIE、GOT/PLT、TLS relocation
 - [ ] DWARF debug/unwind
 - [ ] inline asm constraintの完全検証
-- [ ] driver modeでのFPU/SIMD禁止検査
+- [x] driver modeでのFPU/SIMD禁止検査
 
 ## 6. bootstrap / quality gates
 
