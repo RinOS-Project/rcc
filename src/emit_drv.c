@@ -103,7 +103,8 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
 
     if (!mod || !outfile || mod->code.size == 0u ||
         mod->code.size > UINT32_MAX || mod->rodata.size > UINT32_MAX ||
-        mod->data.size > UINT32_MAX || mod->bss.size > UINT32_MAX) {
+        mod->data.size > UINT32_MAX || mod->bss.size > UINT32_MAX ||
+        mod->tls.size > 0u) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for NDRV v3 output");
         return false;
     }

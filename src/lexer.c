@@ -62,6 +62,7 @@ static struct {
     {"_Static_assert", TOK_STATIC_ASSERT},
     {"static_assert", TOK_STATIC_ASSERT},
     {"_Generic", TOK_GENERIC},
+    {"_Thread_local", TOK_THREAD_LOCAL},
     /* GNU Extensions */
     {"asm", TOK_ASM},
     {"__asm", TOK_ASM},
@@ -99,6 +100,7 @@ static struct {
     {"explicit", TOK_EXPLICIT},
     {"mutable", TOK_MUTABLE},
     {"constexpr", TOK_CONSTEXPR},
+    {"thread_local", TOK_THREAD_LOCAL},
     {"noexcept", TOK_NOEXCEPT},
     {"static_cast", TOK_STATIC_CAST},
     {"dynamic_cast", TOK_DYNAMIC_CAST},

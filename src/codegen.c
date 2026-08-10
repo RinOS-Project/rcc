@@ -37,6 +37,11 @@ Module* codegen_new(void) {
     mod->bss.size = 0;
     mod->bss.align = 1u;
 
+    mod->tls.data = rcc_alloc(INIT_CAPACITY);
+    mod->tls.size = 0;
+    mod->tls.capacity = INIT_CAPACITY;
+    mod->tls_align = 1u;
+
     mod->relocs = NULL;
     mod->strings = NULL;
     mod->entry_point = 0;
@@ -58,6 +63,7 @@ void codegen_free(Module* mod) {
     rcc_free(mod->code.data);
     rcc_free(mod->rodata.data);
     rcc_free(mod->data.data);
+    rcc_free(mod->tls.data);
     rcc_free(mod->symbols);
     rcc_free(mod->relocs_arr);
     rcc_free(mod);
@@ -155,7 +161,16 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
     rel->target = target;
     rel->is_relative = is_relative;
     rel->is_64bit = is_64bit;
+    rel->is_tls = false;
     rel->symbol_name = symbol_name ? rcc_strdup(symbol_name) : NULL;
+}
+
+void module_add_tls_relocation(Module* mod,
+                               ModuleSymbolSection source_section,
+                               uint32_t offset, const char* symbol_name) {
+    module_add_relocation(mod, source_section, offset, 0u, false, false,
+                          symbol_name);
+    mod->relocs_arr[mod->reloc_count - 1].is_tls = true;
 }
 
 bool module_resolve_image_relocation(const Module* mod,
@@ -173,7 +188,7 @@ bool module_resolve_image_relocation(const Module* mod,
         const ModuleReloc* candidate = &mod->relocs_arr[index];
         if (candidate->source_section == source_section &&
             candidate->offset == offset && !candidate->is_relative &&
-            candidate->is_64bit == is_64bit) {
+            !candidate->is_tls && candidate->is_64bit == is_64bit) {
             if (relocation) return false;
             relocation = candidate;
         }
@@ -199,6 +214,37 @@ bool module_resolve_image_relocation(const Module* mod,
         return false;
     }
     *value = base + symbol->offset + relocation->target;
+    return true;
+}
+
+bool module_resolve_tls_relocation(const Module* mod,
+                                   ModuleSymbolSection source_section,
+                                   uint32_t offset, uint32_t* value) {
+    const ModuleReloc* relocation = NULL;
+    const ModuleSymbol* symbol = NULL;
+    uint64_t result;
+    if (!mod || !value) return false;
+    for (int index = 0; index < mod->reloc_count; ++index) {
+        const ModuleReloc* candidate = &mod->relocs_arr[index];
+        if (candidate->source_section == source_section &&
+            candidate->offset == offset && candidate->is_tls) {
+            if (relocation) return false;
+            relocation = candidate;
+        }
+    }
+    if (!relocation || !relocation->symbol_name) return false;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        if (strcmp(mod->symbols[index].name,
+                   relocation->symbol_name) == 0) {
+            symbol = &mod->symbols[index];
+            break;
+        }
+    }
+    if (!symbol || !symbol->is_defined ||
+        symbol->section != MODULE_SYMBOL_TLS) return false;
+    result = (uint64_t)symbol->offset + relocation->target;
+    if (result >= mod->tls.size || result > UINT32_MAX) return false;
+    *value = (uint32_t)result;
     return true;
 }
 
@@ -616,6 +662,99 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
     return false;
 }
 
+static void codegen_ensure_tls_capacity(Module* mod, size_t needed) {
+    if (needed <= mod->tls.capacity) return;
+    while (mod->tls.capacity < needed) mod->tls.capacity *= 2u;
+    mod->tls.data = rcc_realloc(mod->tls.data, mod->tls.capacity);
+}
+
+static bool codegen_emit_tls_initializer(Module* mod, Type* type,
+                                         Expr* initializer,
+                                         uint32_t offset) {
+    Expr* string;
+    if (!mod || !type || !initializer || offset > mod->tls.size ||
+        (uint64_t)type->size > mod->tls.size - offset) return false;
+    string = codegen_character_array_string(type, initializer);
+    if (string) {
+        size_t text_size = strlen(string->str_val) + 1u;
+        size_t copy_size = (size_t)type->size < text_size
+            ? (size_t)type->size : text_size;
+        memcpy(mod->tls.data + offset, string->str_val, copy_size);
+        return true;
+    }
+    if (initializer->kind == EXPR_COMPOUND) {
+        if (type->kind == TYPE_ARRAY) {
+            int64_t cursor = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                uint64_t item_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) return false;
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    cursor = item->designator_index;
+                }
+                if (cursor < 0 || cursor >= type->array_len || !type->base) {
+                    return false;
+                }
+                item_offset = (uint64_t)offset +
+                              (uint64_t)cursor * (uint64_t)type->base->size;
+                if (item_offset > UINT32_MAX ||
+                    !codegen_emit_tls_initializer(
+                        mod, type->base, item->expr,
+                        (uint32_t)item_offset)) return false;
+                ++cursor;
+            }
+            return true;
+        }
+        if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            TypeField* cursor = type->fields;
+            int initialized = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                TypeField* field = cursor;
+                uint64_t field_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) return false;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    field = codegen_initializer_field(
+                        type, item->designator_field);
+                }
+                if (!field || (type->kind == TYPE_UNION && initialized != 0 &&
+                               item->designator_kind ==
+                                   INIT_DESIGNATOR_NONE)) return false;
+                field_offset = (uint64_t)offset + (uint64_t)field->offset;
+                if (field_offset > UINT32_MAX ||
+                    !codegen_emit_tls_initializer(
+                        mod, field->type, item->expr,
+                        (uint32_t)field_offset)) return false;
+                cursor = field->next;
+                ++initialized;
+            }
+            return true;
+        }
+        if (!initializer->compound_init || initializer->compound_init->next ||
+            initializer->compound_init->designator_kind !=
+                INIT_DESIGNATOR_NONE) return false;
+        return codegen_emit_tls_initializer(
+            mod, type, initializer->compound_init->expr, offset);
+    }
+    if (type->kind == TYPE_PTR) {
+        int64_t constant;
+        return codegen_static_integer(initializer, &constant) && constant == 0;
+    }
+    if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+        int64_t constant;
+        uint32_t width = (uint32_t)type->size;
+        if (!codegen_static_integer(initializer, &constant)) return false;
+        if (type->kind == TYPE_BOOL) constant = constant != 0;
+        if (width > 8u) width = 8u;
+        for (uint32_t byte = 0u; byte < width; ++byte) {
+            mod->tls.data[offset + byte] =
+                (uint8_t)((uint64_t)constant >> (byte * 8u));
+        }
+        return true;
+    }
+    return false;
+}
+
 void codegen_emit_global_data(Module* mod, AST* ast) {
     for (DeclList* item = ast->decls; item; item = item->next) {
         Decl* declaration = item->decl;
@@ -632,6 +771,42 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         alignment = declaration->type->align > 0
             ? (uint32_t)declaration->type->align : 1u;
         if (alignment > 16u) alignment = 16u;
+        if (declaration->var_is_thread_local) {
+            uint64_t aligned;
+            if (declaration->storage == STORAGE_EXTERN &&
+                !declaration->var_init) {
+                module_add_symbol(mod, declaration->name, 0u, false,
+                                  MODULE_SYMBOL_TLS, true);
+                continue;
+            }
+            aligned = ((uint64_t)mod->tls.size + alignment - 1u) &
+                      ~((uint64_t)alignment - 1u);
+            if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+                rcc_error(declaration->loc, "TLS template exceeds compiler limits");
+                continue;
+            }
+            offset = (uint32_t)aligned;
+            codegen_ensure_tls_capacity(mod, (size_t)aligned + size);
+            if (mod->tls.size < aligned) {
+                memset(mod->tls.data + mod->tls.size, 0,
+                       (size_t)aligned - mod->tls.size);
+            }
+            memset(mod->tls.data + offset, 0, size);
+            mod->tls.size = (size_t)aligned + size;
+            if (alignment > mod->tls_align) mod->tls_align = alignment;
+            declaration->var_offset = offset;
+            if (declaration->var_init &&
+                !codegen_emit_tls_initializer(
+                    mod, declaration->type, declaration->var_init, offset)) {
+                rcc_error(declaration->loc,
+                          "unsupported thread-local initializer for '%s'",
+                          declaration->name);
+            }
+            module_add_symbol(mod, declaration->name, offset, true,
+                              MODULE_SYMBOL_TLS,
+                              declaration->storage != STORAGE_STATIC);
+            continue;
+        }
         if (declaration->storage == STORAGE_EXTERN &&
             !declaration->var_init) {
             module_add_symbol(mod, declaration->name, 0u, false,
@@ -1162,6 +1337,20 @@ static void gen_symbol_address(Module* mod, const char* symbol,
               RIN_RELOC_ABS32);
 }
 
+static void gen_tls_address(Module* mod, const char* symbol) {
+    /* Variant II x86 TLS: GS:0 contains the thread pointer. */
+    emit_byte(mod, 0x65);
+    emit_byte(mod, 0xA1);
+    emit_dword(mod, 0u);
+    emit_byte(mod, 0x05);  /* ADD EAX, imm32 */
+    {
+        uint32_t offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        module_add_tls_relocation(mod, MODULE_SYMBOL_CODE, offset, symbol);
+        add_reloc(mod, MODULE_SYMBOL_CODE, offset, RIN_RELOC_TLSOFF32S);
+    }
+}
+
 /* Generate lvalue address in EAX */
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -1172,7 +1361,9 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 emit_mov_reg_imm(mod, EAX, 0);
                 break;
             }
-            if (decl->kind == DECL_FUNC || decl->var_is_global) {
+            if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
+                gen_tls_address(mod, decl->name);
+            } else if (decl->kind == DECL_FUNC || decl->var_is_global) {
                 gen_symbol_address(mod, decl->name, 0u);
             } else {
                 /* Local: EBP + offset */
@@ -1246,6 +1437,9 @@ static void gen_expr(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen_symbol_address(mod, decl->name, 0u);
+            } else if (decl->var_is_thread_local) {
+                gen_lvalue(mod, expr);
+                emit_load_typed32(mod, EAX, EAX, 0, decl->type);
             } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
                 gen_lvalue(mod, expr);
             } else if (decl->var_is_global) {

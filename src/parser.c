@@ -808,6 +808,7 @@ static bool is_type_start(void) {
         case TOK_VOLATILE:
         case TOK_STATIC:
         case TOK_EXTERN:
+        case TOK_THREAD_LOCAL:
         case TOK__BOOL:
         case TOK___ATTRIBUTE__:
         case TOK___INLINE__:
@@ -1433,6 +1434,7 @@ static Stmt* parse_statement(void) {
 Stmt* parse_declaration(void) {
     bool is_typedef = false;
     bool is_inline = false;
+    bool is_thread_local = false;
     const char* declaration_name = NULL;
     DeclList* parameters = NULL;
     Type* base_type;
@@ -1478,6 +1480,7 @@ Stmt* parse_declaration(void) {
         else if (match(TOK_EXTERN)) storage = STORAGE_EXTERN;
         else if (match(TOK_REGISTER)) storage = STORAGE_REGISTER;
         else if (match(TOK_AUTO)) storage = STORAGE_AUTO;
+        else if (match(TOK_THREAD_LOCAL)) is_thread_local = true;
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
     }
@@ -1502,6 +1505,9 @@ Stmt* parse_declaration(void) {
     }
 
     if (is_typedef) {
+        if (is_thread_local) {
+            rcc_error(loc, "thread-local storage is not valid on a typedef");
+        }
         expect(TOK_SEMICOLON, ";");
         parser_define_type(declaration_name, type);
         return stmt_decl(decl_typedef(declaration_name, type, loc), loc);
@@ -1510,6 +1516,9 @@ Stmt* parse_declaration(void) {
     /* Function declaration? */
     if (type->kind == TYPE_FUNC) {
         Stmt* body = NULL;
+        if (is_thread_local) {
+            rcc_error(loc, "thread-local storage is not valid on a function");
+        }
         if (match(TOK_LBRACE)) {
             body = parse_block();
         } else {
@@ -1532,6 +1541,7 @@ Stmt* parse_declaration(void) {
 
     declaration = decl_var(declaration_name, type, init, loc);
     declaration->storage = storage;
+    declaration->var_is_thread_local = is_thread_local;
     return stmt_decl(declaration, loc);
 }
 

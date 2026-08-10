@@ -757,6 +757,16 @@ static void sema_decl(Decl* decl) {
     switch (decl->kind) {
         case DECL_VAR: {
             bool is_global = g_symtab->current == g_symtab->global;
+            if (decl->var_is_thread_local && !is_global) {
+                rcc_error(decl->loc,
+                          "block-scope thread-local variables are not supported yet");
+            }
+            if (decl->var_is_thread_local &&
+                (decl->storage == STORAGE_AUTO ||
+                 decl->storage == STORAGE_REGISTER)) {
+                rcc_error(decl->loc,
+                          "thread-local variable cannot use auto or register storage");
+            }
             sema_infer_initializer_type(decl->type, decl->var_init);
             if (decl->type && decl->type->kind == TYPE_ARRAY &&
                        decl->type->array_len < 0 &&
@@ -771,6 +781,12 @@ static void sema_decl(Decl* decl) {
                     !type_is_compatible(sym->type, decl->type)) {
                     rcc_error(decl->loc,
                               "conflicting declaration of variable '%s'",
+                              decl->name);
+                } else if (sym->decl &&
+                           sym->decl->var_is_thread_local !=
+                               decl->var_is_thread_local) {
+                    rcc_error(decl->loc,
+                              "thread-local qualifier differs for variable '%s'",
                               decl->name);
                 } else if (decl->var_init && sym->is_defined) {
                     rcc_error(decl->loc, "redefinition of variable '%s'",

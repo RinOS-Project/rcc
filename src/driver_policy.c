@@ -390,6 +390,11 @@ static bool driver_validate_decl(Decl* declaration)
 
     switch (declaration->kind) {
         case DECL_VAR:
+            if (declaration->var_is_thread_local) {
+                rcc_error(declaration->loc,
+                          "driver mode forbids thread-local storage");
+                return false;
+            }
             return driver_validate_expr(declaration->var_init);
         case DECL_FUNC:
             return driver_validate_decl_list(declaration->func_params) &&

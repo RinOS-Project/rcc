@@ -50,8 +50,11 @@ static void write_special_object(const char* path, uint16_t arch)
     signed_data->align = 4u;
 
     objfile_add_symbol(object, "main", SYM_GLOBAL, BIND_CODE, 0, 0u, 16u);
+    objfile_add_symbol(object, "tls_value", SYM_GLOBAL, BIND_TLS, 1, 0u,
+                       pointer_size);
     objfile_add_symbol(object, "zero_data", SYM_GLOBAL, BIND_BSS, 5, 0u,
                        pointer_size * 4u);
+    objfile_add_reloc(object, 0, 4u, "tls_value", RELOC_TLSOFF32S, 0);
     objfile_add_reloc(object, 3, 0u, "main", pointer_reloc, 0);
     objfile_add_reloc(object, 4, 0u, "main", pointer_reloc, 0);
     objfile_add_reloc(object, 6, 0u, "main", RELOC_ABS32S, 0);
@@ -129,15 +132,19 @@ static void verify_image(const char* path, uint16_t expected_arch)
             break;
         case RIN_IMAGE_SECTION_RELOCATIONS:
         {
-            RinRelocationV3 entries[3];
+            RinRelocationV3 entries[4];
             unsigned signed_count = 0u;
             unsigned pointer_count = 0u;
-            assert(section->file_size == 3u * sizeof(RinRelocationV3));
+            unsigned tls_count = 0u;
+            assert(section->file_size == 4u * sizeof(RinRelocationV3));
             assert(fseek(file, (long)section->file_offset, SEEK_SET) == 0);
             assert(fread(entries, sizeof(entries), 1, file) == 1);
-            for (size_t entry = 0u; entry < 3u; ++entry) {
+            for (size_t entry = 0u; entry < 4u; ++entry) {
                 if (entries[entry].type == RIN_IMAGE_RELOCATION_ABS32S) {
                     ++signed_count;
+                } else if (entries[entry].type ==
+                           RIN_IMAGE_RELOCATION_TLSOFF32S) {
+                    ++tls_count;
                 } else if (entries[entry].type ==
                            (expected_arch == RIN_ARCH_X86
                                 ? RIN_IMAGE_RELOCATION_ABS32U
@@ -145,7 +152,8 @@ static void verify_image(const char* path, uint16_t expected_arch)
                     ++pointer_count;
                 }
             }
-            assert(signed_count == 1u && pointer_count == 2u);
+            assert(signed_count == 1u && pointer_count == 2u &&
+                   tls_count == 1u);
             seen |= 1u << 5;
             break;
         }

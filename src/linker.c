@@ -928,6 +928,52 @@ bool linker_apply_relocations(Linker* ld) {
 
         uint8_t* patch = sect->data + (size_t)r->offset;
         uint64_t target;
+        if (r->type == RELOC_TLSOFF32S) {
+            LinkedSection* tls = NULL;
+            uint64_t local_offset;
+            idx = 0;
+            for (LinkedSection* candidate = ld->sections; candidate;
+                 candidate = candidate->next, idx++) {
+                if (idx == sym->section) {
+                    tls = candidate;
+                    break;
+                }
+            }
+            if (sym->binding != BIND_TLS || !tls || tls->type != SECT_TLS ||
+                sym->value < tls->vaddr) {
+                fprintf(stderr,
+                        "rld: TLSOFF32S requires a TLS symbol: '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            local_offset = sym->value - tls->vaddr;
+            if (r->addend >= 0) {
+                if ((uint64_t)r->addend > UINT64_MAX - local_offset) {
+                    fprintf(stderr, "rld: TLS offset overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                local_offset += (uint64_t)r->addend;
+            } else {
+                uint64_t magnitude = UINT64_C(0) - (uint64_t)r->addend;
+                if (magnitude > local_offset) {
+                    fprintf(stderr, "rld: TLS offset underflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                local_offset -= magnitude;
+            }
+            if (local_offset >= tls->memory_size || local_offset > UINT32_MAX) {
+                fprintf(stderr, "rld: TLS offset outside template for '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            {
+                uint32_t value = (uint32_t)local_offset;
+                memcpy(patch, &value, sizeof(value));
+            }
+            continue;
+        }
         if (r->addend >= 0) {
             if ((uint64_t)r->addend > UINT64_MAX - sym->value) {
                 fprintf(stderr, "rld: relocation target overflow for '%s'\n",
@@ -1166,7 +1212,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         if (pending->type == RELOC_ABS32 ||
             pending->type == RELOC_ABS32U ||
             pending->type == RELOC_ABS32S ||
-            pending->type == RELOC_ABS64) {
+            pending->type == RELOC_ABS64 ||
+            pending->type == RELOC_TLSOFF32S) {
             ++absolute_relocation_count;
         }
     }
@@ -1186,6 +1233,11 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     if (export_count) string_capacity += sizeof(".exports");
     if (code_count != 1u || load_section_count == 0u || string_capacity > UINT32_MAX) {
         fprintf(stderr, "rld: canonical RIN v3 requires exactly one non-empty code section\n");
+        return false;
+    }
+    if (library && uses_tls) {
+        fprintf(stderr,
+                "rld: TLS-bearing .rll output is disabled until graph TLS layout is available\n");
         return false;
     }
     section_count = load_section_count + (absolute_relocation_count ? 1u : 0u) +
@@ -1274,7 +1326,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             if (pending->type != RELOC_ABS32 &&
                 pending->type != RELOC_ABS32U &&
                 pending->type != RELOC_ABS32S &&
-                pending->type != RELOC_ABS64) continue;
+                pending->type != RELOC_ABS64 &&
+                pending->type != RELOC_TLSOFF32S) continue;
             target_section = ld->sections;
             while (target_section && index++ < pending->section) target_section = target_section->next;
             width = pending->type == RELOC_ABS64 ? 8u : 4u;
@@ -1291,8 +1344,10 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             }
             relocations[relocation_index].virtual_address =
                 target_section->vaddr - ld->base_addr + pending->offset;
-            relocations[relocation_index].type = width == 8u
-                ? RIN_IMAGE_RELOCATION_ABS64
+            relocations[relocation_index].type =
+                pending->type == RELOC_TLSOFF32S
+                ? RIN_IMAGE_RELOCATION_TLSOFF32S
+                : width == 8u ? RIN_IMAGE_RELOCATION_ABS64
                 : pending->type == RELOC_ABS32U
                     ? RIN_IMAGE_RELOCATION_ABS32U
                     : RIN_IMAGE_RELOCATION_ABS32S;

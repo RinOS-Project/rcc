@@ -34,7 +34,7 @@ static bool ro_range(uint64_t offset, uint64_t size, uint64_t limit) {
 
 static bool ro_relocation_type_valid(uint16_t type) {
     return type <= RELOC_PLT32 || type == RELOC_ABS32U ||
-           type == RELOC_ABS32S;
+           type == RELOC_ABS32S || type == RELOC_TLSOFF32S;
 }
 
 static bool ro_section_policy(uint16_t arch, const RoSection* section) {
@@ -646,7 +646,7 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
         if (rs.name >= hdr.strtab_size ||
             !memchr(obj->strtab + rs.name, '\0',
                     (size_t)hdr.strtab_size - rs.name) ||
-            rs.type > SYM_WEAK || rs.binding > BIND_ABS ||
+            rs.type > SYM_WEAK || rs.binding > BIND_TLS ||
             rs.section > hdr.section_count || rs.flags != 0u ||
             rs.reserved != 0u) {
             goto read_failed;
@@ -658,6 +658,8 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
         } else {
             RoSection* owner = &sections[rs.section - 1u];
             if (rs.type == SYM_UNDEF || rs.binding == BIND_ABS ||
+                ((rs.binding == BIND_TLS) !=
+                 (owner->type == SECT_TLS)) ||
                 rs.value > owner->memory_size ||
                 rs.size > owner->memory_size - rs.value) {
                 goto read_failed;
@@ -770,6 +772,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     int rodata_section = -1;
     int data_section = -1;
     int bss_section = -1;
+    int tls_section = -1;
 
     /* Create .text section */
     ObjSection* text = objfile_add_section(obj, ".text", SECT_CODE,
@@ -798,6 +801,14 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         bss_section = next_section++;
     }
 
+    if (mod->tls.size > 0u) {
+        ObjSection* tls = objfile_add_section(
+            obj, ".tls", SECT_TLS, SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+        section_add_data(tls, mod->tls.data, mod->tls.size);
+        tls->align = mod->tls_align;
+        tls_section = next_section++;
+    }
+
     /* Add symbols from module */
     for (int i = 0; i < mod->symbol_count; i++) {
         ModuleSymbol* ms = &mod->symbols[i];
@@ -822,12 +833,14 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
             : SYM_UNDEF;
         SymbolBinding binding = ms->section == MODULE_SYMBOL_CODE
             ? BIND_CODE : ms->section == MODULE_SYMBOL_BSS
-                ? BIND_BSS : BIND_DATA;
+                ? BIND_BSS : ms->section == MODULE_SYMBOL_TLS
+                    ? BIND_TLS : BIND_DATA;
         int section = -1;
         if (ms->is_defined) {
             section = ms->section == MODULE_SYMBOL_CODE ? 0
                 : ms->section == MODULE_SYMBOL_RODATA ? rodata_section
                 : ms->section == MODULE_SYMBOL_BSS ? bss_section
+                : ms->section == MODULE_SYMBOL_TLS ? tls_section
                 : data_section;
             if (section < 0) {
                 rcc_error((SourceLoc){filename, 0, 0},
@@ -852,16 +865,20 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         int source_section = mr->source_section == MODULE_SYMBOL_CODE ? 0
             : mr->source_section == MODULE_SYMBOL_RODATA ? rodata_section
             : mr->source_section == MODULE_SYMBOL_DATA ? data_section
+            : mr->source_section == MODULE_SYMBOL_TLS ? tls_section
             : -1;
         uint64_t source_size = mr->source_section == MODULE_SYMBOL_CODE
             ? mod->code.size
             : mr->source_section == MODULE_SYMBOL_RODATA
                 ? mod->rodata.size
                 : mr->source_section == MODULE_SYMBOL_DATA
-                    ? mod->data.size : 0u;
+                    ? mod->data.size
+                    : mr->source_section == MODULE_SYMBOL_TLS
+                        ? mod->tls.size : 0u;
         uint64_t relocation_width = mr->is_relative || !mr->is_64bit
             ? 4u : 8u;
-        RelocType type = mr->is_relative ? RELOC_REL32 :
+        RelocType type = mr->is_tls ? RELOC_TLSOFF32S :
+            mr->is_relative ? RELOC_REL32 :
             (mr->is_64bit ? RELOC_ABS64 : RELOC_ABS32U);
 
         if (source_section < 0 || mr->offset > source_size ||

@@ -747,6 +747,23 @@ static void gen64_symbol_address(Module* mod, const char* symbol,
               RIN_RELOC_ABS64);
 }
 
+static void gen64_tls_address(Module* mod, const char* symbol) {
+    /* Variant II x86_64 TLS: FS:0 contains the thread pointer. */
+    static const uint8_t load_thread_pointer[] = {
+        0x64, 0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00
+    };
+    emit_bytes(mod, load_thread_pointer, sizeof(load_thread_pointer));
+    emit_byte(mod, 0x48);
+    emit_byte(mod, 0x81);
+    emit_byte(mod, 0xc0);  /* ADD RAX, imm32 (sign extended) */
+    {
+        uint32_t offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        module_add_tls_relocation(mod, MODULE_SYMBOL_CODE, offset, symbol);
+        add_reloc(mod, MODULE_SYMBOL_CODE, offset, RIN_RELOC_TLSOFF32S);
+    }
+}
+
 /* Generate lvalue address in RAX */
 static void gen64_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -756,7 +773,9 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 emit64_mov_reg_imm32(mod, RAX, 0);
                 break;
             }
-            if (decl->kind == DECL_FUNC || decl->var_is_global) {
+            if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
+                gen64_tls_address(mod, decl->name);
+            } else if (decl->kind == DECL_FUNC || decl->var_is_global) {
                 gen64_symbol_address(mod, decl->name, 0u);
             } else {
                 emit64_lea(mod, RAX, RBP, decl->var_offset);
@@ -825,6 +844,9 @@ static void gen64_expr(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen64_symbol_address(mod, decl->name, 0u);
+            } else if (decl->var_is_thread_local) {
+                gen64_lvalue(mod, expr);
+                emit64_load_typed(mod, RAX, RAX, 0, decl->type);
             } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
                 gen64_lvalue(mod, expr);
             } else if (decl->var_is_global) {

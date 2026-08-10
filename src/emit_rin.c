@@ -58,7 +58,7 @@ static uint32_t append_name(char* strings, uint32_t* size, const char* name) {
 
 bool rcc_emit(Module* mod, const char* outfile) {
     RinHeaderV3 header;
-    RinSectionV3 sections[5];
+    RinSectionV3 sections[7];
     RinRelocationV3* relocations = NULL;
     uint32_t relocation_count = 0u;
     uint32_t section_count = 1u;
@@ -68,6 +68,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
     uint32_t rodata_name = 0u;
     uint32_t data_name = 0u;
     uint32_t bss_name = 0u;
+    uint32_t tls_name = 0u;
     uint32_t reloc_name = 0u;
     char strings[40] = {0};
     uint64_t section_table_offset = sizeof(RinHeaderV3);
@@ -76,21 +77,26 @@ bool rcc_emit(Module* mod, const char* outfile) {
     uint64_t code_file_offset;
     uint64_t rodata_file_offset = 0u;
     uint64_t data_file_offset = 0u;
+    uint64_t tls_file_offset = 0u;
     uint64_t relocation_file_offset = 0u;
     uint64_t unsigned_size;
     uint64_t payload_file_end;
     uint64_t mapped_end;
     uint64_t rodata_rva = 0u;
     uint64_t data_rva = 0u;
+    uint64_t tls_rva = 0u;
     uint64_t bss_rva = 0u;
     uint64_t image_size;
+    uint64_t data_payload_size;
+    uint64_t tls_data_offset = 0u;
     uint8_t* output;
     FILE* file;
     Reloc* relocation;
 
     if (!mod || !outfile || mod->code.size == 0u ||
         mod->code.size > UINT32_MAX || mod->rodata.size > UINT32_MAX ||
-        mod->data.size > UINT32_MAX || mod->bss.size > UINT32_MAX) {
+        mod->data.size > UINT32_MAX || mod->bss.size > UINT32_MAX ||
+        mod->tls.size > UINT32_MAX) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for RIN v3 output");
         return false;
     }
@@ -98,7 +104,8 @@ bool rcc_emit(Module* mod, const char* outfile) {
         ++relocation_count;
     }
     if (mod->rodata.size > 0u) ++section_count;
-    if (mod->data.size > 0u) ++section_count;
+    if (mod->data.size > 0u || mod->tls.size > 0u) ++section_count;
+    if (mod->tls.size > 0u) ++section_count;
     if (mod->bss.size > 0u) ++section_count;
     if (relocation_count > 0u) ++section_count;
 
@@ -106,7 +113,10 @@ bool rcc_emit(Module* mod, const char* outfile) {
     if (mod->rodata.size > 0u) {
         rodata_name = append_name(strings, &strings_size, ".rodata");
     }
-    if (mod->data.size > 0u) data_name = append_name(strings, &strings_size, ".data");
+    if (mod->data.size > 0u || mod->tls.size > 0u) {
+        data_name = append_name(strings, &strings_size, ".data");
+    }
+    if (mod->tls.size > 0u) tls_name = append_name(strings, &strings_size, ".tls");
     if (mod->bss.size > 0u) bss_name = append_name(strings, &strings_size, ".bss");
     if (relocation_count > 0u) reloc_name = append_name(strings, &strings_size, ".reloc");
 
@@ -116,17 +126,27 @@ bool rcc_emit(Module* mod, const char* outfile) {
     code_file_offset = align_up_u64(string_table_offset + strings_size, 16u);
     payload_file_end = code_file_offset + mod->code.size;
     mapped_end = mod->code.size;
+    data_payload_size = mod->data.size;
+    if (mod->tls.size > 0u) {
+        uint64_t tls_alignment = mod->tls_align < 16u ? 16u : mod->tls_align;
+        tls_data_offset = align_up_u64(data_payload_size, tls_alignment);
+        data_payload_size = tls_data_offset + mod->tls.size;
+    }
     if (mod->rodata.size > 0u) {
         rodata_file_offset = align_up_u64(payload_file_end, 16u);
         payload_file_end = rodata_file_offset + mod->rodata.size;
         rodata_rva = align_up_u64(mapped_end, 4096u);
         mapped_end = rodata_rva + mod->rodata.size;
     }
-    if (mod->data.size > 0u) {
+    if (data_payload_size > 0u) {
         data_file_offset = align_up_u64(payload_file_end, 16u);
-        payload_file_end = data_file_offset + mod->data.size;
+        payload_file_end = data_file_offset + data_payload_size;
         data_rva = align_up_u64(mapped_end, 4096u);
-        mapped_end = data_rva + mod->data.size;
+        mapped_end = data_rva + data_payload_size;
+        if (mod->tls.size > 0u) {
+            tls_file_offset = data_file_offset + tls_data_offset;
+            tls_rva = data_rva + tls_data_offset;
+        }
     }
     if (mod->bss.size > 0u) {
         bss_rva = align_up_u64(mapped_end, 4096u);
@@ -156,7 +176,8 @@ bool rcc_emit(Module* mod, const char* outfile) {
     header.abi_major = RIN_IMAGE_ABI_MAJOR;
     header.abi_minor = RIN_IMAGE_ABI_MINOR;
     header.flags = RIN_IMAGE_EXECUTABLE | RIN_IMAGE_GUI |
-                   RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR;
+                   RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR |
+                   (mod->tls.size > 0u ? RIN_IMAGE_USES_TLS : 0u);
     header.section_count = section_count;
     header.entry_rva = mod->entry_point;
     header.image_size = image_size;
@@ -184,16 +205,27 @@ bool rcc_emit(Module* mod, const char* outfile) {
         rodata_section->memory_size = mod->rodata.size;
         rodata_section->name_offset = rodata_name;
     }
-    if (mod->data.size > 0u) {
+    if (data_payload_size > 0u) {
         RinSectionV3* data_section = &sections[next_section++];
         data_section->type = RIN_IMAGE_SECTION_DATA;
         data_section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
         data_section->alignment = 16u;
         data_section->file_offset = data_file_offset;
-        data_section->file_size = mod->data.size;
+        data_section->file_size = data_payload_size;
         data_section->virtual_address = data_rva;
-        data_section->memory_size = mod->data.size;
+        data_section->memory_size = data_payload_size;
         data_section->name_offset = data_name;
+    }
+    if (mod->tls.size > 0u) {
+        RinSectionV3* tls_section = &sections[next_section++];
+        tls_section->type = RIN_IMAGE_SECTION_TLS;
+        tls_section->flags = RIN_IMAGE_SECTION_READ;
+        tls_section->alignment = mod->tls_align < 16u ? 16u : mod->tls_align;
+        tls_section->file_offset = tls_file_offset;
+        tls_section->file_size = mod->tls.size;
+        tls_section->virtual_address = tls_rva;
+        tls_section->memory_size = mod->tls.size;
+        tls_section->name_offset = tls_name;
     }
     if (mod->bss.size > 0u) {
         RinSectionV3* bss_section = &sections[next_section++];
@@ -234,8 +266,11 @@ bool rcc_emit(Module* mod, const char* outfile) {
             (void)source_file_offset;
             relocations[relocation_index].virtual_address =
                 source_rva + relocation->offset;
-            relocations[relocation_index].type = width == 8u
-                ? RIN_IMAGE_RELOCATION_ABS64 : RIN_IMAGE_RELOCATION_ABS32U;
+            relocations[relocation_index].type =
+                relocation->type == RIN_RELOC_TLSOFF32S
+                ? RIN_IMAGE_RELOCATION_TLSOFF32S
+                : width == 8u ? RIN_IMAGE_RELOCATION_ABS64
+                              : RIN_IMAGE_RELOCATION_ABS32U;
             ++relocation_index;
         }
         qsort(relocations, relocation_count, sizeof(RinRelocationV3), compare_relocation);
@@ -261,8 +296,14 @@ bool rcc_emit(Module* mod, const char* outfile) {
         memcpy(output + rodata_file_offset, mod->rodata.data,
                mod->rodata.size);
     }
+    if (data_payload_size > 0u) {
+        memset(output + data_file_offset, 0, (size_t)data_payload_size);
+    }
     if (mod->data.size > 0u) {
         memcpy(output + data_file_offset, mod->data.data, mod->data.size);
+    }
+    if (mod->tls.size > 0u) {
+        memcpy(output + tls_file_offset, mod->tls.data, mod->tls.size);
     }
     for (relocation = mod->relocs; relocation; relocation = relocation->next) {
         uint64_t resolved;
@@ -274,13 +315,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
                                rodata_rva, data_rva, code_file_offset,
                                rodata_file_offset, data_file_offset,
                                &source_rva, &source_file_offset,
-                               &source_size) ||
-            !module_resolve_image_relocation(mod,
-                                             relocation->source_section,
-                                             relocation->offset,
-                                             is_64bit, rodata_rva, data_rva,
-                                             bss_rva,
-                                             &resolved)) {
+                               &source_size)) {
             rcc_error((SourceLoc){outfile, 0, 0},
                       "unresolved direct-image relocation at section offset %u",
                       relocation->offset);
@@ -290,7 +325,30 @@ bool rcc_emit(Module* mod, const char* outfile) {
         }
         (void)source_rva;
         (void)source_size;
-        if (relocation->type == RIN_RELOC_ABS64) {
+        if (relocation->type == RIN_RELOC_TLSOFF32S) {
+            uint32_t value;
+            if (!module_resolve_tls_relocation(
+                    mod, relocation->source_section, relocation->offset,
+                    &value)) {
+                rcc_error((SourceLoc){outfile, 0, 0},
+                          "unresolved TLS relocation at section offset %u",
+                          relocation->offset);
+                rcc_free(relocations);
+                rcc_free(output);
+                return false;
+            }
+            memcpy(output + source_file_offset + relocation->offset,
+                   &value, sizeof(value));
+        } else if (!module_resolve_image_relocation(
+                       mod, relocation->source_section, relocation->offset,
+                       is_64bit, rodata_rva, data_rva, bss_rva, &resolved)) {
+            rcc_error((SourceLoc){outfile, 0, 0},
+                      "unresolved direct-image relocation at section offset %u",
+                      relocation->offset);
+            rcc_free(relocations);
+            rcc_free(output);
+            return false;
+        } else if (relocation->type == RIN_RELOC_ABS64) {
             memcpy(output + source_file_offset + relocation->offset,
                    &resolved, sizeof(resolved));
         } else {

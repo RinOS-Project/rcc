@@ -28,6 +28,7 @@ typedef enum {
     BIND_DATA = 1,      /* Symbol is in data section */
     BIND_BSS = 2,       /* Symbol is in BSS section */
     BIND_ABS = 3,       /* Absolute value (not relocated) */
+    BIND_TLS = 4,       /* Symbol is in the TLS template */
 } SymbolBinding;
 
 /* Relocation types */
@@ -40,6 +41,7 @@ typedef enum {
     RELOC_PLT32 = 5,    /* 32-bit PLT offset (for shared libs) */
     RELOC_ABS32U = 6,   /* Unsigned 32-bit absolute address */
     RELOC_ABS32S = 7,   /* Signed 32-bit absolute address */
+    RELOC_TLSOFF32S = 8,/* Signed local-exec offset from thread pointer */
 } RelocType;
 
 /* Section types */

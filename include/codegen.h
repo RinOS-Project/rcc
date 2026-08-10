@@ -31,12 +31,14 @@ typedef struct {
 /* .rin relocation entry types (must match kernel/make_rin.py) */
 #define RIN_RELOC_ABS32 1
 #define RIN_RELOC_ABS64 2
+#define RIN_RELOC_TLSOFF32S 5
 
 typedef enum ModuleSymbolSection {
     MODULE_SYMBOL_CODE,
     MODULE_SYMBOL_RODATA,
     MODULE_SYMBOL_DATA,
     MODULE_SYMBOL_BSS,
+    MODULE_SYMBOL_TLS,
 } ModuleSymbolSection;
 
 /* Relocation entry */
@@ -72,6 +74,7 @@ typedef struct ModuleReloc {
     uint32_t target;
     bool is_relative;
     bool is_64bit;
+    bool is_tls;
     const char* symbol_name;
 } ModuleReloc;
 
@@ -81,6 +84,8 @@ typedef struct Module {
     DataSection rodata;
     DataSection data;
     BssSection bss;
+    DataSection tls;
+    uint32_t tls_align;
     Reloc* relocs;
     StringLit* strings;
     uint32_t entry_point;
@@ -129,12 +134,18 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                           uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,
                           const char* symbol_name);
+void module_add_tls_relocation(Module* mod,
+                               ModuleSymbolSection source_section,
+                               uint32_t offset, const char* symbol_name);
 bool module_resolve_image_relocation(const Module* mod,
                                      ModuleSymbolSection source_section,
                                      uint32_t offset,
                                      bool is_64bit, uint64_t rodata_rva,
                                      uint64_t data_rva, uint64_t bss_rva,
                                      uint64_t* value);
+bool module_resolve_tls_relocation(const Module* mod,
+                                   ModuleSymbolSection source_section,
+                                   uint32_t offset, uint32_t* value);
 void module_ensure_rodata_base_symbol(Module* mod);
 void codegen_emit_global_data(Module* mod, AST* ast);
 int codegen_required_local_bytes(Stmt* statement);

@@ -503,6 +503,7 @@ struct Decl {
             Expr* var_init;
             int var_offset;         /* Stack offset (set during codegen) */
             bool var_is_global;
+            bool var_is_thread_local;
         };
 
         /* DECL_FUNC */
