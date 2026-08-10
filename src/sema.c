@@ -15,6 +15,7 @@ static Type* current_func_ret = NULL;
 static void sema_stmt(Stmt* stmt);
 static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
+static bool sema_atomic_builtin_call(Expr* expr);
 
 /* ═══════════════════════════════════════
  * Type Checking Helpers
@@ -369,7 +370,9 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_CALL: {
-            Type* ft = sema_expr(expr->call_func);
+            Type* ft;
+            if (sema_atomic_builtin_call(expr)) break;
+            ft = sema_expr(expr->call_func);
             if (!ft || ft->kind != TYPE_FUNC) {
                 /* Could be pointer to function */
                 if (ft && ft->kind == TYPE_PTR && ft->base && ft->base->kind == TYPE_FUNC) {
@@ -595,6 +598,52 @@ static Expr* initializer_character_string(Type* type, Expr* initializer) {
         return initializer->compound_init->expr;
     }
     return NULL;
+}
+
+static bool sema_atomic_builtin_call(Expr* expr) {
+    Expr* function = expr->call_func;
+    ExprList* argument;
+    int argument_count = 0;
+    int expected_count;
+    Type* pointer_type;
+
+    if (!function || function->kind != EXPR_IDENT) return false;
+    if (strcmp(function->ident_name, "__atomic_load_n") == 0) {
+        expected_count = 2;
+    } else if (strcmp(function->ident_name, "__atomic_store_n") == 0 ||
+               strcmp(function->ident_name,
+                      "__sync_bool_compare_and_swap") == 0) {
+        expected_count = 3;
+    } else {
+        return false;
+    }
+
+    for (argument = expr->call_args; argument; argument = argument->next) {
+        sema_expr(argument->expr);
+        ++argument_count;
+    }
+    if (argument_count != expected_count) {
+        rcc_error(expr->loc, "%s expects %d arguments, got %d",
+                  function->ident_name, expected_count, argument_count);
+    }
+    pointer_type = expr->call_args ? expr->call_args->expr->type : NULL;
+    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->base || !type_is_integer(pointer_type->base) ||
+        pointer_type->base->size != 4u) {
+        rcc_error(expr->loc, "%s requires a pointer to a 32-bit integer",
+                  function->ident_name);
+    }
+
+    function->type = type_ptr(type_void);
+    if (strcmp(function->ident_name, "__atomic_load_n") == 0) {
+        expr->type = pointer_type && pointer_type->base
+            ? pointer_type->base : type_uint;
+    } else if (strcmp(function->ident_name, "__atomic_store_n") == 0) {
+        expr->type = type_void;
+    } else {
+        expr->type = type_int;
+    }
+    return true;
 }
 
 static void sema_infer_initializer_type(Type* type, Expr* initializer) {

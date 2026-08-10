@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -101,6 +101,32 @@ test-cxx-cli: $(RCXX_TARGET)
 		-DRCC_CXX_CLI_VALUE=23 -DRCC_CXX_REMOVE_ME -URCC_CXX_REMOVE_ME \
 		-o $(TEST_OUT)/cxx_cli_options.ro tests/cxx_cli_options.cpp
 	@echo "RCC++ command-line compatibility test completed"
+
+test-preprocessor-continuation: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-DRCC_CONTINUATION_LEFT -DRCC_CONTINUATION_RIGHT \
+		-o $(TEST_OUT)/preprocessor-continuation-x86.ro \
+		tests/preprocessor_continuation.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-DRCC_CONTINUATION_LEFT -DRCC_CONTINUATION_RIGHT \
+		-o $(TEST_OUT)/preprocessor-continuation-x64.ro \
+		tests/preprocessor_continuation.c
+	@echo "C17 backslash-newline splicing tests completed"
+
+test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
+	mkdir -p $(TEST_OUT)/atomic-x86 $(TEST_OUT)/atomic-x64
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/atomic-x86/atomic.ro tests/atomic_builtin.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/atomic-x86/atomic.rin \
+		$(TEST_OUT)/atomic-x86/atomic.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/atomic-x64/atomic.ro tests/atomic_builtin.c
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/atomic-x64/atomic.rin \
+		$(TEST_OUT)/atomic-x64/atomic.ro
+	@echo "Dual-architecture 32-bit atomic builtin tests completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
@@ -263,6 +289,13 @@ test-sanitize:
 		-o $(SANITIZER_ROOT)/tests/direct-x64.ro tests/direct_relocation.c
 	$(SANITIZER_ROOT)/bin/rcc -E -Itests/include \
 		-DRCC_CXX_CLI_VALUE=23 tests/preproc_v2.c > /dev/null
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-DRCC_CONTINUATION_LEFT -DRCC_CONTINUATION_RIGHT \
+		-o $(SANITIZER_ROOT)/tests/preprocessor-continuation.ro \
+		tests/preprocessor_continuation.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/atomic-builtin.ro \
+		tests/atomic_builtin.c
 	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/invalid.ro \
 		tests/invalid_designated_initializer.c

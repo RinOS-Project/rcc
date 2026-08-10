@@ -513,6 +513,55 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 
 static void gen64_expr(Module* mod, Expr* expr);
 
+static Expr* call64_argument(Expr* call, int index) {
+    ExprList* argument = call->call_args;
+    while (argument && index-- > 0) argument = argument->next;
+    return argument ? argument->expr : NULL;
+}
+
+static bool gen64_atomic_builtin(Module* mod, Expr* call) {
+    Expr* function = call->call_func;
+    const char* name;
+
+    if (!function || function->kind != EXPR_IDENT) return false;
+    name = function->ident_name;
+    if (strcmp(name, "__atomic_load_n") == 0) {
+        gen64_expr(mod, call64_argument(call, 1));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit_byte(mod, 0x8B); /* mov eax, dword ptr [rax] */
+        emit_byte(mod, modrm64(0, RAX, RAX));
+        return true;
+    }
+    if (strcmp(name, "__atomic_store_n") == 0) {
+        gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_pop_reg(mod, RCX);
+        emit_byte(mod, 0x87); /* xchg dword ptr [rcx], eax */
+        emit_byte(mod, modrm64(0, RAX, RCX));
+        return true;
+    }
+    if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 2));
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_pop_reg(mod, RAX);
+        emit64_pop_reg(mod, RCX);
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB1); /* lock cmpxchg dword ptr [rcx], edx */
+        emit_byte(mod, modrm64(0, RDX, RCX));
+        emit64_setcc(mod, CC64_E, RAX);
+        emit64_movzx_r64_r8(mod, RAX, RAX);
+        return true;
+    }
+    return false;
+}
+
 static Expr* gen64_character_array_string(Type* type, Expr* initializer) {
     if (!type || type->kind != TYPE_ARRAY || !type->base ||
         type->base->kind != TYPE_CHAR || !initializer) {
@@ -1140,6 +1189,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
         }
 
         case EXPR_CALL: {
+            if (gen64_atomic_builtin(mod, expr)) break;
             /* x86-64 System V ABI: RDI, RSI, RDX, RCX, R8, R9 */
             int arg_regs[] = {RDI, RSI, RDX, RCX, R8, R9};
             int argc = exprlist_len(expr->call_args);

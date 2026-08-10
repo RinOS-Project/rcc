@@ -1345,6 +1345,58 @@ static void resolve_labels(Module* mod) {
 
 /* Forward declaration */
 static void gen_expr(Module* mod, Expr* expr);
+
+static Expr* call_argument(Expr* call, int index) {
+    ExprList* argument = call->call_args;
+    while (argument && index-- > 0) argument = argument->next;
+    return argument ? argument->expr : NULL;
+}
+
+static bool gen_atomic_builtin(Module* mod, Expr* call) {
+    Expr* function = call->call_func;
+    const char* name;
+
+    if (!function || function->kind != EXPR_IDENT) return false;
+    name = function->ident_name;
+    if (strcmp(name, "__atomic_load_n") == 0) {
+        gen_expr(mod, call_argument(call, 1));
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_mem(mod, EAX, EAX, 0);
+        return true;
+    }
+    if (strcmp(name, "__atomic_store_n") == 0) {
+        gen_expr(mod, call_argument(call, 2));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_pop_reg(mod, ECX);
+        /* XCHG with memory is implicitly locked and therefore satisfies every
+         * memory order supported by this initial 32-bit atomic builtin. */
+        emit_byte(mod, 0x87);
+        emit_memory_operand32(mod, EAX, ECX, 0);
+        return true;
+    }
+    if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 2));
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_pop_reg(mod, EAX);
+        emit_pop_reg(mod, ECX);
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB1);
+        emit_memory_operand32(mod, EDX, ECX, 0);
+        emit_setcc(mod, CC_E, EAX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EAX, EAX));
+        return true;
+    }
+    return false;
+}
 static void gen_stmt(Module* mod, Stmt* stmt);
 
 static void gen_symbol_address(Module* mod, const char* symbol,
@@ -1761,6 +1813,7 @@ static void gen_expr(Module* mod, Expr* expr) {
         }
 
         case EXPR_CALL: {
+            if (gen_atomic_builtin(mod, expr)) break;
             /* Push arguments in reverse order */
             int argc = exprlist_len(expr->call_args);
             ExprList** args = rcc_alloc(argc * sizeof(ExprList*));

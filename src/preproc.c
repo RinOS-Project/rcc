@@ -68,7 +68,13 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__RCC__", "1");
     pp_define(pp, "__RINOS__", "1");
     pp_define(pp, "__STDC__", "1");
-    pp_define(pp, "__STDC_VERSION__", "201112L");
+    pp_define(pp, "__STDC_VERSION__", "201710L");
+    pp_define(pp, "__ATOMIC_RELAXED", "0");
+    pp_define(pp, "__ATOMIC_CONSUME", "1");
+    pp_define(pp, "__ATOMIC_ACQUIRE", "2");
+    pp_define(pp, "__ATOMIC_RELEASE", "3");
+    pp_define(pp, "__ATOMIC_ACQ_REL", "4");
+    pp_define(pp, "__ATOMIC_SEQ_CST", "5");
 
     /* Architecture */
     if (g_opts.target_arch == ARCH_X86) {
@@ -393,6 +399,32 @@ static int pp_eval_or(Preprocessor* pp, const char** input) {
 
 static bool pp_eval_expression(Preprocessor* pp, const char* expression) {
     return pp_eval_or(pp, &expression) != 0;
+}
+
+/* C17 translation phase 2 removes every backslash-newline pair before
+ * directives, comments, and tokens are interpreted.  Doing this once for the
+ * complete file also makes continued #if expressions follow the same rules as
+ * continued macro definitions and ordinary source lines. */
+static char* splice_source_lines(const char* source) {
+    size_t input_length = strlen(source);
+    char* spliced = rcc_alloc(input_length + 1u);
+    size_t input = 0;
+    size_t output = 0;
+
+    while (input < input_length) {
+        if (source[input] == '\\' && source[input + 1u] == '\n') {
+            input += 2u;
+            continue;
+        }
+        if (source[input] == '\\' && source[input + 1u] == '\r' &&
+            source[input + 2u] == '\n') {
+            input += 3u;
+            continue;
+        }
+        spliced[output++] = source[input++];
+    }
+    spliced[output] = '\0';
+    return spliced;
 }
 
 static const char* read_macro_body(const char* p, char* body, size_t body_size) {
@@ -863,7 +895,8 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
     PPBuffer output;
     buf_init(&output);
 
-    const char* p = source;
+    char* spliced_source = splice_source_lines(source);
+    const char* p = spliced_source;
     int line = 1;
     int initial_cond_depth = pp->cond_depth;
 
@@ -926,6 +959,7 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
         pp->cond_depth = initial_cond_depth;
     }
 
+    rcc_free(spliced_source);
     return output.data;
 }
 
