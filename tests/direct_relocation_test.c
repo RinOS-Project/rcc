@@ -95,6 +95,14 @@ static void verify_artifact(const char* object_path, const char* image_path,
     ObjSymbol* static_choice;
     ObjSymbol* static_bool;
     ObjSymbol* static_unary;
+    ObjSymbol* aggregate_target;
+    ObjSymbol* aggregate_scalar;
+    ObjSymbol* aggregate_braced_string;
+    ObjSymbol* aggregate_numbers;
+    ObjSymbol* aggregate_pointers;
+    ObjSymbol* aggregate_record;
+    ObjSymbol* aggregate_nested;
+    ObjSymbol* aggregate_union;
     ObjSymbol* pointer_add;
     ObjSymbol* integer_add;
     ObjSymbol* pointer_distance;
@@ -127,6 +135,10 @@ static void verify_artifact(const char* object_path, const char* image_path,
     int saw_static_zero = 0;
     int saw_static_second = 0;
     int saw_static_target = 0;
+    int saw_aggregate_pointer_first = 0;
+    int saw_aggregate_pointer_third = 0;
+    int saw_aggregate_record_pointer = 0;
+    int saw_aggregate_nested_pointer = 0;
     size_t data_source_relocations = 0u;
     size_t pointer_width = expected_architecture == RIN_ARCH_X86_64 ? 8u : 4u;
     uint64_t static_literal_offset;
@@ -151,6 +163,15 @@ static void verify_artifact(const char* object_path, const char* image_path,
     static_choice = required_symbol(object, "static_choice");
     static_bool = required_symbol(object, "static_bool");
     static_unary = required_symbol(object, "static_unary");
+    aggregate_target = required_symbol(object, "aggregate_target");
+    aggregate_scalar = required_symbol(object, "aggregate_scalar");
+    aggregate_braced_string = required_symbol(
+        object, "aggregate_braced_string");
+    aggregate_numbers = required_symbol(object, "aggregate_numbers");
+    aggregate_pointers = required_symbol(object, "aggregate_pointers");
+    aggregate_record = required_symbol(object, "aggregate_record");
+    aggregate_nested = required_symbol(object, "aggregate_nested");
+    aggregate_union = required_symbol(object, "aggregate_union");
     pointer_add = required_symbol(object, "pointer_add");
     integer_add = required_symbol(object, "integer_add");
     pointer_distance = required_symbol(object, "pointer_distance");
@@ -195,6 +216,43 @@ static void verify_artifact(const char* object_path, const char* image_path,
     assert(static_unary->value + 4u <= object_data->size);
     assert(read_little_endian(object_data->data + static_unary->value, 4u) ==
            UINT32_C(0xfffffffc));
+    assert(aggregate_scalar->value + 4u <= object_data->size);
+    assert(read_little_endian(object_data->data + aggregate_scalar->value,
+                              4u) == 13u);
+    assert(aggregate_braced_string->value + 6u <= object_data->size);
+    assert(memcmp(object_data->data + aggregate_braced_string->value,
+                  "Brace", 6u) == 0);
+    assert(aggregate_numbers->value + 20u <= object_data->size);
+    assert(read_little_endian(object_data->data + aggregate_numbers->value,
+                              4u) == 1u);
+    assert(read_little_endian(object_data->data + aggregate_numbers->value +
+                                  4u,
+                              4u) == 0u);
+    assert(read_little_endian(object_data->data + aggregate_numbers->value +
+                                  12u,
+                              4u) == 7u);
+    assert(read_little_endian(object_data->data + aggregate_numbers->value +
+                                  16u,
+                              4u) == 9u);
+    assert(aggregate_record->value + 8u + pointer_width <=
+           object_data->size);
+    assert(read_little_endian(object_data->data + aggregate_record->value,
+                              4u) == 12u);
+    assert(object_data->data[aggregate_record->value + 4u] == 'R');
+    assert(aggregate_nested->value + 24u + pointer_width <=
+           object_data->size);
+    assert(read_little_endian(object_data->data + aggregate_nested->value,
+                              4u) == 1u);
+    assert(read_little_endian(object_data->data + aggregate_nested->value +
+                                  12u,
+                              4u) == 4u);
+    assert(read_little_endian(object_data->data + aggregate_nested->value +
+                                  16u,
+                              4u) == 5u);
+    assert(object_data->data[aggregate_nested->value + 20u] == 'N');
+    assert(aggregate_union->value + 4u <= object_data->size);
+    assert(read_little_endian(object_data->data + aggregate_union->value,
+                              4u) == 6u);
     static_literal_offset = required_bytes(object_rodata->data,
                                            object_rodata->size,
                                            "StaticRinOS");
@@ -233,10 +291,34 @@ static void verify_artifact(const char* object_path, const char* image_path,
                 assert(strcmp(relocation->symbol_name, "target") == 0);
                 assert(relocation->addend == 0);
                 saw_static_target = 1;
+            } else if (relocation->offset == aggregate_pointers->value) {
+                assert(strcmp(relocation->symbol_name,
+                              "aggregate_target") == 0);
+                assert(relocation->addend == 0);
+                saw_aggregate_pointer_first = 1;
+            } else if (relocation->offset == aggregate_pointers->value +
+                                                 2u * pointer_width) {
+                assert(strcmp(relocation->symbol_name,
+                              "aggregate_target") == 0);
+                assert(relocation->addend == 0);
+                saw_aggregate_pointer_third = 1;
+            } else if (relocation->offset == aggregate_record->value + 8u) {
+                assert(strcmp(relocation->symbol_name,
+                              "aggregate_target") == 0);
+                assert(relocation->addend == 0);
+                saw_aggregate_record_pointer = 1;
+            } else if (relocation->offset == aggregate_nested->value + 24u) {
+                assert(strcmp(relocation->symbol_name,
+                              "aggregate_target") == 0);
+                assert(relocation->addend == 0);
+                saw_aggregate_nested_pointer = 1;
             }
         }
         assert(saw_static_literal && saw_static_suffix && saw_static_zero &&
                saw_static_second && saw_static_target);
+        assert(saw_aggregate_pointer_first && saw_aggregate_pointer_third &&
+               saw_aggregate_record_pointer &&
+               saw_aggregate_nested_pointer);
     }
     if (expected_architecture == RIN_ARCH_X86_64) {
         static const uint8_t large_stack_frame[] = {
@@ -347,6 +429,10 @@ static void verify_artifact(const char* object_path, const char* image_path,
     saw_static_zero = 0;
     saw_static_second = 0;
     saw_static_target = 0;
+    saw_aggregate_pointer_first = 0;
+    saw_aggregate_pointer_third = 0;
+    saw_aggregate_record_pointer = 0;
+    saw_aggregate_nested_pointer = 0;
 
     image = fopen(image_path, "rb");
     assert(image != NULL);
@@ -467,18 +553,43 @@ static void verify_artifact(const char* object_path, const char* image_path,
                          target->value) {
                 saw_static_target = 1;
             }
+            if (source_offset == aggregate_pointers->value &&
+                value == preferred_base + data->virtual_address +
+                         aggregate_target->value) {
+                saw_aggregate_pointer_first = 1;
+            }
+            if (source_offset == aggregate_pointers->value +
+                                     2u * pointer_width &&
+                value == preferred_base + data->virtual_address +
+                         aggregate_target->value) {
+                saw_aggregate_pointer_third = 1;
+            }
+            if (source_offset == aggregate_record->value + 8u &&
+                value == preferred_base + data->virtual_address +
+                         aggregate_target->value) {
+                saw_aggregate_record_pointer = 1;
+            }
+            if (source_offset == aggregate_nested->value + 24u &&
+                value == preferred_base + data->virtual_address +
+                         aggregate_target->value) {
+                saw_aggregate_nested_pointer = 1;
+            }
         }
     }
     assert(saw_data_symbol);
     assert(saw_rodata_symbol);
     assert(saw_bss_symbol);
     assert(saw_code_symbol);
-    assert(data_source_relocations >= 5u);
+    assert(data_source_relocations >= 9u);
     assert(saw_static_literal);
     assert(saw_static_suffix);
     assert(saw_static_zero);
     assert(saw_static_second);
     assert(saw_static_target);
+    assert(saw_aggregate_pointer_first);
+    assert(saw_aggregate_pointer_third);
+    assert(saw_aggregate_record_pointer);
+    assert(saw_aggregate_nested_pointer);
     {
         uint8_t initialized[12];
         uint64_t null_value = 0u;
@@ -498,6 +609,13 @@ static void verify_artifact(const char* object_path, const char* image_path,
         for (size_t byte = 6u; byte < sizeof(initialized); ++byte) {
             assert(initialized[byte] == 0u);
         }
+        assert(fseek(image,
+                     (long)(data->file_offset + aggregate_pointers->value +
+                            pointer_width),
+                     SEEK_SET) == 0);
+        null_value = 0u;
+        assert(fread(&null_value, pointer_width, 1u, image) == 1u);
+        assert(null_value == 0u);
     }
 
     free(relocations);

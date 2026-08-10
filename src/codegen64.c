@@ -511,34 +511,149 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
     emit64_memory_operand(mod, src, base, disp);
 }
 
-static void gen64_local_string_array(Module* mod, Decl* declaration) {
-    size_t storage = (size_t)declaration->type->size;
-    size_t text_size = strlen(declaration->var_init->str_val) + 1u;
+static void gen64_expr(Module* mod, Expr* expr);
+
+static Expr* gen64_character_array_string(Type* type, Expr* initializer) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base ||
+        type->base->kind != TYPE_CHAR || !initializer) {
+        return NULL;
+    }
+    if (initializer->kind == EXPR_STRING_LIT) return initializer;
+    if (initializer->kind == EXPR_COMPOUND && initializer->compound_init &&
+        !initializer->compound_init->next &&
+        initializer->compound_init->designator_kind == INIT_DESIGNATOR_NONE &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
+        return initializer->compound_init->expr;
+    }
+    return NULL;
+}
+
+static TypeField* gen64_initializer_field(Type* type, const char* name) {
+    if (!type || !name) return NULL;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (strcmp(field->name, name) == 0) return field;
+    }
+    return NULL;
+}
+
+static void gen64_zero_local_storage(Module* mod, int32_t displacement,
+                                     size_t storage) {
     size_t offset = 0u;
+    emit64_mov_reg_imm32(mod, RAX, 0u);
     while (offset + 4u <= storage) {
-        uint32_t packed = 0u;
-        for (size_t byte = 0u; byte < 4u; ++byte) {
-            if (offset + byte < text_size) {
-                packed |= (uint32_t)(uint8_t)
-                    declaration->var_init->str_val[offset + byte]
-                    << (byte * 8u);
-            }
-        }
-        emit64_mov_reg_imm32(mod, RAX, packed);
-        emit64_store_typed(mod, RBP,
-                           declaration->var_offset + (int32_t)offset,
+        emit64_store_typed(mod, RBP, displacement + (int32_t)offset,
                            RAX, type_int);
         offset += 4u;
     }
     while (offset < storage) {
-        uint8_t byte = offset < text_size
-            ? (uint8_t)declaration->var_init->str_val[offset] : 0u;
-        emit64_mov_reg_imm32(mod, RAX, byte);
-        emit64_store_typed(mod, RBP,
-                           declaration->var_offset + (int32_t)offset,
+        emit64_store_typed(mod, RBP, displacement + (int32_t)offset,
                            RAX, type_char);
         ++offset;
     }
+}
+
+static bool gen64_local_initializer(Module* mod, Type* type,
+                                    Expr* initializer,
+                                    int32_t displacement) {
+    Expr* string = gen64_character_array_string(type, initializer);
+    if (!type || !initializer) return false;
+    if (string) {
+        size_t storage = (size_t)type->size;
+        size_t text_size = strlen(string->str_val) + 1u;
+        size_t offset = 0u;
+        while (offset + 4u <= storage) {
+            uint32_t packed = 0u;
+            for (size_t byte = 0u; byte < 4u; ++byte) {
+                if (offset + byte < text_size) {
+                    packed |= (uint32_t)(uint8_t)string->str_val[offset + byte]
+                              << (byte * 8u);
+                }
+            }
+            emit64_mov_reg_imm32(mod, RAX, packed);
+            emit64_store_typed(mod, RBP, displacement + (int32_t)offset,
+                               RAX, type_int);
+            offset += 4u;
+        }
+        while (offset < storage) {
+            uint8_t byte = offset < text_size
+                ? (uint8_t)string->str_val[offset] : 0u;
+            emit64_mov_reg_imm32(mod, RAX, byte);
+            emit64_store_typed(mod, RBP, displacement + (int32_t)offset,
+                               RAX, type_char);
+            ++offset;
+        }
+        return true;
+    }
+    if (initializer->kind == EXPR_COMPOUND) {
+        if (type->kind == TYPE_ARRAY) {
+            int64_t cursor = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                int64_t item_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    return false;
+                }
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    cursor = item->designator_index;
+                }
+                if (cursor < 0 || cursor >= type->array_len || !type->base) {
+                    return false;
+                }
+                item_offset = (int64_t)displacement +
+                              cursor * type->base->size;
+                if (item_offset < INT32_MIN || item_offset > INT32_MAX ||
+                    !gen64_local_initializer(mod, type->base, item->expr,
+                                             (int32_t)item_offset)) {
+                    return false;
+                }
+                ++cursor;
+            }
+            return true;
+        }
+        if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            TypeField* cursor = type->fields;
+            int initialized = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                TypeField* field = cursor;
+                int64_t field_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    return false;
+                }
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    field = gen64_initializer_field(
+                        type, item->designator_field);
+                }
+                if (!field || (type->kind == TYPE_UNION && initialized != 0)) {
+                    return false;
+                }
+                field_offset = (int64_t)displacement + field->offset;
+                if (field_offset < INT32_MIN || field_offset > INT32_MAX ||
+                    !gen64_local_initializer(mod, field->type, item->expr,
+                                             (int32_t)field_offset)) {
+                    return false;
+                }
+                cursor = field->next;
+                ++initialized;
+            }
+            return true;
+        }
+        if (!initializer->compound_init || initializer->compound_init->next ||
+            initializer->compound_init->designator_kind !=
+                INIT_DESIGNATOR_NONE) {
+            return false;
+        }
+        return gen64_local_initializer(
+            mod, type, initializer->compound_init->expr, displacement);
+    }
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+        type->kind != TYPE_PTR) {
+        return false;
+    }
+    gen64_expr(mod, initializer);
+    emit64_store_typed(mod, RBP, displacement, RAX, type);
+    return true;
 }
 
 static void add_func_call_ref64(const char* name, uint32_t call_offset) {
@@ -618,7 +733,6 @@ static void resolve_labels64(Module* mod) {
  * Expression Code Generation (64-bit)
  * ═══════════════════════════════════════ */
 
-static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_stmt(Module* mod, Stmt* stmt);
 
 static void gen64_symbol_address(Module* mod, const char* symbol,
@@ -1091,13 +1205,17 @@ static void gen64_expr(Module* mod, Expr* expr) {
 
         case EXPR_INDEX:
             gen64_lvalue(mod, expr);
-            emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+            if (!expr->type || expr->type->kind != TYPE_ARRAY) {
+                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+            }
             break;
 
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
             gen64_lvalue(mod, expr);
-            emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+            if (!expr->type || expr->type->kind != TYPE_ARRAY) {
+                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+            }
             break;
 
         case EXPR_CAST:
@@ -1276,14 +1394,18 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_init && d->type &&
-                d->type->kind == TYPE_ARRAY && d->type->base &&
-                d->type->base->kind == TYPE_CHAR &&
-                d->var_init->kind == EXPR_STRING_LIT) {
-                gen64_local_string_array(mod, d);
-            } else if (d->kind == DECL_VAR && d->var_init) {
-                gen64_expr(mod, d->var_init);
-                emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
+            if (d->kind == DECL_VAR && d->var_init) {
+                if (d->type && (d->type->kind == TYPE_ARRAY ||
+                                d->type->kind == TYPE_STRUCT ||
+                                d->type->kind == TYPE_UNION)) {
+                    gen64_zero_local_storage(mod, d->var_offset,
+                                             (size_t)d->type->size);
+                }
+                if (!gen64_local_initializer(mod, d->type, d->var_init,
+                                             d->var_offset)) {
+                    rcc_error(d->loc, "unsupported local initializer for '%s'",
+                              d->name);
+                }
             }
             break;
         }

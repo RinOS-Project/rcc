@@ -23,6 +23,46 @@ int static_choice = 0 ? 9 : sizeof(int);
 _Bool static_bool = 7;
 int static_unary = -5 + !0;
 
+int aggregate_target = 41;
+int aggregate_scalar = {13};
+char aggregate_braced_string[] = {"Brace"};
+int aggregate_numbers[] = {1, [3] = 7, 9};
+int* aggregate_pointers[3] = {&aggregate_target,
+                              [2] = &aggregate_target};
+
+struct AggregateInitializer {
+    int first;
+    char marker;
+    int* pointer;
+};
+
+struct AggregateInitializer aggregate_record = {
+    .marker = 'R',
+    .pointer = &aggregate_target,
+    .first = 12,
+};
+
+struct AggregateContainer {
+    int values[4];
+    struct AggregateInitializer record;
+};
+
+struct AggregateContainer aggregate_nested = {
+    .values = {1, [3] = 4},
+    .record = {
+        .first = 5,
+        .marker = 'N',
+        .pointer = &aggregate_target,
+    },
+};
+
+union AggregateUnion {
+    int number;
+    char bytes[4];
+};
+
+union AggregateUnion aggregate_union = {.number = 6};
+
 struct LocalAggregate {
     int first;
     int second;
@@ -91,6 +131,33 @@ int aggregate_parameter_value(struct LocalAggregate value)
     return value.first + value.second + value.third + scratch[31];
 }
 
+int local_aggregate_initializer_value(void)
+{
+    int target_value = 11;
+    int scalar = {7};
+    int values[] = {2, [3] = 8, 10};
+    int* pointers[2] = {&target_value, [1] = &target_value};
+    struct AggregateInitializer record = {
+        .pointer = &target_value,
+        .marker = 'L',
+        .first = 3,
+    };
+    struct AggregateContainer nested = {
+        .values = {1, [3] = 4},
+        .record = {
+            .first = 5,
+            .marker = 'N',
+            .pointer = &target_value,
+        },
+    };
+    union AggregateUnion choice = {.number = 6};
+    return values[0] + values[1] + values[3] + values[4] +
+           *pointers[0] + *pointers[1] + record.first + record.marker +
+           *record.pointer + nested.values[0] + nested.values[1] +
+           nested.values[3] + nested.record.first + nested.record.marker +
+           *nested.record.pointer + choice.number + scalar;
+}
+
 int main(void)
 {
     return *(&second_value) + *zero_address() + (target_address() != 0) +
@@ -100,5 +167,8 @@ int main(void)
            (static_array[0] == 'A') + (static_fixed[5] == 0) +
            static_constant + static_logic + static_bits + static_choice +
            static_bool + static_unary + local_array_value() +
-           large_local_array_value();
+           large_local_array_value() + local_aggregate_initializer_value() +
+           aggregate_numbers[1] + aggregate_numbers[4] +
+           *aggregate_pointers[2] + aggregate_record.first +
+           aggregate_nested.values[3] + aggregate_union.number;
 }

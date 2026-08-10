@@ -315,6 +315,24 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/direct/invalid-array-x64.ro \
 		tests/invalid_array_initializer.c
 	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-designator-x86.ro \
+		tests/invalid_designated_initializer.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/invalid-designator-x64.ro \
+		tests/invalid_designated_initializer.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/nonconstant-designator-x86.ro \
+		tests/nonconstant_designator.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/nonconstant-designator-x64.ro \
+		tests/nonconstant_designator.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/empty-initializer-x86.ro \
+		tests/empty_initializer.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/empty-initializer-x64.ro \
+		tests/empty_initializer.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unsupported-local-array-x86.ro \
 		tests/unsupported_local_array_initializer.c
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \

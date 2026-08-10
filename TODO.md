@@ -26,11 +26,12 @@
 
 - [x] 基本declaration、function、struct/union/enum/typedef
   - [x] global/local文字配列のstring初期化、未指定長推論、末尾zero-fill
+  - [x] global/local配列・struct・unionのbrace初期化、単一designator、zero-fill
 - [x] 式、制御文、scope、基本type conversion
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic
 - [ ] qualifierとeffective typeの完全なC17規則
-- [ ] VLA、compound literal、designated initializerの完全実装
+- [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
 - [ ] `_Generic`、atomics、thread-local storage
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite

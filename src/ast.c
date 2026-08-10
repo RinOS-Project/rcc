@@ -332,6 +332,16 @@ Expr* expr_sizeof_type(Type* type, SourceLoc loc) {
     return e;
 }
 
+Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
+    Expr* e = rcc_alloc(sizeof(Expr));
+    e->kind = EXPR_COMPOUND;
+    e->loc = loc;
+    e->compound_type = NULL;
+    e->compound_init = items;
+    e->type = NULL;
+    return e;
+}
+
 /* ═══════════════════════════════════════
  * Statement Constructors
  * ═══════════════════════════════════════ */
@@ -618,6 +628,22 @@ void exprlist_append(ExprList** list, Expr* expr) {
         ExprList* p = *list;
         while (p->next) p = p->next;
         p->next = node;
+    }
+}
+
+void exprlist_append_designated(ExprList** list, Expr* expr,
+                                InitDesignatorKind kind, int64_t index,
+                                const char* field) {
+    ExprList* node = exprlist_new(expr);
+    node->designator_kind = kind;
+    node->designator_index = index;
+    node->designator_field = field;
+    if (!*list) {
+        *list = node;
+    } else {
+        ExprList* item = *list;
+        while (item->next) item = item->next;
+        item->next = node;
     }
 }
 

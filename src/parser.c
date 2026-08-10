@@ -161,6 +161,7 @@ static void synchronize(void) {
 /* Forward declarations */
 Expr* parse_expression(void);  /* Exported for C++ parser */
 static Expr* parse_assignment(void);
+static Expr* parse_initializer(void);
 static Expr* parse_unary(void);
 static Stmt* parse_statement(void);
 Stmt* parse_declaration(void);  /* Exported for C++ parser */
@@ -707,6 +708,43 @@ static bool is_type_start(void) {
             return check(TOK_IDENT) &&
                    parser_lookup_type(peek()->value.str_val) != NULL;
     }
+}
+
+static Expr* parse_initializer(void) {
+    ExprList* items = NULL;
+    SourceLoc loc;
+    if (!match(TOK_LBRACE)) return parse_assignment();
+    loc = previous()->loc;
+    if (check(TOK_RBRACE)) {
+        rcc_error(loc, "empty initializer list is not valid C17");
+    } else {
+        for (;;) {
+            InitDesignatorKind kind = INIT_DESIGNATOR_NONE;
+            int64_t index = 0;
+            const char* field = NULL;
+            if (match(TOK_DOT)) {
+                Token* name = expect(TOK_IDENT, "field designator");
+                kind = INIT_DESIGNATOR_FIELD;
+                if (name) field = name->value.str_val;
+                expect(TOK_ASSIGN, "=");
+            } else if (match(TOK_LBRACKET)) {
+                Expr* designator = parse_assignment();
+                kind = INIT_DESIGNATOR_INDEX;
+                if (!eval_integer_constant(designator, &index) || index < 0) {
+                    rcc_error(designator->loc,
+                              "array designator must be a non-negative integer constant");
+                    index = 0;
+                }
+                expect(TOK_RBRACKET, "]");
+                expect(TOK_ASSIGN, "=");
+            }
+            exprlist_append_designated(&items, parse_initializer(), kind,
+                                       index, field);
+            if (!match(TOK_COMMA) || check(TOK_RBRACE)) break;
+        }
+    }
+    expect(TOK_RBRACE, "}");
+    return expr_initializer_list(items, loc);
 }
 
 static int parser_align_up(int value, int alignment) {
@@ -1328,7 +1366,7 @@ Stmt* parse_declaration(void) {
     /* Variable initializer */
     Expr* init = NULL;
     if (match(TOK_ASSIGN)) {
-        init = parse_assignment();
+        init = parse_initializer();
     }
 
     expect(TOK_SEMICOLON, ";");

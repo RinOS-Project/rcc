@@ -536,41 +536,221 @@ static void sema_stmt(Stmt* stmt) {
  * Declaration Semantic Analysis
  * ═══════════════════════════════════════ */
 
+static Expr* initializer_character_string(Type* type, Expr* initializer) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base ||
+        type->base->kind != TYPE_CHAR || !initializer) {
+        return NULL;
+    }
+    if (initializer->kind == EXPR_STRING_LIT) return initializer;
+    if (initializer->kind == EXPR_COMPOUND && initializer->compound_init &&
+        !initializer->compound_init->next &&
+        initializer->compound_init->designator_kind == INIT_DESIGNATOR_NONE &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
+        return initializer->compound_init->expr;
+    }
+    return NULL;
+}
+
+static void sema_infer_initializer_type(Type* type, Expr* initializer) {
+    Expr* string;
+    int64_t cursor = 0;
+    int64_t maximum = -1;
+    if (!type || !initializer) return;
+    string = initializer_character_string(type, initializer);
+    if (string) {
+        size_t characters = strlen(string->str_val);
+        size_t storage = characters + 1u;
+        if (type->array_len < 0) {
+            if (storage > INT_MAX || type->base->size <= 0 ||
+                storage > (size_t)INT_MAX / (size_t)type->base->size) {
+                rcc_error(initializer->loc,
+                          "character array initializer is too large");
+            } else {
+                type->array_len = (int)storage;
+                type->size = (int)storage * type->base->size;
+            }
+        } else if ((size_t)type->array_len < characters) {
+            rcc_error(initializer->loc,
+                      "initializer string is too long for character array");
+        }
+        return;
+    }
+    if (type->kind != TYPE_ARRAY || initializer->kind != EXPR_COMPOUND) {
+        return;
+    }
+    for (ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            cursor = item->designator_index;
+        }
+        if (item->designator_kind != INIT_DESIGNATOR_FIELD &&
+            cursor > maximum) {
+            maximum = cursor;
+        }
+        if (cursor < INT64_MAX) ++cursor;
+    }
+    if (type->array_len < 0) {
+        int64_t length = maximum >= 0 && maximum < INT_MAX
+            ? maximum + 1 : 0;
+        if (length <= 0 || !type->base ||
+            type->base->size <= 0 ||
+            length > INT_MAX / type->base->size) {
+            rcc_error(initializer->loc,
+                      "array initializer cannot determine a valid bound");
+        } else {
+            type->array_len = (int)length;
+            type->size = (int)length * type->base->size;
+        }
+    }
+}
+
+static TypeField* initializer_field(Type* type, const char* name) {
+    if (!type || !name) return NULL;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (strcmp(field->name, name) == 0) return field;
+    }
+    return NULL;
+}
+
+static void sema_initializer(Type* type, Expr* initializer) {
+    Expr* string;
+    if (!type || !initializer) return;
+    string = initializer_character_string(type, initializer);
+    if (string) {
+        sema_expr(string);
+        initializer->type = type;
+        return;
+    }
+    if (initializer->kind != EXPR_COMPOUND) {
+        sema_expr(initializer);
+        if (type->kind == TYPE_ARRAY || type->kind == TYPE_STRUCT ||
+            type->kind == TYPE_UNION) {
+            rcc_error(initializer->loc,
+                      "aggregate copy initialization is not yet supported");
+            return;
+        }
+        if (!implicit_cast(initializer, type)) {
+            rcc_warning(initializer->loc,
+                        "incompatible types in initialization");
+        }
+        return;
+    }
+    initializer->type = type;
+    if (type->kind == TYPE_ARRAY) {
+        int64_t cursor = 0;
+        int item_count = exprlist_len(initializer->compound_init);
+        int initialized_count = 0;
+        int64_t* initialized = item_count > 0
+            ? rcc_alloc((size_t)item_count * sizeof(*initialized)) : NULL;
+        for (ExprList* item = initializer->compound_init; item;
+             item = item->next) {
+            bool duplicate = false;
+            if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                rcc_error(item->expr->loc,
+                          "field designator cannot initialize an array");
+                continue;
+            }
+            if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                cursor = item->designator_index;
+            }
+            if (cursor < 0 || cursor >= type->array_len) {
+                rcc_error(item->expr->loc,
+                          "array initializer index is out of bounds");
+            } else {
+                for (int index = 0; index < initialized_count; ++index) {
+                    if (initialized[index] == cursor) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (duplicate) {
+                    rcc_error(item->expr->loc,
+                              "overlapping aggregate initializers are not yet supported");
+                } else {
+                    initialized[initialized_count++] = cursor;
+                    sema_initializer(type->base, item->expr);
+                }
+            }
+            if (cursor < INT64_MAX) ++cursor;
+        }
+        rcc_free(initialized);
+        return;
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        TypeField* cursor = type->fields;
+        int initialized = 0;
+        int item_count = exprlist_len(initializer->compound_init);
+        int initialized_count = 0;
+        TypeField** initialized_fields = item_count > 0
+            ? rcc_alloc((size_t)item_count * sizeof(*initialized_fields))
+            : NULL;
+        if (!type->is_complete) {
+            rcc_error(initializer->loc,
+                      "initializer requires a complete aggregate type");
+            rcc_free(initialized_fields);
+            return;
+        }
+        for (ExprList* item = initializer->compound_init; item;
+             item = item->next) {
+            TypeField* field = cursor;
+            if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                rcc_error(item->expr->loc,
+                          "array designator cannot initialize a struct or union");
+                continue;
+            }
+            if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                field = initializer_field(type, item->designator_field);
+                if (!field) {
+                    rcc_error(item->expr->loc,
+                              "no member named '%s' in initializer",
+                              item->designator_field ?
+                                  item->designator_field : "");
+                    continue;
+                }
+            }
+            if (!field || (type->kind == TYPE_UNION && initialized != 0)) {
+                rcc_error(item->expr->loc,
+                          "too many initializers for aggregate");
+                continue;
+            }
+            bool duplicate = false;
+            for (int index = 0; index < initialized_count; ++index) {
+                if (initialized_fields[index] == field) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) {
+                rcc_error(item->expr->loc,
+                          "overlapping aggregate initializers are not yet supported");
+            } else {
+                initialized_fields[initialized_count++] = field;
+                sema_initializer(field->type, item->expr);
+            }
+            cursor = field->next;
+            ++initialized;
+        }
+        rcc_free(initialized_fields);
+        return;
+    }
+    if (!initializer->compound_init || initializer->compound_init->next ||
+        initializer->compound_init->designator_kind != INIT_DESIGNATOR_NONE) {
+        rcc_error(initializer->loc,
+                  "scalar initializer list requires exactly one value");
+        return;
+    }
+    sema_initializer(type, initializer->compound_init->expr);
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
     switch (decl->kind) {
         case DECL_VAR: {
             bool is_global = g_symtab->current == g_symtab->global;
-            bool string_array_initializer = decl->type &&
-                decl->type->kind == TYPE_ARRAY && decl->type->base &&
-                decl->type->base->kind == TYPE_CHAR && decl->var_init &&
-                decl->var_init->kind == EXPR_STRING_LIT;
-            if (string_array_initializer) {
-                size_t characters = strlen(decl->var_init->str_val);
-                size_t storage = characters + 1u;
-                if (decl->type->array_len < 0) {
-                    if (storage > INT_MAX ||
-                        decl->type->base->size <= 0 ||
-                        storage > (size_t)INT_MAX /
-                                  (size_t)decl->type->base->size) {
-                        rcc_error(decl->loc,
-                                  "character array initializer is too large");
-                    } else {
-                        decl->type->array_len = (int)storage;
-                        decl->type->size = (int)storage *
-                                           decl->type->base->size;
-                    }
-                } else if ((size_t)decl->type->array_len < characters) {
-                    rcc_error(decl->loc,
-                              "initializer string is too long for character array");
-                }
-            } else if (decl->type && decl->type->kind == TYPE_ARRAY &&
-                       decl->var_init) {
-                rcc_error(decl->loc,
-                          "unsupported array initializer for '%s'",
-                          decl->name);
-            } else if (decl->type && decl->type->kind == TYPE_ARRAY &&
+            sema_infer_initializer_type(decl->type, decl->var_init);
+            if (decl->type && decl->type->kind == TYPE_ARRAY &&
                        decl->type->array_len < 0 &&
                        !(decl->storage == STORAGE_EXTERN && !decl->var_init)) {
                 rcc_error(decl->loc,
@@ -598,12 +778,7 @@ static void sema_decl(Decl* decl) {
             decl->var_is_global = sym->is_global;
 
             if (decl->var_init) {
-                sema_expr(decl->var_init);
-                if (!string_array_initializer &&
-                    decl->type->kind != TYPE_ARRAY &&
-                    !implicit_cast(decl->var_init, decl->type)) {
-                    rcc_warning(decl->loc, "incompatible types in initialization");
-                }
+                sema_initializer(decl->type, decl->var_init);
             }
             break;
         }

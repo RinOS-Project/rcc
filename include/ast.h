@@ -196,8 +196,17 @@ typedef enum {
     EXPR_COMPOUND,      /* (type){...} */
 } ExprKind;
 
+typedef enum {
+    INIT_DESIGNATOR_NONE,
+    INIT_DESIGNATOR_INDEX,
+    INIT_DESIGNATOR_FIELD,
+} InitDesignatorKind;
+
 typedef struct ExprList {
     Expr* expr;
+    InitDesignatorKind designator_kind;
+    int64_t designator_index;
+    const char* designator_field;
     struct ExprList* next;
 } ExprList;
 
@@ -292,6 +301,7 @@ Expr* expr_member(Expr* base, const char* name, SourceLoc loc);
 Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_type(Type* type, SourceLoc loc);
+Expr* expr_initializer_list(ExprList* items, SourceLoc loc);
 
 /* ═══════════════════════════════════════
  * Statements
@@ -537,6 +547,9 @@ void ast_add_decl(AST* ast, Decl* decl);
 
 ExprList* exprlist_new(Expr* expr);
 void exprlist_append(ExprList** list, Expr* expr);
+void exprlist_append_designated(ExprList** list, Expr* expr,
+                                InitDesignatorKind kind, int64_t index,
+                                const char* field);
 int exprlist_len(ExprList* list);
 
 StmtList* stmtlist_new(Stmt* stmt);

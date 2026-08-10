@@ -462,22 +462,20 @@ static bool codegen_static_address(Module* mod, Expr* expression,
     return false;
 }
 
-static bool codegen_emit_static_pointer(Module* mod, Decl* declaration,
-                                        uint32_t offset) {
+static bool codegen_emit_static_pointer(Module* mod, Type* type,
+                                        Expr* initializer, uint32_t offset) {
     const char* symbol_name = NULL;
     uint32_t addend = 0u;
     uint32_t width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     int64_t integer;
 
-    if (!declaration->var_init || declaration->type->size < (int)width) {
+    if (!initializer || !type || type->size < (int)width) {
         return false;
     }
-    if (codegen_static_integer(declaration->var_init, &integer) &&
-        integer == 0) {
+    if (codegen_static_integer(initializer, &integer) && integer == 0) {
         return true;
     }
-    if (!codegen_static_address(mod, declaration->var_init, &symbol_name,
-                                &addend)) {
+    if (!codegen_static_address(mod, initializer, &symbol_name, &addend)) {
         return false;
     }
 
@@ -486,6 +484,128 @@ static bool codegen_emit_static_pointer(Module* mod, Decl* declaration,
     add_reloc(mod, MODULE_SYMBOL_DATA, offset,
               width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     return true;
+}
+
+static Expr* codegen_character_array_string(Type* type, Expr* initializer) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base ||
+        type->base->kind != TYPE_CHAR || !initializer) {
+        return NULL;
+    }
+    if (initializer->kind == EXPR_STRING_LIT) return initializer;
+    if (initializer->kind == EXPR_COMPOUND && initializer->compound_init &&
+        !initializer->compound_init->next &&
+        initializer->compound_init->designator_kind == INIT_DESIGNATOR_NONE &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
+        return initializer->compound_init->expr;
+    }
+    return NULL;
+}
+
+static TypeField* codegen_initializer_field(Type* type, const char* name) {
+    if (!type || !name) return NULL;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (strcmp(field->name, name) == 0) return field;
+    }
+    return NULL;
+}
+
+static bool codegen_emit_static_initializer(Module* mod, Type* type,
+                                            Expr* initializer,
+                                            uint32_t offset) {
+    Expr* string;
+    if (!mod || !type || !initializer || offset > mod->data.size ||
+        (uint64_t)type->size > mod->data.size - offset) {
+        return false;
+    }
+    string = codegen_character_array_string(type, initializer);
+    if (string) {
+        size_t text_size = strlen(string->str_val) + 1u;
+        size_t copy_size = (size_t)type->size < text_size
+            ? (size_t)type->size : text_size;
+        memcpy(mod->data.data + offset, string->str_val, copy_size);
+        return true;
+    }
+    if (initializer->kind == EXPR_COMPOUND) {
+        if (type->kind == TYPE_ARRAY) {
+            int64_t cursor = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                uint64_t item_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    return false;
+                }
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    cursor = item->designator_index;
+                }
+                if (cursor < 0 || cursor >= type->array_len || !type->base) {
+                    return false;
+                }
+                item_offset = (uint64_t)offset +
+                              (uint64_t)cursor * (uint64_t)type->base->size;
+                if (item_offset > UINT32_MAX ||
+                    !codegen_emit_static_initializer(
+                        mod, type->base, item->expr,
+                        (uint32_t)item_offset)) {
+                    return false;
+                }
+                ++cursor;
+            }
+            return true;
+        }
+        if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            TypeField* cursor = type->fields;
+            int initialized = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                TypeField* field = cursor;
+                uint64_t field_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    return false;
+                }
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    field = codegen_initializer_field(
+                        type, item->designator_field);
+                }
+                if (!field || (type->kind == TYPE_UNION && initialized != 0)) {
+                    return false;
+                }
+                field_offset = (uint64_t)offset + (uint64_t)field->offset;
+                if (field_offset > UINT32_MAX ||
+                    !codegen_emit_static_initializer(
+                        mod, field->type, item->expr,
+                        (uint32_t)field_offset)) {
+                    return false;
+                }
+                cursor = field->next;
+                ++initialized;
+            }
+            return true;
+        }
+        if (!initializer->compound_init || initializer->compound_init->next ||
+            initializer->compound_init->designator_kind !=
+                INIT_DESIGNATOR_NONE) {
+            return false;
+        }
+        return codegen_emit_static_initializer(
+            mod, type, initializer->compound_init->expr, offset);
+    }
+    if (type->kind == TYPE_PTR) {
+        return codegen_emit_static_pointer(mod, type, initializer, offset);
+    }
+    if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+        int64_t constant;
+        uint32_t width = (uint32_t)type->size;
+        if (!codegen_static_integer(initializer, &constant)) return false;
+        if (type->kind == TYPE_BOOL) constant = constant != 0;
+        if (width > 8u) width = 8u;
+        for (uint32_t byte = 0u; byte < width; ++byte) {
+            mod->data.data[offset + byte] =
+                (uint8_t)((uint64_t)constant >> (byte * 8u));
+        }
+        return true;
+    }
+    return false;
 }
 
 void codegen_emit_global_data(Module* mod, AST* ast) {
@@ -536,42 +656,11 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         }
         if (size) emit_data(mod, zero, size);
         declaration->var_offset = offset;
-        {
-            int64_t constant;
-            if (declaration->type->kind == TYPE_ARRAY &&
-                declaration->type->base &&
-                declaration->type->base->kind == TYPE_CHAR &&
-                declaration->var_init->kind == EXPR_STRING_LIT) {
-                size_t text_size = strlen(declaration->var_init->str_val) + 1u;
-                size_t copy_size = (size_t)declaration->type->size < text_size
-                    ? (size_t)declaration->type->size : text_size;
-                memcpy(mod->data.data + offset, declaration->var_init->str_val,
-                       copy_size);
-            } else if (declaration->type->kind == TYPE_PTR) {
-                if (!codegen_emit_static_pointer(mod, declaration, offset)) {
-                    rcc_error(declaration->loc,
-                              "unsupported static pointer initializer for '%s'",
-                              declaration->name);
-                }
-            } else if ((type_is_integer(declaration->type) ||
-                        declaration->type->kind == TYPE_ENUM) &&
-                       codegen_static_integer(declaration->var_init,
-                                              &constant)) {
-                if (declaration->type->kind == TYPE_BOOL) {
-                    constant = constant != 0;
-                }
-                uint64_t initial = (uint64_t)constant;
-                uint32_t initial_size = (uint32_t)declaration->type->size;
-                if (initial_size > 8u) initial_size = 8u;
-                for (uint32_t byte = 0u; byte < initial_size; ++byte) {
-                    mod->data.data[offset + byte] =
-                        (uint8_t)(initial >> (byte * 8u));
-                }
-            } else {
-                rcc_error(declaration->loc,
-                          "unsupported static initializer for '%s'",
-                          declaration->name);
-            }
+        if (!codegen_emit_static_initializer(
+                mod, declaration->type, declaration->var_init, offset)) {
+            rcc_error(declaration->loc,
+                      "unsupported static initializer for '%s'",
+                      declaration->name);
         }
         module_add_symbol(mod, declaration->name, offset, true,
                           MODULE_SYMBOL_DATA,
@@ -1505,13 +1594,17 @@ static void gen_expr(Module* mod, Expr* expr) {
 
         case EXPR_INDEX:
             gen_lvalue(mod, expr);
-            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+            if (!expr->type || expr->type->kind != TYPE_ARRAY) {
+                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+            }
             break;
 
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
             gen_lvalue(mod, expr);
-            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+            if (!expr->type || expr->type->kind != TYPE_ARRAY) {
+                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+            }
             break;
 
         case EXPR_CAST:
@@ -1945,32 +2038,120 @@ int codegen_required_local_bytes(Stmt* statement) {
     }
 }
 
-static void gen_local_string_array(Module* mod, Decl* declaration) {
-    size_t storage = (size_t)declaration->type->size;
-    size_t text_size = strlen(declaration->var_init->str_val) + 1u;
+static void gen_zero_local_storage(Module* mod, int32_t displacement,
+                                   size_t storage) {
     size_t offset = 0u;
+    emit_mov_reg_imm(mod, EAX, 0u);
     while (offset + 4u <= storage) {
-        uint32_t packed = 0u;
-        for (size_t byte = 0u; byte < 4u; ++byte) {
-            if (offset + byte < text_size) {
-                packed |= (uint32_t)(uint8_t)
-                    declaration->var_init->str_val[offset + byte]
-                    << (byte * 8u);
-            }
-        }
-        emit_mov_reg_imm(mod, EAX, packed);
-        emit_mov_mem_reg(mod, EBP,
-                         declaration->var_offset + (int32_t)offset, EAX);
+        emit_mov_mem_reg(mod, EBP, displacement + (int32_t)offset, EAX);
         offset += 4u;
     }
     while (offset < storage) {
-        uint8_t byte = offset < text_size
-            ? (uint8_t)declaration->var_init->str_val[offset] : 0u;
-        emit_mov_reg_imm(mod, EAX, byte);
-        emit_mov_mem_reg8(mod, EBP,
-                          declaration->var_offset + (int32_t)offset, EAX);
+        emit_mov_mem_reg8(mod, EBP, displacement + (int32_t)offset, EAX);
         ++offset;
     }
+}
+
+static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
+                                  int32_t displacement) {
+    Expr* string = codegen_character_array_string(type, initializer);
+    if (!type || !initializer) return false;
+    if (string) {
+        size_t storage = (size_t)type->size;
+        size_t text_size = strlen(string->str_val) + 1u;
+        size_t offset = 0u;
+        while (offset + 4u <= storage) {
+            uint32_t packed = 0u;
+            for (size_t byte = 0u; byte < 4u; ++byte) {
+                if (offset + byte < text_size) {
+                    packed |= (uint32_t)(uint8_t)string->str_val[offset + byte]
+                              << (byte * 8u);
+                }
+            }
+            emit_mov_reg_imm(mod, EAX, packed);
+            emit_mov_mem_reg(mod, EBP, displacement + (int32_t)offset, EAX);
+            offset += 4u;
+        }
+        while (offset < storage) {
+            uint8_t byte = offset < text_size
+                ? (uint8_t)string->str_val[offset] : 0u;
+            emit_mov_reg_imm(mod, EAX, byte);
+            emit_mov_mem_reg8(mod, EBP,
+                              displacement + (int32_t)offset, EAX);
+            ++offset;
+        }
+        return true;
+    }
+    if (initializer->kind == EXPR_COMPOUND) {
+        if (type->kind == TYPE_ARRAY) {
+            int64_t cursor = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                int64_t item_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    return false;
+                }
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    cursor = item->designator_index;
+                }
+                if (cursor < 0 || cursor >= type->array_len || !type->base) {
+                    return false;
+                }
+                item_offset = (int64_t)displacement +
+                              cursor * type->base->size;
+                if (item_offset < INT32_MIN || item_offset > INT32_MAX ||
+                    !gen_local_initializer(mod, type->base, item->expr,
+                                           (int32_t)item_offset)) {
+                    return false;
+                }
+                ++cursor;
+            }
+            return true;
+        }
+        if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            TypeField* cursor = type->fields;
+            int initialized = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                TypeField* field = cursor;
+                int64_t field_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    return false;
+                }
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    field = codegen_initializer_field(
+                        type, item->designator_field);
+                }
+                if (!field || (type->kind == TYPE_UNION && initialized != 0)) {
+                    return false;
+                }
+                field_offset = (int64_t)displacement + field->offset;
+                if (field_offset < INT32_MIN || field_offset > INT32_MAX ||
+                    !gen_local_initializer(mod, field->type, item->expr,
+                                           (int32_t)field_offset)) {
+                    return false;
+                }
+                cursor = field->next;
+                ++initialized;
+            }
+            return true;
+        }
+        if (!initializer->compound_init || initializer->compound_init->next ||
+            initializer->compound_init->designator_kind !=
+                INIT_DESIGNATOR_NONE) {
+            return false;
+        }
+        return gen_local_initializer(mod, type,
+                                     initializer->compound_init->expr,
+                                     displacement);
+    }
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+        type->kind != TYPE_PTR) {
+        return false;
+    }
+    gen_expr(mod, initializer);
+    emit_store_typed32(mod, EBP, displacement, EAX, type);
+    return true;
 }
 
 static int break_label = -1;
@@ -2120,14 +2301,18 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_init && d->type &&
-                d->type->kind == TYPE_ARRAY && d->type->base &&
-                d->type->base->kind == TYPE_CHAR &&
-                d->var_init->kind == EXPR_STRING_LIT) {
-                gen_local_string_array(mod, d);
-            } else if (d->kind == DECL_VAR && d->var_init) {
-                gen_expr(mod, d->var_init);
-                emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
+            if (d->kind == DECL_VAR && d->var_init) {
+                if (d->type && (d->type->kind == TYPE_ARRAY ||
+                                d->type->kind == TYPE_STRUCT ||
+                                d->type->kind == TYPE_UNION)) {
+                    gen_zero_local_storage(mod, d->var_offset,
+                                           (size_t)d->type->size);
+                }
+                if (!gen_local_initializer(mod, d->type, d->var_init,
+                                           d->var_offset)) {
+                    rcc_error(d->loc, "unsupported local initializer for '%s'",
+                              d->name);
+                }
             }
             break;
         }

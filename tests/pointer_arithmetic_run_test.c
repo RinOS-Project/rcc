@@ -38,6 +38,7 @@ int main(int argc, char** argv)
     ObjSymbol* local_array_symbol;
     ObjSymbol* large_array_symbol;
     ObjSymbol* aggregate_symbol;
+    ObjSymbol* aggregate_initializer_symbol;
     long page_size;
     size_t mapping_size;
     uint8_t* mapping;
@@ -48,6 +49,7 @@ int main(int argc, char** argv)
     int (*local_array_value)(void);
     int (*large_local_array_value)(void);
     int (*aggregate_parameter_value)(struct LocalAggregate);
+    int (*local_aggregate_initializer_value)(void);
     int values[4] = {1, 2, 3, 4};
     void* address;
 
@@ -62,6 +64,8 @@ int main(int argc, char** argv)
     local_array_symbol = function_symbol(object, "local_array_value");
     large_array_symbol = function_symbol(object, "large_local_array_value");
     aggregate_symbol = function_symbol(object, "aggregate_parameter_value");
+    aggregate_initializer_symbol = function_symbol(
+        object, "local_aggregate_initializer_value");
     page_size = sysconf(_SC_PAGESIZE);
     assert(page_size > 0);
     mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
@@ -88,6 +92,9 @@ int main(int argc, char** argv)
     address = mapping + aggregate_symbol->value;
     memcpy(&aggregate_parameter_value, &address,
            sizeof(aggregate_parameter_value));
+    address = mapping + aggregate_initializer_symbol->value;
+    memcpy(&local_aggregate_initializer_value, &address,
+           sizeof(local_aggregate_initializer_value));
 
     assert(pointer_add(values, 2) == values + 2);
     assert(integer_add(3, values) == values + 3);
@@ -99,6 +106,7 @@ int main(int argc, char** argv)
         struct LocalAggregate value = {10, 20, 3};
         assert(aggregate_parameter_value(value) == 33);
     }
+    assert(local_aggregate_initializer_value() == 244);
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);
