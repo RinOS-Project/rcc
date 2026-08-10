@@ -137,7 +137,8 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
     sym->is_global = is_global;
 }
 
-void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
+void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
+                           uint32_t offset, uint32_t target,
                            bool is_relative, bool is_64bit,
                            const char* symbol_name) {
     /* Expand if needed */
@@ -148,6 +149,7 @@ void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
     }
 
     ModuleReloc* rel = &mod->relocs_arr[mod->reloc_count++];
+    rel->source_section = source_section;
     rel->offset = offset;
     rel->target = target;
     rel->is_relative = is_relative;
@@ -155,7 +157,9 @@ void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
     rel->symbol_name = symbol_name ? rcc_strdup(symbol_name) : NULL;
 }
 
-bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
+bool module_resolve_image_relocation(const Module* mod,
+                                     ModuleSymbolSection source_section,
+                                     uint32_t offset,
                                      bool is_64bit, uint64_t rodata_rva,
                                      uint64_t data_rva, uint64_t bss_rva,
                                      uint64_t* value) {
@@ -166,7 +170,8 @@ bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
     if (!mod || !value) return false;
     for (int index = 0; index < mod->reloc_count; ++index) {
         const ModuleReloc* candidate = &mod->relocs_arr[index];
-        if (candidate->offset == offset && !candidate->is_relative &&
+        if (candidate->source_section == source_section &&
+            candidate->offset == offset && !candidate->is_relative &&
             candidate->is_64bit == is_64bit) {
             if (relocation) return false;
             relocation = candidate;
@@ -196,6 +201,14 @@ bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
     return true;
 }
 
+void module_ensure_rodata_base_symbol(Module* mod) {
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        if (strcmp(mod->symbols[index].name, "__rcc_rodata_base") == 0) return;
+    }
+    module_add_symbol(mod, "__rcc_rodata_base", 0u, true,
+                      MODULE_SYMBOL_RODATA, false);
+}
+
 static Decl* codegen_global_variable(AST* ast, const char* name) {
     Decl* tentative = NULL;
     Decl* external = NULL;
@@ -213,6 +226,75 @@ static Decl* codegen_global_variable(AST* ast, const char* name) {
         }
     }
     return tentative ? tentative : external;
+}
+
+static bool codegen_emit_static_pointer(Module* mod, Decl* declaration,
+                                        uint32_t offset) {
+    Expr* initializer = declaration->var_init;
+    const char* symbol_name = NULL;
+    uint32_t addend = 0u;
+    uint32_t width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+
+    while (initializer && initializer->kind == EXPR_CAST) {
+        initializer = initializer->cast_expr;
+    }
+    if (!initializer || declaration->type->size < (int)width) return false;
+
+    if (initializer->kind == EXPR_STRING_LIT) {
+        addend = emit_string(mod, initializer->str_val);
+        module_ensure_rodata_base_symbol(mod);
+        symbol_name = "__rcc_rodata_base";
+    } else if (initializer->kind == EXPR_ADDR &&
+               initializer->unary_operand) {
+        Expr* addressed = initializer->unary_operand;
+        Decl* target = NULL;
+        if (addressed->kind == EXPR_IDENT) {
+            target = addressed->ident_decl;
+        } else if (addressed->kind == EXPR_INDEX &&
+                   addressed->index_base &&
+                   addressed->index_base->kind == EXPR_IDENT &&
+                   addressed->index_expr &&
+                   addressed->index_expr->kind == EXPR_INT_LIT) {
+            int64_t index = addressed->index_expr->int_val;
+            uint64_t element_size;
+            uint64_t byte_offset;
+            target = addressed->index_base->ident_decl;
+            if (!target || target->kind != DECL_VAR ||
+                !target->var_is_global || !target->type ||
+                target->type->kind != TYPE_ARRAY || !target->type->base ||
+                target->type->base->size <= 0 || index < 0) {
+                return false;
+            }
+            element_size = (uint64_t)target->type->base->size;
+            byte_offset = (uint64_t)index * element_size;
+            if (index != 0 && byte_offset / (uint64_t)index != element_size) {
+                return false;
+            }
+            if (byte_offset > UINT32_MAX) return false;
+            addend = (uint32_t)byte_offset;
+        }
+        if (!target || (target->kind != DECL_FUNC &&
+            (target->kind != DECL_VAR || !target->var_is_global))) {
+            return false;
+        }
+        symbol_name = target->name;
+    } else if (initializer->kind == EXPR_IDENT &&
+               initializer->ident_decl &&
+               (initializer->ident_decl->kind == DECL_FUNC ||
+                (initializer->ident_decl->kind == DECL_VAR &&
+                 initializer->ident_decl->var_is_global &&
+                 initializer->ident_decl->type &&
+                 initializer->ident_decl->type->kind == TYPE_ARRAY))) {
+        symbol_name = initializer->ident_decl->name;
+    } else {
+        return false;
+    }
+
+    module_add_relocation(mod, MODULE_SYMBOL_DATA, offset, addend, false,
+                          width == 8u, symbol_name);
+    add_reloc(mod, MODULE_SYMBOL_DATA, offset,
+              width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    return true;
 }
 
 void codegen_emit_global_data(Module* mod, AST* ast) {
@@ -263,9 +345,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         }
         if (size) emit_data(mod, zero, size);
         declaration->var_offset = offset;
-        if (declaration->var_init &&
-            (declaration->var_init->kind == EXPR_INT_LIT ||
-             declaration->var_init->kind == EXPR_CHAR_LIT)) {
+        if (declaration->var_init->kind == EXPR_INT_LIT ||
+            declaration->var_init->kind == EXPR_CHAR_LIT) {
             uint64_t initial = declaration->var_init->kind == EXPR_INT_LIT
                 ? (uint64_t)declaration->var_init->int_val
                 : (uint64_t)(uint8_t)declaration->var_init->char_val;
@@ -275,6 +356,11 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                 mod->data.data[offset + byte] =
                     (uint8_t)(initial >> (byte * 8u));
             }
+        } else if (declaration->type->kind == TYPE_PTR &&
+                   !codegen_emit_static_pointer(mod, declaration, offset)) {
+            rcc_error(declaration->loc,
+                      "unsupported static pointer initializer for '%s'",
+                      declaration->name);
         }
         module_add_symbol(mod, declaration->name, offset, true,
                           MODULE_SYMBOL_DATA,
@@ -343,8 +429,10 @@ uint32_t emit_data(Module* mod, const void* data, size_t len) {
  * Relocations
  * ═══════════════════════════════════════ */
 
-void add_reloc(Module* mod, uint32_t offset, uint32_t type) {
+void add_reloc(Module* mod, ModuleSymbolSection source_section,
+               uint32_t offset, uint32_t type) {
     Reloc* r = rcc_alloc(sizeof(Reloc));
+    r->source_section = source_section;
     r->offset = offset;
     r->type = type;
     r->symbol = NULL;
@@ -717,17 +805,11 @@ static void gen_stmt(Module* mod, Stmt* stmt);
 static void gen_symbol_address(Module* mod, const char* symbol,
                                uint32_t addend) {
     emit_mov_reg_imm(mod, EAX, 0u);
-    module_add_relocation(mod, code_offset(mod) - 4u, addend,
+    module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                          code_offset(mod) - 4u, addend,
                           false, false, symbol);
-    add_reloc(mod, code_offset(mod) - 4u, RIN_RELOC_ABS32);
-}
-
-static void gen_ensure_rodata_base_symbol(Module* mod) {
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name, "__rcc_rodata_base") == 0) return;
-    }
-    module_add_symbol(mod, "__rcc_rodata_base", 0u, true,
-                      MODULE_SYMBOL_RODATA, false);
+    add_reloc(mod, MODULE_SYMBOL_CODE, code_offset(mod) - 4u,
+              RIN_RELOC_ABS32);
 }
 
 /* Generate lvalue address in EAX */
@@ -801,7 +883,7 @@ static void gen_expr(Module* mod, Expr* expr) {
 
         case EXPR_STRING_LIT: {
             uint32_t offset = emit_string(mod, expr->str_val);
-            gen_ensure_rodata_base_symbol(mod);
+            module_ensure_rodata_base_symbol(mod);
             gen_symbol_address(mod, "__rcc_rodata_base", offset);
             break;
         }
@@ -1090,7 +1172,8 @@ static void gen_expr(Module* mod, Expr* expr) {
                     emit_byte(mod, 0x15);
                     call_offset = code_offset(mod);
                     emit_dword(mod, 0u);
-                    module_add_relocation(mod, call_offset, 0, false, false,
+                    module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                                          call_offset, 0, false, false,
                                           func_decl->name);
                 }
             } else {

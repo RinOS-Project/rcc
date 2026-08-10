@@ -522,8 +522,10 @@ int main(int argc, char** argv) {
     } else {
         mod = rcc_codegen(ast);
     }
-    if (!mod) {
-        fprintf(stderr, "rcc: code generation failed\n");
+    if (!mod || g_error_count > 0) {
+        fprintf(stderr, "rcc: code generation failed with %d error(s)\n",
+                g_error_count);
+        if (mod) codegen_free(mod);
         tokenlist_free(tokens);
         return 1;
     }

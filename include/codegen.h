@@ -32,9 +32,17 @@ typedef struct {
 #define RIN_RELOC_ABS32 1
 #define RIN_RELOC_ABS64 2
 
+typedef enum ModuleSymbolSection {
+    MODULE_SYMBOL_CODE,
+    MODULE_SYMBOL_RODATA,
+    MODULE_SYMBOL_DATA,
+    MODULE_SYMBOL_BSS,
+} ModuleSymbolSection;
+
 /* Relocation entry */
 typedef struct Reloc {
-    uint32_t offset;        /* Offset in code section */
+    ModuleSymbolSection source_section;
+    uint32_t offset;        /* Offset in source section */
     uint32_t type;          /* Relocation type */
     const char* symbol;     /* Symbol name (for imports) */
     struct Reloc* next;
@@ -46,13 +54,6 @@ typedef struct StringLit {
     uint32_t offset;        /* Offset in read-only data section */
     struct StringLit* next;
 } StringLit;
-
-typedef enum ModuleSymbolSection {
-    MODULE_SYMBOL_CODE,
-    MODULE_SYMBOL_RODATA,
-    MODULE_SYMBOL_DATA,
-    MODULE_SYMBOL_BSS,
-} ModuleSymbolSection;
 
 /* Module symbol entry (for object files) */
 typedef struct ModuleSymbol {
@@ -66,6 +67,7 @@ typedef struct ModuleSymbol {
 
 /* Module relocation entry (for object files) */
 typedef struct ModuleReloc {
+    ModuleSymbolSection source_section;
     uint32_t offset;
     uint32_t target;
     bool is_relative;
@@ -110,7 +112,8 @@ uint32_t emit_string(Module* mod, const char* str);
 uint32_t emit_data(Module* mod, const void* data, size_t len);
 
 /* Relocations */
-void add_reloc(Module* mod, uint32_t offset, uint32_t type);
+void add_reloc(Module* mod, ModuleSymbolSection source_section,
+               uint32_t offset, uint32_t type);
 
 /* Current code offset */
 uint32_t code_offset(Module* mod);
@@ -122,13 +125,17 @@ Module* rcc_codegen64(AST* ast);
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
                        bool is_defined, ModuleSymbolSection section,
                        bool is_global);
-void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
+void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
+                          uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,
                           const char* symbol_name);
-bool module_resolve_image_relocation(const Module* mod, uint32_t offset,
+bool module_resolve_image_relocation(const Module* mod,
+                                     ModuleSymbolSection source_section,
+                                     uint32_t offset,
                                      bool is_64bit, uint64_t rodata_rva,
                                      uint64_t data_rva, uint64_t bss_rva,
                                      uint64_t* value);
+void module_ensure_rodata_base_symbol(Module* mod);
 void codegen_emit_global_data(Module* mod, AST* ast);
 
 /* Object file output */

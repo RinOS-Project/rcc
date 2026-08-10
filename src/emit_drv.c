@@ -17,6 +17,37 @@ static int drv_relocation_compare(const void* left, const void* right) {
            a->virtual_address > b->virtual_address ? 1 : 0;
 }
 
+static bool drv_relocation_source(const Module* mod,
+                                  ModuleSymbolSection source_section,
+                                  uint64_t rodata_rva, uint64_t data_rva,
+                                  uint64_t code_file_offset,
+                                  uint64_t rodata_file_offset,
+                                  uint64_t data_file_offset,
+                                  uint64_t* source_rva,
+                                  uint64_t* source_file_offset,
+                                  uint64_t* source_size) {
+    switch (source_section) {
+        case MODULE_SYMBOL_CODE:
+            *source_rva = 0u;
+            *source_file_offset = code_file_offset;
+            *source_size = mod->code.size;
+            return true;
+        case MODULE_SYMBOL_RODATA:
+            *source_rva = rodata_rva;
+            *source_file_offset = rodata_file_offset;
+            *source_size = mod->rodata.size;
+            return true;
+        case MODULE_SYMBOL_DATA:
+            *source_rva = data_rva;
+            *source_file_offset = data_file_offset;
+            *source_size = mod->data.size;
+            return true;
+        case MODULE_SYMBOL_BSS:
+        default:
+            return false;
+    }
+}
+
 static void driver_name(const char* path, char* output, size_t capacity) {
     const char* base = path;
     const char* cursor;
@@ -211,13 +242,24 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         for (source_relocation = mod->relocs; source_relocation;
              source_relocation = source_relocation->next) {
             uint64_t width = source_relocation->type == RIN_RELOC_ABS64 ? 8u : 4u;
-            if ((uint64_t)source_relocation->offset + width > mod->code.size ||
+            uint64_t source_rva;
+            uint64_t source_file_offset;
+            uint64_t source_size;
+            if (!drv_relocation_source(mod, source_relocation->source_section,
+                                       rodata_rva, data_rva,
+                                       code_file_offset, rodata_file_offset,
+                                       data_file_offset, &source_rva,
+                                       &source_file_offset, &source_size) ||
+                source_relocation->offset > source_size ||
+                width > source_size - source_relocation->offset ||
                 (g_opts.target_arch == ARCH_X86 && width != 4u)) {
                 rcc_error((SourceLoc){outfile, 0, 0}, "invalid NDRV v3 relocation");
                 rcc_free(relocations);
                 return false;
             }
-            relocations[relocation_index].virtual_address = source_relocation->offset;
+            (void)source_file_offset;
+            relocations[relocation_index].virtual_address =
+                source_rva + source_relocation->offset;
             relocations[relocation_index].type = width == 8u
                 ? RIN_IMAGE_RELOCATION_ABS64 : RIN_IMAGE_RELOCATION_ABS32U;
             ++relocation_index;
@@ -258,8 +300,18 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     for (source_relocation = mod->relocs; source_relocation;
          source_relocation = source_relocation->next) {
         uint64_t resolved;
+        uint64_t source_rva;
+        uint64_t source_file_offset;
+        uint64_t source_size;
         bool is_64bit = source_relocation->type == RIN_RELOC_ABS64;
-        if (!module_resolve_image_relocation(mod, source_relocation->offset,
+        if (!drv_relocation_source(mod, source_relocation->source_section,
+                                   rodata_rva, data_rva, code_file_offset,
+                                   rodata_file_offset, data_file_offset,
+                                   &source_rva, &source_file_offset,
+                                   &source_size) ||
+            !module_resolve_image_relocation(mod,
+                                             source_relocation->source_section,
+                                             source_relocation->offset,
                                              is_64bit, rodata_rva, data_rva,
                                              bss_rva,
                                              &resolved)) {
@@ -270,8 +322,10 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
             rcc_free(output);
             return false;
         }
+        (void)source_rva;
+        (void)source_size;
         if (source_relocation->type == RIN_RELOC_ABS64) {
-            memcpy(output + code_file_offset + source_relocation->offset,
+            memcpy(output + source_file_offset + source_relocation->offset,
                    &resolved, sizeof(resolved));
         } else {
             uint32_t value;
@@ -282,7 +336,8 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
                 return false;
             }
             value = (uint32_t)resolved;
-            memcpy(output + code_file_offset + source_relocation->offset, &value, 4u);
+            memcpy(output + source_file_offset + source_relocation->offset,
+                   &value, 4u);
         }
     }
     if (relocation_count > 0u) {

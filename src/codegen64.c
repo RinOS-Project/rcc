@@ -574,17 +574,11 @@ static void gen64_stmt(Module* mod, Stmt* stmt);
 static void gen64_symbol_address(Module* mod, const char* symbol,
                                  uint32_t addend) {
     emit64_mov_reg_imm64(mod, RAX, 0u);
-    module_add_relocation(mod, code_offset(mod) - 8u, addend,
+    module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                          code_offset(mod) - 8u, addend,
                           false, true, symbol);
-    add_reloc(mod, code_offset(mod) - 8u, RIN_RELOC_ABS64);
-}
-
-static void gen64_ensure_rodata_base_symbol(Module* mod) {
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name, "__rcc_rodata_base") == 0) return;
-    }
-    module_add_symbol(mod, "__rcc_rodata_base", 0u, true,
-                      MODULE_SYMBOL_RODATA, false);
+    add_reloc(mod, MODULE_SYMBOL_CODE, code_offset(mod) - 8u,
+              RIN_RELOC_ABS64);
 }
 
 /* Generate lvalue address in RAX */
@@ -652,7 +646,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
 
         case EXPR_STRING_LIT: {
             uint32_t offset = emit_string(mod, expr->str_val);
-            gen64_ensure_rodata_base_symbol(mod);
+            module_ensure_rodata_base_symbol(mod);
             gen64_symbol_address(mod, "__rcc_rodata_base", offset);
             break;
         }
@@ -969,7 +963,8 @@ static void gen64_expr(Module* mod, Expr* expr) {
                     emit_byte(mod, 0x15);
                     call_offset = code_offset(mod);
                     emit_dword(mod, 0u);
-                    module_add_relocation(mod, call_offset, 0u, true, false,
+                    module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                                          call_offset, 0u, true, false,
                                           function->name);
                 }
             } else {

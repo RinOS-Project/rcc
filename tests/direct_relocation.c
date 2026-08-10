@@ -7,6 +7,11 @@ int second_value;
 extern int zero_value;
 int zero_value;
 int zero_value;
+int static_values[2];
+char* static_literal = "StaticRinOS";
+int* static_zero = &zero_value;
+int* static_second = &static_values[1];
+int (*static_target)(void) = &target;
 
 int target(void)
 {
@@ -31,5 +36,6 @@ char* literal_address(void)
 int main(void)
 {
     return *(&second_value) + *zero_address() + (target_address() != 0) +
-           (literal_address() != 0);
+           (literal_address() != 0) + (static_literal[0] == 'S') +
+           *static_zero + *static_second + (static_target() != 0);
 }

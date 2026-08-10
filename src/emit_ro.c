@@ -807,8 +807,28 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     /* Add relocations */
     for (int i = 0; i < mod->reloc_count; i++) {
         ModuleReloc* mr = &mod->relocs_arr[i];
+        int source_section = mr->source_section == MODULE_SYMBOL_CODE ? 0
+            : mr->source_section == MODULE_SYMBOL_RODATA ? rodata_section
+            : mr->source_section == MODULE_SYMBOL_DATA ? data_section
+            : -1;
+        uint64_t source_size = mr->source_section == MODULE_SYMBOL_CODE
+            ? mod->code.size
+            : mr->source_section == MODULE_SYMBOL_RODATA
+                ? mod->rodata.size
+                : mr->source_section == MODULE_SYMBOL_DATA
+                    ? mod->data.size : 0u;
+        uint64_t relocation_width = mr->is_relative || !mr->is_64bit
+            ? 4u : 8u;
         RelocType type = mr->is_relative ? RELOC_REL32 :
             (mr->is_64bit ? RELOC_ABS64 : RELOC_ABS32U);
+
+        if (source_section < 0 || mr->offset > source_size ||
+            relocation_width > source_size - mr->offset) {
+            rcc_error((SourceLoc){filename, 0, 0},
+                      "invalid relocation source section or offset");
+            objfile_free(obj);
+            return NULL;
+        }
 
         /* Use symbol name directly if available */
         const char* sym_name = mr->symbol_name;
@@ -832,8 +852,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         }
 
         if (sym_name) {
-            objfile_add_reloc(obj, 0, mr->offset, sym_name, type,
-                              (int32_t)mr->target);
+            objfile_add_reloc(obj, source_section, mr->offset, sym_name, type,
+                              (int64_t)mr->target);
         }
     }
 

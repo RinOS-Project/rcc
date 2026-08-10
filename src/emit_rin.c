@@ -17,6 +17,37 @@ static int compare_relocation(const void* left, const void* right) {
     return 0;
 }
 
+static bool relocation_source(const Module* mod,
+                              ModuleSymbolSection source_section,
+                              uint64_t rodata_rva, uint64_t data_rva,
+                              uint64_t code_file_offset,
+                              uint64_t rodata_file_offset,
+                              uint64_t data_file_offset,
+                              uint64_t* source_rva,
+                              uint64_t* source_file_offset,
+                              uint64_t* source_size) {
+    switch (source_section) {
+        case MODULE_SYMBOL_CODE:
+            *source_rva = 0u;
+            *source_file_offset = code_file_offset;
+            *source_size = mod->code.size;
+            return true;
+        case MODULE_SYMBOL_RODATA:
+            *source_rva = rodata_rva;
+            *source_file_offset = rodata_file_offset;
+            *source_size = mod->rodata.size;
+            return true;
+        case MODULE_SYMBOL_DATA:
+            *source_rva = data_rva;
+            *source_file_offset = data_file_offset;
+            *source_size = mod->data.size;
+            return true;
+        case MODULE_SYMBOL_BSS:
+        default:
+            return false;
+    }
+}
+
 static uint32_t append_name(char* strings, uint32_t* size, const char* name) {
     uint32_t offset = *size;
     size_t length = strlen(name) + 1u;
@@ -185,13 +216,24 @@ bool rcc_emit(Module* mod, const char* outfile) {
         relocations = rcc_alloc((size_t)relocation_section->file_size);
         for (relocation = mod->relocs; relocation; relocation = relocation->next) {
             uint64_t width = relocation->type == RIN_RELOC_ABS64 ? 8u : 4u;
-            if ((uint64_t)relocation->offset + width > mod->code.size ||
+            uint64_t source_rva;
+            uint64_t source_file_offset;
+            uint64_t source_size;
+            if (!relocation_source(mod, relocation->source_section,
+                                   rodata_rva, data_rva, code_file_offset,
+                                   rodata_file_offset, data_file_offset,
+                                   &source_rva, &source_file_offset,
+                                   &source_size) ||
+                relocation->offset > source_size ||
+                width > source_size - relocation->offset ||
                 (g_opts.target_arch == ARCH_X86 && width != 4u)) {
                 rcc_error((SourceLoc){outfile, 0, 0}, "invalid target relocation in RIN v3 output");
                 rcc_free(relocations);
                 return false;
             }
-            relocations[relocation_index].virtual_address = relocation->offset;
+            (void)source_file_offset;
+            relocations[relocation_index].virtual_address =
+                source_rva + relocation->offset;
             relocations[relocation_index].type = width == 8u
                 ? RIN_IMAGE_RELOCATION_ABS64 : RIN_IMAGE_RELOCATION_ABS32U;
             ++relocation_index;
@@ -224,20 +266,32 @@ bool rcc_emit(Module* mod, const char* outfile) {
     }
     for (relocation = mod->relocs; relocation; relocation = relocation->next) {
         uint64_t resolved;
+        uint64_t source_rva;
+        uint64_t source_file_offset;
+        uint64_t source_size;
         bool is_64bit = relocation->type == RIN_RELOC_ABS64;
-        if (!module_resolve_image_relocation(mod, relocation->offset,
+        if (!relocation_source(mod, relocation->source_section,
+                               rodata_rva, data_rva, code_file_offset,
+                               rodata_file_offset, data_file_offset,
+                               &source_rva, &source_file_offset,
+                               &source_size) ||
+            !module_resolve_image_relocation(mod,
+                                             relocation->source_section,
+                                             relocation->offset,
                                              is_64bit, rodata_rva, data_rva,
                                              bss_rva,
                                              &resolved)) {
             rcc_error((SourceLoc){outfile, 0, 0},
-                      "unresolved direct-image relocation at code offset %u",
+                      "unresolved direct-image relocation at section offset %u",
                       relocation->offset);
             rcc_free(relocations);
             rcc_free(output);
             return false;
         }
+        (void)source_rva;
+        (void)source_size;
         if (relocation->type == RIN_RELOC_ABS64) {
-            memcpy(output + code_file_offset + relocation->offset,
+            memcpy(output + source_file_offset + relocation->offset,
                    &resolved, sizeof(resolved));
         } else {
             uint32_t value;
@@ -248,7 +302,8 @@ bool rcc_emit(Module* mod, const char* outfile) {
                 return false;
             }
             value = (uint32_t)resolved;
-            memcpy(output + code_file_offset + relocation->offset, &value, sizeof(value));
+            memcpy(output + source_file_offset + relocation->offset,
+                   &value, sizeof(value));
         }
     }
     if (relocation_count > 0u) {
