@@ -155,6 +155,11 @@ struct CxxTemplate {
 
     bool is_constexpr;
     bool is_noexcept;
+    enum {
+        TMPL_FUNCTION_NONE,
+        TMPL_FUNCTION_VERSIONED_STRUCT,
+    } function_lowering;
+    int64_t function_constant;
 
     /* Alternate storage for parsed class (used by parser_cxx.c) */
     CxxClass* templated_class;
@@ -262,5 +267,7 @@ AST* rcc_parse_cxx(struct TokenList* tokens);
  * followed by direct-list initialization.  Returns NULL without consuming
  * tokens when the current spelling is not such a type. */
 Type* rcc_parse_cxx_direct_list_type(void);
+Expr* rcc_parse_cxx_template_call(void);
+Stmt* rcc_parse_cxx_auto_local_declaration(void);
 
 #endif /* AST_CXX_H */

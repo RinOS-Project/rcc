@@ -918,16 +918,16 @@ static DeclList* parse_cxx_parameter_declarations(void) {
 }
 
 /* Header-only SDK functions are emitted eagerly today.  Parse only bodies
- * made from the common C/C++ expression subset; dependent auto deduction and
+ * made from the common C/C++ expression subset; template definitions and
  * exception/allocation constructs stay deferred instead of being assigned a
- * guessed meaning. */
+ * guessed meaning.  Local auto declarations are accepted because their
+ * initializer must provide a concrete type before parsing can continue. */
 static bool inline_body_is_lowerable(void) {
     Token* cursor = parser.cur;
     int depth = 0;
     if (!cursor || cursor->type != TOK_LBRACE) return false;
     do {
         switch (cursor->type) {
-            case TOK_AUTO:
             case TOK_TEMPLATE:
             case TOK_TRY:
             case TOK_THROW:
@@ -1011,6 +1011,128 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
  * C++ Template Parsing
  * ═══════════════════════════════════════ */
 
+static bool template_type_parameter_matches(CxxTemplate* tmpl, Type* type,
+                                            int parameter_index) {
+    TemplateParam* parameter;
+    if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag ||
+        parameter_index < 0 || parameter_index >= tmpl->param_count) {
+        return false;
+    }
+    parameter = &tmpl->params[parameter_index];
+    return parameter->kind == TPARAM_TYPE && parameter->name &&
+           strcmp(parameter->name, type->tag) == 0;
+}
+
+static bool expression_is_identifier(Expr* expression, const char* name) {
+    return expression && expression->kind == EXPR_IDENT && name &&
+           expression->ident_name &&
+           strcmp(expression->ident_name, name) == 0;
+}
+
+static bool expression_is_member_of(Expr* expression, const char* object,
+                                    const char* member) {
+    return expression && expression->kind == EXPR_MEMBER && member &&
+           expression->member_name &&
+           strcmp(expression->member_name, member) == 0 &&
+           expression_is_identifier(expression->member_base, object);
+}
+
+static bool expression_is_template_sizeof(CxxTemplate* tmpl,
+                                           Expr* expression,
+                                           int parameter_index) {
+    TemplateParam* parameter;
+    if (!tmpl || !expression || expression->kind != EXPR_SIZEOF ||
+        parameter_index < 0 || parameter_index >= tmpl->param_count) {
+        return false;
+    }
+    parameter = &tmpl->params[parameter_index];
+    if (expression->sizeof_type) {
+        return template_type_parameter_matches(tmpl, expression->sizeof_type,
+                                               parameter_index);
+    }
+    return parameter->name &&
+           expression_is_identifier(expression->unary_operand,
+                                    parameter->name);
+}
+
+/* Recognize only the ABI initializer idiom used by RinSDK.  Keeping this
+ * structural, rather than interpreting arbitrary function-template bodies,
+ * makes an accepted specialization equivalent to a designated value
+ * initializer in the common C AST:
+ *
+ *   T value{};
+ *   value.struct_size = sizeof(T);
+ *   value.version = <integer constant>;
+ *   return value;
+ */
+static void recognize_versioned_function_template(CxxTemplate* tmpl) {
+    Decl* function;
+    StmtList* statements;
+    Stmt* declaration;
+    Stmt* size_assignment;
+    Stmt* version_assignment;
+    Stmt* result;
+    const char* variable;
+    int64_t version;
+
+    if (!tmpl || tmpl->kind != TMPL_FUNCTION || tmpl->param_count != 1 ||
+        tmpl->params[0].kind != TPARAM_TYPE) {
+        return;
+    }
+    function = tmpl->func_def;
+    if (!function || function->kind != DECL_FUNC || !function->type ||
+        function->type->kind != TYPE_FUNC || function->func_params ||
+        !template_type_parameter_matches(tmpl, function->type->ret_type, 0) ||
+        !function->func_body || function->func_body->kind != STMT_BLOCK) {
+        return;
+    }
+    statements = function->func_body->block_stmts;
+    if (!statements || !statements->next || !statements->next->next ||
+        !statements->next->next->next ||
+        statements->next->next->next->next) {
+        return;
+    }
+    declaration = statements->stmt;
+    size_assignment = statements->next->stmt;
+    version_assignment = statements->next->next->stmt;
+    result = statements->next->next->next->stmt;
+    if (!declaration || declaration->kind != STMT_DECL ||
+        !declaration->decl || declaration->decl->kind != DECL_VAR ||
+        !declaration->decl->name ||
+        !template_type_parameter_matches(tmpl, declaration->decl->type, 0) ||
+        !declaration->decl->var_init ||
+        declaration->decl->var_init->kind != EXPR_COMPOUND ||
+        !declaration->decl->var_init->compound_value_init ||
+        declaration->decl->var_init->compound_init) {
+        return;
+    }
+    variable = declaration->decl->name;
+    if (!size_assignment || size_assignment->kind != STMT_EXPR ||
+        !size_assignment->expr || size_assignment->expr->kind != EXPR_ASSIGN ||
+        !expression_is_member_of(size_assignment->expr->binary_lhs, variable,
+                                 "struct_size") ||
+        !expression_is_template_sizeof(tmpl,
+                                       size_assignment->expr->binary_rhs, 0)) {
+        return;
+    }
+    if (!version_assignment || version_assignment->kind != STMT_EXPR ||
+        !version_assignment->expr ||
+        version_assignment->expr->kind != EXPR_ASSIGN ||
+        !expression_is_member_of(version_assignment->expr->binary_lhs,
+                                 variable, "version") ||
+        !expr_eval_integer_constant(version_assignment->expr->binary_rhs,
+                                    &version) ||
+        version < 0 || (uint64_t)version > UINT32_MAX) {
+        return;
+    }
+    if (!result || result->kind != STMT_RETURN ||
+        !expression_is_identifier(result->return_val, variable)) {
+        return;
+    }
+    tmpl->function_lowering = TMPL_FUNCTION_VERSIONED_STRUCT;
+    tmpl->function_constant = version;
+}
+
 CxxTemplate* parse_cxx_template(void) {
     SourceLoc loc = previous()->loc;
 
@@ -1079,6 +1201,7 @@ CxxTemplate* parse_cxx_template(void) {
         if (tmpl->func_def) {
             tmpl->name = ast_arena_strdup(tmpl->func_def->name);
         }
+        recognize_versioned_function_template(tmpl);
     }
 
     return tmpl;
@@ -1102,7 +1225,8 @@ static CxxTemplate* namespace_template(CxxNamespace* ns,
     return NULL;
 }
 
-static CxxTemplate* find_class_template(const char* qualified_name) {
+static CxxTemplate* find_template(const char* qualified_name,
+                                  int kind) {
     char buffer[512];
     char* component;
     char* next;
@@ -1115,10 +1239,10 @@ static CxxTemplate* find_class_template(const char* qualified_name) {
     if (!strstr(name, "::")) {
         for (ns = active_namespace; ns; ns = ns->parent) {
             result = namespace_template(ns, name);
-            if (result && result->kind == TMPL_CLASS) return result;
+            if (result && (int)result->kind == kind) return result;
         }
         result = namespace_template(g_global_namespace, name);
-        return result && result->kind == TMPL_CLASS ? result : NULL;
+        return result && (int)result->kind == kind ? result : NULL;
     }
 
     if (strlen(name) >= sizeof(buffer)) return NULL;
@@ -1134,7 +1258,15 @@ static CxxTemplate* find_class_template(const char* qualified_name) {
         component = next + 2;
     }
     result = namespace_template(ns, component);
-    return result && result->kind == TMPL_CLASS ? result : NULL;
+    return result && (int)result->kind == kind ? result : NULL;
+}
+
+static CxxTemplate* find_class_template(const char* qualified_name) {
+    return find_template(qualified_name, TMPL_CLASS);
+}
+
+static CxxTemplate* find_function_template(const char* qualified_name) {
+    return find_template(qualified_name, TMPL_FUNCTION);
 }
 
 static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
@@ -1397,6 +1529,89 @@ Type* rcc_parse_cxx_direct_list_type(void) {
     return type;
 }
 
+static TypeField* versioned_public_integer_field(Type* type,
+                                                const char* name) {
+    TypeField* field;
+    if (!type || !name) return NULL;
+    for (field = type->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) {
+            if (field->cxx_access != 0 || !field->type ||
+                (!type_is_integer(field->type) &&
+                 field->type->kind != TYPE_ENUM)) {
+                return NULL;
+            }
+            return field;
+        }
+    }
+    return NULL;
+}
+
+Expr* rcc_parse_cxx_template_call(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    SourceLoc loc = peek()->loc;
+    const char* name;
+    CxxTemplate* tmpl;
+    Type* argument;
+    TypeField* size_field;
+    TypeField* version_field;
+    ExprList* items = NULL;
+    Expr* initializer;
+
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    name = parse_qualified_name();
+    tmpl = check(TOK_LT) ? find_function_template(name) : NULL;
+    if (!tmpl ||
+        tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+
+    expect(TOK_LT, "<");
+    argument = parse_cxx_type_spec();
+    if (match(TOK_COMMA)) {
+        rcc_error(loc, "versioned structure template requires one type argument");
+        while (!check(TOK_GT) && !at_end()) advance();
+    }
+    expect(TOK_GT, ">");
+    if (!match(TOK_LPAREN)) {
+        rcc_error(loc, "versioned structure specialization must be called");
+        return expr_int(0, loc);
+    }
+    if (!check(TOK_RPAREN)) {
+        rcc_error(loc, "versioned structure template takes no arguments");
+        while (!check(TOK_RPAREN) && !at_end()) advance();
+    }
+    expect(TOK_RPAREN, ")");
+
+    if (!argument || argument->kind != TYPE_STRUCT ||
+        !type_is_complete(argument) || argument->size <= 0) {
+        rcc_error(loc,
+                  "versioned structure template requires a complete public "
+                  "struct with integer struct_size and version fields");
+        return expr_int(0, loc);
+    }
+    size_field = versioned_public_integer_field(argument, "struct_size");
+    version_field = versioned_public_integer_field(argument, "version");
+    if (!size_field || !version_field || size_field == version_field) {
+        rcc_error(loc,
+                  "versioned structure template requires a complete public "
+                  "struct with integer struct_size and version fields");
+        return expr_int(0, loc);
+    }
+
+    exprlist_append_designated(&items, expr_int(argument->size, loc),
+                               INIT_DESIGNATOR_FIELD, 0, "struct_size");
+    exprlist_append_designated(&items,
+                               expr_int(tmpl->function_constant, loc),
+                               INIT_DESIGNATOR_FIELD, 0, "version");
+    initializer = expr_initializer_list(items, loc);
+    initializer->compound_type = argument;
+    initializer->type = argument;
+    return initializer;
+}
+
 static Type* parse_cxx_type_spec(void) {
     SourceLoc loc = peek()->loc;
     Type* t = NULL;
@@ -1560,10 +1775,10 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     Type* type;
     Token* name;
     Expr* initializer = NULL;
+    bool is_auto = match(TOK_AUTO);
 
-    if (match(TOK_AUTO)) {
-        /* Deduction is deferred until template instantiation. */
-        type = type_int;
+    if (is_auto) {
+        type = NULL;
     } else {
         type = parse_cxx_type_spec();
     }
@@ -1571,16 +1786,54 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     if (!name) return NULL;
     if (match(TOK_ASSIGN)) {
         if (check(TOK_LBRACE)) {
-            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+            if (check_next(TOK_RBRACE)) {
+                SourceLoc initializer_loc = peek()->loc;
+                advance();
+                advance();
+                initializer = expr_initializer_list(NULL, initializer_loc);
+                initializer->compound_type = type;
+                initializer->type = type;
+                initializer->compound_value_init = true;
+            } else {
+                skip_balanced(TOK_LBRACE, TOK_RBRACE);
+            }
         } else {
             initializer = parse_cxx_expression();
         }
     } else if (check(TOK_LBRACE)) {
-        skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        if (check_next(TOK_RBRACE)) {
+            SourceLoc initializer_loc = peek()->loc;
+            advance();
+            advance();
+            initializer = expr_initializer_list(NULL, initializer_loc);
+            initializer->compound_type = type;
+            initializer->type = type;
+            initializer->compound_value_init = true;
+        } else {
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        }
+    }
+    if (is_auto) {
+        Type* deduced = initializer ? initializer->type : NULL;
+        if (!deduced && initializer && initializer->kind == EXPR_COMPOUND) {
+            deduced = initializer->compound_type;
+        }
+        if (!deduced) {
+            rcc_error(loc,
+                      "auto local initializer type is not immediately known");
+            type = type_int;
+        } else {
+            type = deduced;
+        }
     }
     expect(TOK_SEMICOLON, ";");
     return stmt_decl(decl_var(name->value.str_val, type, initializer, loc),
                      loc);
+}
+
+Stmt* rcc_parse_cxx_auto_local_declaration(void) {
+    if (!check(TOK_AUTO)) return NULL;
+    return parse_cxx_dependent_local_declaration();
 }
 
 static Stmt* parse_cxx_statement(void) {

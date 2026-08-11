@@ -1,5 +1,6 @@
 typedef unsigned long long uint64_t;
 typedef unsigned long uintptr_t;
+typedef unsigned int uint32_t;
 
 typedef struct RinSliceV1 {
     uint64_t address;
@@ -9,6 +10,12 @@ typedef struct RinSliceV1 {
 struct CxxPair final {
     int first;
     int second;
+};
+
+struct CxxVersioned final {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t payload;
 };
 
 class CxxBox final {
@@ -51,6 +58,14 @@ static CxxPair make_cxx_pair(int first, int second) {
 }
 
 namespace rin {
+
+template<typename T>
+constexpr T versioned() noexcept {
+    T value{};
+    value.struct_size = sizeof(T);
+    value.version = 7;
+    return value;
+}
 
 inline int read_int_reference(const int& value) noexcept {
     return value;
@@ -104,6 +119,12 @@ int cxx_local_value_init(void) {
 int cxx_scalar_value_init(void) {
     uint64_t value{};
     return value == 0;
+}
+
+int cxx_versioned_template_value(void) {
+    auto value = rin::versioned<CxxVersioned>();
+    if (value.payload != 0) return -1;
+    return value.struct_size * 100 + value.version;
 }
 
 int cxx_class_aggregate_init(int first, int second) {

@@ -19,6 +19,12 @@ typedef struct RinSliceV1 {
     uint64_t size;
 } RinSliceV1;
 
+typedef struct CxxVersioned {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t payload;
+} CxxVersioned;
+
 typedef RinSliceV1 (*reference_copy_function)(const RinSliceV1*);
 
 static ObjSection* code_section(ObjectFile* object)
@@ -49,6 +55,7 @@ int main(int argc, char** argv)
     nullary_function direct_value_init;
     nullary_function local_value_init;
     nullary_function scalar_value_init;
+    nullary_function versioned_template_value;
     binary_function class_aggregate_init;
     typedef int (*unary_function)(int);
     unary_function lowered_constructor_init;
@@ -86,6 +93,8 @@ int main(int argc, char** argv)
                   "cxx_local_value_init");
     LOAD_FUNCTION(scalar_value_init, object, mapping,
                   "cxx_scalar_value_init");
+    LOAD_FUNCTION(versioned_template_value, object, mapping,
+                  "cxx_versioned_template_value");
     LOAD_FUNCTION(class_aggregate_init, object, mapping,
                   "cxx_class_aggregate_init");
     LOAD_FUNCTION(lowered_constructor_init, object, mapping,
@@ -106,6 +115,8 @@ int main(int argc, char** argv)
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
+    assert(versioned_template_value() ==
+           (int)(sizeof(CxxVersioned) * 100u + 7u));
     assert(class_aggregate_init(4, 7) == 4774);
     assert(lowered_constructor_init(9) == 90);
     assert(inline_accessor(7) == 70);

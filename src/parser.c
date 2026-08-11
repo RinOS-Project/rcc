@@ -851,6 +851,14 @@ static Expr* parse_primary(void) {
         parser_builtin_name("__builtin_va_arg")) {
         return parse_builtin_vararg(loc);
     }
+    /* A small, structurally validated set of C++ function templates can be
+     * expanded directly to the common expression AST.  The hook restores the
+     * token cursor when the current spelling is not one of those templates. */
+    if (parser_cxx_mode &&
+        (check(TOK_IDENT) || check(TOK_SCOPE))) {
+        Expr* template_call = rcc_parse_cxx_template_call();
+        if (template_call) return template_call;
+    }
     /* C++ aggregate direct-list initialization has the same storage and
      * initializer semantics as the compound-literal node already used by
      * the C backend.  Restrict this lowering to registered, complete C ABI
@@ -2061,6 +2069,11 @@ Stmt* parse_declaration(void) {
     Type* base_type;
     Type* type;
     Decl* declaration;
+
+    if (parser_cxx_mode && check(TOK_AUTO)) {
+        Stmt* auto_declaration = rcc_parse_cxx_auto_local_declaration();
+        if (auto_declaration) return auto_declaration;
+    }
 
     if (check(TOK_STATIC_ASSERT)) {
         SourceLoc assertion_loc = advance()->loc;

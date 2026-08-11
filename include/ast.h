@@ -138,6 +138,8 @@ uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type);
 void rcc_parser_validate_cxx_constructor_initializer(Type* type,
                                                      Expr* initializer);
 Type* rcc_parse_cxx_direct_list_type(void);
+Expr* rcc_parse_cxx_template_call(void);
+Stmt* rcc_parse_cxx_auto_local_declaration(void);
 
 /* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
  * process exit by the single-shot host compiler. */
