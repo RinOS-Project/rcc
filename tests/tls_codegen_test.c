@@ -45,7 +45,7 @@ static void verify_object(const char* path, uint16_t arch, int cxx)
     assert(tls != NULL && text != NULL);
     assert(tls->type == SECT_TLS && tls->size == tls->memory_size);
     initialized = objfile_find_symbol(
-        object, cxx ? "tls_cpp_counter" : "tls_counter");
+        object, cxx ? "_Z15tls_cpp_counter" : "tls_counter");
     assert(initialized != NULL && initialized->binding == BIND_TLS &&
            initialized->section >= 0 && initialized->value + 4u <= tls->size);
     assert(read_u32(tls->data + initialized->value) == (cxx ? 11u : 7u));

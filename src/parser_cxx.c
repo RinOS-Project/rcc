@@ -526,22 +526,32 @@ static const char* namespace_qualified_decl_name(CxxNamespace* ns,
     return rcc_intern(buffer);
 }
 
+static void set_cxx_link_name(Decl* declaration, CxxNamespace* ns,
+                              bool c_language_linkage) {
+    if (!declaration || c_language_linkage) return;
+    if (!ns && declaration->name &&
+        strcmp(declaration->name, "main") == 0) {
+        /* The hosted entry point is never mangled. */
+        return;
+    }
+    if (declaration->kind == DECL_FUNC) {
+        declaration->link_name = rcc_intern(
+            cxx_mangle_function(declaration, ns, NULL));
+    } else if (declaration->kind == DECL_VAR) {
+        declaration->link_name = rcc_intern(
+            cxx_mangle_name(declaration->name, ns, NULL));
+    }
+}
+
 static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
                                       Decl* declaration) {
-    const char* abi_name;
     const char* qualified_name;
 
     if (!declaration) return;
-    abi_name = declaration->name;
-    if (declaration->kind == DECL_FUNC) {
-        abi_name = rcc_intern(cxx_mangle_function(declaration, ns, NULL));
-    } else if (declaration->kind == DECL_VAR) {
-        abi_name = rcc_intern(cxx_mangle_name(declaration->name, ns, NULL));
-    }
+    set_cxx_link_name(declaration, ns, false);
     qualified_name = namespace_qualified_decl_name(
         ns, declaration->name, declaration->loc);
     declaration->name = qualified_name;
-    declaration->link_name = abi_name;
     cxx_namespace_add_decl(ns, declaration);
     ast_add_decl(ast, declaration);
 }
@@ -985,19 +995,20 @@ static Stmt* parse_cxx_statement(void) {
     return parse_declaration();
 }
 
-static void add_cxx_declaration(AST* ast, Stmt* statement) {
+static void add_cxx_declaration(AST* ast, Stmt* statement,
+                                bool c_language_linkage) {
     if (statement && statement->kind == STMT_DECL) {
+        set_cxx_link_name(statement->decl, NULL, c_language_linkage);
         ast_add_decl(ast, statement->decl);
     }
 }
 
-/* Language-linkage does not alter symbol spelling yet because rcc++ emits
- * unmangled external names.  It still has to preserve all enclosed C ABI
- * declarations and typedef state instead of treating the first `extern` as a
- * storage-class specifier. */
+/* Preserve C ABI symbol spelling inside extern "C" while extern "C++" and
+ * ordinary declarations use Itanium ABI link names. */
 static void parse_cxx_language_linkage(AST* ast) {
     SourceLoc loc = peek()->loc;
     Token* language;
+    bool c_language_linkage;
     advance(); /* extern */
     language = expect(TOK_STRING_LIT, "language linkage string");
     if (!language) return;
@@ -1006,16 +1017,18 @@ static void parse_cxx_language_linkage(AST* ast) {
         rcc_error(loc, "unsupported language linkage '%s'",
                   language->value.str_val);
     }
+    c_language_linkage = strcmp(language->value.str_val, "C") == 0;
     if (match(TOK_LBRACE)) {
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
-            add_cxx_declaration(ast, parse_cxx_statement());
+            add_cxx_declaration(ast, parse_cxx_statement(),
+                                c_language_linkage);
             if (parser.cur == start && !at_end()) advance();
         }
         expect(TOK_RBRACE, "}");
         return;
     }
-    add_cxx_declaration(ast, parse_cxx_statement());
+    add_cxx_declaration(ast, parse_cxx_statement(), c_language_linkage);
 }
 
 /* ═══════════════════════════════════════
@@ -1079,7 +1092,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else {
             /* Regular C declaration */
             Stmt* s = parse_cxx_statement();
-            add_cxx_declaration(ast, s);
+            add_cxx_declaration(ast, s, false);
         }
 
         /* Individual declaration and scope parsers synchronize at their own

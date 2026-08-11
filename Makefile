@@ -133,6 +133,20 @@ test-cxx-language-linkage: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-linkage/x64.ro \
 		tests/cxx_language_linkage.cpp
+	strings $(TEST_OUT)/cxx-language-linkage/x86.ro | \
+		grep -x -q '_Z21call_language_linkagei'
+	strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
+		grep -x -q '_Z18cpp_linkage_importi'
+	strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
+		grep -x -q '_Z19cpp_linkage_counter'
+	strings $(TEST_OUT)/cxx-language-linkage/x86.ro | \
+		grep -x -q 'linkage_import'
+	strings $(TEST_OUT)/cxx-language-linkage/x86.ro | \
+		grep -x -q 'second_linkage_import'
+	strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
+		grep -x -q 'c_linkage_counter'
+	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
+		grep -x -q '_Z14linkage_importi'
 	@echo "RCC++ C/C++ language-linkage tests completed"
 
 test-cxx-member-specifiers: $(RCXX_TARGET)
