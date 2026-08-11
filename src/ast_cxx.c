@@ -511,6 +511,11 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->is_override = false;
     method->is_final = false;
     method->is_const = false;
+    method->is_constexpr = false;
+    method->is_explicit = false;
+    method->is_noexcept = false;
+    method->is_deleted = false;
+    method->is_defaulted = false;
     method->is_constructor = false;
     method->is_destructor = false;
     method->vtable_index = -1;

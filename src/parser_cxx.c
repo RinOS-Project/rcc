@@ -106,21 +106,123 @@ static AccessSpec parse_access_spec(void) {
     return (AccessSpec)-1;
 }
 
+static bool check_next(TokenType type) {
+    return parser.cur->next && parser.cur->next->type == type;
+}
+
+/* C++ attributes are metadata at this stage.  Consume complete [[...]]
+ * groups so they cannot be mistaken for array declarators. */
+static void skip_cxx_attributes(void) {
+    while (check(TOK_LBRACKET) && check_next(TOK_LBRACKET)) {
+        SourceLoc loc = peek()->loc;
+        int depth = 1;
+        advance();
+        advance();
+        while (depth > 0 && !at_end()) {
+            if (check(TOK_LBRACKET) && check_next(TOK_LBRACKET)) {
+                advance();
+                advance();
+                depth++;
+            } else if (check(TOK_RBRACKET) && check_next(TOK_RBRACKET)) {
+                advance();
+                advance();
+                depth--;
+            } else {
+                advance();
+            }
+        }
+        if (depth != 0) {
+            rcc_error(loc, "unterminated C++ attribute specifier");
+            return;
+        }
+    }
+}
+
+static void skip_balanced(TokenType open, TokenType close) {
+    int depth = 0;
+    if (!match(open)) return;
+    depth = 1;
+    while (depth > 0 && !at_end()) {
+        if (match(open)) depth++;
+        else if (match(close)) depth--;
+        else advance();
+    }
+}
+
+static const char* parse_operator_name(void) {
+    TokenType operation;
+    if (match(TOK_LPAREN)) {
+        expect(TOK_RPAREN, ")");
+        return rcc_intern("operator()");
+    }
+    if (match(TOK_LBRACKET)) {
+        expect(TOK_RBRACKET, "]");
+        return rcc_intern("operator[]");
+    }
+    operation = peek()->type;
+    switch (operation) {
+        case TOK_ASSIGN:
+        case TOK_PLUS: case TOK_MINUS: case TOK_STAR: case TOK_SLASH:
+        case TOK_PERCENT: case TOK_INC: case TOK_DEC:
+        case TOK_EQ: case TOK_NE: case TOK_LT: case TOK_LE:
+        case TOK_GT: case TOK_GE: case TOK_AMP: case TOK_PIPE:
+        case TOK_CARET: case TOK_TILDE: case TOK_NOT:
+        case TOK_AND: case TOK_OR: case TOK_LSHIFT: case TOK_RSHIFT:
+        case TOK_COMMA: case TOK_ARROW:
+            advance();
+            return rcc_intern("operator");
+        default:
+            rcc_error(peek()->loc, "expected overloaded operator");
+            return NULL;
+    }
+}
+
+/* Consume a constructor's mem-initializer-list without consuming its body. */
+static void skip_ctor_initializers(void) {
+    if (!match(TOK_COLON)) return;
+    do {
+        if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+            (void)parse_qualified_name();
+        } else {
+            rcc_error(peek()->loc, "expected constructor initializer name");
+            return;
+        }
+        if (check(TOK_LPAREN)) {
+            skip_balanced(TOK_LPAREN, TOK_RPAREN);
+        } else if (check(TOK_LBRACE)) {
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        } else {
+            rcc_error(peek()->loc, "expected constructor initializer");
+            return;
+        }
+    } while (match(TOK_COMMA));
+}
+
 /* Parse class member (field or method) */
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
 
-    /* Check for destructor */
-    bool is_destructor = false;
-    if (match(TOK_TILDE)) {
-        is_destructor = true;
+    skip_cxx_attributes();
+
+    bool is_virtual = false;
+    bool is_static = false;
+    bool is_constexpr = false;
+    bool is_explicit = false;
+
+    /* C++ declaration specifiers can be combined in either order. */
+    for (;;) {
+        if (match(TOK_VIRTUAL)) is_virtual = true;
+        else if (match(TOK_STATIC)) is_static = true;
+        else if (match(TOK_CONSTEXPR)) is_constexpr = true;
+        else if (match(TOK_EXPLICIT)) is_explicit = true;
+        else if (match(TOK_INLINE) || match(TOK___INLINE__)) { }
+        else if (match(TOK_FRIEND) || match(TOK_MUTABLE)) { }
+        else break;
     }
 
-    /* Check for virtual */
-    bool is_virtual = match(TOK_VIRTUAL);
-
-    /* Check for static */
-    bool is_static = match(TOK_STATIC);
+    /* Check for destructor */
+    bool is_destructor = match(TOK_TILDE);
+    bool is_constructor = false;
 
     /* Parse type (or constructor) */
     Type* type = NULL;
@@ -131,25 +233,22 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         expect(TOK_IDENT, "class name");
         name = rcc_intern("~dtor");
         type = type_void;
-    } else if (check(TOK_IDENT) && peek()->value.str_val == cls->name) {
+    } else if (check(TOK_IDENT) && check_next(TOK_LPAREN) &&
+               strcmp(peek()->value.str_val, cls->name) == 0) {
         /* Constructor */
-        Token* tok = advance();
-        if (check(TOK_LPAREN)) {
-            name = tok->value.str_val;
-            type = type_void;  /* Constructors have no return type */
-        } else {
-            /* Not a constructor, backtrack */
-            parser.cur = parser.prev;
-            parser.prev = NULL;  /* This is a simplification */
-            type = parse_cxx_type_spec();
-            if (check(TOK_IDENT)) {
-                name = advance()->value.str_val;
-            }
-        }
+        name = advance()->value.str_val;
+        type = type_void;  /* Constructors have no return type */
+        is_constructor = true;
+    } else if (match(TOK_OPERATOR)) {
+        /* Conversion function: operator bool(), operator T*(), ... */
+        type = parse_cxx_type_spec();
+        name = rcc_intern("operator conversion");
     } else {
         type = parse_cxx_type_spec();
         if (check(TOK_IDENT)) {
             name = advance()->value.str_val;
+        } else if (match(TOK_OPERATOR)) {
+            name = parse_operator_name();
         }
     }
 
@@ -185,25 +284,43 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         }
         expect(TOK_RPAREN, ")");
 
-        /* Const method? */
-        bool is_const = match(TOK_CONST);
+        bool is_const = false;
+        bool is_override = false;
+        bool is_final = false;
+        bool is_noexcept = false;
+        for (;;) {
+            if (match(TOK_CONST)) is_const = true;
+            else if (match(TOK_VOLATILE)) { }
+            else if (match(TOK_AMP) || match(TOK_AND)) { }
+            else if (match(TOK_OVERRIDE)) is_override = true;
+            else if (match(TOK_FINAL)) is_final = true;
+            else if (match(TOK_NOEXCEPT)) {
+                is_noexcept = true;
+                if (check(TOK_LPAREN)) {
+                    skip_balanced(TOK_LPAREN, TOK_RPAREN);
+                }
+            } else break;
+        }
 
-        /* Override/final? */
-        bool is_override = match(TOK_OVERRIDE);
-        bool is_final = match(TOK_FINAL);
-        (void)is_const;
-        (void)is_override;
-        (void)is_final;
-
-        /* Pure virtual (= 0)? */
+        /* Pure virtual and explicitly defaulted/deleted functions. */
         bool is_pure = false;
+        bool is_deleted = false;
+        bool is_defaulted = false;
         if (match(TOK_ASSIGN)) {
             if (check(TOK_INT_LIT) && peek()->value.int_val == 0) {
                 advance();
                 is_pure = true;
+            } else if (match(TOK_DELETE)) {
+                is_deleted = true;
+            } else if (match(TOK_DEFAULT)) {
+                is_defaulted = true;
+            } else {
+                rcc_error(peek()->loc,
+                          "expected 0, delete, or default after '='");
             }
         }
-        (void)is_pure;
+
+        if (is_constructor) skip_ctor_initializers();
 
         /* Method body or declaration */
         Stmt* body = NULL;
@@ -225,6 +342,17 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->access = current_access;
         method->is_virtual = is_virtual;
         method->is_static = is_static;
+        method->is_constexpr = is_constexpr;
+        method->is_explicit = is_explicit;
+        method->is_const = is_const;
+        method->is_override = is_override;
+        method->is_final = is_final;
+        method->is_noexcept = is_noexcept;
+        method->is_pure_virtual = is_pure;
+        method->is_deleted = is_deleted;
+        method->is_defaulted = is_defaulted;
+        method->is_constructor = is_constructor;
+        method->is_destructor = is_destructor;
         method->owner = cls;
 
         cxx_class_add_method(cls, method);
@@ -293,7 +421,9 @@ CxxClass* parse_cxx_class(void) {
             }
 
             /* Parse member */
+            Token* member_start = parser.cur;
             parse_class_member(cls, current_access);
+            if (parser.cur == member_start && !at_end()) advance();
         }
 
         expect(TOK_RBRACE, "}");
@@ -460,6 +590,9 @@ static Type* parse_cxx_type_spec(void) {
             /* Reference - treat as pointer internally */
             t = type_ptr(t);
             /* Mark as reference somehow? */
+        } else if (match(TOK_AND)) {
+            /* Rvalue reference - use the same lowered representation. */
+            t = type_ptr(t);
         } else {
             break;
         }

@@ -143,6 +143,11 @@ struct CxxMethod {
     bool is_override;
     bool is_final;
     bool is_const;           /* const member function */
+    bool is_constexpr;
+    bool is_explicit;
+    bool is_noexcept;
+    bool is_deleted;
+    bool is_defaulted;
     bool is_constructor;
     bool is_destructor;
     int vtable_index;        /* -1 if not virtual */
