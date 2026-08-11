@@ -38,6 +38,7 @@
 - [ ] `_Generic`、atomics、thread-local storage
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
+  - [x] i686/AMD64生成コードのnative実行と16/32-bit競合回帰
   - [x] 8/16/32-bit標準integer typedefと`atomic_flag`向け`<stdatomic.h>` API
   - [x] wide/pointer-sized型を含むC17標準atomic typedef全面とarch別lock-free定数
   - [x] 定数memory orderの範囲・load/store・CAS failure/weak制約diagnostic

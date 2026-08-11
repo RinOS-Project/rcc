@@ -48,6 +48,9 @@ POSIX環境では次でhost toolchainを作成します。
 make -j
 ```
 
+`test-atomic-builtins`は生成したi686 codeも直接実行するため、hostの32-bit libc開発環境
+（Debian/Ubuntuでは`gcc-multilib`相当）を必要とします。
+
 生成物は`rcc`、`rcc++`、`rld`、`rar`です。Windows用既存binaryを更新せずに
 検証する場合は、出力directoryを分離できます。
 
@@ -101,9 +104,9 @@ metacharacterを含むsigner/output path、署名失敗時の既存成果物保�
 `test-sanitize`はASan/UBSanとLeakSanitizerを有効にした別buildで、両archの大きな
 translation unit、C++ class、preprocessor、成功・診断・署名失敗経路を検査します。
 `test-atomic-builtins`は8/16/32-bit整数のload/store/exchange/CAS、fetch add/sub、
-fetch and/or/xor/nand、fenceと`<stdatomic.h>` APIを両archで生成・linkし、AMD64生成コードの
-符号拡張、幅ごとのwrap、compare-exchange失敗時のexpected更新、複数threadでの
-16/32-bit算術およびbitwise原子性を実行検査します。
+fetch and/or/xor/nand、fenceと`<stdatomic.h>` APIを両archで生成・linkし、i686/AMD64の
+両生成コードを直接実行します。符号拡張、幅ごとのwrap、compare-exchange失敗時の
+expected更新、複数threadでの16/32-bit算術およびbitwise原子性を検査します。
 未実装の64-bit operandはnon-lock-freeとして公開し、builtin利用はdiagnostic付きで拒否
 します。wide/pointer-sized型を含むC17 atomic typedefは両archで公開し、i686の`long`だけは
 既存32-bit lock-free pathを使用します。定数memory orderの範囲、load/store制約、

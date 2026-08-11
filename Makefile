@@ -129,6 +129,12 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/atomic-builtin-run-test \
 		tests/atomic_builtin_run_test.c src/emit_ro.c src/utils.c -pthread
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/atomic-builtin-run-test-x86 \
+		tests/atomic_builtin_run_test.c src/emit_ro.c src/utils.c -pthread
+	$(TEST_OUT)/atomic-builtin-run-test-x86 \
+		$(TEST_OUT)/atomic-x86/atomic.ro \
+		$(TEST_OUT)/atomic-x64/atomic.ro
 	$(TEST_OUT)/atomic-builtin-run-test \
 		$(TEST_OUT)/atomic-x86/atomic.ro \
 		$(TEST_OUT)/atomic-x64/atomic.ro

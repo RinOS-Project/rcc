@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(__x86_64__) && !defined(_WIN32)
+#if (defined(__x86_64__) || defined(__i386__)) && !defined(_WIN32)
 #include <pthread.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -29,7 +29,7 @@ static int section_contains(const ObjSection* section,
     return 0;
 }
 
-#if defined(__x86_64__) && !defined(_WIN32)
+#if (defined(__x86_64__) || defined(__i386__)) && !defined(_WIN32)
 typedef uint32_t (*atomic_load_fn)(volatile uint32_t*);
 typedef void (*atomic_store_fn)(volatile uint32_t*, uint32_t);
 typedef uint32_t (*atomic_binary_fn)(volatile uint32_t*, uint32_t);
@@ -55,8 +55,12 @@ typedef int (*atomic_u16_compare_fn)(volatile uint16_t*, uint16_t*,
 typedef int32_t (*atomic_i8_binary_fn)(volatile int8_t*, int32_t);
 typedef int32_t (*atomic_i16_binary_fn)(volatile int16_t*, int32_t);
 typedef int (*atomic_bool_binary_fn)(volatile _Bool*, int);
+#if defined(__x86_64__)
 typedef uint64_t (*atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
 typedef int64_t (*atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
+#else
+typedef long (*atomic_long_binary_fn)(volatile long*, long);
+#endif
 
 typedef struct {
     atomic_binary_fn fetch_add;
@@ -131,8 +135,12 @@ int main(int argc, char** argv) {
     (void)function_symbol(x86_object,
                           "standard_atomic_long_fetch_xor_value");
     objfile_free(x86_object);
-#if defined(__x86_64__) && !defined(_WIN32)
+#if (defined(__x86_64__) || defined(__i386__)) && !defined(_WIN32)
+#if defined(__x86_64__)
     ObjectFile* object = objfile_read(argv[2]);
+#else
+    ObjectFile* object = objfile_read(argv[1]);
+#endif
     ObjSection* code;
     long page_size;
     size_t mapping_size;
@@ -153,8 +161,12 @@ int main(int argc, char** argv) {
     atomic_binary_fn atomic_xor_fetch;
     atomic_binary_fn atomic_fetch_nand;
     atomic_binary_fn atomic_nand_fetch;
+#if defined(__x86_64__)
     atomic_u32_wide_binary_fn atomic_nand_fetch_widened;
     atomic_i32_wide_binary_fn atomic_i32_xor_fetch_widened;
+#else
+    atomic_long_binary_fn standard_long_fetch_xor;
+#endif
     atomic_compare_bool_fn compare_bool;
     atomic_compare_value_fn compare_value;
     atomic_binary_fn sync_exchange;
@@ -214,7 +226,11 @@ int main(int argc, char** argv) {
     unsigned i;
 
     assert(object != NULL);
+#if defined(__x86_64__)
     assert(object->arch == ARCH_X64);
+#else
+    assert(object->arch == ARCH_X86);
+#endif
     code = objfile_get_section(object, ".text");
     assert(code != NULL && code->size > 0u);
     assert(code->relocs == NULL);
@@ -247,10 +263,15 @@ int main(int argc, char** argv) {
                   "atomic_fetch_nand_value");
     LOAD_FUNCTION(atomic_nand_fetch, object, mapping,
                   "atomic_nand_fetch_value");
+#if defined(__x86_64__)
     LOAD_FUNCTION(atomic_nand_fetch_widened, object, mapping,
                   "atomic_nand_fetch_widened_value");
     LOAD_FUNCTION(atomic_i32_xor_fetch_widened, object, mapping,
                   "atomic_i32_xor_fetch_widened_value");
+#else
+    LOAD_FUNCTION(standard_long_fetch_xor, object, mapping,
+                  "standard_atomic_long_fetch_xor_value");
+#endif
     LOAD_FUNCTION(compare_bool, object, mapping, "atomic_compare_exchange_bool");
     LOAD_FUNCTION(compare_value, object, mapping,
                   "atomic_compare_exchange_value");
@@ -348,16 +369,26 @@ int main(int argc, char** argv) {
     assert(atomic_xor_fetch(&value, 3u) == 10u && value == 10u);
     assert(atomic_fetch_nand(&value, 15u) == 10u &&
            value == UINT32_C(0xfffffff5));
+#if defined(__x86_64__)
     assert(atomic_nand_fetch_widened(&value, UINT32_C(0xffffffff)) ==
            UINT64_C(10) && value == 10u);
     value = UINT32_C(0xfffffff5);
+#endif
     assert(atomic_nand_fetch(&value, UINT32_C(0xffffffff)) == 10u &&
            value == 10u);
+#if defined(__x86_64__)
     {
         volatile int32_t signed32 = -1;
         assert(atomic_i32_xor_fetch_widened(&signed32, 255) ==
                INT64_C(-256) && signed32 == -256);
     }
+#else
+    {
+        volatile long long_value = 0x55;
+        assert(standard_long_fetch_xor(&long_value, 0x0f) == 0x55 &&
+               long_value == 0x5a);
+    }
+#endif
     value = 15u;
     assert(compare_bool(&value, 15u, 99u) == 1 && value == 99u);
     assert(compare_bool(&value, 15u, 7u) == 0 && value == 99u);
@@ -505,7 +536,7 @@ int main(int argc, char** argv) {
     objfile_free(object);
 #else
     (void)argv;
-    puts("atomic builtin execution test skipped on non-x86_64 host");
+    puts("atomic builtin execution test skipped on unsupported host");
 #endif
     return 0;
 }
