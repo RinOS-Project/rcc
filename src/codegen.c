@@ -499,7 +499,7 @@ static bool codegen_static_address(Module* mod, Expr* expression,
             (target->kind != DECL_VAR || !target->var_is_global))) {
             return false;
         }
-        *symbol_name = target->name;
+        *symbol_name = decl_link_name(target);
         return true;
     }
     if (expression->kind == EXPR_IDENT && expression->ident_decl &&
@@ -508,7 +508,7 @@ static bool codegen_static_address(Module* mod, Expr* expression,
           expression->ident_decl->var_is_global &&
           expression->ident_decl->type &&
           expression->ident_decl->type->kind == TYPE_ARRAY))) {
-        *symbol_name = expression->ident_decl->name;
+        *symbol_name = decl_link_name(expression->ident_decl);
         return true;
     }
     if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
@@ -812,7 +812,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             uint64_t aligned;
             if (declaration->storage == STORAGE_EXTERN &&
                 !declaration->var_init) {
-                module_add_symbol(mod, declaration->name, 0u, false,
+                module_add_symbol(mod, decl_link_name(declaration), 0u, false,
                                   MODULE_SYMBOL_TLS, true);
                 continue;
             }
@@ -839,14 +839,14 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                           "unsupported thread-local initializer for '%s'",
                           declaration->name);
             }
-            module_add_symbol(mod, declaration->name, offset, true,
+            module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_TLS,
                               declaration->storage != STORAGE_STATIC);
             continue;
         }
         if (declaration->storage == STORAGE_EXTERN &&
             !declaration->var_init) {
-            module_add_symbol(mod, declaration->name, 0u, false,
+            module_add_symbol(mod, decl_link_name(declaration), 0u, false,
                               MODULE_SYMBOL_DATA, true);
             continue;
         }
@@ -861,7 +861,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             mod->bss.size = (size_t)(aligned + size);
             if (alignment > mod->bss.align) mod->bss.align = alignment;
             declaration->var_offset = offset;
-            module_add_symbol(mod, declaration->name, offset, true,
+            module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_BSS,
                               declaration->storage != STORAGE_STATIC);
             continue;
@@ -882,7 +882,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                       "unsupported static initializer for '%s'",
                       declaration->name);
         }
-        module_add_symbol(mod, declaration->name, offset, true,
+        module_add_symbol(mod, decl_link_name(declaration), offset, true,
                           MODULE_SYMBOL_DATA,
                           declaration->storage != STORAGE_STATIC);
     }
@@ -2044,9 +2044,9 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 break;
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
-                gen_tls_address(mod, decl->name);
+                gen_tls_address(mod, decl_link_name(decl));
             } else if (decl->kind == DECL_FUNC || decl->var_is_global) {
-                gen_symbol_address(mod, decl->name, 0u);
+                gen_symbol_address(mod, decl_link_name(decl), 0u);
             } else {
                 /* Local: EBP + offset */
                 emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp] */
@@ -2802,14 +2802,14 @@ static void gen_call(Module* mod, Expr* expr) {
         call_offset = code_offset(mod);
         emit_dword(mod, 0);
         if (func_decl->func_body) {
-            add_func_call_ref(func_decl->name, call_offset);
+            add_func_call_ref(decl_link_name(func_decl), call_offset);
         } else {
             /* All external direct calls use the same rel32 contract.  RLD
              * resolves linked definitions directly and materializes a code
              * thunk when the symbol is a dynamic function import. */
             module_add_relocation(mod, MODULE_SYMBOL_CODE,
                                   call_offset, 0, true, false,
-                                  func_decl->name);
+                                  decl_link_name(func_decl));
         }
     } else {
         gen_expr(mod, func_expr);
@@ -2848,14 +2848,14 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 break;
             }
             if (decl->kind == DECL_FUNC) {
-                gen_symbol_address(mod, decl->name, 0u);
+                gen_symbol_address(mod, decl_link_name(decl), 0u);
             } else if (decl->var_is_thread_local) {
                 gen_lvalue(mod, expr);
                 emit_load_typed32(mod, EAX, EAX, 0, decl->type);
             } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
                 gen_lvalue(mod, expr);
             } else if (decl->var_is_global) {
-                gen_symbol_address(mod, decl->name, 0u);
+                gen_symbol_address(mod, decl_link_name(decl), 0u);
                 emit_load_typed32(mod, EAX, EAX, 0, decl->type);
             } else {
                 emit_load_typed32(mod, EAX, EBP, decl->var_offset,
@@ -4712,7 +4712,7 @@ Module* rcc_codegen(AST* ast) {
     for (DeclList* d = ast->decls; d; d = d->next) {
         if (d->decl->kind == DECL_FUNC && !d->decl->func_body) {
             /* External function declaration */
-            module_add_symbol(mod, d->decl->name, 0, false,
+            module_add_symbol(mod, decl_link_name(d->decl), 0, false,
                               MODULE_SYMBOL_CODE, true);
         }
     }
@@ -4724,7 +4724,7 @@ Module* rcc_codegen(AST* ast) {
             uint32_t func_start = code_offset(mod);
 
             /* Record function definition for call resolution */
-            add_func_def(d->decl->name, func_start);
+            add_func_def(decl_link_name(d->decl), func_start);
 
             /* Record entry point for main */
             if (strcmp(d->decl->name, "main") == 0) {
@@ -4734,7 +4734,7 @@ Module* rcc_codegen(AST* ast) {
             gen_function(mod, d->decl);
 
             /* Add symbol for function */
-            module_add_symbol(mod, d->decl->name, func_start, true,
+            module_add_symbol(mod, decl_link_name(d->decl), func_start, true,
                               MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
         }

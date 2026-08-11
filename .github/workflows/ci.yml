@@ -35,6 +35,7 @@ jobs:
           make test-cxx-language-linkage
           make test-cxx-member-specifiers
           make test-cxx-function-templates
+          make test-cxx-qualified-namespaces
           make test-cxx-parser-recovery
           make test-tool-relative-includes
           make test-preprocessor-continuation

@@ -42,6 +42,11 @@ static Type* parser_builtin_va_list_type;
 static int parser_pack_alignment;
 static int parser_pack_stack[32];
 static int parser_pack_depth;
+static bool parser_cxx_mode;
+
+void rcc_parser_set_cxx_mode(bool enabled) {
+    parser_cxx_mode = enabled;
+}
 
 static bool parser_pack_value_valid(int alignment) {
     return alignment == 0 || alignment == 1 || alignment == 2 ||
@@ -713,6 +718,54 @@ static Expr* parse_builtin_vararg(SourceLoc loc) {
     return expr_vararg(kind, list, second, argument_type, loc);
 }
 
+static bool qualified_name_append(char* buffer, size_t capacity,
+                                  size_t* length, const char* text,
+                                  SourceLoc loc) {
+    size_t text_length = strlen(text);
+    if (*length > capacity - 1u ||
+        text_length > capacity - 1u - *length) {
+        rcc_error(loc, "qualified identifier exceeds compiler limit");
+        return false;
+    }
+    memcpy(buffer + *length, text, text_length);
+    *length += text_length;
+    buffer[*length] = '\0';
+    return true;
+}
+
+/* C++ expression parsing shares the mature C precedence parser.  Preserve a
+ * qualified-id as one lookup key before the postfix/call layers consume it. */
+static const char* parse_expression_qualified_name(SourceLoc loc) {
+    char buffer[512] = "";
+    size_t length = 0u;
+
+    /* A leading global-scope operator does not change the canonical lookup
+     * key stored in the AST. */
+    (void)match(TOK_SCOPE);
+    if (!check(TOK_IDENT)) {
+        rcc_error(peek()->loc, "expected identifier in qualified name");
+        return rcc_intern(buffer);
+    }
+    if (!qualified_name_append(buffer, sizeof(buffer), &length,
+                               advance()->value.str_val, loc)) {
+        return rcc_intern(buffer);
+    }
+    while (match(TOK_SCOPE)) {
+        if (!qualified_name_append(buffer, sizeof(buffer), &length, "::", loc)) {
+            return rcc_intern(buffer);
+        }
+        if (!check(TOK_IDENT)) {
+            rcc_error(peek()->loc, "expected identifier after ::");
+            break;
+        }
+        if (!qualified_name_append(buffer, sizeof(buffer), &length,
+                                   advance()->value.str_val, loc)) {
+            break;
+        }
+    }
+    return rcc_intern(buffer);
+}
+
 /* Primary: literal, identifier, (expr) */
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
@@ -745,6 +798,12 @@ static Expr* parse_primary(void) {
         parser_builtin_name("__builtin_va_copy") ||
         parser_builtin_name("__builtin_va_arg")) {
         return parse_builtin_vararg(loc);
+    }
+    if (parser_cxx_mode &&
+        (check(TOK_SCOPE) ||
+         (check(TOK_IDENT) && parser.cur->next &&
+          parser.cur->next->type == TOK_SCOPE))) {
+        return expr_ident(parse_expression_qualified_name(loc), loc);
     }
     if (match(TOK_IDENT)) {
         int64_t enum_value;
@@ -2003,6 +2062,7 @@ static Decl* parse_toplevel(void) {
 
 /* Main parser function */
 AST* rcc_parse(TokenList* tokens) {
+    rcc_parser_set_cxx_mode(false);
     parser.cur = tokens->head;
     parser.prev = NULL;
     parser_type_names = NULL;

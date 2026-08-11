@@ -519,6 +519,11 @@ typedef struct DeclList {
 struct Decl {
     DeclKind kind;
     const char* name;
+    /* Source-level lookup name and ABI symbol spelling are deliberately
+     * separate.  They are identical for C declarations; C++ namespaces and
+     * overloads retain a readable qualified name while code generation uses
+     * the Itanium ABI spelling. */
+    const char* link_name;
     Type* type;
     SourceLoc loc;
     StorageClass storage;
@@ -576,6 +581,7 @@ Decl* decl_struct(const char* name, DeclList* fields, SourceLoc loc);
 Decl* decl_union(const char* name, DeclList* fields, SourceLoc loc);
 Decl* decl_enum(const char* name, DeclList* consts, SourceLoc loc);
 Decl* decl_enum_const(const char* name, int64_t val, SourceLoc loc);
+const char* decl_link_name(const Decl* decl);
 
 /* ═══════════════════════════════════════
  * AST (Translation Unit)

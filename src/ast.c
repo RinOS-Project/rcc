@@ -769,6 +769,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_VAR;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
     d->var_init = init;
@@ -782,6 +783,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_FUNC;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
     d->func_params = params;
@@ -795,6 +797,7 @@ Decl* decl_param(const char* name, Type* type, int index, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_PARAM;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
     d->param_index = index;
@@ -805,6 +808,7 @@ Decl* decl_typedef(const char* name, Type* type, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_TYPEDEF;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
     d->typedef_type = type;
@@ -815,6 +819,7 @@ Decl* decl_struct(const char* name, DeclList* fields, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_STRUCT;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
     d->struct_fields = fields;
     return d;
@@ -824,6 +829,7 @@ Decl* decl_union(const char* name, DeclList* fields, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_UNION;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
     d->struct_fields = fields;
     return d;
@@ -833,6 +839,7 @@ Decl* decl_enum(const char* name, DeclList* consts, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_ENUM;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
     d->enum_consts = consts;
     return d;
@@ -842,10 +849,16 @@ Decl* decl_enum_const(const char* name, int64_t val, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_ENUM_CONST;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
     d->type = type_int;
     d->enum_val = val;
     return d;
+}
+
+const char* decl_link_name(const Decl* decl) {
+    if (!decl) return NULL;
+    return decl->link_name ? decl->link_name : decl->name;
 }
 
 /* ═══════════════════════════════════════

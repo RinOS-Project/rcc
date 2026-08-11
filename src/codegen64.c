@@ -1159,9 +1159,9 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 break;
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
-                gen64_tls_address(mod, decl->name);
+                gen64_tls_address(mod, decl_link_name(decl));
             } else if (decl->kind == DECL_FUNC || decl->var_is_global) {
-                gen64_symbol_address(mod, decl->name, 0u);
+                gen64_symbol_address(mod, decl_link_name(decl), 0u);
             } else {
                 emit64_lea(mod, RAX, RBP, decl->var_offset);
             }
@@ -1273,14 +1273,14 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 break;
             }
             if (decl->kind == DECL_FUNC) {
-                gen64_symbol_address(mod, decl->name, 0u);
+                gen64_symbol_address(mod, decl_link_name(decl), 0u);
             } else if (decl->var_is_thread_local) {
                 gen64_lvalue(mod, expr);
                 emit64_load_typed(mod, RAX, RAX, 0, decl->type);
             } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
                 gen64_lvalue(mod, expr);
             } else if (decl->var_is_global) {
-                gen64_symbol_address(mod, decl->name, 0u);
+                gen64_symbol_address(mod, decl_link_name(decl), 0u);
                 emit64_load_typed(mod, RAX, RAX, 0, decl->type);
             } else {
                 emit64_load_typed(mod, RAX, RBP, decl->var_offset,
@@ -1775,13 +1775,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 call_offset = code_offset(mod);
                 emit_dword(mod, 0u);
                 if (function->func_body) {
-                    add_func_call_ref64(function->name, call_offset);
+                    add_func_call_ref64(decl_link_name(function), call_offset);
                 } else {
                     /* RLD resolves rel32 to a linked definition or to the
                      * executable thunk of a dynamic function import. */
                     module_add_relocation(mod, MODULE_SYMBOL_CODE,
                                           call_offset, 0u, true, false,
-                                          function->name);
+                                          decl_link_name(function));
                 }
             } else {
                 gen64_expr(mod, expr->call_func);
@@ -2738,7 +2738,7 @@ Module* rcc_codegen64(AST* ast) {
     for (DeclList* d = ast->decls; d; d = d->next) {
         if (d->decl->kind == DECL_FUNC && !d->decl->func_body) {
             /* External function declaration */
-            module_add_symbol(mod, d->decl->name, 0, false,
+            module_add_symbol(mod, decl_link_name(d->decl), 0, false,
                               MODULE_SYMBOL_CODE, true);
         }
     }
@@ -2749,7 +2749,7 @@ Module* rcc_codegen64(AST* ast) {
             /* Record function start offset */
             uint32_t func_start = code_offset(mod);
 
-            add_func_def64(d->decl->name, func_start);
+            add_func_def64(decl_link_name(d->decl), func_start);
 
             if (strcmp(d->decl->name, "main") == 0) {
                 mod->entry_point = func_start;
@@ -2757,7 +2757,7 @@ Module* rcc_codegen64(AST* ast) {
             gen64_function(mod, d->decl);
 
             /* Add symbol for function */
-            module_add_symbol(mod, d->decl->name, func_start, true,
+            module_add_symbol(mod, decl_link_name(d->decl), func_start, true,
                               MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
         }

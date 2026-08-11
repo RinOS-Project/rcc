@@ -486,7 +486,67 @@ CxxClass* parse_cxx_class(void) {
  * C++ Namespace Parsing
  * ═══════════════════════════════════════ */
 
-CxxNamespace* parse_cxx_namespace(void) {
+static const char* namespace_qualified_decl_name(CxxNamespace* ns,
+                                                 const char* name,
+                                                 SourceLoc loc) {
+    CxxNamespace* stack[32];
+    int count = 0;
+    char buffer[512] = "";
+    size_t length = 0u;
+
+    for (CxxNamespace* current = ns;
+         current && current->name;
+         current = current->parent) {
+        if (count == (int)(sizeof(stack) / sizeof(stack[0]))) {
+            rcc_error(loc, "namespace nesting exceeds compiler limit");
+            break;
+        }
+        stack[count++] = current;
+    }
+    for (int index = count - 1; index >= 0; --index) {
+        size_t part_length = strlen(stack[index]->name);
+        if (part_length > sizeof(buffer) - 1u - length) {
+            rcc_error(loc, "qualified declaration name exceeds compiler limit");
+            return rcc_intern(buffer);
+        }
+        memcpy(buffer + length, stack[index]->name, part_length);
+        length += part_length;
+        if (length > sizeof(buffer) - 3u) {
+            rcc_error(loc, "qualified declaration name exceeds compiler limit");
+            return rcc_intern(buffer);
+        }
+        memcpy(buffer + length, "::", 2u);
+        length += 2u;
+    }
+    if (strlen(name) > sizeof(buffer) - 1u - length) {
+        rcc_error(loc, "qualified declaration name exceeds compiler limit");
+        return rcc_intern(buffer);
+    }
+    strcpy(buffer + length, name);
+    return rcc_intern(buffer);
+}
+
+static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
+                                      Decl* declaration) {
+    const char* abi_name;
+    const char* qualified_name;
+
+    if (!declaration) return;
+    abi_name = declaration->name;
+    if (declaration->kind == DECL_FUNC) {
+        abi_name = rcc_intern(cxx_mangle_function(declaration, ns, NULL));
+    } else if (declaration->kind == DECL_VAR) {
+        abi_name = rcc_intern(cxx_mangle_name(declaration->name, ns, NULL));
+    }
+    qualified_name = namespace_qualified_decl_name(
+        ns, declaration->name, declaration->loc);
+    declaration->name = qualified_name;
+    declaration->link_name = abi_name;
+    cxx_namespace_add_decl(ns, declaration);
+    ast_add_decl(ast, declaration);
+}
+
+static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
     SourceLoc loc = previous()->loc;
 
     /* Namespace name (can be anonymous) */
@@ -496,6 +556,7 @@ CxxNamespace* parse_cxx_namespace(void) {
     }
 
     CxxNamespace* ns = cxx_namespace_new(ns_name, loc);
+    if (parent) cxx_namespace_add_namespace(parent, ns);
 
     expect(TOK_LBRACE, "{");
 
@@ -511,18 +572,19 @@ CxxNamespace* parse_cxx_namespace(void) {
             CxxTemplate* tmpl = parse_cxx_template();
             cxx_namespace_add_template(ns, tmpl);
         } else if (match(TOK_NAMESPACE)) {
-            CxxNamespace* inner = parse_cxx_namespace();
-            cxx_namespace_add_namespace(ns, inner);
+            (void)parse_cxx_namespace(ast, ns);
         } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
             bool is_constexpr = false;
             bool is_noexcept = false;
             Decl* declaration = parse_cxx_function_declaration(
                 false, &is_constexpr, &is_noexcept);
-            if (declaration) cxx_namespace_add_decl(ns, declaration);
+            add_namespace_declaration(ast, ns, declaration);
         } else {
-            /* Other declaration - skip for now */
-            parse_cxx_statement();
+            Stmt* statement = parse_cxx_statement();
+            if (statement && statement->kind == STMT_DECL) {
+                add_namespace_declaration(ast, ns, statement->decl);
+            }
         }
         if (g_error_count > errors_before) {
             while (!at_end() && !check(TOK_SEMICOLON) &&
@@ -962,7 +1024,7 @@ static void parse_cxx_language_linkage(AST* ast) {
 
 /* Parse C++ translation unit */
 AST* rcc_parse_cxx(TokenList* tokens) {
-    extern void parser_init(TokenList* tokens);
+    rcc_parser_set_cxx_mode(true);
     parser.cur = tokens->head;
     parser.prev = NULL;
 
@@ -977,10 +1039,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             parser.cur->next->type == TOK_STRING_LIT) {
             parse_cxx_language_linkage(ast);
         } else if (match(TOK_NAMESPACE)) {
-            CxxNamespace* ns = parse_cxx_namespace();
-            if (g_global_namespace) {
-                cxx_namespace_add_namespace(g_global_namespace, ns);
-            }
+            (void)parse_cxx_namespace(ast, g_global_namespace);
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
             if (g_global_namespace) {
