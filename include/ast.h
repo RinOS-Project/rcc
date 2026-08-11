@@ -273,6 +273,7 @@ struct Expr {
         struct {
             Expr* call_func;
             ExprList* call_args;
+            int call_result_offset;  /* Aggregate return spill/sret slot. */
         };
 
         /* EXPR_INDEX */

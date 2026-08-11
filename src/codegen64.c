@@ -1195,6 +1195,20 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             emit64_lea(mod, RAX, RBP, expr->compound_offset);
             break;
 
+        case EXPR_CALL:
+            if (!expr->type ||
+                (expr->type->kind != TYPE_STRUCT &&
+                 expr->type->kind != TYPE_UNION) ||
+                expr->call_result_offset >= 0) {
+                rcc_error(expr->loc,
+                          "aggregate call has no automatic result slot");
+                emit64_mov_reg_imm32(mod, RAX, 0u);
+                break;
+            }
+            gen64_expr(mod, expr);
+            emit64_lea(mod, RAX, RBP, expr->call_result_offset);
+            break;
+
         default:
             rcc_error(expr->loc, "not an lvalue");
             break;
@@ -1602,6 +1616,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             int abi_argc = 0;
             int stack_argc;
             int stack_padding;
+            bool aggregate_result = expr->type &&
+                (expr->type->kind == TYPE_STRUCT ||
+                 expr->type->kind == TYPE_UNION);
+            bool memory_result = aggregate_result && expr->type->size > 16;
+            int register_base = memory_result ? 1 : 0;
+            int register_capacity = 6 - register_base;
             Type* function_type;
             TypeParam* parameter;
 
@@ -1634,7 +1654,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     ++abi_argc;
                 }
             }
-            stack_argc = abi_argc > 6 ? abi_argc - 6 : 0;
+            stack_argc = abi_argc > register_capacity
+                ? abi_argc - register_capacity : 0;
             stack_padding = (stack_argc & 1) ? 8 : 0;
 
             /* Keep the call boundary 16-byte aligned. Evaluate every scalar
@@ -1664,11 +1685,19 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     emit64_push_reg(mod, RAX);
                 }
             }
-            for (i = 0; i < abi_argc && i < 6; ++i) {
-                emit64_pop_reg(mod, arg_regs[i]);
+            for (i = 0; i < abi_argc && i < register_capacity; ++i) {
+                emit64_pop_reg(mod, arg_regs[register_base + i]);
             }
             rcc_free(argument_types);
             rcc_free(args);
+
+            if (aggregate_result && expr->call_result_offset >= 0) {
+                rcc_error(expr->loc,
+                          "aggregate call has no automatic result slot");
+            }
+            if (memory_result) {
+                emit64_lea(mod, RDI, RBP, expr->call_result_offset);
+            }
 
             /* Direct calls use rel32 and produce a .ro relocation only when
              * the definition is external to this translation unit. */
@@ -1698,6 +1727,14 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 gen64_expr(mod, expr->call_func);
                 emit_byte(mod, 0xFF);  /* CALL RAX */
                 emit_byte(mod, modrm64(3, 2, RAX));
+            }
+
+            if (aggregate_result && !memory_result) {
+                emit64_mov_mem_reg(mod, RBP, expr->call_result_offset, RAX);
+                if (expr->type->size > 8) {
+                    emit64_mov_mem_reg(mod, RBP,
+                                       expr->call_result_offset + 8, RDX);
+                }
             }
 
             /* Clean up stack arguments */
@@ -1770,6 +1807,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 static int break_label64 = -1;
 static int continue_label64 = -1;
 static Type* current_function_return_type64 = NULL;
+static int current_function_sret_offset64 = 0;
 
 typedef struct SwitchCaseCodegen64 {
     Stmt* statement;
@@ -2099,7 +2137,38 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->return_val) {
-                gen64_expr(mod, stmt->return_val);
+                if (current_function_return_type64 &&
+                    (current_function_return_type64->kind == TYPE_STRUCT ||
+                     current_function_return_type64->kind == TYPE_UNION)) {
+                    int size = current_function_return_type64->size;
+                    gen64_lvalue(mod, stmt->return_val);
+                    emit64_mov_reg_reg(mod, RCX, RAX);
+                    if (size <= 16) {
+                        emit64_mov_reg_mem(mod, RAX, RCX, 0);
+                        if (size > 8) {
+                            emit64_mov_reg_mem(mod, RDX, RCX, 8);
+                        }
+                    } else {
+                        int offset = 0;
+                        emit64_mov_reg_mem(mod, R11, RBP,
+                                           current_function_sret_offset64);
+                        while (offset + 8 <= size) {
+                            emit64_mov_reg_mem(mod, RAX, RCX, offset);
+                            emit64_mov_mem_reg(mod, R11, offset, RAX);
+                            offset += 8;
+                        }
+                        while (offset < size) {
+                            emit64_load_typed(mod, RAX, RCX, offset,
+                                              type_uchar);
+                            emit64_store_typed(mod, R11, offset, RAX,
+                                               type_uchar);
+                            ++offset;
+                        }
+                        emit64_mov_reg_reg(mod, RAX, R11);
+                    }
+                } else {
+                    gen64_expr(mod, stmt->return_val);
+                }
                 if (type_is_integer(current_function_return_type64) ||
                     (current_function_return_type64 &&
                      current_function_return_type64->kind == TYPE_ENUM)) {
@@ -2202,11 +2271,17 @@ static bool gen64_shift_local_offsets(Stmt* statement, int shift) {
 static void gen64_function(Module* mod, Decl* decl) {
     static const int argument_registers[] = {RDI, RSI, RDX, RCX, R8, R9};
     int64_t original_parameter_size = 0;
-    int64_t parameter_frame_size = 0;
-    int register_cursor = 0;
+    Type* return_type = decl->type && decl->type->kind == TYPE_FUNC
+        ? decl->type->ret_type : NULL;
+    bool memory_result = return_type &&
+        (return_type->kind == TYPE_STRUCT ||
+         return_type->kind == TYPE_UNION) && return_type->size > 16;
+    int64_t parameter_frame_size = memory_result ? 8 : 0;
+    int register_cursor = memory_result ? 1 : 0;
     int stack_cursor = 16; /* saved RBP + return address */
     int stack_size;
     Type* old_return_type;
+    int old_sret_offset;
     if (!decl->func_body) return;
 
     for (DeclList* parameter = decl->func_params; parameter;
@@ -2259,6 +2334,9 @@ static void gen64_function(Module* mod, Decl* decl) {
     if (stack_size > 0) {
         emit64_sub_reg_imm(mod, RSP, stack_size);
     }
+    if (memory_result) {
+        emit64_mov_mem_reg(mod, RBP, -8, RDI);
+    }
 
     /* Sema reserves parameter storage as part of the function frame. Rebuild
      * those offsets and spill the SysV register arguments before the body so
@@ -2306,13 +2384,14 @@ static void gen64_function(Module* mod, Decl* decl) {
 
     /* Generate body */
     old_return_type = current_function_return_type64;
-    current_function_return_type64 = decl->type &&
-                                     decl->type->kind == TYPE_FUNC
-        ? decl->type->ret_type : NULL;
+    old_sret_offset = current_function_sret_offset64;
+    current_function_sret_offset64 = memory_result ? -8 : 0;
+    current_function_return_type64 = return_type;
     named_codegen_labels64 = NULL;
     gen64_stmt(mod, decl->func_body);
     codegen64_release_named_labels();
     current_function_return_type64 = old_return_type;
+    current_function_sret_offset64 = old_sret_offset;
 
     /* Function epilogue */
     emit64_mov_reg_imm32(mod, RAX, 0);

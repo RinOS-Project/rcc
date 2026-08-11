@@ -47,6 +47,7 @@
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] compatible aggregateのlocal copy初期化と匿名struct/union member
   - [x] automatic storageのscalar/array/aggregate compound literal
+  - [x] i686/AMD64のaggregate returnと戻り値からのmember/argument連鎖
 - [ ] `_Generic`、atomics、thread-local storage
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen

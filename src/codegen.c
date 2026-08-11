@@ -2092,6 +2092,22 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             emit_dword(mod, (uint32_t)expr->compound_offset);
             break;
 
+        case EXPR_CALL:
+            if (!expr->type ||
+                (expr->type->kind != TYPE_STRUCT &&
+                 expr->type->kind != TYPE_UNION) ||
+                expr->call_result_offset >= 0) {
+                rcc_error(expr->loc,
+                          "aggregate call has no automatic result slot");
+                emit_mov_reg_imm(mod, EAX, 0u);
+                break;
+            }
+            gen_expr(mod, expr);
+            emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+            emit_byte(mod, modrm(2, EAX, EBP));
+            emit_dword(mod, (uint32_t)expr->call_result_offset);
+            break;
+
         default:
             rcc_error(expr->loc, "not an lvalue");
             break;
@@ -2720,6 +2736,18 @@ static void gen_call(Module* mod, Expr* expr) {
             emit_push_reg(mod, EAX);
             argument_bytes += 4;
         }
+    }
+    if (expr->type && (expr->type->kind == TYPE_STRUCT ||
+                       expr->type->kind == TYPE_UNION)) {
+        if (expr->call_result_offset >= 0) {
+            rcc_error(expr->loc,
+                      "aggregate call has no automatic result slot");
+        }
+        emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)expr->call_result_offset);
+        emit_push_reg(mod, EAX);
+        argument_bytes += 4;
     }
     rcc_free(argument_types);
     rcc_free(args);
@@ -3687,6 +3715,22 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             expression->compound_offset = -*bytes;
         }
     }
+    if (expression->kind == EXPR_CALL && expression->type &&
+        (expression->type->kind == TYPE_STRUCT ||
+         expression->type->kind == TYPE_UNION)) {
+        int size = expression->type->size;
+        int alignment = expression->type->align;
+        int64_t extent;
+        if (alignment < stack_alignment) alignment = stack_alignment;
+        if (size <= 0) size = 1;
+        extent = (int64_t)*bytes + size;
+        if (extent > INT_MAX) {
+            *bytes = INT_MAX;
+        } else {
+            *bytes = codegen_align_frame_bytes((int)extent, alignment);
+            expression->call_result_offset = -*bytes;
+        }
+    }
 
     switch (expression->kind) {
         case EXPR_NEG:
@@ -4386,7 +4430,27 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->return_val) {
-                gen_expr(mod, stmt->return_val);
+                if (current_function_return_type &&
+                    (current_function_return_type->kind == TYPE_STRUCT ||
+                     current_function_return_type->kind == TYPE_UNION)) {
+                    int offset = 0;
+                    gen_lvalue(mod, stmt->return_val);
+                    emit_mov_reg_reg(mod, ECX, EAX);
+                    emit_mov_reg_mem(mod, EDX, EBP, 8);
+                    while (offset + 4 <= current_function_return_type->size) {
+                        emit_mov_reg_mem(mod, EAX, ECX, offset);
+                        emit_mov_mem_reg(mod, EDX, offset, EAX);
+                        offset += 4;
+                    }
+                    while (offset < current_function_return_type->size) {
+                        emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
+                        emit_store_typed32(mod, EDX, offset, EAX, type_uchar);
+                        ++offset;
+                    }
+                    emit_mov_reg_reg(mod, EAX, EDX);
+                } else {
+                    gen_expr(mod, stmt->return_val);
+                }
                 if (gen_is_integer64(current_function_return_type) &&
                     !gen_is_integer64(stmt->return_val->type)) {
                     emit_extend_eax_to_integer64(

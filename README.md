@@ -136,8 +136,10 @@ prototypeなしcallのdefault integer promotion、array/function parameter調整
 高位wordだけが非zeroの64-bit整数を使う`!`、`&&`、`||`、条件演算子、if/loopの
 truth判定を両archで直接実行します。
 `test-aggregate-copy`はcompatible struct/unionのlocal copy初期化とC11/C17の匿名
-struct/union member layoutを両archで直接実行します。`test-bootstrap-core`は専用の
-freestanding宣言sysrootを使い、stage0 rccで閉じたfrontend/sema/optimizer/backend/
+struct/union member layoutを両archで直接実行します。`test-aggregate-returns`は
+i686 hidden sretとAMD64のregister/sret aggregate return、戻り値のmember access、
+aggregate引数への連鎖を両archで直接実行します。`test-bootstrap-core`は専用の
+freestanding宣言sysrootを使い、stage0 rccでlexerを含むfrontend/sema/optimizer/backend/
 preprocessor/C++ parser subsetを両arch各2回compileして`.ro v2`のbyte一致を要求します。
 これはobject gateであり、linked stage1やstage2再現buildの完了宣言ではありません。
 `test-compound-literals`はautomatic compound literalのscalar/array/aggregate storage、

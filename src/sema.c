@@ -159,6 +159,11 @@ static Type* implicit_cast(Expr* e, Type* target) {
     /* Same type */
     if (e->type == target) return target;
 
+    if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
+        type_is_compatible(e->type, target)) {
+        return target;
+    }
+
     /* Integer promotions */
     if ((type_is_integer(e->type) || e->type->kind == TYPE_ENUM) &&
         (type_is_integer(target) || target->kind == TYPE_ENUM)) {
@@ -1330,6 +1335,12 @@ static void sema_decl(Decl* decl) {
 
                 /* Add parameters */
                 int param_offset = 8;  /* After saved EBP and return address */
+                if (g_opts.target_arch == ARCH_X86 &&
+                    decl->type && decl->type->ret_type &&
+                    (decl->type->ret_type->kind == TYPE_STRUCT ||
+                     decl->type->ret_type->kind == TYPE_UNION)) {
+                    param_offset += 4; /* Hidden aggregate-result pointer. */
+                }
                 for (DeclList* p = decl->func_params; p; p = p->next) {
                     Symbol* psym = symtab_define(g_symtab, p->decl->name, SYM_PARAM,
                                                   p->decl->type, p->decl->loc);
