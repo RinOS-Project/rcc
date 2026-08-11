@@ -11,6 +11,14 @@ struct CxxPair final {
     int second;
 };
 
+class CxxBox final {
+public:
+    constexpr CxxBox() noexcept : value(0) {}
+    constexpr explicit CxxBox(int input) noexcept : value(input) {}
+
+    int value;
+};
+
 static CxxPair make_cxx_pair(int first, int second) {
     return CxxPair{first, second};
 }
@@ -60,6 +68,12 @@ int cxx_class_aggregate_init(int first, int second) {
     CxxPair returned = make_cxx_pair(second, first);
     return local.first * 1000 + local.second * 100 +
            returned.first * 10 + returned.second;
+}
+
+int cxx_lowered_constructor_init(int input) {
+    CxxBox zero{};
+    CxxBox value{input};
+    return value.value * 10 + zero.value;
 }
 
 }

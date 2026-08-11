@@ -227,6 +227,113 @@ static void skip_ctor_initializers(void) {
     } while (match(TOK_COMMA));
 }
 
+typedef struct ParsedConstructorInitializer {
+    const char* field;
+    Expr* value;
+    bool is_single;
+} ParsedConstructorInitializer;
+
+/* Retain exactly one parenthesized mem-initializer.  More general lists keep
+ * parsing correctly but are intentionally not candidates for aggregate
+ * lowering: executing them requires the full C++ constructor pipeline. */
+static ParsedConstructorInitializer parse_ctor_initializer(void) {
+    ParsedConstructorInitializer result = {0};
+    int count = 0;
+    bool supported = true;
+    if (!match(TOK_COLON)) return result;
+    do {
+        const char* field = NULL;
+        Expr* value = NULL;
+        bool current_supported = true;
+        if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+            field = parse_qualified_name();
+        } else {
+            rcc_error(peek()->loc, "expected constructor initializer name");
+            return result;
+        }
+        if (match(TOK_LPAREN)) {
+            if (!check(TOK_RPAREN)) value = parse_cxx_expression();
+            expect(TOK_RPAREN, ")");
+            if (!value || value->kind == EXPR_COMMA) {
+                current_supported = false;
+            }
+        } else if (check(TOK_LBRACE)) {
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+            current_supported = false;
+        } else {
+            rcc_error(peek()->loc, "expected constructor initializer");
+            return result;
+        }
+        ++count;
+        if (count == 1) {
+            result.field = field;
+            result.value = value;
+        } else {
+            supported = false;
+        }
+        if (!current_supported) supported = false;
+    } while (match(TOK_COMMA));
+    result.is_single = count == 1 && supported;
+    return result;
+}
+
+static bool class_has_virtual_member(CxxClass* cls) {
+    struct CxxMember* member;
+    for (member = cls->members; member; member = member->next) {
+        if (member->is_virtual) return true;
+    }
+    return false;
+}
+
+/* Recognize constructors whose observable object representation is exactly
+ * a zero/value initialization of one field.  This is sufficient for the SDK
+ * status wrapper without pretending to execute arbitrary constructor code. */
+static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
+    CxxConstructorInfo* constructor;
+    TypeParam* field;
+    uint32_t mask = 0u;
+    if (!cls || !cls->type->is_complete || cls->base_count != 0 ||
+        cls->has_static_field || cls->has_field_initializer ||
+        class_has_virtual_member(cls)) {
+        return 0u;
+    }
+    field = cls->fields;
+    if (!field || field->next || !cls->constructors) return 0u;
+    for (constructor = cls->constructors; constructor;
+         constructor = constructor->next) {
+        unsigned arity;
+        if (constructor->is_deleted || constructor->is_defaulted ||
+            !constructor->initializer_is_single ||
+            !constructor->body_is_empty ||
+            !constructor->initializer_field ||
+            strcmp(constructor->initializer_field, field->name) != 0) {
+            return 0u;
+        }
+        arity = (unsigned)constructor->parameter_count;
+        if (arity == 0u) {
+            if (!constructor->initializer_value ||
+                constructor->initializer_value->kind != EXPR_INT_LIT ||
+                constructor->initializer_value->int_val != 0) {
+                return 0u;
+            }
+        } else if (arity == 1u) {
+            if (!constructor->parameter_name ||
+                !constructor->initializer_value ||
+                constructor->initializer_value->kind != EXPR_IDENT ||
+                strcmp(constructor->initializer_value->ident_name,
+                       constructor->parameter_name) != 0 ||
+                !type_is_compatible(field->type,
+                                    constructor->parameter_type)) {
+                return 0u;
+            }
+        } else {
+            return 0u;
+        }
+        mask |= UINT32_C(1) << arity;
+    }
+    return mask;
+}
+
 /* Parse class member (field or method) */
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
@@ -291,6 +398,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Method */
         DeclList* params = NULL;
         int param_idx = 0;
+        ParsedConstructorInitializer constructor_initializer = {0};
 
         if (!check(TOK_RPAREN)) {
             if (check(TOK_VOID) && parser.cur->next && parser.cur->next->type == TOK_RPAREN) {
@@ -349,7 +457,13 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             }
         }
 
-        if (is_constructor) skip_ctor_initializers();
+        if (is_constructor) {
+            if (active_template) {
+                skip_ctor_initializers();
+            } else {
+                constructor_initializer = parse_ctor_initializer();
+            }
+        }
 
         /* Method body or declaration */
         Stmt* body = NULL;
@@ -400,6 +514,26 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->owner = cls;
 
         if (is_constructor) cls->has_user_constructor = true;
+
+        if (is_constructor && !active_template) {
+            CxxConstructorInfo* info = ast_arena_alloc(sizeof(*info));
+            CxxConstructorInfo** tail = &cls->constructors;
+            info->parameter_count = param_idx;
+            info->parameter_name = params && param_idx == 1
+                ? params->decl->name : NULL;
+            info->parameter_type = params && param_idx == 1
+                ? params->decl->type : NULL;
+            info->initializer_field = constructor_initializer.field;
+            info->initializer_value = constructor_initializer.value;
+            info->initializer_is_single = constructor_initializer.is_single;
+            info->body_is_empty = body && body->kind == STMT_BLOCK &&
+                                  body->block_stmts == NULL;
+            info->is_deleted = is_deleted;
+            info->is_defaulted = is_defaulted;
+            info->next = NULL;
+            while (*tail) tail = &(*tail)->next;
+            *tail = info;
+        }
 
         cxx_class_add_method(cls, method);
     } else {
@@ -492,23 +626,21 @@ CxxClass* parse_cxx_class(void) {
 
     cxx_class_compute_layout(cls);
 
-    /* Only classes satisfying the C++20 aggregate restrictions can safely
-     * reuse the mature C aggregate initializer/codegen path.  Constructors,
-     * bases, virtual dispatch, non-public/static fields and default member
-     * initializers remain in the dedicated C++ semantic pipeline. */
-    if (!active_template && cls->type->is_complete &&
-        !cls->has_user_constructor && !cls->has_nonpublic_field &&
-        !cls->has_static_field && !cls->has_field_initializer &&
-        cls->base_count == 0) {
-        bool has_virtual = false;
-        for (struct CxxMember* member = cls->members; member;
-             member = member->next) {
-            if (member->is_virtual) {
-                has_virtual = true;
-                break;
-            }
+    /* Aggregate classes and the validated one-field constructor subset can
+     * reuse the common initializer/codegen backend. */
+    if (!active_template && cls->type->is_complete) {
+        uint32_t constructor_mask = lowerable_constructor_arity_mask(cls);
+        if (constructor_mask != 0u) {
+            rcc_parser_define_cxx_constructor_type(
+                cls->name, cls->type, constructor_mask);
+        } else if (!cls->has_user_constructor &&
+                   !cls->has_nonpublic_field &&
+                   !cls->has_static_field &&
+                   !cls->has_field_initializer &&
+                   cls->base_count == 0 &&
+                   !class_has_virtual_member(cls)) {
+            rcc_parser_define_type(cls->name, cls->type);
         }
-        if (!has_virtual) rcc_parser_define_type(cls->name, cls->type);
     }
 
     return cls;
@@ -670,6 +802,21 @@ static DeclList* parse_cxx_parameter_declarations(void) {
     return params;
 }
 
+static bool inline_constructor_parameters_supported(Type* return_type,
+                                                     DeclList* params) {
+    DeclList* parameter;
+    if (rcc_parser_cxx_constructor_arity_mask(return_type) == 0u) {
+        return true;
+    }
+    /* References currently share the pointer representation in the common
+     * AST.  Defer those wrappers until reference address/value semantics are
+     * represented explicitly instead of compiling an incorrect body. */
+    for (parameter = params; parameter; parameter = parameter->next) {
+        if (parameter->decl->type->kind == TYPE_PTR) return false;
+    }
+    return true;
+}
+
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept) {
@@ -708,6 +855,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     if (!parse_body && is_inline && type_is_complete(return_type) &&
         (return_type->kind == TYPE_STRUCT ||
          return_type->kind == TYPE_UNION) &&
+        inline_constructor_parameters_supported(return_type, params) &&
         check(TOK_LBRACE) && parser.cur->next &&
         parser.cur->next->type == TOK_RETURN) {
         parse_body = true;

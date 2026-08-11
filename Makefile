@@ -233,6 +233,20 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/c-empty.ro \
 		tests/c_empty_initializer_rejected.c
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/private.ro \
+		tests/cxx_private_member_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/private.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "member 'value' is not accessible" \
+		$(TEST_OUT)/cxx-inline-aggregates/private.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/arity.ro \
+		tests/cxx_constructor_arity_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/arity.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "no safely lowerable constructor accepts 0 arguments" \
+		$(TEST_OUT)/cxx-inline-aggregates/arity.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)

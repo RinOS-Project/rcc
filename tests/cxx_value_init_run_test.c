@@ -40,6 +40,8 @@ int main(int argc, char** argv)
     nullary_function local_value_init;
     nullary_function scalar_value_init;
     binary_function class_aggregate_init;
+    typedef int (*unary_function)(int);
+    unary_function lowered_constructor_init;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -68,10 +70,13 @@ int main(int argc, char** argv)
                   "cxx_scalar_value_init");
     LOAD_FUNCTION(class_aggregate_init, object, mapping,
                   "cxx_class_aggregate_init");
+    LOAD_FUNCTION(lowered_constructor_init, object, mapping,
+                  "cxx_lowered_constructor_init");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
     assert(class_aggregate_init(4, 7) == 4774);
+    assert(lowered_constructor_init(9) == 90);
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

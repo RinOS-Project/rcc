@@ -177,6 +177,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->has_nonpublic_field = false;
     cls->has_static_field = false;
     cls->has_field_initializer = false;
+    cls->constructors = NULL;
     cls->bases = NULL;
     cls->base_count = 0;
     cls->members = NULL;
@@ -284,6 +285,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->name = f->name;
         field->type = type;
         field->offset = offset;
+        field->cxx_access = f->cxx_access;
         field->next = NULL;
         *field_tail = field;
         field_tail = &field->next;
@@ -493,8 +495,8 @@ void cxx_class_add_field(CxxClass* cls, const char* name, Type* type, AccessSpec
     TypeParam* field = rcc_alloc(sizeof(TypeParam));
     field->name = name ? rcc_strdup(name) : NULL;
     field->type = type;
+    field->cxx_access = (unsigned char)access;
     field->next = NULL;
-    (void)access;
 
     /* Append to fields list */
     if (!cls->fields) {
@@ -540,6 +542,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
         TypeParam* tp = rcc_alloc(sizeof(TypeParam));
         tp->name = p->decl->name;
         tp->type = p->decl->type;
+        tp->cxx_access = ACCESS_PUBLIC;
         tp->next = NULL;
         *parameter_tail = tp;
         parameter_tail = &tp->next;

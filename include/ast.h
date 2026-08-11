@@ -41,12 +41,16 @@ typedef struct TypeField {
     const char* name;
     Type* type;
     int offset;
+    /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
+     * C AST does not depend on the C++ extension header. */
+    unsigned char cxx_access;
     struct TypeField* next;
 } TypeField;
 
 typedef struct TypeParam {
     const char* name;
     Type* type;
+    unsigned char cxx_access;
     struct TypeParam* next;
 } TypeParam;
 
@@ -106,6 +110,9 @@ extern Type* type_double;
 void type_configure_target(TargetArch architecture);
 Type* rcc_parser_lookup_type(const char* name);
 void rcc_parser_define_type(const char* name, Type* type);
+void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,
+                                            uint32_t arity_mask);
+uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type);
 
 /* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
  * process exit by the single-shot host compiler. */
@@ -306,6 +313,7 @@ struct Expr {
             Type* compound_type;
             ExprList* compound_init;
             int compound_offset;     /* Assigned automatic-storage slot. */
+            bool compound_value_init; /* Spelled as an empty C++ {} list. */
         };
 
         /* EXPR_GENERIC */

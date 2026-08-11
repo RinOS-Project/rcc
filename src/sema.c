@@ -959,6 +959,10 @@ static Type* sema_expr(Expr* expr) {
                 if (strcmp(field->name, expr->member_name) == 0) {
                     expr->member_field = field;
                     expr->type = field->type;
+                    if (field->cxx_access != 0u) {
+                        rcc_error(expr->loc, "member '%s' is not accessible",
+                                  expr->member_name);
+                    }
                     break;
                 }
                 field = field->next;

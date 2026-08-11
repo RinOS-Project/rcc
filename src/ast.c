@@ -590,6 +590,8 @@ Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
     e->loc = loc;
     e->compound_type = NULL;
     e->compound_init = items;
+    e->compound_offset = 0;
+    e->compound_value_init = false;
     e->type = NULL;
     return e;
 }

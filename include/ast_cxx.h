@@ -13,6 +13,7 @@ typedef struct CxxClass CxxClass;
 typedef struct CxxNamespace CxxNamespace;
 typedef struct CxxTemplate CxxTemplate;
 typedef struct CxxMethod CxxMethod;
+typedef struct CxxConstructorInfo CxxConstructorInfo;
 
 /* Access specifier */
 typedef enum {
@@ -20,6 +21,22 @@ typedef enum {
     ACCESS_PROTECTED,
     ACCESS_PRIVATE
 } AccessSpec;
+
+/* Constructor facts retained until all class fields are known.  Only the
+ * deliberately small, ABI-transparent subset accepted by parser_cxx.c is
+ * lowered through the common aggregate backend. */
+struct CxxConstructorInfo {
+    int parameter_count;
+    const char* parameter_name;
+    Type* parameter_type;
+    const char* initializer_field;
+    Expr* initializer_value;
+    bool initializer_is_single;
+    bool body_is_empty;
+    bool is_deleted;
+    bool is_defaulted;
+    CxxConstructorInfo* next;
+};
 
 /* C++ Class/Struct */
 struct CxxClass {
@@ -29,6 +46,7 @@ struct CxxClass {
     bool has_nonpublic_field;
     bool has_static_field;
     bool has_field_initializer;
+    CxxConstructorInfo* constructors;
 
     /* Base classes */
     struct {

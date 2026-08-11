@@ -19,6 +19,7 @@ Parser parser;  /* Non-static for C++ parser access */
 typedef struct ParserTypeName {
     const char* name;
     Type* type;
+    uint32_t cxx_constructor_arity_mask;
     struct ParserTypeName* next;
 } ParserTypeName;
 
@@ -99,6 +100,7 @@ static void parser_define_type(const char* name, Type* type) {
     ParserTypeName* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->type = type;
+    entry->cxx_constructor_arity_mask = 0u;
     entry->next = parser_type_names;
     parser_type_names = entry;
 }
@@ -630,6 +632,48 @@ void rcc_parser_define_type(const char* name, Type* type) {
     if (name && type) parser_define_type(name, type);
 }
 
+void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,
+                                            uint32_t arity_mask) {
+    ParserTypeName* entry;
+    if (!name || !type || arity_mask == 0u) return;
+    parser_define_type(name, type);
+    entry = parser_type_names;
+    entry->cxx_constructor_arity_mask = arity_mask;
+}
+
+uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type) {
+    ParserTypeName* entry;
+    for (entry = parser_type_names; entry; entry = entry->next) {
+        if (entry->type == type && entry->cxx_constructor_arity_mask != 0u) {
+            return entry->cxx_constructor_arity_mask;
+        }
+    }
+    return 0u;
+}
+
+static void parser_validate_cxx_constructor_initializer(Type* type,
+                                                        Expr* initializer) {
+    uint32_t mask;
+    unsigned arity = 0u;
+    ExprList* item;
+    if (!parser_cxx_mode || !type || !initializer ||
+        initializer->kind != EXPR_COMPOUND) {
+        return;
+    }
+    mask = rcc_parser_cxx_constructor_arity_mask(type);
+    if (mask == 0u) return;
+    if (!initializer->compound_value_init) {
+        for (item = initializer->compound_init; item; item = item->next) {
+            if (arity < 32u) ++arity;
+        }
+    }
+    if (arity >= 32u || (mask & (UINT32_C(1) << arity)) == 0u) {
+        rcc_error(initializer->loc,
+                  "no safely lowerable constructor accepts %u argument%s",
+                  arity, arity == 1u ? "" : "s");
+    }
+}
+
 static Expr* parse_builtin_offsetof(SourceLoc loc) {
     Type* current;
     int64_t offset = 0;
@@ -820,6 +864,8 @@ static Expr* parse_primary(void) {
             advance();
             Expr* initializer = parse_initializer();
             initializer->compound_type = direct_type;
+            parser_validate_cxx_constructor_initializer(direct_type,
+                                                        initializer);
             return initializer;
         }
     }
@@ -1265,6 +1311,7 @@ typedef struct ParsedInitializerDesignator {
 static Expr* parse_initializer(void) {
     ExprList* items = NULL;
     SourceLoc loc;
+    bool value_init = false;
     if (!match(TOK_LBRACE)) return parse_assignment();
     loc = previous()->loc;
     if (check(TOK_RBRACE)) {
@@ -1274,6 +1321,7 @@ static Expr* parse_initializer(void) {
              * contract for both target ABIs. */
             exprlist_append_designated(
                 &items, expr_int(0, loc), INIT_DESIGNATOR_NONE, 0, NULL);
+            value_init = true;
         } else {
             rcc_error(loc, "empty initializer list is not valid C17");
         }
@@ -1346,7 +1394,9 @@ static Expr* parse_initializer(void) {
         }
     }
     expect(TOK_RBRACE, "}");
-    return expr_initializer_list(items, loc);
+    Expr* initializer = expr_initializer_list(items, loc);
+    initializer->compound_value_init = value_init;
+    return initializer;
 }
 
 static int parser_align_up(int value, int alignment) {
@@ -1393,6 +1443,8 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     }
     field->name = name;
     field->type = type;
+    field->cxx_access = 0u;
+    field->next = NULL;
     while (*tail) tail = &(*tail)->next;
     if (aggregate->kind == TYPE_UNION) {
         field->offset = 0;
@@ -1432,6 +1484,8 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
         field->name = source->name;
         field->type = source->type;
         field->offset = base_offset + source->offset;
+        field->cxx_access = source->cxx_access;
+        field->next = NULL;
         *tail = field;
         tail = &field->next;
     }
@@ -1588,6 +1642,8 @@ static TypeParam* parser_type_params(DeclList* parameters, bool* variadic) {
         TypeParam* param = ast_arena_alloc(sizeof(*param));
         param->name = item->decl->name;
         param->type = item->decl->type;
+        param->cxx_access = 0u;
+        param->next = NULL;
         *tail = param;
         tail = &param->next;
     }
@@ -2091,6 +2147,7 @@ Stmt* parse_declaration(void) {
     } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
     }
+    parser_validate_cxx_constructor_initializer(type, init);
 
     expect(TOK_SEMICOLON, ";");
 
