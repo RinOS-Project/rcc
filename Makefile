@@ -126,7 +126,15 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/atomic-x64/atomic.rin \
 		$(TEST_OUT)/atomic-x64/atomic.ro
-	@echo "Dual-architecture 32-bit atomic builtin tests completed"
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/atomic-builtin-run-test \
+		tests/atomic_builtin_run_test.c src/emit_ro.c src/utils.c -pthread
+	$(TEST_OUT)/atomic-builtin-run-test \
+		$(TEST_OUT)/atomic-x64/atomic.ro
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/atomic-x64/invalid.ro \
+		tests/invalid_atomic_builtin.c
+	@echo "Dual-architecture 32-bit atomic builtin execution tests completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)

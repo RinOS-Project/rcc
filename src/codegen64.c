@@ -522,6 +522,9 @@ static Expr* call64_argument(Expr* call, int index) {
 static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
+    bool is_atomic;
+    bool is_subtract;
+    bool returns_new;
 
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
@@ -542,7 +545,57 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         emit_byte(mod, modrm64(0, RAX, RCX));
         return true;
     }
-    if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+    is_atomic = strncmp(name, "__atomic_", 9) == 0;
+    if (strcmp(name, "__atomic_exchange_n") == 0 ||
+        strcmp(name, "__sync_lock_test_and_set") == 0) {
+        if (is_atomic) gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_pop_reg(mod, RCX);
+        emit_byte(mod, 0x87); /* xchg dword ptr [rcx], eax */
+        emit_byte(mod, modrm64(0, RAX, RCX));
+        return true;
+    }
+    is_subtract = strcmp(name, "__atomic_fetch_sub") == 0 ||
+                  strcmp(name, "__atomic_sub_fetch") == 0 ||
+                  strcmp(name, "__sync_fetch_and_sub") == 0 ||
+                  strcmp(name, "__sync_sub_and_fetch") == 0;
+    returns_new = strcmp(name, "__atomic_add_fetch") == 0 ||
+                  strcmp(name, "__atomic_sub_fetch") == 0 ||
+                  strcmp(name, "__sync_add_and_fetch") == 0 ||
+                  strcmp(name, "__sync_sub_and_fetch") == 0;
+    if (strcmp(name, "__atomic_fetch_add") == 0 ||
+        strcmp(name, "__atomic_fetch_sub") == 0 ||
+        strcmp(name, "__atomic_add_fetch") == 0 ||
+        strcmp(name, "__atomic_sub_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_add") == 0 ||
+        strcmp(name, "__sync_fetch_and_sub") == 0 ||
+        strcmp(name, "__sync_add_and_fetch") == 0 ||
+        strcmp(name, "__sync_sub_and_fetch") == 0) {
+        if (is_atomic) gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_pop_reg(mod, RCX);
+        emit64_mov_reg_reg(mod, RAX, RDX);
+        if (is_subtract) {
+            emit_byte(mod, 0xF7);
+            emit_byte(mod, 0xD8); /* neg eax */
+        }
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xC1); /* lock xadd dword ptr [rcx], eax */
+        emit_byte(mod, modrm64(0, RAX, RCX));
+        if (returns_new) {
+            emit_byte(mod, is_subtract ? 0x29 : 0x01);
+            emit_byte(mod, 0xD0); /* sub/add eax, edx */
+        }
+        return true;
+    }
+    if (strcmp(name, "__sync_bool_compare_and_swap") == 0 ||
+        strcmp(name, "__sync_val_compare_and_swap") == 0) {
         gen64_expr(mod, call64_argument(call, 0));
         emit64_push_reg(mod, RAX);
         gen64_expr(mod, call64_argument(call, 1));
@@ -555,8 +608,29 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xB1); /* lock cmpxchg dword ptr [rcx], edx */
         emit_byte(mod, modrm64(0, RDX, RCX));
-        emit64_setcc(mod, CC64_E, RAX);
-        emit64_movzx_r64_r8(mod, RAX, RAX);
+        if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+            emit64_setcc(mod, CC64_E, RAX);
+            emit64_movzx_r64_r8(mod, RAX, RAX);
+        }
+        return true;
+    }
+    if (strcmp(name, "__sync_lock_release") == 0) {
+        gen64_expr(mod, call64_argument(call, 0));
+        emit_byte(mod, 0xC7); /* mov dword ptr [rax], 0 */
+        emit_byte(mod, modrm64(0, 0, RAX));
+        emit_dword(mod, 0u);
+        return true;
+    }
+    if (strcmp(name, "__atomic_thread_fence") == 0 ||
+        strcmp(name, "__sync_synchronize") == 0) {
+        if (strcmp(name, "__atomic_thread_fence") == 0) {
+            gen64_expr(mod, call64_argument(call, 0));
+        }
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x83);
+        emit_byte(mod, 0x0C);
+        emit_byte(mod, 0x24);
+        emit_byte(mod, 0x00); /* lock or dword ptr [rsp], 0 */
         return true;
     }
     return false;

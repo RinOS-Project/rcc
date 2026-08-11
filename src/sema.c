@@ -603,17 +603,49 @@ static Expr* initializer_character_string(Type* type, Expr* initializer) {
 static bool sema_atomic_builtin_call(Expr* expr) {
     Expr* function = expr->call_func;
     ExprList* argument;
+    const char* name;
     int argument_count = 0;
     int expected_count;
-    Type* pointer_type;
+    bool requires_pointer = true;
+    bool returns_void = false;
+    bool returns_bool = false;
+    Type* pointer_type = NULL;
 
     if (!function || function->kind != EXPR_IDENT) return false;
-    if (strcmp(function->ident_name, "__atomic_load_n") == 0) {
+    name = function->ident_name;
+    if (strcmp(name, "__atomic_load_n") == 0) {
         expected_count = 2;
-    } else if (strcmp(function->ident_name, "__atomic_store_n") == 0 ||
-               strcmp(function->ident_name,
-                      "__sync_bool_compare_and_swap") == 0) {
+    } else if (strcmp(name, "__atomic_store_n") == 0) {
         expected_count = 3;
+        returns_void = true;
+    } else if (strcmp(name, "__atomic_exchange_n") == 0 ||
+               strcmp(name, "__atomic_fetch_add") == 0 ||
+               strcmp(name, "__atomic_fetch_sub") == 0 ||
+               strcmp(name, "__atomic_add_fetch") == 0 ||
+               strcmp(name, "__atomic_sub_fetch") == 0) {
+        expected_count = 3;
+    } else if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+        expected_count = 3;
+        returns_bool = true;
+    } else if (strcmp(name, "__sync_val_compare_and_swap") == 0) {
+        expected_count = 3;
+    } else if (strcmp(name, "__sync_lock_test_and_set") == 0 ||
+               strcmp(name, "__sync_fetch_and_add") == 0 ||
+               strcmp(name, "__sync_fetch_and_sub") == 0 ||
+               strcmp(name, "__sync_add_and_fetch") == 0 ||
+               strcmp(name, "__sync_sub_and_fetch") == 0) {
+        expected_count = 2;
+    } else if (strcmp(name, "__sync_lock_release") == 0) {
+        expected_count = 1;
+        returns_void = true;
+    } else if (strcmp(name, "__atomic_thread_fence") == 0) {
+        expected_count = 1;
+        requires_pointer = false;
+        returns_void = true;
+    } else if (strcmp(name, "__sync_synchronize") == 0) {
+        expected_count = 0;
+        requires_pointer = false;
+        returns_void = true;
     } else {
         return false;
     }
@@ -624,24 +656,26 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     }
     if (argument_count != expected_count) {
         rcc_error(expr->loc, "%s expects %d arguments, got %d",
-                  function->ident_name, expected_count, argument_count);
+                  name, expected_count, argument_count);
     }
-    pointer_type = expr->call_args ? expr->call_args->expr->type : NULL;
-    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
-        !pointer_type->base || !type_is_integer(pointer_type->base) ||
-        pointer_type->base->size != 4u) {
-        rcc_error(expr->loc, "%s requires a pointer to a 32-bit integer",
-                  function->ident_name);
+    if (requires_pointer) {
+        pointer_type = expr->call_args ? expr->call_args->expr->type : NULL;
+        if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+            !pointer_type->base || !type_is_integer(pointer_type->base) ||
+            pointer_type->base->size != 4u) {
+            rcc_error(expr->loc, "%s requires a pointer to a 32-bit integer",
+                      name);
+        }
     }
 
     function->type = type_ptr(type_void);
-    if (strcmp(function->ident_name, "__atomic_load_n") == 0) {
+    if (returns_void) {
+        expr->type = type_void;
+    } else if (returns_bool) {
+        expr->type = type_int;
+    } else {
         expr->type = pointer_type && pointer_type->base
             ? pointer_type->base : type_uint;
-    } else if (strcmp(function->ident_name, "__atomic_store_n") == 0) {
-        expr->type = type_void;
-    } else {
-        expr->type = type_int;
     }
     return true;
 }

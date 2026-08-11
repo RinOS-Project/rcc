@@ -1355,6 +1355,9 @@ static Expr* call_argument(Expr* call, int index) {
 static bool gen_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
+    bool is_atomic;
+    bool is_subtract;
+    bool returns_new;
 
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
@@ -1376,7 +1379,58 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         emit_memory_operand32(mod, EAX, ECX, 0);
         return true;
     }
-    if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+    is_atomic = strncmp(name, "__atomic_", 9) == 0;
+    if (strcmp(name, "__atomic_exchange_n") == 0 ||
+        strcmp(name, "__sync_lock_test_and_set") == 0) {
+        if (is_atomic) gen_expr(mod, call_argument(call, 2));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_pop_reg(mod, ECX);
+        /* XCHG with memory returns the previous value in EAX. */
+        emit_byte(mod, 0x87);
+        emit_memory_operand32(mod, EAX, ECX, 0);
+        return true;
+    }
+    is_subtract = strcmp(name, "__atomic_fetch_sub") == 0 ||
+                  strcmp(name, "__atomic_sub_fetch") == 0 ||
+                  strcmp(name, "__sync_fetch_and_sub") == 0 ||
+                  strcmp(name, "__sync_sub_and_fetch") == 0;
+    returns_new = strcmp(name, "__atomic_add_fetch") == 0 ||
+                  strcmp(name, "__atomic_sub_fetch") == 0 ||
+                  strcmp(name, "__sync_add_and_fetch") == 0 ||
+                  strcmp(name, "__sync_sub_and_fetch") == 0;
+    if (strcmp(name, "__atomic_fetch_add") == 0 ||
+        strcmp(name, "__atomic_fetch_sub") == 0 ||
+        strcmp(name, "__atomic_add_fetch") == 0 ||
+        strcmp(name, "__atomic_sub_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_add") == 0 ||
+        strcmp(name, "__sync_fetch_and_sub") == 0 ||
+        strcmp(name, "__sync_add_and_fetch") == 0 ||
+        strcmp(name, "__sync_sub_and_fetch") == 0) {
+        if (is_atomic) gen_expr(mod, call_argument(call, 2));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_pop_reg(mod, ECX);
+        emit_mov_reg_reg(mod, EAX, EDX);
+        if (is_subtract) emit_neg_reg(mod, EAX);
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xC1); /* lock xadd dword ptr [ecx], eax */
+        emit_memory_operand32(mod, EAX, ECX, 0);
+        if (returns_new) {
+            if (is_subtract) {
+                emit_sub_reg_reg(mod, EAX, EDX);
+            } else {
+                emit_add_reg_reg(mod, EAX, EDX);
+            }
+        }
+        return true;
+    }
+    if (strcmp(name, "__sync_bool_compare_and_swap") == 0 ||
+        strcmp(name, "__sync_val_compare_and_swap") == 0) {
         gen_expr(mod, call_argument(call, 0));
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 1));
@@ -1389,10 +1443,32 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xB1);
         emit_memory_operand32(mod, EDX, ECX, 0);
-        emit_setcc(mod, CC_E, EAX);
-        emit_byte(mod, 0x0F);
-        emit_byte(mod, 0xB6);
-        emit_byte(mod, modrm(3, EAX, EAX));
+        if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+            emit_setcc(mod, CC_E, EAX);
+            emit_byte(mod, 0x0F);
+            emit_byte(mod, 0xB6);
+            emit_byte(mod, modrm(3, EAX, EAX));
+        }
+        return true;
+    }
+    if (strcmp(name, "__sync_lock_release") == 0) {
+        gen_expr(mod, call_argument(call, 0));
+        emit_byte(mod, 0xC7); /* mov dword ptr [eax], 0 */
+        emit_memory_operand32(mod, 0, EAX, 0);
+        emit_dword(mod, 0u);
+        return true;
+    }
+    if (strcmp(name, "__atomic_thread_fence") == 0 ||
+        strcmp(name, "__sync_synchronize") == 0) {
+        if (strcmp(name, "__atomic_thread_fence") == 0) {
+            gen_expr(mod, call_argument(call, 0));
+        }
+        /* A locked operation is a full barrier on every supported i686 CPU. */
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x83);
+        emit_byte(mod, 0x0C);
+        emit_byte(mod, 0x24);
+        emit_byte(mod, 0x00); /* lock or dword ptr [esp], 0 */
         return true;
     }
     return false;
