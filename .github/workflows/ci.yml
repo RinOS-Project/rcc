@@ -34,6 +34,7 @@ jobs:
           make test-cxx-cli
           make test-cxx-language-linkage
           make test-cxx-member-specifiers
+          make test-cxx-function-templates
           make test-preprocessor-continuation
           make test-atomic-builtins
           make test-inline-asm-execute

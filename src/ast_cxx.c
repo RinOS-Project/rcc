@@ -336,6 +336,8 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     ns->decls = NULL;
     ns->classes = NULL;
     ns->class_count = 0;
+    ns->templates = NULL;
+    ns->template_count = 0;
     ns->children = NULL;
     ns->next = NULL;
 
@@ -366,6 +368,14 @@ void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
     ns->decls = node;
 }
 
+void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
+    if (!ns || !tmpl) return;
+    ns->templates = ast_arena_grow(
+        ns->templates, sizeof(CxxTemplate*) * (size_t)ns->template_count,
+        sizeof(CxxTemplate*) * (size_t)(ns->template_count + 1));
+    ns->templates[ns->template_count++] = tmpl;
+}
+
 /* ═══════════════════════════════════════
  * Template Operations (Core API)
  * ═══════════════════════════════════════ */
@@ -382,6 +392,8 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->param_count = count;
     tmpl->kind = TMPL_CLASS;
     tmpl->class_def = NULL;
+    tmpl->is_constexpr = false;
+    tmpl->is_noexcept = false;
     tmpl->templated_class = NULL;
     tmpl->instances = NULL;
     tmpl->instance_count = 0;

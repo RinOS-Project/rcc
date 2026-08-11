@@ -83,6 +83,10 @@ struct CxxNamespace {
     CxxClass** classes;
     int class_count;
 
+    /* Templates declared directly in this namespace. */
+    CxxTemplate** templates;
+    int template_count;
+
     /* Nested namespaces */
     CxxNamespace* children;
     CxxNamespace* next;      /* sibling */
@@ -119,6 +123,9 @@ struct CxxTemplate {
         CxxClass* class_def;
         Decl* func_def;
     };
+
+    bool is_constexpr;
+    bool is_noexcept;
 
     /* Alternate storage for parsed class (used by parser_cxx.c) */
     CxxClass* templated_class;
@@ -169,6 +176,7 @@ void cxx_class_build_vtable(CxxClass* cls);
 CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent);
 CxxNamespace* cxx_namespace_lookup(CxxNamespace* root, const char* name);
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl);
+void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl);
 
 /* Template operations (core API) */
 CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int count);

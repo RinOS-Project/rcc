@@ -50,6 +50,7 @@ static Token* expect(TokenType type, const char* msg) {
 static Expr* parse_cxx_expression(void);
 static Stmt* parse_cxx_statement(void);
 static Type* parse_cxx_type_spec(void);
+CxxTemplate* parse_cxx_template(void);
 
 /* ═══════════════════════════════════════
  * C++ Scope Resolution
@@ -460,6 +461,9 @@ CxxNamespace* parse_cxx_namespace(void) {
         if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             cxx_namespace_add_class(ns, cls);
+        } else if (match(TOK_TEMPLATE)) {
+            CxxTemplate* tmpl = parse_cxx_template();
+            cxx_namespace_add_template(ns, tmpl);
         } else if (match(TOK_NAMESPACE)) {
             CxxNamespace* inner = parse_cxx_namespace();
             cxx_namespace_add_namespace(ns, inner);
@@ -472,6 +476,78 @@ CxxNamespace* parse_cxx_namespace(void) {
     expect(TOK_RBRACE, "}");
 
     return ns;
+}
+
+static DeclList* parse_cxx_parameter_declarations(void) {
+    DeclList* params = NULL;
+    int param_idx = 0;
+
+    if (check(TOK_VOID) && check_next(TOK_RPAREN)) {
+        advance();
+        return NULL;
+    }
+    while (!check(TOK_RPAREN) && !at_end()) {
+        Type* type = parse_cxx_type_spec();
+        const char* name = NULL;
+        if (check(TOK_IDENT)) name = advance()->value.str_val;
+        if (match(TOK_ASSIGN)) {
+            (void)parse_cxx_expression();
+        }
+        decllist_append(&params,
+                        decl_param(name, type, param_idx++, peek()->loc));
+        if (!match(TOK_COMMA)) break;
+    }
+    return params;
+}
+
+static Decl* parse_cxx_function_template_declaration(bool* is_constexpr,
+                                                     bool* is_noexcept) {
+    SourceLoc loc;
+    Type* return_type;
+    Token* name;
+    DeclList* params;
+    Stmt* body = NULL;
+    bool is_inline = false;
+
+    *is_constexpr = false;
+    *is_noexcept = false;
+    skip_cxx_attributes();
+    loc = peek()->loc;
+    for (;;) {
+        if (match(TOK_CONSTEXPR)) *is_constexpr = true;
+        else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
+        else break;
+    }
+    return_type = parse_cxx_type_spec();
+    name = expect(TOK_IDENT, "function template name");
+    if (!name) return NULL;
+    expect(TOK_LPAREN, "(");
+    params = parse_cxx_parameter_declarations();
+    expect(TOK_RPAREN, ")");
+    if (match(TOK_NOEXCEPT)) {
+        *is_noexcept = true;
+        if (check(TOK_LPAREN)) {
+            skip_balanced(TOK_LPAREN, TOK_RPAREN);
+        }
+    }
+    if (match(TOK_LBRACE)) {
+        StmtList* statements = NULL;
+        while (!check(TOK_RBRACE) && !at_end()) {
+            Token* start = parser.cur;
+            Stmt* statement = parse_cxx_statement();
+            if (statement) stmtlist_append(&statements, statement);
+            if (parser.cur == start && !at_end()) advance();
+        }
+        expect(TOK_RBRACE, "}");
+        body = stmt_block(statements, loc);
+    } else {
+        expect(TOK_SEMICOLON, ";");
+    }
+
+    CxxMethod* function = cxx_method_new(name->value.str_val, return_type,
+                                         params, body, loc);
+    function->decl->func_is_inline = is_inline;
+    return function->decl;
 }
 
 /* ═══════════════════════════════════════
@@ -507,6 +583,9 @@ CxxTemplate* parse_cxx_template(void) {
 
             /* Default value? */
             if (match(TOK_ASSIGN)) {
+                if (tmpl->param_count > 0) {
+                    tmpl->params[tmpl->param_count - 1].has_default = true;
+                }
                 /* Skip default for now */
                 int depth = 0;
                 while (!at_end()) {
@@ -525,8 +604,19 @@ CxxTemplate* parse_cxx_template(void) {
     /* Template body */
     if (match(TOK_CLASS) || match(TOK_STRUCT)) {
         tmpl->templated_class = parse_cxx_class();
+        tmpl->kind = TMPL_CLASS;
+        tmpl->class_def = tmpl->templated_class;
+        if (tmpl->templated_class) {
+            tmpl->name = ast_arena_strdup(tmpl->templated_class->name);
+        }
+    } else {
+        tmpl->kind = TMPL_FUNCTION;
+        tmpl->func_def = parse_cxx_function_template_declaration(
+            &tmpl->is_constexpr, &tmpl->is_noexcept);
+        if (tmpl->func_def) {
+            tmpl->name = ast_arena_strdup(tmpl->func_def->name);
+        }
     }
-    /* TODO: template functions */
 
     return tmpl;
 }
@@ -771,7 +861,9 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             (void)ns;
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
-            (void)tmpl;
+            if (g_global_namespace) {
+                cxx_namespace_add_template(g_global_namespace, tmpl);
+            }
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             /* Class is stored in global namespace */
