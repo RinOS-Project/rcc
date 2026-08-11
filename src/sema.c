@@ -1783,8 +1783,6 @@ static bool sema_statement_has_unsupported_cleanup_flow(Stmt* statement) {
     if (!statement) return false;
     switch (statement->kind) {
         case STMT_GOTO:
-        case STMT_BREAK:
-        case STMT_CONTINUE:
         case STMT_SWITCH:
             return true;
         case STMT_BLOCK:
@@ -1968,7 +1966,7 @@ static void sema_decl(Decl* decl) {
                     sema_statement_has_unsupported_cleanup_flow(
                         decl->func_body)) {
                     rcc_error(decl->loc,
-                              "goto, switch, break, and continue are not "
+                              "goto and switch are not "
                               "supported with C++ scope cleanup yet");
                 }
 

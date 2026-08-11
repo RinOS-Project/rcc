@@ -77,6 +77,10 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_wide_release;
     mutable_int_pointer_function cleanup_get;
     wide_unary_function cleanup_wide_get;
+    mutable_int_pointer_function cleanup_break;
+    mutable_int_pointer_function cleanup_continue;
+    mutable_int_pointer_function cleanup_for_break;
+    mutable_int_pointer_function cleanup_for_continue;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -133,6 +137,12 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_get, object, mapping, "cxx_cleanup_get");
     LOAD_FUNCTION(cleanup_wide_get, object, mapping,
                   "cxx_cleanup_wide_get");
+    LOAD_FUNCTION(cleanup_break, object, mapping, "cxx_cleanup_break");
+    LOAD_FUNCTION(cleanup_continue, object, mapping, "cxx_cleanup_continue");
+    LOAD_FUNCTION(cleanup_for_break, object, mapping,
+                  "cxx_cleanup_for_break");
+    LOAD_FUNCTION(cleanup_for_continue, object, mapping,
+                  "cxx_cleanup_for_continue");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
@@ -193,6 +203,17 @@ int main(int argc, char** argv)
     }
     assert(cleanup_wide_get(UINT64_C(0xfedcba9876543210)) ==
            UINT64_C(0xfedcba9876543210));
+    {
+        int value = 60;
+        assert(cleanup_break(&value) == 61);
+        assert(value == 61);
+        assert(cleanup_continue(&value) == 63);
+        assert(value == 63);
+        assert(cleanup_for_break(&value) == 64);
+        assert(value == 64);
+        assert(cleanup_for_continue(&value) == 67);
+        assert(value == 67);
+    }
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

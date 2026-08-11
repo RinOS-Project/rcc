@@ -2070,6 +2070,8 @@ typedef struct CleanupCodegen64 {
 } CleanupCodegen64;
 
 static CleanupCodegen64* active_cleanups64 = NULL;
+static CleanupCodegen64* break_cleanup_marker64 = NULL;
+static CleanupCodegen64* continue_cleanup_marker64 = NULL;
 
 static void gen64_cleanups_until(Module* mod, CleanupCodegen64* marker) {
     for (CleanupCodegen64* item = active_cleanups64;
@@ -2391,12 +2393,18 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         }
 
         case STMT_WHILE: {
+            CleanupCodegen64* loop_marker = active_cleanups64;
+            CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
+            CleanupCodegen64* old_continue_cleanup =
+                continue_cleanup_marker64;
             int start_label = new_label64();
             int end_label = new_label64();
             int old_break = break_label64;
             int old_continue = continue_label64;
             break_label64 = end_label;
             continue_label64 = start_label;
+            break_cleanup_marker64 = loop_marker;
+            continue_cleanup_marker64 = loop_marker;
 
             emit64_label(mod, start_label);
             gen64_expr(mod, stmt->while_cond);
@@ -2410,10 +2418,16 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
             break_label64 = old_break;
             continue_label64 = old_continue;
+            break_cleanup_marker64 = old_break_cleanup;
+            continue_cleanup_marker64 = old_continue_cleanup;
             break;
         }
 
         case STMT_DO: {
+            CleanupCodegen64* loop_marker = active_cleanups64;
+            CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
+            CleanupCodegen64* old_continue_cleanup =
+                continue_cleanup_marker64;
             int start_label = new_label64();
             int end_label = new_label64();
             int cond_label = new_label64();
@@ -2421,6 +2435,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             int old_continue = continue_label64;
             break_label64 = end_label;
             continue_label64 = cond_label;
+            break_cleanup_marker64 = loop_marker;
+            continue_cleanup_marker64 = loop_marker;
 
             emit64_label(mod, start_label);
             gen64_scoped_stmt(mod, stmt->while_body);
@@ -2434,11 +2450,16 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
             break_label64 = old_break;
             continue_label64 = old_continue;
+            break_cleanup_marker64 = old_break_cleanup;
+            continue_cleanup_marker64 = old_continue_cleanup;
             break;
         }
 
         case STMT_FOR: {
             CleanupCodegen64* marker = active_cleanups64;
+            CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
+            CleanupCodegen64* old_continue_cleanup =
+                continue_cleanup_marker64;
             int start_label = new_label64();
             int end_label = new_label64();
             int inc_label = new_label64();
@@ -2450,6 +2471,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             if (stmt->for_init) {
                 gen64_stmt(mod, stmt->for_init);
             }
+            break_cleanup_marker64 = active_cleanups64;
+            continue_cleanup_marker64 = active_cleanups64;
 
             emit64_label(mod, start_label);
 
@@ -2473,6 +2496,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
             break_label64 = old_break;
             continue_label64 = old_continue;
+            break_cleanup_marker64 = old_break_cleanup;
+            continue_cleanup_marker64 = old_continue_cleanup;
             break;
         }
 
@@ -2595,12 +2620,14 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_BREAK:
             if (break_label64 >= 0) {
+                gen64_cleanups_until(mod, break_cleanup_marker64);
                 emit64_jmp_label(mod, break_label64);
             }
             break;
 
         case STMT_CONTINUE:
             if (continue_label64 >= 0) {
+                gen64_cleanups_until(mod, continue_cleanup_marker64);
                 emit64_jmp_label(mod, continue_label64);
             }
             break;

@@ -4422,6 +4422,8 @@ typedef struct CleanupCodegen {
 } CleanupCodegen;
 
 static CleanupCodegen* active_cleanups = NULL;
+static CleanupCodegen* break_cleanup_marker = NULL;
+static CleanupCodegen* continue_cleanup_marker = NULL;
 
 static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
     for (CleanupCodegen* item = active_cleanups; item && item != marker;
@@ -4571,12 +4573,17 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         }
 
         case STMT_WHILE: {
+            CleanupCodegen* loop_marker = active_cleanups;
+            CleanupCodegen* old_break_cleanup = break_cleanup_marker;
+            CleanupCodegen* old_continue_cleanup = continue_cleanup_marker;
             int start_label = new_label();
             int end_label = new_label();
             int old_break = break_label;
             int old_continue = continue_label;
             break_label = end_label;
             continue_label = start_label;
+            break_cleanup_marker = loop_marker;
+            continue_cleanup_marker = loop_marker;
 
             emit_label(mod, start_label);
             gen_expr(mod, stmt->while_cond);
@@ -4590,10 +4597,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             break_label = old_break;
             continue_label = old_continue;
+            break_cleanup_marker = old_break_cleanup;
+            continue_cleanup_marker = old_continue_cleanup;
             break;
         }
 
         case STMT_DO: {
+            CleanupCodegen* loop_marker = active_cleanups;
+            CleanupCodegen* old_break_cleanup = break_cleanup_marker;
+            CleanupCodegen* old_continue_cleanup = continue_cleanup_marker;
             int start_label = new_label();
             int end_label = new_label();
             int cond_label = new_label();
@@ -4601,6 +4613,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             int old_continue = continue_label;
             break_label = end_label;
             continue_label = cond_label;
+            break_cleanup_marker = loop_marker;
+            continue_cleanup_marker = loop_marker;
 
             emit_label(mod, start_label);
             gen_scoped_stmt(mod, stmt->while_body);
@@ -4614,11 +4628,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             break_label = old_break;
             continue_label = old_continue;
+            break_cleanup_marker = old_break_cleanup;
+            continue_cleanup_marker = old_continue_cleanup;
             break;
         }
 
         case STMT_FOR: {
             CleanupCodegen* marker = active_cleanups;
+            CleanupCodegen* old_break_cleanup = break_cleanup_marker;
+            CleanupCodegen* old_continue_cleanup = continue_cleanup_marker;
             int start_label = new_label();
             int end_label = new_label();
             int inc_label = new_label();
@@ -4630,6 +4648,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             if (stmt->for_init) {
                 gen_stmt(mod, stmt->for_init);
             }
+            break_cleanup_marker = active_cleanups;
+            continue_cleanup_marker = active_cleanups;
 
             emit_label(mod, start_label);
 
@@ -4653,6 +4673,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             break_label = old_break;
             continue_label = old_continue;
+            break_cleanup_marker = old_break_cleanup;
+            continue_cleanup_marker = old_continue_cleanup;
             break;
         }
 
@@ -4779,12 +4801,14 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_BREAK:
             if (break_label >= 0) {
+                gen_cleanups_until(mod, break_cleanup_marker);
                 emit_jmp_label(mod, break_label);
             }
             break;
 
         case STMT_CONTINUE:
             if (continue_label >= 0) {
+                gen_cleanups_until(mod, continue_cleanup_marker);
                 emit_jmp_label(mod, continue_label);
             }
             break;

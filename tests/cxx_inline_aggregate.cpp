@@ -289,4 +289,44 @@ uint64_t cxx_cleanup_wide_get(uint64_t value) {
     return result;
 }
 
+int cxx_cleanup_break(int* value) {
+    while (*value < 1000) {
+        auto handle = CxxUnique<int*>{value};
+        break;
+    }
+    return *value;
+}
+
+int cxx_cleanup_continue(int* value) {
+    int remaining = 2;
+    while (remaining > 0) {
+        auto handle = CxxUnique<int*>{value};
+        --remaining;
+        continue;
+    }
+    return *value;
+}
+
+int cxx_cleanup_for_break(int* value) {
+    {
+        auto handle = CxxUnique<int*>{value};
+        for (; ; ) {
+            break;
+        }
+    }
+    return *value;
+}
+
+int cxx_cleanup_for_continue(int* value) {
+    {
+        auto outer = CxxUnique<int*>{value};
+        int iteration = 0;
+        for (; iteration < 2; ++iteration) {
+            auto inner = CxxUnique<int*>{value};
+            continue;
+        }
+    }
+    return *value;
+}
+
 }
