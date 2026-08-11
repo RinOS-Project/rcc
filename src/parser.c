@@ -626,6 +626,10 @@ Type* rcc_parser_lookup_type(const char* name) {
     return parser_lookup_type(name);
 }
 
+void rcc_parser_define_type(const char* name, Type* type) {
+    if (name && type) parser_define_type(name, type);
+}
+
 static Expr* parse_builtin_offsetof(SourceLoc loc) {
     Type* current;
     int64_t offset = 0;

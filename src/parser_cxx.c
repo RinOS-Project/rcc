@@ -399,6 +399,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_destructor = is_destructor;
         method->owner = cls;
 
+        if (is_constructor) cls->has_user_constructor = true;
+
         cxx_class_add_method(cls, method);
     } else {
         /* Field */
@@ -417,7 +419,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         if (match(TOK_ASSIGN)) {
             init = parse_cxx_expression();
         }
-        (void)init;
+        if (init) cls->has_field_initializer = true;
+        if (current_access != ACCESS_PUBLIC) {
+            cls->has_nonpublic_field = true;
+        }
+        if (is_static) cls->has_static_field = true;
 
         expect(TOK_SEMICOLON, ";");
 
@@ -429,6 +435,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 /* Parse class definition */
 CxxClass* parse_cxx_class(void) {
     SourceLoc loc = previous()->loc;
+    bool is_struct = previous()->type == TOK_STRUCT;
+    bool has_definition = false;
 
     /* Class name */
     Token* name_tok = expect(TOK_IDENT, "class name");
@@ -438,6 +446,7 @@ CxxClass* parse_cxx_class(void) {
     match(TOK_FINAL);
 
     CxxClass* cls = cxx_class_new(class_name, loc);
+    cls->is_struct = is_struct;
 
     /* Inheritance */
     if (match(TOK_COLON)) {
@@ -454,7 +463,9 @@ CxxClass* parse_cxx_class(void) {
 
     /* Class body */
     if (match(TOK_LBRACE)) {
-        AccessSpec current_access = ACCESS_PRIVATE;  /* Default for class */
+        has_definition = true;
+        AccessSpec current_access = is_struct
+            ? ACCESS_PUBLIC : ACCESS_PRIVATE;
 
         while (!check(TOK_RBRACE) && !at_end()) {
             /* Check for access specifier */
@@ -476,8 +487,29 @@ CxxClass* parse_cxx_class(void) {
     /* Optional semicolon */
     match(TOK_SEMICOLON);
 
-    /* Compute layout */
+    /* A forward declaration has no layout yet. */
+    if (!has_definition) return cls;
+
     cxx_class_compute_layout(cls);
+
+    /* Only classes satisfying the C++20 aggregate restrictions can safely
+     * reuse the mature C aggregate initializer/codegen path.  Constructors,
+     * bases, virtual dispatch, non-public/static fields and default member
+     * initializers remain in the dedicated C++ semantic pipeline. */
+    if (!active_template && cls->type->is_complete &&
+        !cls->has_user_constructor && !cls->has_nonpublic_field &&
+        !cls->has_static_field && !cls->has_field_initializer &&
+        cls->base_count == 0) {
+        bool has_virtual = false;
+        for (struct CxxMember* member = cls->members; member;
+             member = member->next) {
+            if (member->is_virtual) {
+                has_virtual = true;
+                break;
+            }
+        }
+        if (!has_virtual) rcc_parser_define_type(cls->name, cls->type);
+    }
 
     return cls;
 }

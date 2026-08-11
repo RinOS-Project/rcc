@@ -6,6 +6,15 @@ typedef struct RinSliceV1 {
     uint64_t size;
 } RinSliceV1;
 
+struct CxxPair final {
+    int first;
+    int second;
+};
+
+static CxxPair make_cxx_pair(int first, int second) {
+    return CxxPair{first, second};
+}
+
 namespace rin {
 
 inline RinSliceV1 slice(void* data, uint64_t size) noexcept {
@@ -44,6 +53,13 @@ int cxx_local_value_init(void) {
 int cxx_scalar_value_init(void) {
     uint64_t value{};
     return value == 0;
+}
+
+int cxx_class_aggregate_init(int first, int second) {
+    CxxPair local{first, second};
+    CxxPair returned = make_cxx_pair(second, first);
+    return local.first * 1000 + local.second * 100 +
+           returned.first * 10 + returned.second;
 }
 
 }

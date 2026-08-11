@@ -173,6 +173,10 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     CxxClass* cls = rcc_alloc(sizeof(CxxClass));
     cls->name = name ? rcc_strdup(name) : NULL;
     cls->is_struct = is_struct;
+    cls->has_user_constructor = false;
+    cls->has_nonpublic_field = false;
+    cls->has_static_field = false;
+    cls->has_field_initializer = false;
     cls->bases = NULL;
     cls->base_count = 0;
     cls->members = NULL;
@@ -223,6 +227,11 @@ void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_
 void cxx_class_compute_layout(CxxClass* cls) {
     int offset = 0;
     int max_align = 1;
+    bool layout_complete = true;
+    TypeField** field_tail;
+
+    cls->type->fields = NULL;
+    field_tail = &cls->type->fields;
 
     /* Space for vptr if class has virtual functions */
     bool has_virtual = false;
@@ -234,8 +243,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
     }
 
     if (has_virtual) {
-        offset = sizeof(void*);  /* vptr */
-        max_align = sizeof(void*);
+        int pointer_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+        offset = pointer_size;  /* vptr */
+        max_align = pointer_size;
     }
 
     /* Base class subobjects */
@@ -248,17 +258,35 @@ void cxx_class_compute_layout(CxxClass* cls) {
             /* Base subobject */
             offset += base->size;
             if (align > max_align) max_align = align;
+        } else {
+            layout_complete = false;
         }
     }
 
     /* Fields from fields list */
     for (TypeParam* f = cls->fields; f; f = f->next) {
         Type* type = f->type;
-        int align = type->align;
-        int size = type->size;
+        int align;
+        int size;
+        TypeField* field;
+
+        if (!type || !type_is_complete(type) || type->kind == TYPE_FUNC ||
+            type->kind == TYPE_VOID) {
+            layout_complete = false;
+            continue;
+        }
+        align = type->align;
+        size = type->size;
 
         /* Align */
         offset = (offset + align - 1) & ~(align - 1);
+        field = ast_arena_alloc(sizeof(*field));
+        field->name = f->name;
+        field->type = type;
+        field->offset = offset;
+        field->next = NULL;
+        *field_tail = field;
+        field_tail = &field->next;
         offset += size;
 
         if (align > max_align) max_align = align;
@@ -284,6 +312,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
     cls->size = (offset + max_align - 1) & ~(max_align - 1);
     if (cls->size == 0) cls->size = 1;  /* Empty class has size 1 */
     cls->align = max_align;
+    cls->type->size = cls->size;
+    cls->type->align = cls->align;
+    cls->type->is_complete = layout_complete;
 }
 
 void cxx_class_build_vtable(CxxClass* cls) {

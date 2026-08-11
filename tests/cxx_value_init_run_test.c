@@ -9,6 +9,7 @@
 #include "objfile.h"
 
 typedef int (*nullary_function)(void);
+typedef int (*binary_function)(int, int);
 
 static ObjSection* code_section(ObjectFile* object)
 {
@@ -38,6 +39,7 @@ int main(int argc, char** argv)
     nullary_function direct_value_init;
     nullary_function local_value_init;
     nullary_function scalar_value_init;
+    binary_function class_aggregate_init;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -64,9 +66,12 @@ int main(int argc, char** argv)
                   "cxx_local_value_init");
     LOAD_FUNCTION(scalar_value_init, object, mapping,
                   "cxx_scalar_value_init");
+    LOAD_FUNCTION(class_aggregate_init, object, mapping,
+                  "cxx_class_aggregate_init");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
+    assert(class_aggregate_init(4, 7) == 4774);
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

@@ -105,6 +105,7 @@ extern Type* type_double;
  * before lexing/parsing a translation unit. */
 void type_configure_target(TargetArch architecture);
 Type* rcc_parser_lookup_type(const char* name);
+void rcc_parser_define_type(const char* name, Type* type);
 
 /* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
  * process exit by the single-shot host compiler. */

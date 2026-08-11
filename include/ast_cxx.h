@@ -25,6 +25,10 @@ typedef enum {
 struct CxxClass {
     const char* name;
     bool is_struct;          /* struct vs class (default access) */
+    bool has_user_constructor;
+    bool has_nonpublic_field;
+    bool has_static_field;
+    bool has_field_initializer;
 
     /* Base classes */
     struct {
