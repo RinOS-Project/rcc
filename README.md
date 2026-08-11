@@ -139,8 +139,9 @@ register枯渇後のstack引数を両archで直接実行します。浮動小数
 `test-scalar-comparisons`は通常算術変換後のsigned/unsigned relational比較と、
 高位wordだけが非zeroの64-bit整数を使う`!`、`&&`、`||`、条件演算子、if/loopの
 truth判定を両archで直接実行します。
-`test-aggregate-copy`はcompatible struct/unionのlocal copy初期化とC11/C17の匿名
-struct/union member layoutを両archで直接実行します。`test-aggregate-returns`は
+`test-aggregate-copy`はcompatible struct/unionのlocal copy初期化、通常・連鎖代入、
+端数byte copyとC11/C17の匿名struct/union member layoutを両archで直接実行します。
+`test-aggregate-returns`は
 i686 hidden sretとAMD64のregister/sret aggregate return、戻り値のmember access、
 aggregate引数への連鎖を両archで直接実行します。`test-bootstrap-core`は専用の
 freestanding宣言sysrootを使い、stage0 rccでlexerを含むfrontend/sema/optimizer/backend/
@@ -148,8 +149,14 @@ preprocessor、object/assembly emitter、archive/linker、RIN/RLL/NDRV v3 packag
 C++ parser subset、build manifest、host process shim、4 CLI entry pointの25 translation unitを
 両arch各2回compileして`.ro v2`のbyte一致を要求します。
 `test-bootstrap-link`はこのうちrccのobject closureを`rincrt.rll`へのtyped import付き
-RIN v3 executableへ両arch各2回linkし、imageのbyte一致を要求します。これはまだ
-署名済みstage1のRinOS実行やstage2再現buildの完了宣言ではありません。
+RIN v3 executableへ両arch各2回linkし、imageのbyte一致を要求します。
+`test-bootstrap-execute`はhost側の最小RIN v3 runnerでrelocation、typed import binding、
+W^Xを適用して両archのstage1を実行し、probe sourceの`.ro v2`がstage0出力とbyte一致
+することを要求します。別translation unitへの直接callは`REL32`、動的function importは
+`rld`生成のcode thunkとloader書込みslotへ分離されています。
+`test-bootstrap-stage2`は実行中のstage1で25 translation unitを再生成して全objectを
+stage0出力と比較し、再linkしたstage2 RIN v3 imageにもbyte一致を要求します。これは
+host bootstrapのgateであり、署名済みstage1のRinOSネイティブ実行完了宣言ではありません。
 `test-compound-literals`はautomatic compound literalのscalar/array/aggregate storage、
 postfix member/index、aggregate引数、initializerの一回評価を両archで直接実行します。
 `test-compound-assignment`は全integer compound operator、通常のsigned/unsigned

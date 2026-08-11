@@ -16,7 +16,10 @@ static void verify_image(const char* path, uint16_t architecture)
     char* strings;
     const RinSectionV3* imports_section = NULL;
     const RinSectionV3* data_section = NULL;
+    const RinSectionV3* code_section = NULL;
     RinImportV3 imported;
+    uint8_t* code;
+    size_t thunk_count = 0u;
     uint64_t pointer_width = architecture == RIN_ARCH_X86 ? 4u : 8u;
 
     assert(file != NULL);
@@ -47,9 +50,12 @@ static void verify_image(const char* path, uint16_t architecture)
             imports_section = &sections[index];
         } else if (sections[index].type == RIN_IMAGE_SECTION_DATA) {
             data_section = &sections[index];
+        } else if (sections[index].type == RIN_IMAGE_SECTION_CODE) {
+            code_section = &sections[index];
         }
     }
-    assert(imports_section != NULL && data_section != NULL);
+    assert(imports_section != NULL && data_section != NULL &&
+           code_section != NULL);
     assert(imports_section->file_size == sizeof(RinImportV3));
     assert(fseek(file, (long)imports_section->file_offset, SEEK_SET) == 0);
     assert(fread(&imported, sizeof(imported), 1u, file) == 1u);
@@ -62,6 +68,35 @@ static void verify_image(const char* path, uint16_t architecture)
     assert(imported.target_rva + pointer_width <=
            data_section->virtual_address + data_section->memory_size);
 
+    assert(code_section->file_size >= 6u &&
+           code_section->file_size <= SIZE_MAX);
+    code = calloc((size_t)code_section->file_size, 1u);
+    assert(code != NULL);
+    assert(fseek(file, (long)code_section->file_offset, SEEK_SET) == 0);
+    assert(fread(code, 1u, (size_t)code_section->file_size, file) ==
+           code_section->file_size);
+    for (size_t offset = 0u; offset + 6u <= code_section->file_size;
+         ++offset) {
+        if (code[offset] != 0xffu || code[offset + 1u] != 0x25u) continue;
+        if (architecture == RIN_ARCH_X86) {
+            uint32_t target;
+            memcpy(&target, code + offset + 2u, sizeof(target));
+            if (target == header.preferred_base + imported.target_rva) {
+                ++thunk_count;
+            }
+        } else {
+            int32_t displacement;
+            uint64_t thunk_rva = code_section->virtual_address + offset;
+            memcpy(&displacement, code + offset + 2u, sizeof(displacement));
+            if ((int64_t)displacement ==
+                (int64_t)imported.target_rva - (int64_t)(thunk_rva + 6u)) {
+                ++thunk_count;
+            }
+        }
+    }
+    assert(thunk_count == 1u);
+
+    free(code);
     free(strings);
     free(sections);
     assert(fclose(file) == 0);

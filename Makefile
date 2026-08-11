@@ -70,7 +70,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -135,6 +135,12 @@ test-preprocessor-continuation: $(RCC_TARGET)
 		-DRCC_CONTINUATION_LEFT -DRCC_CONTINUATION_RIGHT \
 		-o $(TEST_OUT)/preprocessor-continuation-x64.ro \
 		tests/preprocessor_continuation.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-literal-x86.ro \
+		tests/preprocessor_literal.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-literal-x64.ro \
+		tests/preprocessor_literal.c
 	@echo "C17 backslash-newline splicing tests completed"
 
 test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
@@ -475,6 +481,58 @@ test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
 			$(BOOTSTRAP_ROOT)/images/rcc-stage1-b-$$arch.rin; \
 	done
 	@echo "Reproducible dual-architecture linked stage1 rcc images completed"
+
+test-bootstrap-execute: test-bootstrap-link
+	mkdir -p $(BOOTSTRAP_ROOT)/execute
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -rdynamic \
+		-o $(BOOTSTRAP_ROOT)/execute/run-i686 \
+		tests/bootstrap_stage_runner.c -ldl
+	$(CC) $(CFLAGS) -I$(INCDIR) -rdynamic \
+		-o $(BOOTSTRAP_ROOT)/execute/run-x86_64 \
+		tests/bootstrap_stage_runner.c -ldl
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(BOOTSTRAP_ROOT)/execute/reference-i686.ro tests/hello.c
+	$(BOOTSTRAP_ROOT)/execute/run-i686 \
+		$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-i686.rin rcc-stage1 \
+		--target i686-unknown-rinos -c \
+		-o $(BOOTSTRAP_ROOT)/execute/stage1-i686.ro tests/hello.c
+	cmp $(BOOTSTRAP_ROOT)/execute/reference-i686.ro \
+		$(BOOTSTRAP_ROOT)/execute/stage1-i686.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro tests/hello.c
+	$(BOOTSTRAP_ROOT)/execute/run-x86_64 \
+		$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-x86_64.rin rcc-stage1 \
+		--target x86_64-unknown-rinos -c \
+		-o $(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro tests/hello.c
+	cmp $(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro \
+		$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro
+	@echo "Dual-architecture linked stage1 execution bootstrap completed"
+
+test-bootstrap-stage2: test-bootstrap-execute
+	mkdir -p $(BOOTSTRAP_ROOT)/stage2
+	@set -e; \
+	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
+		arch=$${target%%-*}; \
+		runner=$(BOOTSTRAP_ROOT)/execute/run-$$arch; \
+		image=$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin; \
+		for source in $(BOOTSTRAP_CORE_SRCS); do \
+			name=$$(basename $$source .c); \
+			$$runner $$image rcc-stage1 --target $$target \
+				$(BOOTSTRAP_INCLUDES) -c \
+				-o $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro $$source; \
+			cmp $(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro \
+				$(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro; \
+		done; \
+		objects=""; \
+		for name in $(BOOTSTRAP_RCC_OBJECTS); do \
+			objects="$$objects $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro"; \
+		done; \
+		$(RLD_TARGET) --target $$target --emit-unsigned-v3 \
+			--dep rincrt.rll $(BOOTSTRAP_RUNTIME_IMPORTS) \
+			-o $(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin $$objects; \
+		cmp $$image $(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin; \
+	done
+	@echo "Reproducible dual-architecture stage1-to-stage2 compiler rebuild completed"
 
 test-pragma-pack: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/pragma-pack

@@ -560,6 +560,39 @@ static void add_symbol(Linker* ld, const char* name, uint64_t value, uint64_t si
     ld->symbol_count++;
 }
 
+static void linker_import_slot_name(int import_index, char* name,
+                                    size_t name_size) {
+    int length = snprintf(name, name_size, "__rld_import_slot_%08x",
+                          (unsigned int)import_index);
+    if (length < 0 || (size_t)length >= name_size) {
+        rcc_fatal("generated import slot name is too long");
+    }
+}
+
+static void linker_add_pending_relocation(Linker* ld, int section,
+                                          uint64_t offset,
+                                          const char* symbol,
+                                          RelocType type, int64_t addend,
+                                          const char* source) {
+    PendingReloc* relocation = rcc_alloc(sizeof(PendingReloc));
+    PendingReloc* last;
+    relocation->offset = offset;
+    relocation->symbol = rcc_strdup(symbol);
+    relocation->type = type;
+    relocation->addend = addend;
+    relocation->section = section;
+    relocation->source = source;
+    relocation->next = NULL;
+    if (!ld->relocs) {
+        ld->relocs = relocation;
+    } else {
+        last = ld->relocs;
+        while (last->next) last = last->next;
+        last->next = relocation;
+    }
+    ld->reloc_count++;
+}
+
 bool linker_collect_symbols(Linker* ld) {
     if (g_linker_opts.verbose) {
         printf("Collecting symbols...\n");
@@ -694,18 +727,35 @@ bool linker_collect_symbols(Linker* ld) {
 
 static bool linker_materialize_import_slots(Linker* ld) {
     LinkedSection* data;
+    LinkedSection* text = NULL;
     int data_section = 0;
+    int text_section = -1;
     int import_index;
     if (g_linker_opts.import_count == 0) return true;
     data = find_or_create_section(ld, ".data", SECT_DATA,
                                   SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
     if (!data) return false;
+    for (import_index = 0; import_index < g_linker_opts.import_count;
+         import_index++) {
+        if (g_linker_opts.imports[import_index].kind == RIN_SYMBOL_FUNCTION) {
+            text = find_or_create_section(ld, ".text", SECT_CODE,
+                                          SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
+            if (!text) return false;
+            break;
+        }
+    }
     for (LinkedSection* section = ld->sections; section && section != data;
          section = section->next) data_section++;
+    if (text) {
+        text_section = 0;
+        for (LinkedSection* section = ld->sections; section && section != text;
+             section = section->next) text_section++;
+    }
 
     for (import_index = 0; import_index < g_linker_opts.import_count;
          import_index++) {
         LinkImportSpec* import = &g_linker_opts.imports[import_index];
+        char slot_name[64];
         uint64_t zero = 0u;
         uint64_t slot;
         int previous;
@@ -726,11 +776,32 @@ static bool linker_materialize_import_slots(Linker* ld) {
                     import->symbol);
             return false;
         }
+        linker_import_slot_name(import_index, slot_name, sizeof(slot_name));
+        if (find_symbol(ld, slot_name)) {
+            fprintf(stderr, "rld: generated import slot %s conflicts with a linked definition\n",
+                    slot_name);
+            return false;
+        }
         linked_section_align(data, 8u);
         slot = linked_section_add_data(data, &zero, sizeof(zero));
-        add_symbol(ld, import->symbol, slot, sizeof(zero), SYM_LOCAL,
-                   import->kind == RIN_SYMBOL_FUNCTION ? BIND_CODE : BIND_DATA,
-                   data_section, "<import-slot>", true);
+        if (import->kind == RIN_SYMBOL_FUNCTION) {
+            static const uint8_t thunk[] = {0xffu, 0x25u, 0u, 0u, 0u, 0u};
+            uint64_t thunk_offset;
+            add_symbol(ld, slot_name, slot, sizeof(zero), SYM_LOCAL,
+                       BIND_DATA, data_section, "<import-slot>", true);
+            linked_section_align(text, 16u);
+            thunk_offset = linked_section_add_data(text, thunk, sizeof(thunk));
+            add_symbol(ld, import->symbol, thunk_offset, sizeof(thunk),
+                       SYM_LOCAL, BIND_CODE, text_section,
+                       "<import-thunk>", true);
+            linker_add_pending_relocation(
+                ld, text_section, thunk_offset + 2u, slot_name,
+                g_linker_opts.arch == ARCH_X86 ? RELOC_ABS32U : RELOC_REL32,
+                0, "<import-thunk>");
+        } else {
+            add_symbol(ld, import->symbol, slot, sizeof(zero), SYM_LOCAL,
+                       BIND_DATA, data_section, "<import-slot>", true);
+        }
     }
     return true;
 }
@@ -1500,9 +1571,17 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         imports = rcc_alloc((size_t)section->file_size);
         for (import_index = 0u; import_index < import_count; import_index++) {
             const LinkImportSpec* spec = &g_linker_opts.imports[import_index];
-            GlobalSymbol* slot = find_symbol(ld, spec->symbol);
+            char slot_name[64];
+            GlobalSymbol* slot;
             int dependency_index = linker_dependency_index(spec->dependency);
             size_t symbol_length = strlen(spec->symbol) + 1u;
+            if (spec->kind == RIN_SYMBOL_FUNCTION) {
+                linker_import_slot_name((int)import_index, slot_name,
+                                        sizeof(slot_name));
+                slot = find_symbol(ld, slot_name);
+            } else {
+                slot = find_symbol(ld, spec->symbol);
+            }
             if (!slot || !slot->resolved || dependency_index < 0 ||
                 image_size < 8u || slot->value < ld->base_addr ||
                 (uint64_t)slot->value - ld->base_addr > image_size - 8u) {

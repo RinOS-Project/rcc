@@ -46,6 +46,7 @@
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] compatible aggregateのlocal copy初期化と匿名struct/union member
+  - [x] struct/unionの通常・連鎖代入と端数byteを含む両arch copy codegen
   - [x] automatic storageのscalar/array/aggregate compound literal
   - [x] i686/AMD64のaggregate returnと戻り値からのmember/argument連鎖
 - [ ] `_Generic`、atomics、thread-local storage
@@ -119,9 +120,11 @@
 - [x] production validatorによる署名付き成果物検査
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
 - [ ] golden `.ro/.ra/.rin/.rll/.drv`とfuzz corpus
-- [ ] host stage0 -> rcc stage1 -> rcc stage2再現build
+- [x] host stage0 -> rcc stage1 -> rcc stage2再現build
   - [x] stage0による閉じたfrontend/sema/backend subset `.ro`の両arch再現生成
   - [x] build manifest、host process shim、rcc/rcc++/rld/rar entry pointまでの再現object生成
   - [x] `rincrt.rll` typed import付きrcc stage1 RIN v3 imageの両arch再現link
+  - [x] host RIN v3 runnerで両arch stage1を実行し、probe `.ro v2`のstage0一致を検証
+  - [x] stage1によるcompiler全translation unitのstage2再生成とimage一致
 - [ ] RinOS i686セルフホスト
 - [ ] RinOS x86_64セルフホスト

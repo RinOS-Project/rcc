@@ -2125,6 +2125,16 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             emit_dword(mod, (uint32_t)expr->call_result_offset);
             break;
 
+        case EXPR_ASSIGN:
+            if (expr->type &&
+                (expr->type->kind == TYPE_STRUCT ||
+                 expr->type->kind == TYPE_UNION)) {
+                gen_expr(mod, expr);
+            } else {
+                rcc_error(expr->loc, "assignment expression is not an lvalue");
+            }
+            break;
+
         default:
             rcc_error(expr->loc, "not an lvalue");
             break;
@@ -2794,15 +2804,11 @@ static void gen_call(Module* mod, Expr* expr) {
         if (func_decl->func_body) {
             add_func_call_ref(func_decl->name, call_offset);
         } else {
-            /* NDRV/RIN v3 import slots remain 8 bytes on i686; the indirect
-             * machine call consumes their low address word. */
-            mod->code.size = call_offset - 1u;
-            emit_byte(mod, 0xFF);
-            emit_byte(mod, 0x15);
-            call_offset = code_offset(mod);
-            emit_dword(mod, 0u);
+            /* All external direct calls use the same rel32 contract.  RLD
+             * resolves linked definitions directly and materializes a code
+             * thunk when the symbol is a dynamic function import. */
             module_add_relocation(mod, MODULE_SYMBOL_CODE,
-                                  call_offset, 0, false, false,
+                                  call_offset, 0, true, false,
                                   func_decl->name);
         }
     } else {
@@ -3116,6 +3122,32 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_ASSIGN:
+            if (expr->binary_lhs->type &&
+                (expr->binary_lhs->type->kind == TYPE_STRUCT ||
+                 expr->binary_lhs->type->kind == TYPE_UNION)) {
+                int offset = 0;
+                if (expr->binary_rhs->kind == EXPR_ASSIGN) {
+                    gen_expr(mod, expr->binary_rhs);
+                } else {
+                    gen_lvalue(mod, expr->binary_rhs);
+                }
+                emit_push_reg(mod, EAX);
+                gen_lvalue(mod, expr->binary_lhs);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_pop_reg(mod, ECX);
+                while (offset + 4 <= expr->binary_lhs->type->size) {
+                    emit_mov_reg_mem(mod, EAX, ECX, offset);
+                    emit_mov_mem_reg(mod, EDX, offset, EAX);
+                    offset += 4;
+                }
+                while (offset < expr->binary_lhs->type->size) {
+                    emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
+                    emit_store_typed32(mod, EDX, offset, EAX, type_uchar);
+                    ++offset;
+                }
+                emit_mov_reg_reg(mod, EAX, EDX);
+                break;
+            }
             gen_expr(mod, expr->binary_rhs);
             if (type_is_integer(expr->binary_lhs->type) ||
                 expr->binary_lhs->type->kind == TYPE_ENUM) {

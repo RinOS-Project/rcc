@@ -42,6 +42,8 @@ int main(int argc, char** argv)
     long page_size;
     size_t mapping_size;
     binary_function copy_local;
+    binary_function assign_chain;
+    binary_function assign_odd;
     pair_function copy_pointer;
     ternary_function anonymous_members;
     struct Pair pair = { 4, 7 };
@@ -67,10 +69,14 @@ int main(int argc, char** argv)
 
     LOAD_FUNCTION(copy_local, object, mapping, "copy_local");
     LOAD_FUNCTION(copy_pointer, object, mapping, "copy_pointer");
+    LOAD_FUNCTION(assign_chain, object, mapping, "assign_chain");
+    LOAD_FUNCTION(assign_odd, object, mapping, "assign_odd");
     LOAD_FUNCTION(anonymous_members, object, mapping, "anonymous_members");
 
     assert(copy_local(3, 8) == 38);
     assert(copy_pointer(&pair) == 47);
+    assert(assign_chain(3, 8) == 3838);
+    assert(assign_odd(7, 0xab) == 7171);
     assert(anonymous_members(1, 2, 3) == 123);
 
     assert(munmap(mapping, mapping_size) == 0);

@@ -25,7 +25,7 @@ typedef unsigned int uintptr_t;
 #define INT32_C(value) value
 #define UINT16_C(value) value
 #define UINT32_C(value) value
-#define UINT64_C(value) value
+#define UINT64_C(value) ((value) + 0ULL)
 #define UINT32_MAX 0xffffffff
 #define UINT64_MAX 0xffffffffffffffff
 

@@ -42,6 +42,22 @@ static void buf_append_str(PPBuffer* buf, const char* str) {
     buf_append(buf, str, strlen(str));
 }
 
+static const char* buf_append_quoted_token(PPBuffer* buffer,
+                                           const char* input) {
+    char quote = *input;
+    buf_append_char(buffer, *input++);
+    while (*input) {
+        char current = *input++;
+        buf_append_char(buffer, current);
+        if (current == '\\' && *input) {
+            buf_append_char(buffer, *input++);
+        } else if (current == quote) {
+            break;
+        }
+    }
+    return input;
+}
+
 /* Hash function for macro names */
 static unsigned int hash_macro(const char* name) {
     unsigned int h = 0;
@@ -556,7 +572,9 @@ static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int
 
     const char* p = macro->body;
     while (*p) {
-        if (isalpha(*p) || *p == '_') {
+        if (*p == '"' || *p == '\'') {
+            p = buf_append_quoted_token(&result, p);
+        } else if (isalpha(*p) || *p == '_') {
             char ident[256];
             const char* end = read_ident(p, ident, sizeof(ident));
 
@@ -598,7 +616,9 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
 
     const char* p = input;
     while (*p) {
-        if (isalpha(*p) || *p == '_') {
+        if (*p == '"' || *p == '\'') {
+            p = buf_append_quoted_token(&result, p);
+        } else if (isalpha(*p) || *p == '_') {
             char ident[256];
             const char* end = read_ident(p, ident, sizeof(ident));
 
@@ -613,10 +633,20 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
                         char arg_bufs[PP_MAX_PARAMS][1024];
                         int arg_count = 0;
                         int paren_depth = 1;
+                        char quoted = '\0';
 
                         const char* arg_start = args_start;
                         while (*args_start && paren_depth > 0) {
-                            if (*args_start == '(') paren_depth++;
+                            if (quoted != '\0') {
+                                if (*args_start == '\\' && args_start[1]) {
+                                    args_start += 2;
+                                    continue;
+                                }
+                                if (*args_start == quoted) quoted = '\0';
+                            } else if (*args_start == '"' ||
+                                       *args_start == '\'') {
+                                quoted = *args_start;
+                            } else if (*args_start == '(') paren_depth++;
                             else if (*args_start == ')') {
                                 paren_depth--;
                                 if (paren_depth == 0) {

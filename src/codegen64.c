@@ -1231,6 +1231,16 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             emit64_lea(mod, RAX, RBP, expr->call_result_offset);
             break;
 
+        case EXPR_ASSIGN:
+            if (expr->type &&
+                (expr->type->kind == TYPE_STRUCT ||
+                 expr->type->kind == TYPE_UNION)) {
+                gen64_expr(mod, expr);
+            } else {
+                rcc_error(expr->loc, "assignment expression is not an lvalue");
+            }
+            break;
+
         default:
             rcc_error(expr->loc, "not an lvalue");
             break;
@@ -1522,6 +1532,32 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_ASSIGN:
+            if (expr->binary_lhs->type &&
+                (expr->binary_lhs->type->kind == TYPE_STRUCT ||
+                 expr->binary_lhs->type->kind == TYPE_UNION)) {
+                int offset = 0;
+                if (expr->binary_rhs->kind == EXPR_ASSIGN) {
+                    gen64_expr(mod, expr->binary_rhs);
+                } else {
+                    gen64_lvalue(mod, expr->binary_rhs);
+                }
+                emit64_push_reg(mod, RAX);
+                gen64_lvalue(mod, expr->binary_lhs);
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                emit64_pop_reg(mod, RCX);
+                while (offset + 8 <= expr->binary_lhs->type->size) {
+                    emit64_mov_reg_mem(mod, RAX, RCX, offset);
+                    emit64_mov_mem_reg(mod, RDX, offset, RAX);
+                    offset += 8;
+                }
+                while (offset < expr->binary_lhs->type->size) {
+                    emit64_load_typed(mod, RAX, RCX, offset, type_uchar);
+                    emit64_store_typed(mod, RDX, offset, RAX, type_uchar);
+                    ++offset;
+                }
+                emit64_mov_reg_reg(mod, RAX, RDX);
+                break;
+            }
             gen64_expr(mod, expr->binary_rhs);
             emit64_push_reg(mod, RAX);
             gen64_lvalue(mod, expr->binary_lhs);
@@ -1741,13 +1777,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 if (function->func_body) {
                     add_func_call_ref64(function->name, call_offset);
                 } else {
-                    /* call qword ptr [rip+disp32]; the loader fills the
-                     * associated 64-bit import slot before execution. */
-                    mod->code.size = call_offset - 1u;
-                    emit_byte(mod, 0xFF);
-                    emit_byte(mod, 0x15);
-                    call_offset = code_offset(mod);
-                    emit_dword(mod, 0u);
+                    /* RLD resolves rel32 to a linked definition or to the
+                     * executable thunk of a dynamic function import. */
                     module_add_relocation(mod, MODULE_SYMBOL_CODE,
                                           call_offset, 0u, true, false,
                                           function->name);
