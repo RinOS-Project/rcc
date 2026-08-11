@@ -25,8 +25,11 @@ def main() -> int:
     parser.add_argument("--public-key", type=Path, required=True)
     args = parser.parse_args()
 
-    key = args.key.read_bytes()
-    public_key = args.public_key.read_bytes()
+    # Git may materialize these text-only fixture keys with CRLF on a Windows
+    # checkout even when the signer is executed through WSL. Keep the test
+    # double deterministic across both host layouts.
+    key = args.key.read_bytes().replace(b"\r\n", b"\n")
+    public_key = args.public_key.read_bytes().replace(b"\r\n", b"\n")
     if key == b"FAIL\n":
         return 23
     if key == b"INVALID\n":

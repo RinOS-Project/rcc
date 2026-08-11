@@ -47,6 +47,7 @@
   - [ ] i686 64-bit scalar ABI lowering
     - [x] EDX:EAX戻り値、8-byte cdecl引数、load/store、加減算、bitwise基礎
     - [x] signed/unsigned比較と0..63-bit shift
+    - [x] low-64 multiplyとsigned/unsigned software divide/modulo
     - [x] CMPXCHG8B load/store/exchange/CASと全RMW retry loop
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
@@ -86,6 +87,7 @@
 - [ ] i386での完全な64-bit整数演算と戻り値
   - [x] EDX:EAX scalar return、8-byte引数、literal/cast/local/global/call基礎
   - [x] signed/unsigned比較とSHLD/SHRDによるwide shift
+  - [x] multiply/divide/modulo
 - [ ] SysV aggregate分類、variadic、floating-point ABI
 - [ ] PIC/PIE、GOT/PLT、TLS relocation
 - [ ] DWARF debug/unwind
