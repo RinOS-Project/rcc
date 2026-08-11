@@ -281,6 +281,16 @@ static bool driver_validate_expr(Expr* expression)
             }
             return true;
         }
+        case EXPR_VA_START:
+        case EXPR_VA_COPY:
+            return driver_validate_expr(expression->va_list_operand) &&
+                   driver_validate_expr(expression->va_second_operand);
+        case EXPR_VA_END:
+            return driver_validate_expr(expression->va_list_operand);
+        case EXPR_VA_ARG:
+            return !driver_reject_type(expression->va_arg_type,
+                                       expression->loc) &&
+                   driver_validate_expr(expression->va_list_operand);
     }
     return true;
 }

@@ -203,6 +203,10 @@ typedef enum {
     /* Compound literal */
     EXPR_COMPOUND,      /* (type){...} */
     EXPR_GENERIC,       /* _Generic(control, type: expression, ...) */
+    EXPR_VA_START,      /* __builtin_va_start(list, last) */
+    EXPR_VA_END,        /* __builtin_va_end(list) */
+    EXPR_VA_COPY,       /* __builtin_va_copy(destination, source) */
+    EXPR_VA_ARG,        /* __builtin_va_arg(list, type) */
 } ExprKind;
 
 typedef enum {
@@ -307,6 +311,13 @@ struct Expr {
             Expr* generic_control;
             GenericAssociation* generic_associations;
         };
+
+        /* EXPR_VA_START/END/COPY/ARG */
+        struct {
+            Expr* va_list_operand;
+            Expr* va_second_operand;
+            Type* va_arg_type;
+        };
     };
 };
 
@@ -332,6 +343,8 @@ Expr* expr_alignof_type(Type* type, SourceLoc loc);
 Expr* expr_initializer_list(ExprList* items, SourceLoc loc);
 Expr* expr_generic(Expr* control, GenericAssociation* associations,
                    SourceLoc loc);
+Expr* expr_vararg(ExprKind kind, Expr* list, Expr* second, Type* type,
+                  SourceLoc loc);
 void generic_association_append(GenericAssociation** list, Type* type,
                                 Expr* expr, SourceLoc loc);
 bool expr_eval_integer_constant(Expr* expr, int64_t* value);

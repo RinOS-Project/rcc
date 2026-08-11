@@ -10,6 +10,8 @@
 
 /* Current function return type */
 static Type* current_func_ret = NULL;
+static bool current_func_variadic = false;
+static Decl* current_func_last_param = NULL;
 
 typedef struct SemaSwitchValue {
     uint64_t bits;
@@ -418,6 +420,74 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "invalid operands to binary operator");
             }
             expr->type = type_common(lt, rt);
+            break;
+        }
+
+        case EXPR_VA_START: {
+            Type* list_type = sema_expr(expr->va_list_operand);
+            sema_expr(expr->va_second_operand);
+            if (!current_func_variadic) {
+                rcc_error(expr->loc,
+                          "va_start is only valid in a variadic function");
+            }
+            if (!list_type || (list_type->kind != TYPE_ARRAY &&
+                               list_type->kind != TYPE_PTR)) {
+                rcc_error(expr->loc, "va_start requires a va_list object");
+            }
+            if (!expr->va_second_operand ||
+                expr->va_second_operand->kind != EXPR_IDENT ||
+                !expr->va_second_operand->ident_decl ||
+                expr->va_second_operand->ident_decl->kind != DECL_PARAM ||
+                expr->va_second_operand->ident_decl !=
+                    current_func_last_param) {
+                rcc_error(expr->loc,
+                          "va_start requires the final named parameter");
+            }
+            expr->type = type_void;
+            break;
+        }
+
+        case EXPR_VA_END: {
+            Type* list_type = sema_expr(expr->va_list_operand);
+            if (!list_type || (list_type->kind != TYPE_ARRAY &&
+                               list_type->kind != TYPE_PTR)) {
+                rcc_error(expr->loc, "va_end requires a va_list object");
+            }
+            expr->type = type_void;
+            break;
+        }
+
+        case EXPR_VA_COPY: {
+            Type* destination = sema_expr(expr->va_list_operand);
+            Type* source = sema_expr(expr->va_second_operand);
+            if (!destination || !source ||
+                (destination->kind != TYPE_ARRAY &&
+                 destination->kind != TYPE_PTR) ||
+                (source->kind != TYPE_ARRAY && source->kind != TYPE_PTR)) {
+                rcc_error(expr->loc,
+                          "va_copy requires two va_list objects");
+            }
+            expr->type = type_void;
+            break;
+        }
+
+        case EXPR_VA_ARG: {
+            Type* list_type = sema_expr(expr->va_list_operand);
+            if (!list_type || (list_type->kind != TYPE_ARRAY &&
+                               list_type->kind != TYPE_PTR)) {
+                rcc_error(expr->loc, "va_arg requires a va_list object");
+            }
+            if (!expr->va_arg_type ||
+                !(type_is_integer(expr->va_arg_type) ||
+                  expr->va_arg_type->kind == TYPE_ENUM ||
+                  expr->va_arg_type->kind == TYPE_PTR) ||
+                expr->va_arg_type->size <= 0 ||
+                expr->va_arg_type->size > 8) {
+                rcc_error(expr->loc,
+                          "va_arg currently supports integer and pointer scalars up to 64 bits");
+                expr->va_arg_type = type_int;
+            }
+            expr->type = expr->va_arg_type;
             break;
         }
 
@@ -1160,6 +1230,20 @@ static TypeField* initializer_field(Type* type, const char* name) {
     return NULL;
 }
 
+static bool initializer_is_aggregate_zero(Type* type, Expr* initializer) {
+    ExprList* item;
+    int64_t value;
+    if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+         type->kind != TYPE_UNION)) {
+        return false;
+    }
+    item = initializer->compound_init;
+    return item && !item->next &&
+           item->designator_kind == INIT_DESIGNATOR_NONE && item->expr &&
+           expr_eval_integer_constant(item->expr, &value) && value == 0;
+}
+
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     if (!type || !initializer) return;
@@ -1190,6 +1274,14 @@ static void sema_initializer(Type* type, Expr* initializer) {
         return;
     }
     initializer->type = type;
+    if (initializer_is_aggregate_zero(type, initializer)) {
+        sema_expr(initializer->compound_init->expr);
+        if (!type_is_integer(initializer->compound_init->expr->type)) {
+            rcc_error(initializer->compound_init->expr->loc,
+                      "aggregate zero initializer requires an integer zero");
+        }
+        return;
+    }
     if (type->kind == TYPE_ARRAY) {
         int64_t cursor = 0;
         for (ExprList* item = initializer->compound_init; item;
@@ -1333,6 +1425,8 @@ static void sema_decl(Decl* decl) {
                 /* Enter function scope */
                 symtab_enter_function(g_symtab);
                 current_func_ret = decl->type->ret_type;
+                current_func_variadic = decl->type->variadic;
+                current_func_last_param = NULL;
 
                 /* Add parameters */
                 int param_offset = 8;  /* After saved EBP and return address */
@@ -1343,6 +1437,7 @@ static void sema_decl(Decl* decl) {
                     param_offset += 4; /* Hidden aggregate-result pointer. */
                 }
                 for (DeclList* p = decl->func_params; p; p = p->next) {
+                    current_func_last_param = p->decl;
                     Symbol* psym = symtab_define(g_symtab, p->decl->name, SYM_PARAM,
                                                   p->decl->type, p->decl->loc);
                     psym->decl = p->decl;
@@ -1370,6 +1465,8 @@ static void sema_decl(Decl* decl) {
 
                 symtab_leave_function(g_symtab);
                 current_func_ret = NULL;
+                current_func_variadic = false;
+                current_func_last_param = NULL;
             }
             break;
         }

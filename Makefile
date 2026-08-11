@@ -20,7 +20,22 @@ BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c
                       src/preproc.c src/driver_policy.c src/emit_asm.c \
                       src/emit_ro.c src/emit_rin.c src/emit_rll.c \
                       src/emit_drv.c src/archive.c src/linker.c \
-                      src/ast_cxx.c src/parser_cxx.c
+                      src/ast_cxx.c src/parser_cxx.c \
+                      src/build_manifest.c src/utils.c src/main.c \
+                      src/main_cxx.c src/main_rld.c src/main_rar.c
+BOOTSTRAP_RCC_OBJECTS = utils lexer parser ast symtab sema codegen codegen64 \
+                        preproc optimize emit_rin emit_rll emit_drv emit_ro \
+                        emit_asm build_manifest driver_policy main
+BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
+                              close execvp exit fclose feof ferror fgets fopen \
+                              fork fprintf fputc fputs fread free fseek ftell \
+                              fwrite isalnum isalpha isdigit isspace isxdigit \
+                              malloc memchr memcpy memset mkstemp perror printf \
+                              qsort realloc remove rename snprintf strchr strcmp \
+                              strcpy strlen strncat strncmp strncpy strrchr strtod \
+                              strtoull tolower vfprintf vsnprintf waitpid
+BOOTSTRAP_RUNTIME_IMPORTS = $(foreach symbol,$(BOOTSTRAP_RUNTIME_FUNCTIONS),\
+                              --import $(symbol)=rincrt.rll@function)
 
 # Common source files (shared between rcc and rcc++)
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
@@ -55,7 +70,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -292,6 +307,42 @@ test-function-calls: $(RCC_TARGET)
 		$(TEST_OUT)/function-calls/invalid-parameters.log
 	@echo "Dual-architecture C17 function call contract tests completed"
 
+test-varargs: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/varargs
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/varargs/x86.ro \
+		tests/varargs.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/varargs/x64.ro \
+		tests/varargs.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/varargs/run-test-x86 \
+		tests/varargs_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/varargs/run-test-x64 \
+		tests/varargs_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/varargs/run-test-x86 $(TEST_OUT)/varargs/x86.ro
+	$(TEST_OUT)/varargs/run-test-x64 $(TEST_OUT)/varargs/x64.ro
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/varargs/invalid.ro \
+		tests/invalid_varargs.c \
+		>$(TEST_OUT)/varargs/invalid.log 2>&1; then \
+		echo "invalid varargs unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "va_start is only valid in a variadic function" \
+		$(TEST_OUT)/varargs/invalid.log
+	grep -q "va_start requires the final named parameter" \
+		$(TEST_OUT)/varargs/invalid.log
+	grep -q "va_copy requires two va_list objects" \
+		$(TEST_OUT)/varargs/invalid.log
+	grep -q "va_end requires a va_list object" \
+		$(TEST_OUT)/varargs/invalid.log
+	grep -q "va_arg requires a va_list object" \
+		$(TEST_OUT)/varargs/invalid.log
+	grep -q "va_arg currently supports integer and pointer scalars up to 64 bits" \
+		$(TEST_OUT)/varargs/invalid.log
+	@echo "Dual-architecture C17 scalar varargs tests completed"
+
 test-scalar-comparisons: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/scalar-comparisons
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -404,6 +455,26 @@ test-bootstrap-core: $(RCC_TARGET)
 		done; \
 	done
 	@echo "Reproducible dual-architecture stage0 core object bootstrap completed"
+
+test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
+	mkdir -p $(BOOTSTRAP_ROOT)/images
+	@set -e; \
+	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
+		arch=$${target%%-*}; \
+		for stage in stage1-a stage1-b; do \
+			objects=""; \
+			for name in $(BOOTSTRAP_RCC_OBJECTS); do \
+				objects="$$objects $(BOOTSTRAP_ROOT)/$$stage/$$name-$$arch.ro"; \
+			done; \
+			$(RLD_TARGET) --target $$target --emit-unsigned-v3 \
+				--dep rincrt.rll $(BOOTSTRAP_RUNTIME_IMPORTS) \
+				-o $(BOOTSTRAP_ROOT)/images/rcc-$$stage-$$arch.rin \
+				$$objects; \
+		done; \
+		cmp $(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin \
+			$(BOOTSTRAP_ROOT)/images/rcc-stage1-b-$$arch.rin; \
+	done
+	@echo "Reproducible dual-architecture linked stage1 rcc images completed"
 
 test-pragma-pack: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/pragma-pack
@@ -528,6 +599,32 @@ test-link: $(RCC_TARGET) $(RLD_TARGET)
 	$(RLD_TARGET) -v --emit-unsigned-v3 -o $(TEST_OUT)/linked.rin \
 		$(TEST_OUT)/main.ro $(TEST_OUT)/lib.ro
 	@echo "RLD link test completed"
+
+test-executable-imports: $(RCC_TARGET) $(RLD_TARGET)
+	mkdir -p $(TEST_OUT)/executable-imports
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/executable-imports/x86.ro \
+		tests/executable_import.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll \
+		--import imported_function=rincrt.rll@function \
+		-o $(TEST_OUT)/executable-imports/x86.rin \
+		$(TEST_OUT)/executable-imports/x86.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/executable-imports/x64.ro \
+		tests/executable_import.c
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll \
+		--import imported_function=rincrt.rll@function \
+		-o $(TEST_OUT)/executable-imports/x64.rin \
+		$(TEST_OUT)/executable-imports/x64.ro
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/executable-imports/verify \
+		tests/executable_import_test.c
+	$(TEST_OUT)/executable-imports/verify \
+		$(TEST_OUT)/executable-imports/x86.rin \
+		$(TEST_OUT)/executable-imports/x64.rin
+	@echo "Dual-architecture executable import contract test completed"
 
 test-archive: $(RCC_TARGET) $(RAR_TARGET)
 	mkdir -p $(TEST_OUT)
@@ -673,7 +770,7 @@ test-sanitize:
 		TEST_OUT=$(SANITIZER_ROOT)/tests \
 		CFLAGS="$(CFLAGS) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
 		LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" \
-		all test-manifest test-signing
+		all test-manifest test-signing test-executable-imports
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/class.ro tests/class_test.cpp
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
@@ -716,6 +813,18 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/function-call-x64.ro \
 		tests/function_call.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(SANITIZER_ROOT)/tests/varargs-x86.ro tests/varargs.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(SANITIZER_ROOT)/tests/varargs-x64.ro tests/varargs.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/initializer-override-x86.ro \
+		tests/initializer_override.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/initializer-override-x64.ro \
+		tests/initializer_override.c
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/scalar-comparison-x86.ro \
 		tests/scalar_comparison.c

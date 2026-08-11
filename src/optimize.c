@@ -283,6 +283,15 @@ static void optimize_expr(Expr** expression) {
         case EXPR_COMPOUND:
             optimize_expr_list(value->compound_init);
             break;
+        case EXPR_VA_START:
+        case EXPR_VA_COPY:
+            optimize_expr(&value->va_list_operand);
+            optimize_expr(&value->va_second_operand);
+            break;
+        case EXPR_VA_END:
+        case EXPR_VA_ARG:
+            optimize_expr(&value->va_list_operand);
+            break;
         default:
             break;
     }

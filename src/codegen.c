@@ -582,6 +582,21 @@ static TypeField* codegen_initializer_field(Type* type, const char* name) {
     return NULL;
 }
 
+static bool codegen_aggregate_zero_initializer(Type* type,
+                                               Expr* initializer) {
+    ExprList* item;
+    int64_t value;
+    if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+         type->kind != TYPE_UNION)) {
+        return false;
+    }
+    item = initializer->compound_init;
+    return item && !item->next &&
+           item->designator_kind == INIT_DESIGNATOR_NONE && item->expr &&
+           codegen_static_integer(item->expr, &value) && value == 0;
+}
+
 static bool codegen_emit_static_initializer(Module* mod, Type* type,
                                             Expr* initializer,
                                             uint32_t offset) {
@@ -590,6 +605,7 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
         (uint64_t)type->size > mod->data.size - offset) {
         return false;
     }
+    if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     string = codegen_character_array_string(type, initializer);
     if (string) {
         size_t text_size = strlen(string->str_val) + 1u;
@@ -694,6 +710,7 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     Expr* string;
     if (!mod || !type || !initializer || offset > mod->tls.size ||
         (uint64_t)type->size > mod->tls.size - offset) return false;
+    if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     string = codegen_character_array_string(type, initializer);
     if (string) {
         size_t text_size = strlen(string->str_val) + 1u;
@@ -2594,6 +2611,19 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             gen_call(mod, expr);
             break;
 
+        case EXPR_VA_ARG: {
+            int step = (expr->va_arg_type->size + 3) & ~3;
+            gen_lvalue(mod, expr->va_list_operand);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ECX, 0);
+            emit_mov_reg_reg(mod, EDX, EAX);
+            emit_add_reg_imm(mod, EAX, step);
+            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_mov_reg_mem(mod, EAX, EDX, 0);
+            emit_mov_reg_mem(mod, EDX, EDX, 4);
+            break;
+        }
+
         default:
             rcc_error(expr->loc,
                       "unsupported i686 64-bit integer operation");
@@ -3222,6 +3252,46 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_CALL: {
             gen_call(mod, expr);
+            break;
+        }
+
+        case EXPR_VA_START: {
+            Decl* last = expr->va_second_operand
+                ? expr->va_second_operand->ident_decl : NULL;
+            int size = last && last->type && last->type->size > 0
+                ? last->type->size : 4;
+            int offset = last ? last->var_offset + ((size + 3) & ~3) : 0;
+            gen_lvalue(mod, expr->va_list_operand);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_reg(mod, EAX, EBP);
+            emit_add_reg_imm(mod, EAX, offset);
+            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_mov_reg_imm(mod, EAX, 0u);
+            break;
+        }
+
+        case EXPR_VA_END:
+            emit_mov_reg_imm(mod, EAX, 0u);
+            break;
+
+        case EXPR_VA_COPY:
+            gen_expr(mod, expr->va_second_operand);
+            emit_push_reg(mod, EAX);
+            gen_lvalue(mod, expr->va_list_operand);
+            emit_pop_reg(mod, ECX);
+            emit_mov_mem_reg(mod, EAX, 0, ECX);
+            emit_mov_reg_imm(mod, EAX, 0u);
+            break;
+
+        case EXPR_VA_ARG: {
+            int step = (expr->va_arg_type->size + 3) & ~3;
+            gen_lvalue(mod, expr->va_list_operand);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ECX, 0);
+            emit_mov_reg_reg(mod, EDX, EAX);
+            emit_add_reg_imm(mod, EAX, step);
+            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_load_typed32(mod, EAX, EDX, 0, expr->va_arg_type);
             break;
         }
 
@@ -3953,6 +4023,7 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement) {
     Expr* string = codegen_character_array_string(type, initializer);
     if (!type || !initializer) return false;
+    if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     if (string) {
         size_t storage = (size_t)type->size;
         size_t text_size = strlen(string->str_val) + 1u;

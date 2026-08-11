@@ -13,6 +13,8 @@ struct OverrideContainer {
     struct OverridePair pair;
 };
 
+struct OverrideContainer zero_container = {0};
+
 int override_array[4] = {1, 2, [0] = 7, [1] = 8, [0] = 9};
 
 struct OverridePair override_pair = {
@@ -53,8 +55,11 @@ int local_initializer_override(void)
         .pair.first = 5,
         .pair.first = 6,
     };
+    struct OverrideContainer zero = {0};
     return values[0] + values[1] + values[2] +
            pair.first + pair.second + choice.byte +
            nested.values[0] + nested.values[1] +
-           nested.pair.first + nested.pair.second;
+           nested.pair.first + nested.pair.second +
+           zero.values[0] + zero.values[1] +
+           zero.pair.first + zero.pair.second;
 }

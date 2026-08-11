@@ -697,10 +697,6 @@ static bool linker_materialize_import_slots(Linker* ld) {
     int data_section = 0;
     int import_index;
     if (g_linker_opts.import_count == 0) return true;
-    if (!g_linker_opts.shared) {
-        fprintf(stderr, "rld: imports are supported only for shared .rll output\n");
-        return false;
-    }
     data = find_or_create_section(ld, ".data", SECT_DATA,
                                   SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
     if (!data) return false;

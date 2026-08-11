@@ -44,6 +44,7 @@ static void verify_globals(ObjectFile* object)
     static const int32_t expected_array[] = {9, 8, 0, 0};
     static const int32_t expected_pair[] = {7, 8};
     static const int32_t expected_nested[] = {4, 0, 6, 0};
+    static const int32_t expected_zero[] = {0, 0, 0, 0};
     int32_t actual[4];
     const uint8_t* choice;
 
@@ -60,6 +61,10 @@ static void verify_globals(ObjectFile* object)
                                 sizeof(expected_nested)),
            sizeof(expected_nested));
     assert(memcmp(actual, expected_nested, sizeof(expected_nested)) == 0);
+    memcpy(actual, global_bytes(object, "zero_container",
+                                sizeof(expected_zero)),
+           sizeof(expected_zero));
+    assert(memcmp(actual, expected_zero, sizeof(expected_zero)) == 0);
 }
 
 int main(int argc, char** argv)

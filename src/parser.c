@@ -38,6 +38,7 @@ typedef struct ParserEnumConstant {
 static ParserTypeName* parser_type_names;
 static ParserTagName* parser_tag_names;
 static ParserEnumConstant* parser_enum_constants;
+static Type* parser_builtin_va_list_type;
 static int parser_pack_alignment;
 static int parser_pack_stack[32];
 static int parser_pack_depth;
@@ -675,6 +676,43 @@ static Expr* parse_builtin_offsetof(SourceLoc loc) {
     return result;
 }
 
+static bool parser_builtin_name(const char* name) {
+    return check(TOK_IDENT) &&
+           strcmp(peek()->value.str_val, name) == 0;
+}
+
+static Expr* parse_builtin_vararg(SourceLoc loc) {
+    const char* name = advance()->value.str_val;
+    ExprKind kind = strcmp(name, "__builtin_va_start") == 0
+        ? EXPR_VA_START : strcmp(name, "__builtin_va_end") == 0
+            ? EXPR_VA_END : strcmp(name, "__builtin_va_copy") == 0
+                ? EXPR_VA_COPY : EXPR_VA_ARG;
+    Expr* list;
+    Expr* second = NULL;
+    Type* argument_type = NULL;
+
+    expect(TOK_LPAREN, "(");
+    list = parse_assignment();
+    if (kind == EXPR_VA_START || kind == EXPR_VA_COPY ||
+        kind == EXPR_VA_ARG) {
+        expect(TOK_COMMA, ",");
+        if (kind == EXPR_VA_ARG) {
+            if (!is_type_start()) {
+                rcc_error(peek()->loc,
+                          "__builtin_va_arg requires a type name");
+                argument_type = type_int;
+            } else {
+                argument_type = parse_type_spec();
+                argument_type = parse_declarator(argument_type, NULL, NULL);
+            }
+        } else {
+            second = parse_assignment();
+        }
+    }
+    expect(TOK_RPAREN, ")");
+    return expr_vararg(kind, list, second, argument_type, loc);
+}
+
 /* Primary: literal, identifier, (expr) */
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
@@ -701,6 +739,12 @@ static Expr* parse_primary(void) {
     if (check(TOK_IDENT) &&
         strcmp(peek()->value.str_val, "__builtin_offsetof") == 0) {
         return parse_builtin_offsetof(loc);
+    }
+    if (parser_builtin_name("__builtin_va_start") ||
+        parser_builtin_name("__builtin_va_end") ||
+        parser_builtin_name("__builtin_va_copy") ||
+        parser_builtin_name("__builtin_va_arg")) {
+        return parse_builtin_vararg(loc);
     }
     if (match(TOK_IDENT)) {
         int64_t enum_value;
@@ -1094,6 +1138,7 @@ static bool is_type_start(void) {
         case TOK_EXTERN:
         case TOK_THREAD_LOCAL:
         case TOK__BOOL:
+        case TOK___BUILTIN_VA_LIST:
         case TOK___ATTRIBUTE__:
         case TOK___INLINE__:
         case TOK_INLINE:
@@ -1372,6 +1417,8 @@ static Type* parse_type_spec(void) {
         t = type_double;
     } else if (match(TOK__BOOL)) {
         t = type_bool;
+    } else if (match(TOK___BUILTIN_VA_LIST)) {
+        t = parser_builtin_va_list_type;
     } else if (match(TOK_STRUCT)) {
         Token* tag = NULL;
         if (check(TOK_IDENT)) {
@@ -1961,6 +2008,15 @@ AST* rcc_parse(TokenList* tokens) {
     parser_type_names = NULL;
     parser_tag_names = NULL;
     parser_enum_constants = NULL;
+    if (g_opts.target_arch == ARCH_X64) {
+        Type* record = type_struct("__rcc_sysv_va_list");
+        record->size = 24;
+        record->align = 8;
+        record->is_complete = true;
+        parser_builtin_va_list_type = type_array(record, 1);
+    } else {
+        parser_builtin_va_list_type = type_ptr(type_char);
+    }
     parser_pack_alignment = 0;
     parser_pack_depth = 0;
 

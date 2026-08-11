@@ -1,0 +1,80 @@
+#include <stdarg.h>
+
+int sum_values(int count, ...)
+{
+    va_list arguments;
+    int total = 0;
+    int index;
+    va_start(arguments, count);
+    for (index = 0; index < count; ++index) {
+        total += va_arg(arguments, int);
+    }
+    va_end(arguments);
+    return total;
+}
+
+long long select_wide_value(int ignored, ...)
+{
+    va_list arguments;
+    long long value;
+    (void)ignored;
+    va_start(arguments, ignored);
+    value = va_arg(arguments, long long);
+    va_end(arguments);
+    return value;
+}
+
+int copy_values(int ignored, ...)
+{
+    va_list arguments;
+    va_list copied;
+    int first;
+    int copied_first;
+    int copied_second;
+    (void)ignored;
+    va_start(arguments, ignored);
+    va_copy(copied, arguments);
+    first = va_arg(arguments, int);
+    copied_first = va_arg(copied, int);
+    copied_second = va_arg(copied, int);
+    va_end(copied);
+    va_end(arguments);
+    return first * 100 + copied_first * 10 + copied_second;
+}
+
+int pointer_value(int ignored, ...)
+{
+    va_list arguments;
+    int* value;
+    (void)ignored;
+    va_start(arguments, ignored);
+    value = va_arg(arguments, int*);
+    va_end(arguments);
+    return *value;
+}
+
+int generated_register_varargs(void)
+{
+    return sum_values(5, 1, 2, 3, 4, 5);
+}
+
+int generated_stack_varargs(void)
+{
+    return sum_values(8, 1, 2, 3, 4, 5, 6, 7, 8);
+}
+
+long long generated_wide_varargs(void)
+{
+    return select_wide_value(0, 0x1122334455667788LL);
+}
+
+int generated_copy_varargs(void)
+{
+    return copy_values(0, 4, 7);
+}
+
+int generated_pointer_varargs(void)
+{
+    int value = 73;
+    return pointer_value(0, &value);
+}

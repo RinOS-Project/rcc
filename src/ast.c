@@ -561,6 +561,18 @@ Expr* expr_generic(Expr* control, GenericAssociation* associations,
     return expression;
 }
 
+Expr* expr_vararg(ExprKind kind, Expr* list, Expr* second, Type* type,
+                  SourceLoc loc) {
+    Expr* expression = rcc_alloc(sizeof(*expression));
+    expression->kind = kind;
+    expression->loc = loc;
+    expression->va_list_operand = list;
+    expression->va_second_operand = second;
+    expression->va_arg_type = type;
+    expression->type = kind == EXPR_VA_ARG ? type : type_void;
+    return expression;
+}
+
 void generic_association_append(GenericAssociation** list, Type* type,
                                 Expr* expression, SourceLoc loc) {
     GenericAssociation* association = rcc_alloc(sizeof(*association));

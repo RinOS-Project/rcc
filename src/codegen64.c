@@ -521,6 +521,12 @@ static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
 static void emit64_label(Module* mod, int label);
 static void emit64_jcc_label(Module* mod, int cc, int label);
+static Type* current_function_return_type64 = NULL;
+static int current_function_sret_offset64 = 0;
+static bool current_function_variadic64 = false;
+static int current_function_va_gp_offset64 = 0;
+static int current_function_va_overflow_offset64 = 0;
+static int current_function_va_reg_save_offset64 = 0;
 
 static Type* codegen64_comparison_type(Expr* expr) {
     Type* left = expr && expr->binary_lhs ? expr->binary_lhs->type : NULL;
@@ -879,6 +885,21 @@ static TypeField* gen64_initializer_field(Type* type, const char* name) {
     return NULL;
 }
 
+static bool gen64_aggregate_zero_initializer(Type* type,
+                                             Expr* initializer) {
+    ExprList* item;
+    int64_t value;
+    if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+         type->kind != TYPE_UNION)) {
+        return false;
+    }
+    item = initializer->compound_init;
+    return item && !item->next &&
+           item->designator_kind == INIT_DESIGNATOR_NONE && item->expr &&
+           expr_eval_integer_constant(item->expr, &value) && value == 0;
+}
+
 static void gen64_zero_local_storage(Module* mod, int32_t displacement,
                                      size_t storage) {
     size_t offset = 0u;
@@ -900,6 +921,7 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                                     int32_t displacement) {
     Expr* string = gen64_character_array_string(type, initializer);
     if (!type || !initializer) return false;
+    if (gen64_aggregate_zero_initializer(type, initializer)) return true;
     if (string) {
         size_t storage = (size_t)type->size;
         size_t text_size = strlen(string->str_val) + 1u;
@@ -1699,6 +1721,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_lea(mod, RDI, RBP, expr->call_result_offset);
             }
 
+            if (function_type && function_type->kind == TYPE_FUNC &&
+                function_type->variadic &&
+                expr->call_func->kind == EXPR_IDENT) {
+                /* The current backend emits no vector arguments. */
+                emit64_mov_reg_imm32(mod, RAX, 0u);
+            }
+
             /* Direct calls use rel32 and produce a .ro relocation only when
              * the definition is external to this translation unit. */
             if (expr->call_func->kind == EXPR_IDENT &&
@@ -1725,8 +1754,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 }
             } else {
                 gen64_expr(mod, expr->call_func);
-                emit_byte(mod, 0xFF);  /* CALL RAX */
-                emit_byte(mod, modrm64(3, 2, RAX));
+                emit64_mov_reg_reg(mod, R11, RAX);
+                if (function_type && function_type->kind == TYPE_FUNC &&
+                    function_type->variadic) {
+                    emit64_mov_reg_imm32(mod, RAX, 0u);
+                }
+                emit_byte(mod, 0xFF);  /* CALL R11 */
+                emit_byte(mod, modrm64(3, 2, R11));
             }
 
             if (aggregate_result && !memory_result) {
@@ -1742,6 +1776,63 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_add_reg_imm(mod, RSP,
                                    stack_argc * 8 + stack_padding);
             }
+            break;
+        }
+
+        case EXPR_VA_START:
+            gen64_expr(mod, expr->va_list_operand);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_mov_reg_imm32(
+                mod, RAX, (uint32_t)current_function_va_gp_offset64);
+            emit64_store_typed(mod, RCX, 0, RAX, type_uint);
+            emit64_mov_reg_imm32(mod, RAX, 48u);
+            emit64_store_typed(mod, RCX, 4, RAX, type_uint);
+            emit64_lea(mod, RAX, RBP,
+                       current_function_va_overflow_offset64);
+            emit64_mov_mem_reg(mod, RCX, 8, RAX);
+            emit64_lea(mod, RAX, RBP,
+                       current_function_va_reg_save_offset64);
+            emit64_mov_mem_reg(mod, RCX, 16, RAX);
+            emit64_mov_reg_imm32(mod, RAX, 0u);
+            break;
+
+        case EXPR_VA_END:
+            emit64_mov_reg_imm32(mod, RAX, 0u);
+            break;
+
+        case EXPR_VA_COPY:
+            gen64_expr(mod, expr->va_second_operand);
+            emit64_push_reg(mod, RAX);
+            gen64_expr(mod, expr->va_list_operand);
+            emit64_pop_reg(mod, RCX);
+            emit64_mov_reg_mem(mod, RDX, RCX, 0);
+            emit64_mov_mem_reg(mod, RAX, 0, RDX);
+            emit64_mov_reg_mem(mod, RDX, RCX, 8);
+            emit64_mov_mem_reg(mod, RAX, 8, RDX);
+            emit64_mov_reg_mem(mod, RDX, RCX, 16);
+            emit64_mov_mem_reg(mod, RAX, 16, RDX);
+            emit64_mov_reg_imm32(mod, RAX, 0u);
+            break;
+
+        case EXPR_VA_ARG: {
+            int overflow_label = new_label64();
+            int load_label = new_label64();
+            gen64_expr(mod, expr->va_list_operand);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_load_typed(mod, RAX, RCX, 0, type_uint);
+            emit64_cmp_reg_imm(mod, RAX, 40);
+            emit64_jcc_label(mod, CC64_A, overflow_label);
+            emit64_mov_reg_mem(mod, RDX, RCX, 16);
+            emit64_add_reg_reg(mod, RDX, RAX);
+            emit64_add_reg_imm(mod, RAX, 8);
+            emit64_store_typed(mod, RCX, 0, RAX, type_uint);
+            emit64_jmp_label(mod, load_label);
+            emit64_label(mod, overflow_label);
+            emit64_mov_reg_mem(mod, RDX, RCX, 8);
+            emit64_lea(mod, RAX, RDX, 8);
+            emit64_mov_mem_reg(mod, RCX, 8, RAX);
+            emit64_label(mod, load_label);
+            emit64_load_typed(mod, RAX, RDX, 0, expr->va_arg_type);
             break;
         }
 
@@ -1806,8 +1897,6 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
 static int break_label64 = -1;
 static int continue_label64 = -1;
-static Type* current_function_return_type64 = NULL;
-static int current_function_sret_offset64 = 0;
 
 typedef struct SwitchCaseCodegen64 {
     Stmt* statement;
@@ -2276,12 +2365,20 @@ static void gen64_function(Module* mod, Decl* decl) {
     bool memory_result = return_type &&
         (return_type->kind == TYPE_STRUCT ||
          return_type->kind == TYPE_UNION) && return_type->size > 16;
-    int64_t parameter_frame_size = memory_result ? 8 : 0;
+    bool variadic = decl->type && decl->type->kind == TYPE_FUNC &&
+                    decl->type->variadic;
+    int64_t parameter_frame_size = (memory_result ? 8 : 0) +
+                                   (variadic ? 48 : 0);
+    int va_reg_save_offset = variadic ? -(int)parameter_frame_size : 0;
     int register_cursor = memory_result ? 1 : 0;
     int stack_cursor = 16; /* saved RBP + return address */
     int stack_size;
     Type* old_return_type;
     int old_sret_offset;
+    bool old_variadic;
+    int old_va_gp_offset;
+    int old_va_overflow_offset;
+    int old_va_reg_save_offset;
     if (!decl->func_body) return;
 
     for (DeclList* parameter = decl->func_params; parameter;
@@ -2337,6 +2434,12 @@ static void gen64_function(Module* mod, Decl* decl) {
     if (memory_result) {
         emit64_mov_mem_reg(mod, RBP, -8, RDI);
     }
+    if (variadic) {
+        for (int index = 0; index < 6; ++index) {
+            emit64_mov_mem_reg(mod, RBP, va_reg_save_offset + index * 8,
+                               argument_registers[index]);
+        }
+    }
 
     /* Sema reserves parameter storage as part of the function frame. Rebuild
      * those offsets and spill the SysV register arguments before the body so
@@ -2385,13 +2488,28 @@ static void gen64_function(Module* mod, Decl* decl) {
     /* Generate body */
     old_return_type = current_function_return_type64;
     old_sret_offset = current_function_sret_offset64;
+    old_variadic = current_function_variadic64;
+    old_va_gp_offset = current_function_va_gp_offset64;
+    old_va_overflow_offset = current_function_va_overflow_offset64;
+    old_va_reg_save_offset = current_function_va_reg_save_offset64;
     current_function_sret_offset64 = memory_result ? -8 : 0;
     current_function_return_type64 = return_type;
+    current_function_variadic64 = variadic;
+    current_function_va_gp_offset64 = register_cursor * 8;
+    if (current_function_va_gp_offset64 > 48) {
+        current_function_va_gp_offset64 = 48;
+    }
+    current_function_va_overflow_offset64 = stack_cursor;
+    current_function_va_reg_save_offset64 = va_reg_save_offset;
     named_codegen_labels64 = NULL;
     gen64_stmt(mod, decl->func_body);
     codegen64_release_named_labels();
     current_function_return_type64 = old_return_type;
     current_function_sret_offset64 = old_sret_offset;
+    current_function_variadic64 = old_variadic;
+    current_function_va_gp_offset64 = old_va_gp_offset;
+    current_function_va_overflow_offset64 = old_va_overflow_offset;
+    current_function_va_reg_save_offset64 = old_va_reg_save_offset;
 
     /* Function epilogue */
     emit64_mov_reg_imm32(mod, RAX, 0);

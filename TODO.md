@@ -104,7 +104,8 @@
   - [x] signed/unsigned比較とSHLD/SHRDによるwide shift
   - [x] multiply/divide/modulo
   - [x] 前置/後置increment/decrementと全integer compound assignment
-- [ ] SysV aggregate分類、variadic、floating-point ABI
+- [x] i686/AMD64 SysV integer・pointer scalar variadic ABI
+- [ ] SysV aggregate分類、floating-point/aggregate variadic ABI
 - [ ] PIC/PIE、GOT/PLT、TLS relocation
 - [ ] DWARF debug/unwind
 - [ ] inline asm constraintの完全検証
@@ -120,5 +121,7 @@
 - [ ] golden `.ro/.ra/.rin/.rll/.drv`とfuzz corpus
 - [ ] host stage0 -> rcc stage1 -> rcc stage2再現build
   - [x] stage0による閉じたfrontend/sema/backend subset `.ro`の両arch再現生成
+  - [x] build manifest、host process shim、rcc/rcc++/rld/rar entry pointまでの再現object生成
+  - [x] `rincrt.rll` typed import付きrcc stage1 RIN v3 imageの両arch再現link
 - [ ] RinOS i686セルフホスト
 - [ ] RinOS x86_64セルフホスト

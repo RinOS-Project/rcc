@@ -132,6 +132,10 @@ char/shortの単項promotionを両archで直接実行し、`%`、`~`、shift、`
 `test-function-calls`はprototype有無の区別、固定引数の個数・型検査、variadicと
 prototypeなしcallのdefault integer promotion、array/function parameter調整を検証し、
 固定・可変・間接callを両archで直接実行します。
+`test-varargs`はi686のstack cursorとAMD64 SysVのGP register-save/overflow領域を使う
+`va_start`/`va_arg`/`va_copy`/`va_end`を検証し、integer、pointer、64-bit scalar、
+register枯渇後のstack引数を両archで直接実行します。浮動小数・aggregateの`va_arg`は
+未対応のまま暗黙に誤生成せず、意味解析で拒否します。
 `test-scalar-comparisons`は通常算術変換後のsigned/unsigned relational比較と、
 高位wordだけが非zeroの64-bit整数を使う`!`、`&&`、`||`、条件演算子、if/loopの
 truth判定を両archで直接実行します。
@@ -141,8 +145,11 @@ i686 hidden sretとAMD64のregister/sret aggregate return、戻り値のmember a
 aggregate引数への連鎖を両archで直接実行します。`test-bootstrap-core`は専用の
 freestanding宣言sysrootを使い、stage0 rccでlexerを含むfrontend/sema/optimizer/backend/
 preprocessor、object/assembly emitter、archive/linker、RIN/RLL/NDRV v3 packager、
-C++ parser subsetの19 translation unitを両arch各2回compileして`.ro v2`のbyte一致を要求します。
-これはobject gateであり、linked stage1やstage2再現buildの完了宣言ではありません。
+C++ parser subset、build manifest、host process shim、4 CLI entry pointの25 translation unitを
+両arch各2回compileして`.ro v2`のbyte一致を要求します。
+`test-bootstrap-link`はこのうちrccのobject closureを`rincrt.rll`へのtyped import付き
+RIN v3 executableへ両arch各2回linkし、imageのbyte一致を要求します。これはまだ
+署名済みstage1のRinOS実行やstage2再現buildの完了宣言ではありません。
 `test-compound-literals`はautomatic compound literalのscalar/array/aggregate storage、
 postfix member/index、aggregate引数、initializerの一回評価を両archで直接実行します。
 `test-compound-assignment`は全integer compound operator、通常のsigned/unsigned
