@@ -2046,6 +2046,9 @@ static void gen_tls_address(Module* mod, const char* symbol) {
     }
 }
 
+static bool gen_inline_method_address(Module* mod, Expr* expr);
+static bool gen_inline_method_integer64(Module* mod, Expr* expr);
+
 /* Generate lvalue address in EAX */
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -2135,6 +2138,11 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CALL:
+            if (expr->call_method && expr->call_method->return_type &&
+                expr->call_method->return_type->is_reference &&
+                gen_inline_method_address(mod, expr)) {
+                break;
+            }
             if (!expr->type ||
                 (expr->type->kind != TYPE_STRUCT &&
                  expr->type->kind != TYPE_UNION) ||
@@ -2643,7 +2651,9 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CALL:
-            gen_call(mod, expr);
+            if (!gen_inline_method_integer64(mod, expr)) {
+                gen_call(mod, expr);
+            }
             break;
 
         case EXPR_VA_ARG: {
@@ -2739,7 +2749,7 @@ static Type* codegen_default_argument_type(Type* type) {
     return type;
 }
 
-static bool gen_inline_method_call(Module* mod, Expr* expr) {
+static bool gen_inline_method_address(Module* mod, Expr* expr) {
     TypeMethod* method = expr ? expr->call_method : NULL;
     Expr* member = expr ? expr->call_func : NULL;
     if (!method || !member || !method->field) return false;
@@ -2750,6 +2760,32 @@ static bool gen_inline_method_call(Module* mod, Expr* expr) {
     }
     if (method->field->offset > 0) {
         emit_add_reg_imm(mod, EAX, method->field->offset);
+    }
+    return true;
+}
+
+static bool gen_inline_method_integer64(Module* mod, Expr* expr) {
+    TypeMethod* method = expr ? expr->call_method : NULL;
+    if (!method || method->kind != TYPE_METHOD_FIELD || !expr->type ||
+        expr->type->size != 8 ||
+        !(type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) ||
+        !gen_inline_method_address(mod, expr)) {
+        return false;
+    }
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_mov_reg_mem(mod, EAX, ECX, 0);
+    emit_mov_reg_mem(mod, EDX, ECX, 4);
+    return true;
+}
+
+static bool gen_inline_method_call(Module* mod, Expr* expr) {
+    TypeMethod* method = expr ? expr->call_method : NULL;
+    if (!method || !gen_inline_method_address(mod, expr)) return false;
+    if (expr->type &&
+        (expr->type->kind == TYPE_STRUCT ||
+         expr->type->kind == TYPE_UNION ||
+         expr->type->kind == TYPE_ARRAY)) {
+        return true;
     }
     emit_load_typed32(mod, EAX, EAX, 0, method->field->type);
     if (method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||

@@ -1149,6 +1149,8 @@ static void gen64_tls_address(Module* mod, const char* symbol) {
     }
 }
 
+static bool gen64_inline_method_address(Module* mod, Expr* expr);
+
 /* Generate lvalue address in RAX */
 static void gen64_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -1230,6 +1232,11 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CALL:
+            if (expr->call_method && expr->call_method->return_type &&
+                expr->call_method->return_type->is_reference &&
+                gen64_inline_method_address(mod, expr)) {
+                break;
+            }
             if (!expr->type ||
                 (expr->type->kind != TYPE_STRUCT &&
                  expr->type->kind != TYPE_UNION) ||
@@ -1259,7 +1266,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
     }
 }
 
-static bool gen64_inline_method_call(Module* mod, Expr* expr) {
+static bool gen64_inline_method_address(Module* mod, Expr* expr) {
     TypeMethod* method = expr ? expr->call_method : NULL;
     Expr* member = expr ? expr->call_func : NULL;
     if (!method || !member || !method->field) return false;
@@ -1270,6 +1277,18 @@ static bool gen64_inline_method_call(Module* mod, Expr* expr) {
     }
     if (method->field->offset > 0) {
         emit64_add_reg_imm(mod, RAX, method->field->offset);
+    }
+    return true;
+}
+
+static bool gen64_inline_method_call(Module* mod, Expr* expr) {
+    TypeMethod* method = expr ? expr->call_method : NULL;
+    if (!method || !gen64_inline_method_address(mod, expr)) return false;
+    if (expr->type &&
+        (expr->type->kind == TYPE_STRUCT ||
+         expr->type->kind == TYPE_UNION ||
+         expr->type->kind == TYPE_ARRAY)) {
+        return true;
     }
     emit64_load_typed(mod, RAX, RAX, 0, method->field->type);
     if (method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||

@@ -11,6 +11,7 @@
 typedef int (*nullary_function)(void);
 typedef int (*binary_function)(int, int);
 typedef int (*wide_binary_function)(uint64_t, uint64_t);
+typedef uint64_t (*int_wide_function)(int, uint64_t);
 typedef int (*int_pointer_function)(const int*);
 
 typedef struct RinSliceV1 {
@@ -54,6 +55,7 @@ int main(int argc, char** argv)
     unary_function inline_accessor;
     unary_function temporary_accessor;
     binary_function template_outcome_accessor;
+    int_wide_function template_outcome_wide_value;
     int_pointer_function pointer_accessor;
     reference_copy_function copy_reference;
     wide_binary_function reference_call;
@@ -94,6 +96,8 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(pointer_accessor, object, mapping, "cxx_pointer_accessor");
     LOAD_FUNCTION(template_outcome_accessor, object, mapping,
                   "cxx_template_outcome_accessor");
+    LOAD_FUNCTION(template_outcome_wide_value, object, mapping,
+                  "cxx_template_outcome_wide_value");
     LOAD_FUNCTION(copy_reference, object, mapping,
                   "_ZN3rin14copy_referenceERK10RinSliceV1");
     LOAD_FUNCTION(reference_call, object, mapping, "cxx_reference_call");
@@ -113,6 +117,9 @@ int main(int argc, char** argv)
     }
     assert(template_outcome_accessor(7, 99) == 7990);
     assert(template_outcome_accessor(0, 41) == 411);
+    assert(template_outcome_wide_value(
+               -5, UINT64_C(0x8877665544332211)) ==
+           UINT64_C(0x8877665544332211));
     {
         RinSliceV1 input = {UINT64_C(0x12345678), UINT64_C(0x87654321)};
         RinSliceV1 copied = copy_reference(&input);

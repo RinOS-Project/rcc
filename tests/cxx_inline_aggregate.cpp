@@ -39,7 +39,7 @@ public:
 
     constexpr int code() const noexcept { return code_; }
     constexpr bool ok() const noexcept { return code_ == 0; }
-    constexpr T value_copy() const noexcept { return value_; }
+    constexpr const T& value() const noexcept { return value_; }
 
 private:
     int code_;
@@ -51,6 +51,10 @@ static CxxPair make_cxx_pair(int first, int second) {
 }
 
 namespace rin {
+
+inline int read_int_reference(const int& value) noexcept {
+    return value;
+}
 
 inline RinSliceV1 slice(void* data, uint64_t size) noexcept {
     return RinSliceV1{static_cast<uint64_t>(
@@ -130,8 +134,13 @@ int cxx_pointer_accessor(const CxxStatus* status) {
 
 int cxx_template_outcome_accessor(int code, int value) {
     return CxxOutcome<int>{code, value}.code() * 1000 +
-           CxxOutcome<int>{code, value}.value_copy() * 10 +
+           rin::read_int_reference(
+               CxxOutcome<int>{code, value}.value()) * 10 +
            CxxOutcome<int>{code, value}.ok();
+}
+
+uint64_t cxx_template_outcome_wide_value(int code, uint64_t value) {
+    return CxxOutcome<uint64_t>{code, value}.value();
 }
 
 int cxx_reference_call(uint64_t address, uint64_t size) {

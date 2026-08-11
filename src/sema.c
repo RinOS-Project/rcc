@@ -120,6 +120,9 @@ static bool is_lvalue(Expr* e) {
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:
             return true;
+        case EXPR_CALL:
+            return e->call_method && e->call_method->return_type &&
+                   e->call_method->return_type->is_reference;
         default:
             return false;
     }
@@ -911,7 +914,10 @@ static Type* sema_expr(Expr* expr) {
                                   member->member_name);
                     }
                     expr->call_method = method;
-                    expr->type = method->return_type;
+                    expr->type = method->return_type &&
+                        method->return_type->is_reference
+                        ? method->return_type->base
+                        : method->return_type;
                     break;
                 }
             }

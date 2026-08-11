@@ -402,21 +402,39 @@ static void register_inline_class_accessors(CxxClass* cls) {
             continue;
         }
         field = class_layout_field(cls, field_expr->ident_name);
-        if (!field || !field->type || field->type->size <= 0 ||
-            field->type->size > 4 ||
-            !(type_is_integer(field->type) ||
-              field->type->kind == TYPE_ENUM)) {
+        if (!field || !field->type || field->type->size <= 0) {
             continue;
         }
-        if (kind == TYPE_METHOD_FIELD &&
-            !type_is_compatible(method->decl->type->ret_type,
-                                field->type)) {
-            continue;
-        }
-        if (kind != TYPE_METHOD_FIELD &&
-            !(type_is_integer(method->decl->type->ret_type) ||
-              method->decl->type->ret_type->kind == TYPE_ENUM)) {
-            continue;
+        if (kind == TYPE_METHOD_FIELD) {
+            Type* return_type = method->decl->type->ret_type;
+            Type* return_value_type = return_type &&
+                return_type->is_reference ? return_type->base : return_type;
+            if (!type_is_compatible(return_value_type, field->type)) {
+                continue;
+            }
+            if (return_type && return_type->is_reference &&
+                !(type_is_integer(field->type) ||
+                  field->type->kind == TYPE_ENUM ||
+                  field->type->kind == TYPE_PTR ||
+                  field->type->kind == TYPE_ARRAY ||
+                  field->type->kind == TYPE_STRUCT ||
+                  field->type->kind == TYPE_UNION)) {
+                continue;
+            }
+            if ((!return_type || !return_type->is_reference) &&
+                (field->type->size > 4 ||
+                 !(type_is_integer(field->type) ||
+                   field->type->kind == TYPE_ENUM))) {
+                continue;
+            }
+        } else {
+            if (field->type->size > 4 ||
+                !(type_is_integer(field->type) ||
+                  field->type->kind == TYPE_ENUM) ||
+                !(type_is_integer(method->decl->type->ret_type) ||
+                  method->decl->type->ret_type->kind == TYPE_ENUM)) {
+                continue;
+            }
         }
         lowered = ast_arena_alloc(sizeof(*lowered));
         lowered->name = method->decl->name;
