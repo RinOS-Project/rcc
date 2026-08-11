@@ -296,7 +296,7 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/cxx_cleanup_control_flow_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "goto is not supported with C++ scope cleanup yet" \
+	grep -q "goto enters a C++ scope-cleanup object lifetime" \
 		$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.ro \

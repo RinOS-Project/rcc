@@ -1837,77 +1837,159 @@ static void sema_prepare_variable_cleanup(Decl* declaration,
     declaration->var_cleanup = cleanup;
 }
 
-static bool sema_statement_has_cleanup(Stmt* statement) {
-    if (!statement) return false;
+typedef struct SemaCleanupPath {
+    struct SemaCleanupPath* previous;
+    struct SemaCleanupPath* allocation_next;
+} SemaCleanupPath;
+
+typedef struct SemaCleanupLabel {
+    const char* name;
+    SemaCleanupPath* path;
+    struct SemaCleanupLabel* next;
+} SemaCleanupLabel;
+
+typedef struct SemaCleanupGoto {
+    Stmt* statement;
+    SemaCleanupPath* path;
+    struct SemaCleanupGoto* next;
+} SemaCleanupGoto;
+
+typedef struct SemaCleanupGotoContext {
+    SemaCleanupPath* allocations;
+    SemaCleanupLabel* labels;
+    SemaCleanupGoto* gotos;
+} SemaCleanupGotoContext;
+
+static SemaCleanupLabel* sema_find_cleanup_label(
+    SemaCleanupGotoContext* context, const char* name) {
+    SemaCleanupLabel* label = context->labels;
+    while (label && strcmp(label->name, name) != 0) label = label->next;
+    return label;
+}
+
+static void sema_record_cleanup_label(SemaCleanupGotoContext* context,
+                                      const char* name,
+                                      SemaCleanupPath* path) {
+    SemaCleanupLabel* label = sema_find_cleanup_label(context, name);
+    if (label) return;
+    label = rcc_alloc(sizeof(*label));
+    label->name = name;
+    label->path = path;
+    label->next = context->labels;
+    context->labels = label;
+}
+
+static void sema_collect_cleanup_gotos(Stmt* statement,
+                                       SemaCleanupPath** active,
+                                       SemaCleanupGotoContext* context) {
+    SemaCleanupPath* marker;
+    if (!statement) return;
     switch (statement->kind) {
         case STMT_BLOCK:
+            marker = *active;
             for (StmtList* item = statement->block_stmts; item;
                  item = item->next) {
-                if (sema_statement_has_cleanup(item->stmt)) return true;
+                sema_collect_cleanup_gotos(item->stmt, active, context);
             }
-            return false;
+            *active = marker;
+            break;
         case STMT_IF:
-            return sema_statement_has_cleanup(statement->if_then) ||
-                   sema_statement_has_cleanup(statement->if_else);
+            marker = *active;
+            sema_collect_cleanup_gotos(statement->if_then, active, context);
+            *active = marker;
+            sema_collect_cleanup_gotos(statement->if_else, active, context);
+            *active = marker;
+            break;
         case STMT_WHILE:
         case STMT_DO:
-            return sema_statement_has_cleanup(statement->while_body);
+            marker = *active;
+            sema_collect_cleanup_gotos(statement->while_body, active,
+                                       context);
+            *active = marker;
+            break;
         case STMT_FOR:
-            return sema_statement_has_cleanup(statement->for_init) ||
-                   sema_statement_has_cleanup(statement->for_body);
+            marker = *active;
+            sema_collect_cleanup_gotos(statement->for_init, active, context);
+            sema_collect_cleanup_gotos(statement->for_body, active, context);
+            *active = marker;
+            break;
         case STMT_SWITCH:
-            return sema_statement_has_cleanup(statement->switch_body);
+            marker = *active;
+            sema_collect_cleanup_gotos(statement->switch_body, active,
+                                       context);
+            *active = marker;
+            break;
         case STMT_CASE:
-            return sema_statement_has_cleanup(statement->case_stmt);
+            sema_collect_cleanup_gotos(statement->case_stmt, active, context);
+            break;
         case STMT_DEFAULT:
-            return sema_statement_has_cleanup(statement->default_stmt);
+            sema_collect_cleanup_gotos(statement->default_stmt, active,
+                                       context);
+            break;
         case STMT_LABEL:
-            return sema_statement_has_cleanup(statement->label_stmt);
+            sema_record_cleanup_label(context, statement->label_name,
+                                      *active);
+            sema_collect_cleanup_gotos(statement->label_stmt, active,
+                                       context);
+            break;
+        case STMT_GOTO: {
+            SemaCleanupGoto* item = rcc_alloc(sizeof(*item));
+            item->statement = statement;
+            item->path = *active;
+            item->next = context->gotos;
+            context->gotos = item;
+            break;
+        }
         case STMT_DECL:
-            return statement->decl && statement->decl->var_cleanup;
+            if (statement->decl && statement->decl->var_cleanup) {
+                SemaCleanupPath* path = rcc_alloc(sizeof(*path));
+                path->previous = *active;
+                path->allocation_next = context->allocations;
+                context->allocations = path;
+                *active = path;
+            }
+            break;
         default:
-            return false;
+            break;
     }
 }
 
-static bool sema_statement_has_unsupported_cleanup_flow(Stmt* statement) {
-    if (!statement) return false;
-    switch (statement->kind) {
-        case STMT_GOTO:
-            return true;
-        case STMT_BLOCK:
-            for (StmtList* item = statement->block_stmts; item;
-                 item = item->next) {
-                if (sema_statement_has_unsupported_cleanup_flow(item->stmt)) {
-                    return true;
-                }
-            }
-            return false;
-        case STMT_IF:
-            return sema_statement_has_unsupported_cleanup_flow(
-                       statement->if_then) ||
-                   sema_statement_has_unsupported_cleanup_flow(
-                       statement->if_else);
-        case STMT_WHILE:
-        case STMT_DO:
-            return sema_statement_has_unsupported_cleanup_flow(
-                statement->while_body);
-        case STMT_FOR:
-            return sema_statement_has_unsupported_cleanup_flow(
-                       statement->for_init) ||
-                   sema_statement_has_unsupported_cleanup_flow(
-                       statement->for_body);
-        case STMT_CASE:
-            return sema_statement_has_unsupported_cleanup_flow(
-                statement->case_stmt);
-        case STMT_DEFAULT:
-            return sema_statement_has_unsupported_cleanup_flow(
-                statement->default_stmt);
-        case STMT_LABEL:
-            return sema_statement_has_unsupported_cleanup_flow(
-                statement->label_stmt);
-        default:
-            return false;
+static void sema_validate_cleanup_gotos(Stmt* statement) {
+    SemaCleanupGotoContext context = {0};
+    SemaCleanupPath* active = NULL;
+    SemaCleanupGoto* item;
+    sema_collect_cleanup_gotos(statement, &active, &context);
+    for (item = context.gotos; item; item = item->next) {
+        SemaCleanupLabel* label = sema_find_cleanup_label(
+            &context, item->statement->goto_label);
+        SemaCleanupPath* path = item->path;
+        unsigned count = 0;
+        if (!label) continue;
+        while (path && path != label->path) {
+            path = path->previous;
+            ++count;
+        }
+        if (path != label->path) {
+            rcc_error(item->statement->loc,
+                      "goto enters a C++ scope-cleanup object lifetime");
+        } else {
+            item->statement->goto_cleanup_count = count;
+        }
+    }
+    while (context.gotos) {
+        SemaCleanupGoto* next = context.gotos->next;
+        rcc_free(context.gotos);
+        context.gotos = next;
+    }
+    while (context.labels) {
+        SemaCleanupLabel* next = context.labels->next;
+        rcc_free(context.labels);
+        context.labels = next;
+    }
+    while (context.allocations) {
+        SemaCleanupPath* next = context.allocations->allocation_next;
+        rcc_free(context.allocations);
+        context.allocations = next;
     }
 }
 
@@ -2052,12 +2134,7 @@ static void sema_decl(Decl* decl) {
                 loop_depth = 0;
                 current_switch = NULL;
                 sema_stmt(decl->func_body);
-                if (sema_statement_has_cleanup(decl->func_body) &&
-                    sema_statement_has_unsupported_cleanup_flow(
-                        decl->func_body)) {
-                    rcc_error(decl->loc,
-                              "goto is not supported with C++ scope cleanup yet");
-                }
+                sema_validate_cleanup_gotos(decl->func_body);
 
                 /* Check for undefined labels */
                 for (Symbol* label = g_symtab->labels; label; label = label->next) {

@@ -83,6 +83,10 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_for_break;
     mutable_int_pointer_function cleanup_for_continue;
     mutable_int_pointer_binary_function cleanup_switch;
+    mutable_int_pointer_function cleanup_goto_exit;
+    mutable_int_pointer_function cleanup_goto_backward;
+    mutable_int_pointer_function cleanup_goto_same_scope;
+    mutable_int_pointer_function cleanup_goto_for_init;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -146,6 +150,14 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_for_continue, object, mapping,
                   "cxx_cleanup_for_continue");
     LOAD_FUNCTION(cleanup_switch, object, mapping, "cxx_cleanup_switch");
+    LOAD_FUNCTION(cleanup_goto_exit, object, mapping,
+                  "cxx_cleanup_goto_exit");
+    LOAD_FUNCTION(cleanup_goto_backward, object, mapping,
+                  "cxx_cleanup_goto_backward");
+    LOAD_FUNCTION(cleanup_goto_same_scope, object, mapping,
+                  "cxx_cleanup_goto_same_scope");
+    LOAD_FUNCTION(cleanup_goto_for_init, object, mapping,
+                  "cxx_cleanup_goto_for_init");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
@@ -224,6 +236,14 @@ int main(int argc, char** argv)
         assert(value == 74);
         assert(cleanup_switch(&value, 9) == 74);
         assert(value == 75);
+        assert(cleanup_goto_exit(&value) == 76);
+        assert(value == 76);
+        assert(cleanup_goto_backward(&value) == 78);
+        assert(value == 78);
+        assert(cleanup_goto_same_scope(&value) == 78);
+        assert(value == 79);
+        assert(cleanup_goto_for_init(&value) == 80);
+        assert(value == 80);
     }
 
     assert(munmap(mapping, mapping_size) == 0);

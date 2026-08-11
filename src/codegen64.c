@@ -2080,6 +2080,16 @@ static void gen64_cleanups_until(Module* mod, CleanupCodegen64* marker) {
     }
 }
 
+static bool gen64_cleanup_count(Module* mod, unsigned count) {
+    CleanupCodegen64* item = active_cleanups64;
+    while (item && count > 0u) {
+        gen64_expr(mod, item->expression);
+        item = item->previous;
+        --count;
+    }
+    return count == 0u;
+}
+
 static void discard64_cleanups_until(CleanupCodegen64* marker) {
     while (active_cleanups64 && active_cleanups64 != marker) {
         CleanupCodegen64* previous = active_cleanups64->previous;
@@ -2558,6 +2568,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             break;
 
         case STMT_GOTO:
+            if (!gen64_cleanup_count(mod, stmt->goto_cleanup_count)) {
+                rcc_error(stmt->loc, "invalid C++ goto cleanup path");
+                break;
+            }
             emit64_jmp_label(mod, codegen64_named_label(stmt->goto_label));
             break;
 

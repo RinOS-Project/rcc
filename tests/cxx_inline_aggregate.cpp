@@ -343,4 +343,41 @@ int cxx_cleanup_switch(int* value, int selector) {
     return *value;
 }
 
+int cxx_cleanup_goto_exit(int* value) {
+    {
+        auto handle = CxxUnique<int*>{value};
+        goto done;
+    }
+done:
+    return *value;
+}
+
+int cxx_cleanup_goto_backward(int* value) {
+    int remaining = 2;
+retry:
+    {
+        auto handle = CxxUnique<int*>{value};
+        --remaining;
+        if (remaining > 0) {
+            goto retry;
+        }
+    }
+    return *value;
+}
+
+int cxx_cleanup_goto_same_scope(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    goto done;
+done:
+    return *value;
+}
+
+int cxx_cleanup_goto_for_init(int* value) {
+    for (auto handle = CxxUnique<int*>{value}; ; ) {
+        goto done;
+    }
+done:
+    return *value;
+}
+
 }

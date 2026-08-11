@@ -485,7 +485,10 @@ struct Stmt {
         Expr* return_val;
 
         /* STMT_GOTO */
-        const char* goto_label;
+        struct {
+            const char* goto_label;
+            unsigned goto_cleanup_count;
+        };
 
         /* STMT_LABEL */
         struct {

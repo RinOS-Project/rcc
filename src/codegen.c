@@ -4432,6 +4432,16 @@ static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
     }
 }
 
+static bool gen_cleanup_count(Module* mod, unsigned count) {
+    CleanupCodegen* item = active_cleanups;
+    while (item && count > 0u) {
+        gen_expr(mod, item->expression);
+        item = item->previous;
+        --count;
+    }
+    return count == 0u;
+}
+
 static void discard_cleanups_until(CleanupCodegen* marker) {
     while (active_cleanups && active_cleanups != marker) {
         CleanupCodegen* previous = active_cleanups->previous;
@@ -4743,6 +4753,10 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             break;
 
         case STMT_GOTO:
+            if (!gen_cleanup_count(mod, stmt->goto_cleanup_count)) {
+                rcc_error(stmt->loc, "invalid C++ goto cleanup path");
+                break;
+            }
             emit_jmp_label(mod, codegen_named_label(stmt->goto_label));
             break;
 

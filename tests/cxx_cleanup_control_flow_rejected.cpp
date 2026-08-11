@@ -15,8 +15,8 @@ private:
 };
 
 int cleanup_control_flow_rejected(int* value) {
-    auto handle = CleanupFlow{value};
     goto done;
+    auto handle = CleanupFlow{value};
 done:
     return 0;
 }
