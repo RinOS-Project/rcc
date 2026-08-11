@@ -128,6 +128,8 @@ int main(int argc, char** argv) {
     assert(section_contains(x86_code, word_xadd, sizeof(word_xadd)));
     assert(section_contains(x86_code, byte_cmpxchg, sizeof(byte_cmpxchg)));
     assert(section_contains(x86_code, word_cmpxchg, sizeof(word_cmpxchg)));
+    (void)function_symbol(x86_object,
+                          "standard_atomic_long_fetch_xor_value");
     objfile_free(x86_object);
 #if defined(__x86_64__) && !defined(_WIN32)
     ObjectFile* object = objfile_read(argv[2]);

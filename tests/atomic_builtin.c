@@ -11,6 +11,43 @@ _Static_assert(ATOMIC_LLONG_LOCK_FREE == 0,
                "64-bit integer atomics are not implemented yet");
 _Static_assert(sizeof(atomic_uint) == 4,
                "atomic_uint must use 32-bit storage");
+_Static_assert(sizeof(atomic_char16_t) == 2,
+               "atomic_char16_t must use 16-bit storage");
+_Static_assert(sizeof(atomic_char32_t) == 4,
+               "atomic_char32_t must use 32-bit storage");
+_Static_assert(sizeof(atomic_wchar_t) == 4,
+               "atomic_wchar_t must use 32-bit storage");
+_Static_assert(sizeof(atomic_llong) == 8,
+               "atomic_llong must remain available as non-lock-free storage");
+_Static_assert(sizeof(atomic_int_least64_t) == 8,
+               "least64 atomic storage must remain available");
+_Static_assert(sizeof(atomic_uint_fast64_t) == 8,
+               "fast64 atomic storage must remain available");
+_Static_assert(sizeof(atomic_intmax_t) == 8,
+               "intmax atomic storage must remain available");
+_Static_assert(sizeof(atomic_uintmax_t) == 8,
+               "uintmax atomic storage must remain available");
+#if defined(__x86_64__)
+_Static_assert(sizeof(atomic_long) == 8 && ATOMIC_LONG_LOCK_FREE == 0,
+               "AMD64 long atomics require the pending 64-bit lowering");
+_Static_assert(sizeof(atomic_intptr_t) == 8 && sizeof(atomic_size_t) == 8,
+               "AMD64 pointer-sized atomic typedefs must be 64-bit");
+#else
+_Static_assert(sizeof(atomic_long) == 4 && ATOMIC_LONG_LOCK_FREE == 2,
+               "i686 long atomics must use the 32-bit lock-free path");
+_Static_assert(sizeof(atomic_intptr_t) == 4 && sizeof(atomic_size_t) == 4,
+               "i686 pointer-sized atomic typedefs must be 32-bit");
+#endif
+_Static_assert(ATOMIC_CHAR16_T_LOCK_FREE == 2 &&
+               ATOMIC_CHAR32_T_LOCK_FREE == 2 &&
+               ATOMIC_WCHAR_T_LOCK_FREE == 2,
+               "fixed-width character atomics must be lock-free");
+
+#if defined(__i386__)
+long standard_atomic_long_fetch_xor_value(atomic_long* value, long operand) {
+    return atomic_fetch_xor(value, operand);
+}
+#endif
 
 uint32_t atomic_load_value(volatile uint32_t* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);

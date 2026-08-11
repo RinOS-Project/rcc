@@ -23,28 +23,56 @@ typedef volatile short atomic_short;
 typedef volatile unsigned short atomic_ushort;
 typedef volatile int atomic_int;
 typedef volatile unsigned int atomic_uint;
+typedef volatile long atomic_long;
+typedef volatile unsigned long atomic_ulong;
+typedef volatile long long atomic_llong;
+typedef volatile unsigned long long atomic_ullong;
+typedef volatile unsigned short atomic_char16_t;
+typedef volatile unsigned int atomic_char32_t;
+typedef volatile int atomic_wchar_t;
 typedef volatile signed char atomic_int_least8_t;
 typedef volatile unsigned char atomic_uint_least8_t;
 typedef volatile short atomic_int_least16_t;
 typedef volatile unsigned short atomic_uint_least16_t;
 typedef volatile int atomic_int_least32_t;
 typedef volatile unsigned int atomic_uint_least32_t;
+typedef volatile long long atomic_int_least64_t;
+typedef volatile unsigned long long atomic_uint_least64_t;
 typedef volatile signed char atomic_int_fast8_t;
 typedef volatile unsigned char atomic_uint_fast8_t;
 typedef volatile short atomic_int_fast16_t;
 typedef volatile unsigned short atomic_uint_fast16_t;
 typedef volatile int atomic_int_fast32_t;
 typedef volatile unsigned int atomic_uint_fast32_t;
+typedef volatile long long atomic_int_fast64_t;
+typedef volatile unsigned long long atomic_uint_fast64_t;
+#if defined(__x86_64__)
+typedef volatile long long atomic_intptr_t;
+typedef volatile unsigned long long atomic_uintptr_t;
+typedef volatile unsigned long long atomic_size_t;
+typedef volatile long long atomic_ptrdiff_t;
+#else
+typedef volatile int atomic_intptr_t;
+typedef volatile unsigned int atomic_uintptr_t;
+typedef volatile unsigned int atomic_size_t;
+typedef volatile int atomic_ptrdiff_t;
+#endif
+typedef volatile long long atomic_intmax_t;
+typedef volatile unsigned long long atomic_uintmax_t;
 typedef volatile unsigned int atomic_flag;
 
 #define ATOMIC_BOOL_LOCK_FREE 2
 #define ATOMIC_CHAR_LOCK_FREE 2
-#define ATOMIC_CHAR16_T_LOCK_FREE 0
-#define ATOMIC_CHAR32_T_LOCK_FREE 0
-#define ATOMIC_WCHAR_T_LOCK_FREE 0
+#define ATOMIC_CHAR16_T_LOCK_FREE 2
+#define ATOMIC_CHAR32_T_LOCK_FREE 2
+#define ATOMIC_WCHAR_T_LOCK_FREE 2
 #define ATOMIC_SHORT_LOCK_FREE 2
 #define ATOMIC_INT_LOCK_FREE 2
+#if defined(__i386__)
+#define ATOMIC_LONG_LOCK_FREE 2
+#else
 #define ATOMIC_LONG_LOCK_FREE 0
+#endif
 #define ATOMIC_LLONG_LOCK_FREE 0
 #define ATOMIC_POINTER_LOCK_FREE 0
 
