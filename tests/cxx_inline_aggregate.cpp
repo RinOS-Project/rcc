@@ -33,6 +33,7 @@ public:
 
     constexpr int code() const noexcept { return value_; }
     constexpr bool ok() const noexcept { return value_ == 0; }
+    constexpr explicit operator bool() const noexcept { return ok(); }
 
 private:
     int value_;
@@ -114,6 +115,7 @@ public:
     constexpr int code() const noexcept { return code_; }
     constexpr bool ok() const noexcept { return code_ == 0; }
     constexpr const T& value() const noexcept { return value_; }
+    constexpr explicit operator bool() const noexcept { return ok(); }
 
 private:
     int code_;
@@ -217,6 +219,13 @@ int cxx_inline_accessor(int input) {
     return status.code() * 10 + status.ok();
 }
 
+int cxx_delegated_status_bool(int input) {
+    CxxStatus status{input};
+    int result = status ? 100 : 0;
+    if (!status) result += 10;
+    return result + (status ? 1 : 0);
+}
+
 int cxx_temporary_accessor(int input) {
     return CxxStatus{input}.code();
 }
@@ -230,6 +239,14 @@ int cxx_template_outcome_accessor(int code, int value) {
            rin::read_int_reference(
                CxxOutcome<int>{code, value}.value()) * 10 +
            CxxOutcome<int>{code, value}.ok();
+}
+
+int cxx_delegated_outcome_bool(int code, int value) {
+    auto outcome = CxxOutcome<int>{code, value};
+    int result = outcome ? 1000 : 100;
+    if (outcome && value) result += 10;
+    if (!outcome) result += 1;
+    return result;
 }
 
 uint64_t cxx_template_outcome_wide_value(int code, uint64_t value) {

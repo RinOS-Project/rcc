@@ -64,8 +64,10 @@ int main(int argc, char** argv)
     typedef int (*unary_function)(int);
     unary_function lowered_constructor_init;
     unary_function inline_accessor;
+    unary_function delegated_status_bool;
     unary_function temporary_accessor;
     binary_function template_outcome_accessor;
+    binary_function delegated_outcome_bool;
     int_wide_function template_outcome_wide_value;
     int_pointer_function pointer_accessor;
     reference_copy_function copy_reference;
@@ -125,11 +127,15 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(lowered_constructor_init, object, mapping,
                   "cxx_lowered_constructor_init");
     LOAD_FUNCTION(inline_accessor, object, mapping, "cxx_inline_accessor");
+    LOAD_FUNCTION(delegated_status_bool, object, mapping,
+                  "cxx_delegated_status_bool");
     LOAD_FUNCTION(temporary_accessor, object, mapping,
                   "cxx_temporary_accessor");
     LOAD_FUNCTION(pointer_accessor, object, mapping, "cxx_pointer_accessor");
     LOAD_FUNCTION(template_outcome_accessor, object, mapping,
                   "cxx_template_outcome_accessor");
+    LOAD_FUNCTION(delegated_outcome_bool, object, mapping,
+                  "cxx_delegated_outcome_bool");
     LOAD_FUNCTION(template_outcome_wide_value, object, mapping,
                   "cxx_template_outcome_wide_value");
     LOAD_FUNCTION(copy_reference, object, mapping,
@@ -177,6 +183,8 @@ int main(int argc, char** argv)
     assert(lowered_constructor_init(9) == 90);
     assert(inline_accessor(7) == 70);
     assert(inline_accessor(0) == 1);
+    assert(delegated_status_bool(7) == 10);
+    assert(delegated_status_bool(0) == 101);
     assert(temporary_accessor(-11) == -11);
     {
         int code = -17;
@@ -184,6 +192,9 @@ int main(int argc, char** argv)
     }
     assert(template_outcome_accessor(7, 99) == 7990);
     assert(template_outcome_accessor(0, 41) == 411);
+    assert(delegated_outcome_bool(-1, 7) == 101);
+    assert(delegated_outcome_bool(0, 0) == 1000);
+    assert(delegated_outcome_bool(0, 7) == 1010);
     assert(template_outcome_wide_value(
                -5, UINT64_C(0x8877665544332211)) ==
            UINT64_C(0x8877665544332211));

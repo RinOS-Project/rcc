@@ -468,6 +468,84 @@ static void register_inline_class_accessors(CxxClass* cls) {
     }
 }
 
+static TypeMethod* inline_bool_delegate_target(Type* aggregate,
+                                               const char* name) {
+    TypeMethod* method;
+    for (method = aggregate ? aggregate->methods : NULL;
+         method; method = method->next) {
+        if (method->name && name && strcmp(method->name, name) == 0 &&
+            method->return_type && method->return_type->kind == TYPE_BOOL &&
+            method->field &&
+            (method->kind == TYPE_METHOD_FIELD ||
+             method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
+             method->kind == TYPE_METHOD_FIELD_NE_CONSTANT)) {
+            return method;
+        }
+    }
+    return NULL;
+}
+
+/* Accept an operator-bool wrapper only when its complete body is:
+ *
+ *   return validated_zero_argument_bool_accessor();
+ *
+ * The target accessor has already been reduced to a field operation above,
+ * so copying that operation cannot execute an arbitrary member body.  This
+ * covers the SDK status/outcome wrappers while retaining fail-closed parsing
+ * for unvalidated helper calls. */
+static void register_inline_class_bool_delegates(CxxClass* cls) {
+    struct CxxMember* member;
+    TypeMethod** tail;
+    if (!cls || !cls->type || !cls->type->is_complete) return;
+    tail = &cls->type->methods;
+    while (*tail) tail = &(*tail)->next;
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        StmtList* statements;
+        Expr* returned;
+        Expr* callee;
+        TypeMethod* target;
+        TypeMethod* lowered;
+        if (!method || method->is_static || method->is_virtual ||
+            method->is_pure_virtual || method->is_deleted ||
+            method->is_defaulted || method->is_constructor ||
+            method->is_destructor || !method->is_const ||
+            !method->decl || !method->decl->type ||
+            !method->decl->name ||
+            strcmp(method->decl->name, "operator conversion") != 0 ||
+            !method->decl->type->ret_type ||
+            method->decl->type->ret_type->kind != TYPE_BOOL ||
+            method->decl->func_params || !method->decl->func_body ||
+            method->decl->func_body->kind != STMT_BLOCK) {
+            continue;
+        }
+        statements = method->decl->func_body->block_stmts;
+        if (!statements || statements->next || !statements->stmt ||
+            statements->stmt->kind != STMT_RETURN ||
+            !statements->stmt->return_val) {
+            continue;
+        }
+        returned = statements->stmt->return_val;
+        if (returned->kind != EXPR_CALL || returned->call_args) continue;
+        callee = returned->call_func;
+        if (!callee || callee->kind != EXPR_IDENT || !callee->ident_name ||
+            strcmp(callee->ident_name, "operator conversion") == 0) {
+            continue;
+        }
+        target = inline_bool_delegate_target(cls->type,
+                                             callee->ident_name);
+        if (!target) continue;
+        lowered = ast_arena_alloc(sizeof(*lowered));
+        *lowered = *target;
+        lowered->name = method->decl->name;
+        lowered->return_type = method->decl->type->ret_type;
+        lowered->cxx_access = (unsigned char)member->access;
+        lowered->next = NULL;
+        *tail = lowered;
+        tail = &lowered->next;
+    }
+}
+
 /* Accept the ownership-transfer primitive only in this exact form:
  *
  *   FieldType value = field;
@@ -953,6 +1031,7 @@ CxxClass* parse_cxx_class(void) {
 
     cxx_class_compute_layout(cls);
     register_inline_class_accessors(cls);
+    register_inline_class_bool_delegates(cls);
     register_inline_class_cleanup(cls);
     register_inline_class_releases(cls);
 
@@ -1685,6 +1764,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
 
     cxx_class_compute_layout(instance);
     register_inline_class_accessors(instance);
+    register_inline_class_bool_delegates(instance);
     register_inline_class_cleanup(instance);
     register_inline_class_releases(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);
