@@ -112,6 +112,7 @@
 
 ## 6. bootstrap / quality gates
 
+- [x] `#pragma pack`/`offsetof`を両arch layoutへ接続し、archive/linker、v3 packager、`.ro v2` emitterを再現bootstrap対象へ追加
 - [x] preprocessor、static assert、x86_64実行ABIのhost回帰試験
 - [x] SDK v1を両archの`.ra/.rll`へpackageする統合経路
 - [x] production validatorによる署名付き成果物検査

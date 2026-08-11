@@ -436,7 +436,7 @@ Expr* expr_string(const char* val, SourceLoc loc) {
     e->kind = EXPR_STRING_LIT;
     e->loc = loc;
     e->str_val = val;
-    e->type = type_ptr(type_char);
+    e->type = type_array(type_char, (int)strlen(val) + 1);
     return e;
 }
 

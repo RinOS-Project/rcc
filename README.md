@@ -140,7 +140,8 @@ struct/union member layoutを両archで直接実行します。`test-aggregate-r
 i686 hidden sretとAMD64のregister/sret aggregate return、戻り値のmember access、
 aggregate引数への連鎖を両archで直接実行します。`test-bootstrap-core`は専用の
 freestanding宣言sysrootを使い、stage0 rccでlexerを含むfrontend/sema/optimizer/backend/
-preprocessor/C++ parser subsetを両arch各2回compileして`.ro v2`のbyte一致を要求します。
+preprocessor、object/assembly emitter、archive/linker、RIN/RLL/NDRV v3 packager、
+C++ parser subsetの19 translation unitを両arch各2回compileして`.ro v2`のbyte一致を要求します。
 これはobject gateであり、linked stage1やstage2再現buildの完了宣言ではありません。
 `test-compound-literals`はautomatic compound literalのscalar/array/aggregate storage、
 postfix member/index、aggregate引数、initializerの一回評価を両archで直接実行します。

@@ -18,6 +18,8 @@ BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
                       src/optimize.c src/codegen.c src/codegen64.c \
                       src/preproc.c src/driver_policy.c src/emit_asm.c \
+                      src/emit_ro.c src/emit_rin.c src/emit_rll.c \
+                      src/emit_drv.c src/archive.c src/linker.c \
                       src/ast_cxx.c src/parser_cxx.c
 
 # Common source files (shared between rcc and rcc++)
@@ -53,7 +55,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -403,6 +405,16 @@ test-bootstrap-core: $(RCC_TARGET)
 	done
 	@echo "Reproducible dual-architecture stage0 core object bootstrap completed"
 
+test-pragma-pack: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/pragma-pack
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/x86.ro \
+		tests/pragma_pack.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/x64.ro \
+		tests/pragma_pack.c
+	@echo "Dual-architecture pragma-pack and offsetof tests completed"
+
 test-compound-assignment: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/compound-assignment
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -728,6 +740,14 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/compound-literal-x64.ro \
 		tests/compound_literal.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(SANITIZER_ROOT)/tests/pragma-pack-x86.ro \
+		tests/pragma_pack.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(SANITIZER_ROOT)/tests/pragma-pack-x64.ro \
+		tests/pragma_pack.c
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/compound-assignment-x86.ro \
 		tests/compound_assignment.c

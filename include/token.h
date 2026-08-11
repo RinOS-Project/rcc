@@ -164,6 +164,7 @@ typedef enum {
     /* Preprocessor (handled specially) */
     TOK_HASH,           /* # */
     TOK_HASHHASH,       /* ## */
+    TOK_PRAGMA_PACK,    /* Preserved #pragma pack state transition */
 
     /* C++ specific operators */
     TOK_SCOPE,          /* :: */

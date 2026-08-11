@@ -163,6 +163,7 @@ const char* token_type_str(TokenType type) {
         case TOK_QUESTION: return "?";
         case TOK_COLON: return ":";
         case TOK_ELLIPSIS: return "...";
+        case TOK_PRAGMA_PACK: return "#pragma pack";
         default:
             for (int i = 0; keywords[i].name; i++) {
                 if (keywords[i].type == type) {
@@ -717,6 +718,63 @@ static void handle_line_directive(Lexer* lex) {
     }
 }
 
+/* Preserve the ordering of #pragma pack directives in the token stream.
+ * Token values use -1 for pop, 0 for reset, 1..16 for set, and 256+n for
+ * push (n == 0 keeps the current alignment). */
+static Token* handle_pragma_directive(Lexer* lex) {
+    SourceLoc loc = make_loc(lex);
+    const char* p = lex->pos + 7; /* strlen("#pragma") */
+    int value = 0;
+    bool recognized = false;
+
+    while (*p == ' ' || *p == '\t') p++;
+    if (strncmp(p, "pack", 4) == 0 &&
+        !(isalnum((unsigned char)p[4]) || p[4] == '_')) {
+        p += 4;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '(') {
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == ')') {
+                recognized = true; /* reset */
+            } else if (strncmp(p, "pop", 3) == 0 &&
+                       !(isalnum((unsigned char)p[3]) || p[3] == '_')) {
+                value = -1;
+                recognized = true;
+            } else if (strncmp(p, "push", 4) == 0 &&
+                       !(isalnum((unsigned char)p[4]) || p[4] == '_')) {
+                int alignment = 0;
+                p += 4;
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p == ',') {
+                    p++;
+                    while (*p == ' ' || *p == '\t') p++;
+                    while (isdigit((unsigned char)*p)) {
+                        alignment = alignment * 10 + (*p - '0');
+                        p++;
+                    }
+                }
+                value = 256 + alignment;
+                recognized = true;
+            } else if (isdigit((unsigned char)*p)) {
+                while (isdigit((unsigned char)*p)) {
+                    value = value * 10 + (*p - '0');
+                    p++;
+                }
+                recognized = true;
+            }
+        }
+    }
+
+    while (*lex->pos && *lex->pos != '\n') advance(lex);
+    if (*lex->pos == '\n') advance(lex);
+    if (!recognized) return NULL;
+
+    Token* token = token_new(TOK_PRAGMA_PACK, loc);
+    token->value.int_val = value;
+    return token;
+}
+
 /* Lex from string */
 TokenList* rcc_lex_string(const char* src, const char* filename) {
     /* Initialize lexer */
@@ -738,8 +796,26 @@ TokenList* rcc_lex_string(const char* src, const char* filename) {
             handle_line_directive(&lex);
             continue;
         }
+        if (*lex.pos == '#' && strncmp(lex.pos, "#pragma", 7) == 0) {
+            Token* pragma = handle_pragma_directive(&lex);
+            if (pragma) tokenlist_append(list, pragma);
+            continue;
+        }
 
         Token* tok = lex_token(&lex);
+        if (tok->type == TOK_STRING_LIT && list->tail &&
+            list->tail->type == TOK_STRING_LIT) {
+            size_t left_length = strlen(list->tail->value.str_val);
+            size_t right_length = strlen(tok->value.str_val);
+            char* joined = rcc_alloc(left_length + right_length + 1u);
+            memcpy(joined, list->tail->value.str_val, left_length);
+            memcpy(joined + left_length, tok->value.str_val,
+                   right_length + 1u);
+            list->tail->value.str_val = rcc_intern(joined);
+            rcc_free(joined);
+            token_free(tok);
+            continue;
+        }
         tokenlist_append(list, tok);
         if (tok->type == TOK_EOF) break;
     }

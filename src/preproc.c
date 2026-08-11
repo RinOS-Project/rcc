@@ -427,6 +427,70 @@ static char* splice_source_lines(const char* source) {
     return spliced;
 }
 
+/* C17 translation phase 3 replaces comments with whitespace before
+ * directives and macro replacement are interpreted.  Preserve newlines and
+ * columns so diagnostics and directive boundaries remain stable. */
+static char* strip_source_comments(const char* source) {
+    size_t length = strlen(source);
+    char* stripped = rcc_alloc(length + 1u);
+    size_t input = 0;
+    size_t output = 0;
+    char quoted = '\0';
+
+    while (input < length) {
+        char current = source[input];
+        if (quoted != '\0') {
+            stripped[output++] = current;
+            input++;
+            if (current == '\\' && input < length) {
+                stripped[output++] = source[input++];
+            } else if (current == quoted) {
+                quoted = '\0';
+            }
+            continue;
+        }
+        if (current == '"' || current == '\'') {
+            quoted = current;
+            stripped[output++] = current;
+            input++;
+            continue;
+        }
+        if (current == '/' && input + 1u < length &&
+            source[input + 1u] == '/') {
+            stripped[output++] = ' ';
+            stripped[output++] = ' ';
+            input += 2u;
+            while (input < length && source[input] != '\n') {
+                stripped[output++] = ' ';
+                input++;
+            }
+            continue;
+        }
+        if (current == '/' && input + 1u < length &&
+            source[input + 1u] == '*') {
+            stripped[output++] = ' ';
+            stripped[output++] = ' ';
+            input += 2u;
+            while (input < length) {
+                if (source[input] == '*' && input + 1u < length &&
+                    source[input + 1u] == '/') {
+                    stripped[output++] = ' ';
+                    stripped[output++] = ' ';
+                    input += 2u;
+                    break;
+                }
+                stripped[output++] = source[input] == '\n' ? '\n' : ' ';
+                input++;
+            }
+            continue;
+        }
+        stripped[output++] = current;
+        input++;
+    }
+    stripped[output] = '\0';
+    return stripped;
+}
+
 static const char* read_macro_body(const char* p, char* body, size_t body_size) {
     size_t used = 0;
     for (;;) {
@@ -610,7 +674,8 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
 
 /* Process a single directive */
 static const char* process_directive(Preprocessor* pp, const char* p,
-                                     const char* filename, PPBuffer* output) {
+                                     const char* filename, int source_line,
+                                     PPBuffer* output) {
     p = skip_ws(p + 1); /* Skip '#' and whitespace */
 
     char directive[64];
@@ -648,6 +713,12 @@ static const char* process_directive(Preprocessor* pp, const char* p,
 
         buf_append_str(output, processed);
         buf_append_char(output, '\n');
+        {
+            char return_line[256];
+            snprintf(return_line, sizeof(return_line), "#line %d \"%s\"\n",
+                     source_line + 1, filename);
+            buf_append_str(output, return_line);
+        }
 
         rcc_free(content);
         rcc_free(processed);
@@ -874,8 +945,16 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     }
 
     if (strcmp(directive, "pragma") == 0) {
-        /* Ignore pragmas for now */
-        return skip_to_eol(p);
+        const char* end = skip_to_eol(p);
+        if (pp_is_active(pp)) {
+            /* Packing directives affect the layout of declarations that
+             * follow them, so they must survive preprocessing.  The lexer
+             * recognizes #pragma pack and continues to ignore other pragmas.
+             */
+            buf_append_str(output, "#pragma ");
+            buf_append(output, p, (size_t)(end - p));
+        }
+        return end;
     }
 
     if (strcmp(directive, "line") == 0) {
@@ -896,7 +975,8 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
     buf_init(&output);
 
     char* spliced_source = splice_source_lines(source);
-    const char* p = spliced_source;
+    char* comment_free_source = strip_source_comments(spliced_source);
+    const char* p = comment_free_source;
     int line = 1;
     int initial_cond_depth = pp->cond_depth;
 
@@ -912,7 +992,7 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
         if (*p == '#') {
             /* Preprocessor directive */
-            p = process_directive(pp, p, filename, &output);
+            p = process_directive(pp, p, filename, line, &output);
             if (*p == '\n') {
                 buf_append_char(&output, '\n');
                 p++;
@@ -959,6 +1039,7 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
         pp->cond_depth = initial_cond_depth;
     }
 
+    rcc_free(comment_free_source);
     rcc_free(spliced_source);
     return output.data;
 }

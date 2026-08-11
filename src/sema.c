@@ -229,7 +229,8 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_STRING_LIT:
-            expr->type = type_ptr(type_char);
+            expr->type = type_array(type_char,
+                                    (int)strlen(expr->str_val) + 1);
             break;
 
         case EXPR_IDENT: {

@@ -6,6 +6,7 @@
 #include "rcc.h"
 #include "token.h"
 #include "ast.h"
+#include <limits.h>
 
 /* Parser state - exported for parser_cxx.c */
 typedef struct {
@@ -37,6 +38,48 @@ typedef struct ParserEnumConstant {
 static ParserTypeName* parser_type_names;
 static ParserTagName* parser_tag_names;
 static ParserEnumConstant* parser_enum_constants;
+static int parser_pack_alignment;
+static int parser_pack_stack[32];
+static int parser_pack_depth;
+
+static bool parser_pack_value_valid(int alignment) {
+    return alignment == 0 || alignment == 1 || alignment == 2 ||
+           alignment == 4 || alignment == 8 || alignment == 16;
+}
+
+static void parser_apply_pack(Token* directive) {
+    int value = (int)directive->value.int_val;
+    if (value == -1) {
+        if (parser_pack_depth == 0) {
+            rcc_warning(directive->loc, "#pragma pack(pop) without push");
+        } else {
+            parser_pack_alignment = parser_pack_stack[--parser_pack_depth];
+        }
+        return;
+    }
+    if (value >= 256) {
+        int alignment = value - 256;
+        if (!parser_pack_value_valid(alignment)) {
+            rcc_error(directive->loc,
+                      "unsupported #pragma pack alignment %d", alignment);
+            return;
+        }
+        if (parser_pack_depth >=
+            (int)(sizeof(parser_pack_stack) / sizeof(parser_pack_stack[0]))) {
+            rcc_error(directive->loc, "#pragma pack stack overflow");
+            return;
+        }
+        parser_pack_stack[parser_pack_depth++] = parser_pack_alignment;
+        if (alignment != 0) parser_pack_alignment = alignment;
+        return;
+    }
+    if (!parser_pack_value_valid(value)) {
+        rcc_error(directive->loc,
+                  "unsupported #pragma pack alignment %d", value);
+        return;
+    }
+    parser_pack_alignment = value;
+}
 
 static Type* parser_lookup_type(const char* name) {
     ParserTypeName* entry;
@@ -565,6 +608,73 @@ static Expr* parse_generic_selection(SourceLoc loc) {
     return expr_generic(control, associations, loc);
 }
 
+static TypeField* parser_find_field(Type* aggregate, const char* name) {
+    for (TypeField* field = aggregate ? aggregate->fields : NULL;
+         field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) return field;
+    }
+    return NULL;
+}
+
+static Expr* parse_builtin_offsetof(SourceLoc loc) {
+    Type* current;
+    int64_t offset = 0;
+
+    advance(); /* __builtin_offsetof */
+    expect(TOK_LPAREN, "(");
+    if (!is_type_start()) {
+        rcc_error(peek()->loc, "__builtin_offsetof requires a type name");
+        current = type_int;
+    } else {
+        current = parse_type_spec();
+        current = parse_declarator(current, NULL, NULL);
+    }
+    expect(TOK_COMMA, ",");
+
+    if (!current || (current->kind != TYPE_STRUCT &&
+                     current->kind != TYPE_UNION)) {
+        rcc_error(loc, "__builtin_offsetof requires an aggregate type");
+    }
+    while (!check(TOK_RPAREN) && !at_end()) {
+        if (match(TOK_IDENT)) {
+            TypeField* field = parser_find_field(
+                current, previous()->value.str_val);
+            if (!field) {
+                rcc_error(previous()->loc, "unknown member '%s' in offsetof",
+                          previous()->value.str_val);
+                current = type_int;
+            } else {
+                offset += field->offset;
+                current = field->type;
+            }
+        } else if (match(TOK_LBRACKET)) {
+            Expr* index_expression = parse_assignment();
+            int64_t index = 0;
+            if (!current || current->kind != TYPE_ARRAY) {
+                rcc_error(previous()->loc,
+                          "offsetof subscript requires an array member");
+            } else if (!eval_integer_constant(index_expression, &index) ||
+                       index < 0) {
+                rcc_error(index_expression->loc,
+                          "offsetof subscript is not a non-negative integer constant");
+            } else {
+                offset += index * current->base->size;
+                current = current->base;
+            }
+            expect(TOK_RBRACKET, "]");
+        } else {
+            rcc_error(peek()->loc, "expected member designator in offsetof");
+            advance();
+        }
+        if (!match(TOK_DOT) && !check(TOK_LBRACKET)) break;
+    }
+    expect(TOK_RPAREN, ")");
+
+    Expr* result = expr_int(offset, loc);
+    result->type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
+    return result;
+}
+
 /* Primary: literal, identifier, (expr) */
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
@@ -587,6 +697,10 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_STRING_LIT)) {
         return expr_string(previous()->value.str_val, loc);
+    }
+    if (check(TOK_IDENT) &&
+        strcmp(peek()->value.str_val, "__builtin_offsetof") == 0) {
+        return parse_builtin_offsetof(loc);
     }
     if (match(TOK_IDENT)) {
         int64_t enum_value;
@@ -1116,6 +1230,9 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     TypeField** tail = &aggregate->fields;
     int alignment = type && type->align > 0 ? type->align : 1;
     int size = type && type->size > 0 ? type->size : 0;
+    if (parser_pack_alignment > 0 && alignment > parser_pack_alignment) {
+        alignment = parser_pack_alignment;
+    }
     field->name = name;
     field->type = type;
     while (*tail) tail = &(*tail)->next;
@@ -1134,6 +1251,9 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
     TypeField** tail = &aggregate->fields;
     int alignment = anonymous && anonymous->align > 0 ? anonymous->align : 1;
     int size = anonymous && anonymous->size > 0 ? anonymous->size : 0;
+    if (parser_pack_alignment > 0 && alignment > parser_pack_alignment) {
+        alignment = parser_pack_alignment;
+    }
     int base_offset = aggregate->kind == TYPE_UNION
         ? 0 : parser_align_up(aggregate->size, alignment);
     while (*tail) tail = &(*tail)->next;
@@ -1171,6 +1291,10 @@ static void parse_aggregate_body(Type* aggregate) {
     aggregate->fields = NULL;
     while (!check(TOK_RBRACE) && !at_end()) {
         Type* field_base;
+        if (match(TOK_PRAGMA_PACK)) {
+            parser_apply_pack(previous());
+            continue;
+        }
         skip_attributes();
         field_base = parse_type_spec();
         if (!field_base) {
@@ -1405,7 +1529,18 @@ static Type* parse_declarator(Type* base_type, const char** name,
     for (;;) {
         if (match(TOK_LBRACKET)) {
             int length = -1;
-            if (match(TOK_INT_LIT)) length = (int)previous()->value.int_val;
+            if (!check(TOK_RBRACKET)) {
+                Expr* bound = parse_assignment();
+                int64_t constant = 0;
+                if (!eval_integer_constant(bound, &constant) || constant <= 0 ||
+                    constant > INT_MAX ||
+                    (type->size > 0 && constant > INT_MAX / type->size)) {
+                    rcc_error(bound->loc,
+                              "array bound is not a positive representable integer constant");
+                } else {
+                    length = (int)constant;
+                }
+            }
             expect(TOK_RBRACKET, "]");
             type = type_array(type, length);
         } else if (match(TOK_LPAREN)) {
@@ -1808,6 +1943,10 @@ Stmt* parse_declaration(void) {
  * ═══════════════════════════════════════ */
 
 static Decl* parse_toplevel(void) {
+    if (match(TOK_PRAGMA_PACK)) {
+        parser_apply_pack(previous());
+        return NULL;
+    }
     Stmt* s = parse_declaration();
     if (s && s->kind == STMT_DECL) {
         return s->decl;
@@ -1822,6 +1961,8 @@ AST* rcc_parse(TokenList* tokens) {
     parser_type_names = NULL;
     parser_tag_names = NULL;
     parser_enum_constants = NULL;
+    parser_pack_alignment = 0;
+    parser_pack_depth = 0;
 
     AST* ast = ast_new();
 
