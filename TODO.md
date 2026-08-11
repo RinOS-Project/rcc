@@ -31,6 +31,7 @@
 - [x] 式、制御文、scope、基本type conversion
   - [x] C17 integer literalの基数別候補型、`U/L/LL` suffix、overflow診断
   - [x] ILP32/LP64の通常算術変換と型付きunsigned整数定数式
+  - [x] 全integer compound assignmentと左辺一回評価の両arch codegen
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen
@@ -46,7 +47,7 @@
   - [x] 定数memory orderの範囲・load/store・CAS failure/weak制約diagnostic
   - [x] AMD64 64-bit整数atomic全操作と競合実行試験
   - [x] 両arch pointer atomic load/store/exchange/CASと不正RMW拒否
-  - [ ] i686 64-bit scalar ABI lowering
+  - [x] i686 64-bit scalar ABI lowering
     - [x] EDX:EAX戻り値、8-byte cdecl引数、load/store、加減算、bitwise基礎
     - [x] signed/unsigned比較と0..63-bit shift
     - [x] low-64 multiplyとsigned/unsigned software divide/modulo
@@ -87,7 +88,7 @@
   - [x] direct RIN/NDRVのDATA/CODE symbol解決と関数ポインタ
   - [x] extern/tentative definitionとzero-file-size BSS
   - [x] 文字列literalのread-only RODATA分離
-- [ ] i386での完全な64-bit整数演算と戻り値
+- [x] i386での完全な64-bit整数演算と戻り値
   - [x] EDX:EAX scalar return、8-byte引数、literal/cast/local/global/call基礎
   - [x] signed/unsigned比較とSHLD/SHRDによるwide shift
   - [x] multiply/divide/modulo

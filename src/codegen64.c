@@ -234,6 +234,12 @@ static void emit64_idiv_reg(Module* mod, int reg) {
     emit_byte(mod, modrm64(3, 7, reg));
 }
 
+static void emit64_div_reg(Module* mod, int reg) {
+    emit_rex_w(mod, 0, reg);
+    emit_byte(mod, 0xF7);
+    emit_byte(mod, modrm64(3, 6, reg));
+}
+
 /* CQO - sign extend RAX to RDX:RAX */
 static void emit64_cqo(Module* mod) {
     emit_byte(mod, REX_W);
@@ -1301,8 +1307,13 @@ static void gen64_expr(Module* mod, Expr* expr) {
             gen64_expr(mod, expr->binary_rhs);
             emit64_mov_reg_reg(mod, RCX, RAX);
             emit64_pop_reg(mod, RAX);
-            emit64_cqo(mod);
-            emit64_idiv_reg(mod, RCX);
+            if (expr->type && expr->type->is_unsigned) {
+                emit64_xor_reg_reg(mod, RDX, RDX);
+                emit64_div_reg(mod, RCX);
+            } else {
+                emit64_cqo(mod);
+                emit64_idiv_reg(mod, RCX);
+            }
             if (expr->kind == EXPR_MOD) {
                 emit64_mov_reg_reg(mod, RAX, RDX);
             }
@@ -1440,6 +1451,62 @@ static void gen64_expr(Module* mod, Expr* expr) {
             } else {
                 emit64_sub_reg_reg(mod, RAX, RDX);
             }
+            emit64_normalize_atomic_value(mod, RAX,
+                                          expr->binary_lhs->type);
+            emit64_pop_reg(mod, RCX);
+            emit64_store_typed(mod, RCX, 0, RAX,
+                               expr->binary_lhs->type);
+            break;
+        }
+
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN: {
+            Type* operation_type = type_common(expr->binary_lhs->type,
+                                               expr->binary_rhs->type);
+            gen64_lvalue(mod, expr->binary_lhs);
+            emit64_push_reg(mod, RAX);
+            emit64_load_typed(mod, RAX, RAX, 0,
+                              expr->binary_lhs->type);
+            emit64_push_reg(mod, RAX);
+            gen64_expr(mod, expr->binary_rhs);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_pop_reg(mod, RAX);
+            if (expr->kind == EXPR_MUL_ASSIGN) {
+                emit64_imul_reg_reg(mod, RAX, RCX);
+            } else if (expr->kind == EXPR_DIV_ASSIGN ||
+                       expr->kind == EXPR_MOD_ASSIGN) {
+                if (operation_type && operation_type->is_unsigned) {
+                    emit64_xor_reg_reg(mod, RDX, RDX);
+                    emit64_div_reg(mod, RCX);
+                } else {
+                    emit64_cqo(mod);
+                    emit64_idiv_reg(mod, RCX);
+                }
+                if (expr->kind == EXPR_MOD_ASSIGN) {
+                    emit64_mov_reg_reg(mod, RAX, RDX);
+                }
+            } else if (expr->kind == EXPR_AND_ASSIGN) {
+                emit64_and_reg_reg(mod, RAX, RCX);
+            } else if (expr->kind == EXPR_OR_ASSIGN) {
+                emit64_or_reg_reg(mod, RAX, RCX);
+            } else if (expr->kind == EXPR_XOR_ASSIGN) {
+                emit64_xor_reg_reg(mod, RAX, RCX);
+            } else if (expr->kind == EXPR_LSHIFT_ASSIGN) {
+                emit64_shl_reg_cl(mod, RAX);
+            } else if (expr->binary_lhs->type &&
+                       expr->binary_lhs->type->is_unsigned) {
+                emit64_shr_reg_cl(mod, RAX);
+            } else {
+                emit64_sar_reg_cl(mod, RAX);
+            }
+            emit64_normalize_atomic_value(mod, RAX,
+                                          expr->binary_lhs->type);
             emit64_pop_reg(mod, RCX);
             emit64_store_typed(mod, RCX, 0, RAX,
                                expr->binary_lhs->type);

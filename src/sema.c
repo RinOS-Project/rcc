@@ -386,15 +386,41 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
-        case EXPR_ASSIGN:
         case EXPR_MUL_ASSIGN:
-        case EXPR_DIV_ASSIGN:
+        case EXPR_DIV_ASSIGN: {
+            Type* lt = sema_expr(expr->binary_lhs);
+            Type* rt = sema_expr(expr->binary_rhs);
+            if (!is_lvalue(expr->binary_lhs)) {
+                rcc_error(expr->loc, "assignment requires lvalue");
+            }
+            if (!type_is_arithmetic(lt) || !type_is_arithmetic(rt)) {
+                rcc_error(expr->loc,
+                          "multiplicative compound assignment requires arithmetic operands");
+            }
+            expr->type = lt;
+            break;
+        }
+
         case EXPR_MOD_ASSIGN:
         case EXPR_AND_ASSIGN:
         case EXPR_OR_ASSIGN:
         case EXPR_XOR_ASSIGN:
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN: {
+            Type* lt = sema_expr(expr->binary_lhs);
+            Type* rt = sema_expr(expr->binary_rhs);
+            if (!is_lvalue(expr->binary_lhs)) {
+                rcc_error(expr->loc, "assignment requires lvalue");
+            }
+            if (!type_is_integer(lt) || !type_is_integer(rt)) {
+                rcc_error(expr->loc,
+                          "integer compound assignment requires integer operands");
+            }
+            expr->type = lt;
+            break;
+        }
+
+        case EXPR_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             sema_expr(expr->binary_rhs);
             if (!is_lvalue(expr->binary_lhs)) {
