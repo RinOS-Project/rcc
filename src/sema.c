@@ -455,16 +455,46 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE: {
-            sema_expr(expr->binary_lhs);
-            sema_expr(expr->binary_rhs);
+            Type* left = sema_expr(expr->binary_lhs);
+            Type* right = sema_expr(expr->binary_rhs);
+            Type* left_value = generic_selection_type(left);
+            Type* right_value = generic_selection_type(right);
+            bool arithmetic = type_is_arithmetic(left_value) &&
+                              type_is_arithmetic(right_value);
+            bool pointers = type_is_pointer(left_value) &&
+                            type_is_pointer(right_value);
+            int64_t null_value = 1;
+            bool pointer_null = (expr->kind == EXPR_EQ ||
+                                 expr->kind == EXPR_NE) &&
+                ((type_is_pointer(left_value) &&
+                  sema_is_integer_type(right_value) &&
+                  expr_eval_integer_constant(expr->binary_rhs, &null_value) &&
+                  null_value == 0) ||
+                 (type_is_pointer(right_value) &&
+                  sema_is_integer_type(left_value) &&
+                  expr_eval_integer_constant(expr->binary_lhs, &null_value) &&
+                  null_value == 0));
+            if (!arithmetic && !pointers && !pointer_null) {
+                rcc_error(expr->loc,
+                          "comparison requires arithmetic or pointer operands");
+            }
             expr->type = type_int;
             break;
         }
 
         case EXPR_AND:
         case EXPR_OR: {
-            sema_expr(expr->binary_lhs);
-            sema_expr(expr->binary_rhs);
+            Type* left = sema_expr(expr->binary_lhs);
+            Type* right = sema_expr(expr->binary_rhs);
+            Type* left_value = generic_selection_type(left);
+            Type* right_value = generic_selection_type(right);
+            if ((!type_is_scalar(left_value) &&
+                 left_value->kind != TYPE_ENUM) ||
+                (!type_is_scalar(right_value) &&
+                 right_value->kind != TYPE_ENUM)) {
+                rcc_error(expr->loc,
+                          "logical operator requires scalar operands");
+            }
             expr->type = type_int;
             break;
         }

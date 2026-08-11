@@ -521,6 +521,19 @@ static void gen64_expr(Module* mod, Expr* expr);
 static void emit64_label(Module* mod, int label);
 static void emit64_jcc_label(Module* mod, int cc, int label);
 
+static Type* codegen64_comparison_type(Expr* expr) {
+    Type* left = expr && expr->binary_lhs ? expr->binary_lhs->type : NULL;
+    Type* right = expr && expr->binary_rhs ? expr->binary_rhs->type : NULL;
+    if ((left && (left->kind == TYPE_PTR || left->kind == TYPE_ARRAY)) ||
+        (right && (right->kind == TYPE_PTR || right->kind == TYPE_ARRAY))) {
+        return type_ulong;
+    }
+    if (!left || !right) return type_int;
+    if (left->kind == TYPE_ENUM || left->kind < TYPE_INT) left = type_int;
+    if (right->kind == TYPE_ENUM || right->kind < TYPE_INT) right = type_int;
+    return type_common(left, right);
+}
+
 static Expr* call64_argument(Expr* call, int index) {
     ExprList* argument = call->call_args;
     while (argument && index-- > 0) argument = argument->next;
@@ -1388,13 +1401,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             emit64_cmp_reg_reg(mod, RAX, RCX);
 
             int cc;
+            Type* comparison_type = codegen64_comparison_type(expr);
+            bool unsigned_compare = comparison_type &&
+                                    comparison_type->is_unsigned;
             switch (expr->kind) {
                 case EXPR_EQ: cc = CC64_E; break;
                 case EXPR_NE: cc = CC64_NE; break;
-                case EXPR_LT: cc = CC64_L; break;
-                case EXPR_GT: cc = CC64_G; break;
-                case EXPR_LE: cc = CC64_LE; break;
-                case EXPR_GE: cc = CC64_GE; break;
+                case EXPR_LT: cc = unsigned_compare ? CC64_B : CC64_L; break;
+                case EXPR_GT: cc = unsigned_compare ? CC64_A : CC64_G; break;
+                case EXPR_LE: cc = unsigned_compare ? CC64_BE : CC64_LE; break;
+                case EXPR_GE: cc = unsigned_compare ? CC64_AE : CC64_GE; break;
                 default: cc = CC64_E; break;
             }
 

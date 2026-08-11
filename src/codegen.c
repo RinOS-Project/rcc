@@ -2204,6 +2204,24 @@ static void gen_divmod_integer64(Module* mod, Expr* lhs, Expr* rhs,
     emit_pop_reg(mod, EBX);
 }
 
+static Type* codegen_comparison_type(Expr* expr) {
+    Type* left = expr && expr->binary_lhs ? expr->binary_lhs->type : NULL;
+    Type* right = expr && expr->binary_rhs ? expr->binary_rhs->type : NULL;
+    if ((left && (left->kind == TYPE_PTR || left->kind == TYPE_ARRAY)) ||
+        (right && (right->kind == TYPE_PTR || right->kind == TYPE_ARRAY))) {
+        return type_ulong;
+    }
+    if (!left || !right) return type_int;
+    if (left->kind == TYPE_ENUM || left->kind < TYPE_INT) left = type_int;
+    if (right->kind == TYPE_ENUM || right->kind < TYPE_INT) right = type_int;
+    return type_common(left, right);
+}
+
+static void emit_test_scalar_value(Module* mod, const Type* type) {
+    if (gen_is_integer64(type)) emit_or_reg_reg(mod, EAX, EDX);
+    emit_test_reg_reg(mod, EAX, EAX);
+}
+
 static void gen_multiply_integer64(Module* mod, Expr* lhs, Expr* rhs) {
     /* Low 64 bits of (ahi:alo) * (bhi:blo): alo*blo plus
      * the low words of both cross products.  A NULL lhs means that its
@@ -2555,13 +2573,8 @@ static void gen_compare_integer64(Module* mod, Expr* expr) {
     int high_diff_label = new_label();
     int end_label = new_label();
     bool equality = expr->kind == EXPR_EQ || expr->kind == EXPR_NE;
-    const Type* left_type = expr->binary_lhs->type;
-    const Type* right_type = expr->binary_rhs->type;
-    bool unsigned_compare = left_type && right_type &&
-        (left_type->size == right_type->size
-            ? (left_type->is_unsigned || right_type->is_unsigned)
-            : (left_type->size > right_type->size
-                ? left_type->is_unsigned : right_type->is_unsigned));
+    Type* comparison_type = codegen_comparison_type(expr);
+    bool unsigned_compare = comparison_type && comparison_type->is_unsigned;
     int low_cc;
     int high_cc;
 
@@ -2760,7 +2773,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_NOT:
             gen_expr(mod, expr->unary_operand);
-            emit_cmp_reg_imm(mod, EAX, 0);
+            emit_test_scalar_value(mod, expr->unary_operand->type);
             emit_setcc(mod, CC_E, EAX);
             emit_byte(mod, 0x0F);  /* MOVZX EAX, AL */
             emit_byte(mod, 0xB6);
@@ -2951,13 +2964,16 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             emit_cmp_reg_reg(mod, EAX, ECX);
 
             int cc;
+            Type* comparison_type = codegen_comparison_type(expr);
+            bool unsigned_compare = comparison_type &&
+                                    comparison_type->is_unsigned;
             switch (expr->kind) {
                 case EXPR_EQ: cc = CC_E; break;
                 case EXPR_NE: cc = CC_NE; break;
-                case EXPR_LT: cc = CC_L; break;
-                case EXPR_GT: cc = CC_G; break;
-                case EXPR_LE: cc = CC_LE; break;
-                case EXPR_GE: cc = CC_GE; break;
+                case EXPR_LT: cc = unsigned_compare ? CC_B : CC_L; break;
+                case EXPR_GT: cc = unsigned_compare ? CC_A : CC_G; break;
+                case EXPR_LE: cc = unsigned_compare ? CC_BE : CC_LE; break;
+                case EXPR_GE: cc = unsigned_compare ? CC_AE : CC_GE; break;
                 default: cc = CC_E; break;
             }
 
@@ -2971,10 +2987,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_AND: {
             int end_label = new_label();
             gen_expr(mod, expr->binary_lhs);
-            emit_test_reg_reg(mod, EAX, EAX);
+            emit_test_scalar_value(mod, expr->binary_lhs->type);
             emit_jcc_label(mod, CC_E, end_label);
             gen_expr(mod, expr->binary_rhs);
-            emit_test_reg_reg(mod, EAX, EAX);
+            emit_test_scalar_value(mod, expr->binary_rhs->type);
             emit_setcc(mod, CC_NE, EAX);
             emit_byte(mod, 0x0F);
             emit_byte(mod, 0xB6);
@@ -2984,17 +3000,21 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_OR: {
+            int true_label = new_label();
             int end_label = new_label();
             gen_expr(mod, expr->binary_lhs);
-            emit_test_reg_reg(mod, EAX, EAX);
-            emit_jcc_label(mod, CC_NE, end_label);
+            emit_test_scalar_value(mod, expr->binary_lhs->type);
+            emit_jcc_label(mod, CC_NE, true_label);
             gen_expr(mod, expr->binary_rhs);
-            emit_label(mod, end_label);
-            emit_test_reg_reg(mod, EAX, EAX);
+            emit_test_scalar_value(mod, expr->binary_rhs->type);
             emit_setcc(mod, CC_NE, EAX);
             emit_byte(mod, 0x0F);
             emit_byte(mod, 0xB6);
             emit_byte(mod, modrm(3, EAX, EAX));
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, true_label);
+            emit_mov_reg_imm(mod, EAX, 1u);
+            emit_label(mod, end_label);
             break;
         }
 
@@ -3123,7 +3143,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             int else_label = new_label();
             int end_label = new_label();
             gen_expr(mod, expr->cond_test);
-            emit_test_reg_reg(mod, EAX, EAX);
+            emit_test_scalar_value(mod, expr->cond_test->type);
             emit_jcc_label(mod, CC_E, else_label);
             gen_expr(mod, expr->cond_then);
             emit_jmp_label(mod, end_label);
@@ -3899,7 +3919,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             int end_label = new_label();
 
             gen_expr(mod, stmt->if_cond);
-            emit_test_reg_reg(mod, EAX, EAX);
+            emit_test_scalar_value(mod, stmt->if_cond->type);
             emit_jcc_label(mod, CC_E, else_label);
 
             gen_stmt(mod, stmt->if_then);
@@ -3927,7 +3947,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             emit_label(mod, start_label);
             gen_expr(mod, stmt->while_cond);
-            emit_test_reg_reg(mod, EAX, EAX);
+            emit_test_scalar_value(mod, stmt->while_cond->type);
             emit_jcc_label(mod, CC_E, end_label);
 
             gen_stmt(mod, stmt->while_body);
@@ -3954,7 +3974,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             emit_label(mod, cond_label);
             gen_expr(mod, stmt->while_cond);
-            emit_test_reg_reg(mod, EAX, EAX);
+            emit_test_scalar_value(mod, stmt->while_cond->type);
             emit_jcc_label(mod, CC_NE, start_label);
 
             emit_label(mod, end_label);
@@ -3981,7 +4001,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             if (stmt->for_cond) {
                 gen_expr(mod, stmt->for_cond);
-                emit_test_reg_reg(mod, EAX, EAX);
+                emit_test_scalar_value(mod, stmt->for_cond->type);
                 emit_jcc_label(mod, CC_E, end_label);
             }
 

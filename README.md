@@ -132,6 +132,9 @@ char/shortの単項promotionを両archで直接実行し、`%`、`~`、shift、`
 `test-function-calls`はprototype有無の区別、固定引数の個数・型検査、variadicと
 prototypeなしcallのdefault integer promotion、array/function parameter調整を検証し、
 固定・可変・間接callを両archで直接実行します。
+`test-scalar-comparisons`は通常算術変換後のsigned/unsigned relational比較と、
+高位wordだけが非zeroの64-bit整数を使う`!`、`&&`、`||`、条件演算子、if/loopの
+truth判定を両archで直接実行します。
 `test-compound-assignment`は全integer compound operator、通常のsigned/unsigned
 divide/modulo、8/16-bit格納変換、左辺一回評価をi686/AMD64で直接実行します。
 `test-switch-statement`は裸の`signed`/`unsigned`型指定、case/default dispatch、
