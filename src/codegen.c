@@ -3723,6 +3723,24 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                      initializer->compound_init->expr,
                                      displacement);
     }
+    if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->type && type_is_compatible(type, initializer->type)) {
+        int offset = 0;
+        gen_lvalue(mod, initializer);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        while (offset + 4 <= type->size) {
+            emit_mov_reg_mem(mod, EAX, ECX, offset);
+            emit_mov_mem_reg(mod, EBP, displacement + offset, EAX);
+            offset += 4;
+        }
+        while (offset < type->size) {
+            emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
+            emit_store_typed32(mod, EBP, displacement + offset, EAX,
+                               type_uchar);
+            ++offset;
+        }
+        return true;
+    }
     if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
         type->kind != TYPE_PTR) {
         return false;

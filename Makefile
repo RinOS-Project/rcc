@@ -13,6 +13,9 @@ BINDIR = .
 TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
+BOOTSTRAP_ROOT = build/bootstrap
+BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
+BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/sema.c src/optimize.c
 
 # Common source files (shared between rcc and rcc++)
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
@@ -47,7 +50,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-scalar-comparisons test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-scalar-comparisons test-aggregate-copy test-bootstrap-core test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -311,6 +314,47 @@ test-scalar-comparisons: $(RCC_TARGET)
 	grep -q "logical operator requires scalar operands" \
 		$(TEST_OUT)/scalar-comparisons/invalid.log
 	@echo "Dual-architecture C17 scalar comparison tests completed"
+
+test-aggregate-copy: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/aggregate-copy
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/aggregate-copy/x86.ro tests/aggregate_copy.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/aggregate-copy/x64.ro tests/aggregate_copy.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/aggregate-copy/run-test-x86 \
+		tests/aggregate_copy_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/aggregate-copy/run-test-x64 \
+		tests/aggregate_copy_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/aggregate-copy/run-test-x86 $(TEST_OUT)/aggregate-copy/x86.ro
+	$(TEST_OUT)/aggregate-copy/run-test-x64 $(TEST_OUT)/aggregate-copy/x64.ro
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/aggregate-copy/invalid.ro \
+		tests/invalid_anonymous_aggregate.c \
+		>$(TEST_OUT)/aggregate-copy/invalid.log 2>&1; then \
+		echo "duplicate anonymous member unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "duplicate member 'duplicate' from anonymous aggregate" \
+		$(TEST_OUT)/aggregate-copy/invalid.log
+	@echo "Dual-architecture C17 aggregate copy tests completed"
+
+test-bootstrap-core: $(RCC_TARGET)
+	mkdir -p $(BOOTSTRAP_ROOT)/stage1-a $(BOOTSTRAP_ROOT)/stage1-b
+	@set -e; \
+	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
+		for source in $(BOOTSTRAP_CORE_SRCS); do \
+			name=$$(basename $$source .c); \
+			arch=$${target%%-*}; \
+			$(RCC_TARGET) --target $$target $(BOOTSTRAP_INCLUDES) -c \
+				-o $(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro $$source; \
+			$(RCC_TARGET) --target $$target $(BOOTSTRAP_INCLUDES) -c \
+				-o $(BOOTSTRAP_ROOT)/stage1-b/$$name-$$arch.ro $$source; \
+			cmp $(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro \
+				$(BOOTSTRAP_ROOT)/stage1-b/$$name-$$arch.ro; \
+		done; \
+	done
+	@echo "Reproducible dual-architecture stage0 core object bootstrap completed"
 
 test-compound-assignment: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/compound-assignment
@@ -619,6 +663,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/scalar-comparison-x64.ro \
 		tests/scalar_comparison.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/aggregate-copy-x86.ro \
+		tests/aggregate_copy.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/aggregate-copy-x64.ro \
+		tests/aggregate_copy.c
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/compound-assignment-x86.ro \
 		tests/compound_assignment.c

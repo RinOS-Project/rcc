@@ -135,6 +135,11 @@ prototypeなしcallのdefault integer promotion、array/function parameter調整
 `test-scalar-comparisons`は通常算術変換後のsigned/unsigned relational比較と、
 高位wordだけが非zeroの64-bit整数を使う`!`、`&&`、`||`、条件演算子、if/loopの
 truth判定を両archで直接実行します。
+`test-aggregate-copy`はcompatible struct/unionのlocal copy初期化とC11/C17の匿名
+struct/union member layoutを両archで直接実行します。`test-bootstrap-core`は専用の
+freestanding宣言sysrootを使い、stage0 rccで`ast/symtab/sema/optimize`を両arch各2回
+compileして`.ro v2`のbyte一致を要求します。これはcore object gateであり、linked
+stage1やstage2再現buildの完了宣言ではありません。
 `test-compound-assignment`は全integer compound operator、通常のsigned/unsigned
 divide/modulo、8/16-bit格納変換、左辺一回評価をi686/AMD64で直接実行します。
 `test-switch-statement`は裸の`signed`/`unsigned`型指定、case/default dispatch、

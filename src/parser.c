@@ -1123,6 +1123,41 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     *tail = field;
 }
 
+static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
+    TypeField** tail = &aggregate->fields;
+    int alignment = anonymous && anonymous->align > 0 ? anonymous->align : 1;
+    int size = anonymous && anonymous->size > 0 ? anonymous->size : 0;
+    int base_offset = aggregate->kind == TYPE_UNION
+        ? 0 : parser_align_up(aggregate->size, alignment);
+    while (*tail) tail = &(*tail)->next;
+    for (TypeField* source = anonymous ? anonymous->fields : NULL;
+         source; source = source->next) {
+        TypeField* field = ast_arena_alloc(sizeof(*field));
+        TypeField* existing;
+        for (existing = aggregate->fields; existing;
+             existing = existing->next) {
+            if (existing->name && source->name &&
+                strcmp(existing->name, source->name) == 0) {
+                rcc_error(peek()->loc,
+                          "duplicate member '%s' from anonymous aggregate",
+                          source->name);
+                break;
+            }
+        }
+        field->name = source->name;
+        field->type = source->type;
+        field->offset = base_offset + source->offset;
+        *tail = field;
+        tail = &field->next;
+    }
+    if (aggregate->kind == TYPE_UNION) {
+        if (size > aggregate->size) aggregate->size = size;
+    } else {
+        aggregate->size = base_offset + size;
+    }
+    if (alignment > aggregate->align) aggregate->align = alignment;
+}
+
 static void parse_aggregate_body(Type* aggregate) {
     aggregate->size = 0;
     aggregate->align = 1;
@@ -1140,7 +1175,13 @@ static void parse_aggregate_body(Type* aggregate) {
             const char* field_name = NULL;
             Type* field_type = parse_declarator(field_base, &field_name, NULL);
             if (!field_name) {
-                rcc_error(peek()->loc, "expected field name");
+                if ((field_type->kind == TYPE_STRUCT ||
+                     field_type->kind == TYPE_UNION) &&
+                    field_type->is_complete && check(TOK_SEMICOLON)) {
+                    parser_append_anonymous_fields(aggregate, field_type);
+                } else {
+                    rcc_error(peek()->loc, "expected field name");
+                }
                 break;
             }
             parser_append_field(aggregate, field_name, field_type);

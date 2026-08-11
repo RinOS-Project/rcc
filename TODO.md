@@ -45,6 +45,7 @@
 - [ ] qualifierとeffective typeの完全なC17規則
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
+  - [x] compatible aggregateのlocal copy初期化と匿名struct/union member
 - [ ] `_Generic`、atomics、thread-local storage
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
@@ -115,5 +116,6 @@
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
 - [ ] golden `.ro/.ra/.rin/.rll/.drv`とfuzz corpus
 - [ ] host stage0 -> rcc stage1 -> rcc stage2再現build
+  - [x] stage0によるast/symtab/sema/optimize core `.ro`の両arch再現生成
 - [ ] RinOS i686セルフホスト
 - [ ] RinOS x86_64セルフホスト

@@ -518,6 +518,7 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 }
 
 static void gen64_expr(Module* mod, Expr* expr);
+static void gen64_lvalue(Module* mod, Expr* expr);
 static void emit64_label(Module* mod, int label);
 static void emit64_jcc_label(Module* mod, int cc, int label);
 
@@ -989,6 +990,24 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         }
         return gen64_local_initializer(
             mod, type, initializer->compound_init->expr, displacement);
+    }
+    if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->type && type_is_compatible(type, initializer->type)) {
+        int offset = 0;
+        gen64_lvalue(mod, initializer);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        while (offset + 8 <= type->size) {
+            emit64_mov_reg_mem(mod, RAX, RCX, offset);
+            emit64_mov_mem_reg(mod, RBP, displacement + offset, RAX);
+            offset += 8;
+        }
+        while (offset < type->size) {
+            emit64_load_typed(mod, RAX, RCX, offset, type_uchar);
+            emit64_store_typed(mod, RBP, displacement + offset, RAX,
+                               type_uchar);
+            ++offset;
+        }
+        return true;
     }
     if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
         type->kind != TYPE_PTR) {

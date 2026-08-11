@@ -188,7 +188,8 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* void* conversions */
     if (type_is_pointer(e->type) && type_is_pointer(target)) {
-        if (e->type->base == type_void || target->base == type_void) {
+        if ((e->type->base && e->type->base->kind == TYPE_VOID) ||
+            (target->base && target->base->kind == TYPE_VOID)) {
             return target;
         }
         if (type_is_compatible(e->type->base, target->base)) {
@@ -459,8 +460,10 @@ static Type* sema_expr(Expr* expr) {
             Type* right = sema_expr(expr->binary_rhs);
             Type* left_value = generic_selection_type(left);
             Type* right_value = generic_selection_type(right);
-            bool arithmetic = type_is_arithmetic(left_value) &&
-                              type_is_arithmetic(right_value);
+            bool arithmetic = (type_is_arithmetic(left_value) ||
+                               left_value->kind == TYPE_ENUM) &&
+                              (type_is_arithmetic(right_value) ||
+                               right_value->kind == TYPE_ENUM);
             bool pointers = type_is_pointer(left_value) &&
                             type_is_pointer(right_value);
             int64_t null_value = 1;
@@ -599,9 +602,12 @@ static Type* sema_expr(Expr* expr) {
                 sema_expr(argument->expr);
                 if (parameter) {
                     if (!implicit_cast(argument->expr, parameter->type)) {
+                        const char* function_name =
+                            expr->call_func->kind == EXPR_IDENT
+                                ? expr->call_func->ident_name : "<function>";
                         rcc_error(argument->expr->loc,
-                                  "incompatible type for argument %d",
-                                  argument_index);
+                                  "incompatible type for argument %d to '%s'",
+                                  argument_index, function_name);
                     }
                     parameter = parameter->next;
                 } else if (ft->has_prototype && !ft->variadic &&
@@ -1142,10 +1148,16 @@ static void sema_initializer(Type* type, Expr* initializer) {
     }
     if (initializer->kind != EXPR_COMPOUND) {
         sema_expr(initializer);
-        if (type->kind == TYPE_ARRAY || type->kind == TYPE_STRUCT ||
-            type->kind == TYPE_UNION) {
+        if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            if (!type_is_compatible(type, initializer->type)) {
+                rcc_error(initializer->loc,
+                          "incompatible aggregate copy initialization");
+            }
+            return;
+        }
+        if (type->kind == TYPE_ARRAY) {
             rcc_error(initializer->loc,
-                      "aggregate copy initialization is not yet supported");
+                      "array copy initialization is not valid C17");
             return;
         }
         if (!implicit_cast(initializer, type)) {

@@ -927,7 +927,14 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
 
 /* Emit object file from Module */
 bool rcc_emit_obj(Module* mod, const char* filename) {
-    ObjectFile* obj = module_to_objfile(mod, filename);
+    /* Local symbols need a translation-unit scope so independently compiled
+     * objects cannot collide at link time.  The output path is not that
+     * identity: embedding it makes otherwise identical objects depend on the
+     * selected build directory.  Prefer the source path used by the driver;
+     * retain the filename fallback for direct emitter users. */
+    const char* translation_unit = g_opts.input_file[0] != '\0'
+        ? g_opts.input_file : filename;
+    ObjectFile* obj = module_to_objfile(mod, translation_unit);
     bool ok;
     if (!obj) return false;
     ok = objfile_write(obj, filename);
