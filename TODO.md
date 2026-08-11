@@ -48,7 +48,7 @@
     - [x] EDX:EAX戻り値、8-byte cdecl引数、load/store、加減算、bitwise基礎
     - [x] signed/unsigned比較と0..63-bit shift
     - [x] low-64 multiplyとsigned/unsigned software divide/modulo
-    - [x] 前置/後置increment/decrementと`+=`/`-=`
+    - [x] 前置/後置increment/decrementと全integer compound assignment
     - [x] CMPXCHG8B load/store/exchange/CASと全RMW retry loop
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
@@ -89,7 +89,7 @@
   - [x] EDX:EAX scalar return、8-byte引数、literal/cast/local/global/call基礎
   - [x] signed/unsigned比較とSHLD/SHRDによるwide shift
   - [x] multiply/divide/modulo
-  - [x] 前置/後置increment/decrementと`+=`/`-=`
+  - [x] 前置/後置increment/decrementと全integer compound assignment
 - [ ] SysV aggregate分類、variadic、floating-point ABI
 - [ ] PIC/PIE、GOT/PLT、TLS relocation
 - [ ] DWARF debug/unwind

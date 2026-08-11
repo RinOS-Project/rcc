@@ -77,6 +77,39 @@ u64 abi_wide_add_assign(u64* value, u64 operand) {
 u64 abi_wide_sub_assign(u64* value, u64 operand) {
     return *value -= operand;
 }
+u64 abi_wide_multiply_assign(u64* value, u64 operand) {
+    return *value *= operand;
+}
+u64 abi_wide_divide_assign(u64* value, u64 operand) {
+    return *value /= operand;
+}
+u64 abi_wide_modulo_assign(u64* value, u64 operand) {
+    return *value %= operand;
+}
+i64 abi_wide_divide_assign_signed(i64* value, i64 operand) {
+    return *value /= operand;
+}
+i64 abi_wide_modulo_assign_signed(i64* value, i64 operand) {
+    return *value %= operand;
+}
+u64 abi_wide_and_assign(u64* value, u64 operand) {
+    return *value &= operand;
+}
+u64 abi_wide_or_assign(u64* value, u64 operand) {
+    return *value |= operand;
+}
+u64 abi_wide_xor_assign(u64* value, u64 operand) {
+    return *value ^= operand;
+}
+u64 abi_wide_shift_left_assign(u64* value, int count) {
+    return *value <<= count;
+}
+u64 abi_wide_shift_right_assign(u64* value, int count) {
+    return *value >>= count;
+}
+i64 abi_wide_shift_right_assign_signed(i64* value, int count) {
+    return *value >>= count;
+}
 
 static u64* wide_side_effect_pointer(u64* value, int* calls) {
     ++*calls;
@@ -85,6 +118,10 @@ static u64* wide_side_effect_pointer(u64* value, int* calls) {
 
 u64 abi_wide_compound_lvalue_once(u64* value, int* calls) {
     return *wide_side_effect_pointer(value, calls) += (u64)0x100000001;
+}
+
+u64 abi_wide_multiply_lvalue_once(u64* value, int* calls) {
+    return *wide_side_effect_pointer(value, calls) *= (u64)3;
 }
 
 u64 abi_wide_call(void) {

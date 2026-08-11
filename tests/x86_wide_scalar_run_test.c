@@ -27,6 +27,9 @@ typedef int (*atomic_wide_compare_fn)(volatile uint64_t*, uint64_t*,
 typedef uint64_t (*wide_pointer_unary_fn)(uint64_t*);
 typedef uint64_t (*wide_pointer_binary_fn)(uint64_t*, uint64_t);
 typedef uint64_t (*wide_pointer_count_fn)(uint64_t*, int*);
+typedef int64_t (*signed_wide_pointer_binary_fn)(int64_t*, int64_t);
+typedef uint64_t (*wide_pointer_shift_fn)(uint64_t*, int32_t);
+typedef int64_t (*signed_wide_pointer_shift_fn)(int64_t*, int32_t);
 
 static ObjSymbol* required_function(ObjectFile* object, const char* name) {
     ObjSymbol* symbol = objfile_find_symbol(object, name);
@@ -81,7 +84,19 @@ int main(int argc, char** argv) {
     wide_pointer_unary_fn postdecrement;
     wide_pointer_binary_fn add_assign;
     wide_pointer_binary_fn sub_assign;
+    wide_pointer_binary_fn multiply_assign;
+    wide_pointer_binary_fn divide_assign;
+    wide_pointer_binary_fn modulo_assign;
+    signed_wide_pointer_binary_fn divide_assign_signed;
+    signed_wide_pointer_binary_fn modulo_assign_signed;
+    wide_pointer_binary_fn and_assign;
+    wide_pointer_binary_fn or_assign;
+    wide_pointer_binary_fn xor_assign;
+    wide_pointer_shift_fn shift_left_assign;
+    wide_pointer_shift_fn shift_right_assign;
+    signed_wide_pointer_shift_fn shift_right_assign_signed;
     wide_pointer_count_fn compound_lvalue_once;
+    wide_pointer_count_fn multiply_lvalue_once;
     wide_nullary_fn call;
     wide_nullary_fn call_promoted;
     unsigned_widen_fn widen_unsigned;
@@ -166,8 +181,27 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(postdecrement, object, mapping, "abi_wide_postdecrement");
     LOAD_FUNCTION(add_assign, object, mapping, "abi_wide_add_assign");
     LOAD_FUNCTION(sub_assign, object, mapping, "abi_wide_sub_assign");
+    LOAD_FUNCTION(multiply_assign, object, mapping,
+                  "abi_wide_multiply_assign");
+    LOAD_FUNCTION(divide_assign, object, mapping, "abi_wide_divide_assign");
+    LOAD_FUNCTION(modulo_assign, object, mapping, "abi_wide_modulo_assign");
+    LOAD_FUNCTION(divide_assign_signed, object, mapping,
+                  "abi_wide_divide_assign_signed");
+    LOAD_FUNCTION(modulo_assign_signed, object, mapping,
+                  "abi_wide_modulo_assign_signed");
+    LOAD_FUNCTION(and_assign, object, mapping, "abi_wide_and_assign");
+    LOAD_FUNCTION(or_assign, object, mapping, "abi_wide_or_assign");
+    LOAD_FUNCTION(xor_assign, object, mapping, "abi_wide_xor_assign");
+    LOAD_FUNCTION(shift_left_assign, object, mapping,
+                  "abi_wide_shift_left_assign");
+    LOAD_FUNCTION(shift_right_assign, object, mapping,
+                  "abi_wide_shift_right_assign");
+    LOAD_FUNCTION(shift_right_assign_signed, object, mapping,
+                  "abi_wide_shift_right_assign_signed");
     LOAD_FUNCTION(compound_lvalue_once, object, mapping,
                   "abi_wide_compound_lvalue_once");
+    LOAD_FUNCTION(multiply_lvalue_once, object, mapping,
+                  "abi_wide_multiply_lvalue_once");
     LOAD_FUNCTION(call, object, mapping, "abi_wide_call");
     LOAD_FUNCTION(call_promoted, object, mapping,
                   "abi_wide_call_promoted");
@@ -262,6 +296,41 @@ int main(int argc, char** argv) {
                    signed_dividend / signed_divisor);
             assert(modulo_signed(signed_dividend, signed_divisor) ==
                    signed_dividend % signed_divisor);
+            {
+                uint64_t assigned = dividend;
+                unsigned count = iteration & 63u;
+                assert(multiply_assign(&assigned, divisor) ==
+                       dividend * divisor);
+                assigned = dividend;
+                assert(divide_assign(&assigned, divisor) ==
+                       dividend / divisor);
+                assigned = dividend;
+                assert(modulo_assign(&assigned, divisor) ==
+                       dividend % divisor);
+                assigned = dividend;
+                assert(and_assign(&assigned, divisor) ==
+                       (dividend & divisor));
+                assigned = dividend;
+                assert(or_assign(&assigned, divisor) ==
+                       (dividend | divisor));
+                assigned = dividend;
+                assert(xor_assign(&assigned, divisor) ==
+                       (dividend ^ divisor));
+                assigned = dividend;
+                assert(shift_left_assign(&assigned, (int32_t)count) ==
+                       (dividend << count));
+                assigned = dividend;
+                assert(shift_right_assign(&assigned, (int32_t)count) ==
+                       (dividend >> count));
+            }
+            {
+                int64_t assigned = signed_dividend;
+                assert(divide_assign_signed(&assigned, signed_divisor) ==
+                       signed_dividend / signed_divisor);
+                assigned = signed_dividend;
+                assert(modulo_assign_signed(&assigned, signed_divisor) ==
+                       signed_dividend % signed_divisor);
+            }
         }
     }
     {
@@ -282,6 +351,18 @@ int main(int argc, char** argv) {
                    UINT64_C(0x00000002ffffffff));
             assert(value64 == UINT64_C(0x00000002ffffffff));
             assert(calls == 1);
+            value64 = UINT64_C(0x0000000100000002);
+            calls = 0;
+            assert(multiply_lvalue_once(&value64, &calls) ==
+                   UINT64_C(0x0000000300000006));
+            assert(value64 == UINT64_C(0x0000000300000006));
+            assert(calls == 1);
+        }
+        {
+            int64_t signed_value = -INT64_C(0x100000000);
+            assert(shift_right_assign_signed(&signed_value, 33) ==
+                   INT64_C(-1));
+            assert(signed_value == INT64_C(-1));
         }
     }
     assert(call() == UINT64_C(0x0000000200000001));
