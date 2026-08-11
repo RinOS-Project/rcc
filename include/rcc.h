@@ -103,6 +103,8 @@ bool rcc_validate_signing_options(const char* tool_name, bool final_artifact);
 bool rcc_create_signing_temp(const char* output_path, const char* stage,
                              char* temp_path, size_t capacity);
 bool rcc_run_rinsign(const char* unsigned_path, const char* output_path);
+bool rcc_tool_relative_path(const char* tool_path, const char* relative_path,
+                            char* output, size_t output_size);
 
 /* Source location */
 typedef struct {

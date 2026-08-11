@@ -70,7 +70,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-parser-recovery test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -171,6 +171,17 @@ test-cxx-parser-recovery: $(RCXX_TARGET)
 	grep -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid.log
 	! grep -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid.log
 	@echo "RCC++ namespace parser recovery test completed"
+
+test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/tool-relative/cwd
+	cd $(TEST_OUT)/tool-relative/cwd && \
+		$(abspath $(RCC_TARGET)) --target i686-unknown-rinos -c \
+		-o c-x86.ro $(abspath tests/tool_relative_include.c)
+	cd $(TEST_OUT)/tool-relative/cwd && \
+		$(abspath $(RCXX_TARGET)) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o cxx-x64.ro \
+		$(abspath tests/tool_relative_include.cpp)
+	@echo "RCC/RCC++ executable-relative include tests completed"
 
 test-preprocessor-continuation: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)

@@ -388,6 +388,35 @@ char* rcc_strdup(const char* s) {
     return p;
 }
 
+bool rcc_tool_relative_path(const char* tool_path, const char* relative_path,
+                            char* output, size_t output_size) {
+    const char* slash;
+    const char* backslash;
+    const char* separator;
+    size_t directory_size;
+    size_t relative_size;
+
+    if (!tool_path || !relative_path || !output || output_size == 0u) {
+        return false;
+    }
+    slash = strrchr(tool_path, '/');
+    backslash = strrchr(tool_path, '\\');
+    separator = slash;
+    if (backslash && (!separator || backslash > separator)) {
+        separator = backslash;
+    }
+    if (!separator) return false;
+    directory_size = (size_t)(separator - tool_path) + 1u;
+    relative_size = strlen(relative_path);
+    if (directory_size > output_size - 1u ||
+        relative_size > output_size - directory_size - 1u) {
+        return false;
+    }
+    memcpy(output, tool_path, directory_size);
+    memcpy(output + directory_size, relative_path, relative_size + 1u);
+    return true;
+}
+
 void rcc_free(void* ptr) {
     free(ptr);
 }

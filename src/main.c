@@ -384,9 +384,20 @@ int main(int argc, char** argv) {
 
     /* Add standard include paths (unless -nostdinc) */
     if (!g_opts.nostdinc) {
+        char tool_include[RCC_MAX_PATH];
+        char tool_bootstrap_include[RCC_MAX_PATH];
         pp_add_include_path(pp, ".");
         pp_add_include_path(pp, "include");
         pp_add_include_path(pp, "include/rcc");  /* RCC intrinsic headers */
+        if (rcc_tool_relative_path(argv[0], "include/rcc", tool_include,
+                                   sizeof(tool_include))) {
+            pp_add_include_path(pp, tool_include);
+        }
+        if (rcc_tool_relative_path(argv[0], "bootstrap/include",
+                                   tool_bootstrap_include,
+                                   sizeof(tool_bootstrap_include))) {
+            pp_add_include_path(pp, tool_bootstrap_include);
+        }
         pp_add_include_path(pp, "/rinos/include");
     }
 
