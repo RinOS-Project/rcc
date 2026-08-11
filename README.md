@@ -129,6 +129,9 @@ divide/modulo、8/16-bit格納変換、左辺一回評価をi686/AMD64で直接�
 fallthrough、nested switch、loop内のbreak/continue、制御式の一回評価、32/64-bit
 case値を両archで直接実行し、switch外label、重複・非定数case、複数default、
 非整数制御式を意味解析で拒否します。
+`test-control-flow`はforward/backward `goto`、function-local label namespace、switchへの
+直接遷移を両archの`-O1`生成コードで実行します。goto先を含む定数falseのif/whileを
+optimizerが除去しないこと、および不正なbreak/continue、未定義・重複labelの診断も確認します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、

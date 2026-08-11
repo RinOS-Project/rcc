@@ -1686,6 +1686,36 @@ typedef struct SwitchCodegenContext64 {
 
 static SwitchCodegenContext64* current_switch_codegen64 = NULL;
 
+typedef struct NamedCodegenLabel64 {
+    const char* name;
+    int label;
+    struct NamedCodegenLabel64* next;
+} NamedCodegenLabel64;
+
+static NamedCodegenLabel64* named_codegen_labels64 = NULL;
+
+static int codegen64_named_label(const char* name) {
+    NamedCodegenLabel64* item = named_codegen_labels64;
+    while (item) {
+        if (strcmp(item->name, name) == 0) return item->label;
+        item = item->next;
+    }
+    item = rcc_alloc(sizeof(*item));
+    item->name = name;
+    item->label = new_label64();
+    item->next = named_codegen_labels64;
+    named_codegen_labels64 = item;
+    return item->label;
+}
+
+static void codegen64_release_named_labels(void) {
+    while (named_codegen_labels64) {
+        NamedCodegenLabel64* next = named_codegen_labels64->next;
+        rcc_free(named_codegen_labels64);
+        named_codegen_labels64 = next;
+    }
+}
+
 static Type* codegen64_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -1948,6 +1978,15 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             gen64_stmt(mod, stmt->default_stmt);
             break;
 
+        case STMT_GOTO:
+            emit64_jmp_label(mod, codegen64_named_label(stmt->goto_label));
+            break;
+
+        case STMT_LABEL:
+            emit64_label(mod, codegen64_named_label(stmt->label_name));
+            gen64_stmt(mod, stmt->label_stmt);
+            break;
+
         case STMT_RETURN:
             if (stmt->return_val) {
                 gen64_expr(mod, stmt->return_val);
@@ -2147,7 +2186,9 @@ static void gen64_function(Module* mod, Decl* decl) {
     }
 
     /* Generate body */
+    named_codegen_labels64 = NULL;
     gen64_stmt(mod, decl->func_body);
+    codegen64_release_named_labels();
 
     /* Function epilogue */
     emit64_mov_reg_imm32(mod, RAX, 0);

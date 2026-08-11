@@ -9,6 +9,37 @@
 static void optimize_expr(Expr** expression);
 static void optimize_stmt(Stmt* statement);
 
+static bool statement_contains_label(const Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_LABEL:
+            return true;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (statement_contains_label(item->stmt)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return statement_contains_label(statement->if_then) ||
+                   statement_contains_label(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return statement_contains_label(statement->while_body);
+        case STMT_FOR:
+            return statement_contains_label(statement->for_init) ||
+                   statement_contains_label(statement->for_body);
+        case STMT_SWITCH:
+            return statement_contains_label(statement->switch_body);
+        case STMT_CASE:
+            return statement_contains_label(statement->case_stmt);
+        case STMT_DEFAULT:
+            return statement_contains_label(statement->default_stmt);
+        default:
+            return false;
+    }
+}
+
 static bool integer_literal(const Expr* expression, int64_t* value) {
     if (!expression || !value) return false;
     if (expression->kind == EXPR_INT_LIT) {
@@ -332,13 +363,18 @@ static void optimize_stmt(Stmt* statement) {
                 if (integer_literal(statement->if_cond, &condition)) {
                     Stmt* selected = condition != 0
                         ? statement->if_then : statement->if_else;
-                    if (selected) {
-                        optimize_stmt(selected);
-                        *statement = *selected;
-                    } else {
-                        statement->kind = STMT_NULL;
+                    Stmt* discarded = condition != 0
+                        ? statement->if_else : statement->if_then;
+                    /* A goto may enter the syntactically unreachable arm. */
+                    if (!statement_contains_label(discarded)) {
+                        if (selected) {
+                            optimize_stmt(selected);
+                            *statement = *selected;
+                        } else {
+                            statement->kind = STMT_NULL;
+                        }
+                        return;
                     }
-                    return;
                 }
             }
             optimize_stmt(statement->if_then);
@@ -349,7 +385,8 @@ static void optimize_stmt(Stmt* statement) {
             {
                 int64_t condition;
                 if (integer_literal(statement->while_cond, &condition) &&
-                    condition == 0) {
+                    condition == 0 &&
+                    !statement_contains_label(statement->while_body)) {
                     statement->kind = STMT_NULL;
                     return;
                 }

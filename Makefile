@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-compound-assignment test-switch-statement test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-compound-assignment test-switch-statement test-control-flow test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -251,6 +251,36 @@ test-switch-statement: $(RCC_TARGET)
 		$(TEST_OUT)/switch-statement/invalid.log
 	@echo "Dual-architecture C17 switch statement tests completed"
 
+test-control-flow: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/control-flow
+	$(RCC_TARGET) --target i686-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/control-flow/x86.ro tests/control_flow.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/control-flow/x64.ro tests/control_flow.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/control-flow/run-test-x86 \
+		tests/control_flow_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/control-flow/run-test-x64 \
+		tests/control_flow_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/control-flow/run-test-x86 $(TEST_OUT)/control-flow/x86.ro
+	$(TEST_OUT)/control-flow/run-test-x64 $(TEST_OUT)/control-flow/x64.ro
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/control-flow/invalid.ro \
+		tests/invalid_control_flow.c \
+		>$(TEST_OUT)/control-flow/invalid.log 2>&1; then \
+		echo "invalid control-flow fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "break statement is not within a loop or switch" \
+		$(TEST_OUT)/control-flow/invalid.log
+	grep -q "continue statement is not within a loop" \
+		$(TEST_OUT)/control-flow/invalid.log
+	grep -q "undefined label 'missing'" \
+		$(TEST_OUT)/control-flow/invalid.log
+	grep -q "redefinition of label 'duplicate'" \
+		$(TEST_OUT)/control-flow/invalid.log
+	@echo "Dual-architecture C17 goto/label tests completed"
+
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
 	$(RCC_TARGET) -c -o $(TEST_OUT)/main.ro tests/main.c
@@ -440,6 +470,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/switch-statement-x64.ro \
 		tests/switch_statement.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -O1 -c \
+		-o $(SANITIZER_ROOT)/tests/control-flow-x86.ro \
+		tests/control_flow.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -O1 -c \
+		-o $(SANITIZER_ROOT)/tests/control-flow-x64.ro \
+		tests/control_flow.c
 	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/invalid.ro \
 		tests/invalid_designated_initializer.c

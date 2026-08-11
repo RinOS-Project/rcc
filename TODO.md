@@ -34,6 +34,7 @@
   - [x] 全integer compound assignmentと左辺一回評価の両arch codegen
   - [x] `switch/case/default`のfallthrough、nested context、64-bit dispatchとdiagnostic
   - [x] 裸の`signed` / `unsigned`を`int`として解釈
+  - [x] 両archのfunction-local `goto` / label loweringと配置diagnostic
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen

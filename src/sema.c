@@ -24,6 +24,7 @@ typedef struct SemaSwitchContext {
 } SemaSwitchContext;
 
 static SemaSwitchContext* current_switch = NULL;
+static int loop_depth = 0;
 
 /* Forward declarations */
 static void sema_stmt(Stmt* stmt);
@@ -599,11 +600,15 @@ static void sema_stmt(Stmt* stmt) {
 
         case STMT_WHILE:
             sema_expr(stmt->while_cond);
+            ++loop_depth;
             sema_stmt(stmt->while_body);
+            --loop_depth;
             break;
 
         case STMT_DO:
+            ++loop_depth;
             sema_stmt(stmt->while_body);
+            --loop_depth;
             sema_expr(stmt->while_cond);
             break;
 
@@ -618,7 +623,9 @@ static void sema_stmt(Stmt* stmt) {
             if (stmt->for_inc) {
                 sema_expr(stmt->for_inc);
             }
+            ++loop_depth;
             sema_stmt(stmt->for_body);
+            --loop_depth;
             symtab_leave_scope(g_symtab);
             break;
 
@@ -720,7 +727,19 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_BREAK:
+            if (loop_depth == 0 && !current_switch) {
+                rcc_error(stmt->loc,
+                          "break statement is not within a loop or switch");
+            }
+            break;
+
         case STMT_CONTINUE:
+            if (loop_depth == 0) {
+                rcc_error(stmt->loc,
+                          "continue statement is not within a loop");
+            }
+            break;
+
         case STMT_NULL:
             /* Nothing to check */
             break;
@@ -1182,6 +1201,8 @@ static void sema_decl(Decl* decl) {
                 }
 
                 /* Analyze body */
+                loop_depth = 0;
+                current_switch = NULL;
                 sema_stmt(decl->func_body);
 
                 /* Check for undefined labels */

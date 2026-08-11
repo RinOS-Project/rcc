@@ -3712,6 +3712,36 @@ typedef struct SwitchCodegenContext {
 
 static SwitchCodegenContext* current_switch_codegen = NULL;
 
+typedef struct NamedCodegenLabel {
+    const char* name;
+    int label;
+    struct NamedCodegenLabel* next;
+} NamedCodegenLabel;
+
+static NamedCodegenLabel* named_codegen_labels = NULL;
+
+static int codegen_named_label(const char* name) {
+    NamedCodegenLabel* item = named_codegen_labels;
+    while (item) {
+        if (strcmp(item->name, name) == 0) return item->label;
+        item = item->next;
+    }
+    item = rcc_alloc(sizeof(*item));
+    item->name = name;
+    item->label = new_label();
+    item->next = named_codegen_labels;
+    named_codegen_labels = item;
+    return item->label;
+}
+
+static void codegen_release_named_labels(void) {
+    while (named_codegen_labels) {
+        NamedCodegenLabel* next = named_codegen_labels->next;
+        rcc_free(named_codegen_labels);
+        named_codegen_labels = next;
+    }
+}
+
 static Type* codegen_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -3976,6 +4006,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             gen_stmt(mod, stmt->default_stmt);
             break;
 
+        case STMT_GOTO:
+            emit_jmp_label(mod, codegen_named_label(stmt->goto_label));
+            break;
+
+        case STMT_LABEL:
+            emit_label(mod, codegen_named_label(stmt->label_name));
+            gen_stmt(mod, stmt->label_stmt);
+            break;
+
         case STMT_RETURN:
             if (stmt->return_val) {
                 gen_expr(mod, stmt->return_val);
@@ -4059,7 +4098,9 @@ static void gen_function(Module* mod, Decl* decl) {
     current_function_return_type = decl->type &&
                                    decl->type->kind == TYPE_FUNC
         ? decl->type->ret_type : NULL;
+    named_codegen_labels = NULL;
     gen_stmt(mod, decl->func_body);
+    codegen_release_named_labels();
     current_function_return_type = old_return_type;
 
     /* Function epilogue (fallthrough return) */
