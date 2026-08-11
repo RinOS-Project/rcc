@@ -308,23 +308,17 @@ int cxx_cleanup_continue(int* value) {
 }
 
 int cxx_cleanup_for_break(int* value) {
-    {
-        auto handle = CxxUnique<int*>{value};
-        for (; ; ) {
-            break;
-        }
+    for (auto handle = CxxUnique<int*>{value}; ; ) {
+        break;
     }
     return *value;
 }
 
 int cxx_cleanup_for_continue(int* value) {
-    {
-        auto outer = CxxUnique<int*>{value};
-        int iteration = 0;
-        for (; iteration < 2; ++iteration) {
-            auto inner = CxxUnique<int*>{value};
-            continue;
-        }
+    int iteration = 0;
+    for (auto outer = CxxUnique<int*>{value}; iteration < 2; ++iteration) {
+        auto inner = CxxUnique<int*>{value};
+        continue;
     }
     return *value;
 }

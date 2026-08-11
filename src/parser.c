@@ -1865,7 +1865,7 @@ static Stmt* parse_for_stmt(void) {
 
     Stmt* init = NULL;
     if (!check(TOK_SEMICOLON)) {
-        if (is_type_start()) {
+        if (is_type_start() || (parser_cxx_mode && check(TOK_AUTO))) {
             init = parse_declaration();
         } else {
             Expr* e = parse_expression();
