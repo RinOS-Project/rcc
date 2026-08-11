@@ -60,6 +60,13 @@ i64 abi_wide_shift_right_signed(i64 value, int count) {
     return value >> count;
 }
 
+u64 abi_wide_multiply(u64 left, u64 right) { return left * right; }
+i64 abi_wide_multiply_signed(i64 left, i64 right) { return left * right; }
+u64 abi_wide_divide(u64 left, u64 right) { return left / right; }
+u64 abi_wide_modulo(u64 left, u64 right) { return left % right; }
+i64 abi_wide_divide_signed(i64 left, i64 right) { return left / right; }
+i64 abi_wide_modulo_signed(i64 left, i64 right) { return left % right; }
+
 u64 abi_wide_call(void) {
     return abi_wide_add((u64)0x00000001ffffffff, (u64)2);
 }

@@ -1087,6 +1087,16 @@ static void emit_sbb_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, modrm(3, src, dst));
 }
 
+static void emit_xor_reg_imm8(Module* mod, int reg, uint8_t imm) {
+    emit_byte(mod, 0x83);
+    emit_byte(mod, modrm(3, 6, reg));
+    emit_byte(mod, imm);
+}
+
+static void emit_dec_reg(Module* mod, int reg) {
+    emit_byte(mod, 0x48 + reg);
+}
+
 static void emit_adc_reg_imm8(Module* mod, int reg, uint8_t imm) {
     emit_byte(mod, 0x83);
     emit_byte(mod, modrm(3, 2, reg));
@@ -1097,6 +1107,11 @@ static void emit_imul_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, 0x0F);
     emit_byte(mod, 0xAF);
     emit_byte(mod, modrm(3, dst, src));
+}
+
+static void emit_mul_reg(Module* mod, int reg) {
+    emit_byte(mod, 0xF7);
+    emit_byte(mod, modrm(3, 4, reg));
 }
 
 static void emit_scale_reg(Module* mod, int reg, uint32_t scale) {
@@ -2039,6 +2054,137 @@ static void gen_lvalue(Module* mod, Expr* expr) {
     }
 }
 
+static void gen_divmod_integer64(Module* mod, Expr* expr) {
+    enum {
+        DIVISOR_LOW = 0,
+        DIVISOR_HIGH = 4,
+        DIVIDEND_LOW = 8,
+        DIVIDEND_HIGH = 12,
+        QUOTIENT_LOW = 16,
+        QUOTIENT_HIGH = 20,
+        REMAINDER_LOW = 24,
+        REMAINDER_HIGH = 28,
+        QUOTIENT_NEGATIVE = 32,
+        REMAINDER_NEGATIVE = 36,
+        DIVISION_STORAGE = 40
+    };
+    bool is_signed = expr->type && !expr->type->is_unsigned;
+    int lhs_positive_label = new_label();
+    int rhs_positive_label = new_label();
+    int loop_label = new_label();
+    int subtract_label = new_label();
+    int keep_label = new_label();
+    int sign_done_label = new_label();
+
+    emit_push_reg(mod, EBX);
+    emit_push_reg(mod, ESI);
+    emit_push_reg(mod, EDI);
+    emit_sub_reg_imm(mod, ESP, DIVISION_STORAGE);
+
+    gen_expr_as_integer64(mod, expr->binary_lhs);
+    emit_mov_reg_imm(mod, EBX, 0u);
+    if (is_signed) {
+        emit_test_reg_reg(mod, EDX, EDX);
+        emit_jcc_label(mod, CC_NS, lhs_positive_label);
+        emit_mov_reg_imm(mod, EBX, 1u);
+        emit_neg_reg(mod, EAX);
+        emit_adc_reg_imm8(mod, EDX, 0u);
+        emit_neg_reg(mod, EDX);
+        emit_label(mod, lhs_positive_label);
+    }
+    emit_mov_mem_reg(mod, ESP, DIVIDEND_LOW, EAX);
+    emit_mov_mem_reg(mod, ESP, DIVIDEND_HIGH, EDX);
+    emit_mov_mem_reg(mod, ESP, QUOTIENT_NEGATIVE, EBX);
+    emit_mov_mem_reg(mod, ESP, REMAINDER_NEGATIVE, EBX);
+
+    gen_expr_as_integer64(mod, expr->binary_rhs);
+    if (is_signed) {
+        emit_test_reg_reg(mod, EDX, EDX);
+        emit_jcc_label(mod, CC_NS, rhs_positive_label);
+        emit_neg_reg(mod, EAX);
+        emit_adc_reg_imm8(mod, EDX, 0u);
+        emit_neg_reg(mod, EDX);
+        emit_mov_reg_mem(mod, EBX, ESP, QUOTIENT_NEGATIVE);
+        emit_xor_reg_imm8(mod, EBX, 1u);
+        emit_mov_mem_reg(mod, ESP, QUOTIENT_NEGATIVE, EBX);
+        emit_label(mod, rhs_positive_label);
+    }
+    emit_mov_mem_reg(mod, ESP, DIVISOR_LOW, EAX);
+    emit_mov_mem_reg(mod, ESP, DIVISOR_HIGH, EDX);
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_mov_mem_reg(mod, ESP, QUOTIENT_LOW, EAX);
+    emit_mov_mem_reg(mod, ESP, QUOTIENT_HIGH, EAX);
+    emit_mov_mem_reg(mod, ESP, REMAINDER_LOW, EAX);
+    emit_mov_mem_reg(mod, ESP, REMAINDER_HIGH, EAX);
+    emit_mov_reg_imm(mod, ECX, 64u);
+
+    emit_label(mod, loop_label);
+    emit_mov_reg_mem(mod, EAX, ESP, DIVIDEND_LOW);
+    emit_mov_reg_mem(mod, EDX, ESP, DIVIDEND_HIGH);
+    emit_add_reg_reg(mod, EAX, EAX);
+    emit_adc_reg_reg(mod, EDX, EDX);
+    emit_setcc(mod, CC_B, EBX);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB6);
+    emit_byte(mod, modrm(3, EBX, EBX));
+    emit_mov_mem_reg(mod, ESP, DIVIDEND_LOW, EAX);
+    emit_mov_mem_reg(mod, ESP, DIVIDEND_HIGH, EDX);
+
+    emit_mov_reg_mem(mod, EAX, ESP, REMAINDER_LOW);
+    emit_mov_reg_mem(mod, EDX, ESP, REMAINDER_HIGH);
+    emit_add_reg_reg(mod, EAX, EAX);
+    emit_adc_reg_reg(mod, EDX, EDX);
+    emit_or_reg_reg(mod, EAX, EBX);
+    emit_mov_reg_imm(mod, EBX, 0u);
+    emit_mov_reg_mem(mod, ESI, ESP, DIVISOR_HIGH);
+    emit_cmp_reg_reg(mod, EDX, ESI);
+    emit_jcc_label(mod, CC_A, subtract_label);
+    emit_jcc_label(mod, CC_B, keep_label);
+    emit_mov_reg_mem(mod, EDI, ESP, DIVISOR_LOW);
+    emit_cmp_reg_reg(mod, EAX, EDI);
+    emit_jcc_label(mod, CC_B, keep_label);
+
+    emit_label(mod, subtract_label);
+    emit_mov_reg_mem(mod, EDI, ESP, DIVISOR_LOW);
+    emit_sub_reg_reg(mod, EAX, EDI);
+    emit_sbb_reg_reg(mod, EDX, ESI);
+    emit_mov_reg_imm(mod, EBX, 1u);
+    emit_label(mod, keep_label);
+    emit_mov_mem_reg(mod, ESP, REMAINDER_LOW, EAX);
+    emit_mov_mem_reg(mod, ESP, REMAINDER_HIGH, EDX);
+    emit_mov_reg_mem(mod, EAX, ESP, QUOTIENT_LOW);
+    emit_mov_reg_mem(mod, EDX, ESP, QUOTIENT_HIGH);
+    emit_add_reg_reg(mod, EAX, EAX);
+    emit_adc_reg_reg(mod, EDX, EDX);
+    emit_or_reg_reg(mod, EAX, EBX);
+    emit_mov_mem_reg(mod, ESP, QUOTIENT_LOW, EAX);
+    emit_mov_mem_reg(mod, ESP, QUOTIENT_HIGH, EDX);
+    emit_dec_reg(mod, ECX);
+    emit_jcc_label(mod, CC_NE, loop_label);
+
+    if (expr->kind == EXPR_MOD) {
+        emit_mov_reg_mem(mod, EAX, ESP, REMAINDER_LOW);
+        emit_mov_reg_mem(mod, EDX, ESP, REMAINDER_HIGH);
+        emit_mov_reg_mem(mod, ECX, ESP, REMAINDER_NEGATIVE);
+    } else {
+        emit_mov_reg_mem(mod, EAX, ESP, QUOTIENT_LOW);
+        emit_mov_reg_mem(mod, EDX, ESP, QUOTIENT_HIGH);
+        emit_mov_reg_mem(mod, ECX, ESP, QUOTIENT_NEGATIVE);
+    }
+    if (is_signed) {
+        emit_test_reg_reg(mod, ECX, ECX);
+        emit_jcc_label(mod, CC_E, sign_done_label);
+        emit_neg_reg(mod, EAX);
+        emit_adc_reg_imm8(mod, EDX, 0u);
+        emit_neg_reg(mod, EDX);
+        emit_label(mod, sign_done_label);
+    }
+    emit_add_reg_imm(mod, ESP, DIVISION_STORAGE);
+    emit_pop_reg(mod, EDI);
+    emit_pop_reg(mod, ESI);
+    emit_pop_reg(mod, EBX);
+}
+
 /* i386 SysV returns 64-bit integer scalars in EDX:EAX.  Keep this separate
  * from the ordinary EAX expression path so an unsupported operation cannot
  * silently truncate its high word. */
@@ -2162,6 +2308,39 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             emit_label(mod, end_label);
             break;
         }
+
+        case EXPR_MUL:
+            /* Low 64 bits of (ahi:alo) * (bhi:blo): alo*blo plus
+             * the low words of both cross products. */
+            emit_push_reg(mod, EBX);
+            emit_push_reg(mod, ESI);
+            gen_expr_as_integer64(mod, expr->binary_lhs);
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            gen_expr_as_integer64(mod, expr->binary_rhs);
+            emit_mov_reg_reg(mod, EBX, EAX);
+            emit_mov_reg_reg(mod, ESI, EDX);
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            emit_mul_reg(mod, EBX);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_mov_reg_mem(mod, EAX, ESP, 8);
+            emit_imul_reg_reg(mod, EAX, EBX);
+            emit_add_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ESP, 4);
+            emit_imul_reg_reg(mod, EAX, ESI);
+            emit_add_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_reg(mod, EDX, ECX);
+            emit_pop_reg(mod, EAX);
+            emit_add_reg_imm(mod, ESP, 8);
+            emit_pop_reg(mod, ESI);
+            emit_pop_reg(mod, EBX);
+            break;
+
+        case EXPR_DIV:
+        case EXPR_MOD:
+            gen_divmod_integer64(mod, expr);
+            break;
 
         case EXPR_ASSIGN:
             gen_expr_as_integer64(mod, expr->binary_rhs);

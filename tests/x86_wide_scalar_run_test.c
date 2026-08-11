@@ -16,6 +16,7 @@ typedef int64_t (*signed_widen_fn)(int32_t);
 typedef uint64_t (*wide_narrow_binary_fn)(uint64_t, int32_t);
 typedef int (*wide_compare_fn)(uint64_t, uint64_t);
 typedef int (*signed_wide_compare_fn)(int64_t, int64_t);
+typedef int64_t (*signed_wide_binary_fn)(int64_t, int64_t);
 typedef uint64_t (*wide_shift_fn)(uint64_t, int32_t);
 typedef int64_t (*signed_wide_shift_fn)(int64_t, int32_t);
 typedef uint64_t (*atomic_wide_load_fn)(volatile uint64_t*);
@@ -65,6 +66,12 @@ int main(int argc, char** argv) {
     wide_shift_fn shift_left;
     wide_shift_fn shift_right;
     signed_wide_shift_fn shift_right_signed;
+    wide_binary_fn multiply;
+    signed_wide_binary_fn multiply_signed;
+    wide_binary_fn divide;
+    wide_binary_fn modulo;
+    signed_wide_binary_fn divide_signed;
+    signed_wide_binary_fn modulo_signed;
     wide_nullary_fn call;
     wide_nullary_fn call_promoted;
     unsigned_widen_fn widen_unsigned;
@@ -134,6 +141,15 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(shift_right, object, mapping, "abi_wide_shift_right");
     LOAD_FUNCTION(shift_right_signed, object, mapping,
                   "abi_wide_shift_right_signed");
+    LOAD_FUNCTION(multiply, object, mapping, "abi_wide_multiply");
+    LOAD_FUNCTION(multiply_signed, object, mapping,
+                  "abi_wide_multiply_signed");
+    LOAD_FUNCTION(divide, object, mapping, "abi_wide_divide");
+    LOAD_FUNCTION(modulo, object, mapping, "abi_wide_modulo");
+    LOAD_FUNCTION(divide_signed, object, mapping,
+                  "abi_wide_divide_signed");
+    LOAD_FUNCTION(modulo_signed, object, mapping,
+                  "abi_wide_modulo_signed");
     LOAD_FUNCTION(call, object, mapping, "abi_wide_call");
     LOAD_FUNCTION(call_promoted, object, mapping,
                   "abi_wide_call_promoted");
@@ -186,6 +202,18 @@ int main(int argc, char** argv) {
     assert(shift_right(UINT64_C(0x8000000100000000), 33) ==
            UINT64_C(0x0000000040000000));
     assert(shift_right_signed(-INT64_C(0x100000000), 33) == INT64_C(-1));
+    assert(multiply(UINT64_C(0x0000000100000003), UINT64_C(0x100000005)) ==
+           UINT64_C(0x000000080000000f));
+    assert((int64_t)multiply_signed(INT64_C(-1234567), INT64_C(7654321)) ==
+           INT64_C(-9449772114007));
+    assert(divide(UINT64_C(0xfedcba9876543210), UINT64_C(0x100000003)) ==
+           UINT64_C(0xfedcba95));
+    assert(modulo(UINT64_C(0xfedcba9876543210), UINT64_C(0x100000003)) ==
+           UINT64_C(0x789abc51));
+    assert(divide_signed(INT64_C(-9449772114007), INT64_C(7654321)) ==
+           INT64_C(-1234567));
+    assert(modulo_signed(INT64_C(-9449772114010), INT64_C(7654321)) ==
+           INT64_C(-3));
     assert(call() == UINT64_C(0x0000000200000001));
     assert(call_promoted() == UINT64_C(7));
     assert(widen_unsigned(UINT32_C(0xf1234567)) ==
