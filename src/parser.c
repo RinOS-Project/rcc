@@ -140,17 +140,40 @@ static Token* expect(TokenType type, const char* msg) {
 }
 
 static void synchronize(void) {
+    if (at_end()) return;
     advance();
     while (!at_end()) {
         if (previous()->type == TOK_SEMICOLON) return;
         switch (peek()->type) {
+            case TOK_RBRACE:
             case TOK_IF:
             case TOK_WHILE:
+            case TOK_DO:
             case TOK_FOR:
+            case TOK_SWITCH:
+            case TOK_BREAK:
+            case TOK_CONTINUE:
+            case TOK_GOTO:
             case TOK_RETURN:
+            case TOK_TYPEDEF:
             case TOK_INT:
             case TOK_VOID:
             case TOK_CHAR:
+            case TOK_SHORT:
+            case TOK_LONG:
+            case TOK_FLOAT:
+            case TOK_DOUBLE:
+            case TOK_SIGNED:
+            case TOK_UNSIGNED:
+            case TOK_STRUCT:
+            case TOK_UNION:
+            case TOK_ENUM:
+            case TOK_CONST:
+            case TOK_VOLATILE:
+            case TOK_STATIC:
+            case TOK_EXTERN:
+            case TOK_THREAD_LOCAL:
+            case TOK__BOOL:
                 return;
             default:
                 advance();
@@ -1108,6 +1131,11 @@ static void parse_aggregate_body(Type* aggregate) {
         Type* field_base;
         skip_attributes();
         field_base = parse_type_spec();
+        if (!field_base) {
+            rcc_error(peek()->loc, "expected field type specifier");
+            if (check(TOK_IDENT)) advance();
+            field_base = type_int;
+        }
         do {
             const char* field_name = NULL;
             Type* field_type = parse_declarator(field_base, &field_name, NULL);
@@ -1252,6 +1280,11 @@ static DeclList* parse_parameter_list(bool* variadic) {
             break;
         }
         parameter_base = parse_type_spec();
+        if (!parameter_base) {
+            rcc_error(peek()->loc, "expected parameter type specifier");
+            if (check(TOK_IDENT)) advance();
+            parameter_base = type_int;
+        }
         parameter_type = parse_declarator(parameter_base, &parameter_name, NULL);
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_type = type_ptr(parameter_type->base);
@@ -1337,9 +1370,18 @@ static Stmt* parse_block(void) {
     StmtList* stmts = NULL;
 
     while (!check(TOK_RBRACE) && !at_end()) {
+        Token* iteration_start = parser.cur;
+        int errors_before = g_error_count;
         Stmt* s = parse_declaration();
         if (s) {
             stmtlist_append(&stmts, s);
+        }
+        if (g_error_count > errors_before && parser.cur == iteration_start) {
+            synchronize();
+        }
+        if (parser.cur == iteration_start && !at_end() &&
+            !check(TOK_RBRACE)) {
+            advance();
         }
     }
 

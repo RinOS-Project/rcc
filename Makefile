@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-compound-assignment test-switch-statement test-control-flow test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -313,6 +313,25 @@ test-control-flow: $(RCC_TARGET)
 		$(TEST_OUT)/control-flow/invalid.log
 	@echo "Dual-architecture C17 goto/label tests completed"
 
+test-parser-recovery: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/parser-recovery
+	@set +e; timeout 10s $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/parser-recovery/invalid.ro \
+		tests/parser_recovery.c \
+		>$(TEST_OUT)/parser-recovery/invalid.log 2>&1; status=$$?; set -e; \
+		if [ $$status -eq 0 ]; then \
+			echo "parser recovery fixture unexpectedly compiled"; exit 1; \
+		fi; \
+		if [ $$status -eq 124 ] || [ $$status -eq 139 ]; then \
+			echo "parser recovery timed out or crashed (status $$status)"; exit 1; \
+		fi
+	grep -q "expected parameter type specifier" \
+		$(TEST_OUT)/parser-recovery/invalid.log
+	grep -q "expected field type specifier" \
+		$(TEST_OUT)/parser-recovery/invalid.log
+	grep -q "expected expression" $(TEST_OUT)/parser-recovery/invalid.log
+	@echo "C17 parser progress and null-type recovery tests completed"
+
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
 	$(RCC_TARGET) -c -o $(TEST_OUT)/main.ro tests/main.c
@@ -514,6 +533,16 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -O1 -c \
 		-o $(SANITIZER_ROOT)/tests/control-flow-x64.ro \
 		tests/control_flow.c
+	@if $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/parser-recovery.ro \
+		tests/parser_recovery.c \
+		>$(SANITIZER_ROOT)/tests/parser-recovery.log 2>&1; then \
+		echo "parser recovery fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "expected parameter type specifier" \
+		$(SANITIZER_ROOT)/tests/parser-recovery.log
+	grep -q "expected field type specifier" \
+		$(SANITIZER_ROOT)/tests/parser-recovery.log
 	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/invalid.ro \
 		tests/invalid_designated_initializer.c

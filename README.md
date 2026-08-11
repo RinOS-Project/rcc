@@ -135,6 +135,9 @@ case値を両archで直接実行し、switch外label、重複・非定数case、
 `test-control-flow`はforward/backward `goto`、function-local label namespace、switchへの
 直接遷移を両archの`-O1`生成コードで実行します。goto先を含む定数falseのif/whileを
 optimizerが除去しないこと、および不正なbreak/continue、未定義・重複labelの診断も確認します。
+`test-parser-recovery`は未知のparameter/field型とblock内の非消費tokenを一つのtranslation
+unitで診断し、後続宣言まで有限時間で回復することを確認します。timeoutまたはsegmentation
+faultは明示的に失敗とし、同じfixtureをASan/UBSan compilerにも通します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、
