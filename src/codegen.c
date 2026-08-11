@@ -3695,6 +3695,105 @@ static int break_label = -1;
 static int continue_label = -1;
 static Type* current_function_return_type = NULL;
 
+typedef struct SwitchCaseCodegen {
+    Stmt* statement;
+    uint64_t bits;
+    int label;
+    struct SwitchCaseCodegen* next;
+} SwitchCaseCodegen;
+
+typedef struct SwitchCodegenContext {
+    Type* control_type;
+    SwitchCaseCodegen* cases;
+    Stmt* default_statement;
+    int default_label;
+    struct SwitchCodegenContext* previous;
+} SwitchCodegenContext;
+
+static SwitchCodegenContext* current_switch_codegen = NULL;
+
+static Type* codegen_switch_control_type(Type* type) {
+    if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
+        return type_int;
+    }
+    return type;
+}
+
+static uint64_t codegen_switch_case_bits(Expr* expression,
+                                         Type* control_type) {
+    int64_t value = 0;
+    unsigned width = control_type && control_type->size > 0
+        ? (unsigned)control_type->size * 8u : 32u;
+    uint64_t bits;
+    (void)expr_eval_integer_constant(expression, &value);
+    bits = (uint64_t)value;
+    if (width < 64u) bits &= (UINT64_C(1) << width) - 1u;
+    return bits;
+}
+
+static void codegen_collect_switch_cases(Stmt* statement,
+                                         SwitchCodegenContext* context) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_SWITCH:
+            /* Labels in a nested switch belong to that switch. */
+            return;
+        case STMT_CASE: {
+            SwitchCaseCodegen* item = rcc_alloc(sizeof(*item));
+            item->statement = statement;
+            item->bits = codegen_switch_case_bits(statement->case_val,
+                                                   context->control_type);
+            item->label = new_label();
+            item->next = context->cases;
+            context->cases = item;
+            codegen_collect_switch_cases(statement->case_stmt, context);
+            return;
+        }
+        case STMT_DEFAULT:
+            context->default_statement = statement;
+            context->default_label = new_label();
+            codegen_collect_switch_cases(statement->default_stmt, context);
+            return;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                codegen_collect_switch_cases(item->stmt, context);
+            }
+            return;
+        case STMT_IF:
+            codegen_collect_switch_cases(statement->if_then, context);
+            codegen_collect_switch_cases(statement->if_else, context);
+            return;
+        case STMT_WHILE:
+        case STMT_DO:
+            codegen_collect_switch_cases(statement->while_body, context);
+            return;
+        case STMT_FOR:
+            codegen_collect_switch_cases(statement->for_body, context);
+            return;
+        case STMT_LABEL:
+            codegen_collect_switch_cases(statement->label_stmt, context);
+            return;
+        default:
+            return;
+    }
+}
+
+static SwitchCaseCodegen* codegen_find_switch_case(
+    SwitchCodegenContext* context, Stmt* statement) {
+    SwitchCaseCodegen* item = context ? context->cases : NULL;
+    while (item && item->statement != statement) item = item->next;
+    return item;
+}
+
+static void codegen_release_switch_cases(SwitchCaseCodegen* item) {
+    while (item) {
+        SwitchCaseCodegen* next = item->next;
+        rcc_free(item);
+        item = next;
+    }
+}
+
 static void gen_stmt(Module* mod, Stmt* stmt) {
     if (!stmt) return;
 
@@ -3816,6 +3915,66 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             continue_label = old_continue;
             break;
         }
+
+        case STMT_SWITCH: {
+            SwitchCodegenContext context = {0};
+            SwitchCodegenContext* old_switch = current_switch_codegen;
+            int old_break = break_label;
+            int end_label = new_label();
+            context.control_type = codegen_switch_control_type(
+                stmt->switch_expr ? stmt->switch_expr->type : NULL);
+            context.default_label = -1;
+            context.previous = old_switch;
+            codegen_collect_switch_cases(stmt->switch_body, &context);
+
+            /* Evaluate the controlling expression exactly once.  Wide i686
+             * values use the established EDX:EAX scalar ABI. */
+            gen_expr(mod, stmt->switch_expr);
+            for (SwitchCaseCodegen* item = context.cases; item;
+                 item = item->next) {
+                if (context.control_type && context.control_type->size == 8) {
+                    int next_test = new_label();
+                    emit_cmp_reg_imm(mod, EDX,
+                                     (int32_t)(uint32_t)(item->bits >> 32));
+                    emit_jcc_label(mod, CC_NE, next_test);
+                    emit_cmp_reg_imm(mod, EAX,
+                                     (int32_t)(uint32_t)item->bits);
+                    emit_jcc_label(mod, CC_E, item->label);
+                    emit_label(mod, next_test);
+                } else {
+                    emit_cmp_reg_imm(mod, EAX,
+                                     (int32_t)(uint32_t)item->bits);
+                    emit_jcc_label(mod, CC_E, item->label);
+                }
+            }
+            emit_jmp_label(mod, context.default_label >= 0
+                ? context.default_label : end_label);
+
+            break_label = end_label;
+            current_switch_codegen = &context;
+            gen_stmt(mod, stmt->switch_body);
+            current_switch_codegen = old_switch;
+            break_label = old_break;
+            emit_label(mod, end_label);
+            codegen_release_switch_cases(context.cases);
+            break;
+        }
+
+        case STMT_CASE: {
+            SwitchCaseCodegen* item = codegen_find_switch_case(
+                current_switch_codegen, stmt);
+            if (item) emit_label(mod, item->label);
+            gen_stmt(mod, stmt->case_stmt);
+            break;
+        }
+
+        case STMT_DEFAULT:
+            if (current_switch_codegen &&
+                current_switch_codegen->default_statement == stmt) {
+                emit_label(mod, current_switch_codegen->default_label);
+            }
+            gen_stmt(mod, stmt->default_stmt);
+            break;
 
         case STMT_RETURN:
             if (stmt->return_val) {

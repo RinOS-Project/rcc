@@ -11,11 +11,48 @@
 /* Current function return type */
 static Type* current_func_ret = NULL;
 
+typedef struct SemaSwitchValue {
+    uint64_t bits;
+    struct SemaSwitchValue* next;
+} SemaSwitchValue;
+
+typedef struct SemaSwitchContext {
+    Type* control_type;
+    SemaSwitchValue* values;
+    bool has_default;
+    struct SemaSwitchContext* previous;
+} SemaSwitchContext;
+
+static SemaSwitchContext* current_switch = NULL;
+
 /* Forward declarations */
 static void sema_stmt(Stmt* stmt);
 static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static bool sema_atomic_builtin_call(Expr* expr);
+
+static Type* sema_switch_control_type(Type* type) {
+    if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
+        return type_int;
+    }
+    return type;
+}
+
+static uint64_t sema_switch_value_bits(int64_t value, Type* control_type) {
+    unsigned width = control_type && control_type->size > 0
+        ? (unsigned)control_type->size * 8u : 32u;
+    uint64_t bits = (uint64_t)value;
+    if (width < 64u) bits &= (UINT64_C(1) << width) - 1u;
+    return bits;
+}
+
+static void sema_switch_release_values(SemaSwitchValue* value) {
+    while (value) {
+        SemaSwitchValue* next = value->next;
+        rcc_free(value);
+        value = next;
+    }
+}
 
 static Expr* sema_call_argument(Expr* call, int index) {
     ExprList* argument = call ? call->call_args : NULL;
@@ -586,16 +623,65 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_SWITCH:
-            sema_expr(stmt->switch_expr);
+        {
+            Type* control = sema_expr(stmt->switch_expr);
+            SemaSwitchContext context = {0};
+            if (!control ||
+                (!type_is_integer(control) && control->kind != TYPE_ENUM)) {
+                rcc_error(stmt->switch_expr->loc,
+                          "switch controlling expression must have integer type");
+            }
+            context.control_type = sema_switch_control_type(control);
+            context.previous = current_switch;
+            current_switch = &context;
             sema_stmt(stmt->switch_body);
+            current_switch = context.previous;
+            sema_switch_release_values(context.values);
             break;
+        }
 
         case STMT_CASE:
-            sema_expr(stmt->case_val);
+        {
+            Type* case_type = sema_expr(stmt->case_val);
+            int64_t evaluated = 0;
+            if (!current_switch) {
+                rcc_error(stmt->loc, "case label is not within a switch");
+            } else if (!case_type ||
+                       (!type_is_integer(case_type) &&
+                        case_type->kind != TYPE_ENUM) ||
+                       !expr_eval_integer_constant(stmt->case_val,
+                                                   &evaluated)) {
+                rcc_error(stmt->case_val->loc,
+                          "case label must be an integer constant expression");
+            } else {
+                uint64_t bits = sema_switch_value_bits(
+                    evaluated, current_switch->control_type);
+                SemaSwitchValue* existing = current_switch->values;
+                while (existing && existing->bits != bits) {
+                    existing = existing->next;
+                }
+                if (existing) {
+                    rcc_error(stmt->case_val->loc,
+                              "duplicate case value after conversion to switch type");
+                } else {
+                    SemaSwitchValue* value = rcc_alloc(sizeof(*value));
+                    value->bits = bits;
+                    value->next = current_switch->values;
+                    current_switch->values = value;
+                }
+            }
             sema_stmt(stmt->case_stmt);
             break;
+        }
 
         case STMT_DEFAULT:
+            if (!current_switch) {
+                rcc_error(stmt->loc, "default label is not within a switch");
+            } else if (current_switch->has_default) {
+                rcc_error(stmt->loc, "multiple default labels in one switch");
+            } else {
+                current_switch->has_default = true;
+            }
             sema_stmt(stmt->default_stmt);
             break;
 

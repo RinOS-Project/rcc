@@ -1669,6 +1669,111 @@ static void gen64_expr(Module* mod, Expr* expr) {
 static int break_label64 = -1;
 static int continue_label64 = -1;
 
+typedef struct SwitchCaseCodegen64 {
+    Stmt* statement;
+    uint64_t bits;
+    int label;
+    struct SwitchCaseCodegen64* next;
+} SwitchCaseCodegen64;
+
+typedef struct SwitchCodegenContext64 {
+    Type* control_type;
+    SwitchCaseCodegen64* cases;
+    Stmt* default_statement;
+    int default_label;
+    struct SwitchCodegenContext64* previous;
+} SwitchCodegenContext64;
+
+static SwitchCodegenContext64* current_switch_codegen64 = NULL;
+
+static Type* codegen64_switch_control_type(Type* type) {
+    if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
+        return type_int;
+    }
+    return type;
+}
+
+static uint64_t codegen64_switch_case_bits(Expr* expression,
+                                           Type* control_type) {
+    int64_t value = 0;
+    unsigned width = control_type && control_type->size > 0
+        ? (unsigned)control_type->size * 8u : 32u;
+    uint64_t bits;
+    (void)expr_eval_integer_constant(expression, &value);
+    bits = (uint64_t)value;
+    if (width < 64u) {
+        uint64_t mask = (UINT64_C(1) << width) - 1u;
+        bits &= mask;
+        if (control_type && !control_type->is_unsigned &&
+            (bits & (UINT64_C(1) << (width - 1u))) != 0u) {
+            bits |= ~mask;
+        }
+    }
+    return bits;
+}
+
+static void codegen64_collect_switch_cases(
+    Stmt* statement, SwitchCodegenContext64* context) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_SWITCH:
+            return;
+        case STMT_CASE: {
+            SwitchCaseCodegen64* item = rcc_alloc(sizeof(*item));
+            item->statement = statement;
+            item->bits = codegen64_switch_case_bits(statement->case_val,
+                                                     context->control_type);
+            item->label = new_label64();
+            item->next = context->cases;
+            context->cases = item;
+            codegen64_collect_switch_cases(statement->case_stmt, context);
+            return;
+        }
+        case STMT_DEFAULT:
+            context->default_statement = statement;
+            context->default_label = new_label64();
+            codegen64_collect_switch_cases(statement->default_stmt, context);
+            return;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                codegen64_collect_switch_cases(item->stmt, context);
+            }
+            return;
+        case STMT_IF:
+            codegen64_collect_switch_cases(statement->if_then, context);
+            codegen64_collect_switch_cases(statement->if_else, context);
+            return;
+        case STMT_WHILE:
+        case STMT_DO:
+            codegen64_collect_switch_cases(statement->while_body, context);
+            return;
+        case STMT_FOR:
+            codegen64_collect_switch_cases(statement->for_body, context);
+            return;
+        case STMT_LABEL:
+            codegen64_collect_switch_cases(statement->label_stmt, context);
+            return;
+        default:
+            return;
+    }
+}
+
+static SwitchCaseCodegen64* codegen64_find_switch_case(
+    SwitchCodegenContext64* context, Stmt* statement) {
+    SwitchCaseCodegen64* item = context ? context->cases : NULL;
+    while (item && item->statement != statement) item = item->next;
+    return item;
+}
+
+static void codegen64_release_switch_cases(SwitchCaseCodegen64* item) {
+    while (item) {
+        SwitchCaseCodegen64* next = item->next;
+        rcc_free(item);
+        item = next;
+    }
+}
+
 static void gen64_stmt(Module* mod, Stmt* stmt) {
     if (!stmt) return;
 
@@ -1790,6 +1895,58 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             continue_label64 = old_continue;
             break;
         }
+
+        case STMT_SWITCH: {
+            SwitchCodegenContext64 context = {0};
+            SwitchCodegenContext64* old_switch = current_switch_codegen64;
+            int old_break = break_label64;
+            int end_label = new_label64();
+            context.control_type = codegen64_switch_control_type(
+                stmt->switch_expr ? stmt->switch_expr->type : NULL);
+            context.default_label = -1;
+            context.previous = old_switch;
+            codegen64_collect_switch_cases(stmt->switch_body, &context);
+
+            gen64_expr(mod, stmt->switch_expr);
+            for (SwitchCaseCodegen64* item = context.cases; item;
+                 item = item->next) {
+                uint64_t signed_imm32 = (uint64_t)(int64_t)(int32_t)item->bits;
+                if (item->bits == signed_imm32) {
+                    emit64_cmp_reg_imm(mod, RAX, (int32_t)item->bits);
+                } else {
+                    emit64_mov_reg_imm64(mod, RCX, item->bits);
+                    emit64_cmp_reg_reg(mod, RAX, RCX);
+                }
+                emit64_jcc_label(mod, CC64_E, item->label);
+            }
+            emit64_jmp_label(mod, context.default_label >= 0
+                ? context.default_label : end_label);
+
+            break_label64 = end_label;
+            current_switch_codegen64 = &context;
+            gen64_stmt(mod, stmt->switch_body);
+            current_switch_codegen64 = old_switch;
+            break_label64 = old_break;
+            emit64_label(mod, end_label);
+            codegen64_release_switch_cases(context.cases);
+            break;
+        }
+
+        case STMT_CASE: {
+            SwitchCaseCodegen64* item = codegen64_find_switch_case(
+                current_switch_codegen64, stmt);
+            if (item) emit64_label(mod, item->label);
+            gen64_stmt(mod, stmt->case_stmt);
+            break;
+        }
+
+        case STMT_DEFAULT:
+            if (current_switch_codegen64 &&
+                current_switch_codegen64->default_statement == stmt) {
+                emit64_label(mod, current_switch_codegen64->default_label);
+            }
+            gen64_stmt(mod, stmt->default_stmt);
+            break;
 
         case STMT_RETURN:
             if (stmt->return_val) {

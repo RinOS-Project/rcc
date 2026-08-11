@@ -125,6 +125,10 @@ signed/unsigned比較、SHLD/SHRD shift、multiply、software divide/modulo、
 候補型なし、64-bit overflow、不正suffixを各段階で拒否します。
 `test-compound-assignment`は全integer compound operator、通常のsigned/unsigned
 divide/modulo、8/16-bit格納変換、左辺一回評価をi686/AMD64で直接実行します。
+`test-switch-statement`は裸の`signed`/`unsigned`型指定、case/default dispatch、
+fallthrough、nested switch、loop内のbreak/continue、制御式の一回評価、32/64-bit
+case値を両archで直接実行し、switch外label、重複・非定数case、複数default、
+非整数制御式を意味解析で拒否します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、

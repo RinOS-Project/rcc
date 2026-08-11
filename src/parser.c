@@ -1127,6 +1127,7 @@ static void parse_aggregate_body(Type* aggregate) {
 static Type* parse_type_spec(void) {
     Type* t = NULL;
     bool is_unsigned = false;
+    bool saw_sign = false;
     bool is_const = false;
     int long_count = 0;
     bool is_short = false;
@@ -1138,8 +1139,10 @@ static Type* parse_type_spec(void) {
             /* ignore for now */
         } else if (match(TOK_UNSIGNED)) {
             is_unsigned = true;
+            saw_sign = true;
         } else if (match(TOK_SIGNED)) {
             is_unsigned = false;
+            saw_sign = true;
         } else if (match(TOK_LONG)) {
             long_count++;
         } else if (match(TOK_SHORT)) {
@@ -1195,6 +1198,13 @@ static Type* parse_type_spec(void) {
         if (t) advance();
     } else {
         /* Default to int */
+        t = is_unsigned ? type_uint : type_int;
+    }
+
+    /* C17 permits signed and unsigned without an explicit int.  When the
+     * next identifier is the declarator rather than a typedef name, the
+     * typedef lookup branch above intentionally leaves t unset. */
+    if (!t && saw_sign) {
         t = is_unsigned ? type_uint : type_int;
     }
 
@@ -1449,7 +1459,9 @@ static Stmt* parse_statement(void) {
         return parse_switch_stmt();
     }
     if (match(TOK_CASE)) {
-        Expr* val = parse_expression();
+        /* A case label requires a conditional-expression, not the wider
+         * comma/assignment expression grammar. */
+        Expr* val = parse_conditional();
         expect(TOK_COLON, ":");
         Stmt* s = parse_statement();
         return stmt_case(val, s, loc);

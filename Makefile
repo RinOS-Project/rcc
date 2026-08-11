@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-compound-assignment test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-compound-assignment test-switch-statement test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -216,6 +216,40 @@ test-compound-assignment: $(RCC_TARGET)
 		-o $(TEST_OUT)/compound-assignment/invalid.ro \
 		tests/invalid_compound_assignment.c
 	@echo "Dual-architecture C17 compound assignment tests completed"
+
+test-switch-statement: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/switch-statement
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/switch-statement/x86.ro tests/switch_statement.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/switch-statement/x64.ro tests/switch_statement.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/switch-statement/run-test-x86 \
+		tests/switch_statement_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/switch-statement/run-test-x64 \
+		tests/switch_statement_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/switch-statement/run-test-x86 \
+		$(TEST_OUT)/switch-statement/x86.ro
+	$(TEST_OUT)/switch-statement/run-test-x64 \
+		$(TEST_OUT)/switch-statement/x64.ro
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/switch-statement/invalid.ro \
+		tests/invalid_switch_statement.c \
+		>$(TEST_OUT)/switch-statement/invalid.log 2>&1; then \
+		echo "invalid switch fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "case label is not within a switch" \
+		$(TEST_OUT)/switch-statement/invalid.log
+	grep -q "default label is not within a switch" \
+		$(TEST_OUT)/switch-statement/invalid.log
+	grep -q "duplicate case value" $(TEST_OUT)/switch-statement/invalid.log
+	grep -q "multiple default labels" $(TEST_OUT)/switch-statement/invalid.log
+	grep -q "case label must be an integer constant expression" \
+		$(TEST_OUT)/switch-statement/invalid.log
+	grep -q "switch controlling expression must have integer type" \
+		$(TEST_OUT)/switch-statement/invalid.log
+	@echo "Dual-architecture C17 switch statement tests completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
@@ -400,6 +434,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/compound-assignment-x64.ro \
 		tests/compound_assignment.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/switch-statement-x86.ro \
+		tests/switch_statement.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/switch-statement-x64.ro \
+		tests/switch_statement.c
 	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/invalid.ro \
 		tests/invalid_designated_initializer.c
