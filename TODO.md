@@ -32,6 +32,7 @@
   - [x] C17 integer literalの基数別候補型、`U/L/LL` suffix、overflow診断
   - [x] ILP32/LP64の通常算術変換と型付きunsigned整数定数式
   - [x] shift・単項演算のinteger promotionと左辺基準result type
+  - [x] cast・代入・local初期化・return・固定引数callの整数変換codegen
   - [x] 全integer compound assignmentと左辺一回評価の両arch codegen
   - [x] `switch/case/default`のfallthrough、nested context、64-bit dispatchとdiagnostic
   - [x] 裸の`signed` / `unsigned`を`int`として解釈

@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -225,6 +225,24 @@ test-integer-promotions: $(RCC_TARGET)
 	grep -q "logical not requires scalar operand" \
 		$(TEST_OUT)/integer-promotions/invalid.log
 	@echo "Dual-architecture C17 integer promotion tests completed"
+
+test-integer-conversions: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/integer-conversions
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-conversions/x86.ro tests/integer_conversion.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-conversions/x64.ro tests/integer_conversion.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/integer-conversions/run-test-x86 \
+		tests/integer_conversion_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/integer-conversions/run-test-x64 \
+		tests/integer_conversion_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/integer-conversions/run-test-x86 \
+		$(TEST_OUT)/integer-conversions/x86.ro
+	$(TEST_OUT)/integer-conversions/run-test-x64 \
+		$(TEST_OUT)/integer-conversions/x64.ro
+	@echo "Dual-architecture C17 integer conversion tests completed"
 
 test-compound-assignment: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/compound-assignment
@@ -515,6 +533,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/integer-promotion-x64.ro \
 		tests/integer_promotion.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/integer-conversion-x86.ro \
+		tests/integer_conversion.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/integer-conversion-x64.ro \
+		tests/integer_conversion.c
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/compound-assignment-x86.ro \
 		tests/compound_assignment.c

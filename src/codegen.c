@@ -1387,9 +1387,13 @@ static void resolve_labels(Module* mod) {
 
 /* Forward declaration */
 static void gen_expr(Module* mod, Expr* expr);
+static void gen_expr_raw(Module* mod, Expr* expr);
 static void gen_expr64_pair(Module* mod, Expr* expr);
 static void gen_expr_as_integer64(Module* mod, Expr* expr);
 static void gen_call(Module* mod, Expr* expr);
+static void emit_convert_integer_value(Module* mod, int reg,
+                                       const Type* source_type,
+                                       const Type* target_type);
 
 static bool gen_is_integer64(const Type* type) {
     return type && type->size == 8 &&
@@ -2647,6 +2651,11 @@ static void gen_call(Module* mod, Expr* expr) {
             emit_push_reg(mod, EAX);
             argument_bytes += 8;
         } else {
+            if (type_is_integer(passed_type) ||
+                (passed_type && passed_type->kind == TYPE_ENUM)) {
+                emit_convert_integer_value(mod, EAX, argument->type,
+                                           passed_type);
+            }
             emit_push_reg(mod, EAX);
             argument_bytes += 4;
         }
@@ -2688,13 +2697,8 @@ static void gen_call(Module* mod, Expr* expr) {
     }
 }
 
-static void gen_expr(Module* mod, Expr* expr) {
+static void gen_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
-
-    if (gen_is_integer64(expr->type)) {
-        gen_expr64_pair(mod, expr);
-        return;
-    }
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
@@ -2987,9 +2991,20 @@ static void gen_expr(Module* mod, Expr* expr) {
 
         case EXPR_ASSIGN:
             gen_expr(mod, expr->binary_rhs);
+            if (type_is_integer(expr->binary_lhs->type) ||
+                expr->binary_lhs->type->kind == TYPE_ENUM) {
+                emit_convert_integer_value(mod, EAX,
+                                           expr->binary_rhs->type,
+                                           expr->binary_lhs->type);
+            }
             emit_push_reg(mod, EAX);
             gen_lvalue(mod, expr->binary_lhs);
             emit_pop_reg(mod, ECX);
+            if (type_is_integer(expr->binary_lhs->type) ||
+                expr->binary_lhs->type->kind == TYPE_ENUM) {
+                emit_normalize_atomic_value(mod, ECX,
+                                            expr->binary_lhs->type);
+            }
             emit_store_typed32(mod, EAX, 0, ECX,
                                expr->binary_lhs->type);
             emit_mov_reg_reg(mod, EAX, ECX);
@@ -3131,7 +3146,12 @@ static void gen_expr(Module* mod, Expr* expr) {
 
         case EXPR_CAST:
             gen_expr(mod, expr->cast_expr);
-            /* Most casts are no-ops in 32-bit */
+            if (type_is_integer(expr->type) ||
+                expr->type->kind == TYPE_ENUM) {
+                emit_convert_integer_value(mod, EAX,
+                                           expr->cast_expr->type,
+                                           expr->type);
+            }
             break;
 
         case EXPR_SIZEOF:
@@ -3686,6 +3706,9 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         emit_mov_mem_reg(mod, EBP, displacement, EAX);
         emit_mov_mem_reg(mod, EBP, displacement + 4, EDX);
     } else {
+        if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(mod, EAX, initializer->type, type);
+        }
         emit_store_typed32(mod, EBP, displacement, EAX, type);
     }
     return true;
@@ -3739,6 +3762,28 @@ static void codegen_release_named_labels(void) {
         NamedCodegenLabel* next = named_codegen_labels->next;
         rcc_free(named_codegen_labels);
         named_codegen_labels = next;
+    }
+}
+
+static void emit_convert_integer_value(Module* mod, int reg,
+                                       const Type* source_type,
+                                       const Type* target_type) {
+    if (reg == EAX && target_type && target_type->kind == TYPE_BOOL &&
+        gen_is_integer64(source_type)) {
+        emit_or_reg_reg(mod, EAX, EDX);
+    }
+    emit_normalize_atomic_value(mod, reg, target_type);
+}
+
+static void gen_expr(Module* mod, Expr* expr) {
+    if (!expr) return;
+    if (gen_is_integer64(expr->type)) {
+        gen_expr64_pair(mod, expr);
+        return;
+    }
+    gen_expr_raw(mod, expr);
+    if (type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) {
+        emit_normalize_atomic_value(mod, EAX, expr->type);
     }
 }
 
@@ -4022,6 +4067,14 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     !gen_is_integer64(stmt->return_val->type)) {
                     emit_extend_eax_to_integer64(
                         mod, stmt->return_val->type);
+                } else if (!gen_is_integer64(current_function_return_type) &&
+                           (type_is_integer(current_function_return_type) ||
+                            (current_function_return_type &&
+                             current_function_return_type->kind ==
+                                 TYPE_ENUM))) {
+                    emit_convert_integer_value(
+                        mod, EAX, stmt->return_val->type,
+                        current_function_return_type);
                 }
             }
             emit_leave(mod);

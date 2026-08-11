@@ -537,7 +537,8 @@ static void emit64_normalize_atomic_value(Module* mod, int reg,
                                           const Type* type) {
     int width = gen64_type_width(type);
     if (type && type->kind == TYPE_BOOL) {
-        emit_byte(mod, 0x85); /* test reg32, reg32 */
+        emit_rex_w(mod, reg, reg);
+        emit_byte(mod, 0x85); /* test reg64, reg64 */
         emit_byte(mod, modrm64(3, reg, reg));
         emit64_setcc(mod, CC64_NE, reg);
         emit64_movzx_r64_r8(mod, reg, reg);
@@ -981,6 +982,9 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         return false;
     }
     gen64_expr(mod, initializer);
+    if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+        emit64_normalize_atomic_value(mod, RAX, type);
+    }
     emit64_store_typed(mod, RBP, displacement, RAX, type);
     return true;
 }
@@ -1144,7 +1148,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
     }
 }
 
-static void gen64_expr(Module* mod, Expr* expr) {
+static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
     switch (expr->kind) {
@@ -1430,6 +1434,11 @@ static void gen64_expr(Module* mod, Expr* expr) {
             emit64_push_reg(mod, RAX);
             gen64_lvalue(mod, expr->binary_lhs);
             emit64_pop_reg(mod, RCX);
+            if (type_is_integer(expr->binary_lhs->type) ||
+                expr->binary_lhs->type->kind == TYPE_ENUM) {
+                emit64_normalize_atomic_value(mod, RCX,
+                                               expr->binary_lhs->type);
+            }
             emit64_store_typed(mod, RAX, 0, RCX,
                                expr->binary_lhs->type);
             emit64_mov_reg_reg(mod, RAX, RCX);
@@ -1537,12 +1546,24 @@ static void gen64_expr(Module* mod, Expr* expr) {
             int abi_argc = 0;
             int stack_argc;
             int stack_padding;
+            Type* function_type;
+            TypeParam* parameter;
 
             /* Collect arguments */
             ExprList** args = rcc_alloc(argc * sizeof(ExprList*));
+            Type** argument_types = rcc_alloc(argc * sizeof(Type*));
+            function_type = expr->call_func ? expr->call_func->type : NULL;
+            if (function_type && function_type->kind == TYPE_PTR) {
+                function_type = function_type->base;
+            }
+            parameter = function_type && function_type->kind == TYPE_FUNC
+                ? function_type->params : NULL;
             int i = 0;
             for (ExprList* a = expr->call_args; a; a = a->next) {
                 args[i++] = a;
+                argument_types[i - 1] = parameter ? parameter->type
+                                                  : a->expr->type;
+                if (parameter) parameter = parameter->next;
                 if (a->expr->type &&
                     (a->expr->type->kind == TYPE_STRUCT ||
                      a->expr->type->kind == TYPE_UNION)) {
@@ -1572,12 +1593,19 @@ static void gen64_expr(Module* mod, Expr* expr) {
                     }
                 } else {
                     gen64_expr(mod, argument);
+                    if (type_is_integer(argument_types[i]) ||
+                        (argument_types[i] &&
+                         argument_types[i]->kind == TYPE_ENUM)) {
+                        emit64_normalize_atomic_value(mod, RAX,
+                                                       argument_types[i]);
+                    }
                     emit64_push_reg(mod, RAX);
                 }
             }
             for (i = 0; i < abi_argc && i < 6; ++i) {
                 emit64_pop_reg(mod, arg_regs[i]);
             }
+            rcc_free(argument_types);
             rcc_free(args);
 
             /* Direct calls use rel32 and produce a .ro relocation only when
@@ -1670,6 +1698,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
 
 static int break_label64 = -1;
 static int continue_label64 = -1;
+static Type* current_function_return_type64 = NULL;
 
 typedef struct SwitchCaseCodegen64 {
     Stmt* statement;
@@ -1715,6 +1744,14 @@ static void codegen64_release_named_labels(void) {
         NamedCodegenLabel64* next = named_codegen_labels64->next;
         rcc_free(named_codegen_labels64);
         named_codegen_labels64 = next;
+    }
+}
+
+static void gen64_expr(Module* mod, Expr* expr) {
+    if (!expr) return;
+    gen64_expr_raw(mod, expr);
+    if (type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) {
+        emit64_normalize_atomic_value(mod, RAX, expr->type);
     }
 }
 
@@ -1992,6 +2029,12 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_RETURN:
             if (stmt->return_val) {
                 gen64_expr(mod, stmt->return_val);
+                if (type_is_integer(current_function_return_type64) ||
+                    (current_function_return_type64 &&
+                     current_function_return_type64->kind == TYPE_ENUM)) {
+                    emit64_normalize_atomic_value(
+                        mod, RAX, current_function_return_type64);
+                }
             }
             emit64_leave(mod);
             emit64_ret(mod);
@@ -2092,6 +2135,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     int register_cursor = 0;
     int stack_cursor = 16; /* saved RBP + return address */
     int stack_size;
+    Type* old_return_type;
     if (!decl->func_body) return;
 
     for (DeclList* parameter = decl->func_params; parameter;
@@ -2188,9 +2232,14 @@ static void gen64_function(Module* mod, Decl* decl) {
     }
 
     /* Generate body */
+    old_return_type = current_function_return_type64;
+    current_function_return_type64 = decl->type &&
+                                     decl->type->kind == TYPE_FUNC
+        ? decl->type->ret_type : NULL;
     named_codegen_labels64 = NULL;
     gen64_stmt(mod, decl->func_body);
     codegen64_release_named_labels();
+    current_function_return_type64 = old_return_type;
 
     /* Function epilogue */
     emit64_mov_reg_imm32(mod, RAX, 0);

@@ -126,6 +126,9 @@ signed/unsigned比較、SHLD/SHRD shift、multiply、software divide/modulo、
 `test-integer-promotions`はshift operandの独立promotion、左辺に基づく結果幅・signedness、
 char/shortの単項promotionを両archで直接実行し、`%`、`~`、shift、`!`の不正operandを
 意味解析で拒否します。
+`test-integer-conversions`はcast、代入式、local初期化、return、固定引数callでの
+8/16/32/64-bit整数変換と`_Bool`正規化を両archで直接実行します。AMD64の32-bit
+算術wrapと、i686の高位wordだけが非zeroの64-bit値から`_Bool`への変換も検証します。
 `test-compound-assignment`は全integer compound operator、通常のsigned/unsigned
 divide/modulo、8/16-bit格納変換、左辺一回評価をi686/AMD64で直接実行します。
 `test-switch-statement`は裸の`signed`/`unsigned`型指定、case/default dispatch、
