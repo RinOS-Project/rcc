@@ -53,6 +53,11 @@ uint32_t atomic_u8_sub_fetch_value(volatile uint8_t* value,
     return __atomic_sub_fetch(value, operand, __ATOMIC_SEQ_CST);
 }
 
+uint32_t atomic_u8_fetch_nand_value(volatile uint8_t* value,
+                                    uint32_t operand) {
+    return __atomic_fetch_nand(value, operand, __ATOMIC_ACQ_REL);
+}
+
 int atomic_u8_compare_exchange_value(volatile uint8_t* value,
                                      uint8_t* expected,
                                      uint32_t desired) {
@@ -92,6 +97,11 @@ uint32_t atomic_u16_fetch_sub_value(volatile uint16_t* value,
 uint32_t atomic_u16_sub_fetch_value(volatile uint16_t* value,
                                     uint32_t operand) {
     return __atomic_sub_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint32_t atomic_u16_xor_fetch_value(volatile uint16_t* value,
+                                    uint32_t operand) {
+    return __atomic_xor_fetch(value, operand, __ATOMIC_ACQ_REL);
 }
 
 int atomic_u16_compare_exchange_value(volatile uint16_t* value,
@@ -146,6 +156,56 @@ uint32_t atomic_sub_fetch_value(volatile uint32_t* value, uint32_t operand) {
     return __atomic_sub_fetch(value, operand, __ATOMIC_SEQ_CST);
 }
 
+uint32_t atomic_fetch_and_value(volatile uint32_t* value,
+                                uint32_t operand) {
+    return __atomic_fetch_and(value, operand, __ATOMIC_RELAXED);
+}
+
+uint32_t atomic_and_fetch_value(volatile uint32_t* value,
+                                uint32_t operand) {
+    return __atomic_and_fetch(value, operand, __ATOMIC_ACQUIRE);
+}
+
+uint32_t atomic_fetch_or_value(volatile uint32_t* value,
+                               uint32_t operand) {
+    return __atomic_fetch_or(value, operand, __ATOMIC_RELEASE);
+}
+
+uint32_t atomic_or_fetch_value(volatile uint32_t* value,
+                               uint32_t operand) {
+    return __atomic_or_fetch(value, operand, __ATOMIC_ACQ_REL);
+}
+
+uint32_t atomic_fetch_xor_value(volatile uint32_t* value,
+                                uint32_t operand) {
+    return __atomic_fetch_xor(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint32_t atomic_xor_fetch_value(volatile uint32_t* value,
+                                uint32_t operand) {
+    return __atomic_xor_fetch(value, operand, __ATOMIC_RELAXED);
+}
+
+uint32_t atomic_fetch_nand_value(volatile uint32_t* value,
+                                 uint32_t operand) {
+    return __atomic_fetch_nand(value, operand, __ATOMIC_ACQUIRE);
+}
+
+uint32_t atomic_nand_fetch_value(volatile uint32_t* value,
+                                 uint32_t operand) {
+    return __atomic_nand_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint64_t atomic_nand_fetch_widened_value(volatile uint32_t* value,
+                                         uint32_t operand) {
+    return __atomic_nand_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+int64_t atomic_i32_xor_fetch_widened_value(volatile int32_t* value,
+                                           int32_t operand) {
+    return __atomic_xor_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
 int atomic_compare_exchange_bool(volatile uint32_t* value,
                                  uint32_t expected,
                                  uint32_t desired) {
@@ -182,6 +242,14 @@ uint32_t sync_sub_fetch_value(volatile uint32_t* value, uint32_t operand) {
     return __sync_sub_and_fetch(value, operand);
 }
 
+uint32_t sync_fetch_or_value(volatile uint32_t* value, uint32_t operand) {
+    return __sync_fetch_and_or(value, operand);
+}
+
+uint32_t sync_xor_fetch_value(volatile uint32_t* value, uint32_t operand) {
+    return __sync_xor_and_fetch(value, operand);
+}
+
 void atomic_thread_fence_value(void) {
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
 }
@@ -210,6 +278,21 @@ uint32_t standard_atomic_exchange_value(atomic_uint* value,
 uint32_t standard_atomic_fetch_add_value(atomic_uint* value,
                                          uint32_t operand) {
     return atomic_fetch_add(value, operand);
+}
+
+uint32_t standard_atomic_fetch_and_value(atomic_uint* value,
+                                         uint32_t operand) {
+    return atomic_fetch_and_explicit(value, operand, memory_order_relaxed);
+}
+
+uint32_t standard_atomic_fetch_or_value(atomic_uint* value,
+                                        uint32_t operand) {
+    return atomic_fetch_or(value, operand);
+}
+
+uint32_t standard_atomic_fetch_xor_value(atomic_uint* value,
+                                         uint32_t operand) {
+    return atomic_fetch_xor_explicit(value, operand, memory_order_acq_rel);
 }
 
 int standard_atomic_compare_exchange_value(atomic_uint* value,

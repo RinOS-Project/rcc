@@ -55,6 +55,8 @@ typedef int (*atomic_u16_compare_fn)(volatile uint16_t*, uint16_t*,
 typedef int32_t (*atomic_i8_binary_fn)(volatile int8_t*, int32_t);
 typedef int32_t (*atomic_i16_binary_fn)(volatile int16_t*, int32_t);
 typedef int (*atomic_bool_binary_fn)(volatile _Bool*, int);
+typedef uint64_t (*atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
+typedef int64_t (*atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
 
 typedef struct {
     atomic_binary_fn fetch_add;
@@ -67,6 +69,13 @@ typedef struct {
     volatile uint16_t* counter;
     unsigned iterations;
 } AtomicWorker16;
+
+typedef struct {
+    atomic_binary_fn fetch_or;
+    volatile uint32_t* value;
+    uint32_t operand;
+    unsigned iterations;
+} AtomicBitwiseWorker;
 
 static void* atomic_worker(void* argument) {
     AtomicWorker* worker = argument;
@@ -82,6 +91,15 @@ static void* atomic_worker16(void* argument) {
     unsigned i;
     for (i = 0; i < worker->iterations; ++i) {
         worker->fetch_add(worker->counter, 1u);
+    }
+    return NULL;
+}
+
+static void* atomic_bitwise_worker(void* argument) {
+    AtomicBitwiseWorker* worker = argument;
+    unsigned i;
+    for (i = 0; i < worker->iterations; ++i) {
+        worker->fetch_or(worker->value, worker->operand);
     }
     return NULL;
 }
@@ -125,6 +143,16 @@ int main(int argc, char** argv) {
     atomic_binary_fn atomic_fetch_sub;
     atomic_binary_fn atomic_add_fetch;
     atomic_binary_fn atomic_sub_fetch;
+    atomic_binary_fn atomic_fetch_and;
+    atomic_binary_fn atomic_and_fetch;
+    atomic_binary_fn atomic_fetch_or;
+    atomic_binary_fn atomic_or_fetch;
+    atomic_binary_fn atomic_fetch_xor;
+    atomic_binary_fn atomic_xor_fetch;
+    atomic_binary_fn atomic_fetch_nand;
+    atomic_binary_fn atomic_nand_fetch;
+    atomic_u32_wide_binary_fn atomic_nand_fetch_widened;
+    atomic_i32_wide_binary_fn atomic_i32_xor_fetch_widened;
     atomic_compare_bool_fn compare_bool;
     atomic_compare_value_fn compare_value;
     atomic_binary_fn sync_exchange;
@@ -133,6 +161,8 @@ int main(int argc, char** argv) {
     atomic_binary_fn sync_fetch_sub;
     atomic_binary_fn sync_add_fetch;
     atomic_binary_fn sync_sub_fetch;
+    atomic_binary_fn sync_fetch_or;
+    atomic_binary_fn sync_xor_fetch;
     atomic_fence_fn atomic_fence;
     atomic_fence_fn sync_fence;
     atomic_store_fn standard_init;
@@ -140,6 +170,9 @@ int main(int argc, char** argv) {
     atomic_store_fn standard_store;
     atomic_binary_fn standard_exchange;
     atomic_binary_fn standard_fetch_add;
+    atomic_binary_fn standard_fetch_and;
+    atomic_binary_fn standard_fetch_or;
+    atomic_binary_fn standard_fetch_xor;
     standard_atomic_compare_fn standard_compare;
     atomic_load_fn standard_flag_test_and_set;
     atomic_release_fn standard_flag_clear;
@@ -152,6 +185,7 @@ int main(int argc, char** argv) {
     atomic_u8_binary_fn u8_add_fetch;
     atomic_u8_binary_fn u8_fetch_sub;
     atomic_u8_binary_fn u8_sub_fetch;
+    atomic_u8_binary_fn u8_fetch_nand;
     atomic_u8_compare_fn u8_compare;
     atomic_u16_load_fn u16_load;
     atomic_u16_store_fn u16_store;
@@ -160,6 +194,7 @@ int main(int argc, char** argv) {
     atomic_u16_binary_fn u16_add_fetch;
     atomic_u16_binary_fn u16_fetch_sub;
     atomic_u16_binary_fn u16_sub_fetch;
+    atomic_u16_binary_fn u16_xor_fetch;
     atomic_u16_compare_fn u16_compare;
     atomic_i8_binary_fn i8_fetch_add;
     atomic_i16_binary_fn i16_fetch_sub;
@@ -173,6 +208,7 @@ int main(int argc, char** argv) {
     pthread_t threads[4];
     AtomicWorker workers[4];
     AtomicWorker16 workers16[4];
+    AtomicBitwiseWorker bitwise_workers[4];
     unsigned i;
 
     assert(object != NULL);
@@ -199,6 +235,20 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(atomic_fetch_sub, object, mapping, "atomic_fetch_sub_value");
     LOAD_FUNCTION(atomic_add_fetch, object, mapping, "atomic_add_fetch_value");
     LOAD_FUNCTION(atomic_sub_fetch, object, mapping, "atomic_sub_fetch_value");
+    LOAD_FUNCTION(atomic_fetch_and, object, mapping, "atomic_fetch_and_value");
+    LOAD_FUNCTION(atomic_and_fetch, object, mapping, "atomic_and_fetch_value");
+    LOAD_FUNCTION(atomic_fetch_or, object, mapping, "atomic_fetch_or_value");
+    LOAD_FUNCTION(atomic_or_fetch, object, mapping, "atomic_or_fetch_value");
+    LOAD_FUNCTION(atomic_fetch_xor, object, mapping, "atomic_fetch_xor_value");
+    LOAD_FUNCTION(atomic_xor_fetch, object, mapping, "atomic_xor_fetch_value");
+    LOAD_FUNCTION(atomic_fetch_nand, object, mapping,
+                  "atomic_fetch_nand_value");
+    LOAD_FUNCTION(atomic_nand_fetch, object, mapping,
+                  "atomic_nand_fetch_value");
+    LOAD_FUNCTION(atomic_nand_fetch_widened, object, mapping,
+                  "atomic_nand_fetch_widened_value");
+    LOAD_FUNCTION(atomic_i32_xor_fetch_widened, object, mapping,
+                  "atomic_i32_xor_fetch_widened_value");
     LOAD_FUNCTION(compare_bool, object, mapping, "atomic_compare_exchange_bool");
     LOAD_FUNCTION(compare_value, object, mapping,
                   "atomic_compare_exchange_value");
@@ -208,6 +258,8 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(sync_fetch_sub, object, mapping, "sync_fetch_sub_value");
     LOAD_FUNCTION(sync_add_fetch, object, mapping, "sync_add_fetch_value");
     LOAD_FUNCTION(sync_sub_fetch, object, mapping, "sync_sub_fetch_value");
+    LOAD_FUNCTION(sync_fetch_or, object, mapping, "sync_fetch_or_value");
+    LOAD_FUNCTION(sync_xor_fetch, object, mapping, "sync_xor_fetch_value");
     LOAD_FUNCTION(atomic_fence, object, mapping, "atomic_thread_fence_value");
     LOAD_FUNCTION(sync_fence, object, mapping, "sync_synchronize_value");
     LOAD_FUNCTION(standard_init, object, mapping,
@@ -220,6 +272,12 @@ int main(int argc, char** argv) {
                   "standard_atomic_exchange_value");
     LOAD_FUNCTION(standard_fetch_add, object, mapping,
                   "standard_atomic_fetch_add_value");
+    LOAD_FUNCTION(standard_fetch_and, object, mapping,
+                  "standard_atomic_fetch_and_value");
+    LOAD_FUNCTION(standard_fetch_or, object, mapping,
+                  "standard_atomic_fetch_or_value");
+    LOAD_FUNCTION(standard_fetch_xor, object, mapping,
+                  "standard_atomic_fetch_xor_value");
     LOAD_FUNCTION(standard_compare, object, mapping,
                   "standard_atomic_compare_exchange_value");
     LOAD_FUNCTION(standard_flag_test_and_set, object, mapping,
@@ -237,6 +295,8 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(u8_add_fetch, object, mapping, "atomic_u8_add_fetch_value");
     LOAD_FUNCTION(u8_fetch_sub, object, mapping, "atomic_u8_fetch_sub_value");
     LOAD_FUNCTION(u8_sub_fetch, object, mapping, "atomic_u8_sub_fetch_value");
+    LOAD_FUNCTION(u8_fetch_nand, object, mapping,
+                  "atomic_u8_fetch_nand_value");
     LOAD_FUNCTION(u8_compare, object, mapping,
                   "atomic_u8_compare_exchange_value");
     LOAD_FUNCTION(u16_load, object, mapping, "atomic_u16_load_value");
@@ -250,6 +310,8 @@ int main(int argc, char** argv) {
                   "atomic_u16_fetch_sub_value");
     LOAD_FUNCTION(u16_sub_fetch, object, mapping,
                   "atomic_u16_sub_fetch_value");
+    LOAD_FUNCTION(u16_xor_fetch, object, mapping,
+                  "atomic_u16_xor_fetch_value");
     LOAD_FUNCTION(u16_compare, object, mapping,
                   "atomic_u16_compare_exchange_value");
     LOAD_FUNCTION(i8_fetch_add, object, mapping,
@@ -276,6 +338,25 @@ int main(int argc, char** argv) {
     assert(atomic_add_fetch(&value, 5u) == 20u && value == 20u);
     assert(atomic_fetch_sub(&value, 3u) == 20u && value == 17u);
     assert(atomic_sub_fetch(&value, 2u) == 15u && value == 15u);
+    assert(atomic_fetch_and(&value, 12u) == 15u && value == 12u);
+    assert(atomic_and_fetch(&value, 10u) == 8u && value == 8u);
+    assert(atomic_fetch_or(&value, 5u) == 8u && value == 13u);
+    assert(atomic_or_fetch(&value, 2u) == 15u && value == 15u);
+    assert(atomic_fetch_xor(&value, 6u) == 15u && value == 9u);
+    assert(atomic_xor_fetch(&value, 3u) == 10u && value == 10u);
+    assert(atomic_fetch_nand(&value, 15u) == 10u &&
+           value == UINT32_C(0xfffffff5));
+    assert(atomic_nand_fetch_widened(&value, UINT32_C(0xffffffff)) ==
+           UINT64_C(10) && value == 10u);
+    value = UINT32_C(0xfffffff5);
+    assert(atomic_nand_fetch(&value, UINT32_C(0xffffffff)) == 10u &&
+           value == 10u);
+    {
+        volatile int32_t signed32 = -1;
+        assert(atomic_i32_xor_fetch_widened(&signed32, 255) ==
+               INT64_C(-256) && signed32 == -256);
+    }
+    value = 15u;
     assert(compare_bool(&value, 15u, 99u) == 1 && value == 99u);
     assert(compare_bool(&value, 15u, 7u) == 0 && value == 99u);
     assert(compare_value(&value, 99u, 3u) == 99u && value == 3u);
@@ -285,6 +366,8 @@ int main(int argc, char** argv) {
     assert(sync_add_fetch(&value, 6u) == 20u && value == 20u);
     assert(sync_fetch_sub(&value, 5u) == 20u && value == 15u);
     assert(sync_sub_fetch(&value, 5u) == 10u && value == 10u);
+    assert(sync_fetch_or(&value, 5u) == 10u && value == 15u);
+    assert(sync_xor_fetch(&value, 3u) == 12u && value == 12u);
     sync_release(&value);
     assert(value == 0u);
     atomic_fence();
@@ -295,10 +378,13 @@ int main(int argc, char** argv) {
     standard_store(&value, 14u);
     assert(standard_exchange(&value, 20u) == 14u && value == 20u);
     assert(standard_fetch_add(&value, 2u) == 20u && value == 22u);
+    assert(standard_fetch_and(&value, 15u) == 22u && value == 6u);
+    assert(standard_fetch_or(&value, 8u) == 6u && value == 14u);
+    assert(standard_fetch_xor(&value, 3u) == 14u && value == 13u);
     {
-        uint32_t expected = 22u;
+        uint32_t expected = 13u;
         assert(standard_compare(&value, &expected, 30u) == 1);
-        assert(expected == 22u && value == 30u);
+        assert(expected == 13u && value == 30u);
         expected = 7u;
         assert(standard_compare(&value, &expected, 40u) == 0);
         assert(expected == 30u && value == 30u);
@@ -323,6 +409,7 @@ int main(int argc, char** argv) {
         small = 3u;
         assert(u8_fetch_sub(&small, 5u) == 3u && small == 254u);
         assert(u8_sub_fetch(&small, 255u) == 255u && small == 255u);
+        assert(u8_fetch_nand(&small, 15u) == 255u && small == 240u);
         small = 10u;
         expected8 = 10u;
         assert(u8_compare(&small, &expected8, 300u) == 1);
@@ -349,6 +436,8 @@ int main(int argc, char** argv) {
         assert(u16_fetch_sub(&small, 5u) == 3u && small == 65534u);
         assert(u16_sub_fetch(&small, 65535u) == 65535u &&
                small == 65535u);
+        assert(u16_xor_fetch(&small, 0x00ffu) == 0xff00u &&
+               small == 0xff00u);
         small = 10u;
         expected16 = 10u;
         assert(u16_compare(&small, &expected16, 70000u) == 1);
@@ -368,6 +457,20 @@ int main(int argc, char** argv) {
         assert(standard_bool_exchange(&boolean, 7) == 0 && boolean == 1);
         assert(standard_bool_exchange(&boolean, 0) == 1 && boolean == 0);
     }
+
+    value = 0u;
+    for (i = 0; i < 4u; ++i) {
+        bitwise_workers[i].fetch_or = atomic_fetch_or;
+        bitwise_workers[i].value = &value;
+        bitwise_workers[i].operand = 1u << i;
+        bitwise_workers[i].iterations = 10000u;
+        assert(pthread_create(&threads[i], NULL, atomic_bitwise_worker,
+                              &bitwise_workers[i]) == 0);
+    }
+    for (i = 0; i < 4u; ++i) {
+        assert(pthread_join(threads[i], NULL) == 0);
+    }
+    assert(value == 15u);
 
     {
         volatile uint16_t counter16 = 0u;

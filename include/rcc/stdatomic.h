@@ -1,8 +1,9 @@
 #ifndef RCC_STDATOMIC_H
 #define RCC_STDATOMIC_H
 
-/* This RinOS C17 surface provides lock-free operations for 8/16/32-bit
- * integer storage. 64-bit and pointer representations remain explicit gaps. */
+/* This RinOS C17 surface provides lock-free arithmetic and bitwise operations
+ * for 8/16/32-bit integer storage. 64-bit and pointer representations remain
+ * explicit gaps. */
 typedef enum memory_order {
     memory_order_relaxed = __ATOMIC_RELAXED,
     memory_order_consume = __ATOMIC_CONSUME,
@@ -99,6 +100,18 @@ typedef volatile unsigned int atomic_flag;
     __atomic_fetch_sub((object), (operand), (order))
 #define atomic_fetch_sub(object, operand) \
     atomic_fetch_sub_explicit((object), (operand), memory_order_seq_cst)
+#define atomic_fetch_and_explicit(object, operand, order) \
+    __atomic_fetch_and((object), (operand), (order))
+#define atomic_fetch_and(object, operand) \
+    atomic_fetch_and_explicit((object), (operand), memory_order_seq_cst)
+#define atomic_fetch_or_explicit(object, operand, order) \
+    __atomic_fetch_or((object), (operand), (order))
+#define atomic_fetch_or(object, operand) \
+    atomic_fetch_or_explicit((object), (operand), memory_order_seq_cst)
+#define atomic_fetch_xor_explicit(object, operand, order) \
+    __atomic_fetch_xor((object), (operand), (order))
+#define atomic_fetch_xor(object, operand) \
+    atomic_fetch_xor_explicit((object), (operand), memory_order_seq_cst)
 
 #define atomic_flag_test_and_set_explicit(object, order) \
     (__atomic_exchange_n((object), 1u, (order)) != 0u)

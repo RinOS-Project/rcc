@@ -512,6 +512,8 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 }
 
 static void gen64_expr(Module* mod, Expr* expr);
+static void emit64_label(Module* mod, int label);
+static void emit64_jcc_label(Module* mod, int cc, int label);
 
 static Expr* call64_argument(Expr* call, int index) {
     ExprList* argument = call->call_args;
@@ -533,6 +535,15 @@ static void emit64_normalize_atomic_value(Module* mod, int reg,
         emit_byte(mod, modrm64(3, reg, reg));
         emit64_setcc(mod, CC64_NE, reg);
         emit64_movzx_r64_r8(mod, reg, reg);
+    } else if (width == 4) {
+        if (type && !type->is_unsigned) {
+            emit_rex_w(mod, reg, reg);
+            emit_byte(mod, 0x63); /* movsxd reg64, reg32 */
+        } else {
+            emit_rex(mod, false, reg, 0, reg);
+            emit_byte(mod, 0x89); /* mov reg32, reg32: zero-extend */
+        }
+        emit_byte(mod, modrm64(3, reg, reg));
     } else if (width < 4) {
         if (type && !type->is_unsigned) emit_rex_w(mod, reg, reg);
         emit_byte(mod, 0x0F);
@@ -586,12 +597,60 @@ static void emit64_atomic_clear_width(Module* mod, int address,
     }
 }
 
+typedef enum {
+    ATOMIC64_BITWISE_NONE,
+    ATOMIC64_BITWISE_AND,
+    ATOMIC64_BITWISE_OR,
+    ATOMIC64_BITWISE_XOR,
+    ATOMIC64_BITWISE_NAND
+} Atomic64BitwiseOp;
+
+static Atomic64BitwiseOp atomic64_bitwise_operation(const char* name) {
+    if (strcmp(name, "__atomic_fetch_and") == 0 ||
+        strcmp(name, "__atomic_and_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_and") == 0 ||
+        strcmp(name, "__sync_and_and_fetch") == 0) {
+        return ATOMIC64_BITWISE_AND;
+    }
+    if (strcmp(name, "__atomic_fetch_or") == 0 ||
+        strcmp(name, "__atomic_or_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_or") == 0 ||
+        strcmp(name, "__sync_or_and_fetch") == 0) {
+        return ATOMIC64_BITWISE_OR;
+    }
+    if (strcmp(name, "__atomic_fetch_xor") == 0 ||
+        strcmp(name, "__atomic_xor_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_xor") == 0 ||
+        strcmp(name, "__sync_xor_and_fetch") == 0) {
+        return ATOMIC64_BITWISE_XOR;
+    }
+    if (strcmp(name, "__atomic_fetch_nand") == 0 ||
+        strcmp(name, "__atomic_nand_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_nand") == 0 ||
+        strcmp(name, "__sync_nand_and_fetch") == 0) {
+        return ATOMIC64_BITWISE_NAND;
+    }
+    return ATOMIC64_BITWISE_NONE;
+}
+
+static bool atomic64_bitwise_returns_new(const char* name) {
+    return strcmp(name, "__atomic_and_fetch") == 0 ||
+           strcmp(name, "__atomic_or_fetch") == 0 ||
+           strcmp(name, "__atomic_xor_fetch") == 0 ||
+           strcmp(name, "__atomic_nand_fetch") == 0 ||
+           strcmp(name, "__sync_and_and_fetch") == 0 ||
+           strcmp(name, "__sync_or_and_fetch") == 0 ||
+           strcmp(name, "__sync_xor_and_fetch") == 0 ||
+           strcmp(name, "__sync_nand_and_fetch") == 0;
+}
+
 static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
     bool is_atomic;
     bool is_subtract;
     bool returns_new;
+    Atomic64BitwiseOp bitwise_operation;
     const Type* value_type;
 
     if (!function || function->kind != EXPR_IDENT) return false;
@@ -685,6 +744,42 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
             emit_byte(mod, 0xD0); /* sub/add eax, edx */
             emit64_normalize_atomic_value(mod, RAX, value_type);
         }
+        return true;
+    }
+    bitwise_operation = atomic64_bitwise_operation(name);
+    if (bitwise_operation != ATOMIC64_BITWISE_NONE) {
+        int retry_label = new_label64();
+        if (is_atomic) gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX); /* Object address. */
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_normalize_atomic_value(mod, RAX, value_type);
+        emit64_push_reg(mod, RAX); /* Operand. */
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_load_typed(mod, RAX, RCX, 0, value_type);
+        emit64_label(mod, retry_label);
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        if (bitwise_operation == ATOMIC64_BITWISE_AND ||
+            bitwise_operation == ATOMIC64_BITWISE_NAND) {
+            emit64_and_reg_reg(mod, RDX, RCX);
+        } else if (bitwise_operation == ATOMIC64_BITWISE_OR) {
+            emit64_or_reg_reg(mod, RDX, RCX);
+        } else {
+            emit64_xor_reg_reg(mod, RDX, RCX);
+        }
+        if (bitwise_operation == ATOMIC64_BITWISE_NAND) {
+            emit64_not_reg(mod, RDX);
+        }
+        emit64_normalize_atomic_value(mod, RDX, value_type);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_atomic_cmpxchg_width(mod, RDX, RCX, value_type);
+        emit64_jcc_label(mod, CC64_NE, retry_label);
+        if (atomic64_bitwise_returns_new(name)) {
+            emit64_mov_reg_reg(mod, RAX, RDX);
+        }
+        emit64_normalize_atomic_value(mod, RAX, value_type);
+        emit64_add_reg_imm(mod, RSP, 16);
         return true;
     }
     if (strcmp(name, "__sync_bool_compare_and_swap") == 0 ||

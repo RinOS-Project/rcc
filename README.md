@@ -100,9 +100,10 @@ metacharacterを含むsigner/output path、署名失敗時の既存成果物保�
 同一出力への並行実行、およびstaging fileの確実な後始末を確認します。
 `test-sanitize`はASan/UBSanとLeakSanitizerを有効にした別buildで、両archの大きな
 translation unit、C++ class、preprocessor、成功・診断・署名失敗経路を検査します。
-`test-atomic-builtins`は8/16/32-bit整数のload/store/exchange/CAS、fetch add/sub、fenceと
-`<stdatomic.h>` APIを両archで生成・linkし、AMD64生成コードの符号拡張、幅ごとのwrap、
-compare-exchange失敗時のexpected更新、複数threadでの16/32-bit原子性を実行検査します。
+`test-atomic-builtins`は8/16/32-bit整数のload/store/exchange/CAS、fetch add/sub、
+fetch and/or/xor/nand、fenceと`<stdatomic.h>` APIを両archで生成・linkし、AMD64生成コードの
+符号拡張、幅ごとのwrap、compare-exchange失敗時のexpected更新、複数threadでの
+16/32-bit算術およびbitwise原子性を実行検査します。
 未実装の64-bit operandはnon-lock-freeとして公開し、builtin利用はdiagnostic付きで拒否
 します。定数memory orderの範囲、load/store制約、compare-exchangeのfailure/weak制約も
 Semaで拒否します。

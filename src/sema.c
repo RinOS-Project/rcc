@@ -668,8 +668,16 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     } else if (strcmp(name, "__atomic_exchange_n") == 0 ||
                strcmp(name, "__atomic_fetch_add") == 0 ||
                strcmp(name, "__atomic_fetch_sub") == 0 ||
+               strcmp(name, "__atomic_fetch_and") == 0 ||
+               strcmp(name, "__atomic_fetch_or") == 0 ||
+               strcmp(name, "__atomic_fetch_xor") == 0 ||
+               strcmp(name, "__atomic_fetch_nand") == 0 ||
                strcmp(name, "__atomic_add_fetch") == 0 ||
-               strcmp(name, "__atomic_sub_fetch") == 0) {
+               strcmp(name, "__atomic_sub_fetch") == 0 ||
+               strcmp(name, "__atomic_and_fetch") == 0 ||
+               strcmp(name, "__atomic_or_fetch") == 0 ||
+               strcmp(name, "__atomic_xor_fetch") == 0 ||
+               strcmp(name, "__atomic_nand_fetch") == 0) {
         expected_count = 3;
     } else if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
         expected_count = 6;
@@ -683,8 +691,16 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     } else if (strcmp(name, "__sync_lock_test_and_set") == 0 ||
                strcmp(name, "__sync_fetch_and_add") == 0 ||
                strcmp(name, "__sync_fetch_and_sub") == 0 ||
+               strcmp(name, "__sync_fetch_and_and") == 0 ||
+               strcmp(name, "__sync_fetch_and_or") == 0 ||
+               strcmp(name, "__sync_fetch_and_xor") == 0 ||
+               strcmp(name, "__sync_fetch_and_nand") == 0 ||
                strcmp(name, "__sync_add_and_fetch") == 0 ||
-               strcmp(name, "__sync_sub_and_fetch") == 0) {
+               strcmp(name, "__sync_sub_and_fetch") == 0 ||
+               strcmp(name, "__sync_and_and_fetch") == 0 ||
+               strcmp(name, "__sync_or_and_fetch") == 0 ||
+               strcmp(name, "__sync_xor_and_fetch") == 0 ||
+               strcmp(name, "__sync_nand_and_fetch") == 0) {
         expected_count = 2;
     } else if (strcmp(name, "__sync_lock_release") == 0) {
         expected_count = 1;

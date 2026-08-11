@@ -37,10 +37,10 @@
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
 - [ ] `_Generic`、atomics、thread-local storage
   - [x] `_Generic`のcompatible type選択、default、非評価control
-  - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/subとfull fenceの両arch codegen
+  - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] 8/16/32-bit標準integer typedefと`atomic_flag`向け`<stdatomic.h>` API
   - [x] 定数memory orderの範囲・load/store・CAS failure/weak制約diagnostic
-  - [ ] 64-bit atomics、残る標準atomic typedef、fetch bitwise
+  - [ ] 64-bit atomicsと残る標準atomic typedef
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
 
