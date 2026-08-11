@@ -7,8 +7,13 @@ _Static_assert(ATOMIC_CHAR_LOCK_FREE == 2,
                "8-bit integer atomics must be lock-free");
 _Static_assert(ATOMIC_SHORT_LOCK_FREE == 2,
                "16-bit integer atomics must be lock-free");
+#if defined(__x86_64__)
+_Static_assert(ATOMIC_LLONG_LOCK_FREE == 2,
+               "AMD64 64-bit integer atomics must be lock-free");
+#else
 _Static_assert(ATOMIC_LLONG_LOCK_FREE == 0,
-               "64-bit integer atomics are not implemented yet");
+               "i686 64-bit integer atomics require cmpxchg8b lowering");
+#endif
 _Static_assert(sizeof(atomic_uint) == 4,
                "atomic_uint must use 32-bit storage");
 _Static_assert(sizeof(atomic_char16_t) == 2,
@@ -28,8 +33,8 @@ _Static_assert(sizeof(atomic_intmax_t) == 8,
 _Static_assert(sizeof(atomic_uintmax_t) == 8,
                "uintmax atomic storage must remain available");
 #if defined(__x86_64__)
-_Static_assert(sizeof(atomic_long) == 8 && ATOMIC_LONG_LOCK_FREE == 0,
-               "AMD64 long atomics require the pending 64-bit lowering");
+_Static_assert(sizeof(atomic_long) == 8 && ATOMIC_LONG_LOCK_FREE == 2,
+               "AMD64 long atomics must use the 64-bit lock-free path");
 _Static_assert(sizeof(atomic_intptr_t) == 8 && sizeof(atomic_size_t) == 8,
                "AMD64 pointer-sized atomic typedefs must be 64-bit");
 #else
@@ -46,6 +51,68 @@ _Static_assert(ATOMIC_CHAR16_T_LOCK_FREE == 2 &&
 #if defined(__i386__)
 long standard_atomic_long_fetch_xor_value(atomic_long* value, long operand) {
     return atomic_fetch_xor(value, operand);
+}
+#endif
+
+#if defined(__x86_64__)
+uint64_t atomic_u64_load_value(volatile uint64_t* value) {
+    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+}
+
+void atomic_u64_store_value(volatile uint64_t* value, uint64_t desired) {
+    __atomic_store_n(value, desired, __ATOMIC_RELEASE);
+}
+
+uint64_t atomic_u64_exchange_value(volatile uint64_t* value,
+                                   uint64_t desired) {
+    return __atomic_exchange_n(value, desired, __ATOMIC_ACQ_REL);
+}
+
+uint64_t atomic_u64_fetch_add_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_fetch_add(value, operand, __ATOMIC_RELAXED);
+}
+
+uint64_t atomic_u64_add_fetch_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_add_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint64_t atomic_u64_fetch_sub_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_fetch_sub(value, operand, __ATOMIC_RELAXED);
+}
+
+uint64_t atomic_u64_sub_fetch_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_sub_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint64_t atomic_u64_fetch_xor_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_fetch_xor(value, operand, __ATOMIC_ACQ_REL);
+}
+
+uint64_t atomic_u64_or_fetch_value(volatile uint64_t* value,
+                                   uint64_t operand) {
+    return __atomic_or_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+int atomic_u64_compare_exchange_value(volatile uint64_t* value,
+                                      uint64_t* expected,
+                                      uint64_t desired) {
+    return __atomic_compare_exchange_n(value, expected, desired, 0,
+                                       __ATOMIC_ACQ_REL,
+                                       __ATOMIC_ACQUIRE);
+}
+
+uint64_t standard_atomic_ullong_fetch_add_value(atomic_ullong* value,
+                                                 uint64_t operand) {
+    return atomic_fetch_add(value, operand);
+}
+
+int standard_atomic_ullong_is_lock_free_value(atomic_ullong* value) {
+    return atomic_is_lock_free(value);
 }
 #endif
 

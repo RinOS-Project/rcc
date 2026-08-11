@@ -731,9 +731,11 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             !pointer_type->base || !type_is_integer(pointer_type->base) ||
             (pointer_type->base->size != 1u &&
              pointer_type->base->size != 2u &&
-             pointer_type->base->size != 4u)) {
+             pointer_type->base->size != 4u &&
+             !(pointer_type->base->size == 8u &&
+               g_opts.target_arch == ARCH_X64))) {
             rcc_error(expr->loc,
-                      "%s requires a pointer to an 8/16/32-bit integer",
+                      "%s requires a supported lock-free integer pointer",
                       name);
         }
     }

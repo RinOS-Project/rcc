@@ -58,6 +58,11 @@ typedef int (*atomic_bool_binary_fn)(volatile _Bool*, int);
 #if defined(__x86_64__)
 typedef uint64_t (*atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
 typedef int64_t (*atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
+typedef uint64_t (*atomic_u64_load_fn)(volatile uint64_t*);
+typedef void (*atomic_u64_store_fn)(volatile uint64_t*, uint64_t);
+typedef uint64_t (*atomic_u64_binary_fn)(volatile uint64_t*, uint64_t);
+typedef int (*atomic_u64_compare_fn)(volatile uint64_t*, uint64_t*,
+                                     uint64_t);
 #else
 typedef long (*atomic_long_binary_fn)(volatile long*, long);
 #endif
@@ -80,6 +85,14 @@ typedef struct {
     uint32_t operand;
     unsigned iterations;
 } AtomicBitwiseWorker;
+
+#if defined(__x86_64__)
+typedef struct {
+    atomic_u64_binary_fn fetch_add;
+    volatile uint64_t* counter;
+    unsigned iterations;
+} AtomicWorker64;
+#endif
 
 static void* atomic_worker(void* argument) {
     AtomicWorker* worker = argument;
@@ -107,6 +120,17 @@ static void* atomic_bitwise_worker(void* argument) {
     }
     return NULL;
 }
+
+#if defined(__x86_64__)
+static void* atomic_worker64(void* argument) {
+    AtomicWorker64* worker = argument;
+    unsigned i;
+    for (i = 0; i < worker->iterations; ++i) {
+        worker->fetch_add(worker->counter, UINT64_C(1));
+    }
+    return NULL;
+}
+#endif
 
 #define LOAD_FUNCTION(target, object, mapping, symbol_name)                  \
     do {                                                                     \
@@ -164,6 +188,18 @@ int main(int argc, char** argv) {
 #if defined(__x86_64__)
     atomic_u32_wide_binary_fn atomic_nand_fetch_widened;
     atomic_i32_wide_binary_fn atomic_i32_xor_fetch_widened;
+    atomic_u64_load_fn u64_load;
+    atomic_u64_store_fn u64_store;
+    atomic_u64_binary_fn u64_exchange;
+    atomic_u64_binary_fn u64_fetch_add;
+    atomic_u64_binary_fn u64_add_fetch;
+    atomic_u64_binary_fn u64_fetch_sub;
+    atomic_u64_binary_fn u64_sub_fetch;
+    atomic_u64_binary_fn u64_fetch_xor;
+    atomic_u64_binary_fn u64_or_fetch;
+    atomic_u64_compare_fn u64_compare;
+    atomic_u64_binary_fn standard_ullong_fetch_add;
+    atomic_u64_load_fn standard_ullong_is_lock_free;
 #else
     atomic_long_binary_fn standard_long_fetch_xor;
 #endif
@@ -223,6 +259,9 @@ int main(int argc, char** argv) {
     AtomicWorker workers[4];
     AtomicWorker16 workers16[4];
     AtomicBitwiseWorker bitwise_workers[4];
+#if defined(__x86_64__)
+    AtomicWorker64 workers64[4];
+#endif
     unsigned i;
 
     assert(object != NULL);
@@ -268,6 +307,28 @@ int main(int argc, char** argv) {
                   "atomic_nand_fetch_widened_value");
     LOAD_FUNCTION(atomic_i32_xor_fetch_widened, object, mapping,
                   "atomic_i32_xor_fetch_widened_value");
+    LOAD_FUNCTION(u64_load, object, mapping, "atomic_u64_load_value");
+    LOAD_FUNCTION(u64_store, object, mapping, "atomic_u64_store_value");
+    LOAD_FUNCTION(u64_exchange, object, mapping,
+                  "atomic_u64_exchange_value");
+    LOAD_FUNCTION(u64_fetch_add, object, mapping,
+                  "atomic_u64_fetch_add_value");
+    LOAD_FUNCTION(u64_add_fetch, object, mapping,
+                  "atomic_u64_add_fetch_value");
+    LOAD_FUNCTION(u64_fetch_sub, object, mapping,
+                  "atomic_u64_fetch_sub_value");
+    LOAD_FUNCTION(u64_sub_fetch, object, mapping,
+                  "atomic_u64_sub_fetch_value");
+    LOAD_FUNCTION(u64_fetch_xor, object, mapping,
+                  "atomic_u64_fetch_xor_value");
+    LOAD_FUNCTION(u64_or_fetch, object, mapping,
+                  "atomic_u64_or_fetch_value");
+    LOAD_FUNCTION(u64_compare, object, mapping,
+                  "atomic_u64_compare_exchange_value");
+    LOAD_FUNCTION(standard_ullong_fetch_add, object, mapping,
+                  "standard_atomic_ullong_fetch_add_value");
+    LOAD_FUNCTION(standard_ullong_is_lock_free, object, mapping,
+                  "standard_atomic_ullong_is_lock_free_value");
 #else
     LOAD_FUNCTION(standard_long_fetch_xor, object, mapping,
                   "standard_atomic_long_fetch_xor_value");
@@ -381,6 +442,36 @@ int main(int argc, char** argv) {
         volatile int32_t signed32 = -1;
         assert(atomic_i32_xor_fetch_widened(&signed32, 255) ==
                INT64_C(-256) && signed32 == -256);
+    }
+    {
+        volatile uint64_t wide = UINT64_C(0x100000005);
+        uint64_t expected64;
+        assert(u64_load(&wide) == UINT64_C(0x100000005));
+        u64_store(&wide, UINT64_C(0x200000007));
+        assert(wide == UINT64_C(0x200000007));
+        assert(u64_exchange(&wide, UINT64_C(0x30000000b)) ==
+               UINT64_C(0x200000007) && wide == UINT64_C(0x30000000b));
+        assert(u64_fetch_add(&wide, UINT64_C(0x100000000)) ==
+               UINT64_C(0x30000000b) && wide == UINT64_C(0x40000000b));
+        assert(u64_add_fetch(&wide, UINT64_C(3)) == UINT64_C(0x40000000e));
+        assert(u64_fetch_sub(&wide, UINT64_C(0x100000000)) ==
+               UINT64_C(0x40000000e) && wide == UINT64_C(0x30000000e));
+        assert(u64_sub_fetch(&wide, UINT64_C(4)) == UINT64_C(0x30000000a));
+        assert(u64_fetch_xor(&wide, UINT64_C(0x700000000)) ==
+               UINT64_C(0x30000000a) && wide == UINT64_C(0x40000000a));
+        assert(u64_or_fetch(&wide, UINT64_C(0x00000f000)) ==
+               UINT64_C(0x40000f00a));
+        expected64 = UINT64_C(0x40000f00a);
+        assert(u64_compare(&wide, &expected64, UINT64_C(0x800000011)) == 1);
+        assert(expected64 == UINT64_C(0x40000f00a) &&
+               wide == UINT64_C(0x800000011));
+        expected64 = UINT64_C(7);
+        assert(u64_compare(&wide, &expected64, UINT64_C(9)) == 0);
+        assert(expected64 == UINT64_C(0x800000011) &&
+               wide == UINT64_C(0x800000011));
+        assert(standard_ullong_fetch_add(&wide, UINT64_C(0x100000000)) ==
+               UINT64_C(0x800000011) && wide == UINT64_C(0x900000011));
+        assert(standard_ullong_is_lock_free(&wide) == UINT64_C(1));
     }
 #else
     {
@@ -504,6 +595,23 @@ int main(int argc, char** argv) {
         assert(pthread_join(threads[i], NULL) == 0);
     }
     assert(value == 15u);
+
+#if defined(__x86_64__)
+    {
+        volatile uint64_t counter64 = UINT64_C(0x100000000);
+        for (i = 0; i < 4u; ++i) {
+            workers64[i].fetch_add = u64_fetch_add;
+            workers64[i].counter = &counter64;
+            workers64[i].iterations = 25000u;
+            assert(pthread_create(&threads[i], NULL, atomic_worker64,
+                                  &workers64[i]) == 0);
+        }
+        for (i = 0; i < 4u; ++i) {
+            assert(pthread_join(threads[i], NULL) == 0);
+        }
+        assert(counter64 == UINT64_C(0x1000186a0));
+    }
+#endif
 
     {
         volatile uint16_t counter16 = 0u;

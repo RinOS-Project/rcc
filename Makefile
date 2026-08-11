@@ -138,13 +138,13 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	$(TEST_OUT)/atomic-builtin-run-test \
 		$(TEST_OUT)/atomic-x86/atomic.ro \
 		$(TEST_OUT)/atomic-x64/atomic.ro
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/atomic-x64/invalid.ro \
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/atomic-x86/invalid.ro \
 		tests/invalid_atomic_builtin.c
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \
 		tests/invalid_atomic_order.c
-	@echo "Dual-architecture 8/16/32-bit arithmetic/bitwise atomic tests completed"
+	@echo "Dual-architecture narrow and AMD64 64-bit atomic tests completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)

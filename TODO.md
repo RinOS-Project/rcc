@@ -42,7 +42,8 @@
   - [x] 8/16/32-bit標準integer typedefと`atomic_flag`向け`<stdatomic.h>` API
   - [x] wide/pointer-sized型を含むC17標準atomic typedef全面とarch別lock-free定数
   - [x] 定数memory orderの範囲・load/store・CAS failure/weak制約diagnostic
-  - [ ] i686 64-bit scalar ABI loweringと両arch 64-bit atomics
+  - [x] AMD64 64-bit整数atomic全操作と競合実行試験
+  - [ ] i686 64-bit scalar ABI loweringと`cmpxchg8b` atomic
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
 

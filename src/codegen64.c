@@ -558,6 +558,7 @@ static void emit64_atomic_exchange_width(Module* mod, int value, int address,
                                          const Type* type) {
     int width = gen64_type_width(type);
     if (width == 2) emit_byte(mod, 0x66);
+    if (width == 8) emit_rex_w(mod, value, address);
     emit_byte(mod, width == 1 ? 0x86 : 0x87);
     emit64_memory_operand(mod, value, address, 0);
 }
@@ -567,6 +568,7 @@ static void emit64_atomic_xadd_width(Module* mod, int value, int address,
     int width = gen64_type_width(type);
     if (width == 2) emit_byte(mod, 0x66);
     emit_byte(mod, 0xF0);
+    if (width == 8) emit_rex_w(mod, value, address);
     emit_byte(mod, 0x0F);
     emit_byte(mod, width == 1 ? 0xC0 : 0xC1);
     emit64_memory_operand(mod, value, address, 0);
@@ -577,6 +579,7 @@ static void emit64_atomic_cmpxchg_width(Module* mod, int desired, int address,
     int width = gen64_type_width(type);
     if (width == 2) emit_byte(mod, 0x66);
     emit_byte(mod, 0xF0);
+    if (width == 8) emit_rex_w(mod, desired, address);
     emit_byte(mod, 0x0F);
     emit_byte(mod, width == 1 ? 0xB0 : 0xB1);
     emit64_memory_operand(mod, desired, address, 0);
@@ -586,6 +589,7 @@ static void emit64_atomic_clear_width(Module* mod, int address,
                                       const Type* type) {
     int width = gen64_type_width(type);
     if (width == 2) emit_byte(mod, 0x66);
+    if (width == 8) emit_rex_w(mod, 0, address);
     emit_byte(mod, width == 1 ? 0xC6 : 0xC7);
     emit64_memory_operand(mod, 0, address, 0);
     if (width == 1) emit_byte(mod, 0u);
@@ -733,15 +737,22 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         emit64_mov_reg_reg(mod, RDX, RAX);
         emit64_pop_reg(mod, RCX);
         emit64_mov_reg_reg(mod, RAX, RDX);
-        if (is_subtract) {
+        if (is_subtract && gen64_type_width(value_type) == 8) {
+            emit64_neg_reg(mod, RAX);
+        } else if (is_subtract) {
             emit_byte(mod, 0xF7);
             emit_byte(mod, 0xD8); /* neg eax */
         }
         emit64_atomic_xadd_width(mod, RAX, RCX, value_type);
         emit64_normalize_atomic_value(mod, RAX, value_type);
         if (returns_new) {
-            emit_byte(mod, is_subtract ? 0x29 : 0x01);
-            emit_byte(mod, 0xD0); /* sub/add eax, edx */
+            if (gen64_type_width(value_type) == 8) {
+                if (is_subtract) emit64_sub_reg_reg(mod, RAX, RDX);
+                else emit64_add_reg_reg(mod, RAX, RDX);
+            } else {
+                emit_byte(mod, is_subtract ? 0x29 : 0x01);
+                emit_byte(mod, 0xD0); /* sub/add eax, edx */
+            }
             emit64_normalize_atomic_value(mod, RAX, value_type);
         }
         return true;

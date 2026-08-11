@@ -105,11 +105,11 @@ metacharacterを含むsigner/output path、署名失敗時の既存成果物保�
 translation unit、C++ class、preprocessor、成功・診断・署名失敗経路を検査します。
 `test-atomic-builtins`は8/16/32-bit整数のload/store/exchange/CAS、fetch add/sub、
 fetch and/or/xor/nand、fenceと`<stdatomic.h>` APIを両archで生成・linkし、i686/AMD64の
-両生成コードを直接実行します。符号拡張、幅ごとのwrap、compare-exchange失敗時の
-expected更新、複数threadでの16/32-bit算術およびbitwise原子性を検査します。
-未実装の64-bit operandはnon-lock-freeとして公開し、builtin利用はdiagnostic付きで拒否
-します。wide/pointer-sized型を含むC17 atomic typedefは両archで公開し、i686の`long`だけは
-既存32-bit lock-free pathを使用します。定数memory orderの範囲、load/store制約、
+両生成コードを直接実行します。AMD64では同じ操作を64-bit整数でも検査します。符号拡張、
+幅ごとのwrap、compare-exchange失敗時のexpected更新、複数threadでの16/32/64-bit算術
+およびbitwise原子性を検査します。i686の64-bit operandはnon-lock-freeとして公開し、
+builtin利用はdiagnostic付きで拒否します。wide/pointer-sized型を含むC17 atomic typedefは
+両archで公開し、i686の`long`は既存32-bit lock-free pathを使用します。定数memory orderの範囲、load/store制約、
 compare-exchangeのfailure/weak制約もSemaで拒否します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
