@@ -713,8 +713,11 @@ static bool sema_atomic_builtin_call(Expr* expr) {
         pointer_type = expr->call_args ? expr->call_args->expr->type : NULL;
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
             !pointer_type->base || !type_is_integer(pointer_type->base) ||
-            pointer_type->base->size != 4u) {
-            rcc_error(expr->loc, "%s requires a pointer to a 32-bit integer",
+            (pointer_type->base->size != 1u &&
+             pointer_type->base->size != 2u &&
+             pointer_type->base->size != 4u)) {
+            rcc_error(expr->loc,
+                      "%s requires a pointer to an 8/16/32-bit integer",
                       name);
         }
     }
@@ -724,9 +727,12 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             argument->expr->type->kind != TYPE_PTR ||
             !argument->expr->type->base ||
             !type_is_integer(argument->expr->type->base) ||
-            argument->expr->type->base->size != 4u) {
+            !pointer_type || !pointer_type->base ||
+            argument->expr->type->base->size != pointer_type->base->size ||
+            !type_is_compatible(argument->expr->type->base,
+                                pointer_type->base)) {
             rcc_error(expr->loc,
-                      "%s requires a 32-bit integer expected-value pointer",
+                      "%s expected-value pointer must match the object type",
                       name);
         }
     }

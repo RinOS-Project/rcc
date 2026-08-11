@@ -1,8 +1,8 @@
 #ifndef RCC_STDATOMIC_H
 #define RCC_STDATOMIC_H
 
-/* This initial RinOS C17 surface provides lock-free operations for 32-bit
- * integer storage. Smaller and 64-bit representations remain explicit gaps. */
+/* This RinOS C17 surface provides lock-free operations for 8/16/32-bit
+ * integer storage. 64-bit and pointer representations remain explicit gaps. */
 typedef enum memory_order {
     memory_order_relaxed = __ATOMIC_RELAXED,
     memory_order_consume = __ATOMIC_CONSUME,
@@ -15,20 +15,33 @@ typedef enum memory_order {
 #define _Atomic(type) volatile type
 
 typedef volatile _Bool atomic_bool;
+typedef volatile char atomic_char;
+typedef volatile signed char atomic_schar;
+typedef volatile unsigned char atomic_uchar;
+typedef volatile short atomic_short;
+typedef volatile unsigned short atomic_ushort;
 typedef volatile int atomic_int;
 typedef volatile unsigned int atomic_uint;
+typedef volatile signed char atomic_int_least8_t;
+typedef volatile unsigned char atomic_uint_least8_t;
+typedef volatile short atomic_int_least16_t;
+typedef volatile unsigned short atomic_uint_least16_t;
 typedef volatile int atomic_int_least32_t;
 typedef volatile unsigned int atomic_uint_least32_t;
+typedef volatile signed char atomic_int_fast8_t;
+typedef volatile unsigned char atomic_uint_fast8_t;
+typedef volatile short atomic_int_fast16_t;
+typedef volatile unsigned short atomic_uint_fast16_t;
 typedef volatile int atomic_int_fast32_t;
 typedef volatile unsigned int atomic_uint_fast32_t;
 typedef volatile unsigned int atomic_flag;
 
-#define ATOMIC_BOOL_LOCK_FREE 0
-#define ATOMIC_CHAR_LOCK_FREE 0
+#define ATOMIC_BOOL_LOCK_FREE 2
+#define ATOMIC_CHAR_LOCK_FREE 2
 #define ATOMIC_CHAR16_T_LOCK_FREE 0
 #define ATOMIC_CHAR32_T_LOCK_FREE 0
 #define ATOMIC_WCHAR_T_LOCK_FREE 0
-#define ATOMIC_SHORT_LOCK_FREE 0
+#define ATOMIC_SHORT_LOCK_FREE 2
 #define ATOMIC_INT_LOCK_FREE 2
 #define ATOMIC_LONG_LOCK_FREE 0
 #define ATOMIC_LLONG_LOCK_FREE 0
@@ -38,7 +51,9 @@ typedef volatile unsigned int atomic_flag;
 #define ATOMIC_VAR_INIT(value) (value)
 
 #define kill_dependency(value) (value)
-#define atomic_is_lock_free(object) (sizeof(*(object)) == 4u)
+#define atomic_is_lock_free(object) \
+    (sizeof(*(object)) == 1u || sizeof(*(object)) == 2u || \
+     sizeof(*(object)) == 4u)
 #define atomic_init(object, desired) (*(object) = (desired))
 
 #define atomic_thread_fence(order) __atomic_thread_fence(order)

@@ -19,6 +19,16 @@ static ObjSymbol* function_symbol(ObjectFile* object, const char* name) {
     return symbol;
 }
 
+static int section_contains(const ObjSection* section,
+                            const uint8_t* sequence, size_t size) {
+    uint64_t offset;
+    if (!section || !sequence || size == 0u || section->size < size) return 0;
+    for (offset = 0u; offset + size <= section->size; ++offset) {
+        if (memcmp(section->data + offset, sequence, size) == 0) return 1;
+    }
+    return 0;
+}
+
 #if defined(__x86_64__) && !defined(_WIN32)
 typedef uint32_t (*atomic_load_fn)(volatile uint32_t*);
 typedef void (*atomic_store_fn)(volatile uint32_t*, uint32_t);
@@ -30,6 +40,21 @@ typedef int (*standard_atomic_compare_fn)(volatile uint32_t*, uint32_t*,
                                           uint32_t);
 typedef void (*atomic_release_fn)(volatile uint32_t*);
 typedef void (*atomic_fence_fn)(void);
+typedef uint32_t (*atomic_u8_load_fn)(volatile uint8_t*);
+typedef void (*atomic_u8_store_fn)(volatile uint8_t*, uint32_t);
+typedef uint32_t (*atomic_u8_binary_fn)(volatile uint8_t*, uint32_t);
+typedef int (*atomic_u8_compare_fn)(volatile uint8_t*, uint8_t*, uint32_t);
+typedef uint32_t (*atomic_u8_sync_compare_fn)(volatile uint8_t*, uint32_t,
+                                              uint32_t);
+typedef void (*atomic_u8_release_fn)(volatile uint8_t*);
+typedef uint32_t (*atomic_u16_load_fn)(volatile uint16_t*);
+typedef void (*atomic_u16_store_fn)(volatile uint16_t*, uint32_t);
+typedef uint32_t (*atomic_u16_binary_fn)(volatile uint16_t*, uint32_t);
+typedef int (*atomic_u16_compare_fn)(volatile uint16_t*, uint16_t*,
+                                     uint32_t);
+typedef int32_t (*atomic_i8_binary_fn)(volatile int8_t*, int32_t);
+typedef int32_t (*atomic_i16_binary_fn)(volatile int16_t*, int32_t);
+typedef int (*atomic_bool_binary_fn)(volatile _Bool*, int);
 
 typedef struct {
     atomic_binary_fn fetch_add;
@@ -37,8 +62,23 @@ typedef struct {
     unsigned iterations;
 } AtomicWorker;
 
+typedef struct {
+    atomic_u16_binary_fn fetch_add;
+    volatile uint16_t* counter;
+    unsigned iterations;
+} AtomicWorker16;
+
 static void* atomic_worker(void* argument) {
     AtomicWorker* worker = argument;
+    unsigned i;
+    for (i = 0; i < worker->iterations; ++i) {
+        worker->fetch_add(worker->counter, 1u);
+    }
+    return NULL;
+}
+
+static void* atomic_worker16(void* argument) {
+    AtomicWorker16* worker = argument;
     unsigned i;
     for (i = 0; i < worker->iterations; ++i) {
         worker->fetch_add(worker->counter, 1u);
@@ -55,9 +95,24 @@ static void* atomic_worker(void* argument) {
 #endif
 
 int main(int argc, char** argv) {
-    assert(argc == 2);
+    ObjectFile* x86_object;
+    ObjSection* x86_code;
+    static const uint8_t byte_xadd[] = {0xF0, 0x0F, 0xC0};
+    static const uint8_t word_xadd[] = {0x66, 0xF0, 0x0F, 0xC1};
+    static const uint8_t byte_cmpxchg[] = {0xF0, 0x0F, 0xB0};
+    static const uint8_t word_cmpxchg[] = {0x66, 0xF0, 0x0F, 0xB1};
+    assert(argc == 3);
+    x86_object = objfile_read(argv[1]);
+    assert(x86_object != NULL && x86_object->arch == ARCH_X86);
+    x86_code = objfile_get_section(x86_object, ".text");
+    assert(x86_code != NULL);
+    assert(section_contains(x86_code, byte_xadd, sizeof(byte_xadd)));
+    assert(section_contains(x86_code, word_xadd, sizeof(word_xadd)));
+    assert(section_contains(x86_code, byte_cmpxchg, sizeof(byte_cmpxchg)));
+    assert(section_contains(x86_code, word_cmpxchg, sizeof(word_cmpxchg)));
+    objfile_free(x86_object);
 #if defined(__x86_64__) && !defined(_WIN32)
-    ObjectFile* object = objfile_read(argv[1]);
+    ObjectFile* object = objfile_read(argv[2]);
     ObjSection* code;
     long page_size;
     size_t mapping_size;
@@ -90,10 +145,34 @@ int main(int argc, char** argv) {
     atomic_release_fn standard_flag_clear;
     atomic_load_fn standard_is_lock_free;
     atomic_fence_fn standard_signal_fence;
+    atomic_u8_load_fn u8_load;
+    atomic_u8_store_fn u8_store;
+    atomic_u8_binary_fn u8_exchange;
+    atomic_u8_binary_fn u8_fetch_add;
+    atomic_u8_binary_fn u8_add_fetch;
+    atomic_u8_binary_fn u8_fetch_sub;
+    atomic_u8_binary_fn u8_sub_fetch;
+    atomic_u8_compare_fn u8_compare;
+    atomic_u16_load_fn u16_load;
+    atomic_u16_store_fn u16_store;
+    atomic_u16_binary_fn u16_exchange;
+    atomic_u16_binary_fn u16_fetch_add;
+    atomic_u16_binary_fn u16_add_fetch;
+    atomic_u16_binary_fn u16_fetch_sub;
+    atomic_u16_binary_fn u16_sub_fetch;
+    atomic_u16_compare_fn u16_compare;
+    atomic_i8_binary_fn i8_fetch_add;
+    atomic_i16_binary_fn i16_fetch_sub;
+    atomic_u8_sync_compare_fn sync_u8_compare;
+    atomic_u8_release_fn sync_u8_release;
+    atomic_u8_binary_fn standard_uchar_fetch_add;
+    atomic_u16_binary_fn standard_ushort_exchange;
+    atomic_bool_binary_fn standard_bool_exchange;
     volatile uint32_t value = 5u;
     volatile uint32_t counter = 0u;
     pthread_t threads[4];
     AtomicWorker workers[4];
+    AtomicWorker16 workers16[4];
     unsigned i;
 
     assert(object != NULL);
@@ -151,6 +230,42 @@ int main(int argc, char** argv) {
                   "standard_atomic_is_lock_free_value");
     LOAD_FUNCTION(standard_signal_fence, object, mapping,
                   "standard_atomic_signal_fence_value");
+    LOAD_FUNCTION(u8_load, object, mapping, "atomic_u8_load_value");
+    LOAD_FUNCTION(u8_store, object, mapping, "atomic_u8_store_value");
+    LOAD_FUNCTION(u8_exchange, object, mapping, "atomic_u8_exchange_value");
+    LOAD_FUNCTION(u8_fetch_add, object, mapping, "atomic_u8_fetch_add_value");
+    LOAD_FUNCTION(u8_add_fetch, object, mapping, "atomic_u8_add_fetch_value");
+    LOAD_FUNCTION(u8_fetch_sub, object, mapping, "atomic_u8_fetch_sub_value");
+    LOAD_FUNCTION(u8_sub_fetch, object, mapping, "atomic_u8_sub_fetch_value");
+    LOAD_FUNCTION(u8_compare, object, mapping,
+                  "atomic_u8_compare_exchange_value");
+    LOAD_FUNCTION(u16_load, object, mapping, "atomic_u16_load_value");
+    LOAD_FUNCTION(u16_store, object, mapping, "atomic_u16_store_value");
+    LOAD_FUNCTION(u16_exchange, object, mapping, "atomic_u16_exchange_value");
+    LOAD_FUNCTION(u16_fetch_add, object, mapping,
+                  "atomic_u16_fetch_add_value");
+    LOAD_FUNCTION(u16_add_fetch, object, mapping,
+                  "atomic_u16_add_fetch_value");
+    LOAD_FUNCTION(u16_fetch_sub, object, mapping,
+                  "atomic_u16_fetch_sub_value");
+    LOAD_FUNCTION(u16_sub_fetch, object, mapping,
+                  "atomic_u16_sub_fetch_value");
+    LOAD_FUNCTION(u16_compare, object, mapping,
+                  "atomic_u16_compare_exchange_value");
+    LOAD_FUNCTION(i8_fetch_add, object, mapping,
+                  "atomic_i8_fetch_add_value");
+    LOAD_FUNCTION(i16_fetch_sub, object, mapping,
+                  "atomic_i16_fetch_sub_value");
+    LOAD_FUNCTION(sync_u8_compare, object, mapping,
+                  "sync_u8_compare_exchange_value");
+    LOAD_FUNCTION(sync_u8_release, object, mapping,
+                  "sync_u8_release_value");
+    LOAD_FUNCTION(standard_uchar_fetch_add, object, mapping,
+                  "standard_atomic_uchar_fetch_add_value");
+    LOAD_FUNCTION(standard_ushort_exchange, object, mapping,
+                  "standard_atomic_ushort_exchange_value");
+    LOAD_FUNCTION(standard_bool_exchange, object, mapping,
+                  "standard_atomic_bool_exchange_value");
 
     assert(atomic_load(&value) == 5u);
     assert(atomic_dynamic_load(&value, 2u) == 5u);
@@ -195,6 +310,79 @@ int main(int argc, char** argv) {
     assert(value == 0u);
     assert(standard_is_lock_free(&value) == 1u);
     standard_signal_fence();
+
+    {
+        volatile uint8_t small = 250u;
+        uint8_t expected8;
+        assert(u8_load(&small) == 250u);
+        u8_store(&small, 248u);
+        assert(small == 248u);
+        assert(u8_exchange(&small, 250u) == 248u && small == 250u);
+        assert(u8_fetch_add(&small, 10u) == 250u && small == 4u);
+        assert(u8_add_fetch(&small, 252u) == 0u && small == 0u);
+        small = 3u;
+        assert(u8_fetch_sub(&small, 5u) == 3u && small == 254u);
+        assert(u8_sub_fetch(&small, 255u) == 255u && small == 255u);
+        small = 10u;
+        expected8 = 10u;
+        assert(u8_compare(&small, &expected8, 300u) == 1);
+        assert(expected8 == 10u && small == 44u);
+        expected8 = 7u;
+        assert(u8_compare(&small, &expected8, 1u) == 0);
+        assert(expected8 == 44u && small == 44u);
+        assert(sync_u8_compare(&small, 44u, 260u) == 44u && small == 4u);
+        sync_u8_release(&small);
+        assert(small == 0u);
+        small = 250u;
+        assert(standard_uchar_fetch_add(&small, 10u) == 250u &&
+               small == 4u);
+    }
+    {
+        volatile uint16_t small = 65530u;
+        uint16_t expected16;
+        assert(u16_load(&small) == 65530u);
+        u16_store(&small, 65520u);
+        assert(small == 65520u);
+        assert(u16_exchange(&small, 65530u) == 65520u && small == 65530u);
+        assert(u16_fetch_add(&small, 10u) == 65530u && small == 4u);
+        assert(u16_add_fetch(&small, 65535u) == 3u && small == 3u);
+        assert(u16_fetch_sub(&small, 5u) == 3u && small == 65534u);
+        assert(u16_sub_fetch(&small, 65535u) == 65535u &&
+               small == 65535u);
+        small = 10u;
+        expected16 = 10u;
+        assert(u16_compare(&small, &expected16, 70000u) == 1);
+        assert(expected16 == 10u && small == 4464u);
+        expected16 = 7u;
+        assert(u16_compare(&small, &expected16, 1u) == 0);
+        assert(expected16 == 4464u && small == 4464u);
+        assert(standard_ushort_exchange(&small, 9u) == 4464u &&
+               small == 9u);
+    }
+    {
+        volatile int8_t signed8 = -5;
+        volatile int16_t signed16 = -300;
+        volatile _Bool boolean = 0;
+        assert(i8_fetch_add(&signed8, 2) == -5 && signed8 == -3);
+        assert(i16_fetch_sub(&signed16, 10) == -300 && signed16 == -310);
+        assert(standard_bool_exchange(&boolean, 7) == 0 && boolean == 1);
+        assert(standard_bool_exchange(&boolean, 0) == 1 && boolean == 0);
+    }
+
+    {
+        volatile uint16_t counter16 = 0u;
+        for (i = 0; i < 4u; ++i) {
+            workers16[i].fetch_add = u16_fetch_add;
+            workers16[i].counter = &counter16;
+            workers16[i].iterations = 10000u;
+            assert(pthread_create(&threads[i], NULL, atomic_worker16,
+                                  &workers16[i]) == 0);
+        }
+        for (i = 0; i < 4u; ++i) {
+            assert(pthread_join(threads[i], NULL) == 0);
+        }
+        assert(counter16 == 40000u);
+    }
 
     for (i = 0; i < 4u; ++i) {
         workers[i].fetch_add = atomic_fetch_add;

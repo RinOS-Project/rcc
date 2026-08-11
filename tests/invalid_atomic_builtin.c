@@ -10,3 +10,10 @@ int unsupported_wide_expected(volatile uint32_t* value,
                                        __ATOMIC_SEQ_CST,
                                        __ATOMIC_SEQ_CST);
 }
+
+int mismatched_signed_expected(volatile uint32_t* value,
+                               int32_t* expected) {
+    return __atomic_compare_exchange_n(value, expected, 1u, 0,
+                                       __ATOMIC_SEQ_CST,
+                                       __ATOMIC_SEQ_CST);
+}

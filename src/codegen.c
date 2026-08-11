@@ -1352,19 +1352,89 @@ static Expr* call_argument(Expr* call, int index) {
     return argument ? argument->expr : NULL;
 }
 
+static const Type* atomic_value_type(Expr* call) {
+    Expr* object = call_argument(call, 0);
+    return object && object->type && object->type->kind == TYPE_PTR
+        ? object->type->base : type_uint;
+}
+
+static void emit_normalize_atomic_value(Module* mod, int reg,
+                                        const Type* type) {
+    int width = gen_type_width32(type);
+    if (type && type->kind == TYPE_BOOL) {
+        emit_byte(mod, 0x85); /* test reg, reg */
+        emit_byte(mod, modrm(3, reg, reg));
+        emit_setcc(mod, CC_NE, reg);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, reg, reg));
+    } else if (width < 4) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, type && !type->is_unsigned
+            ? (width == 1 ? 0xBE : 0xBF)
+            : (width == 1 ? 0xB6 : 0xB7));
+        emit_byte(mod, modrm(3, reg, reg));
+    }
+}
+
+static void emit_atomic_exchange_width(Module* mod, int value, int address,
+                                       const Type* type) {
+    int width = gen_type_width32(type);
+    if (width == 2) emit_byte(mod, 0x66);
+    emit_byte(mod, width == 1 ? 0x86 : 0x87);
+    emit_memory_operand32(mod, value, address, 0);
+}
+
+static void emit_atomic_xadd_width(Module* mod, int value, int address,
+                                   const Type* type) {
+    int width = gen_type_width32(type);
+    if (width == 2) emit_byte(mod, 0x66);
+    emit_byte(mod, 0xF0);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, width == 1 ? 0xC0 : 0xC1);
+    emit_memory_operand32(mod, value, address, 0);
+}
+
+static void emit_atomic_cmpxchg_width(Module* mod, int desired, int address,
+                                      const Type* type) {
+    int width = gen_type_width32(type);
+    if (width == 2) emit_byte(mod, 0x66);
+    emit_byte(mod, 0xF0);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, width == 1 ? 0xB0 : 0xB1);
+    emit_memory_operand32(mod, desired, address, 0);
+}
+
+static void emit_atomic_clear_width(Module* mod, int address,
+                                    const Type* type) {
+    int width = gen_type_width32(type);
+    if (width == 2) emit_byte(mod, 0x66);
+    emit_byte(mod, width == 1 ? 0xC6 : 0xC7);
+    emit_memory_operand32(mod, 0, address, 0);
+    if (width == 1) emit_byte(mod, 0u);
+    else if (width == 2) {
+        emit_byte(mod, 0u);
+        emit_byte(mod, 0u);
+    } else {
+        emit_dword(mod, 0u);
+    }
+}
+
 static bool gen_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
     bool is_atomic;
     bool is_subtract;
     bool returns_new;
+    const Type* value_type;
 
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
+    value_type = atomic_value_type(call);
     if (strcmp(name, "__atomic_load_n") == 0) {
         gen_expr(mod, call_argument(call, 1));
         gen_expr(mod, call_argument(call, 0));
-        emit_mov_reg_mem(mod, EAX, EAX, 0);
+        emit_load_typed32(mod, EAX, EAX, 0, value_type);
         return true;
     }
     if (strcmp(name, "__atomic_store_n") == 0) {
@@ -1372,11 +1442,10 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         gen_expr(mod, call_argument(call, 0));
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 1));
+        emit_normalize_atomic_value(mod, EAX, value_type);
         emit_pop_reg(mod, ECX);
-        /* XCHG with memory is implicitly locked and therefore satisfies every
-         * memory order supported by this initial 32-bit atomic builtin. */
-        emit_byte(mod, 0x87);
-        emit_memory_operand32(mod, EAX, ECX, 0);
+        /* XCHG with memory is implicitly locked. */
+        emit_atomic_exchange_width(mod, EAX, ECX, value_type);
         return true;
     }
     if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
@@ -1390,15 +1459,13 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         gen_expr(mod, call_argument(call, 1));
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 2));
+        emit_normalize_atomic_value(mod, EAX, value_type);
         emit_mov_reg_reg(mod, EDX, EAX);
         emit_pop_reg(mod, ECX); /* Expected-value address. */
-        emit_mov_reg_mem(mod, EAX, ECX, 0);
+        emit_load_typed32(mod, EAX, ECX, 0, value_type);
         emit_push_reg(mod, ECX);
         emit_mov_reg_mem(mod, ECX, ESP, 4); /* Object address. */
-        emit_byte(mod, 0xF0);
-        emit_byte(mod, 0x0F);
-        emit_byte(mod, 0xB1); /* lock cmpxchg dword ptr [ecx], edx */
-        emit_memory_operand32(mod, EDX, ECX, 0);
+        emit_atomic_cmpxchg_width(mod, EDX, ECX, value_type);
         emit_setcc(mod, CC_E, EDX);
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xB6);
@@ -1407,7 +1474,7 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         emit_add_reg_imm(mod, ESP, 4);
         /* On success EAX still contains *expected; on failure CMPXCHG has
          * replaced it with the observed object value. */
-        emit_mov_mem_reg(mod, ECX, 0, EAX);
+        emit_store_typed32(mod, ECX, 0, EAX, value_type);
         emit_mov_reg_reg(mod, EAX, EDX);
         return true;
     }
@@ -1418,10 +1485,11 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         gen_expr(mod, call_argument(call, 0));
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 1));
+        emit_normalize_atomic_value(mod, EAX, value_type);
         emit_pop_reg(mod, ECX);
         /* XCHG with memory returns the previous value in EAX. */
-        emit_byte(mod, 0x87);
-        emit_memory_operand32(mod, EAX, ECX, 0);
+        emit_atomic_exchange_width(mod, EAX, ECX, value_type);
+        emit_normalize_atomic_value(mod, EAX, value_type);
         return true;
     }
     is_subtract = strcmp(name, "__atomic_fetch_sub") == 0 ||
@@ -1444,20 +1512,20 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         gen_expr(mod, call_argument(call, 0));
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 1));
+        emit_normalize_atomic_value(mod, EAX, value_type);
         emit_mov_reg_reg(mod, EDX, EAX);
         emit_pop_reg(mod, ECX);
         emit_mov_reg_reg(mod, EAX, EDX);
         if (is_subtract) emit_neg_reg(mod, EAX);
-        emit_byte(mod, 0xF0);
-        emit_byte(mod, 0x0F);
-        emit_byte(mod, 0xC1); /* lock xadd dword ptr [ecx], eax */
-        emit_memory_operand32(mod, EAX, ECX, 0);
+        emit_atomic_xadd_width(mod, EAX, ECX, value_type);
+        emit_normalize_atomic_value(mod, EAX, value_type);
         if (returns_new) {
             if (is_subtract) {
                 emit_sub_reg_reg(mod, EAX, EDX);
             } else {
                 emit_add_reg_reg(mod, EAX, EDX);
             }
+            emit_normalize_atomic_value(mod, EAX, value_type);
         }
         return true;
     }
@@ -1466,28 +1534,27 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         gen_expr(mod, call_argument(call, 0));
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 1));
+        emit_normalize_atomic_value(mod, EAX, value_type);
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 2));
+        emit_normalize_atomic_value(mod, EAX, value_type);
         emit_mov_reg_reg(mod, EDX, EAX);
         emit_pop_reg(mod, EAX);
         emit_pop_reg(mod, ECX);
-        emit_byte(mod, 0xF0);
-        emit_byte(mod, 0x0F);
-        emit_byte(mod, 0xB1);
-        emit_memory_operand32(mod, EDX, ECX, 0);
+        emit_atomic_cmpxchg_width(mod, EDX, ECX, value_type);
         if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
             emit_setcc(mod, CC_E, EAX);
             emit_byte(mod, 0x0F);
             emit_byte(mod, 0xB6);
             emit_byte(mod, modrm(3, EAX, EAX));
+        } else {
+            emit_normalize_atomic_value(mod, EAX, value_type);
         }
         return true;
     }
     if (strcmp(name, "__sync_lock_release") == 0) {
         gen_expr(mod, call_argument(call, 0));
-        emit_byte(mod, 0xC7); /* mov dword ptr [eax], 0 */
-        emit_memory_operand32(mod, 0, EAX, 0);
-        emit_dword(mod, 0u);
+        emit_atomic_clear_width(mod, EAX, value_type);
         return true;
     }
     if (strcmp(name, "__atomic_thread_fence") == 0 ||

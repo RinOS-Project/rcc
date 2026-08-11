@@ -3,6 +3,10 @@
 
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2,
                "32-bit integer atomics must be lock-free");
+_Static_assert(ATOMIC_CHAR_LOCK_FREE == 2,
+               "8-bit integer atomics must be lock-free");
+_Static_assert(ATOMIC_SHORT_LOCK_FREE == 2,
+               "16-bit integer atomics must be lock-free");
 _Static_assert(ATOMIC_LLONG_LOCK_FREE == 0,
                "64-bit integer atomics are not implemented yet");
 _Static_assert(sizeof(atomic_uint) == 4,
@@ -14,6 +18,108 @@ uint32_t atomic_load_value(volatile uint32_t* value) {
 
 uint32_t atomic_dynamic_load_value(volatile uint32_t* value, int order) {
     return __atomic_load_n(value, order);
+}
+
+uint32_t atomic_u8_load_value(volatile uint8_t* value) {
+    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+}
+
+void atomic_u8_store_value(volatile uint8_t* value, uint32_t desired) {
+    __atomic_store_n(value, desired, __ATOMIC_RELEASE);
+}
+
+uint32_t atomic_u8_exchange_value(volatile uint8_t* value,
+                                  uint32_t desired) {
+    return __atomic_exchange_n(value, desired, __ATOMIC_ACQ_REL);
+}
+
+uint32_t atomic_u8_fetch_add_value(volatile uint8_t* value,
+                                   uint32_t operand) {
+    return __atomic_fetch_add(value, operand, __ATOMIC_RELAXED);
+}
+
+uint32_t atomic_u8_add_fetch_value(volatile uint8_t* value,
+                                   uint32_t operand) {
+    return __atomic_add_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint32_t atomic_u8_fetch_sub_value(volatile uint8_t* value,
+                                   uint32_t operand) {
+    return __atomic_fetch_sub(value, operand, __ATOMIC_RELAXED);
+}
+
+uint32_t atomic_u8_sub_fetch_value(volatile uint8_t* value,
+                                   uint32_t operand) {
+    return __atomic_sub_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+int atomic_u8_compare_exchange_value(volatile uint8_t* value,
+                                     uint8_t* expected,
+                                     uint32_t desired) {
+    return __atomic_compare_exchange_n(value, expected, desired, 0,
+                                       __ATOMIC_ACQ_REL,
+                                       __ATOMIC_ACQUIRE);
+}
+
+uint32_t atomic_u16_load_value(volatile uint16_t* value) {
+    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+}
+
+void atomic_u16_store_value(volatile uint16_t* value, uint32_t desired) {
+    __atomic_store_n(value, desired, __ATOMIC_RELEASE);
+}
+
+uint32_t atomic_u16_exchange_value(volatile uint16_t* value,
+                                   uint32_t desired) {
+    return __atomic_exchange_n(value, desired, __ATOMIC_ACQ_REL);
+}
+
+uint32_t atomic_u16_fetch_add_value(volatile uint16_t* value,
+                                    uint32_t operand) {
+    return __atomic_fetch_add(value, operand, __ATOMIC_RELAXED);
+}
+
+uint32_t atomic_u16_add_fetch_value(volatile uint16_t* value,
+                                    uint32_t operand) {
+    return __atomic_add_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint32_t atomic_u16_fetch_sub_value(volatile uint16_t* value,
+                                    uint32_t operand) {
+    return __atomic_fetch_sub(value, operand, __ATOMIC_RELAXED);
+}
+
+uint32_t atomic_u16_sub_fetch_value(volatile uint16_t* value,
+                                    uint32_t operand) {
+    return __atomic_sub_fetch(value, operand, __ATOMIC_SEQ_CST);
+}
+
+int atomic_u16_compare_exchange_value(volatile uint16_t* value,
+                                      uint16_t* expected,
+                                      uint32_t desired) {
+    return __atomic_compare_exchange_n(value, expected, desired, 0,
+                                       __ATOMIC_ACQ_REL,
+                                       __ATOMIC_ACQUIRE);
+}
+
+int32_t atomic_i8_fetch_add_value(volatile int8_t* value,
+                                  int32_t operand) {
+    return __atomic_fetch_add(value, operand, __ATOMIC_SEQ_CST);
+}
+
+int32_t atomic_i16_fetch_sub_value(volatile int16_t* value,
+                                   int32_t operand) {
+    return __atomic_fetch_sub(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint32_t sync_u8_compare_exchange_value(volatile uint8_t* value,
+                                        uint32_t expected,
+                                        uint32_t desired) {
+    return __sync_val_compare_and_swap(value, expected, desired);
+}
+
+void sync_u8_release_value(volatile uint8_t* value) {
+    __sync_lock_release(value);
 }
 
 void atomic_store_value(volatile uint32_t* value, uint32_t desired) {
@@ -127,6 +233,20 @@ int standard_atomic_is_lock_free_value(atomic_uint* value) {
 
 void standard_atomic_signal_fence_value(void) {
     atomic_signal_fence(memory_order_seq_cst);
+}
+
+uint32_t standard_atomic_uchar_fetch_add_value(atomic_uchar* value,
+                                                uint32_t operand) {
+    return atomic_fetch_add(value, operand);
+}
+
+uint32_t standard_atomic_ushort_exchange_value(atomic_ushort* value,
+                                                uint32_t desired) {
+    return atomic_exchange(value, desired);
+}
+
+int standard_atomic_bool_exchange_value(atomic_bool* value, int desired) {
+    return atomic_exchange(value, desired);
 }
 
 int main(void) {
