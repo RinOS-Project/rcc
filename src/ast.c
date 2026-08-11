@@ -490,6 +490,8 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->loc = loc;
     e->call_func = func;
     e->call_args = args;
+    e->call_result_offset = 0;
+    e->call_method = NULL;
     e->type = NULL;
     return e;
 }

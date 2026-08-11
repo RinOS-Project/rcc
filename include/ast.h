@@ -14,6 +14,7 @@ typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
 typedef struct GenericAssociation GenericAssociation;
+typedef struct TypeMethod TypeMethod;
 
 /* ═══════════════════════════════════════
  * Type System
@@ -54,6 +55,24 @@ typedef struct TypeParam {
     struct TypeParam* next;
 } TypeParam;
 
+typedef enum {
+    TYPE_METHOD_FIELD,
+    TYPE_METHOD_FIELD_EQ_CONSTANT,
+    TYPE_METHOD_FIELD_NE_CONSTANT,
+} TypeMethodKind;
+
+/* A validated, side-effect-free C++ accessor that can be expanded by the
+ * common backend without exposing private representation as a data member. */
+struct TypeMethod {
+    const char* name;
+    Type* return_type;
+    TypeField* field;
+    TypeMethodKind kind;
+    int64_t constant;
+    unsigned char cxx_access;
+    TypeMethod* next;
+};
+
 struct Type {
     TypeKind kind;
     int size;           /* Size in bytes */
@@ -81,6 +100,7 @@ struct Type {
         struct {
             const char* tag;
             TypeField* fields;
+            TypeMethod* methods;
             bool is_complete;
         };
         /* TYPE_ENUM */
@@ -289,6 +309,7 @@ struct Expr {
             Expr* call_func;
             ExprList* call_args;
             int call_result_offset;  /* Aggregate return spill/sret slot. */
+            TypeMethod* call_method; /* Validated inline C++ accessor. */
         };
 
         /* EXPR_INDEX */

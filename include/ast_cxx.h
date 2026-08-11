@@ -60,6 +60,7 @@ struct CxxClass {
     struct CxxMember {
         AccessSpec access;
         Decl* decl;          /* Can be DECL_VAR or DECL_FUNC */
+        CxxMethod* method;    /* Non-NULL for parsed C++ methods. */
         bool is_static;
         bool is_virtual;
         bool is_pure_virtual;

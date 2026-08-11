@@ -1259,6 +1259,31 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
     }
 }
 
+static bool gen64_inline_method_call(Module* mod, Expr* expr) {
+    TypeMethod* method = expr ? expr->call_method : NULL;
+    Expr* member = expr ? expr->call_func : NULL;
+    if (!method || !member || !method->field) return false;
+    if (member->kind == EXPR_PTR_MEMBER) {
+        gen64_expr(mod, member->member_base);
+    } else {
+        gen64_lvalue(mod, member->member_base);
+    }
+    if (method->field->offset > 0) {
+        emit64_add_reg_imm(mod, RAX, method->field->offset);
+    }
+    emit64_load_typed(mod, RAX, RAX, 0, method->field->type);
+    if (method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
+        method->kind == TYPE_METHOD_FIELD_NE_CONSTANT) {
+        emit64_cmp_reg_imm(mod, RAX, (int32_t)method->constant);
+        emit64_setcc(mod,
+                     method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT
+                         ? CC64_E : CC64_NE,
+                     RAX);
+        emit64_movzx_r64_r8(mod, RAX, RAX);
+    }
+    return true;
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -1686,6 +1711,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_CALL: {
+            if (gen64_inline_method_call(mod, expr)) break;
             if (gen64_atomic_builtin(mod, expr)) break;
             /* x86-64 System V ABI: RDI, RSI, RDX, RCX, R8, R9 */
             int arg_regs[] = {RDI, RSI, RDX, RCX, R8, R9};

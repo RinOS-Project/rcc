@@ -2739,6 +2739,33 @@ static Type* codegen_default_argument_type(Type* type) {
     return type;
 }
 
+static bool gen_inline_method_call(Module* mod, Expr* expr) {
+    TypeMethod* method = expr ? expr->call_method : NULL;
+    Expr* member = expr ? expr->call_func : NULL;
+    if (!method || !member || !method->field) return false;
+    if (member->kind == EXPR_PTR_MEMBER) {
+        gen_expr(mod, member->member_base);
+    } else {
+        gen_lvalue(mod, member->member_base);
+    }
+    if (method->field->offset > 0) {
+        emit_add_reg_imm(mod, EAX, method->field->offset);
+    }
+    emit_load_typed32(mod, EAX, EAX, 0, method->field->type);
+    if (method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
+        method->kind == TYPE_METHOD_FIELD_NE_CONSTANT) {
+        emit_cmp_reg_imm(mod, EAX, (int32_t)method->constant);
+        emit_setcc(mod,
+                   method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT
+                       ? CC_E : CC_NE,
+                   EAX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EAX, EAX));
+    }
+    return true;
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int argc;
@@ -2749,6 +2776,7 @@ static void gen_call(Module* mod, Expr* expr) {
     int i;
     Expr* func_expr;
 
+    if (gen_inline_method_call(mod, expr)) return;
     if (gen_atomic_builtin(mod, expr)) return;
 
     argc = exprlist_len(expr->call_args);

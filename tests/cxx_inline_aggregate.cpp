@@ -19,6 +19,18 @@ public:
     int value;
 };
 
+class CxxStatus final {
+public:
+    constexpr CxxStatus() noexcept : value_(0) {}
+    constexpr explicit CxxStatus(int input) noexcept : value_(input) {}
+
+    constexpr int code() const noexcept { return value_; }
+    constexpr bool ok() const noexcept { return value_ == 0; }
+
+private:
+    int value_;
+};
+
 static CxxPair make_cxx_pair(int first, int second) {
     return CxxPair{first, second};
 }
@@ -86,6 +98,19 @@ int cxx_lowered_constructor_init(int input) {
     CxxBox zero{};
     CxxBox value{input};
     return value.value * 10 + zero.value;
+}
+
+int cxx_inline_accessor(int input) {
+    CxxStatus status{input};
+    return status.code() * 10 + status.ok();
+}
+
+int cxx_temporary_accessor(int input) {
+    return CxxStatus{input}.code();
+}
+
+int cxx_pointer_accessor(const CxxStatus* status) {
+    return status->code();
 }
 
 int cxx_reference_call(uint64_t address, uint64_t size) {

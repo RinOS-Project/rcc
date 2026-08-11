@@ -212,6 +212,7 @@ void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_
     struct CxxMember* member = rcc_alloc(sizeof(struct CxxMember));
     member->access = access;
     member->decl = decl;
+    member->method = NULL;
     member->is_static = is_static;
     member->is_virtual = false;
     member->is_pure_virtual = false;
@@ -518,6 +519,7 @@ void cxx_class_add_method(CxxClass* cls, CxxMethod* method) {
     struct CxxMember* member = rcc_alloc(sizeof(struct CxxMember));
     member->access = method->access;
     member->decl = method->decl;
+    member->method = method;
     member->is_static = method->is_static;
     member->is_virtual = method->is_virtual;
     member->is_pure_virtual = method->is_pure_virtual;

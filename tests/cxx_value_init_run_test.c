@@ -11,6 +11,7 @@
 typedef int (*nullary_function)(void);
 typedef int (*binary_function)(int, int);
 typedef int (*wide_binary_function)(uint64_t, uint64_t);
+typedef int (*int_pointer_function)(const int*);
 
 typedef struct RinSliceV1 {
     uint64_t address;
@@ -50,6 +51,9 @@ int main(int argc, char** argv)
     binary_function class_aggregate_init;
     typedef int (*unary_function)(int);
     unary_function lowered_constructor_init;
+    unary_function inline_accessor;
+    unary_function temporary_accessor;
+    int_pointer_function pointer_accessor;
     reference_copy_function copy_reference;
     wide_binary_function reference_call;
     wide_binary_function reference_overload;
@@ -83,6 +87,10 @@ int main(int argc, char** argv)
                   "cxx_class_aggregate_init");
     LOAD_FUNCTION(lowered_constructor_init, object, mapping,
                   "cxx_lowered_constructor_init");
+    LOAD_FUNCTION(inline_accessor, object, mapping, "cxx_inline_accessor");
+    LOAD_FUNCTION(temporary_accessor, object, mapping,
+                  "cxx_temporary_accessor");
+    LOAD_FUNCTION(pointer_accessor, object, mapping, "cxx_pointer_accessor");
     LOAD_FUNCTION(copy_reference, object, mapping,
                   "_ZN3rin14copy_referenceERK10RinSliceV1");
     LOAD_FUNCTION(reference_call, object, mapping, "cxx_reference_call");
@@ -93,6 +101,13 @@ int main(int argc, char** argv)
     assert(scalar_value_init() == 1);
     assert(class_aggregate_init(4, 7) == 4774);
     assert(lowered_constructor_init(9) == 90);
+    assert(inline_accessor(7) == 70);
+    assert(inline_accessor(0) == 1);
+    assert(temporary_accessor(-11) == -11);
+    {
+        int code = -17;
+        assert(pointer_accessor(&code) == code);
+    }
     {
         RinSliceV1 input = {UINT64_C(0x12345678), UINT64_C(0x87654321)};
         RinSliceV1 copied = copy_reference(&input);

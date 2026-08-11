@@ -254,6 +254,13 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		status=$$?; set -e; test $$status -ne 0
 	grep -q "incompatible type for argument 1 to 'reference_test::mutable_reference'" \
 		$(TEST_OUT)/cxx-inline-aggregates/const-reference.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/private-method.ro \
+		tests/cxx_private_method_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/private-method.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "method 'secret' is not accessible" \
+		$(TEST_OUT)/cxx-inline-aggregates/private-method.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)

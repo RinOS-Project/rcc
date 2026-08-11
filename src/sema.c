@@ -219,6 +219,19 @@ static Type* implicit_cast(Expr* e, Type* target) {
     return NULL;
 }
 
+static TypeMethod* sema_find_inline_method(Type* aggregate,
+                                           const char* name) {
+    TypeMethod* method;
+    if (!aggregate || !name ||
+        (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    for (method = aggregate->methods; method; method = method->next) {
+        if (method->name && strcmp(method->name, name) == 0) return method;
+    }
+    return NULL;
+}
+
 static bool cxx_same_parameter_type(Type* source, Type* target,
                                     bool top_level) {
     if (!source || !target || source->kind != target->kind) return false;
@@ -872,6 +885,36 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            if (expr->call_func &&
+                (expr->call_func->kind == EXPR_MEMBER ||
+                 expr->call_func->kind == EXPR_PTR_MEMBER)) {
+                Expr* member = expr->call_func;
+                Type* owner = sema_expr(member->member_base);
+                TypeMethod* method;
+                if (member->kind == EXPR_PTR_MEMBER) {
+                    owner = get_pointer_base(owner);
+                }
+                method = sema_find_inline_method(owner,
+                                                 member->member_name);
+                if (method) {
+                    for (argument = expr->call_args; argument;
+                         argument = argument->next) {
+                        sema_expr(argument->expr);
+                    }
+                    if (expr->call_args) {
+                        rcc_error(expr->loc,
+                                  "inline accessor '%s' accepts no arguments",
+                                  member->member_name);
+                    }
+                    if (method->cxx_access != 0u) {
+                        rcc_error(expr->loc, "method '%s' is not accessible",
+                                  member->member_name);
+                    }
+                    expr->call_method = method;
+                    expr->type = method->return_type;
+                    break;
+                }
+            }
             if (sema_atomic_builtin_call(expr)) break;
             if (expr->call_func->kind == EXPR_IDENT) {
                 Symbol* overload = symtab_lookup(

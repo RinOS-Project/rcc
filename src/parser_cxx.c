@@ -334,6 +334,102 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     return mask;
 }
 
+static TypeField* class_layout_field(CxxClass* cls, const char* name) {
+    TypeField* field;
+    for (field = cls && cls->type ? cls->type->fields : NULL;
+         field; field = field->next) {
+        if (field->name && name && strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static void register_inline_class_accessors(CxxClass* cls) {
+    struct CxxMember* member;
+    TypeMethod** tail;
+    if (!cls || !cls->type || !cls->type->is_complete) return;
+    tail = &cls->type->methods;
+    while (*tail) tail = &(*tail)->next;
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        StmtList* statements;
+        Expr* returned;
+        Expr* field_expr = NULL;
+        Expr* constant_expr = NULL;
+        TypeField* field;
+        TypeMethodKind kind;
+        TypeMethod* lowered;
+        if (!method || method->is_static || method->is_virtual ||
+            method->is_pure_virtual || method->is_deleted ||
+            method->is_defaulted || method->is_constructor ||
+            method->is_destructor || !method->is_const ||
+            method->decl->func_params || !method->decl->func_body ||
+            method->decl->func_body->kind != STMT_BLOCK) {
+            continue;
+        }
+        statements = method->decl->func_body->block_stmts;
+        if (!statements || statements->next ||
+            !statements->stmt || statements->stmt->kind != STMT_RETURN ||
+            !statements->stmt->return_val) {
+            continue;
+        }
+        returned = statements->stmt->return_val;
+        if (returned->kind == EXPR_IDENT) {
+            field_expr = returned;
+            kind = TYPE_METHOD_FIELD;
+        } else if (returned->kind == EXPR_EQ || returned->kind == EXPR_NE) {
+            if (returned->binary_lhs &&
+                returned->binary_lhs->kind == EXPR_IDENT &&
+                returned->binary_rhs &&
+                returned->binary_rhs->kind == EXPR_INT_LIT) {
+                field_expr = returned->binary_lhs;
+                constant_expr = returned->binary_rhs;
+            } else if (returned->binary_rhs &&
+                       returned->binary_rhs->kind == EXPR_IDENT &&
+                       returned->binary_lhs &&
+                       returned->binary_lhs->kind == EXPR_INT_LIT) {
+                field_expr = returned->binary_rhs;
+                constant_expr = returned->binary_lhs;
+            } else {
+                continue;
+            }
+            kind = returned->kind == EXPR_EQ
+                ? TYPE_METHOD_FIELD_EQ_CONSTANT
+                : TYPE_METHOD_FIELD_NE_CONSTANT;
+        } else {
+            continue;
+        }
+        field = class_layout_field(cls, field_expr->ident_name);
+        if (!field || !field->type || field->type->size <= 0 ||
+            field->type->size > 4 ||
+            !(type_is_integer(field->type) ||
+              field->type->kind == TYPE_ENUM)) {
+            continue;
+        }
+        if (kind == TYPE_METHOD_FIELD &&
+            !type_is_compatible(method->decl->type->ret_type,
+                                field->type)) {
+            continue;
+        }
+        if (kind != TYPE_METHOD_FIELD &&
+            !(type_is_integer(method->decl->type->ret_type) ||
+              method->decl->type->ret_type->kind == TYPE_ENUM)) {
+            continue;
+        }
+        lowered = ast_arena_alloc(sizeof(*lowered));
+        lowered->name = method->decl->name;
+        lowered->return_type = method->decl->type->ret_type;
+        lowered->field = field;
+        lowered->kind = kind;
+        lowered->constant = constant_expr ? constant_expr->int_val : 0;
+        lowered->cxx_access = (unsigned char)member->access;
+        lowered->next = NULL;
+        *tail = lowered;
+        tail = &lowered->next;
+    }
+}
+
 /* Parse class member (field or method) */
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
@@ -625,6 +721,7 @@ CxxClass* parse_cxx_class(void) {
     if (!has_definition) return cls;
 
     cxx_class_compute_layout(cls);
+    register_inline_class_accessors(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
      * reuse the common initializer/codegen backend. */
