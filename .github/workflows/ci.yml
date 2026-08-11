@@ -44,4 +44,5 @@ jobs:
           make test-weak-link
           make test-object-width
           make test-special-sections
+          make test-tls
           make test-direct-relocation

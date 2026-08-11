@@ -852,7 +852,7 @@ test-sanitize:
 		TEST_OUT=$(SANITIZER_ROOT)/tests \
 		CFLAGS="$(CFLAGS) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
 		LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" \
-		all test-manifest test-signing test-executable-imports
+		all test-manifest test-signing test-executable-imports test-tls
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/class.ro tests/class_test.cpp
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
@@ -1072,19 +1072,25 @@ test-tls: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/tls/cxx-x64.ro tests/tls.cpp
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/tls_codegen_test \
 		tests/tls_codegen_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/tls/invalid-local.ro tests/tls_invalid_local.c
+	$(RCC_TARGET) --target i686-unknown-rinos -shared \
+		--emit-unsigned-v3 -o $(TEST_OUT)/tls/x86.rll tests/tls.c
+	$(RLD_TARGET) -m32 -shared --emit-unsigned-v3 \
+		-o $(TEST_OUT)/tls/x86-linked.rll $(TEST_OUT)/tls/x86.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -shared \
+		--emit-unsigned-v3 -o $(TEST_OUT)/tls/x64.rll tests/tls.c
+	$(RLD_TARGET) -m64 -shared --emit-unsigned-v3 \
+		-o $(TEST_OUT)/tls/x64-linked.rll $(TEST_OUT)/tls/x64.ro
 	$(TEST_OUT)/tls_codegen_test \
 		$(TEST_OUT)/tls/x86.ro $(TEST_OUT)/tls/x86.rin \
 		$(TEST_OUT)/tls/x86-linked.rin $(TEST_OUT)/tls/x64.ro \
 		$(TEST_OUT)/tls/x64.rin $(TEST_OUT)/tls/x64-linked.rin \
-		$(TEST_OUT)/tls/cxx-x86.ro $(TEST_OUT)/tls/cxx-x64.ro
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/tls/invalid-local.ro tests/tls_invalid_local.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -shared \
-		--emit-unsigned-v3 -o $(TEST_OUT)/tls/invalid.rll tests/tls.c
+		$(TEST_OUT)/tls/cxx-x86.ro $(TEST_OUT)/tls/cxx-x64.ro \
+		$(TEST_OUT)/tls/x86.rll $(TEST_OUT)/tls/x86-linked.rll \
+		$(TEST_OUT)/tls/x64.rll $(TEST_OUT)/tls/x64-linked.rll
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -driver \
 		--emit-unsigned-v3 -o $(TEST_OUT)/tls/invalid.drv tests/tls.c
-	! $(RLD_TARGET) -m64 -shared --emit-unsigned-v3 \
-		-o $(TEST_OUT)/tls/invalid-linked.rll $(TEST_OUT)/tls/x64.ro
 	@echo "C17/C++20 local-exec TLS tests completed"
 
 test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)

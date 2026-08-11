@@ -73,7 +73,7 @@ static void verify_object(const char* path, uint16_t arch, int cxx)
     objfile_free(object);
 }
 
-static void verify_image(const char* path, uint16_t architecture)
+static void verify_image(const char* path, uint16_t architecture, int library)
 {
     size_t size;
     uint8_t* bytes = read_file(path, &size);
@@ -93,6 +93,9 @@ static void verify_image(const char* path, uint16_t architecture)
            header->architecture == architecture &&
            header->abi_minor >= RIN_IMAGE_ABI_MINOR_TLSOFF32S &&
            (header->flags & RIN_IMAGE_USES_TLS) != 0u);
+    assert(((header->flags & RIN_IMAGE_LIBRARY) != 0u) == (library != 0));
+    assert(((header->flags & RIN_IMAGE_EXECUTABLE) != 0u) == (library == 0));
+    if (library) assert(header->entry_rva == 0u);
     assert(header->section_table_offset +
                (uint64_t)header->section_count * sizeof(*sections) <= size);
     sections = (RinSectionV3*)(bytes + header->section_table_offset);
@@ -146,14 +149,18 @@ static void verify_image(const char* path, uint16_t architecture)
 
 int main(int argc, char** argv)
 {
-    assert(argc == 9);
+    assert(argc == 13);
     verify_object(argv[1], ARCH_X86, 0);
-    verify_image(argv[2], RIN_ARCH_X86);
-    verify_image(argv[3], RIN_ARCH_X86);
+    verify_image(argv[2], RIN_ARCH_X86, 0);
+    verify_image(argv[3], RIN_ARCH_X86, 0);
     verify_object(argv[4], ARCH_X64, 0);
-    verify_image(argv[5], RIN_ARCH_X86_64);
-    verify_image(argv[6], RIN_ARCH_X86_64);
+    verify_image(argv[5], RIN_ARCH_X86_64, 0);
+    verify_image(argv[6], RIN_ARCH_X86_64, 0);
     verify_object(argv[7], ARCH_X86, 1);
     verify_object(argv[8], ARCH_X64, 1);
+    verify_image(argv[9], RIN_ARCH_X86, 1);
+    verify_image(argv[10], RIN_ARCH_X86, 1);
+    verify_image(argv[11], RIN_ARCH_X86_64, 1);
+    verify_image(argv[12], RIN_ARCH_X86_64, 1);
     return 0;
 }

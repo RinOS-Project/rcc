@@ -1408,11 +1408,6 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         fprintf(stderr, "rld: canonical RIN v3 requires exactly one non-empty code section\n");
         return false;
     }
-    if (library && uses_tls) {
-        fprintf(stderr,
-                "rld: TLS-bearing .rll output is disabled until graph TLS layout is available\n");
-        return false;
-    }
     section_count = load_section_count + (absolute_relocation_count ? 1u : 0u) +
                     (import_count ? 1u : 0u) +
                     (export_count ? 1u : 0u);

@@ -11,12 +11,6 @@ bool rcc_emit_rll(Module* mod, AST* ast, const char* outfile) {
     FILE* file;
     (void)ast;
 
-    if (mod && mod->tls.size > 0u) {
-        rcc_error((SourceLoc){outfile, 0, 0},
-                  "TLS-bearing .rll output requires graph TLS layout support");
-        return false;
-    }
-
     /* The common writer produces the canonical section/relocation layout. */
     if (!rcc_emit(mod, outfile)) return false;
     file = fopen(outfile, "r+b");
