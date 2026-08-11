@@ -16,6 +16,10 @@ typedef struct {
 
 extern Parser parser;
 
+/* The current template is only needed while parsing dependent declarations;
+ * instantiated types are resolved by the later template semantic phase. */
+static CxxTemplate* active_template;
+
 /* Parser utilities from parser.c */
 static Token* peek(void) { return parser.cur; }
 static Token* previous(void) { return parser.prev; }
@@ -50,6 +54,9 @@ static Token* expect(TokenType type, const char* msg) {
 static Expr* parse_cxx_expression(void);
 static Stmt* parse_cxx_statement(void);
 static Type* parse_cxx_type_spec(void);
+static Decl* parse_cxx_function_declaration(bool parse_body,
+                                            bool* is_constexpr,
+                                            bool* is_noexcept);
 CxxTemplate* parse_cxx_template(void);
 
 /* ═══════════════════════════════════════
@@ -147,6 +154,27 @@ static void skip_balanced(TokenType open, TokenType close) {
         if (match(open)) depth++;
         else if (match(close)) depth--;
         else advance();
+    }
+}
+
+static void skip_cxx_template_arguments(void) {
+    SourceLoc loc = peek()->loc;
+    int depth = 0;
+    if (!match(TOK_LT)) return;
+    depth = 1;
+    while (depth > 0 && !at_end()) {
+        if (match(TOK_LT)) {
+            depth++;
+        } else if (match(TOK_GT)) {
+            depth--;
+        } else if (match(TOK_RSHIFT)) {
+            depth = depth > 1 ? depth - 2 : 0;
+        } else {
+            advance();
+        }
+    }
+    if (depth != 0) {
+        rcc_error(loc, "unterminated template argument list");
     }
 }
 
@@ -325,12 +353,27 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Method body or declaration */
         Stmt* body = NULL;
-        if (match(TOK_LBRACE)) {
+        if (active_template && check(TOK_LBRACE)) {
+            /* Template member bodies are instantiated and parsed
+             * semantically only after template arguments are known. */
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        } else if (match(TOK_LBRACE)) {
             /* Parse method body */
             StmtList* stmts = NULL;
             while (!check(TOK_RBRACE) && !at_end()) {
+                Token* statement_start = parser.cur;
+                int errors_before = g_error_count;
                 Stmt* s = parse_cxx_statement();
                 if (s) stmtlist_append(&stmts, s);
+                if (g_error_count > errors_before) {
+                    while (!at_end() && !check(TOK_SEMICOLON) &&
+                           !check(TOK_RBRACE)) {
+                        advance();
+                    }
+                    if (check(TOK_SEMICOLON)) advance();
+                } else if (parser.cur == statement_start && !at_end()) {
+                    advance();
+                }
             }
             expect(TOK_RBRACE, "}");
             body = stmt_block(stmts, loc);
@@ -460,6 +503,7 @@ CxxNamespace* parse_cxx_namespace(void) {
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* declaration_start = parser.cur;
         int errors_before = g_error_count;
+        skip_cxx_attributes();
         if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             cxx_namespace_add_class(ns, cls);
@@ -469,6 +513,13 @@ CxxNamespace* parse_cxx_namespace(void) {
         } else if (match(TOK_NAMESPACE)) {
             CxxNamespace* inner = parse_cxx_namespace();
             cxx_namespace_add_namespace(ns, inner);
+        } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
+                   check(TOK___INLINE__)) {
+            bool is_constexpr = false;
+            bool is_noexcept = false;
+            Decl* declaration = parse_cxx_function_declaration(
+                false, &is_constexpr, &is_noexcept);
+            if (declaration) cxx_namespace_add_decl(ns, declaration);
         } else {
             /* Other declaration - skip for now */
             parse_cxx_statement();
@@ -511,8 +562,9 @@ static DeclList* parse_cxx_parameter_declarations(void) {
     return params;
 }
 
-static Decl* parse_cxx_function_template_declaration(bool* is_constexpr,
-                                                     bool* is_noexcept) {
+static Decl* parse_cxx_function_declaration(bool parse_body,
+                                            bool* is_constexpr,
+                                            bool* is_noexcept) {
     SourceLoc loc;
     Type* return_type;
     Token* name;
@@ -530,7 +582,7 @@ static Decl* parse_cxx_function_template_declaration(bool* is_constexpr,
         else break;
     }
     return_type = parse_cxx_type_spec();
-    name = expect(TOK_IDENT, "function template name");
+    name = expect(TOK_IDENT, "function name");
     if (!name) return NULL;
     expect(TOK_LPAREN, "(");
     params = parse_cxx_parameter_declarations();
@@ -541,7 +593,9 @@ static Decl* parse_cxx_function_template_declaration(bool* is_constexpr,
             skip_balanced(TOK_LPAREN, TOK_RPAREN);
         }
     }
-    if (match(TOK_LBRACE)) {
+    if (!parse_body && check(TOK_LBRACE)) {
+        skip_balanced(TOK_LBRACE, TOK_RBRACE);
+    } else if (match(TOK_LBRACE)) {
         StmtList* statements = NULL;
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
@@ -614,7 +668,10 @@ CxxTemplate* parse_cxx_template(void) {
 
     /* Template body */
     if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+        CxxTemplate* outer_template = active_template;
+        active_template = tmpl;
         tmpl->templated_class = parse_cxx_class();
+        active_template = outer_template;
         tmpl->kind = TMPL_CLASS;
         tmpl->class_def = tmpl->templated_class;
         if (tmpl->templated_class) {
@@ -622,8 +679,11 @@ CxxTemplate* parse_cxx_template(void) {
         }
     } else {
         tmpl->kind = TMPL_FUNCTION;
-        tmpl->func_def = parse_cxx_function_template_declaration(
-            &tmpl->is_constexpr, &tmpl->is_noexcept);
+        CxxTemplate* outer_template = active_template;
+        active_template = tmpl;
+        tmpl->func_def = parse_cxx_function_declaration(
+            true, &tmpl->is_constexpr, &tmpl->is_noexcept);
+        active_template = outer_template;
         if (tmpl->func_def) {
             tmpl->name = ast_arena_strdup(tmpl->func_def->name);
         }
@@ -676,6 +736,7 @@ static Type* parse_cxx_type_spec(void) {
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
         /* Class or namespace qualified type */
         const char* name = parse_qualified_name();
+        if (check(TOK_LT)) skip_cxx_template_arguments();
         t = type_struct(name);
     } else {
         /* Default to int */
@@ -769,7 +830,54 @@ static Expr* parse_cxx_expression(void) {
 
 extern Stmt* parse_declaration(void);
 
+static bool is_active_template_type(const char* name) {
+    int index;
+    if (!active_template || !name) return false;
+    for (index = 0; index < active_template->param_count; ++index) {
+        TemplateParam* parameter = &active_template->params[index];
+        if (parameter->kind == TPARAM_TYPE && parameter->name &&
+            strcmp(parameter->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Stmt* parse_cxx_dependent_local_declaration(void) {
+    SourceLoc loc = peek()->loc;
+    Type* type;
+    Token* name;
+    Expr* initializer = NULL;
+
+    if (match(TOK_AUTO)) {
+        /* Deduction is deferred until template instantiation. */
+        type = type_int;
+    } else {
+        type = parse_cxx_type_spec();
+    }
+    name = expect(TOK_IDENT, "local variable name");
+    if (!name) return NULL;
+    if (match(TOK_ASSIGN)) {
+        if (check(TOK_LBRACE)) {
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        } else {
+            initializer = parse_cxx_expression();
+        }
+    } else if (check(TOK_LBRACE)) {
+        skip_balanced(TOK_LBRACE, TOK_RBRACE);
+    }
+    expect(TOK_SEMICOLON, ";");
+    return stmt_decl(decl_var(name->value.str_val, type, initializer, loc),
+                     loc);
+}
+
 static Stmt* parse_cxx_statement(void) {
+    if (check(TOK_AUTO) ||
+        (check(TOK_IDENT) &&
+         is_active_template_type(peek()->value.str_val))) {
+        return parse_cxx_dependent_local_declaration();
+    }
+
     /* try-catch */
     if (match(TOK_TRY)) {
         /* Parse try block */
@@ -863,14 +971,16 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     while (!at_end()) {
         Token* declaration_start = parser.cur;
         SourceLoc loc = peek()->loc;
+        skip_cxx_attributes();
 
         if (check(TOK_EXTERN) && parser.cur->next &&
             parser.cur->next->type == TOK_STRING_LIT) {
             parse_cxx_language_linkage(ast);
         } else if (match(TOK_NAMESPACE)) {
             CxxNamespace* ns = parse_cxx_namespace();
-            /* Store namespace in AST - for now, just process */
-            (void)ns;
+            if (g_global_namespace) {
+                cxx_namespace_add_namespace(g_global_namespace, ns);
+            }
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
             if (g_global_namespace) {
@@ -883,6 +993,15 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 cxx_namespace_add_class(g_global_namespace, cls);
             }
             (void)loc;
+        } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
+                   check(TOK___INLINE__)) {
+            bool is_constexpr = false;
+            bool is_noexcept = false;
+            Decl* declaration = parse_cxx_function_declaration(
+                false, &is_constexpr, &is_noexcept);
+            if (g_global_namespace && declaration) {
+                cxx_namespace_add_decl(g_global_namespace, declaration);
+            }
         } else if (match(TOK_USING)) {
             /* using declaration or directive */
             if (match(TOK_NAMESPACE)) {
