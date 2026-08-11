@@ -181,6 +181,18 @@ test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
 		$(abspath $(RCXX_TARGET)) --target x86_64-unknown-rinos \
 		-std=c++20 -c -o cxx-x64.ro \
 		$(abspath tests/tool_relative_include.cpp)
+	mkdir -p $(TEST_OUT)/tool-relative/install/bin \
+		$(TEST_OUT)/tool-relative/install/include \
+		$(TEST_OUT)/tool-relative/install/cwd
+	cp $(RCC_TARGET) $(RCXX_TARGET) $(TEST_OUT)/tool-relative/install/bin/
+	cp -R include/rcc $(TEST_OUT)/tool-relative/install/include/
+	cd $(TEST_OUT)/tool-relative/install/cwd && \
+		../bin/rcc --target x86_64-unknown-rinos -c \
+		-o installed-c-x64.ro $(abspath tests/tool_relative_include.c)
+	cd $(TEST_OUT)/tool-relative/install/cwd && \
+		../bin/rcc++ --target i686-unknown-rinos -std=c++20 -c \
+		-o installed-cxx-x86.ro \
+		$(abspath tests/tool_relative_include.cpp)
 	@echo "RCC/RCC++ executable-relative include tests completed"
 
 test-preprocessor-continuation: $(RCC_TARGET)
