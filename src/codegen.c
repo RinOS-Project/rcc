@@ -1077,6 +1077,22 @@ static void emit_sub_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, modrm(3, src, dst));
 }
 
+static void emit_adc_reg_reg(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x11);
+    emit_byte(mod, modrm(3, src, dst));
+}
+
+static void emit_sbb_reg_reg(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x19);
+    emit_byte(mod, modrm(3, src, dst));
+}
+
+static void emit_adc_reg_imm8(Module* mod, int reg, uint8_t imm) {
+    emit_byte(mod, 0x83);
+    emit_byte(mod, modrm(3, 2, reg));
+    emit_byte(mod, imm);
+}
+
 static void emit_imul_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, 0x0F);
     emit_byte(mod, 0xAF);
@@ -1345,6 +1361,24 @@ static void resolve_labels(Module* mod) {
 
 /* Forward declaration */
 static void gen_expr(Module* mod, Expr* expr);
+static void gen_expr64_pair(Module* mod, Expr* expr);
+static void gen_expr_as_integer64(Module* mod, Expr* expr);
+static void gen_call(Module* mod, Expr* expr);
+
+static bool gen_is_integer64(const Type* type) {
+    return type && type->size == 8 &&
+           type_is_integer((Type*)type);
+}
+
+static void emit_extend_eax_to_integer64(Module* mod,
+                                         const Type* source_type) {
+    if (source_type && type_is_integer((Type*)source_type) &&
+        !source_type->is_unsigned) {
+        emit_cdq(mod);
+    } else {
+        emit_mov_reg_imm(mod, EDX, 0u);
+    }
+}
 
 static Expr* call_argument(Expr* call, int index) {
     ExprList* argument = call->call_args;
@@ -1741,8 +1775,246 @@ static void gen_lvalue(Module* mod, Expr* expr) {
     }
 }
 
+/* i386 SysV returns 64-bit integer scalars in EDX:EAX.  Keep this separate
+ * from the ordinary EAX expression path so an unsupported operation cannot
+ * silently truncate its high word. */
+static void gen_expr64_pair(Module* mod, Expr* expr) {
+    if (!expr) {
+        emit_mov_reg_imm(mod, EAX, 0u);
+        emit_mov_reg_imm(mod, EDX, 0u);
+        return;
+    }
+
+    switch (expr->kind) {
+        case EXPR_INT_LIT: {
+            uint64_t value = (uint64_t)expr->int_val;
+            emit_mov_reg_imm(mod, EAX, (uint32_t)value);
+            emit_mov_reg_imm(mod, EDX, (uint32_t)(value >> 32));
+            break;
+        }
+
+        case EXPR_IDENT:
+        case EXPR_DEREF:
+        case EXPR_INDEX:
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            gen_lvalue(mod, expr);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ECX, 0);
+            emit_mov_reg_mem(mod, EDX, ECX, 4);
+            break;
+
+        case EXPR_NEG:
+            gen_expr64_pair(mod, expr->unary_operand);
+            emit_neg_reg(mod, EAX);
+            emit_adc_reg_imm8(mod, EDX, 0u);
+            emit_neg_reg(mod, EDX);
+            break;
+
+        case EXPR_BITNOT:
+            gen_expr64_pair(mod, expr->unary_operand);
+            emit_not_reg(mod, EAX);
+            emit_not_reg(mod, EDX);
+            break;
+
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+            gen_expr_as_integer64(mod, expr->binary_lhs);
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            gen_expr_as_integer64(mod, expr->binary_rhs);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            if (expr->kind == EXPR_ADD) {
+                emit_add_reg_reg(mod, EAX, ECX);
+            } else if (expr->kind == EXPR_SUB) {
+                emit_sub_reg_reg(mod, EAX, ECX);
+            } else if (expr->kind == EXPR_BITAND) {
+                emit_and_reg_reg(mod, EAX, ECX);
+            } else if (expr->kind == EXPR_BITOR) {
+                emit_or_reg_reg(mod, EAX, ECX);
+            } else {
+                emit_xor_reg_reg(mod, EAX, ECX);
+            }
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_mov_reg_mem(mod, EDX, ESP, 4);
+            if (expr->kind == EXPR_ADD) {
+                emit_adc_reg_reg(mod, EDX, ECX);
+            } else if (expr->kind == EXPR_SUB) {
+                emit_sbb_reg_reg(mod, EDX, ECX);
+            } else if (expr->kind == EXPR_BITAND) {
+                emit_and_reg_reg(mod, EDX, ECX);
+            } else if (expr->kind == EXPR_BITOR) {
+                emit_or_reg_reg(mod, EDX, ECX);
+            } else {
+                emit_xor_reg_reg(mod, EDX, ECX);
+            }
+            emit_add_reg_imm(mod, ESP, 8);
+            break;
+
+        case EXPR_ASSIGN:
+            gen_expr_as_integer64(mod, expr->binary_rhs);
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            gen_lvalue(mod, expr->binary_lhs);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_pop_reg(mod, EAX);
+            emit_pop_reg(mod, EDX);
+            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_mov_mem_reg(mod, ECX, 4, EDX);
+            break;
+
+        case EXPR_CAST:
+            if (expr->cast_expr->kind == EXPR_INT_LIT) {
+                /* The lexer preserves the full literal value even while the
+                 * compact frontend still assigns its pre-conversion type. */
+                gen_expr64_pair(mod, expr->cast_expr);
+            } else if (gen_is_integer64(expr->cast_expr->type)) {
+                gen_expr64_pair(mod, expr->cast_expr);
+            } else {
+                gen_expr(mod, expr->cast_expr);
+                emit_extend_eax_to_integer64(mod,
+                                             expr->cast_expr->type);
+            }
+            break;
+
+        case EXPR_COND: {
+            int else_label = new_label();
+            int end_label = new_label();
+            gen_expr(mod, expr->cond_test);
+            if (gen_is_integer64(expr->cond_test->type)) {
+                emit_or_reg_reg(mod, EAX, EDX);
+            }
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_E, else_label);
+            gen_expr_as_integer64(mod, expr->cond_then);
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, else_label);
+            gen_expr_as_integer64(mod, expr->cond_else);
+            emit_label(mod, end_label);
+            break;
+        }
+
+        case EXPR_COMMA:
+            gen_expr(mod, expr->binary_lhs);
+            gen_expr64_pair(mod, expr->binary_rhs);
+            break;
+
+        case EXPR_CALL:
+            gen_call(mod, expr);
+            break;
+
+        default:
+            rcc_error(expr->loc,
+                      "unsupported i686 64-bit integer operation");
+            emit_mov_reg_imm(mod, EAX, 0u);
+            emit_mov_reg_imm(mod, EDX, 0u);
+            break;
+    }
+}
+
+static void gen_expr_as_integer64(Module* mod, Expr* expr) {
+    if (expr && gen_is_integer64(expr->type)) {
+        gen_expr64_pair(mod, expr);
+    } else {
+        gen_expr(mod, expr);
+        emit_extend_eax_to_integer64(mod, expr ? expr->type : NULL);
+    }
+}
+
+static void gen_call(Module* mod, Expr* expr) {
+    int argument_bytes = 0;
+    int argc;
+    ExprList** args;
+    Type** argument_types;
+    Type* function_type;
+    TypeParam* parameter;
+    int i;
+    Expr* func_expr;
+
+    if (gen_atomic_builtin(mod, expr)) return;
+
+    argc = exprlist_len(expr->call_args);
+    args = rcc_alloc((size_t)argc * sizeof(ExprList*));
+    argument_types = rcc_alloc((size_t)argc * sizeof(Type*));
+    function_type = expr->call_func ? expr->call_func->type : NULL;
+    if (function_type && function_type->kind == TYPE_PTR) {
+        function_type = function_type->base;
+    }
+    parameter = function_type && function_type->kind == TYPE_FUNC
+        ? function_type->params : NULL;
+    i = 0;
+    for (ExprList* argument = expr->call_args; argument;
+         argument = argument->next) {
+        args[i] = argument;
+        argument_types[i] = parameter ? parameter->type
+                                      : argument->expr->type;
+        if (parameter) parameter = parameter->next;
+        ++i;
+    }
+    for (i = argc - 1; i >= 0; --i) {
+        Expr* argument = args[i]->expr;
+        Type* passed_type = argument_types[i];
+        gen_expr(mod, argument);
+        if (gen_is_integer64(passed_type)) {
+            if (!gen_is_integer64(argument->type)) {
+                emit_extend_eax_to_integer64(mod, argument->type);
+            }
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            argument_bytes += 8;
+        } else {
+            emit_push_reg(mod, EAX);
+            argument_bytes += 4;
+        }
+    }
+    rcc_free(argument_types);
+    rcc_free(args);
+
+    func_expr = expr->call_func;
+    if (func_expr->kind == EXPR_IDENT && func_expr->ident_decl &&
+        func_expr->ident_decl->kind == DECL_FUNC) {
+        Decl* func_decl = func_expr->ident_decl;
+        uint32_t call_offset;
+
+        emit_byte(mod, 0xE8);
+        call_offset = code_offset(mod);
+        emit_dword(mod, 0);
+        if (func_decl->func_body) {
+            add_func_call_ref(func_decl->name, call_offset);
+        } else {
+            /* NDRV/RIN v3 import slots remain 8 bytes on i686; the indirect
+             * machine call consumes their low address word. */
+            mod->code.size = call_offset - 1u;
+            emit_byte(mod, 0xFF);
+            emit_byte(mod, 0x15);
+            call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                                  call_offset, 0, false, false,
+                                  func_decl->name);
+        }
+    } else {
+        gen_expr(mod, func_expr);
+        emit_byte(mod, 0xFF);
+        emit_byte(mod, modrm(3, 2, EAX));
+    }
+
+    if (argument_bytes > 0) {
+        emit_add_reg_imm(mod, ESP, argument_bytes);
+    }
+}
+
 static void gen_expr(Module* mod, Expr* expr) {
     if (!expr) return;
+
+    if (gen_is_integer64(expr->type)) {
+        gen_expr64_pair(mod, expr);
+        return;
+    }
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
@@ -2072,57 +2344,7 @@ static void gen_expr(Module* mod, Expr* expr) {
         }
 
         case EXPR_CALL: {
-            if (gen_atomic_builtin(mod, expr)) break;
-            /* Push arguments in reverse order */
-            int argc = exprlist_len(expr->call_args);
-            ExprList** args = rcc_alloc(argc * sizeof(ExprList*));
-            int i = 0;
-            for (ExprList* a = expr->call_args; a; a = a->next) {
-                args[i++] = a;
-            }
-            for (i = argc - 1; i >= 0; i--) {
-                gen_expr(mod, args[i]->expr);
-                emit_push_reg(mod, EAX);
-            }
-            rcc_free(args);
-
-            /* Check if this is a direct function call */
-            Expr* func_expr = expr->call_func;
-            if (func_expr->kind == EXPR_IDENT && func_expr->ident_decl &&
-                func_expr->ident_decl->kind == DECL_FUNC) {
-                Decl* func_decl = func_expr->ident_decl;
-
-                /* Emit CALL rel32 */
-                emit_byte(mod, 0xE8);  /* CALL rel32 */
-                uint32_t call_offset = code_offset(mod);
-                emit_dword(mod, 0);  /* Placeholder */
-
-                if (func_decl->func_body) {
-                    /* Internal function - record for later patching */
-                    add_func_call_ref(func_decl->name, call_offset);
-                } else {
-                    /* call dword ptr [absolute slot]; NDRV/RIN v3 uses an
-                     * 8-byte import slot even though i686 consumes low32. */
-                    mod->code.size = call_offset - 1u;
-                    emit_byte(mod, 0xFF);
-                    emit_byte(mod, 0x15);
-                    call_offset = code_offset(mod);
-                    emit_dword(mod, 0u);
-                    module_add_relocation(mod, MODULE_SYMBOL_CODE,
-                                          call_offset, 0, false, false,
-                                          func_decl->name);
-                }
-            } else {
-                /* Indirect call through function pointer */
-                gen_expr(mod, expr->call_func);
-                emit_byte(mod, 0xFF);  /* CALL EAX */
-                emit_byte(mod, modrm(3, 2, EAX));
-            }
-
-            /* Clean up arguments */
-            if (argc > 0) {
-                emit_add_reg_imm(mod, ESP, argc * 4);
-            }
+            gen_call(mod, expr);
             break;
         }
 
@@ -2691,12 +2913,21 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         return false;
     }
     gen_expr(mod, initializer);
-    emit_store_typed32(mod, EBP, displacement, EAX, type);
+    if (gen_is_integer64(type)) {
+        if (!gen_is_integer64(initializer->type)) {
+            emit_extend_eax_to_integer64(mod, initializer->type);
+        }
+        emit_mov_mem_reg(mod, EBP, displacement, EAX);
+        emit_mov_mem_reg(mod, EBP, displacement + 4, EDX);
+    } else {
+        emit_store_typed32(mod, EBP, displacement, EAX, type);
+    }
     return true;
 }
 
 static int break_label = -1;
 static int continue_label = -1;
+static Type* current_function_return_type = NULL;
 
 static void gen_stmt(Module* mod, Stmt* stmt) {
     if (!stmt) return;
@@ -2823,6 +3054,11 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         case STMT_RETURN:
             if (stmt->return_val) {
                 gen_expr(mod, stmt->return_val);
+                if (gen_is_integer64(current_function_return_type) &&
+                    !gen_is_integer64(stmt->return_val->type)) {
+                    emit_extend_eax_to_integer64(
+                        mod, stmt->return_val->type);
+                }
             }
             emit_leave(mod);
             emit_ret(mod);
@@ -2876,6 +3112,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
 static void gen_function(Module* mod, Decl* decl) {
     int stack_size;
+    Type* old_return_type;
     if (!decl->func_body) return;
 
     stack_size = codegen_required_local_bytes(decl->func_body);
@@ -2893,10 +3130,19 @@ static void gen_function(Module* mod, Decl* decl) {
     }
 
     /* Generate body */
+    old_return_type = current_function_return_type;
+    current_function_return_type = decl->type &&
+                                   decl->type->kind == TYPE_FUNC
+        ? decl->type->ret_type : NULL;
     gen_stmt(mod, decl->func_body);
+    current_function_return_type = old_return_type;
 
     /* Function epilogue (fallthrough return) */
     emit_mov_reg_imm(mod, EAX, 0);
+    if (gen_is_integer64(decl->type && decl->type->kind == TYPE_FUNC
+                         ? decl->type->ret_type : NULL)) {
+        emit_mov_reg_imm(mod, EDX, 0);
+    }
     emit_leave(mod);
     emit_ret(mod);
 }

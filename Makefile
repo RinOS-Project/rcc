@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -151,6 +151,21 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/atomic-x64/invalid-pointer.ro \
 		tests/invalid_pointer_atomic.c
 	@echo "Dual-architecture integer/pointer atomic tests completed"
+
+test-x86-wide-scalar: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/x86-wide-scalar
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/x86-wide-scalar/scalar.ro \
+		tests/x86_wide_scalar.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/x86-wide-scalar/run-test \
+		tests/x86_wide_scalar_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/x86-wide-scalar/run-test \
+		$(TEST_OUT)/x86-wide-scalar/scalar.ro
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/x86-wide-scalar/invalid.ro \
+		tests/invalid_x86_wide_scalar.c
+	@echo "i686 64-bit scalar ABI test completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
@@ -320,6 +335,9 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/atomic-builtin.ro \
 		tests/atomic_builtin.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/x86-wide-scalar.ro \
+		tests/x86_wide_scalar.c
 	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/invalid.ro \
 		tests/invalid_designated_initializer.c

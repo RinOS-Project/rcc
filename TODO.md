@@ -45,6 +45,7 @@
   - [x] AMD64 64-bit整数atomic全操作と競合実行試験
   - [x] 両arch pointer atomic load/store/exchange/CASと不正RMW拒否
   - [ ] i686 64-bit scalar ABI loweringと`cmpxchg8b` atomic
+    - [x] EDX:EAX戻り値、8-byte cdecl引数、load/store、加減算、bitwise基礎
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
 
@@ -81,6 +82,7 @@
   - [x] extern/tentative definitionとzero-file-size BSS
   - [x] 文字列literalのread-only RODATA分離
 - [ ] i386での完全な64-bit整数演算と戻り値
+  - [x] EDX:EAX scalar return、8-byte引数、literal/cast/local/global/call基礎
 - [ ] SysV aggregate分類、variadic、floating-point ABI
 - [ ] PIC/PIE、GOT/PLT、TLS relocation
 - [ ] DWARF debug/unwind

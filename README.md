@@ -78,6 +78,7 @@ rld --target x86_64-unknown-rinos --shared \
 make test-static-assert
 make test-cxx-cli
 make test-atomic-builtins
+make test-x86-wide-scalar
 make test-link
 make test-archive
 make test-archive-link
@@ -112,6 +113,10 @@ pointerへのfetch算術・bitwiseはSemaで拒否します。i686の64-bit oper
 builtin利用はdiagnostic付きで拒否します。wide/pointer-sized型を含むC17 atomic typedefは
 両archで公開し、i686の`long`は既存32-bit lock-free pathを使用します。定数memory orderの範囲、load/store制約、
 compare-exchangeのfailure/weak制約もSemaで拒否します。
+`test-x86-wide-scalar`はi686 SysVの64-bit整数について、EDX:EAX戻り値、8-byte
+cdecl引数、literal、符号/ゼロ拡張、local/global load/store、加減算、bitwise演算、
+内部関数callを32-bit host processで直接実行します。未実装のwide演算は下位32-bitへ
+暗黙切り詰めせずdiagnosticにします。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、
