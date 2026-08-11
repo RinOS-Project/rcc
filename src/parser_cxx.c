@@ -909,10 +909,18 @@ static bool expression_is_single_identifier_compound(Expr* expression,
  * The result value is ignored by operator=, but constraining both returns and
  * the success branch prevents a seemingly harmless helper name from hiding
  * arbitrary side effects. */
-static bool class_has_validated_close(CxxClass* cls, const char* name,
-                                      TypeField* field) {
+static void register_inline_class_closes(CxxClass* cls) {
     struct CxxMember* member;
-    for (member = cls ? cls->members : NULL; member; member = member->next) {
+    TypeMethod** tail;
+    TypeField* field;
+    if (!cls || !cls->type || !cls->type->is_complete ||
+        !cls->type->cleanup_function || !cls->type->cleanup_field) {
+        return;
+    }
+    field = cls->type->cleanup_field;
+    tail = &cls->type->methods;
+    while (*tail) tail = &(*tail)->next;
+    for (member = cls->members; member; member = member->next) {
         CxxMethod* method = member->method;
         StmtList* statements;
         Stmt* empty_guard;
@@ -925,9 +933,12 @@ static bool class_has_validated_close(CxxClass* cls, const char* name,
         Expr* argument;
         ExprList* arguments;
         Type* return_type;
+        TypeField* result_field;
         int64_t success;
-        if (!method || !method->decl || !method->decl->name || !name ||
-            strcmp(method->decl->name, name) != 0 || method->is_static ||
+        int64_t assigned;
+        TypeMethod* lowered;
+        if (!method || !method->decl || !method->decl->name ||
+            member->access != ACCESS_PUBLIC || method->is_static ||
             method->is_virtual || method->is_pure_virtual ||
             method->is_deleted || method->is_defaulted ||
             method->is_constructor || method->is_destructor ||
@@ -943,6 +954,13 @@ static bool class_has_validated_close(CxxClass* cls, const char* name,
             (return_type->kind != TYPE_STRUCT &&
              return_type->kind != TYPE_UNION) ||
             return_type->cleanup_function) {
+            continue;
+        }
+        result_field = return_type->fields;
+        if (!result_field || result_field->next || !result_field->type ||
+            result_field->type->size <= 0 || result_field->type->size > 4 ||
+            !(type_is_integer(result_field->type) ||
+              result_field->type->kind == TYPE_ENUM)) {
             continue;
         }
         statements = method->decl->func_body->block_stmts;
@@ -975,6 +993,10 @@ static bool class_has_validated_close(CxxClass* cls, const char* name,
             continue;
         }
         result = call_declaration->decl;
+        if (!result->type ||
+            !type_is_compatible(result->type, result_field->type)) {
+            continue;
+        }
         call = result->var_init;
         if (call->kind != EXPR_CALL || !call->call_func ||
             call->call_func->kind != EXPR_IDENT ||
@@ -1011,8 +1033,8 @@ static bool class_has_validated_close(CxxClass* cls, const char* name,
             action->expr->kind != EXPR_ASSIGN ||
             !move_expression_is_identifier(action->expr->binary_lhs,
                                            field->name) ||
-            !expr_eval_integer_constant(action->expr->binary_rhs, &success) ||
-            success != cls->type->cleanup_invalid) {
+            !expr_eval_integer_constant(action->expr->binary_rhs, &assigned) ||
+            assigned != cls->type->cleanup_invalid) {
             continue;
         }
         if (!final_return || final_return->kind != STMT_RETURN ||
@@ -1021,9 +1043,35 @@ static bool class_has_validated_close(CxxClass* cls, const char* name,
                                                       return_type)) {
             continue;
         }
-        return true;
+        lowered = ast_arena_alloc(sizeof(*lowered));
+        lowered->name = method->decl->name;
+        lowered->return_type = return_type;
+        lowered->field = field;
+        lowered->kind = TYPE_METHOD_FIELD_CLOSE;
+        lowered->constant = cls->type->cleanup_invalid;
+        lowered->cleanup_function = cls->type->cleanup_function;
+        lowered->result_field = result_field;
+        lowered->success_constant = success;
+        lowered->cxx_access = (unsigned char)member->access;
+        lowered->next = NULL;
+        *tail = lowered;
+        tail = &lowered->next;
     }
-    return false;
+}
+
+static TypeMethod* class_close_method(CxxClass* cls, const char* name,
+                                      TypeField* field) {
+    TypeMethod* method;
+    for (method = cls && cls->type ? cls->type->methods : NULL;
+         method; method = method->next) {
+        if (method->kind == TYPE_METHOD_FIELD_CLOSE &&
+            method->cxx_access == ACCESS_PUBLIC && method->name && name &&
+            strcmp(method->name, name) == 0 && method->field == field &&
+            method->cleanup_function && method->result_field) {
+            return method;
+        }
+    }
+    return NULL;
 }
 
 /* Accept only the SDK ownership assignment:
@@ -1064,6 +1112,7 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
         Expr* assignment;
         Expr* release_call;
         Expr* release_callee;
+        TypeMethod* close;
         TypeMethod* release;
         const char* close_name;
         if (!method || !method->decl || !method->decl->name ||
@@ -1127,7 +1176,8 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
             continue;
         }
         close_name = close_call->call_func->ident_name;
-        if (!class_has_validated_close(cls, close_name, field)) continue;
+        close = class_close_method(cls, close_name, field);
+        if (!close) continue;
         assignment = actions->next->stmt->expr;
         if (!assignment || assignment->kind != EXPR_ASSIGN ||
             !move_expression_is_identifier(assignment->binary_lhs,
@@ -1453,6 +1503,7 @@ CxxClass* parse_cxx_class(void) {
     register_inline_class_bool_delegates(cls);
     register_inline_class_cleanup(cls);
     register_inline_class_releases(cls);
+    register_inline_class_closes(cls);
     register_inline_class_move_constructor(cls);
     register_inline_class_move_assignment(cls);
 
@@ -2189,6 +2240,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     register_inline_class_bool_delegates(instance);
     register_inline_class_cleanup(instance);
     register_inline_class_releases(instance);
+    register_inline_class_closes(instance);
     register_inline_class_move_constructor(instance);
     register_inline_class_move_assignment(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);

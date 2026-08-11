@@ -60,6 +60,7 @@ typedef enum {
     TYPE_METHOD_FIELD_EQ_CONSTANT,
     TYPE_METHOD_FIELD_NE_CONSTANT,
     TYPE_METHOD_FIELD_RELEASE,
+    TYPE_METHOD_FIELD_CLOSE,
 } TypeMethodKind;
 
 /* A structurally validated C++ zero-argument method that can be expanded by
@@ -70,6 +71,9 @@ struct TypeMethod {
     TypeField* field;
     TypeMethodKind kind;
     int64_t constant;
+    const char* cleanup_function;
+    TypeField* result_field;
+    int64_t success_constant;
     unsigned char cxx_access;
     TypeMethod* next;
 };
@@ -285,12 +289,20 @@ typedef struct CxxMoveAssignment {
     Expr* release;
 } CxxMoveAssignment;
 
+typedef struct CxxCloseCall {
+    Expr* object;
+    Expr* handle;
+    Expr* cleanup;
+} CxxCloseCall;
+
 struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
     /* Non-NULL only for a semantically validated C++ ownership transfer. */
     CxxMoveAssignment* cxx_move_assignment;
+    /* Non-NULL only for the structurally validated SDK close operation. */
+    CxxCloseCall* cxx_close_call;
 
     union {
         /* EXPR_INT_LIT */

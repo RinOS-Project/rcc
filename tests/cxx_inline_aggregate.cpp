@@ -41,7 +41,7 @@ private:
 
 extern "C" int cxx_cleanup_close(int* value) {
     *value = *value + 1;
-    return 0;
+    return *value < 0 ? -7 : 0;
 }
 
 template<typename Handle>
@@ -339,6 +339,34 @@ int cxx_cleanup_wide_release(int* value) {
 int cxx_cleanup_get(int* value) {
     auto handle = CxxUnique<int*>{value};
     return handle.get() == value;
+}
+
+int cxx_cleanup_close_call(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    auto result = handle.close();
+    return result.code() * 100 + (!handle) * 10 + result.ok();
+}
+
+int cxx_cleanup_close_failure(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    auto result = handle.close();
+    int retained = handle.get() == value && handle;
+    (void)handle.release();
+    return (result.code() == -7) * 100 + retained * 10 +
+           (*value == -9);
+}
+
+int cxx_cleanup_close_invalid(void) {
+    auto handle = CxxUnique<int*>{0};
+    auto result = handle.close();
+    return result.code() * 100 + (!handle) * 10 + result.ok();
+}
+
+int cxx_cleanup_wide_close_call(int* value) {
+    auto handle = CxxWideUnique{
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(value))};
+    auto result = handle.close();
+    return result.code() * 100 + (!handle) * 10 + result.ok();
 }
 
 uint64_t cxx_cleanup_wide_get(uint64_t value) {

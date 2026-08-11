@@ -273,6 +273,9 @@ static void optimize_expr(Expr** expression) {
         case EXPR_CALL:
             optimize_expr(&value->call_func);
             optimize_expr_list(value->call_args);
+            if (value->cxx_close_call) {
+                optimize_expr(&value->cxx_close_call->cleanup);
+            }
             break;
         case EXPR_INDEX:
             optimize_expr(&value->index_base);

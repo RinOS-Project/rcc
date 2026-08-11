@@ -2792,8 +2792,66 @@ static bool gen_inline_method_integer64(Module* mod, Expr* expr) {
     return true;
 }
 
+static bool gen_inline_close_call(Module* mod, Expr* expr) {
+    CxxCloseCall* lowering = expr ? expr->cxx_close_call : NULL;
+    TypeMethod* method = expr ? expr->call_method : NULL;
+    int done_label;
+    if (!lowering || !method || method->kind != TYPE_METHOD_FIELD_CLOSE ||
+        !lowering->object || !lowering->handle || !lowering->cleanup ||
+        !method->field || !method->result_field ||
+        expr->call_result_offset >= 0) {
+        return false;
+    }
+
+    done_label = new_label();
+    gen_zero_local_storage(mod, expr->call_result_offset,
+                           (size_t)expr->type->size);
+    gen_expr(mod, lowering->handle);
+    if (method->field->type->size == 8) {
+        uint64_t invalid = (uint64_t)method->constant;
+        int active_label = new_label();
+        emit_cmp_reg_imm(mod, EDX,
+                         (int32_t)(uint32_t)(invalid >> 32));
+        emit_jcc_label(mod, CC_NE, active_label);
+        emit_cmp_reg_imm(mod, EAX, (int32_t)(uint32_t)invalid);
+        emit_jcc_label(mod, CC_E, done_label);
+        emit_label(mod, active_label);
+    } else {
+        emit_cmp_reg_imm(mod, EAX, (int32_t)method->constant);
+        emit_jcc_label(mod, CC_E, done_label);
+    }
+
+    gen_expr(mod, lowering->cleanup);
+    emit_store_typed32(mod, EBP,
+                       expr->call_result_offset + method->result_field->offset,
+                       EAX, method->result_field->type);
+    emit_cmp_reg_imm(mod, EAX, (int32_t)method->success_constant);
+    emit_jcc_label(mod, CC_NE, done_label);
+
+    gen_lvalue(mod, lowering->object);
+    if (method->field->offset > 0) {
+        emit_add_reg_imm(mod, EAX, method->field->offset);
+    }
+    if (method->field->type->size == 8) {
+        uint64_t invalid = (uint64_t)method->constant;
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_mov_reg_imm(mod, EAX, (uint32_t)invalid);
+        emit_mov_mem_reg(mod, ECX, 0, EAX);
+        emit_mov_reg_imm(mod, EAX, (uint32_t)(invalid >> 32));
+        emit_mov_mem_reg(mod, ECX, 4, EAX);
+    } else {
+        emit_mov_reg_imm(mod, ECX, (uint32_t)method->constant);
+        emit_store_typed32(mod, EAX, 0, ECX, method->field->type);
+    }
+    emit_label(mod, done_label);
+    return true;
+}
+
 static bool gen_inline_method_call(Module* mod, Expr* expr) {
     TypeMethod* method = expr ? expr->call_method : NULL;
+    if (method && method->kind == TYPE_METHOD_FIELD_CLOSE) {
+        return gen_inline_close_call(mod, expr);
+    }
     if (!method || !gen_inline_method_address(mod, expr)) return false;
     if (expr->type &&
         (expr->type->kind == TYPE_STRUCT ||

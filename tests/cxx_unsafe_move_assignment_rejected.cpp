@@ -66,3 +66,10 @@ int unsafe_copy_assignment_rejected(int* old_value, int* new_value) {
     target = source;
     return target.release() == new_value;
 }
+
+int unsafe_close_call_rejected(int* value) {
+    auto handle = UnsafeMoveAssignment{value};
+    auto result = handle.close();
+    (void)handle.release();
+    return 0;
+}

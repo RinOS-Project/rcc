@@ -349,6 +349,8 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	grep -q "C++ scope-cleanup object assignment requires a validated operator=" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
+	grep -q "no member named 'close'" \
+		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)

@@ -670,6 +670,64 @@ static bool sema_prepare_cxx_move_assignment(Expr* expression, Type* target) {
     return true;
 }
 
+static bool sema_prepare_cxx_close_call(Expr* expression,
+                                        TypeMethod* method,
+                                        Expr* object) {
+    Symbol* symbol;
+    Decl* cleanup_function;
+    TypeParam* parameter;
+    Expr* function_expression;
+    Expr* argument;
+    ExprList* arguments = NULL;
+    CxxCloseCall* lowering;
+    if (!expression || !method ||
+        method->kind != TYPE_METHOD_FIELD_CLOSE || !object ||
+        object->kind != EXPR_IDENT || !method->field ||
+        !method->cleanup_function || !method->result_field) {
+        if (expression) {
+            rcc_error(expression->loc,
+                      "validated C++ close requires a named ownership object");
+        }
+        return false;
+    }
+    symbol = symtab_lookup(g_symtab, method->cleanup_function);
+    cleanup_function = symbol && symbol->kind == SYM_FUNC
+        ? symbol->decl : NULL;
+    if (!cleanup_function || !cleanup_function->type ||
+        cleanup_function->type->kind != TYPE_FUNC) {
+        rcc_error(expression->loc,
+                  "C++ cleanup function '%s' is not declared",
+                  method->cleanup_function);
+        return false;
+    }
+    parameter = cleanup_function->type->params;
+    if (!parameter || parameter->next ||
+        !type_is_compatible(parameter->type, method->field->type) ||
+        !type_is_compatible(cleanup_function->type->ret_type,
+                            method->result_field->type)) {
+        rcc_error(expression->loc,
+                  "C++ cleanup function '%s' has an incompatible close signature",
+                  method->cleanup_function);
+        return false;
+    }
+
+    function_expression = expr_ident(cleanup_function->name,
+                                     expression->loc);
+    function_expression->ident_decl = cleanup_function;
+    function_expression->type = cleanup_function->type;
+    argument = sema_cxx_move_member(object, method->field);
+    exprlist_append(&arguments, argument);
+
+    lowering = ast_arena_alloc(sizeof(*lowering));
+    lowering->object = object;
+    lowering->handle = sema_cxx_move_member(object, method->field);
+    lowering->cleanup = expr_call(function_expression, arguments,
+                                  expression->loc);
+    lowering->cleanup->type = cleanup_function->type->ret_type;
+    expression->cxx_close_call = lowering;
+    return true;
+}
+
 /* ═══════════════════════════════════════
  * Expression Semantic Analysis
  * ═══════════════════════════════════════ */
@@ -1178,6 +1236,10 @@ static Type* sema_expr(Expr* expr) {
                                   member->member_name);
                     }
                     expr->call_method = method;
+                    if (method->kind == TYPE_METHOD_FIELD_CLOSE) {
+                        sema_prepare_cxx_close_call(expr, method,
+                                                    member->member_base);
+                    }
                     expr->type = method->return_type &&
                         method->return_type->is_reference
                         ? method->return_type->base

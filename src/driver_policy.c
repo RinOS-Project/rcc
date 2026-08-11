@@ -264,9 +264,15 @@ static bool driver_validate_expr(Expr* expression)
             return driver_validate_expr(expression->cond_test) &&
                    driver_validate_expr(expression->cond_then) &&
                    driver_validate_expr(expression->cond_else);
-        case EXPR_CALL:
-            return driver_validate_expr(expression->call_func) &&
-                   driver_validate_expr_list(expression->call_args);
+        case EXPR_CALL: {
+            bool valid = driver_validate_expr(expression->call_func) &&
+                         driver_validate_expr_list(expression->call_args);
+            if (valid && expression->cxx_close_call) {
+                valid = driver_validate_expr(
+                    expression->cxx_close_call->cleanup);
+            }
+            return valid;
+        }
         case EXPR_INDEX:
             return driver_validate_expr(expression->index_base) &&
                    driver_validate_expr(expression->index_expr);

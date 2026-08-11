@@ -1281,8 +1281,57 @@ static bool gen64_inline_method_address(Module* mod, Expr* expr) {
     return true;
 }
 
+static void emit64_compare_constant(Module* mod, int reg, int64_t value) {
+    if ((uint64_t)value == (uint64_t)(int64_t)(int32_t)value) {
+        emit64_cmp_reg_imm(mod, reg, (int32_t)value);
+    } else {
+        emit64_mov_reg_imm64(mod, RCX, (uint64_t)value);
+        emit64_cmp_reg_reg(mod, reg, RCX);
+    }
+}
+
+static bool gen64_inline_close_call(Module* mod, Expr* expr) {
+    CxxCloseCall* lowering = expr ? expr->cxx_close_call : NULL;
+    TypeMethod* method = expr ? expr->call_method : NULL;
+    int done_label;
+    if (!lowering || !method || method->kind != TYPE_METHOD_FIELD_CLOSE ||
+        !lowering->object || !lowering->handle || !lowering->cleanup ||
+        !method->field || !method->result_field ||
+        expr->call_result_offset >= 0) {
+        return false;
+    }
+
+    done_label = new_label64();
+    gen64_zero_local_storage(mod, expr->call_result_offset,
+                             (size_t)expr->type->size);
+    gen64_expr(mod, lowering->handle);
+    emit64_compare_constant(mod, RAX, method->constant);
+    emit64_jcc_label(mod, CC64_E, done_label);
+
+    gen64_expr(mod, lowering->cleanup);
+    emit64_store_typed(
+        mod, RBP,
+        expr->call_result_offset + method->result_field->offset,
+        RAX, method->result_field->type);
+    emit64_compare_constant(mod, RAX, method->success_constant);
+    emit64_jcc_label(mod, CC64_NE, done_label);
+
+    gen64_lvalue(mod, lowering->object);
+    if (method->field->offset > 0) {
+        emit64_add_reg_imm(mod, RAX, method->field->offset);
+    }
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_mov_reg_imm64(mod, RAX, (uint64_t)method->constant);
+    emit64_store_typed(mod, RCX, 0, RAX, method->field->type);
+    emit64_label(mod, done_label);
+    return true;
+}
+
 static bool gen64_inline_method_call(Module* mod, Expr* expr) {
     TypeMethod* method = expr ? expr->call_method : NULL;
+    if (method && method->kind == TYPE_METHOD_FIELD_CLOSE) {
+        return gen64_inline_close_call(mod, expr);
+    }
     if (!method || !gen64_inline_method_address(mod, expr)) return false;
     if (expr->type &&
         (expr->type->kind == TYPE_STRUCT ||
