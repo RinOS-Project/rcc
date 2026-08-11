@@ -458,6 +458,8 @@ CxxNamespace* parse_cxx_namespace(void) {
 
     /* Parse namespace contents */
     while (!check(TOK_RBRACE) && !at_end()) {
+        Token* declaration_start = parser.cur;
+        int errors_before = g_error_count;
         if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             cxx_namespace_add_class(ns, cls);
@@ -470,6 +472,15 @@ CxxNamespace* parse_cxx_namespace(void) {
         } else {
             /* Other declaration - skip for now */
             parse_cxx_statement();
+        }
+        if (g_error_count > errors_before) {
+            while (!at_end() && !check(TOK_SEMICOLON) &&
+                   !check(TOK_RBRACE)) {
+                advance();
+            }
+            if (check(TOK_SEMICOLON)) advance();
+        } else if (parser.cur == declaration_start && !at_end()) {
+            advance();
         }
     }
 
@@ -850,6 +861,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     AST* ast = ast_new();
 
     while (!at_end()) {
+        Token* declaration_start = parser.cur;
         SourceLoc loc = peek()->loc;
 
         if (check(TOK_EXTERN) && parser.cur->next &&
@@ -892,15 +904,11 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             add_cxx_declaration(ast, s);
         }
 
-        if (g_error_count > 0) {
-            /* Error recovery */
-            while (!at_end() && !check(TOK_SEMICOLON) && !check(TOK_RBRACE)) {
-                advance();
-            }
-            if (check(TOK_SEMICOLON) || check(TOK_RBRACE)) {
-                advance();
-            }
-        }
+        /* Individual declaration and scope parsers synchronize at their own
+         * grammar boundary.  Only force one-token progress here; using the
+         * cumulative error count would otherwise discard every declaration
+         * following the first recovered error. */
+        if (parser.cur == declaration_start && !at_end()) advance();
     }
 
     return ast;

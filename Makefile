@@ -70,7 +70,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-parser-recovery test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -154,6 +154,23 @@ test-cxx-function-templates: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-function-templates/x64.ro \
 		tests/cxx_function_templates.cpp
 	@echo "RCC++ function template syntax tests completed"
+
+test-cxx-parser-recovery: $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/cxx-parser-recovery
+	@set +e; timeout 10s $(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-parser-recovery/invalid.ro \
+		tests/cxx_parser_recovery.cpp \
+		>$(TEST_OUT)/cxx-parser-recovery/invalid.log 2>&1; status=$$?; \
+		set -e; \
+		if [ $$status -eq 0 ]; then \
+			echo "invalid C++ fixture unexpectedly compiled"; exit 1; \
+		fi; \
+		if [ $$status -eq 124 ] || [ $$status -eq 139 ]; then \
+			echo "C++ parser recovery timed out or crashed"; exit 1; \
+		fi
+	grep -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid.log
+	! grep -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid.log
+	@echo "RCC++ namespace parser recovery test completed"
 
 test-preprocessor-continuation: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)
@@ -891,6 +908,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(SANITIZER_ROOT)/tests/cxx-function-templates.ro \
 		tests/cxx_function_templates.cpp
+	@set +e; $(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(SANITIZER_ROOT)/tests/cxx-invalid.ro \
+		tests/cxx_parser_recovery.cpp \
+		>$(SANITIZER_ROOT)/tests/cxx-invalid.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	! grep -q "too many errors" $(SANITIZER_ROOT)/tests/cxx-invalid.log
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/direct-x86.ro tests/direct_relocation.c
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -O1 -c \

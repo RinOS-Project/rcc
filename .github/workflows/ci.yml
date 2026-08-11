@@ -35,6 +35,7 @@ jobs:
           make test-cxx-language-linkage
           make test-cxx-member-specifiers
           make test-cxx-function-templates
+          make test-cxx-parser-recovery
           make test-preprocessor-continuation
           make test-atomic-builtins
           make test-inline-asm-execute
