@@ -528,7 +528,11 @@ static const char* namespace_qualified_decl_name(CxxNamespace* ns,
 
 static void set_cxx_link_name(Decl* declaration, CxxNamespace* ns,
                               bool c_language_linkage) {
-    if (!declaration || c_language_linkage) return;
+    if (!declaration) return;
+    if (declaration->kind == DECL_FUNC) {
+        declaration->func_has_cxx_linkage = !c_language_linkage;
+    }
+    if (c_language_linkage) return;
     if (!ns && declaration->name &&
         strcmp(declaration->name, "main") == 0) {
         /* The hosted entry point is never mangled. */

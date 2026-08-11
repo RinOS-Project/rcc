@@ -210,6 +210,173 @@ static Type* implicit_cast(Expr* e, Type* target) {
     return NULL;
 }
 
+static bool cxx_same_parameter_type(Type* source, Type* target,
+                                    bool top_level) {
+    if (!source || !target || source->kind != target->kind) return false;
+    if (!top_level && source->is_const != target->is_const) return false;
+    if (type_is_integer(source) &&
+        source->is_unsigned != target->is_unsigned) {
+        return false;
+    }
+    if (source->kind == TYPE_PTR) {
+        return cxx_same_parameter_type(source->base, target->base, false);
+    }
+    if (source->kind == TYPE_ARRAY) {
+        return (source->array_len < 0 || target->array_len < 0 ||
+                source->array_len == target->array_len) &&
+               cxx_same_parameter_type(source->base, target->base, false);
+    }
+    return type_is_compatible(source, target);
+}
+
+static int cxx_conversion_rank(Expr* argument, Type* target) {
+    Type* source;
+    Type* source_base;
+    Type* target_base;
+
+    if (!argument || !argument->type || !target) return -1;
+    source = argument->type;
+    if (cxx_same_parameter_type(source, target, true)) return 0;
+
+    if (source->kind == TYPE_ARRAY && target->kind == TYPE_PTR) {
+        source_base = source->base;
+        target_base = target->base;
+        if (source_base && target_base && source_base->is_const &&
+            !target_base->is_const) {
+            return -1;
+        }
+        if ((target_base && target_base->kind == TYPE_VOID) ||
+            type_is_compatible(source_base, target_base)) {
+            return cxx_same_parameter_type(source_base, target_base, false)
+                ? 1 : 2;
+        }
+        return -1;
+    }
+
+    if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
+        source_base = source->base;
+        target_base = target->base;
+        if (!source_base || !target_base) return -1;
+        /* Standard qualification conversion may add, but never remove,
+         * pointee constness. */
+        if (source_base->is_const && !target_base->is_const) return -1;
+        if (type_is_compatible(source_base, target_base)) return 1;
+        if (source_base->kind == TYPE_VOID || target_base->kind == TYPE_VOID) {
+            return 2;
+        }
+        return -1;
+    }
+
+    if ((type_is_integer(source) || source->kind == TYPE_ENUM) &&
+        (type_is_integer(target) || target->kind == TYPE_ENUM)) {
+        if ((source->kind == TYPE_ENUM || source->kind < TYPE_INT) &&
+            target == type_int) {
+            return 1;
+        }
+        return 2;
+    }
+    if (type_is_arithmetic(source) && type_is_arithmetic(target)) return 2;
+    if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
+        type_is_compatible(source, target)) {
+        return 0;
+    }
+    if (source->kind == TYPE_INT && type_is_pointer(target) &&
+        argument->kind == EXPR_INT_LIT && argument->int_val == 0) {
+        return 2;
+    }
+    return -1;
+}
+
+static bool cxx_same_function_parameters(Type* left, Type* right) {
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+
+    if (!left || !right || left->kind != TYPE_FUNC ||
+        right->kind != TYPE_FUNC || left->variadic != right->variadic) {
+        return false;
+    }
+    left_parameter = left->params;
+    right_parameter = right->params;
+    while (left_parameter && right_parameter) {
+        if (!cxx_same_parameter_type(left_parameter->type,
+                                     right_parameter->type, true)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return left_parameter == NULL && right_parameter == NULL;
+}
+
+static Decl* sema_select_cxx_overload(Expr* call) {
+    Decl* candidate;
+    Decl* best = NULL;
+    int best_total = INT_MAX;
+    int best_worst = INT_MAX;
+    bool ambiguous = false;
+
+    if (!call || !call->call_func ||
+        call->call_func->kind != EXPR_IDENT ||
+        !call->call_func->ident_decl) {
+        return NULL;
+    }
+    candidate = call->call_func->ident_decl;
+    for (; candidate; candidate = candidate->func_overload_next) {
+        TypeParam* parameter;
+        ExprList* argument;
+        int total = 0;
+        int worst = 0;
+        bool viable = true;
+
+        if (candidate->kind != DECL_FUNC || !candidate->type ||
+            candidate->type->kind != TYPE_FUNC) {
+            continue;
+        }
+        parameter = candidate->type->params;
+        argument = call->call_args;
+        while (argument && parameter) {
+            int rank = cxx_conversion_rank(argument->expr, parameter->type);
+            if (rank < 0) {
+                viable = false;
+                break;
+            }
+            total += rank;
+            if (rank > worst) worst = rank;
+            argument = argument->next;
+            parameter = parameter->next;
+        }
+        if (!viable || parameter) continue;
+        if (argument) {
+            if (!candidate->type->variadic) continue;
+            while (argument) {
+                total += 8;
+                worst = 8;
+                argument = argument->next;
+            }
+        }
+        if (!best || worst < best_worst ||
+            (worst == best_worst && total < best_total)) {
+            best = candidate;
+            best_total = total;
+            best_worst = worst;
+            ambiguous = false;
+        } else if (worst == best_worst && total == best_total) {
+            ambiguous = true;
+        }
+    }
+    if (!best) {
+        rcc_error(call->loc, "no matching overload for '%s'",
+                  call->call_func->ident_name);
+        return NULL;
+    }
+    if (ambiguous) {
+        rcc_error(call->loc, "ambiguous overload for '%s'",
+                  call->call_func->ident_name);
+        return NULL;
+    }
+    return best;
+}
+
 /* ═══════════════════════════════════════
  * Expression Semantic Analysis
  * ═══════════════════════════════════════ */
@@ -243,6 +410,12 @@ static Type* sema_expr(Expr* expr) {
             } else {
                 expr->ident_decl = sym->decl;
                 expr->type = sym->type;
+                if (sym->kind == SYM_FUNC && sym->decl &&
+                    sym->decl->func_overload_next) {
+                    rcc_error(expr->loc,
+                              "overloaded function '%s' requires call context",
+                              expr->ident_name);
+                }
             }
             break;
         }
@@ -674,10 +847,34 @@ static Type* sema_expr(Expr* expr) {
             Type* ft;
             TypeParam* parameter;
             ExprList* argument;
+            Decl* selected_overload = NULL;
             int argument_index = 1;
             bool reported_too_many = false;
+            bool arguments_analyzed = false;
             if (sema_atomic_builtin_call(expr)) break;
-            ft = sema_expr(expr->call_func);
+            if (expr->call_func->kind == EXPR_IDENT) {
+                Symbol* overload = symtab_lookup(
+                    g_symtab, expr->call_func->ident_name);
+                if (overload && overload->kind == SYM_FUNC &&
+                    overload->decl && overload->decl->func_has_cxx_linkage &&
+                    overload->decl->func_overload_next) {
+                    expr->call_func->ident_decl = overload->decl;
+                    for (argument = expr->call_args; argument;
+                         argument = argument->next) {
+                        sema_expr(argument->expr);
+                    }
+                    arguments_analyzed = true;
+                    selected_overload = sema_select_cxx_overload(expr);
+                    if (!selected_overload) {
+                        expr->type = type_int;
+                        break;
+                    }
+                    expr->call_func->ident_decl = selected_overload;
+                    expr->call_func->type = selected_overload->type;
+                }
+            }
+            ft = selected_overload
+                ? selected_overload->type : sema_expr(expr->call_func);
             if (!ft || ft->kind != TYPE_FUNC) {
                 /* Could be pointer to function */
                 if (ft && ft->kind == TYPE_PTR && ft->base && ft->base->kind == TYPE_FUNC) {
@@ -692,7 +889,7 @@ static Type* sema_expr(Expr* expr) {
             parameter = ft->params;
             argument = expr->call_args;
             while (argument) {
-                sema_expr(argument->expr);
+                if (!arguments_analyzed) sema_expr(argument->expr);
                 if (parameter) {
                     if (!implicit_cast(argument->expr, parameter->type)) {
                         const char* function_name =
@@ -1409,7 +1606,40 @@ static void sema_decl(Decl* decl) {
 
         case DECL_FUNC: {
             Symbol* sym = symtab_lookup(g_symtab, decl->name);
-            if (sym && sym->kind == SYM_FUNC) {
+            bool cxx_overload_set = false;
+            if (sym && sym->kind == SYM_FUNC &&
+                decl->func_has_cxx_linkage) {
+                Decl** slot = &sym->decl;
+                while (*slot) {
+                    Decl* prior = *slot;
+                    if (cxx_same_function_parameters(prior->type,
+                                                     decl->type)) {
+                        if (!type_is_compatible(prior->type->ret_type,
+                                                decl->type->ret_type)) {
+                            rcc_error(decl->loc,
+                                      "overload '%s' differs only by return type",
+                                      decl->name);
+                        }
+                        if (prior->func_body && decl->func_body) {
+                            rcc_error(decl->loc,
+                                      "redefinition of function '%s'",
+                                      decl->name);
+                        }
+                        decl->func_overload_next =
+                            prior->func_overload_next;
+                        *slot = decl;
+                        cxx_overload_set = true;
+                        break;
+                    }
+                    slot = &prior->func_overload_next;
+                }
+                if (!cxx_overload_set) {
+                    decl->func_overload_next = sym->decl;
+                    sym->decl = decl;
+                    cxx_overload_set = true;
+                }
+                sym->type = sym->decl->type;
+            } else if (sym && sym->kind == SYM_FUNC) {
                 /* Check for redefinition */
                 if (sym->is_defined && decl->func_body) {
                     rcc_error(decl->loc, "redefinition of function '%s'", decl->name);
@@ -1417,7 +1647,7 @@ static void sema_decl(Decl* decl) {
             } else {
                 sym = symtab_define(g_symtab, decl->name, SYM_FUNC, decl->type, decl->loc);
             }
-            sym->decl = decl;
+            if (!cxx_overload_set) sym->decl = decl;
 
             if (decl->func_body) {
                 sym->is_defined = true;
