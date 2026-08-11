@@ -26,6 +26,8 @@ static void verify_overloads(const char* path, uint16_t architecture)
     assert(relocation_count(text, "_Z6choosel") == 1u);
     assert(relocation_count(text, "_Z12pointer_kindPv") == 1u);
     assert(relocation_count(text, "_Z12pointer_kindPKv") == 1u);
+    assert(relocation_count(text, "_Z7orderedil") == 1u);
+    assert(relocation_count(text, "_Z7orderedli") == 1u);
     objfile_free(object);
 }
 

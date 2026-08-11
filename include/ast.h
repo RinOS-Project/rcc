@@ -104,6 +104,7 @@ extern Type* type_double;
 /* Configure target-dependent fundamental widths after option parsing and
  * before lexing/parsing a translation unit. */
 void type_configure_target(TargetArch architecture);
+Type* rcc_parser_lookup_type(const char* name);
 
 /* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
  * process exit by the single-shot host compiler. */

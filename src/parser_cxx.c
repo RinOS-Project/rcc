@@ -812,11 +812,22 @@ static Type* parse_cxx_type_spec(void) {
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
         /* Class or namespace qualified type */
         const char* name = parse_qualified_name();
+        Type* known_type = strstr(name, "::") == NULL
+            ? rcc_parser_lookup_type(name) : NULL;
         if (check(TOK_LT)) skip_cxx_template_arguments();
-        t = type_struct(name);
+        t = known_type ? known_type : type_struct(name);
     } else {
         /* Default to int */
         t = is_unsigned ? type_uint : type_int;
+    }
+
+    /* Prefix cv-qualifiers apply to the base type, before pointer and
+     * reference declarators are layered on top. */
+    if (is_const && t) {
+        Type* ct = ast_arena_alloc(sizeof(Type));
+        *ct = *t;
+        ct->is_const = true;
+        t = ct;
     }
 
     /* Reference and pointer */
@@ -834,13 +845,6 @@ static Type* parse_cxx_type_spec(void) {
         } else {
             break;
         }
-    }
-
-    if (is_const && t) {
-        Type* ct = ast_arena_alloc(sizeof(Type));
-        *ct = *t;
-        ct->is_const = true;
-        t = ct;
     }
 
     return t;

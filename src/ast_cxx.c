@@ -504,12 +504,14 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
 
     /* Build function type */
     TypeParam* tparams = NULL;
+    TypeParam** parameter_tail = &tparams;
     for (DeclList* p = params; p; p = p->next) {
         TypeParam* tp = rcc_alloc(sizeof(TypeParam));
         tp->name = p->decl->name;
         tp->type = p->decl->type;
-        tp->next = tparams;
-        tparams = tp;
+        tp->next = NULL;
+        *parameter_tail = tp;
+        parameter_tail = &tp->next;
     }
     Type* func_type = type_func(return_type, tparams, false);
 

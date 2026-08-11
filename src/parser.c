@@ -622,6 +622,10 @@ static TypeField* parser_find_field(Type* aggregate, const char* name) {
     return NULL;
 }
 
+Type* rcc_parser_lookup_type(const char* name) {
+    return parser_lookup_type(name);
+}
+
 static Expr* parse_builtin_offsetof(SourceLoc loc) {
     Type* current;
     int64_t offset = 0;
