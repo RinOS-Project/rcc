@@ -1264,7 +1264,15 @@ static Expr* parse_initializer(void) {
     if (!match(TOK_LBRACE)) return parse_assignment();
     loc = previous()->loc;
     if (check(TOK_RBRACE)) {
-        rcc_error(loc, "empty initializer list is not valid C17");
+        if (parser_cxx_mode) {
+            /* C++ value-initialization zeroes scalars and aggregates.  The
+             * existing {0} semantic/codegen path already implements that
+             * contract for both target ABIs. */
+            exprlist_append_designated(
+                &items, expr_int(0, loc), INIT_DESIGNATOR_NONE, 0, NULL);
+        } else {
+            rcc_error(loc, "empty initializer list is not valid C17");
+        }
     } else {
         for (;;) {
             ParsedInitializerDesignator* designators = NULL;
@@ -2075,6 +2083,8 @@ Stmt* parse_declaration(void) {
     /* Variable initializer */
     Expr* init = NULL;
     if (match(TOK_ASSIGN)) {
+        init = parse_initializer();
+    } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
     }
 

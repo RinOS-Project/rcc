@@ -206,7 +206,7 @@ test-cxx-overloads: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-overloads/ambiguous.log
 	@echo "RCC++ overload resolution tests completed"
 
-test-cxx-inline-aggregates: $(RCXX_TARGET)
+test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-inline-aggregates
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/x86.ro \
@@ -220,6 +220,19 @@ test-cxx-inline-aggregates: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-inline-aggregates/verify \
 		$(TEST_OUT)/cxx-inline-aggregates/x86.ro \
 		$(TEST_OUT)/cxx-inline-aggregates/x64.ro
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/cxx-inline-aggregates/run-x86 \
+		tests/cxx_value_init_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/cxx-inline-aggregates/run-x64 \
+		tests/cxx_value_init_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/cxx-inline-aggregates/run-x86 \
+		$(TEST_OUT)/cxx-inline-aggregates/x86.ro
+	$(TEST_OUT)/cxx-inline-aggregates/run-x64 \
+		$(TEST_OUT)/cxx-inline-aggregates/x64.ro
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/c-empty.ro \
+		tests/c_empty_initializer_rejected.c
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)
