@@ -70,7 +70,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-qualified-namespaces test-cxx-overloads test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -205,6 +205,22 @@ test-cxx-overloads: $(RCXX_TARGET)
 	grep -q "ambiguous overload for 'ambiguous'" \
 		$(TEST_OUT)/cxx-overloads/ambiguous.log
 	@echo "RCC++ overload resolution tests completed"
+
+test-cxx-inline-aggregates: $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/cxx-inline-aggregates
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/x86.ro \
+		tests/cxx_inline_aggregate.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/x64.ro \
+		tests/cxx_inline_aggregate.cpp
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/cxx-inline-aggregates/verify \
+		tests/cxx_inline_aggregate_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/cxx-inline-aggregates/verify \
+		$(TEST_OUT)/cxx-inline-aggregates/x86.ro \
+		$(TEST_OUT)/cxx-inline-aggregates/x64.ro
+	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-parser-recovery
@@ -987,6 +1003,9 @@ test-sanitize:
 		tests/cxx_qualified_namespace.cpp
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(SANITIZER_ROOT)/tests/cxx-overloads.ro tests/cxx_overload.cpp
+	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(SANITIZER_ROOT)/tests/cxx-inline-aggregates.ro \
+		tests/cxx_inline_aggregate.cpp
 	@set +e; $(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(SANITIZER_ROOT)/tests/cxx-invalid.ro \
 		tests/cxx_parser_recovery.cpp \

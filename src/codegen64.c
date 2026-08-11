@@ -2760,6 +2760,10 @@ Module* rcc_codegen64(AST* ast) {
             module_add_symbol(mod, decl_link_name(d->decl), func_start, true,
                               MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
+            if (d->decl->func_is_inline &&
+                d->decl->func_has_cxx_linkage) {
+                module_mark_symbol_weak(mod, decl_link_name(d->decl));
+            }
         }
     }
 

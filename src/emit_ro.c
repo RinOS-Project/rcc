@@ -830,7 +830,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
          * Emit an undefined symbol only when generated code references it. */
         if (!referenced) continue;
         SymbolType type = ms->is_defined
-            ? (ms->is_global ? SYM_GLOBAL : SYM_LOCAL)
+            ? (ms->is_weak ? SYM_WEAK
+                           : (ms->is_global ? SYM_GLOBAL : SYM_LOCAL))
             : SYM_UNDEF;
         SymbolBinding binding = ms->section == MODULE_SYMBOL_CODE
             ? BIND_CODE : ms->section == MODULE_SYMBOL_BSS

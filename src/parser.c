@@ -803,6 +803,22 @@ static Expr* parse_primary(void) {
         parser_builtin_name("__builtin_va_arg")) {
         return parse_builtin_vararg(loc);
     }
+    /* C++ aggregate direct-list initialization has the same storage and
+     * initializer semantics as the compound-literal node already used by
+     * the C backend.  Restrict this lowering to registered, complete C ABI
+     * types; class construction remains with the C++ frontend. */
+    if (parser_cxx_mode && check(TOK_IDENT) && parser.cur->next &&
+        parser.cur->next->type == TOK_LBRACE) {
+        Type* direct_type = parser_lookup_type(peek()->value.str_val);
+        if (direct_type && type_is_complete(direct_type) &&
+            direct_type->kind != TYPE_FUNC &&
+            direct_type->kind != TYPE_VOID) {
+            advance();
+            Expr* initializer = parse_initializer();
+            initializer->compound_type = direct_type;
+            return initializer;
+        }
+    }
     if (parser_cxx_mode &&
         (check(TOK_SCOPE) ||
          (check(TOK_IDENT) && parser.cur->next &&
@@ -911,6 +927,28 @@ static Expr* parse_postfix(void) {
 /* Unary: ++a, --a, &a, *a, +a, -a, ~a, !a */
 static Expr* parse_unary(void) {
     SourceLoc loc = peek()->loc;
+
+    /* The SDK's fixed-width wrappers only need value-preserving static and
+     * reinterpret casts.  Lower both named forms to the existing typed cast
+     * node so the 32/64-bit semantic and code-generation paths stay shared. */
+    if (parser_cxx_mode &&
+        (check(TOK_STATIC_CAST) || check(TOK_REINTERPRET_CAST))) {
+        advance();
+        expect(TOK_LT, "<");
+        Type* cast_type;
+        if (!is_type_start()) {
+            rcc_error(peek()->loc, "C++ named cast requires a type name");
+            cast_type = type_int;
+        } else {
+            cast_type = parse_type_spec();
+            cast_type = parse_declarator(cast_type, NULL, NULL);
+        }
+        expect(TOK_GT, ">");
+        expect(TOK_LPAREN, "(");
+        Expr* operand = parse_expression();
+        expect(TOK_RPAREN, ")");
+        return parse_postfix_tail(expr_cast(cast_type, operand, loc));
+    }
 
     if (check(TOK_LPAREN) && parser.cur->next) {
         Token* saved_cur = parser.cur;

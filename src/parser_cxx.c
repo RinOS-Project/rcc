@@ -669,6 +669,17 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
             skip_balanced(TOK_LPAREN, TOK_RPAREN);
         }
     }
+    /* Header-only SDK helpers returning a complete C ABI aggregate can be
+     * lowered through the common C statement/initializer pipeline.  Keep
+     * incomplete class and template return types deferred until their C++
+     * object model is implemented. */
+    if (!parse_body && is_inline && type_is_complete(return_type) &&
+        (return_type->kind == TYPE_STRUCT ||
+         return_type->kind == TYPE_UNION) &&
+        check(TOK_LBRACE) && parser.cur->next &&
+        parser.cur->next->type == TOK_RETURN) {
+        parse_body = true;
+    }
     if (!parse_body && check(TOK_LBRACE)) {
         skip_balanced(TOK_LBRACE, TOK_RBRACE);
     } else if (match(TOK_LBRACE)) {
