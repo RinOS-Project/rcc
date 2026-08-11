@@ -35,6 +35,93 @@ static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 static bool sema_atomic_builtin_call(Expr* expr);
 
+static bool sema_statement_has_current_switch_label(Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_SWITCH:
+            /* Labels in a nested switch do not target the current switch. */
+            return false;
+        case STMT_CASE:
+        case STMT_DEFAULT:
+            return true;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (sema_statement_has_current_switch_label(item->stmt)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_IF:
+            return sema_statement_has_current_switch_label(
+                       statement->if_then) ||
+                   sema_statement_has_current_switch_label(
+                       statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_statement_has_current_switch_label(
+                statement->while_body);
+        case STMT_FOR:
+            return sema_statement_has_current_switch_label(
+                statement->for_body);
+        case STMT_LABEL:
+            return sema_statement_has_current_switch_label(
+                statement->label_stmt);
+        default:
+            return false;
+    }
+}
+
+static bool sema_switch_cleanup_scopes_safe(Stmt* statement,
+                                            bool label_scope) {
+    if (!statement) return true;
+    switch (statement->kind) {
+        case STMT_SWITCH:
+            /* A nested switch is checked independently by sema_stmt(). */
+            return true;
+        case STMT_BLOCK: {
+            bool block_label_scope =
+                sema_statement_has_current_switch_label(statement);
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!sema_switch_cleanup_scopes_safe(item->stmt,
+                                                     block_label_scope)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        case STMT_DECL:
+            return !label_scope || !statement->decl ||
+                   !statement->decl->var_cleanup;
+        case STMT_CASE:
+            return sema_switch_cleanup_scopes_safe(statement->case_stmt,
+                                                   label_scope);
+        case STMT_DEFAULT:
+            return sema_switch_cleanup_scopes_safe(statement->default_stmt,
+                                                   label_scope);
+        case STMT_IF:
+            return sema_switch_cleanup_scopes_safe(statement->if_then,
+                                                   label_scope) &&
+                   sema_switch_cleanup_scopes_safe(statement->if_else,
+                                                   label_scope);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_switch_cleanup_scopes_safe(statement->while_body,
+                                                   label_scope);
+        case STMT_FOR:
+            return sema_switch_cleanup_scopes_safe(statement->for_init,
+                                                   label_scope) &&
+                   sema_switch_cleanup_scopes_safe(statement->for_body,
+                                                   label_scope);
+        case STMT_LABEL:
+            return sema_switch_cleanup_scopes_safe(statement->label_stmt,
+                                                   label_scope);
+        default:
+            return true;
+    }
+}
+
 static Type* sema_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -1127,6 +1214,10 @@ static void sema_stmt(Stmt* stmt) {
             context.previous = current_switch;
             current_switch = &context;
             sema_stmt(stmt->switch_body);
+            if (!sema_switch_cleanup_scopes_safe(stmt->switch_body, false)) {
+                rcc_error(stmt->loc,
+                          "case label crosses C++ scope-cleanup object initialization");
+            }
             current_switch = context.previous;
             sema_switch_release_values(context.values);
             break;
@@ -1783,7 +1874,6 @@ static bool sema_statement_has_unsupported_cleanup_flow(Stmt* statement) {
     if (!statement) return false;
     switch (statement->kind) {
         case STMT_GOTO:
-        case STMT_SWITCH:
             return true;
         case STMT_BLOCK:
             for (StmtList* item = statement->block_stmts; item;
@@ -1966,8 +2056,7 @@ static void sema_decl(Decl* decl) {
                     sema_statement_has_unsupported_cleanup_flow(
                         decl->func_body)) {
                     rcc_error(decl->loc,
-                              "goto and switch are not "
-                              "supported with C++ scope cleanup yet");
+                              "goto is not supported with C++ scope cleanup yet");
                 }
 
                 /* Check for undefined labels */

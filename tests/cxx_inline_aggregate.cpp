@@ -323,4 +323,24 @@ int cxx_cleanup_for_continue(int* value) {
     return *value;
 }
 
+int cxx_cleanup_switch(int* value, int selector) {
+    auto outer = CxxUnique<int*>{value};
+    switch (selector) {
+        case 0: {
+            auto inner = CxxUnique<int*>{value};
+            break;
+        }
+        case 1: {
+            auto first = CxxUnique<int*>{value};
+        }
+        case 2: {
+            auto second = CxxUnique<int*>{value};
+            break;
+        }
+        default:
+            break;
+    }
+    return *value;
+}
+
 }

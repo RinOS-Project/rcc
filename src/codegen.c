@@ -4681,6 +4681,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         case STMT_SWITCH: {
             SwitchCodegenContext context = {0};
             SwitchCodegenContext* old_switch = current_switch_codegen;
+            CleanupCodegen* switch_marker = active_cleanups;
+            CleanupCodegen* old_break_cleanup = break_cleanup_marker;
             int old_break = break_label;
             int end_label = new_label();
             context.control_type = codegen_switch_control_type(
@@ -4713,10 +4715,12 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 ? context.default_label : end_label);
 
             break_label = end_label;
+            break_cleanup_marker = switch_marker;
             current_switch_codegen = &context;
             gen_stmt(mod, stmt->switch_body);
             current_switch_codegen = old_switch;
             break_label = old_break;
+            break_cleanup_marker = old_break_cleanup;
             emit_label(mod, end_label);
             codegen_release_switch_cases(context.cases);
             break;

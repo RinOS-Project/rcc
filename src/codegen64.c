@@ -2504,6 +2504,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_SWITCH: {
             SwitchCodegenContext64 context = {0};
             SwitchCodegenContext64* old_switch = current_switch_codegen64;
+            CleanupCodegen64* switch_marker = active_cleanups64;
+            CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
             int old_break = break_label64;
             int end_label = new_label64();
             context.control_type = codegen64_switch_control_type(
@@ -2528,10 +2530,12 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 ? context.default_label : end_label);
 
             break_label64 = end_label;
+            break_cleanup_marker64 = switch_marker;
             current_switch_codegen64 = &context;
             gen64_stmt(mod, stmt->switch_body);
             current_switch_codegen64 = old_switch;
             break_label64 = old_break;
+            break_cleanup_marker64 = old_break_cleanup;
             emit64_label(mod, end_label);
             codegen64_release_switch_cases(context.cases);
             break;

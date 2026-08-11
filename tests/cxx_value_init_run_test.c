@@ -15,6 +15,7 @@ typedef uint64_t (*int_wide_function)(int, uint64_t);
 typedef uint64_t (*wide_unary_function)(uint64_t);
 typedef int (*int_pointer_function)(const int*);
 typedef int (*mutable_int_pointer_function)(int*);
+typedef int (*mutable_int_pointer_binary_function)(int*, int);
 
 typedef struct RinSliceV1 {
     uint64_t address;
@@ -81,6 +82,7 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_continue;
     mutable_int_pointer_function cleanup_for_break;
     mutable_int_pointer_function cleanup_for_continue;
+    mutable_int_pointer_binary_function cleanup_switch;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -143,6 +145,7 @@ int main(int argc, char** argv)
                   "cxx_cleanup_for_break");
     LOAD_FUNCTION(cleanup_for_continue, object, mapping,
                   "cxx_cleanup_for_continue");
+    LOAD_FUNCTION(cleanup_switch, object, mapping, "cxx_cleanup_switch");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
@@ -213,6 +216,14 @@ int main(int argc, char** argv)
         assert(value == 64);
         assert(cleanup_for_continue(&value) == 67);
         assert(value == 67);
+        assert(cleanup_switch(&value, 0) == 68);
+        assert(value == 69);
+        assert(cleanup_switch(&value, 1) == 71);
+        assert(value == 72);
+        assert(cleanup_switch(&value, 2) == 73);
+        assert(value == 74);
+        assert(cleanup_switch(&value, 9) == 74);
+        assert(value == 75);
     }
 
     assert(munmap(mapping, mapping_size) == 0);
