@@ -63,6 +63,9 @@ public:
     }
 
     Handle get() const noexcept { return handle_; }
+    constexpr explicit operator bool() const noexcept {
+        return handle_ != 0;
+    }
 
 private:
     Handle handle_;
@@ -94,6 +97,9 @@ public:
     }
 
     uint64_t get() const noexcept { return handle_; }
+    constexpr explicit operator bool() const noexcept {
+        return handle_ != 0;
+    }
 
 private:
     uint64_t handle_;
@@ -378,6 +384,52 @@ int cxx_cleanup_goto_for_init(int* value) {
     }
 done:
     return *value;
+}
+
+int cxx_cleanup_contextual_bool(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    int conditional = handle ? 1 : 0;
+    int conjunction = handle && conditional;
+    int negated_before = !handle;
+    (void)handle.release();
+    int after_release = handle ? 1 : 0;
+    int negated_after = !handle;
+    return conditional * 1000 + conjunction * 100 +
+           negated_before * 10 + after_release + negated_after;
+}
+
+int cxx_cleanup_wide_contextual_bool(int* value) {
+    auto handle = CxxWideUnique{
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(value))};
+    int before = handle ? 1 : 0;
+    (void)handle.release();
+    int after = !handle;
+    return before * 10 + after;
+}
+
+int cxx_cleanup_contextual_control(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    int result = 0;
+    if (handle) {
+        result += 1;
+    }
+    int once = 1;
+    while (handle && once) {
+        result += 10;
+        once = 0;
+    }
+    do {
+        result += 100;
+    } while (!handle);
+    for (; handle; ) {
+        result += 1000;
+        break;
+    }
+    (void)handle.release();
+    if (!handle) {
+        result += 10000;
+    }
+    return result;
 }
 
 }

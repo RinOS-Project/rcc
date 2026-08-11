@@ -322,6 +322,53 @@ static TypeMethod* sema_find_inline_method(Type* aggregate,
     return NULL;
 }
 
+static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
+    TypeMethod* method;
+    if (!aggregate ||
+        (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    for (method = aggregate->methods; method; method = method->next) {
+        if (method->name &&
+            strcmp(method->name, "operator conversion") == 0 &&
+            method->return_type && method->return_type->kind == TYPE_BOOL &&
+            method->field && method->cxx_access == 0u) {
+            return method;
+        }
+    }
+    return NULL;
+}
+
+/* C++ explicit operator bool participates in contextual conversions without
+ * becoming a general implicit conversion.  Only the structurally validated
+ * inline method subset is eligible, so arbitrary member bodies remain
+ * fail-closed. */
+static Expr* sema_contextual_bool(Expr* expression) {
+    Type* type;
+    Type* value_type;
+    TypeMethod* method;
+    Expr* member;
+    Expr* call;
+    if (!expression) return expression;
+    type = sema_expr(expression);
+    value_type = generic_selection_type(type);
+    if (value_type &&
+        (type_is_scalar(value_type) || value_type->kind == TYPE_ENUM)) {
+        return expression;
+    }
+    method = sema_find_contextual_bool_method(value_type);
+    if (!method) {
+        rcc_error(expression->loc,
+                  "condition requires scalar type or validated operator bool");
+        return expression;
+    }
+    member = expr_member(expression, method->name, expression->loc);
+    call = expr_call(member, NULL, expression->loc);
+    call->call_method = method;
+    call->type = method->return_type;
+    return call;
+}
+
 static bool cxx_same_parameter_type(Type* source, Type* target,
                                     bool top_level) {
     if (!source || !target || source->kind != target->kind) return false;
@@ -565,7 +612,9 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_NOT: {
-            Type* t = sema_expr(expr->unary_operand);
+            Type* t;
+            expr->unary_operand = sema_contextual_bool(expr->unary_operand);
+            t = expr->unary_operand->type;
             if (!type_is_scalar(t) && t->kind != TYPE_ENUM &&
                 t->kind != TYPE_ARRAY && t->kind != TYPE_FUNC) {
                 rcc_error(expr->loc, "logical not requires scalar operand");
@@ -877,8 +926,12 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_AND:
         case EXPR_OR: {
-            Type* left = sema_expr(expr->binary_lhs);
-            Type* right = sema_expr(expr->binary_rhs);
+            Type* left;
+            Type* right;
+            expr->binary_lhs = sema_contextual_bool(expr->binary_lhs);
+            expr->binary_rhs = sema_contextual_bool(expr->binary_rhs);
+            left = expr->binary_lhs->type;
+            right = expr->binary_rhs->type;
             Type* left_value = generic_selection_type(left);
             Type* right_value = generic_selection_type(right);
             if ((!type_is_scalar(left_value) &&
@@ -954,7 +1007,7 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_COND: {
-            sema_expr(expr->cond_test);
+            expr->cond_test = sema_contextual_bool(expr->cond_test);
             Type* tt = sema_expr(expr->cond_then);
             Type* et = sema_expr(expr->cond_else);
             expr->type = type_common(tt, et);
@@ -1163,7 +1216,7 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_IF:
-            sema_expr(stmt->if_cond);
+            stmt->if_cond = sema_contextual_bool(stmt->if_cond);
             sema_stmt(stmt->if_then);
             if (stmt->if_else) {
                 sema_stmt(stmt->if_else);
@@ -1171,7 +1224,7 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_WHILE:
-            sema_expr(stmt->while_cond);
+            stmt->while_cond = sema_contextual_bool(stmt->while_cond);
             ++loop_depth;
             sema_stmt(stmt->while_body);
             --loop_depth;
@@ -1181,7 +1234,7 @@ static void sema_stmt(Stmt* stmt) {
             ++loop_depth;
             sema_stmt(stmt->while_body);
             --loop_depth;
-            sema_expr(stmt->while_cond);
+            stmt->while_cond = sema_contextual_bool(stmt->while_cond);
             break;
 
         case STMT_FOR:
@@ -1190,7 +1243,7 @@ static void sema_stmt(Stmt* stmt) {
                 sema_stmt(stmt->for_init);
             }
             if (stmt->for_cond) {
-                sema_expr(stmt->for_cond);
+                stmt->for_cond = sema_contextual_bool(stmt->for_cond);
             }
             if (stmt->for_inc) {
                 sema_expr(stmt->for_inc);

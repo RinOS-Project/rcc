@@ -319,6 +319,13 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		status=$$?; set -e; test $$status -ne 0
 	grep -q "no member named 'release'" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-release.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-bool.ro \
+		tests/cxx_unsafe_bool_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "condition requires scalar type or validated operator bool" \
+		$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)

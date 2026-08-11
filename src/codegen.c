@@ -2801,6 +2801,34 @@ static bool gen_inline_method_call(Module* mod, Expr* expr) {
          expr->type->kind == TYPE_ARRAY)) {
         return true;
     }
+    if ((method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
+         method->kind == TYPE_METHOD_FIELD_NE_CONSTANT) &&
+        method->field->type->size == 8) {
+        uint64_t constant = (uint64_t)method->constant;
+        int decisive_label = new_label();
+        int end_label = new_label();
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_mov_reg_mem(mod, EAX, ECX, 0);
+        emit_mov_reg_mem(mod, EDX, ECX, 4);
+        emit_cmp_reg_imm(mod, EDX,
+                         (int32_t)(uint32_t)(constant >> 32));
+        emit_jcc_label(mod, CC_NE, decisive_label);
+        emit_cmp_reg_imm(mod, EAX, (int32_t)(uint32_t)constant);
+        emit_setcc(mod,
+                   method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT
+                       ? CC_E : CC_NE,
+                   EAX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EAX, EAX));
+        emit_jmp_label(mod, end_label);
+        emit_label(mod, decisive_label);
+        emit_mov_reg_imm(mod, EAX,
+                         method->kind == TYPE_METHOD_FIELD_NE_CONSTANT
+                             ? 1u : 0u);
+        emit_label(mod, end_label);
+        return true;
+    }
     if (method->kind == TYPE_METHOD_FIELD_RELEASE) {
         emit_mov_reg_reg(mod, ECX, EAX);
         emit_load_typed32(mod, EAX, ECX, 0, method->field->type);

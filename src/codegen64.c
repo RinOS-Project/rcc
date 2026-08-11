@@ -1302,7 +1302,13 @@ static bool gen64_inline_method_call(Module* mod, Expr* expr) {
     emit64_load_typed(mod, RAX, RAX, 0, method->field->type);
     if (method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
         method->kind == TYPE_METHOD_FIELD_NE_CONSTANT) {
-        emit64_cmp_reg_imm(mod, RAX, (int32_t)method->constant);
+        uint64_t constant = (uint64_t)method->constant;
+        if (constant == (uint64_t)(int64_t)(int32_t)constant) {
+            emit64_cmp_reg_imm(mod, RAX, (int32_t)constant);
+        } else {
+            emit64_mov_reg_imm64(mod, RCX, constant);
+            emit64_cmp_reg_reg(mod, RAX, RCX);
+        }
         emit64_setcc(mod,
                      method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT
                          ? CC64_E : CC64_NE,

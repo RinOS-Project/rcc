@@ -87,6 +87,9 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_goto_backward;
     mutable_int_pointer_function cleanup_goto_same_scope;
     mutable_int_pointer_function cleanup_goto_for_init;
+    mutable_int_pointer_function cleanup_contextual_bool;
+    mutable_int_pointer_function cleanup_wide_contextual_bool;
+    mutable_int_pointer_function cleanup_contextual_control;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -158,6 +161,12 @@ int main(int argc, char** argv)
                   "cxx_cleanup_goto_same_scope");
     LOAD_FUNCTION(cleanup_goto_for_init, object, mapping,
                   "cxx_cleanup_goto_for_init");
+    LOAD_FUNCTION(cleanup_contextual_bool, object, mapping,
+                  "cxx_cleanup_contextual_bool");
+    LOAD_FUNCTION(cleanup_wide_contextual_bool, object, mapping,
+                  "cxx_cleanup_wide_contextual_bool");
+    LOAD_FUNCTION(cleanup_contextual_control, object, mapping,
+                  "cxx_cleanup_contextual_control");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
@@ -243,6 +252,12 @@ int main(int argc, char** argv)
         assert(cleanup_goto_same_scope(&value) == 78);
         assert(value == 79);
         assert(cleanup_goto_for_init(&value) == 80);
+        assert(value == 80);
+        assert(cleanup_contextual_bool(&value) == 1101);
+        assert(value == 80);
+        assert(cleanup_wide_contextual_bool(&value) == 11);
+        assert(value == 80);
+        assert(cleanup_contextual_control(&value) == 11111);
         assert(value == 80);
     }
 

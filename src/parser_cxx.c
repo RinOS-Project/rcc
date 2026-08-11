@@ -371,7 +371,8 @@ static void register_inline_class_accessors(CxxClass* cls) {
         StmtList* statements;
         Expr* returned;
         Expr* field_expr = NULL;
-        Expr* constant_expr = NULL;
+        int64_t constant = 0;
+        bool has_constant = false;
         TypeField* field;
         TypeMethodKind kind;
         TypeMethod* lowered;
@@ -397,15 +398,17 @@ static void register_inline_class_accessors(CxxClass* cls) {
             if (returned->binary_lhs &&
                 returned->binary_lhs->kind == EXPR_IDENT &&
                 returned->binary_rhs &&
-                returned->binary_rhs->kind == EXPR_INT_LIT) {
+                expr_eval_integer_constant(returned->binary_rhs,
+                                           &constant)) {
                 field_expr = returned->binary_lhs;
-                constant_expr = returned->binary_rhs;
+                has_constant = true;
             } else if (returned->binary_rhs &&
                        returned->binary_rhs->kind == EXPR_IDENT &&
                        returned->binary_lhs &&
-                       returned->binary_lhs->kind == EXPR_INT_LIT) {
+                       expr_eval_integer_constant(returned->binary_lhs,
+                                                  &constant)) {
                 field_expr = returned->binary_rhs;
-                constant_expr = returned->binary_lhs;
+                has_constant = true;
             } else {
                 continue;
             }
@@ -443,9 +446,10 @@ static void register_inline_class_accessors(CxxClass* cls) {
                 continue;
             }
         } else {
-            if (field->type->size > 4 ||
+            if (field->type->size > 8 ||
                 !(type_is_integer(field->type) ||
-                  field->type->kind == TYPE_ENUM) ||
+                  field->type->kind == TYPE_ENUM ||
+                  field->type->kind == TYPE_PTR) ||
                 !(type_is_integer(method->decl->type->ret_type) ||
                   method->decl->type->ret_type->kind == TYPE_ENUM)) {
                 continue;
@@ -456,7 +460,7 @@ static void register_inline_class_accessors(CxxClass* cls) {
         lowered->return_type = method->decl->type->ret_type;
         lowered->field = field;
         lowered->kind = kind;
-        lowered->constant = constant_expr ? constant_expr->int_val : 0;
+        lowered->constant = has_constant ? constant : 0;
         lowered->cxx_access = (unsigned char)member->access;
         lowered->next = NULL;
         *tail = lowered;
