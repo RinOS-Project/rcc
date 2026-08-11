@@ -116,6 +116,7 @@ compare-exchangeのfailure/weak制約もSemaで拒否します。
 `test-x86-wide-scalar`はi686 SysVの64-bit整数について、EDX:EAX戻り値、8-byte
 cdecl引数、literal、符号/ゼロ拡張、local/global load/store、加減算、bitwise演算、
 signed/unsigned比較、SHLD/SHRD shift、multiply、software divide/modulo、
+前置/後置increment/decrement、`+=`/`-=`（左辺の一回評価を含む）、
 内部関数callを32-bit host processで
 直接実行します。未実装のwide演算は下位32-bitへ
 暗黙切り詰めせずdiagnosticにします。

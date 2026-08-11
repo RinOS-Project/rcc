@@ -67,6 +67,26 @@ u64 abi_wide_modulo(u64 left, u64 right) { return left % right; }
 i64 abi_wide_divide_signed(i64 left, i64 right) { return left / right; }
 i64 abi_wide_modulo_signed(i64 left, i64 right) { return left % right; }
 
+u64 abi_wide_preincrement(u64* value) { return ++*value; }
+u64 abi_wide_postincrement(u64* value) { return (*value)++; }
+u64 abi_wide_predecrement(u64* value) { return --*value; }
+u64 abi_wide_postdecrement(u64* value) { return (*value)--; }
+u64 abi_wide_add_assign(u64* value, u64 operand) {
+    return *value += operand;
+}
+u64 abi_wide_sub_assign(u64* value, u64 operand) {
+    return *value -= operand;
+}
+
+static u64* wide_side_effect_pointer(u64* value, int* calls) {
+    ++*calls;
+    return value;
+}
+
+u64 abi_wide_compound_lvalue_once(u64* value, int* calls) {
+    return *wide_side_effect_pointer(value, calls) += (u64)0x100000001;
+}
+
 u64 abi_wide_call(void) {
     return abi_wide_add((u64)0x00000001ffffffff, (u64)2);
 }

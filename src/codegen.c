@@ -1103,6 +1103,12 @@ static void emit_adc_reg_imm8(Module* mod, int reg, uint8_t imm) {
     emit_byte(mod, imm);
 }
 
+static void emit_sbb_reg_imm8(Module* mod, int reg, uint8_t imm) {
+    emit_byte(mod, 0x83);
+    emit_byte(mod, modrm(3, 3, reg));
+    emit_byte(mod, imm);
+}
+
 static void emit_imul_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, 0x0F);
     emit_byte(mod, 0xAF);
@@ -1498,7 +1504,9 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
                                       const char* name) {
     int retry_label;
 
-    if (g_opts.target_arch != ARCH_X86 ||
+    if ((strncmp(name, "__atomic_", 9) != 0 &&
+         strncmp(name, "__sync_", 7) != 0) ||
+        g_opts.target_arch != ARCH_X86 ||
         !gen_is_integer64(atomic_value_type(call))) {
         return false;
     }
@@ -2227,6 +2235,45 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             emit_not_reg(mod, EDX);
             break;
 
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC: {
+            bool increment = expr->kind == EXPR_PREINC ||
+                             expr->kind == EXPR_POSTINC;
+            bool post = expr->kind == EXPR_POSTINC ||
+                        expr->kind == EXPR_POSTDEC;
+            gen_lvalue(mod, expr->unary_operand);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ECX, 0);
+            emit_mov_reg_mem(mod, EDX, ECX, 4);
+            if (post) {
+                emit_push_reg(mod, EDX);
+                emit_push_reg(mod, EAX);
+            }
+            if (increment) {
+                emit_add_reg_imm(mod, EAX, 1);
+                emit_adc_reg_imm8(mod, EDX, 0u);
+            } else {
+                emit_sub_reg_imm(mod, EAX, 1);
+                emit_sbb_reg_imm8(mod, EDX, 0u);
+            }
+            if (post) {
+                emit_mov_reg_mem(mod, ECX, ESP, 8);
+            } else {
+                emit_mov_reg_mem(mod, ECX, ESP, 0);
+            }
+            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_mov_mem_reg(mod, ECX, 4, EDX);
+            if (post) {
+                emit_pop_reg(mod, EAX);
+                emit_pop_reg(mod, EDX);
+            }
+            emit_add_reg_imm(mod, ESP, 4);
+            break;
+        }
+
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_BITAND:
@@ -2350,6 +2397,36 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_pop_reg(mod, EAX);
             emit_pop_reg(mod, EDX);
+            emit_mov_mem_reg(mod, ECX, 0, EAX);
+            emit_mov_mem_reg(mod, ECX, 4, EDX);
+            break;
+
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+            gen_lvalue(mod, expr->binary_lhs);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ECX, 0);
+            emit_mov_reg_mem(mod, EDX, ECX, 4);
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            gen_expr_as_integer64(mod, expr->binary_rhs);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            if (expr->kind == EXPR_ADD_ASSIGN) {
+                emit_add_reg_reg(mod, EAX, ECX);
+            } else {
+                emit_sub_reg_reg(mod, EAX, ECX);
+            }
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_mov_reg_mem(mod, EDX, ESP, 4);
+            if (expr->kind == EXPR_ADD_ASSIGN) {
+                emit_adc_reg_reg(mod, EDX, ECX);
+            } else {
+                emit_sbb_reg_reg(mod, EDX, ECX);
+            }
+            emit_add_reg_imm(mod, ESP, 8);
+            emit_pop_reg(mod, ECX);
             emit_mov_mem_reg(mod, ECX, 0, EAX);
             emit_mov_mem_reg(mod, ECX, 4, EDX);
             break;

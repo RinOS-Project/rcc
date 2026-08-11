@@ -24,6 +24,9 @@ typedef void (*atomic_wide_store_fn)(volatile uint64_t*, uint64_t);
 typedef uint64_t (*atomic_wide_exchange_fn)(volatile uint64_t*, uint64_t);
 typedef int (*atomic_wide_compare_fn)(volatile uint64_t*, uint64_t*,
                                       uint64_t);
+typedef uint64_t (*wide_pointer_unary_fn)(uint64_t*);
+typedef uint64_t (*wide_pointer_binary_fn)(uint64_t*, uint64_t);
+typedef uint64_t (*wide_pointer_count_fn)(uint64_t*, int*);
 
 static ObjSymbol* required_function(ObjectFile* object, const char* name) {
     ObjSymbol* symbol = objfile_find_symbol(object, name);
@@ -72,6 +75,13 @@ int main(int argc, char** argv) {
     wide_binary_fn modulo;
     signed_wide_binary_fn divide_signed;
     signed_wide_binary_fn modulo_signed;
+    wide_pointer_unary_fn preincrement;
+    wide_pointer_unary_fn postincrement;
+    wide_pointer_unary_fn predecrement;
+    wide_pointer_unary_fn postdecrement;
+    wide_pointer_binary_fn add_assign;
+    wide_pointer_binary_fn sub_assign;
+    wide_pointer_count_fn compound_lvalue_once;
     wide_nullary_fn call;
     wide_nullary_fn call_promoted;
     unsigned_widen_fn widen_unsigned;
@@ -150,6 +160,14 @@ int main(int argc, char** argv) {
                   "abi_wide_divide_signed");
     LOAD_FUNCTION(modulo_signed, object, mapping,
                   "abi_wide_modulo_signed");
+    LOAD_FUNCTION(preincrement, object, mapping, "abi_wide_preincrement");
+    LOAD_FUNCTION(postincrement, object, mapping, "abi_wide_postincrement");
+    LOAD_FUNCTION(predecrement, object, mapping, "abi_wide_predecrement");
+    LOAD_FUNCTION(postdecrement, object, mapping, "abi_wide_postdecrement");
+    LOAD_FUNCTION(add_assign, object, mapping, "abi_wide_add_assign");
+    LOAD_FUNCTION(sub_assign, object, mapping, "abi_wide_sub_assign");
+    LOAD_FUNCTION(compound_lvalue_once, object, mapping,
+                  "abi_wide_compound_lvalue_once");
     LOAD_FUNCTION(call, object, mapping, "abi_wide_call");
     LOAD_FUNCTION(call_promoted, object, mapping,
                   "abi_wide_call_promoted");
@@ -244,6 +262,26 @@ int main(int argc, char** argv) {
                    signed_dividend / signed_divisor);
             assert(modulo_signed(signed_dividend, signed_divisor) ==
                    signed_dividend % signed_divisor);
+        }
+    }
+    {
+        uint64_t value64 = UINT64_C(0x00000001ffffffff);
+        assert(preincrement(&value64) == UINT64_C(0x0000000200000000));
+        assert(postincrement(&value64) == UINT64_C(0x0000000200000000));
+        assert(value64 == UINT64_C(0x0000000200000001));
+        assert(predecrement(&value64) == UINT64_C(0x0000000200000000));
+        assert(postdecrement(&value64) == UINT64_C(0x0000000200000000));
+        assert(value64 == UINT64_C(0x00000001ffffffff));
+        assert(add_assign(&value64, UINT64_C(2)) ==
+               UINT64_C(0x0000000200000001));
+        assert(sub_assign(&value64, UINT64_C(3)) ==
+               UINT64_C(0x00000001fffffffe));
+        {
+            int calls = 0;
+            assert(compound_lvalue_once(&value64, &calls) ==
+                   UINT64_C(0x00000002ffffffff));
+            assert(value64 == UINT64_C(0x00000002ffffffff));
+            assert(calls == 1);
         }
     }
     assert(call() == UINT64_C(0x0000000200000001));
