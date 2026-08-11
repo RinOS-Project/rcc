@@ -1353,6 +1353,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
             emit64_mov_reg_reg(mod, RCX, RAX);
             emit64_pop_reg(mod, RAX);
             emit64_shl_reg_cl(mod, RAX);
+            emit64_normalize_atomic_value(mod, RAX, expr->type);
             break;
 
         case EXPR_RSHIFT:
@@ -1366,6 +1367,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
             } else {
                 emit64_sar_reg_cl(mod, RAX);
             }
+            emit64_normalize_atomic_value(mod, RAX, expr->type);
             break;
 
         case EXPR_EQ:

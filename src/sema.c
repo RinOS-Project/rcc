@@ -140,6 +140,17 @@ static Type* generic_selection_type(Type* type) {
     return type;
 }
 
+static bool sema_is_integer_type(Type* type) {
+    return type && (type_is_integer(type) || type->kind == TYPE_ENUM);
+}
+
+static Type* sema_integer_promotion(Type* type) {
+    if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
+        return type_int;
+    }
+    return type;
+}
+
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
@@ -215,14 +226,33 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
-        case EXPR_NEG:
-        case EXPR_BITNOT:
-        case EXPR_NOT: {
+        case EXPR_NEG: {
             Type* t = sema_expr(expr->unary_operand);
-            if (!type_is_arithmetic(t) && expr->kind != EXPR_NOT) {
+            if (!type_is_arithmetic(t) && t->kind != TYPE_ENUM) {
                 rcc_error(expr->loc, "invalid operand type for unary operator");
             }
-            expr->type = (expr->kind == EXPR_NOT) ? type_int : t;
+            expr->type = sema_is_integer_type(t)
+                ? sema_integer_promotion(t) : t;
+            break;
+        }
+
+        case EXPR_BITNOT: {
+            Type* t = sema_expr(expr->unary_operand);
+            if (!sema_is_integer_type(t)) {
+                rcc_error(expr->loc,
+                          "bitwise complement requires integer operand");
+            }
+            expr->type = sema_integer_promotion(t);
+            break;
+        }
+
+        case EXPR_NOT: {
+            Type* t = sema_expr(expr->unary_operand);
+            if (!type_is_scalar(t) && t->kind != TYPE_ENUM &&
+                t->kind != TYPE_ARRAY && t->kind != TYPE_FUNC) {
+                rcc_error(expr->loc, "logical not requires scalar operand");
+            }
+            expr->type = type_int;
             break;
         }
 
@@ -362,8 +392,7 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_MUL:
-        case EXPR_DIV:
-        case EXPR_MOD: {
+        case EXPR_DIV: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
             if (!type_is_arithmetic(lt) || !type_is_arithmetic(rt)) {
@@ -373,17 +402,41 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
+        case EXPR_MOD: {
+            Type* lt = sema_expr(expr->binary_lhs);
+            Type* rt = sema_expr(expr->binary_rhs);
+            if (!sema_is_integer_type(lt) || !sema_is_integer_type(rt)) {
+                rcc_error(expr->loc, "remainder operator requires integer operands");
+            }
+            expr->type = type_common(sema_integer_promotion(lt),
+                                     sema_integer_promotion(rt));
+            break;
+        }
+
         case EXPR_BITAND:
         case EXPR_BITOR:
-        case EXPR_BITXOR:
+        case EXPR_BITXOR: {
+            Type* lt = sema_expr(expr->binary_lhs);
+            Type* rt = sema_expr(expr->binary_rhs);
+            if (!sema_is_integer_type(lt) || !sema_is_integer_type(rt)) {
+                rcc_error(expr->loc, "bitwise operator requires integer operands");
+            }
+            expr->type = type_common(sema_integer_promotion(lt),
+                                     sema_integer_promotion(rt));
+            break;
+        }
+
         case EXPR_LSHIFT:
         case EXPR_RSHIFT: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!type_is_integer(lt) || !type_is_integer(rt)) {
-                rcc_error(expr->loc, "bitwise operator requires integer operands");
+            if (!sema_is_integer_type(lt) || !sema_is_integer_type(rt)) {
+                rcc_error(expr->loc, "shift operator requires integer operands");
             }
-            expr->type = type_common(lt, rt);
+            /* C17 6.5.7 promotes each operand independently; unlike most
+             * binary operators, the right operand never changes the result
+             * type or the signedness of right shift. */
+            expr->type = sema_integer_promotion(lt);
             break;
         }
 
@@ -694,7 +747,7 @@ static void sema_stmt(Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->return_val) {
-                Type* t = sema_expr(stmt->return_val);
+                sema_expr(stmt->return_val);
                 if (current_func_ret && current_func_ret != type_void) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {
                         rcc_warning(stmt->loc, "incompatible return type");

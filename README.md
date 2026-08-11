@@ -123,6 +123,9 @@ signed/unsigned比較、SHLD/SHRD shift、multiply、software divide/modulo、
 `test-integer-literals`はC17のdecimal/octal/hex候補型、`U/L/LL` suffix、ILP32/LP64
 の型差、unsigned定数式の比較・wrap、64-bit即値codegenを両archで直接実行し、
 候補型なし、64-bit overflow、不正suffixを各段階で拒否します。
+`test-integer-promotions`はshift operandの独立promotion、左辺に基づく結果幅・signedness、
+char/shortの単項promotionを両archで直接実行し、`%`、`~`、shift、`!`の不正operandを
+意味解析で拒否します。
 `test-compound-assignment`は全integer compound operator、通常のsigned/unsigned
 divide/modulo、8/16-bit格納変換、左辺一回評価をi686/AMD64で直接実行します。
 `test-switch-statement`は裸の`signed`/`unsigned`型指定、case/default dispatch、

@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-compound-assignment test-switch-statement test-control-flow test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-compound-assignment test-switch-statement test-control-flow test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -193,6 +193,38 @@ test-integer-literals: $(RCC_TARGET)
 		-o $(TEST_OUT)/integer-literals/invalid-suffix.ro \
 		tests/invalid_integer_literal_suffix.c
 	@echo "C17 integer literal type and value tests completed"
+
+test-integer-promotions: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/integer-promotions
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-promotions/x86.ro tests/integer_promotion.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-promotions/x64.ro tests/integer_promotion.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/integer-promotions/run-test-x86 \
+		tests/integer_promotion_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/integer-promotions/run-test-x64 \
+		tests/integer_promotion_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/integer-promotions/run-test-x86 \
+		$(TEST_OUT)/integer-promotions/x86.ro
+	$(TEST_OUT)/integer-promotions/run-test-x64 \
+		$(TEST_OUT)/integer-promotions/x64.ro
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-promotions/invalid.ro \
+		tests/invalid_integer_operators.c \
+		>$(TEST_OUT)/integer-promotions/invalid.log 2>&1; then \
+		echo "invalid integer-operator fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "remainder operator requires integer operands" \
+		$(TEST_OUT)/integer-promotions/invalid.log
+	grep -q "bitwise complement requires integer operand" \
+		$(TEST_OUT)/integer-promotions/invalid.log
+	grep -q "shift operator requires integer operands" \
+		$(TEST_OUT)/integer-promotions/invalid.log
+	grep -q "logical not requires scalar operand" \
+		$(TEST_OUT)/integer-promotions/invalid.log
+	@echo "Dual-architecture C17 integer promotion tests completed"
 
 test-compound-assignment: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/compound-assignment
@@ -458,6 +490,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/integer-literal-x64.ro \
 		tests/integer_literal.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/integer-promotion-x86.ro \
+		tests/integer_promotion.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/integer-promotion-x64.ro \
+		tests/integer_promotion.c
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/compound-assignment-x86.ro \
 		tests/compound_assignment.c
