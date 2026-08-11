@@ -2058,7 +2058,19 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
                 gen_tls_address(mod, decl_link_name(decl));
-            } else if (decl->kind == DECL_FUNC || decl->var_is_global) {
+                if (decl->type && decl->type->is_reference) {
+                    emit_mov_reg_mem(mod, EAX, EAX, 0);
+                }
+            } else if (decl->kind == DECL_FUNC) {
+                gen_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->type && decl->type->is_reference) {
+                if (decl->var_is_global) {
+                    gen_symbol_address(mod, decl_link_name(decl), 0u);
+                    emit_mov_reg_mem(mod, EAX, EAX, 0);
+                } else {
+                    emit_mov_reg_mem(mod, EAX, EBP, decl->var_offset);
+                }
+            } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
             } else {
                 /* Local: EBP + offset */
@@ -2760,6 +2772,12 @@ static void gen_call(Module* mod, Expr* expr) {
     for (i = argc - 1; i >= 0; --i) {
         Expr* argument = args[i]->expr;
         Type* passed_type = argument_types[i];
+        if (passed_type && passed_type->is_reference) {
+            gen_lvalue(mod, argument);
+            emit_push_reg(mod, EAX);
+            argument_bytes += 4;
+            continue;
+        }
         if (passed_type && (passed_type->kind == TYPE_STRUCT ||
                             passed_type->kind == TYPE_UNION)) {
             int units = (passed_type->size + 3) / 4;
@@ -2862,6 +2880,13 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->type && decl->type->is_reference) {
+                gen_lvalue(mod, expr);
+                if (expr->type && expr->type->kind != TYPE_ARRAY &&
+                    expr->type->kind != TYPE_STRUCT &&
+                    expr->type->kind != TYPE_UNION) {
+                    emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                }
             } else if (decl->var_is_thread_local) {
                 gen_lvalue(mod, expr);
                 emit_load_typed32(mod, EAX, EAX, 0, decl->type);

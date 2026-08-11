@@ -10,6 +10,14 @@
 
 typedef int (*nullary_function)(void);
 typedef int (*binary_function)(int, int);
+typedef int (*wide_binary_function)(uint64_t, uint64_t);
+
+typedef struct RinSliceV1 {
+    uint64_t address;
+    uint64_t size;
+} RinSliceV1;
+
+typedef RinSliceV1 (*reference_copy_function)(const RinSliceV1*);
 
 static ObjSection* code_section(ObjectFile* object)
 {
@@ -42,6 +50,9 @@ int main(int argc, char** argv)
     binary_function class_aggregate_init;
     typedef int (*unary_function)(int);
     unary_function lowered_constructor_init;
+    reference_copy_function copy_reference;
+    wide_binary_function reference_call;
+    wide_binary_function reference_overload;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -72,11 +83,26 @@ int main(int argc, char** argv)
                   "cxx_class_aggregate_init");
     LOAD_FUNCTION(lowered_constructor_init, object, mapping,
                   "cxx_lowered_constructor_init");
+    LOAD_FUNCTION(copy_reference, object, mapping,
+                  "_ZN3rin14copy_referenceERK10RinSliceV1");
+    LOAD_FUNCTION(reference_call, object, mapping, "cxx_reference_call");
+    LOAD_FUNCTION(reference_overload, object, mapping,
+                  "cxx_reference_overload");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
     assert(class_aggregate_init(4, 7) == 4774);
     assert(lowered_constructor_init(9) == 90);
+    {
+        RinSliceV1 input = {UINT64_C(0x12345678), UINT64_C(0x87654321)};
+        RinSliceV1 copied = copy_reference(&input);
+        assert(copied.address == input.address);
+        assert(copied.size == input.size);
+    }
+    assert(reference_call(UINT64_C(0x1122334455667788),
+                          UINT64_C(0x8877665544332211)) == 1);
+    assert(reference_overload(UINT64_C(0x1020304050607080),
+                              UINT64_C(0x8070605040302010)) == 1);
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

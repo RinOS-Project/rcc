@@ -35,9 +35,13 @@ char* cxx_mangle_type(Type* type) {
         return buf;
     }
 
-    /* Handle pointers */
+    /* Handle pointers and the Itanium ABI reference constructors. */
     while (type->kind == TYPE_PTR) {
-        buf[pos++] = 'P';
+        if (type->is_reference) {
+            buf[pos++] = type->is_rvalue_reference ? 'O' : 'R';
+        } else {
+            buf[pos++] = 'P';
+        }
         type = type->base;
     }
 

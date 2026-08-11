@@ -61,6 +61,8 @@ struct Type {
     bool is_unsigned;
     bool is_const;
     bool is_volatile;
+    bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
+    bool is_rvalue_reference;
 
     union {
         /* TYPE_PTR, TYPE_ARRAY */

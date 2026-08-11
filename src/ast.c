@@ -245,6 +245,10 @@ bool type_is_compatible(Type* a, Type* b) {
     if (!a || !b) return false;
     if (a == b) return true;
     if (a->kind != b->kind) return false;
+    if (a->is_reference != b->is_reference ||
+        a->is_rvalue_reference != b->is_rvalue_reference) {
+        return false;
+    }
     if (type_is_integer(a) && a->is_unsigned != b->is_unsigned) return false;
     if (a->kind == TYPE_PTR) {
         return type_is_compatible(a->base, b->base);

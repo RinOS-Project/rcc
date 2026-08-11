@@ -247,6 +247,13 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		test $$status -ne 0
 	grep -q "no safely lowerable constructor accepts 0 arguments" \
 		$(TEST_OUT)/cxx-inline-aggregates/arity.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/const-reference.ro \
+		tests/cxx_const_reference_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/const-reference.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "incompatible type for argument 1 to 'reference_test::mutable_reference'" \
+		$(TEST_OUT)/cxx-inline-aggregates/const-reference.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)

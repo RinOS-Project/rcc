@@ -37,6 +37,18 @@ inline RinSliceV1 slice(const void* data, uint64_t size) noexcept {
                       size};
 }
 
+inline RinSliceV1 copy_reference(const RinSliceV1& input) noexcept {
+    return RinSliceV1{input.address, input.size};
+}
+
+inline RinSliceV1 choose(const RinSliceV1& input) noexcept {
+    return RinSliceV1{input.address, input.size};
+}
+
+inline RinSliceV1 choose(const RinSliceV1* input) noexcept {
+    return RinSliceV1{input->size, input->address};
+}
+
 }
 
 RinSliceV1 mutable_slice(void* data, uint64_t size) {
@@ -74,6 +86,22 @@ int cxx_lowered_constructor_init(int input) {
     CxxBox zero{};
     CxxBox value{input};
     return value.value * 10 + zero.value;
+}
+
+int cxx_reference_call(uint64_t address, uint64_t size) {
+    RinSliceV1 input{address, size};
+    RinSliceV1 copied = rin::copy_reference(input);
+    return copied.address == address && copied.size == size;
+}
+
+int cxx_reference_overload(uint64_t address, uint64_t size) {
+    RinSliceV1 input{address, size};
+    RinSliceV1 by_reference = rin::choose(input);
+    RinSliceV1 by_pointer = rin::choose(&input);
+    return by_reference.address == address &&
+           by_reference.size == size &&
+           by_pointer.address == size &&
+           by_pointer.size == address;
 }
 
 }

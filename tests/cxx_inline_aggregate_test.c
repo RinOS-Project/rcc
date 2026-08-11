@@ -28,20 +28,40 @@ static void verify_inline_wrappers(const char* path, uint16_t architecture)
 {
     static const char mutable_name[] = "_ZN3rin5sliceEPvy";
     static const char const_name[] = "_ZN3rin5sliceEPKvy";
+    static const char reference_name[] =
+        "_ZN3rin14copy_referenceERK10RinSliceV1";
+    static const char reference_overload_name[] =
+        "_ZN3rin6chooseERK10RinSliceV1";
+    static const char pointer_overload_name[] =
+        "_ZN3rin6chooseEPK10RinSliceV1";
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
     ObjSymbol* mutable_symbol;
     ObjSymbol* const_symbol;
+    ObjSymbol* reference_symbol;
+    ObjSymbol* reference_overload_symbol;
+    ObjSymbol* pointer_overload_symbol;
 
     assert(object != NULL && object->arch == architecture);
     text = objfile_get_section(object, ".text");
     assert(text != NULL);
     mutable_symbol = find_symbol(object, mutable_name);
     const_symbol = find_symbol(object, const_name);
+    reference_symbol = find_symbol(object, reference_name);
+    reference_overload_symbol = find_symbol(object, reference_overload_name);
+    pointer_overload_symbol = find_symbol(object, pointer_overload_name);
     assert(mutable_symbol != NULL && mutable_symbol->type == SYM_WEAK);
     assert(const_symbol != NULL && const_symbol->type == SYM_WEAK);
+    assert(reference_symbol != NULL && reference_symbol->type == SYM_WEAK);
+    assert(reference_overload_symbol != NULL &&
+           reference_overload_symbol->type == SYM_WEAK);
+    assert(pointer_overload_symbol != NULL &&
+           pointer_overload_symbol->type == SYM_WEAK);
     assert(mutable_symbol->section == 0);
     assert(const_symbol->section == 0);
+    assert(reference_symbol->section == 0);
+    assert(reference_overload_symbol->section == 0);
+    assert(pointer_overload_symbol->section == 0);
     assert(relocation_count(text, mutable_name) == 0u);
     assert(relocation_count(text, const_name) == 0u);
     objfile_free(object);

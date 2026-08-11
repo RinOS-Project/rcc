@@ -158,6 +158,15 @@ static Type* sema_integer_promotion(Type* type) {
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
+    if (target->is_reference) {
+        Type* referred = target->base;
+        /* Reference arguments are passed as addresses by the backend, so the
+         * supported subset deliberately requires addressable expressions. */
+        if (!referred || !is_lvalue(e)) return NULL;
+        if (e->type->is_const && !referred->is_const) return NULL;
+        return type_is_compatible(e->type, referred) ? target : NULL;
+    }
+
     /* Same type */
     if (e->type == target) return target;
 
@@ -213,6 +222,10 @@ static Type* implicit_cast(Expr* e, Type* target) {
 static bool cxx_same_parameter_type(Type* source, Type* target,
                                     bool top_level) {
     if (!source || !target || source->kind != target->kind) return false;
+    if (source->is_reference != target->is_reference ||
+        source->is_rvalue_reference != target->is_rvalue_reference) {
+        return false;
+    }
     if (!top_level && source->is_const != target->is_const) return false;
     if (type_is_integer(source) &&
         source->is_unsigned != target->is_unsigned) {
@@ -236,6 +249,13 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
 
     if (!argument || !argument->type || !target) return -1;
     source = argument->type;
+    if (target->is_reference) {
+        target_base = target->base;
+        if (!target_base || !is_lvalue(argument)) return -1;
+        if (source->is_const && !target_base->is_const) return -1;
+        if (cxx_same_parameter_type(source, target_base, false)) return 0;
+        return type_is_compatible(source, target_base) ? 1 : -1;
+    }
     if (cxx_same_parameter_type(source, target, true)) return 0;
 
     if (source->kind == TYPE_ARRAY && target->kind == TYPE_PTR) {
@@ -409,7 +429,8 @@ static Type* sema_expr(Expr* expr) {
                 expr->type = type_int;
             } else {
                 expr->ident_decl = sym->decl;
-                expr->type = sym->type;
+                expr->type = sym->type && sym->type->is_reference
+                    ? sym->type->base : sym->type;
                 if (sym->kind == SYM_FUNC && sym->decl &&
                     sym->decl->func_overload_next) {
                     rcc_error(expr->loc,

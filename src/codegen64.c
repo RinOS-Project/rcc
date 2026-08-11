@@ -1160,7 +1160,19 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
                 gen64_tls_address(mod, decl_link_name(decl));
-            } else if (decl->kind == DECL_FUNC || decl->var_is_global) {
+                if (decl->type && decl->type->is_reference) {
+                    emit64_mov_reg_mem(mod, RAX, RAX, 0);
+                }
+            } else if (decl->kind == DECL_FUNC) {
+                gen64_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->type && decl->type->is_reference) {
+                if (decl->var_is_global) {
+                    gen64_symbol_address(mod, decl_link_name(decl), 0u);
+                    emit64_mov_reg_mem(mod, RAX, RAX, 0);
+                } else {
+                    emit64_mov_reg_mem(mod, RAX, RBP, decl->var_offset);
+                }
+            } else if (decl->var_is_global) {
                 gen64_symbol_address(mod, decl_link_name(decl), 0u);
             } else {
                 emit64_lea(mod, RAX, RBP, decl->var_offset);
@@ -1274,6 +1286,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen64_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->type && decl->type->is_reference) {
+                gen64_lvalue(mod, expr);
+                if (expr->type && expr->type->kind != TYPE_ARRAY &&
+                    expr->type->kind != TYPE_STRUCT &&
+                    expr->type->kind != TYPE_UNION) {
+                    emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+                }
             } else if (decl->var_is_thread_local) {
                 gen64_lvalue(mod, expr);
                 emit64_load_typed(mod, RAX, RAX, 0, decl->type);
@@ -1704,7 +1723,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                            a->expr->type->kind == TYPE_FLOAT
                             ? type_double : a->expr->type));
                 if (parameter) parameter = parameter->next;
-                if (a->expr->type &&
+                if (argument_types[i - 1] &&
+                    argument_types[i - 1]->is_reference) {
+                    ++abi_argc;
+                } else if (a->expr->type &&
                     (a->expr->type->kind == TYPE_STRUCT ||
                      a->expr->type->kind == TYPE_UNION)) {
                     abi_argc += (a->expr->type->size + 7) / 8;
@@ -1722,7 +1744,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (stack_padding) emit64_sub_reg_imm(mod, RSP, stack_padding);
             for (i = argc - 1; i >= 0; i--) {
                 Expr* argument = args[i]->expr;
-                if (argument->type &&
+                Type* passed_type = argument_types[i];
+                if (passed_type && passed_type->is_reference) {
+                    gen64_lvalue(mod, argument);
+                    emit64_push_reg(mod, RAX);
+                } else if (argument->type &&
                     (argument->type->kind == TYPE_STRUCT ||
                      argument->type->kind == TYPE_UNION)) {
                     int units = (argument->type->size + 7) / 8;

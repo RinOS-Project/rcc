@@ -802,21 +802,6 @@ static DeclList* parse_cxx_parameter_declarations(void) {
     return params;
 }
 
-static bool inline_constructor_parameters_supported(Type* return_type,
-                                                     DeclList* params) {
-    DeclList* parameter;
-    if (rcc_parser_cxx_constructor_arity_mask(return_type) == 0u) {
-        return true;
-    }
-    /* References currently share the pointer representation in the common
-     * AST.  Defer those wrappers until reference address/value semantics are
-     * represented explicitly instead of compiling an incorrect body. */
-    for (parameter = params; parameter; parameter = parameter->next) {
-        if (parameter->decl->type->kind == TYPE_PTR) return false;
-    }
-    return true;
-}
-
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept) {
@@ -855,7 +840,6 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     if (!parse_body && is_inline && type_is_complete(return_type) &&
         (return_type->kind == TYPE_STRUCT ||
          return_type->kind == TYPE_UNION) &&
-        inline_constructor_parameters_supported(return_type, params) &&
         check(TOK_LBRACE) && parser.cur->next &&
         parser.cur->next->type == TOK_RETURN) {
         parse_body = true;
@@ -1027,12 +1011,12 @@ static Type* parse_cxx_type_spec(void) {
             t = type_ptr(t);
             while (match(TOK_CONST)) t->is_const = true;
         } else if (match(TOK_AMP)) {
-            /* Reference - treat as pointer internally */
             t = type_ptr(t);
-            /* Mark as reference somehow? */
+            t->is_reference = true;
         } else if (match(TOK_AND)) {
-            /* Rvalue reference - use the same lowered representation. */
             t = type_ptr(t);
+            t->is_reference = true;
+            t->is_rvalue_reference = true;
         } else {
             break;
         }
