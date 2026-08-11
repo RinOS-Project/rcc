@@ -10,6 +10,8 @@ void free(void* pointer);
 void abort(void);
 void exit(int status);
 int atexit(void (*function)(void));
+int atoi(const char* text);
+double strtod(const char* text, char** end);
 long strtol(const char* text, char** end, int base);
 unsigned long strtoul(const char* text, char** end, int base);
 long long strtoll(const char* text, char** end, int base);

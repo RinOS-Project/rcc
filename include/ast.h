@@ -298,6 +298,7 @@ struct Expr {
         struct {
             Type* compound_type;
             ExprList* compound_init;
+            int compound_offset;     /* Assigned automatic-storage slot. */
         };
 
         /* EXPR_GENERIC */

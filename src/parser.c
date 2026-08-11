@@ -640,9 +640,7 @@ static Expr* parse_primary(void) {
 }
 
 /* Postfix: a[i], a.m, a->m, a++, a--, f(args) */
-static Expr* parse_postfix(void) {
-    Expr* e = parse_primary();
-
+static Expr* parse_postfix_tail(Expr* e) {
     while (1) {
         SourceLoc loc = peek()->loc;
 
@@ -685,6 +683,10 @@ static Expr* parse_postfix(void) {
     return e;
 }
 
+static Expr* parse_postfix(void) {
+    return parse_postfix_tail(parse_primary());
+}
+
 /* Unary: ++a, --a, &a, *a, +a, -a, ~a, !a */
 static Expr* parse_unary(void) {
     SourceLoc loc = peek()->loc;
@@ -697,6 +699,11 @@ static Expr* parse_unary(void) {
             Type* cast_type = parse_type_spec();
             cast_type = parse_declarator(cast_type, NULL, NULL);
             expect(TOK_RPAREN, ")");
+            if (check(TOK_LBRACE)) {
+                Expr* literal = parse_initializer();
+                literal->compound_type = cast_type;
+                return parse_postfix_tail(literal);
+            }
             return expr_cast(cast_type, parse_unary(), loc);
         }
         parser.cur = saved_cur;

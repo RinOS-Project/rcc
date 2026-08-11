@@ -149,6 +149,8 @@ bool module_resolve_tls_relocation(const Module* mod,
 void module_ensure_rodata_base_symbol(Module* mod);
 void codegen_emit_global_data(Module* mod, AST* ast);
 int codegen_required_local_bytes(Stmt* statement);
+int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
+                                    int stack_alignment);
 
 /* Object file output */
 bool rcc_emit_obj(Module* mod, const char* filename);

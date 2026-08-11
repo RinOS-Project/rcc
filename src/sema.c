@@ -30,6 +30,7 @@ static int loop_depth = 0;
 static void sema_stmt(Stmt* stmt);
 static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
+static void sema_initializer(Type* type, Expr* initializer);
 static bool sema_atomic_builtin_call(Expr* expr);
 
 static Type* sema_switch_control_type(Type* type) {
@@ -115,6 +116,7 @@ static bool is_lvalue(Expr* e) {
         case EXPR_INDEX:
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
+        case EXPR_COMPOUND:
             return true;
         default:
             return false;
@@ -177,7 +179,8 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* Array to pointer decay */
     if (type_is_array(e->type) && type_is_pointer(target)) {
-        if (type_is_compatible(e->type->base, target->base)) {
+        if ((target->base && target->base->kind == TYPE_VOID) ||
+            type_is_compatible(e->type->base, target->base)) {
             return target;
         }
     }
@@ -411,6 +414,20 @@ static Type* sema_expr(Expr* expr) {
             expr->type = type_common(lt, rt);
             break;
         }
+
+        case EXPR_COMPOUND:
+            if (!expr->compound_type ||
+                !type_is_complete(expr->compound_type) ||
+                expr->compound_type->kind == TYPE_FUNC ||
+                expr->compound_type->kind == TYPE_VOID) {
+                rcc_error(expr->loc,
+                          "compound literal requires a complete object type");
+                expr->type = type_int;
+            } else {
+                expr->type = expr->compound_type;
+                sema_initializer(expr->compound_type, expr);
+            }
+            break;
 
         case EXPR_MOD: {
             Type* lt = sema_expr(expr->binary_lhs);

@@ -21,6 +21,8 @@ size_t fwrite(const void* buffer, size_t size, size_t count, FILE* stream);
 int fseek(FILE* stream, long offset, int origin);
 long ftell(FILE* stream);
 int fflush(FILE* stream);
+int fputc(int character, FILE* stream);
+int fputs(const char* text, FILE* stream);
 int remove(const char* path);
 int rename(const char* old_path, const char* new_path);
 int printf(const char* format, ...);

@@ -1987,6 +1987,10 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     return false;
 }
 static void gen_stmt(Module* mod, Stmt* stmt);
+static void gen_zero_local_storage(Module* mod, int32_t displacement,
+                                   size_t storage);
+static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
+                                  int32_t displacement);
 
 static void gen_symbol_address(Module* mod, const char* symbol,
                                uint32_t addend) {
@@ -2063,6 +2067,29 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             if (expr->member_field && expr->member_field->offset > 0) {
                 emit_add_reg_imm(mod, EAX, expr->member_field->offset);
             }
+            break;
+
+        case EXPR_COMPOUND:
+            if (!expr->compound_type || expr->compound_offset >= 0) {
+                rcc_error(expr->loc,
+                          "compound literal has no automatic storage slot");
+                emit_mov_reg_imm(mod, EAX, 0u);
+                break;
+            }
+            if (expr->compound_type->kind == TYPE_ARRAY ||
+                expr->compound_type->kind == TYPE_STRUCT ||
+                expr->compound_type->kind == TYPE_UNION) {
+                gen_zero_local_storage(mod, expr->compound_offset,
+                                       (size_t)expr->compound_type->size);
+            }
+            if (!gen_local_initializer(mod, expr->compound_type, expr,
+                                       expr->compound_offset)) {
+                rcc_error(expr->loc,
+                          "unsupported compound literal initializer");
+            }
+            emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+            emit_byte(mod, modrm(2, EAX, EBP));
+            emit_dword(mod, (uint32_t)expr->compound_offset);
             break;
 
         default:
@@ -2664,6 +2691,18 @@ static void gen_call(Module* mod, Expr* expr) {
     for (i = argc - 1; i >= 0; --i) {
         Expr* argument = args[i]->expr;
         Type* passed_type = argument_types[i];
+        if (passed_type && (passed_type->kind == TYPE_STRUCT ||
+                            passed_type->kind == TYPE_UNION)) {
+            int units = (passed_type->size + 3) / 4;
+            gen_lvalue(mod, argument);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            for (int unit = units - 1; unit >= 0; --unit) {
+                emit_mov_reg_mem(mod, EAX, ECX, unit * 4);
+                emit_push_reg(mod, EAX);
+            }
+            argument_bytes += units * 4;
+            continue;
+        }
         gen_expr(mod, argument);
         if (gen_is_integer64(passed_type)) {
             if (!gen_is_integer64(argument->type)) {
@@ -3173,6 +3212,15 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             break;
 
+        case EXPR_COMPOUND:
+            gen_lvalue(mod, expr);
+            if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
+                                expr->type->kind != TYPE_STRUCT &&
+                                expr->type->kind != TYPE_UNION)) {
+                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+            }
+            break;
+
         case EXPR_CAST:
             gen_expr(mod, expr->cast_expr);
             if (type_is_integer(expr->type) ||
@@ -3612,6 +3660,235 @@ int codegen_required_local_bytes(Stmt* statement) {
         default:
             return 0;
     }
+}
+
+static int codegen_align_frame_bytes(int bytes, int alignment) {
+    int64_t value;
+    if (alignment <= 1) return bytes;
+    value = (int64_t)bytes + alignment - 1;
+    if (value > INT_MAX) return INT_MAX;
+    return (int)(value / alignment * alignment);
+}
+
+static void codegen_assign_compound_expr(Expr* expression, int* bytes,
+                                         int stack_alignment) {
+    if (!expression || !bytes || *bytes == INT_MAX) return;
+    if (expression->kind == EXPR_COMPOUND && expression->compound_type) {
+        int size = expression->compound_type->size;
+        int alignment = expression->compound_type->align;
+        int64_t extent;
+        if (alignment < stack_alignment) alignment = stack_alignment;
+        if (size <= 0) size = 1;
+        extent = (int64_t)*bytes + size;
+        if (extent > INT_MAX) {
+            *bytes = INT_MAX;
+        } else {
+            *bytes = codegen_align_frame_bytes((int)extent, alignment);
+            expression->compound_offset = -*bytes;
+        }
+    }
+
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            codegen_assign_compound_expr(expression->unary_operand, bytes,
+                                         stack_alignment);
+            break;
+        case EXPR_SIZEOF:
+            if (!expression->sizeof_type) {
+                codegen_assign_compound_expr(expression->unary_operand, bytes,
+                                             stack_alignment);
+            }
+            break;
+        case EXPR_CAST:
+            codegen_assign_compound_expr(expression->cast_expr, bytes,
+                                         stack_alignment);
+            break;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            codegen_assign_compound_expr(expression->binary_lhs, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_expr(expression->binary_rhs, bytes,
+                                         stack_alignment);
+            break;
+        case EXPR_COND:
+            codegen_assign_compound_expr(expression->cond_test, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_expr(expression->cond_then, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_expr(expression->cond_else, bytes,
+                                         stack_alignment);
+            break;
+        case EXPR_CALL:
+            codegen_assign_compound_expr(expression->call_func, bytes,
+                                         stack_alignment);
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                codegen_assign_compound_expr(argument->expr, bytes,
+                                             stack_alignment);
+            }
+            break;
+        case EXPR_INDEX:
+            codegen_assign_compound_expr(expression->index_base, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_expr(expression->index_expr, bytes,
+                                         stack_alignment);
+            break;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            codegen_assign_compound_expr(expression->member_base, bytes,
+                                         stack_alignment);
+            break;
+        case EXPR_COMPOUND:
+            for (ExprList* initializer = expression->compound_init;
+                 initializer; initializer = initializer->next) {
+                codegen_assign_compound_expr(initializer->expr, bytes,
+                                             stack_alignment);
+            }
+            break;
+        case EXPR_GENERIC:
+            codegen_assign_compound_expr(expression->generic_control, bytes,
+                                         stack_alignment);
+            for (GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                codegen_assign_compound_expr(association->expr, bytes,
+                                             stack_alignment);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
+                                         int stack_alignment) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            codegen_assign_compound_expr(statement->expr, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                codegen_assign_compound_stmt(item->stmt, bytes,
+                                             stack_alignment);
+            }
+            break;
+        case STMT_IF:
+            codegen_assign_compound_expr(statement->if_cond, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_stmt(statement->if_then, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_stmt(statement->if_else, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            codegen_assign_compound_expr(statement->while_cond, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_stmt(statement->while_body, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_FOR:
+            codegen_assign_compound_stmt(statement->for_init, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_expr(statement->for_cond, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_expr(statement->for_inc, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_stmt(statement->for_body, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_SWITCH:
+            codegen_assign_compound_expr(statement->switch_expr, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_stmt(statement->switch_body, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_CASE:
+            codegen_assign_compound_expr(statement->case_val, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_stmt(statement->case_stmt, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_DEFAULT:
+            codegen_assign_compound_stmt(statement->default_stmt, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_RETURN:
+            codegen_assign_compound_expr(statement->return_val, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_LABEL:
+            codegen_assign_compound_stmt(statement->label_stmt, bytes,
+                                         stack_alignment);
+            break;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR) {
+                codegen_assign_compound_expr(statement->decl->var_init, bytes,
+                                             stack_alignment);
+            }
+            break;
+        case STMT_ASM:
+            for (AsmOperand* operand = statement->asm_outputs; operand;
+                 operand = operand->next) {
+                codegen_assign_compound_expr(operand->expr, bytes,
+                                             stack_alignment);
+            }
+            for (AsmOperand* operand = statement->asm_inputs; operand;
+                 operand = operand->next) {
+                codegen_assign_compound_expr(operand->expr, bytes,
+                                             stack_alignment);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
+                                    int stack_alignment) {
+    int bytes = initial_bytes < 0 ? INT_MAX : initial_bytes;
+    if (stack_alignment < 1) stack_alignment = 1;
+    codegen_assign_compound_stmt(statement, &bytes, stack_alignment);
+    return bytes;
 }
 
 static void gen_zero_local_storage(Module* mod, int32_t displacement,
@@ -4180,6 +4457,8 @@ static void gen_function(Module* mod, Decl* decl) {
     if (!decl->func_body) return;
 
     stack_size = codegen_required_local_bytes(decl->func_body);
+    stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
+                                                 4);
     if (stack_size > INT_MAX - 15) {
         rcc_error(decl->loc, "function stack frame exceeds compiler limits");
         return;

@@ -15,7 +15,10 @@ SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
 BOOTSTRAP_ROOT = build/bootstrap
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
-BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/sema.c src/optimize.c
+BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/sema.c src/parser.c \
+                      src/optimize.c src/codegen.c src/codegen64.c \
+                      src/preproc.c src/driver_policy.c src/emit_asm.c \
+                      src/ast_cxx.c src/parser_cxx.c
 
 # Common source files (shared between rcc and rcc++)
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
@@ -50,7 +53,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-scalar-comparisons test-aggregate-copy test-bootstrap-core test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-scalar-comparisons test-aggregate-copy test-compound-literals test-bootstrap-core test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -338,6 +341,32 @@ test-aggregate-copy: $(RCC_TARGET)
 	grep -q "duplicate member 'duplicate' from anonymous aggregate" \
 		$(TEST_OUT)/aggregate-copy/invalid.log
 	@echo "Dual-architecture C17 aggregate copy tests completed"
+
+test-compound-literals: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/compound-literals
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/compound-literals/x86.ro tests/compound_literal.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/compound-literals/x64.ro tests/compound_literal.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/compound-literals/run-test-x86 \
+		tests/compound_literal_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/compound-literals/run-test-x64 \
+		tests/compound_literal_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/compound-literals/run-test-x86 \
+		$(TEST_OUT)/compound-literals/x86.ro
+	$(TEST_OUT)/compound-literals/run-test-x64 \
+		$(TEST_OUT)/compound-literals/x64.ro
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/compound-literals/invalid.ro \
+		tests/invalid_compound_literal.c \
+		>$(TEST_OUT)/compound-literals/invalid.log 2>&1; then \
+		echo "incomplete compound literal unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "compound literal requires a complete object type" \
+		$(TEST_OUT)/compound-literals/invalid.log
+	@echo "Dual-architecture C17 automatic compound literal tests completed"
 
 test-bootstrap-core: $(RCC_TARGET)
 	mkdir -p $(BOOTSTRAP_ROOT)/stage1-a $(BOOTSTRAP_ROOT)/stage1-b
@@ -669,6 +698,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/aggregate-copy-x64.ro \
 		tests/aggregate_copy.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/compound-literal-x86.ro \
+		tests/compound_literal.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/compound-literal-x64.ro \
+		tests/compound_literal.c
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/compound-assignment-x86.ro \
 		tests/compound_assignment.c

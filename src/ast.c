@@ -283,7 +283,12 @@ bool type_is_compatible(Type* a, Type* b) {
         return ap == NULL && bp == NULL;
     }
     if (a->kind == TYPE_STRUCT || a->kind == TYPE_UNION) {
-        return a->tag && b->tag && strcmp(a->tag, b->tag) == 0;
+        if (a->tag || b->tag) {
+            return a->tag && b->tag && strcmp(a->tag, b->tag) == 0;
+        }
+        /* A qualified copy of an anonymous aggregate retains the same field
+         * graph even though it has no tag to compare. */
+        return a->fields == b->fields;
     }
     if (a->kind == TYPE_ENUM) {
         return a->enum_tag && b->enum_tag &&

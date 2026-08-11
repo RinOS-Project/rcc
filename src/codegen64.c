@@ -1174,6 +1174,27 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             }
             break;
 
+        case EXPR_COMPOUND:
+            if (!expr->compound_type || expr->compound_offset >= 0) {
+                rcc_error(expr->loc,
+                          "compound literal has no automatic storage slot");
+                emit64_mov_reg_imm32(mod, RAX, 0u);
+                break;
+            }
+            if (expr->compound_type->kind == TYPE_ARRAY ||
+                expr->compound_type->kind == TYPE_STRUCT ||
+                expr->compound_type->kind == TYPE_UNION) {
+                gen64_zero_local_storage(mod, expr->compound_offset,
+                                         (size_t)expr->compound_type->size);
+            }
+            if (!gen64_local_initializer(mod, expr->compound_type, expr,
+                                         expr->compound_offset)) {
+                rcc_error(expr->loc,
+                          "unsupported compound literal initializer");
+            }
+            emit64_lea(mod, RAX, RBP, expr->compound_offset);
+            break;
+
         default:
             rcc_error(expr->loc, "not an lvalue");
             break;
@@ -1626,10 +1647,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     (argument->type->kind == TYPE_STRUCT ||
                      argument->type->kind == TYPE_UNION)) {
                     int units = (argument->type->size + 7) / 8;
+                    gen64_lvalue(mod, argument);
+                    emit64_mov_reg_reg(mod, R11, RAX);
                     for (int unit = units - 1; unit >= 0; --unit) {
-                        gen64_lvalue(mod, argument);
-                        if (unit) emit64_add_reg_imm(mod, RAX, unit * 8);
-                        emit64_mov_reg_mem(mod, RAX, RAX, 0);
+                        emit64_mov_reg_mem(mod, RAX, R11, unit * 8);
                         emit64_push_reg(mod, RAX);
                     }
                 } else {
@@ -1698,6 +1719,15 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_PTR_MEMBER:
             gen64_lvalue(mod, expr);
             if (!expr->type || expr->type->kind != TYPE_ARRAY) {
+                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+            }
+            break;
+
+        case EXPR_COMPOUND:
+            gen64_lvalue(mod, expr);
+            if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
+                                expr->type->kind != TYPE_STRUCT &&
+                                expr->type->kind != TYPE_UNION)) {
                 emit64_load_typed(mod, RAX, RAX, 0, expr->type);
             }
             break;
@@ -2215,6 +2245,8 @@ static void gen64_function(Module* mod, Decl* decl) {
         }
         stack_size = (int)parameter_frame_size;
     }
+    stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
+                                                 8);
     if (stack_size > INT_MAX - 15) {
         rcc_error(decl->loc, "function stack frame exceeds compiler limits");
         return;
