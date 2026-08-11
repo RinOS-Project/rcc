@@ -8,6 +8,10 @@ Type* rcc_parse_cxx_direct_list_type(void) {
     return NULL;
 }
 
+Type* rcc_parse_cxx_type_name(void) {
+    return NULL;
+}
+
 Expr* rcc_parse_cxx_template_call(void) {
     return NULL;
 }

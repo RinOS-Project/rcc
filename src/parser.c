@@ -660,6 +660,30 @@ void rcc_parser_validate_cxx_constructor_initializer(Type* type,
         initializer->kind != EXPR_COMPOUND) {
         return;
     }
+    if (initializer->compound_init &&
+        !initializer->compound_init->next &&
+        initializer->compound_init->designator_kind ==
+            INIT_DESIGNATOR_NONE &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->kind == EXPR_CAST) {
+        Expr* cast = initializer->compound_init->expr;
+        Type* cast_type = cast->cast_type;
+        if (cast_type && cast_type->kind == TYPE_PTR &&
+            cast_type->is_reference && cast_type->is_rvalue_reference &&
+            cast_type->base && type_is_compatible(cast_type->base, type)) {
+            TypeMethod* move = type->move_constructor_method;
+            Expr* source = cast->cast_expr;
+            if (!move || !move->name || !source ||
+                source->kind != EXPR_IDENT) {
+                rcc_error(cast->loc,
+                          "C++ move construction requires a validated release constructor");
+                return;
+            }
+            initializer->compound_init->expr = expr_call(
+                expr_member(source, move->name, cast->loc), NULL, cast->loc);
+            return;
+        }
+    }
     mask = rcc_parser_cxx_constructor_arity_mask(type);
     if (mask == 0u) return;
     if (!initializer->compound_value_init) {
@@ -1005,7 +1029,13 @@ static Expr* parse_unary(void) {
         advance();
         expect(TOK_LT, "<");
         Type* cast_type;
-        if (!is_type_start()) {
+        if (parser_cxx_mode) {
+            cast_type = rcc_parse_cxx_type_name();
+            if (!cast_type) {
+                rcc_error(peek()->loc, "C++ named cast requires a type name");
+                cast_type = type_int;
+            }
+        } else if (!is_type_start()) {
             rcc_error(peek()->loc, "C++ named cast requires a type name");
             cast_type = type_int;
         } else {

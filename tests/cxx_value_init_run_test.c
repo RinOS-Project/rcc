@@ -91,6 +91,8 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_goto_for_init;
     mutable_int_pointer_function cleanup_contextual_bool;
     mutable_int_pointer_function cleanup_wide_contextual_bool;
+    mutable_int_pointer_function cleanup_move;
+    mutable_int_pointer_function cleanup_wide_move;
     mutable_int_pointer_function cleanup_contextual_control;
 
     assert(argc == 2);
@@ -171,6 +173,9 @@ int main(int argc, char** argv)
                   "cxx_cleanup_contextual_bool");
     LOAD_FUNCTION(cleanup_wide_contextual_bool, object, mapping,
                   "cxx_cleanup_wide_contextual_bool");
+    LOAD_FUNCTION(cleanup_move, object, mapping, "cxx_cleanup_move");
+    LOAD_FUNCTION(cleanup_wide_move, object, mapping,
+                  "cxx_cleanup_wide_move");
     LOAD_FUNCTION(cleanup_contextual_control, object, mapping,
                   "cxx_cleanup_contextual_control");
     assert(direct_value_init() == 1);
@@ -268,8 +273,12 @@ int main(int argc, char** argv)
         assert(value == 80);
         assert(cleanup_wide_contextual_bool(&value) == 11);
         assert(value == 80);
+        assert(cleanup_move(&value) == 11);
+        assert(value == 81);
+        assert(cleanup_wide_move(&value) == 11);
+        assert(value == 83);
         assert(cleanup_contextual_control(&value) == 11111);
-        assert(value == 80);
+        assert(value == 83);
     }
 
     assert(munmap(mapping, mapping_size) == 0);

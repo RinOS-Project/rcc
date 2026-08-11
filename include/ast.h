@@ -87,6 +87,9 @@ struct Type {
     const char* cleanup_function;
     TypeField* cleanup_field;
     int64_t cleanup_invalid;
+    /* Ownership-transfer constructor lowered through a validated release
+     * accessor.  NULL unless parser_cxx.c proved the exact move pattern. */
+    TypeMethod* move_constructor_method;
 
     union {
         /* TYPE_PTR, TYPE_ARRAY */
@@ -143,6 +146,7 @@ uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type);
 void rcc_parser_validate_cxx_constructor_initializer(Type* type,
                                                      Expr* initializer);
 Type* rcc_parse_cxx_direct_list_type(void);
+Type* rcc_parse_cxx_type_name(void);
 Expr* rcc_parse_cxx_template_call(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
 

@@ -41,6 +41,7 @@ struct CxxConstructorInfo {
     bool body_is_empty;
     bool is_deleted;
     bool is_defaulted;
+    AccessSpec access;
     CxxConstructorInfo* next;
 };
 
@@ -267,6 +268,7 @@ AST* rcc_parse_cxx(struct TokenList* tokens);
  * followed by direct-list initialization.  Returns NULL without consuming
  * tokens when the current spelling is not such a type. */
 Type* rcc_parse_cxx_direct_list_type(void);
+Type* rcc_parse_cxx_type_name(void);
 Expr* rcc_parse_cxx_template_call(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
 

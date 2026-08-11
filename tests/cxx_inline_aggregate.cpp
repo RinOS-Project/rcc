@@ -51,6 +51,9 @@ public:
     CxxUnique(const CxxUnique&) = delete;
     CxxUnique& operator=(const CxxUnique&) = delete;
 
+    constexpr CxxUnique(CxxUnique&& other) noexcept
+        : handle_(other.release()) {}
+
     ~CxxUnique() {
         if (handle_ != 0) {
             (void)cxx_cleanup_close(handle_);
@@ -84,6 +87,9 @@ public:
         : handle_(handle) {}
     CxxWideUnique(const CxxWideUnique&) = delete;
     CxxWideUnique& operator=(const CxxWideUnique&) = delete;
+
+    constexpr CxxWideUnique(CxxWideUnique&& other) noexcept
+        : handle_(other.release()) {}
 
     ~CxxWideUnique() {
         if (handle_ != 0) {
@@ -422,6 +428,21 @@ int cxx_cleanup_wide_contextual_bool(int* value) {
     (void)handle.release();
     int after = !handle;
     return before * 10 + after;
+}
+
+int cxx_cleanup_move(int* value) {
+    auto source = CxxUnique<int*>{value};
+    auto target = CxxUnique<int*>{
+        static_cast<CxxUnique<int*>&&>(source)};
+    return (!source) * 10 + (target ? 1 : 0);
+}
+
+int cxx_cleanup_wide_move(int* value) {
+    auto source = CxxWideUnique{
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(value))};
+    auto target = CxxWideUnique{
+        static_cast<CxxWideUnique&&>(source)};
+    return (!source) * 10 + (target ? 1 : 0);
 }
 
 int cxx_cleanup_contextual_control(int* value) {

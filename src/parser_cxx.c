@@ -279,7 +279,8 @@ static bool class_has_destructor(CxxClass* cls) {
  * SDK status/outcome wrappers without executing arbitrary constructor code. */
 static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     CxxConstructorInfo* constructor;
-    uint32_t mask = 0u;
+    uint32_t mask = cls && cls->type && cls->type->move_constructor_method
+        ? UINT32_C(1) << 1 : 0u;
     if (!cls || !cls->type->is_complete || cls->base_count != 0 ||
         cls->has_static_field || cls->has_field_initializer ||
         class_has_virtual_member(cls) ||
@@ -294,7 +295,8 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         TypeParam* field = cls->fields;
         TypeParam* parameter = constructor->parameters;
         CxxConstructorInitializer* initializer = constructor->initializers;
-        if (constructor->is_deleted || constructor->is_defaulted ||
+        if (constructor->access != ACCESS_PUBLIC ||
+            constructor->is_deleted || constructor->is_defaulted ||
             !constructor->initializers_are_supported ||
             !constructor->body_is_empty) {
             continue;
@@ -645,6 +647,97 @@ static void register_inline_class_releases(CxxClass* cls) {
     }
 }
 
+static bool move_parameter_is_self(CxxClass* cls, Type* parameter) {
+    Type* referred;
+    const char* template_name;
+    if (!cls || !parameter || parameter->kind != TYPE_PTR ||
+        !parameter->is_reference || !parameter->is_rvalue_reference ||
+        !parameter->base) {
+        return false;
+    }
+    referred = parameter->base;
+    if (type_is_compatible(referred, cls->type)) return true;
+    template_name = cls->templ && cls->templ->templated_class
+        ? cls->templ->templated_class->name : NULL;
+    return template_name && referred->kind == TYPE_STRUCT && referred->tag &&
+           strcmp(referred->tag, template_name) == 0;
+}
+
+static TypeMethod* class_release_method(CxxClass* cls, const char* name,
+                                        TypeField* field) {
+    TypeMethod* method;
+    for (method = cls && cls->type ? cls->type->methods : NULL;
+         method; method = method->next) {
+        if (method->kind == TYPE_METHOD_FIELD_RELEASE &&
+            method->cxx_access == ACCESS_PUBLIC && method->name && name &&
+            strcmp(method->name, name) == 0 && method->field == field &&
+            method->return_type &&
+            type_is_compatible(method->return_type, field->type)) {
+            return method;
+        }
+    }
+    return NULL;
+}
+
+/* Accept only the single-field ownership move used by the SDK:
+ *
+ *   Class(Class&& other) : field(other.release()) {}
+ *
+ * The release member must itself have passed the structural verifier above.
+ * Constructor arguments can then be rewritten to that field operation without
+ * interpreting arbitrary constructor code. */
+static void register_inline_class_move_constructor(CxxClass* cls) {
+    CxxConstructorInfo* constructor;
+    TypeMethod* candidate = NULL;
+    TypeField* only_field;
+    if (!cls || !cls->type || !cls->type->is_complete ||
+        cls->base_count != 0 || cls->has_static_field ||
+        cls->has_field_initializer || class_has_virtual_member(cls)) {
+        return;
+    }
+    only_field = cls->type->fields;
+    if (!only_field || only_field->next) return;
+    for (constructor = cls->constructors; constructor;
+         constructor = constructor->next) {
+        TypeParam* parameter = constructor->parameters;
+        CxxConstructorInitializer* initializer = constructor->initializers;
+        Expr* value;
+        Expr* callee;
+        TypeMethod* release;
+        if (constructor->access != ACCESS_PUBLIC ||
+            constructor->parameter_count != 1 || !parameter ||
+            parameter->next || !move_parameter_is_self(cls, parameter->type) ||
+            constructor->is_deleted || constructor->is_defaulted ||
+            !constructor->initializers_are_supported ||
+            constructor->initializer_count != 1 || !initializer ||
+            initializer->next || !initializer->field ||
+            strcmp(initializer->field, only_field->name) != 0 ||
+            !constructor->body_is_empty || !initializer->value) {
+            continue;
+        }
+        value = initializer->value;
+        if (value->kind != EXPR_CALL || value->call_args ||
+            !value->call_func || value->call_func->kind != EXPR_MEMBER) {
+            continue;
+        }
+        callee = value->call_func;
+        if (!callee->member_name || !callee->member_base ||
+            callee->member_base->kind != EXPR_IDENT ||
+            !parameter->name ||
+            strcmp(callee->member_base->ident_name, parameter->name) != 0) {
+            continue;
+        }
+        release = class_release_method(cls, callee->member_name, only_field);
+        if (!release) continue;
+        if (candidate) {
+            cls->type->move_constructor_method = NULL;
+            return;
+        }
+        candidate = release;
+    }
+    cls->type->move_constructor_method = candidate;
+}
+
 static Expr* cleanup_unwrap_void_cast(Expr* expression) {
     if (expression && expression->kind == EXPR_CAST &&
         expression->cast_type == type_void) {
@@ -935,6 +1028,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                                   body->block_stmts == NULL;
             info->is_deleted = is_deleted;
             info->is_defaulted = is_defaulted;
+            info->access = current_access;
             info->next = NULL;
             while (*tail) tail = &(*tail)->next;
             *tail = info;
@@ -1034,6 +1128,7 @@ CxxClass* parse_cxx_class(void) {
     register_inline_class_bool_delegates(cls);
     register_inline_class_cleanup(cls);
     register_inline_class_releases(cls);
+    register_inline_class_move_constructor(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
      * reuse the common initializer/codegen backend. */
@@ -1710,8 +1805,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         bool matches = tmpl->instances[index].arg_count == argument_count;
         for (argument_index = 0; matches &&
              argument_index < argument_count; ++argument_index) {
-            matches = tmpl->instances[index].args[argument_index] ==
-                      arguments[argument_index];
+            matches = type_is_compatible(
+                tmpl->instances[index].args[argument_index],
+                arguments[argument_index]);
         }
         if (matches) {
             return ((CxxClass*)tmpl->instances[index].instantiated)->type;
@@ -1767,6 +1863,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     register_inline_class_bool_delegates(instance);
     register_inline_class_cleanup(instance);
     register_inline_class_releases(instance);
+    register_inline_class_move_constructor(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);
     if (constructor_mask != 0u) {
         rcc_parser_define_cxx_constructor_type(instance->name,
@@ -2003,6 +2100,10 @@ static Type* parse_cxx_type_spec(void) {
     }
 
     return t;
+}
+
+Type* rcc_parse_cxx_type_name(void) {
+    return parse_cxx_type_spec();
 }
 
 /* ═══════════════════════════════════════
