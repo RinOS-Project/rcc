@@ -11,8 +11,8 @@ _Static_assert(ATOMIC_SHORT_LOCK_FREE == 2,
 _Static_assert(ATOMIC_LLONG_LOCK_FREE == 2,
                "AMD64 64-bit integer atomics must be lock-free");
 #else
-_Static_assert(ATOMIC_LLONG_LOCK_FREE == 0,
-               "i686 64-bit integer atomics require cmpxchg8b lowering");
+_Static_assert(ATOMIC_LLONG_LOCK_FREE == 2,
+               "i686 64-bit integer atomics use cmpxchg8b lowering");
 #endif
 _Static_assert(sizeof(atomic_uint) == 4,
                "atomic_uint must use 32-bit storage");
@@ -81,7 +81,6 @@ long standard_atomic_long_fetch_xor_value(atomic_long* value, long operand) {
 }
 #endif
 
-#if defined(__x86_64__)
 uint64_t atomic_u64_load_value(volatile uint64_t* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
@@ -141,7 +140,6 @@ uint64_t standard_atomic_ullong_fetch_add_value(atomic_ullong* value,
 int standard_atomic_ullong_is_lock_free_value(atomic_ullong* value) {
     return atomic_is_lock_free(value);
 }
-#endif
 
 uint32_t atomic_load_value(volatile uint32_t* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);

@@ -44,8 +44,9 @@
   - [x] 定数memory orderの範囲・load/store・CAS failure/weak制約diagnostic
   - [x] AMD64 64-bit整数atomic全操作と競合実行試験
   - [x] 両arch pointer atomic load/store/exchange/CASと不正RMW拒否
-  - [ ] i686 64-bit scalar ABI loweringと`cmpxchg8b` atomic
+  - [ ] i686 64-bit scalar ABI lowering
     - [x] EDX:EAX戻り値、8-byte cdecl引数、load/store、加減算、bitwise基礎
+    - [x] CMPXCHG8B load/store/exchange/CASと全RMW retry loop
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
 

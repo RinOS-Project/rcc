@@ -59,7 +59,6 @@ typedef void* (*atomic_pointer_load_fn)(void* volatile*);
 typedef void (*atomic_pointer_store_fn)(void* volatile*, void*);
 typedef void* (*atomic_pointer_binary_fn)(void* volatile*, void*);
 typedef int (*atomic_pointer_compare_fn)(void* volatile*, void**, void*);
-#if defined(__x86_64__)
 typedef uint64_t (*atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
 typedef int64_t (*atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
 typedef uint64_t (*atomic_u64_load_fn)(volatile uint64_t*);
@@ -67,7 +66,7 @@ typedef void (*atomic_u64_store_fn)(volatile uint64_t*, uint64_t);
 typedef uint64_t (*atomic_u64_binary_fn)(volatile uint64_t*, uint64_t);
 typedef int (*atomic_u64_compare_fn)(volatile uint64_t*, uint64_t*,
                                      uint64_t);
-#else
+#if defined(__i386__)
 typedef long (*atomic_long_binary_fn)(volatile long*, long);
 #endif
 
@@ -90,13 +89,11 @@ typedef struct {
     unsigned iterations;
 } AtomicBitwiseWorker;
 
-#if defined(__x86_64__)
 typedef struct {
     atomic_u64_binary_fn fetch_add;
     volatile uint64_t* counter;
     unsigned iterations;
 } AtomicWorker64;
-#endif
 
 static void* atomic_worker(void* argument) {
     AtomicWorker* worker = argument;
@@ -125,7 +122,6 @@ static void* atomic_bitwise_worker(void* argument) {
     return NULL;
 }
 
-#if defined(__x86_64__)
 static void* atomic_worker64(void* argument) {
     AtomicWorker64* worker = argument;
     unsigned i;
@@ -134,7 +130,6 @@ static void* atomic_worker64(void* argument) {
     }
     return NULL;
 }
-#endif
 
 #define LOAD_FUNCTION(target, object, mapping, symbol_name)                  \
     do {                                                                     \
@@ -192,6 +187,7 @@ int main(int argc, char** argv) {
 #if defined(__x86_64__)
     atomic_u32_wide_binary_fn atomic_nand_fetch_widened;
     atomic_i32_wide_binary_fn atomic_i32_xor_fetch_widened;
+#endif
     atomic_u64_load_fn u64_load;
     atomic_u64_store_fn u64_store;
     atomic_u64_binary_fn u64_exchange;
@@ -204,7 +200,7 @@ int main(int argc, char** argv) {
     atomic_u64_compare_fn u64_compare;
     atomic_u64_binary_fn standard_ullong_fetch_add;
     atomic_u64_load_fn standard_ullong_is_lock_free;
-#else
+#if defined(__i386__)
     atomic_long_binary_fn standard_long_fetch_xor;
 #endif
     atomic_compare_bool_fn compare_bool;
@@ -268,9 +264,7 @@ int main(int argc, char** argv) {
     AtomicWorker workers[4];
     AtomicWorker16 workers16[4];
     AtomicBitwiseWorker bitwise_workers[4];
-#if defined(__x86_64__)
     AtomicWorker64 workers64[4];
-#endif
     unsigned i;
 
     assert(object != NULL);
@@ -316,6 +310,7 @@ int main(int argc, char** argv) {
                   "atomic_nand_fetch_widened_value");
     LOAD_FUNCTION(atomic_i32_xor_fetch_widened, object, mapping,
                   "atomic_i32_xor_fetch_widened_value");
+#endif
     LOAD_FUNCTION(u64_load, object, mapping, "atomic_u64_load_value");
     LOAD_FUNCTION(u64_store, object, mapping, "atomic_u64_store_value");
     LOAD_FUNCTION(u64_exchange, object, mapping,
@@ -338,7 +333,7 @@ int main(int argc, char** argv) {
                   "standard_atomic_ullong_fetch_add_value");
     LOAD_FUNCTION(standard_ullong_is_lock_free, object, mapping,
                   "standard_atomic_ullong_is_lock_free_value");
-#else
+#if defined(__i386__)
     LOAD_FUNCTION(standard_long_fetch_xor, object, mapping,
                   "standard_atomic_long_fetch_xor_value");
 #endif
@@ -462,6 +457,7 @@ int main(int argc, char** argv) {
         assert(atomic_i32_xor_fetch_widened(&signed32, 255) ==
                INT64_C(-256) && signed32 == -256);
     }
+#endif
     {
         volatile uint64_t wide = UINT64_C(0x100000005);
         uint64_t expected64;
@@ -492,7 +488,7 @@ int main(int argc, char** argv) {
                UINT64_C(0x800000011) && wide == UINT64_C(0x900000011));
         assert(standard_ullong_is_lock_free(&wide) == UINT64_C(1));
     }
-#else
+#if defined(__i386__)
     {
         volatile long long_value = 0x55;
         assert(standard_long_fetch_xor(&long_value, 0x0f) == 0x55 &&
@@ -636,7 +632,6 @@ int main(int argc, char** argv) {
     }
     assert(value == 15u);
 
-#if defined(__x86_64__)
     {
         volatile uint64_t counter64 = UINT64_C(0x100000000);
         for (i = 0; i < 4u; ++i) {
@@ -651,7 +646,6 @@ int main(int argc, char** argv) {
         }
         assert(counter64 == UINT64_C(0x1000186a0));
     }
-#endif
 
     {
         volatile uint16_t counter16 = 0u;

@@ -1454,6 +1454,251 @@ static void emit_atomic_clear_width(Module* mod, int address,
     }
 }
 
+static void emit_atomic_cmpxchg8b(Module* mod, int address) {
+    emit_byte(mod, 0xF0);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xC7);
+    emit_memory_operand32(mod, 1, address, 0);
+}
+
+static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
+                                      const char* name) {
+    int retry_label;
+
+    if (g_opts.target_arch != ARCH_X86 ||
+        !gen_is_integer64(atomic_value_type(call))) {
+        return false;
+    }
+
+    if (strcmp(name, "__atomic_load_n") == 0) {
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_reg(mod, ESI, EAX);
+        emit_xor_reg_reg(mod, EAX, EAX);
+        emit_xor_reg_reg(mod, EDX, EDX);
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        /* A zero compare either observes zero on success or receives the
+         * complete memory value in EDX:EAX on failure. */
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (strcmp(name, "__atomic_store_n") == 0 ||
+        strcmp(name, "__atomic_exchange_n") == 0 ||
+        strcmp(name, "__sync_lock_test_and_set") == 0) {
+        bool is_atomic_store = strcmp(name, "__atomic_store_n") == 0;
+        bool has_order = strncmp(name, "__atomic_", 9) == 0;
+        if (has_order) {
+            gen_expr(mod, call_argument(call, 2));
+        }
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_reg(mod, ESI, EAX);
+        gen_expr_as_integer64(mod, call_argument(call, 1));
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_mov_reg_mem(mod, EAX, ESI, 0);
+        emit_mov_reg_mem(mod, EDX, ESI, 4);
+        retry_label = new_label();
+        emit_label(mod, retry_label);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        if (is_atomic_store) {
+            emit_mov_reg_imm(mod, EAX, 0u);
+            emit_mov_reg_imm(mod, EDX, 0u);
+        }
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
+        gen_expr(mod, call_argument(call, 5));
+        gen_expr(mod, call_argument(call, 4));
+        gen_expr(mod, call_argument(call, 3));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_reg(mod, ESI, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_mov_reg_reg(mod, EDI, EAX);
+        gen_expr_as_integer64(mod, call_argument(call, 2));
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_mov_reg_mem(mod, EAX, EDI, 0);
+        emit_mov_reg_mem(mod, EDX, EDI, 4);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_setcc(mod, CC_E, ECX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, ECX, ECX));
+        emit_mov_mem_reg(mod, EDI, 0, EAX);
+        emit_mov_mem_reg(mod, EDI, 4, EDX);
+        emit_mov_reg_reg(mod, EAX, ECX);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (strcmp(name, "__sync_bool_compare_and_swap") == 0 ||
+        strcmp(name, "__sync_val_compare_and_swap") == 0) {
+        bool returns_bool =
+            strcmp(name, "__sync_bool_compare_and_swap") == 0;
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_reg(mod, ESI, EAX);
+        gen_expr_as_integer64(mod, call_argument(call, 1));
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        gen_expr_as_integer64(mod, call_argument(call, 2));
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_pop_reg(mod, EAX);
+        emit_pop_reg(mod, EDX);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        if (returns_bool) {
+            emit_setcc(mod, CC_E, ECX);
+            emit_byte(mod, 0x0F);
+            emit_byte(mod, 0xB6);
+            emit_byte(mod, modrm(3, ECX, ECX));
+            emit_mov_reg_reg(mod, EAX, ECX);
+        }
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (strcmp(name, "__sync_lock_release") == 0) {
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_reg(mod, ESI, EAX);
+        emit_xor_reg_reg(mod, EBX, EBX);
+        emit_xor_reg_reg(mod, ECX, ECX);
+        emit_mov_reg_mem(mod, EAX, ESI, 0);
+        emit_mov_reg_mem(mod, EDX, ESI, 4);
+        retry_label = new_label();
+        emit_label(mod, retry_label);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    {
+        bool is_atomic = strncmp(name, "__atomic_", 9) == 0;
+        bool is_subtract = strcmp(name, "__atomic_fetch_sub") == 0 ||
+            strcmp(name, "__atomic_sub_fetch") == 0 ||
+            strcmp(name, "__sync_fetch_and_sub") == 0 ||
+            strcmp(name, "__sync_sub_and_fetch") == 0;
+        bool is_add = strcmp(name, "__atomic_fetch_add") == 0 ||
+            strcmp(name, "__atomic_add_fetch") == 0 ||
+            strcmp(name, "__sync_fetch_and_add") == 0 ||
+            strcmp(name, "__sync_add_and_fetch") == 0;
+        bool is_and = strcmp(name, "__atomic_fetch_and") == 0 ||
+            strcmp(name, "__atomic_and_fetch") == 0 ||
+            strcmp(name, "__sync_fetch_and_and") == 0 ||
+            strcmp(name, "__sync_and_and_fetch") == 0;
+        bool is_or = strcmp(name, "__atomic_fetch_or") == 0 ||
+            strcmp(name, "__atomic_or_fetch") == 0 ||
+            strcmp(name, "__sync_fetch_and_or") == 0 ||
+            strcmp(name, "__sync_or_and_fetch") == 0;
+        bool is_xor = strcmp(name, "__atomic_fetch_xor") == 0 ||
+            strcmp(name, "__atomic_xor_fetch") == 0 ||
+            strcmp(name, "__sync_fetch_and_xor") == 0 ||
+            strcmp(name, "__sync_xor_and_fetch") == 0;
+        bool is_nand = strcmp(name, "__atomic_fetch_nand") == 0 ||
+            strcmp(name, "__atomic_nand_fetch") == 0 ||
+            strcmp(name, "__sync_fetch_and_nand") == 0 ||
+            strcmp(name, "__sync_nand_and_fetch") == 0;
+        bool returns_new = strcmp(name, "__atomic_add_fetch") == 0 ||
+            strcmp(name, "__atomic_sub_fetch") == 0 ||
+            strcmp(name, "__atomic_and_fetch") == 0 ||
+            strcmp(name, "__atomic_or_fetch") == 0 ||
+            strcmp(name, "__atomic_xor_fetch") == 0 ||
+            strcmp(name, "__atomic_nand_fetch") == 0 ||
+            strcmp(name, "__sync_add_and_fetch") == 0 ||
+            strcmp(name, "__sync_sub_and_fetch") == 0 ||
+            strcmp(name, "__sync_and_and_fetch") == 0 ||
+            strcmp(name, "__sync_or_and_fetch") == 0 ||
+            strcmp(name, "__sync_xor_and_fetch") == 0 ||
+            strcmp(name, "__sync_nand_and_fetch") == 0;
+
+        if (is_add || is_subtract || is_and || is_or || is_xor || is_nand) {
+            if (is_atomic) gen_expr(mod, call_argument(call, 2));
+            emit_push_reg(mod, EBX);
+            emit_push_reg(mod, ESI);
+            emit_push_reg(mod, EDI);
+            gen_expr(mod, call_argument(call, 0));
+            emit_mov_reg_reg(mod, ESI, EAX);
+            gen_expr_as_integer64(mod, call_argument(call, 1));
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_mem(mod, EAX, ESI, 0);
+            emit_mov_reg_mem(mod, EDX, ESI, 4);
+            retry_label = new_label();
+            emit_label(mod, retry_label);
+            emit_mov_reg_reg(mod, EBX, EAX);
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_mov_reg_mem(mod, EDI, ESP, 0);
+            if (is_add) {
+                emit_add_reg_reg(mod, EBX, EDI);
+            } else if (is_subtract) {
+                emit_sub_reg_reg(mod, EBX, EDI);
+            } else if (is_and || is_nand) {
+                emit_and_reg_reg(mod, EBX, EDI);
+            } else if (is_or) {
+                emit_or_reg_reg(mod, EBX, EDI);
+            } else {
+                emit_xor_reg_reg(mod, EBX, EDI);
+            }
+            emit_mov_reg_mem(mod, EDI, ESP, 4);
+            if (is_add) {
+                emit_adc_reg_reg(mod, ECX, EDI);
+            } else if (is_subtract) {
+                emit_sbb_reg_reg(mod, ECX, EDI);
+            } else if (is_and || is_nand) {
+                emit_and_reg_reg(mod, ECX, EDI);
+            } else if (is_or) {
+                emit_or_reg_reg(mod, ECX, EDI);
+            } else {
+                emit_xor_reg_reg(mod, ECX, EDI);
+            }
+            if (is_nand) {
+                emit_not_reg(mod, EBX);
+                emit_not_reg(mod, ECX);
+            }
+            emit_atomic_cmpxchg8b(mod, ESI);
+            emit_jcc_label(mod, CC_NE, retry_label);
+            if (returns_new) {
+                emit_mov_reg_reg(mod, EAX, EBX);
+                emit_mov_reg_reg(mod, EDX, ECX);
+            }
+            emit_add_reg_imm(mod, ESP, 8);
+            emit_pop_reg(mod, EDI);
+            emit_pop_reg(mod, ESI);
+            emit_pop_reg(mod, EBX);
+            return true;
+        }
+    }
+
+    rcc_error(call->loc,
+              "%s i686 64-bit lowering is not implemented yet", name);
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_mov_reg_imm(mod, EDX, 0u);
+    return true;
+}
+
 typedef enum {
     ATOMIC_BITWISE_NONE,
     ATOMIC_BITWISE_AND,
@@ -1513,6 +1758,7 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
     value_type = atomic_value_type(call);
+    if (gen_atomic_builtin64_i686(mod, call, name)) return true;
     if (strcmp(name, "__atomic_load_n") == 0) {
         gen_expr(mod, call_argument(call, 1));
         gen_expr(mod, call_argument(call, 0));

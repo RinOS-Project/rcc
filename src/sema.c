@@ -744,8 +744,7 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             (pointer_type->base->size == 1u ||
              pointer_type->base->size == 2u ||
              pointer_type->base->size == 4u ||
-             (pointer_type->base->size == 8u &&
-              g_opts.target_arch == ARCH_X64));
+             pointer_type->base->size == 8u);
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
             (!integer_value && !pointer_value)) {
             rcc_error(expr->loc,

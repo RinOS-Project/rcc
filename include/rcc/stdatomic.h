@@ -2,9 +2,9 @@
 #define RCC_STDATOMIC_H
 
 /* This RinOS C17 surface provides lock-free arithmetic and bitwise operations
- * for 8/16/32-bit integer storage on both targets and 64-bit integer storage
- * on AMD64. Pointer load/store/exchange/CAS are lock-free on both targets;
- * i686 64-bit integer representations remain an explicit gap. */
+ * for 8/16/32/64-bit integer storage on both targets. i686 64-bit operations
+ * use the target baseline CMPXCHG8B feature. Pointer load/store/exchange/CAS
+ * are lock-free on both targets. */
 typedef enum memory_order {
     memory_order_relaxed = __ATOMIC_RELAXED,
     memory_order_consume = __ATOMIC_CONSUME,
@@ -71,7 +71,7 @@ typedef volatile unsigned int atomic_flag;
 #define ATOMIC_INT_LOCK_FREE 2
 #if defined(__i386__)
 #define ATOMIC_LONG_LOCK_FREE 2
-#define ATOMIC_LLONG_LOCK_FREE 0
+#define ATOMIC_LLONG_LOCK_FREE 2
 #else
 #define ATOMIC_LONG_LOCK_FREE 2
 #define ATOMIC_LLONG_LOCK_FREE 2
@@ -82,15 +82,9 @@ typedef volatile unsigned int atomic_flag;
 #define ATOMIC_VAR_INIT(value) (value)
 
 #define kill_dependency(value) (value)
-#if defined(__x86_64__)
 #define atomic_is_lock_free(object) \
     (sizeof(*(object)) == 1u || sizeof(*(object)) == 2u || \
      sizeof(*(object)) == 4u || sizeof(*(object)) == 8u)
-#else
-#define atomic_is_lock_free(object) \
-    (sizeof(*(object)) == 1u || sizeof(*(object)) == 2u || \
-     sizeof(*(object)) == 4u)
-#endif
 #define atomic_init(object, desired) (*(object) = (desired))
 
 #define atomic_thread_fence(order) __atomic_thread_fence(order)

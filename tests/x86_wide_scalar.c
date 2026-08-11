@@ -73,3 +73,20 @@ u64 abi_wide_global_store(u64 value) {
     abi_wide_global = value;
     return abi_wide_global;
 }
+
+u64 abi_atomic_u64_load(volatile u64* value) {
+    return __atomic_load_n(value, 2);
+}
+
+void abi_atomic_u64_store(volatile u64* value, u64 desired) {
+    __atomic_store_n(value, desired, 3);
+}
+
+u64 abi_atomic_u64_exchange(volatile u64* value, u64 desired) {
+    return __atomic_exchange_n(value, desired, 4);
+}
+
+int abi_atomic_u64_compare(volatile u64* value, u64* expected,
+                           u64 desired) {
+    return __atomic_compare_exchange_n(value, expected, desired, 0, 4, 2);
+}

@@ -14,6 +14,11 @@ typedef int64_t (*signed_wide_unary_fn)(int64_t);
 typedef uint64_t (*unsigned_widen_fn)(uint32_t);
 typedef int64_t (*signed_widen_fn)(int32_t);
 typedef uint64_t (*wide_narrow_binary_fn)(uint64_t, int32_t);
+typedef uint64_t (*atomic_wide_load_fn)(volatile uint64_t*);
+typedef void (*atomic_wide_store_fn)(volatile uint64_t*, uint64_t);
+typedef uint64_t (*atomic_wide_exchange_fn)(volatile uint64_t*, uint64_t);
+typedef int (*atomic_wide_compare_fn)(volatile uint64_t*, uint64_t*,
+                                      uint64_t);
 
 static ObjSymbol* required_function(ObjectFile* object, const char* name) {
     ObjSymbol* symbol = objfile_find_symbol(object, name);
@@ -55,6 +60,10 @@ int main(int argc, char** argv) {
     signed_widen_fn widen_signed;
     wide_nullary_fn global_load;
     wide_unary_fn global_store;
+    atomic_wide_load_fn atomic_load;
+    atomic_wide_store_fn atomic_store;
+    atomic_wide_exchange_fn atomic_exchange;
+    atomic_wide_compare_fn atomic_compare;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -112,6 +121,12 @@ int main(int argc, char** argv) {
                   "abi_wide_widen_signed");
     LOAD_FUNCTION(global_load, object, mapping, "abi_wide_global_load");
     LOAD_FUNCTION(global_store, object, mapping, "abi_wide_global_store");
+    LOAD_FUNCTION(atomic_load, object, mapping, "abi_atomic_u64_load");
+    LOAD_FUNCTION(atomic_store, object, mapping, "abi_atomic_u64_store");
+    LOAD_FUNCTION(atomic_exchange, object, mapping,
+                  "abi_atomic_u64_exchange");
+    LOAD_FUNCTION(atomic_compare, object, mapping,
+                  "abi_atomic_u64_compare");
 
     assert(literal() == UINT64_C(0x1234567889abcdef));
     assert(identity(UINT64_C(0xfedcba9876543210)) ==
@@ -142,6 +157,25 @@ int main(int argc, char** argv) {
     assert(global_store(UINT64_C(0xcafebabedeadbeef)) ==
            UINT64_C(0xcafebabedeadbeef));
     assert(global_load() == UINT64_C(0xcafebabedeadbeef));
+    {
+        volatile uint64_t atomic_value = UINT64_C(0x100000005);
+        uint64_t expected;
+        assert(atomic_load(&atomic_value) == UINT64_C(0x100000005));
+        atomic_store(&atomic_value, UINT64_C(0x200000007));
+        assert(atomic_value == UINT64_C(0x200000007));
+        assert(atomic_exchange(&atomic_value, UINT64_C(0x30000000b)) ==
+               UINT64_C(0x200000007));
+        assert(atomic_value == UINT64_C(0x30000000b));
+        expected = UINT64_C(0x30000000b);
+        assert(atomic_compare(&atomic_value, &expected,
+                              UINT64_C(0x800000011)) == 1);
+        assert(expected == UINT64_C(0x30000000b));
+        assert(atomic_value == UINT64_C(0x800000011));
+        expected = UINT64_C(7);
+        assert(atomic_compare(&atomic_value, &expected, UINT64_C(9)) == 0);
+        assert(expected == UINT64_C(0x800000011));
+        assert(atomic_value == UINT64_C(0x800000011));
+    }
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);
