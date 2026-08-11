@@ -70,7 +70,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -124,6 +124,16 @@ test-cxx-cli: $(RCXX_TARGET)
 		-DRCC_CXX_CLI_VALUE=23 -DRCC_CXX_REMOVE_ME -URCC_CXX_REMOVE_ME \
 		-o $(TEST_OUT)/cxx_cli_options.ro tests/cxx_cli_options.cpp
 	@echo "RCC++ command-line compatibility test completed"
+
+test-cxx-language-linkage: $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/cxx-language-linkage
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-language-linkage/x86.ro \
+		tests/cxx_language_linkage.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-language-linkage/x64.ro \
+		tests/cxx_language_linkage.cpp
+	@echo "RCC++ C/C++ language-linkage tests completed"
 
 test-preprocessor-continuation: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)

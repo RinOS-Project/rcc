@@ -261,6 +261,9 @@ CxxClass* parse_cxx_class(void) {
     /* Class name */
     Token* name_tok = expect(TOK_IDENT, "class name");
     const char* class_name = name_tok ? name_tok->value.str_val : "anonymous";
+    /* A final class has the same object layout as an otherwise identical
+     * class; the semantic restriction is enforced when bases are resolved. */
+    match(TOK_FINAL);
 
     CxxClass* cls = cxx_class_new(class_name, loc);
 
@@ -578,6 +581,39 @@ static Stmt* parse_cxx_statement(void) {
     return parse_declaration();
 }
 
+static void add_cxx_declaration(AST* ast, Stmt* statement) {
+    if (statement && statement->kind == STMT_DECL) {
+        ast_add_decl(ast, statement->decl);
+    }
+}
+
+/* Language-linkage does not alter symbol spelling yet because rcc++ emits
+ * unmangled external names.  It still has to preserve all enclosed C ABI
+ * declarations and typedef state instead of treating the first `extern` as a
+ * storage-class specifier. */
+static void parse_cxx_language_linkage(AST* ast) {
+    SourceLoc loc = peek()->loc;
+    Token* language;
+    advance(); /* extern */
+    language = expect(TOK_STRING_LIT, "language linkage string");
+    if (!language) return;
+    if (strcmp(language->value.str_val, "C") != 0 &&
+        strcmp(language->value.str_val, "C++") != 0) {
+        rcc_error(loc, "unsupported language linkage '%s'",
+                  language->value.str_val);
+    }
+    if (match(TOK_LBRACE)) {
+        while (!check(TOK_RBRACE) && !at_end()) {
+            Token* start = parser.cur;
+            add_cxx_declaration(ast, parse_cxx_statement());
+            if (parser.cur == start && !at_end()) advance();
+        }
+        expect(TOK_RBRACE, "}");
+        return;
+    }
+    add_cxx_declaration(ast, parse_cxx_statement());
+}
+
 /* ═══════════════════════════════════════
  * C++ Top-level Parsing
  * ═══════════════════════════════════════ */
@@ -593,7 +629,10 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     while (!at_end()) {
         SourceLoc loc = peek()->loc;
 
-        if (match(TOK_NAMESPACE)) {
+        if (check(TOK_EXTERN) && parser.cur->next &&
+            parser.cur->next->type == TOK_STRING_LIT) {
+            parse_cxx_language_linkage(ast);
+        } else if (match(TOK_NAMESPACE)) {
             CxxNamespace* ns = parse_cxx_namespace();
             /* Store namespace in AST - for now, just process */
             (void)ns;
@@ -624,14 +663,8 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             expect(TOK_SEMICOLON, ";");
         } else {
             /* Regular C declaration */
-            Decl* d = NULL;
             Stmt* s = parse_cxx_statement();
-            if (s && s->kind == STMT_DECL) {
-                d = s->decl;
-            }
-            if (d) {
-                ast_add_decl(ast, d);
-            }
+            add_cxx_declaration(ast, s);
         }
 
         if (g_error_count > 0) {
