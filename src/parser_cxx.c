@@ -436,9 +436,10 @@ static void register_inline_class_accessors(CxxClass* cls) {
                 continue;
             }
             if ((!return_type || !return_type->is_reference) &&
-                (field->type->size > 4 ||
+                (field->type->size > 8 ||
                  !(type_is_integer(field->type) ||
-                   field->type->kind == TYPE_ENUM))) {
+                   field->type->kind == TYPE_ENUM ||
+                   field->type->kind == TYPE_PTR))) {
                 continue;
             }
         } else {

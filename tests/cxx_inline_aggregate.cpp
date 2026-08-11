@@ -62,6 +62,8 @@ public:
         return value;
     }
 
+    Handle get() const noexcept { return handle_; }
+
 private:
     Handle handle_;
 };
@@ -90,6 +92,8 @@ public:
         handle_ = 0;
         return value;
     }
+
+    uint64_t get() const noexcept { return handle_; }
 
 private:
     uint64_t handle_;
@@ -271,6 +275,18 @@ int cxx_cleanup_wide_release(int* value) {
         static_cast<uint64_t>(reinterpret_cast<uintptr_t>(value))};
     uint64_t released = handle.release();
     return released != 0;
+}
+
+int cxx_cleanup_get(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    return handle.get() == value;
+}
+
+uint64_t cxx_cleanup_wide_get(uint64_t value) {
+    auto handle = CxxWideUnique{value};
+    uint64_t result = handle.get();
+    (void)handle.release();
+    return result;
 }
 
 }

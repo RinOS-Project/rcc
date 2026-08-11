@@ -12,6 +12,7 @@ typedef int (*nullary_function)(void);
 typedef int (*binary_function)(int, int);
 typedef int (*wide_binary_function)(uint64_t, uint64_t);
 typedef uint64_t (*int_wide_function)(int, uint64_t);
+typedef uint64_t (*wide_unary_function)(uint64_t);
 typedef int (*int_pointer_function)(const int*);
 typedef int (*mutable_int_pointer_function)(int*);
 
@@ -74,6 +75,8 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_wide;
     mutable_int_pointer_function cleanup_release;
     mutable_int_pointer_function cleanup_wide_release;
+    mutable_int_pointer_function cleanup_get;
+    wide_unary_function cleanup_wide_get;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -127,6 +130,9 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_release, object, mapping, "cxx_cleanup_release");
     LOAD_FUNCTION(cleanup_wide_release, object, mapping,
                   "cxx_cleanup_wide_release");
+    LOAD_FUNCTION(cleanup_get, object, mapping, "cxx_cleanup_get");
+    LOAD_FUNCTION(cleanup_wide_get, object, mapping,
+                  "cxx_cleanup_wide_get");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
@@ -180,6 +186,13 @@ int main(int argc, char** argv)
         assert(cleanup_wide_release(&value) == 1);
         assert(value == 40);
     }
+    {
+        int value = 50;
+        assert(cleanup_get(&value) == 1);
+        assert(value == 51);
+    }
+    assert(cleanup_wide_get(UINT64_C(0xfedcba9876543210)) ==
+           UINT64_C(0xfedcba9876543210));
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);
