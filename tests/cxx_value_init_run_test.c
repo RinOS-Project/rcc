@@ -56,6 +56,7 @@ int main(int argc, char** argv)
     nullary_function local_value_init;
     nullary_function scalar_value_init;
     nullary_function versioned_template_value;
+    binary_function auto_function_call;
     binary_function class_aggregate_init;
     typedef int (*unary_function)(int);
     unary_function lowered_constructor_init;
@@ -95,6 +96,8 @@ int main(int argc, char** argv)
                   "cxx_scalar_value_init");
     LOAD_FUNCTION(versioned_template_value, object, mapping,
                   "cxx_versioned_template_value");
+    LOAD_FUNCTION(auto_function_call, object, mapping,
+                  "cxx_auto_function_call");
     LOAD_FUNCTION(class_aggregate_init, object, mapping,
                   "cxx_class_aggregate_init");
     LOAD_FUNCTION(lowered_constructor_init, object, mapping,
@@ -117,6 +120,7 @@ int main(int argc, char** argv)
     assert(scalar_value_init() == 1);
     assert(versioned_template_value() ==
            (int)(sizeof(CxxVersioned) * 100u + 7u));
+    assert(auto_function_call(31, 47) == 3147);
     assert(class_aggregate_init(4, 7) == 4774);
     assert(lowered_constructor_init(9) == 90);
     assert(inline_accessor(7) == 70);

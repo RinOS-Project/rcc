@@ -127,6 +127,11 @@ int cxx_versioned_template_value(void) {
     return value.struct_size * 100 + value.version;
 }
 
+int cxx_auto_function_call(int first, int second) {
+    auto value = make_cxx_pair(first, second);
+    return value.first * 100 + value.second;
+}
+
 int cxx_class_aggregate_init(int first, int second) {
     CxxPair local{first, second};
     CxxPair returned = make_cxx_pair(second, first);

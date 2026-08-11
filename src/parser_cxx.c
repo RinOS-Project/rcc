@@ -1561,11 +1561,18 @@ Expr* rcc_parse_cxx_template_call(void) {
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
     name = parse_qualified_name();
     tmpl = check(TOK_LT) ? find_function_template(name) : NULL;
-    if (!tmpl ||
-        tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT) {
+    if (!tmpl) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
+    }
+    if (tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT) {
+        rcc_error(loc, "function template '%s' is not safely lowerable", name);
+        skip_cxx_template_arguments();
+        if (check(TOK_LPAREN)) {
+            skip_balanced(TOK_LPAREN, TOK_RPAREN);
+        }
+        return expr_int(0, loc);
     }
 
     expect(TOK_LT, "<");
@@ -1813,22 +1820,16 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
         }
     }
-    if (is_auto) {
-        Type* deduced = initializer ? initializer->type : NULL;
-        if (!deduced && initializer && initializer->kind == EXPR_COMPOUND) {
-            deduced = initializer->compound_type;
-        }
-        if (!deduced) {
-            rcc_error(loc,
-                      "auto local initializer type is not immediately known");
-            type = type_int;
-        } else {
-            type = deduced;
+    if (is_auto && initializer) {
+        type = initializer->type;
+        if (!type && initializer->kind == EXPR_COMPOUND) {
+            type = initializer->compound_type;
         }
     }
     expect(TOK_SEMICOLON, ";");
-    return stmt_decl(decl_var(name->value.str_val, type, initializer, loc),
-                     loc);
+    Decl* declaration = decl_var(name->value.str_val, type, initializer, loc);
+    declaration->var_is_auto = is_auto;
+    return stmt_decl(declaration, loc);
 }
 
 Stmt* rcc_parse_cxx_auto_local_declaration(void) {

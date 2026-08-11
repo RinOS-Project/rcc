@@ -275,8 +275,15 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/cxx_versioned_template_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "auto local initializer type is not immediately known" \
+	grep -q "function template 'unsafe_versioned' is not safely lowerable" \
 		$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/auto-rejected.ro \
+		tests/cxx_auto_initializer_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "auto variable requires an initializer" \
+		$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)

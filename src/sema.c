@@ -1629,12 +1629,47 @@ static void sema_initializer(Type* type, Expr* initializer) {
     sema_initializer(type, initializer->compound_init->expr);
 }
 
+static Type* sema_deduce_auto_type(Decl* declaration) {
+    Type* deduced;
+    if (!declaration) return type_int;
+    if (!declaration->var_init) {
+        rcc_error(declaration->loc, "auto variable requires an initializer");
+        return type_int;
+    }
+    deduced = declaration->var_init->type;
+    if (!deduced) deduced = sema_expr(declaration->var_init);
+    if (deduced && deduced->is_reference && deduced->kind == TYPE_PTR) {
+        deduced = deduced->base;
+    } else if (deduced && deduced->kind == TYPE_ARRAY) {
+        deduced = type_ptr(deduced->base);
+    } else if (deduced && deduced->kind == TYPE_FUNC) {
+        deduced = type_ptr(deduced);
+    }
+    if (!deduced || deduced->kind == TYPE_VOID ||
+        !type_is_complete(deduced)) {
+        rcc_error(declaration->loc,
+                  "auto initializer does not have a complete object type");
+        return type_int;
+    }
+    if (deduced->is_const || deduced->is_volatile) {
+        Type* unqualified = ast_arena_alloc(sizeof(*unqualified));
+        *unqualified = *deduced;
+        unqualified->is_const = false;
+        unqualified->is_volatile = false;
+        deduced = unqualified;
+    }
+    return deduced;
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
     switch (decl->kind) {
         case DECL_VAR: {
             bool is_global = g_symtab->current == g_symtab->global;
+            if (decl->var_is_auto) {
+                decl->type = sema_deduce_auto_type(decl);
+            }
             if (decl->var_is_thread_local && !is_global) {
                 rcc_error(decl->loc,
                           "block-scope thread-local variables are not supported yet");

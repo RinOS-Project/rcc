@@ -573,6 +573,7 @@ struct Decl {
             int var_offset;         /* Stack offset (set during codegen) */
             bool var_is_global;
             bool var_is_thread_local;
+            bool var_is_auto;       /* C++ placeholder type, deduced in sema. */
         };
 
         /* DECL_FUNC */
