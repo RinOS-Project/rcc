@@ -70,7 +70,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -312,6 +312,30 @@ test-function-calls: $(RCC_TARGET)
 	grep -q "expected parameter declaration after ','" \
 		$(TEST_OUT)/function-calls/invalid-parameters.log
 	@echo "Dual-architecture C17 function call contract tests completed"
+
+test-inline-asm-execute: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/inline-asm
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/inline-asm/x86.ro tests/inline_asm_execution.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/inline-asm/x64.ro tests/inline_asm_execution.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/inline-asm/run-test-x86 \
+		tests/inline_asm_execution_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/inline-asm/run-test-x64 \
+		tests/inline_asm_execution_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/inline-asm/run-test-x86 $(TEST_OUT)/inline-asm/x86.ro
+	$(TEST_OUT)/inline-asm/run-test-x64 $(TEST_OUT)/inline-asm/x64.ro
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/inline-asm/invalid.ro \
+		tests/invalid_inline_asm_instruction.c \
+		>$(TEST_OUT)/inline-asm/invalid.log 2>&1; then \
+		echo "unsupported AMD64 inline asm unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "unsupported AMD64 inline asm instruction" \
+		$(TEST_OUT)/inline-asm/invalid.log
+	@echo "Dual-architecture fixed-register inline asm tests completed"
 
 test-varargs: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/varargs
@@ -871,6 +895,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/function-call-x64.ro \
 		tests/function_call.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/inline-asm-x86.ro \
+		tests/inline_asm_execution.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/inline-asm-x64.ro \
+		tests/inline_asm_execution.c
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -nostdinc \
 		-Ibootstrap/include -c \
 		-o $(SANITIZER_ROOT)/tests/varargs-x86.ro tests/varargs.c

@@ -2072,6 +2072,172 @@ static void codegen64_release_switch_cases(SwitchCaseCodegen64* item) {
     }
 }
 
+static int codegen64_asm_register(const char* constraint)
+{
+    if (!constraint) return -1;
+    while (*constraint == '=' || *constraint == '+' || *constraint == '&') {
+        ++constraint;
+    }
+    if (strcmp(constraint, "{eax}") == 0 ||
+        strcmp(constraint, "{rax}") == 0) return RAX;
+    if (strcmp(constraint, "{ebx}") == 0 ||
+        strcmp(constraint, "{rbx}") == 0) return RBX;
+    if (strcmp(constraint, "{ecx}") == 0 ||
+        strcmp(constraint, "{rcx}") == 0) return RCX;
+    if (strcmp(constraint, "{edx}") == 0 ||
+        strcmp(constraint, "{rdx}") == 0) return RDX;
+    if (strcmp(constraint, "{esi}") == 0 ||
+        strcmp(constraint, "{rsi}") == 0) return RSI;
+    if (strcmp(constraint, "{edi}") == 0 ||
+        strcmp(constraint, "{rdi}") == 0) return RDI;
+    switch (*constraint) {
+        case 'a': return RAX;
+        case 'b': return RBX;
+        case 'c': return RCX;
+        case 'd': return RDX;
+        case 'S': return RSI;
+        case 'D': return RDI;
+        case 'r':
+        case 'X': return R10;
+        default: return -1;
+    }
+}
+
+static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
+                                           size_t length)
+{
+    while (length > 0u && (*text == ' ' || *text == '\t' ||
+                           *text == '\r')) {
+        ++text;
+        --length;
+    }
+    while (length > 0u && (text[length - 1u] == ' ' ||
+                           text[length - 1u] == '\t' ||
+                           text[length - 1u] == '\r')) {
+        --length;
+    }
+    if (length == 0u) return true;
+    if (length == 7u && strncmp(text, "syscall", length) == 0) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x05);
+        return true;
+    }
+    if (length == 3u && strncmp(text, "nop", length) == 0) {
+        emit_byte(mod, 0x90);
+        return true;
+    }
+    if (length == 5u && strncmp(text, "pause", length) == 0) {
+        emit_byte(mod, 0xF3);
+        emit_byte(mod, 0x90);
+        return true;
+    }
+    if (length == 5u && strncmp(text, "cpuid", length) == 0) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xA2);
+        return true;
+    }
+    if (length == 5u && strncmp(text, "rdtsc", length) == 0) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x31);
+        return true;
+    }
+    if (length == 4u && strncmp(text, "int3", length) == 0) {
+        emit_byte(mod, 0xCC);
+        return true;
+    }
+    return false;
+}
+
+static void gen64_asm_stmt(Module* mod, Stmt* stmt)
+{
+    AsmOperand* operand;
+    AsmOperand** inputs;
+    int* registers;
+    int input_count = 0;
+    int input_index = 0;
+    bool preserve_rbx = false;
+    const char* cursor;
+
+    for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        int reg = codegen64_asm_register(operand->constraint);
+        if (reg != RAX) {
+            rcc_error(stmt->loc,
+                      "AMD64 inline asm currently requires '=a' outputs");
+            return;
+        }
+        if (operand->constraint[0] == '+') ++input_count;
+    }
+    for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        ++input_count;
+    }
+    inputs = input_count > 0
+        ? rcc_alloc((size_t)input_count * sizeof(*inputs)) : NULL;
+    registers = input_count > 0
+        ? rcc_alloc((size_t)input_count * sizeof(*registers)) : NULL;
+    for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        if (operand->constraint[0] == '+') {
+            inputs[input_index] = operand;
+            registers[input_index++] = codegen64_asm_register(
+                operand->constraint);
+        }
+    }
+    for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        int reg = codegen64_asm_register(operand->constraint);
+        if (reg < 0) {
+            rcc_error(stmt->loc,
+                      "unsupported AMD64 inline asm constraint '%s'",
+                      operand->constraint);
+            rcc_free(inputs);
+            rcc_free(registers);
+            return;
+        }
+        inputs[input_index] = operand;
+        registers[input_index++] = reg;
+        preserve_rbx = preserve_rbx || reg == RBX;
+    }
+    for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
+         clobber = clobber->next) {
+        preserve_rbx = preserve_rbx ||
+            strcmp(clobber->reg, "rbx") == 0 ||
+            strcmp(clobber->reg, "ebx") == 0 ||
+            strcmp(clobber->reg, "bx") == 0;
+    }
+
+    if (preserve_rbx) emit64_push_reg(mod, RBX);
+    for (int index = 0; index < input_count; ++index) {
+        gen64_expr(mod, inputs[index]->expr);
+        emit64_push_reg(mod, RAX);
+    }
+    for (int index = input_count - 1; index >= 0; --index) {
+        emit64_pop_reg(mod, registers[index]);
+    }
+
+    cursor = stmt->asm_template ? stmt->asm_template : "";
+    while (*cursor) {
+        const char* begin;
+        size_t length;
+        while (*cursor == ';' || *cursor == '\n') ++cursor;
+        begin = cursor;
+        while (*cursor && *cursor != ';' && *cursor != '\n') ++cursor;
+        length = (size_t)(cursor - begin);
+        if (!codegen64_emit_asm_instruction(mod, begin, length)) {
+            rcc_error(stmt->loc, "unsupported AMD64 inline asm instruction");
+            break;
+        }
+    }
+
+    if (preserve_rbx) emit64_pop_reg(mod, RBX);
+    for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        emit64_push_reg(mod, RAX);
+        gen64_lvalue(mod, operand->expr);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_pop_reg(mod, RAX);
+        emit64_store_typed(mod, RCX, 0, RAX, operand->expr->type);
+    }
+    rcc_free(inputs);
+    rcc_free(registers);
+}
+
 static void gen64_stmt(Module* mod, Stmt* stmt) {
     if (!stmt) return;
 
@@ -2331,6 +2497,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         }
 
         case STMT_NULL:
+            break;
+
+        case STMT_ASM:
+            gen64_asm_stmt(mod, stmt);
             break;
 
         default:

@@ -3411,9 +3411,9 @@ static int constraint_to_reg(const char* constraint) {
     }
 }
 
-/* Check if constraint is output (starts with = or +) */
-static bool is_output_constraint(const char* constraint) {
-    return constraint[0] == '=' || constraint[0] == '+';
+static uint8_t asm_immediate8(const char* text) {
+    if (text && text[0] == '$') ++text;
+    return (uint8_t)strtoull(text ? text : "0", NULL, 0);
 }
 
 /* Encode a single x86 instruction from mnemonic and operands */
@@ -3422,11 +3422,7 @@ static void emit_asm_instruction(Module* mod, const char* mnemonic,
     /* Common instructions used in syscall/interrupt context */
     if (strcmp(mnemonic, "int") == 0) {
         emit_byte(mod, 0xCD);
-        if (op1 && op1[0] == '$') {
-            emit_byte(mod, (uint8_t)atoi(op1 + 1));
-        } else if (op1) {
-            emit_byte(mod, (uint8_t)atoi(op1));
-        }
+        emit_byte(mod, asm_immediate8(op1));
     }
     else if (strcmp(mnemonic, "int3") == 0) {
         emit_byte(mod, 0xCC);
@@ -3528,9 +3524,7 @@ static void emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0xEC);  /* in al, dx */
         } else {
             emit_byte(mod, 0xE4);  /* in al, imm8 */
-            if (op2 && op2[0] == '$') {
-                emit_byte(mod, (uint8_t)atoi(op2 + 1));
-            }
+            emit_byte(mod, asm_immediate8(op2));
         }
     }
     else if (strcmp(mnemonic, "inw") == 0) {
@@ -3539,9 +3533,7 @@ static void emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0xED);
         } else {
             emit_byte(mod, 0xE5);
-            if (op2 && op2[0] == '$') {
-                emit_byte(mod, (uint8_t)atoi(op2 + 1));
-            }
+            emit_byte(mod, asm_immediate8(op2));
         }
     }
     else if (strcmp(mnemonic, "inl") == 0) {
@@ -3549,9 +3541,7 @@ static void emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0xED);
         } else {
             emit_byte(mod, 0xE5);
-            if (op2 && op2[0] == '$') {
-                emit_byte(mod, (uint8_t)atoi(op2 + 1));
-            }
+            emit_byte(mod, asm_immediate8(op2));
         }
     }
     else if (strcmp(mnemonic, "outb") == 0) {
@@ -3559,9 +3549,7 @@ static void emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0xEE);  /* out dx, al */
         } else {
             emit_byte(mod, 0xE6);  /* out imm8, al */
-            if (op1 && op1[0] == '$') {
-                emit_byte(mod, (uint8_t)atoi(op1 + 1));
-            }
+            emit_byte(mod, asm_immediate8(op1));
         }
     }
     else if (strcmp(mnemonic, "outw") == 0) {
@@ -3570,9 +3558,7 @@ static void emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0xEF);
         } else {
             emit_byte(mod, 0xE7);
-            if (op1 && op1[0] == '$') {
-                emit_byte(mod, (uint8_t)atoi(op1 + 1));
-            }
+            emit_byte(mod, asm_immediate8(op1));
         }
     }
     else if (strcmp(mnemonic, "outl") == 0) {
@@ -3580,9 +3566,7 @@ static void emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0xEF);
         } else {
             emit_byte(mod, 0xE7);
-            if (op1 && op1[0] == '$') {
-                emit_byte(mod, (uint8_t)atoi(op1 + 1));
-            }
+            emit_byte(mod, asm_immediate8(op1));
         }
     }
     /* Default: skip unknown instructions with a warning */
@@ -3594,7 +3578,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     const char* tmpl = stmt->asm_template;
     AsmOperand* outputs = stmt->asm_outputs;
     AsmOperand* inputs = stmt->asm_inputs;
-    /* AsmClobber* clobbers = stmt->asm_clobbers; */
+    AsmClobber* clobbers = stmt->asm_clobbers;
 
     /* Count operands for %0, %1, etc. references */
     int output_count = 0;
@@ -3631,13 +3615,58 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         }
     }
 
-    /* Load inputs into registers */
+    /* Preserve the i386 SysV callee-saved registers that fixed constraints
+     * may select.  The generated function prologue does not otherwise touch
+     * them. */
+    bool preserve_ebx = false;
+    bool preserve_esi = false;
+    bool preserve_edi = false;
+    for (int i = output_count; i < total_operands; i++) {
+        preserve_ebx = preserve_ebx || operands[i].reg == EBX;
+        preserve_esi = preserve_esi || operands[i].reg == ESI;
+        preserve_edi = preserve_edi || operands[i].reg == EDI;
+    }
+    for (AsmClobber* clobber = clobbers; clobber;
+         clobber = clobber->next) {
+        preserve_ebx = preserve_ebx ||
+            strcmp(clobber->reg, "ebx") == 0 ||
+            strcmp(clobber->reg, "bx") == 0;
+        preserve_esi = preserve_esi ||
+            strcmp(clobber->reg, "esi") == 0 ||
+            strcmp(clobber->reg, "si") == 0;
+        preserve_edi = preserve_edi ||
+            strcmp(clobber->reg, "edi") == 0 ||
+            strcmp(clobber->reg, "di") == 0;
+    }
+    if (preserve_ebx) emit_push_reg(mod, EBX);
+    if (preserve_esi) emit_push_reg(mod, ESI);
+    if (preserve_edi) emit_push_reg(mod, EDI);
+
+    /* Evaluate every input before assigning fixed registers.  gen_expr uses
+     * EAX as its result, so assigning "a" eagerly would let a later operand
+     * silently overwrite the syscall number. */
+    for (int i = 0; i < output_count; i++) {
+        if (operands[i].op->constraint[0] == '+' &&
+            operands[i].reg >= 0 && operands[i].op->expr) {
+            gen_expr(mod, operands[i].op->expr);
+            emit_push_reg(mod, EAX);
+        }
+    }
     for (int i = output_count; i < total_operands; i++) {
         if (operands[i].reg >= 0 && operands[i].op->expr) {
             gen_expr(mod, operands[i].op->expr);
-            if (operands[i].reg != EAX) {
-                emit_mov_reg_reg(mod, operands[i].reg, EAX);
-            }
+            emit_push_reg(mod, EAX);
+        }
+    }
+    for (int i = total_operands - 1; i >= output_count; i--) {
+        if (operands[i].reg >= 0 && operands[i].op->expr) {
+            emit_pop_reg(mod, operands[i].reg);
+        }
+    }
+    for (int i = output_count - 1; i >= 0; i--) {
+        if (operands[i].op->constraint[0] == '+' &&
+            operands[i].reg >= 0 && operands[i].op->expr) {
+            emit_pop_reg(mod, operands[i].reg);
         }
     }
 
@@ -3719,6 +3748,10 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     }
 
     rcc_free(tmpl_copy);
+
+    if (preserve_edi) emit_pop_reg(mod, EDI);
+    if (preserve_esi) emit_pop_reg(mod, ESI);
+    if (preserve_ebx) emit_pop_reg(mod, EBX);
 
     /* Store outputs from registers to lvalues */
     for (int i = 0; i < output_count; i++) {

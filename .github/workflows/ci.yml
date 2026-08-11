@@ -34,6 +34,7 @@ jobs:
           make test-cxx-cli
           make test-preprocessor-continuation
           make test-atomic-builtins
+          make test-inline-asm-execute
           make test-static-assert
           make test-link
           make test-archive
