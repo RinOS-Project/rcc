@@ -47,6 +47,33 @@ _Static_assert(ATOMIC_CHAR16_T_LOCK_FREE == 2 &&
                ATOMIC_CHAR32_T_LOCK_FREE == 2 &&
                ATOMIC_WCHAR_T_LOCK_FREE == 2,
                "fixed-width character atomics must be lock-free");
+_Static_assert(ATOMIC_POINTER_LOCK_FREE == 2,
+               "pointer atomics must be lock-free on both targets");
+
+void* atomic_pointer_load_value(void* volatile* value) {
+    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+}
+
+void atomic_pointer_store_value(void* volatile* value, void* desired) {
+    __atomic_store_n(value, desired, __ATOMIC_RELEASE);
+}
+
+void* atomic_pointer_exchange_value(void* volatile* value, void* desired) {
+    return __atomic_exchange_n(value, desired, __ATOMIC_ACQ_REL);
+}
+
+int atomic_pointer_compare_exchange_value(void* volatile* value,
+                                          void** expected,
+                                          void* desired) {
+    return __atomic_compare_exchange_n(value, expected, desired, 0,
+                                       __ATOMIC_ACQ_REL,
+                                       __ATOMIC_ACQUIRE);
+}
+
+void* standard_atomic_pointer_exchange_value(_Atomic(void*)* value,
+                                             void* desired) {
+    return atomic_exchange(value, desired);
+}
 
 #if defined(__i386__)
 long standard_atomic_long_fetch_xor_value(atomic_long* value, long operand) {

@@ -55,6 +55,10 @@ typedef int (*atomic_u16_compare_fn)(volatile uint16_t*, uint16_t*,
 typedef int32_t (*atomic_i8_binary_fn)(volatile int8_t*, int32_t);
 typedef int32_t (*atomic_i16_binary_fn)(volatile int16_t*, int32_t);
 typedef int (*atomic_bool_binary_fn)(volatile _Bool*, int);
+typedef void* (*atomic_pointer_load_fn)(void* volatile*);
+typedef void (*atomic_pointer_store_fn)(void* volatile*, void*);
+typedef void* (*atomic_pointer_binary_fn)(void* volatile*, void*);
+typedef int (*atomic_pointer_compare_fn)(void* volatile*, void**, void*);
 #if defined(__x86_64__)
 typedef uint64_t (*atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
 typedef int64_t (*atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
@@ -253,6 +257,11 @@ int main(int argc, char** argv) {
     atomic_u8_binary_fn standard_uchar_fetch_add;
     atomic_u16_binary_fn standard_ushort_exchange;
     atomic_bool_binary_fn standard_bool_exchange;
+    atomic_pointer_load_fn pointer_load;
+    atomic_pointer_store_fn pointer_store;
+    atomic_pointer_binary_fn pointer_exchange;
+    atomic_pointer_compare_fn pointer_compare;
+    atomic_pointer_binary_fn standard_pointer_exchange;
     volatile uint32_t value = 5u;
     volatile uint32_t counter = 0u;
     pthread_t threads[4];
@@ -412,6 +421,16 @@ int main(int argc, char** argv) {
                   "standard_atomic_ushort_exchange_value");
     LOAD_FUNCTION(standard_bool_exchange, object, mapping,
                   "standard_atomic_bool_exchange_value");
+    LOAD_FUNCTION(pointer_load, object, mapping,
+                  "atomic_pointer_load_value");
+    LOAD_FUNCTION(pointer_store, object, mapping,
+                  "atomic_pointer_store_value");
+    LOAD_FUNCTION(pointer_exchange, object, mapping,
+                  "atomic_pointer_exchange_value");
+    LOAD_FUNCTION(pointer_compare, object, mapping,
+                  "atomic_pointer_compare_exchange_value");
+    LOAD_FUNCTION(standard_pointer_exchange, object, mapping,
+                  "standard_atomic_pointer_exchange_value");
 
     assert(atomic_load(&value) == 5u);
     assert(atomic_dynamic_load(&value, 2u) == 5u);
@@ -520,6 +539,27 @@ int main(int argc, char** argv) {
     assert(value == 0u);
     assert(standard_is_lock_free(&value) == 1u);
     standard_signal_fence();
+
+    {
+        int first = 1;
+        int second = 2;
+        int third = 3;
+        void* volatile pointer = &first;
+        void* expected_pointer;
+        assert(pointer_load(&pointer) == &first);
+        pointer_store(&pointer, &second);
+        assert(pointer == &second);
+        assert(pointer_exchange(&pointer, &third) == &second &&
+               pointer == &third);
+        expected_pointer = &third;
+        assert(pointer_compare(&pointer, &expected_pointer, &first) == 1);
+        assert(expected_pointer == &third && pointer == &first);
+        expected_pointer = &second;
+        assert(pointer_compare(&pointer, &expected_pointer, &third) == 0);
+        assert(expected_pointer == &first && pointer == &first);
+        assert(standard_pointer_exchange(&pointer, &second) == &first &&
+               pointer == &second);
+    }
 
     {
         volatile uint8_t small = 250u;

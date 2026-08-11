@@ -107,7 +107,8 @@ translation unit、C++ class、preprocessor、成功・診断・署名失敗経�
 fetch and/or/xor/nand、fenceと`<stdatomic.h>` APIを両archで生成・linkし、i686/AMD64の
 両生成コードを直接実行します。AMD64では同じ操作を64-bit整数でも検査します。符号拡張、
 幅ごとのwrap、compare-exchange失敗時のexpected更新、複数threadでの16/32/64-bit算術
-およびbitwise原子性を検査します。i686の64-bit operandはnon-lock-freeとして公開し、
+およびbitwise原子性を検査します。pointerのload/store/exchange/CASも両archで直接実行し、
+pointerへのfetch算術・bitwiseはSemaで拒否します。i686の64-bit operandはnon-lock-freeとして公開し、
 builtin利用はdiagnostic付きで拒否します。wide/pointer-sized型を含むC17 atomic typedefは
 両archで公開し、i686の`long`は既存32-bit lock-free pathを使用します。定数memory orderの範囲、load/store制約、
 compare-exchangeのfailure/weak制約もSemaで拒否します。

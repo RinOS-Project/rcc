@@ -3,7 +3,8 @@
 
 /* This RinOS C17 surface provides lock-free arithmetic and bitwise operations
  * for 8/16/32-bit integer storage on both targets and 64-bit integer storage
- * on AMD64. i686 64-bit and pointer representations remain explicit gaps. */
+ * on AMD64. Pointer load/store/exchange/CAS are lock-free on both targets;
+ * i686 64-bit integer representations remain an explicit gap. */
 typedef enum memory_order {
     memory_order_relaxed = __ATOMIC_RELAXED,
     memory_order_consume = __ATOMIC_CONSUME,
@@ -75,7 +76,7 @@ typedef volatile unsigned int atomic_flag;
 #define ATOMIC_LONG_LOCK_FREE 2
 #define ATOMIC_LLONG_LOCK_FREE 2
 #endif
-#define ATOMIC_POINTER_LOCK_FREE 0
+#define ATOMIC_POINTER_LOCK_FREE 2
 
 #define ATOMIC_FLAG_INIT 0u
 #define ATOMIC_VAR_INIT(value) (value)

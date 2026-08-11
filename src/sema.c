@@ -59,6 +59,13 @@ static bool atomic_failure_order_allowed(int64_t success, int64_t failure) {
     }
 }
 
+static bool atomic_allows_pointer_value(const char* name) {
+    return strcmp(name, "__atomic_load_n") == 0 ||
+           strcmp(name, "__atomic_store_n") == 0 ||
+           strcmp(name, "__atomic_exchange_n") == 0 ||
+           strcmp(name, "__atomic_compare_exchange_n") == 0;
+}
+
 /* ═══════════════════════════════════════
  * Type Checking Helpers
  * ═══════════════════════════════════════ */
@@ -726,16 +733,23 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                   name, expected_count, argument_count);
     }
     if (requires_pointer) {
+        bool pointer_value;
+        bool integer_value;
         pointer_type = expr->call_args ? expr->call_args->expr->type : NULL;
+        pointer_value = pointer_type && pointer_type->kind == TYPE_PTR &&
+            pointer_type->base && pointer_type->base->kind == TYPE_PTR &&
+            atomic_allows_pointer_value(name);
+        integer_value = pointer_type && pointer_type->kind == TYPE_PTR &&
+            pointer_type->base && type_is_integer(pointer_type->base) &&
+            (pointer_type->base->size == 1u ||
+             pointer_type->base->size == 2u ||
+             pointer_type->base->size == 4u ||
+             (pointer_type->base->size == 8u &&
+              g_opts.target_arch == ARCH_X64));
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
-            !pointer_type->base || !type_is_integer(pointer_type->base) ||
-            (pointer_type->base->size != 1u &&
-             pointer_type->base->size != 2u &&
-             pointer_type->base->size != 4u &&
-             !(pointer_type->base->size == 8u &&
-               g_opts.target_arch == ARCH_X64))) {
+            (!integer_value && !pointer_value)) {
             rcc_error(expr->loc,
-                      "%s requires a supported lock-free integer pointer",
+                      "%s requires a supported lock-free object pointer",
                       name);
         }
     }
@@ -744,7 +758,6 @@ static bool sema_atomic_builtin_call(Expr* expr) {
         if (!argument || !argument->expr->type ||
             argument->expr->type->kind != TYPE_PTR ||
             !argument->expr->type->base ||
-            !type_is_integer(argument->expr->type->base) ||
             !pointer_type || !pointer_type->base ||
             argument->expr->type->base->size != pointer_type->base->size ||
             !type_is_compatible(argument->expr->type->base,
