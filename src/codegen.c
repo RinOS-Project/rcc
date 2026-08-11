@@ -1370,6 +1370,24 @@ static bool gen_is_integer64(const Type* type) {
            type_is_integer((Type*)type);
 }
 
+static void emit_test_reg_imm(Module* mod, int reg, uint32_t imm) {
+    emit_byte(mod, 0xF7);
+    emit_byte(mod, modrm(3, 0, reg));
+    emit_dword(mod, imm);
+}
+
+static void emit_shld_reg_cl(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xA5);
+    emit_byte(mod, modrm(3, src, dst));
+}
+
+static void emit_shrd_reg_cl(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xAD);
+    emit_byte(mod, modrm(3, src, dst));
+}
+
 static void emit_extend_eax_to_integer64(Module* mod,
                                          const Type* source_type) {
     if (source_type && type_is_integer((Type*)source_type) &&
@@ -2101,6 +2119,50 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             emit_add_reg_imm(mod, ESP, 8);
             break;
 
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT: {
+            int wide_count_label = new_label();
+            int end_label = new_label();
+            bool arithmetic = expr->kind == EXPR_RSHIFT && expr->type &&
+                              !expr->type->is_unsigned;
+            gen_expr_as_integer64(mod, expr->binary_lhs);
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            gen_expr(mod, expr->binary_rhs);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_pop_reg(mod, EAX);
+            emit_pop_reg(mod, EDX);
+            emit_test_reg_imm(mod, ECX, 32u);
+            emit_jcc_label(mod, CC_NE, wide_count_label);
+            if (expr->kind == EXPR_LSHIFT) {
+                emit_shld_reg_cl(mod, EDX, EAX);
+                emit_shl_reg_cl(mod, EAX);
+            } else {
+                emit_shrd_reg_cl(mod, EAX, EDX);
+                if (arithmetic) emit_sar_reg_cl(mod, EDX);
+                else emit_shr_reg_cl(mod, EDX);
+            }
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, wide_count_label);
+            if (expr->kind == EXPR_LSHIFT) {
+                emit_shl_reg_cl(mod, EAX);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_mov_reg_imm(mod, EAX, 0u);
+            } else {
+                emit_mov_reg_reg(mod, EAX, EDX);
+                if (arithmetic) {
+                    emit_sar_reg_cl(mod, EAX);
+                    emit_mov_reg_imm(mod, ECX, 31u);
+                    emit_sar_reg_cl(mod, EDX);
+                } else {
+                    emit_shr_reg_cl(mod, EAX);
+                    emit_mov_reg_imm(mod, EDX, 0u);
+                }
+            }
+            emit_label(mod, end_label);
+            break;
+        }
+
         case EXPR_ASSIGN:
             gen_expr_as_integer64(mod, expr->binary_rhs);
             emit_push_reg(mod, EDX);
@@ -2169,6 +2231,64 @@ static void gen_expr_as_integer64(Module* mod, Expr* expr) {
         gen_expr(mod, expr);
         emit_extend_eax_to_integer64(mod, expr ? expr->type : NULL);
     }
+}
+
+static void gen_compare_integer64(Module* mod, Expr* expr) {
+    int high_diff_label = new_label();
+    int end_label = new_label();
+    bool equality = expr->kind == EXPR_EQ || expr->kind == EXPR_NE;
+    const Type* left_type = expr->binary_lhs->type;
+    const Type* right_type = expr->binary_rhs->type;
+    bool unsigned_compare = left_type && right_type &&
+        (left_type->size == right_type->size
+            ? (left_type->is_unsigned || right_type->is_unsigned)
+            : (left_type->size > right_type->size
+                ? left_type->is_unsigned : right_type->is_unsigned));
+    int low_cc;
+    int high_cc;
+
+    gen_expr_as_integer64(mod, expr->binary_lhs);
+    emit_push_reg(mod, EDX);
+    emit_push_reg(mod, EAX);
+    gen_expr_as_integer64(mod, expr->binary_rhs);
+    emit_mov_reg_mem(mod, ECX, ESP, 4);
+    emit_cmp_reg_reg(mod, ECX, EDX);
+    emit_jcc_label(mod, CC_NE, high_diff_label);
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    emit_cmp_reg_reg(mod, ECX, EAX);
+    switch (expr->kind) {
+        case EXPR_EQ: low_cc = CC_E; break;
+        case EXPR_NE: low_cc = CC_NE; break;
+        case EXPR_LT: low_cc = CC_B; break;
+        case EXPR_GT: low_cc = CC_A; break;
+        case EXPR_LE: low_cc = CC_BE; break;
+        case EXPR_GE: low_cc = CC_AE; break;
+        default: low_cc = CC_E; break;
+    }
+    emit_setcc(mod, low_cc, EAX);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB6);
+    emit_byte(mod, modrm(3, EAX, EAX));
+    emit_jmp_label(mod, end_label);
+
+    emit_label(mod, high_diff_label);
+    if (equality) {
+        emit_mov_reg_imm(mod, EAX, expr->kind == EXPR_NE ? 1u : 0u);
+    } else {
+        switch (expr->kind) {
+            case EXPR_LT: high_cc = unsigned_compare ? CC_B : CC_L; break;
+            case EXPR_GT: high_cc = unsigned_compare ? CC_A : CC_G; break;
+            case EXPR_LE: high_cc = unsigned_compare ? CC_B : CC_L; break;
+            case EXPR_GE: high_cc = unsigned_compare ? CC_A : CC_G; break;
+            default: high_cc = CC_E; break;
+        }
+        emit_setcc(mod, high_cc, EAX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EAX, EAX));
+    }
+    emit_label(mod, end_label);
+    emit_add_reg_imm(mod, ESP, 8);
 }
 
 static void gen_call(Module* mod, Expr* expr) {
@@ -2486,6 +2606,11 @@ static void gen_expr(Module* mod, Expr* expr) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE: {
+            if (gen_is_integer64(expr->binary_lhs->type) ||
+                gen_is_integer64(expr->binary_rhs->type)) {
+                gen_compare_integer64(mod, expr);
+                break;
+            }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);

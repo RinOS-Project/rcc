@@ -14,6 +14,10 @@ typedef int64_t (*signed_wide_unary_fn)(int64_t);
 typedef uint64_t (*unsigned_widen_fn)(uint32_t);
 typedef int64_t (*signed_widen_fn)(int32_t);
 typedef uint64_t (*wide_narrow_binary_fn)(uint64_t, int32_t);
+typedef int (*wide_compare_fn)(uint64_t, uint64_t);
+typedef int (*signed_wide_compare_fn)(int64_t, int64_t);
+typedef uint64_t (*wide_shift_fn)(uint64_t, int32_t);
+typedef int64_t (*signed_wide_shift_fn)(int64_t, int32_t);
 typedef uint64_t (*atomic_wide_load_fn)(volatile uint64_t*);
 typedef void (*atomic_wide_store_fn)(volatile uint64_t*, uint64_t);
 typedef uint64_t (*atomic_wide_exchange_fn)(volatile uint64_t*, uint64_t);
@@ -54,6 +58,13 @@ int main(int argc, char** argv) {
     wide_unary_fn assign;
     signed_widen_fn assign_narrow;
     wide_narrow_binary_fn add_narrow;
+    wide_compare_fn equal;
+    wide_compare_fn less_unsigned;
+    signed_wide_compare_fn greater_signed;
+    signed_wide_compare_fn less_equal_signed;
+    wide_shift_fn shift_left;
+    wide_shift_fn shift_right;
+    signed_wide_shift_fn shift_right_signed;
     wide_nullary_fn call;
     wide_nullary_fn call_promoted;
     unsigned_widen_fn widen_unsigned;
@@ -112,6 +123,17 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(assign_narrow, object, mapping,
                   "abi_wide_assign_narrow");
     LOAD_FUNCTION(add_narrow, object, mapping, "abi_wide_add_narrow");
+    LOAD_FUNCTION(equal, object, mapping, "abi_wide_equal");
+    LOAD_FUNCTION(less_unsigned, object, mapping,
+                  "abi_wide_less_unsigned");
+    LOAD_FUNCTION(greater_signed, object, mapping,
+                  "abi_wide_greater_signed");
+    LOAD_FUNCTION(less_equal_signed, object, mapping,
+                  "abi_wide_less_equal_signed");
+    LOAD_FUNCTION(shift_left, object, mapping, "abi_wide_shift_left");
+    LOAD_FUNCTION(shift_right, object, mapping, "abi_wide_shift_right");
+    LOAD_FUNCTION(shift_right_signed, object, mapping,
+                  "abi_wide_shift_right_signed");
     LOAD_FUNCTION(call, object, mapping, "abi_wide_call");
     LOAD_FUNCTION(call_promoted, object, mapping,
                   "abi_wide_call_promoted");
@@ -148,6 +170,22 @@ int main(int argc, char** argv) {
     assert(assign_narrow(-11) == INT64_C(-11));
     assert(add_narrow(UINT64_C(0x0000000200000000), -1) ==
            UINT64_C(0x00000001ffffffff));
+    assert(equal(UINT64_C(0x1234567889abcdef),
+                 UINT64_C(0x1234567889abcdef)) == 1);
+    assert(equal(UINT64_C(0x1234567889abcdef),
+                 UINT64_C(0x1234567989abcdef)) == 0);
+    assert(less_unsigned(UINT64_C(0x7fffffffffffffff),
+                         UINT64_C(0x8000000000000000)) == 1);
+    assert(greater_signed(INT64_C(7), INT64_C(-9)) == 1);
+    assert(less_equal_signed(INT64_C(-9), INT64_C(-9)) == 1);
+    assert(shift_left(UINT64_C(0x0000000080000001), 1) ==
+           UINT64_C(0x0000000100000002));
+    assert(shift_left(UINT64_C(3), 33) == UINT64_C(0x0000000600000000));
+    assert(shift_right(UINT64_C(0x8000000100000000), 1) ==
+           UINT64_C(0x4000000080000000));
+    assert(shift_right(UINT64_C(0x8000000100000000), 33) ==
+           UINT64_C(0x0000000040000000));
+    assert(shift_right_signed(-INT64_C(0x100000000), 33) == INT64_C(-1));
     assert(call() == UINT64_C(0x0000000200000001));
     assert(call_promoted() == UINT64_C(7));
     assert(widen_unsigned(UINT32_C(0xf1234567)) ==

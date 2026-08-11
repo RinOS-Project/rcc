@@ -49,6 +49,17 @@ u64 abi_wide_add_narrow(u64 left, int right) {
     return left + right;
 }
 
+int abi_wide_equal(u64 left, u64 right) { return left == right; }
+int abi_wide_less_unsigned(u64 left, u64 right) { return left < right; }
+int abi_wide_greater_signed(i64 left, i64 right) { return left > right; }
+int abi_wide_less_equal_signed(i64 left, i64 right) { return left <= right; }
+
+u64 abi_wide_shift_left(u64 value, int count) { return value << count; }
+u64 abi_wide_shift_right(u64 value, int count) { return value >> count; }
+i64 abi_wide_shift_right_signed(i64 value, int count) {
+    return value >> count;
+}
+
 u64 abi_wide_call(void) {
     return abi_wide_add((u64)0x00000001ffffffff, (u64)2);
 }
