@@ -2609,6 +2609,15 @@ static void gen_compare_integer64(Module* mod, Expr* expr) {
     emit_add_reg_imm(mod, ESP, 8);
 }
 
+static Type* codegen_default_argument_type(Type* type) {
+    if (!type) return type_int;
+    if (type->kind == TYPE_ENUM || type->kind < TYPE_INT) return type_int;
+    if (type->kind == TYPE_FLOAT) return type_double;
+    if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
+    if (type->kind == TYPE_FUNC) return type_ptr(type);
+    return type;
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int argc;
@@ -2635,7 +2644,7 @@ static void gen_call(Module* mod, Expr* expr) {
          argument = argument->next) {
         args[i] = argument;
         argument_types[i] = parameter ? parameter->type
-                                      : argument->expr->type;
+            : codegen_default_argument_type(argument->expr->type);
         if (parameter) parameter = parameter->next;
         ++i;
     }

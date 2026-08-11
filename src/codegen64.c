@@ -1562,7 +1562,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             for (ExprList* a = expr->call_args; a; a = a->next) {
                 args[i++] = a;
                 argument_types[i - 1] = parameter ? parameter->type
-                                                  : a->expr->type;
+                    : (a->expr->type &&
+                       (a->expr->type->kind == TYPE_ENUM ||
+                        a->expr->type->kind < TYPE_INT)
+                        ? type_int
+                        : (a->expr->type &&
+                           a->expr->type->kind == TYPE_FLOAT
+                            ? type_double : a->expr->type));
                 if (parameter) parameter = parameter->next;
                 if (a->expr->type &&
                     (a->expr->type->kind == TYPE_STRUCT ||

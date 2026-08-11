@@ -158,7 +158,12 @@ static Type* implicit_cast(Expr* e, Type* target) {
     if (e->type == target) return target;
 
     /* Integer promotions */
-    if (type_is_integer(e->type) && type_is_integer(target)) {
+    if ((type_is_integer(e->type) || e->type->kind == TYPE_ENUM) &&
+        (type_is_integer(target) || target->kind == TYPE_ENUM)) {
+        return target;
+    }
+
+    if (type_is_arithmetic(e->type) && type_is_arithmetic(target)) {
         return target;
     }
 
@@ -175,6 +180,10 @@ static Type* implicit_cast(Expr* e, Type* target) {
         if (type_is_compatible(e->type->base, target->base)) {
             return target;
         }
+    }
+    if (type_is_function(e->type) && type_is_pointer(target) &&
+        type_is_compatible(e->type, target->base)) {
+        return target;
     }
 
     /* void* conversions */
@@ -537,6 +546,10 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_CALL: {
             Type* ft;
+            TypeParam* parameter;
+            ExprList* argument;
+            int argument_index = 1;
+            bool reported_too_many = false;
             if (sema_atomic_builtin_call(expr)) break;
             ft = sema_expr(expr->call_func);
             if (!ft || ft->kind != TYPE_FUNC) {
@@ -550,9 +563,28 @@ static Type* sema_expr(Expr* expr) {
                 }
             }
 
-            /* Check arguments */
-            for (ExprList* arg = expr->call_args; arg; arg = arg->next) {
-                sema_expr(arg->expr);
+            parameter = ft->params;
+            argument = expr->call_args;
+            while (argument) {
+                sema_expr(argument->expr);
+                if (parameter) {
+                    if (!implicit_cast(argument->expr, parameter->type)) {
+                        rcc_error(argument->expr->loc,
+                                  "incompatible type for argument %d",
+                                  argument_index);
+                    }
+                    parameter = parameter->next;
+                } else if (ft->has_prototype && !ft->variadic &&
+                           !reported_too_many) {
+                    rcc_error(argument->expr->loc,
+                              "too many arguments to function call");
+                    reported_too_many = true;
+                }
+                argument = argument->next;
+                ++argument_index;
+            }
+            if (parameter) {
+                rcc_error(expr->loc, "too few arguments to function call");
             }
 
             expr->type = ft->ret_type;

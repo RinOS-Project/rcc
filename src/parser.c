@@ -1276,6 +1276,10 @@ static DeclList* parse_parameter_list(bool* variadic) {
         Type* parameter_type;
         const char* parameter_name = NULL;
         if (match(TOK_ELLIPSIS)) {
+            if (parameter_index == 0) {
+                rcc_error(previous()->loc,
+                          "ellipsis requires at least one named parameter");
+            }
             *variadic = true;
             break;
         }
@@ -1288,11 +1292,18 @@ static DeclList* parse_parameter_list(bool* variadic) {
         parameter_type = parse_declarator(parameter_base, &parameter_name, NULL);
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_type = type_ptr(parameter_type->base);
+        } else if (parameter_type->kind == TYPE_FUNC) {
+            parameter_type = type_ptr(parameter_type);
         }
         decllist_append(&parameters,
                         decl_param(parameter_name, parameter_type,
                                    parameter_index++, peek()->loc));
         if (!match(TOK_COMMA)) break;
+        if (check(TOK_RPAREN)) {
+            rcc_error(peek()->loc,
+                      "expected parameter declaration after ','");
+            break;
+        }
     }
     return parameters;
 }
@@ -1315,6 +1326,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
         int nested_pointers = 0;
         DeclList* function_parameters = NULL;
         bool variadic = false;
+        bool has_prototype;
         advance();
         while (match(TOK_STAR)) nested_pointers++;
         if (check(TOK_IDENT)) {
@@ -1323,11 +1335,13 @@ static Type* parse_declarator(Type* base_type, const char** name,
         }
         expect(TOK_RPAREN, ")");
         expect(TOK_LPAREN, "(");
+        has_prototype = !check(TOK_RPAREN);
         function_parameters = parse_parameter_list(&variadic);
         expect(TOK_RPAREN, ")");
         type = type_func(base_type,
                          parser_type_params(function_parameters, &variadic),
                          variadic);
+        type->has_prototype = has_prototype;
         while (nested_pointers-- > 0) type = type_ptr(type);
         while (pointer_count-- > 0) type = type_ptr(type);
         if (parameters) *parameters = function_parameters;
@@ -1348,11 +1362,13 @@ static Type* parse_declarator(Type* base_type, const char** name,
             type = type_array(type, length);
         } else if (match(TOK_LPAREN)) {
             bool variadic = false;
+            bool has_prototype = !check(TOK_RPAREN);
             DeclList* function_parameters = parse_parameter_list(&variadic);
             expect(TOK_RPAREN, ")");
             type = type_func(type,
                              parser_type_params(function_parameters, &variadic),
                              variadic);
+            type->has_prototype = has_prototype;
             if (parameters) *parameters = function_parameters;
         } else {
             break;

@@ -69,6 +69,7 @@ struct Type {
             Type* ret_type;
             TypeParam* params;
             bool variadic;
+            bool has_prototype;
         };
         /* TYPE_STRUCT, TYPE_UNION */
         struct {

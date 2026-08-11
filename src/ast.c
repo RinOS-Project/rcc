@@ -165,6 +165,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->ret_type = ret;
     t->params = params;
     t->variadic = variadic;
+    t->has_prototype = true;
     return t;
 }
 
@@ -254,8 +255,24 @@ bool type_is_compatible(Type* a, Type* b) {
                type_is_compatible(a->base, b->base);
     }
     if (a->kind == TYPE_FUNC) {
-        if (a->variadic != b->variadic ||
-            !type_is_compatible(a->ret_type, b->ret_type)) return false;
+        if (!type_is_compatible(a->ret_type, b->ret_type)) return false;
+        if (!a->has_prototype || !b->has_prototype) {
+            Type* prototype = a->has_prototype ? a : b;
+            if (prototype->variadic) return false;
+            for (TypeParam* parameter = prototype->params; parameter;
+                 parameter = parameter->next) {
+                Type* promoted = parameter->type;
+                if (promoted->kind == TYPE_FLOAT) promoted = type_double;
+                if (promoted->kind == TYPE_ENUM || promoted->kind < TYPE_INT) {
+                    promoted = type_int;
+                }
+                if (!type_is_compatible(promoted, parameter->type)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (a->variadic != b->variadic) return false;
         ap = a->params;
         bp = b->params;
         while (ap && bp) {
