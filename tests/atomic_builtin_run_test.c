@@ -63,6 +63,7 @@ int main(int argc, char** argv) {
     size_t mapping_size;
     uint8_t* mapping;
     atomic_load_fn atomic_load;
+    atomic_binary_fn atomic_dynamic_load;
     atomic_store_fn atomic_store;
     atomic_binary_fn atomic_exchange;
     atomic_binary_fn atomic_fetch_add;
@@ -111,6 +112,8 @@ int main(int argc, char** argv) {
     assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
 
     LOAD_FUNCTION(atomic_load, object, mapping, "atomic_load_value");
+    LOAD_FUNCTION(atomic_dynamic_load, object, mapping,
+                  "atomic_dynamic_load_value");
     LOAD_FUNCTION(atomic_store, object, mapping, "atomic_store_value");
     LOAD_FUNCTION(atomic_exchange, object, mapping, "atomic_exchange_value");
     LOAD_FUNCTION(atomic_fetch_add, object, mapping, "atomic_fetch_add_value");
@@ -150,6 +153,7 @@ int main(int argc, char** argv) {
                   "standard_atomic_signal_fence_value");
 
     assert(atomic_load(&value) == 5u);
+    assert(atomic_dynamic_load(&value, 2u) == 5u);
     atomic_store(&value, 7u);
     assert(value == 7u);
     assert(atomic_exchange(&value, 11u) == 7u && value == 11u);

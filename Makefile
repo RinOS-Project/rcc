@@ -134,6 +134,9 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid.ro \
 		tests/invalid_atomic_builtin.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \
+		tests/invalid_atomic_order.c
 	@echo "Dual-architecture 32-bit atomic builtin execution tests completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)

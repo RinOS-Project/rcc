@@ -104,7 +104,8 @@ translation unit、C++ class、preprocessor、成功・診断・署名失敗経�
 初期`<stdatomic.h>` APIを両archで生成・linkし、AMD64生成コードの戻り値、memory更新、
 compare-exchange失敗時のexpected更新、複数threadでの原子性を実行検査します。
 未実装の小幅・64-bit operandはnon-lock-freeとして公開し、builtin利用はdiagnostic付きで
-拒否します。
+拒否します。定数memory orderの範囲、load/store制約、compare-exchangeのfailure/weak
+制約もSemaで拒否します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、

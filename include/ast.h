@@ -328,6 +328,7 @@ Expr* expr_generic(Expr* control, GenericAssociation* associations,
                    SourceLoc loc);
 void generic_association_append(GenericAssociation** list, Type* type,
                                 Expr* expr, SourceLoc loc);
+bool expr_eval_integer_constant(Expr* expr, int64_t* value);
 
 /* ═══════════════════════════════════════
  * Statements

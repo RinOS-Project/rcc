@@ -328,6 +328,10 @@ static bool eval_integer_constant(Expr* expr, int64_t* value) {
     }
 }
 
+bool expr_eval_integer_constant(Expr* expr, int64_t* value) {
+    return eval_integer_constant(expr, value);
+}
+
 static void skip_attributes(void) {
     while (match(TOK___ATTRIBUTE__)) {
         if (match(TOK_LPAREN)) {

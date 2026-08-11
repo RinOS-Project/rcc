@@ -39,7 +39,8 @@
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 32-bit整数atomic load/store/exchange/CAS/fetch add/subとfull fenceの両arch codegen
   - [x] 32-bit `atomic_int/atomic_uint/atomic_flag`向け初期`<stdatomic.h>` API
-  - [ ] 8/16/64-bit atomics、全標準atomic typedef/fetch bitwise、memory-order diagnostic
+  - [x] 定数memory orderの範囲・load/store・CAS failure/weak制約diagnostic
+  - [ ] 8/16/64-bit atomics、全標準atomic typedef、fetch bitwise
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
 - [ ] C17 conformance compile-and-run suite
 

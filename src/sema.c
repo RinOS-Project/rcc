@@ -17,6 +17,48 @@ static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static bool sema_atomic_builtin_call(Expr* expr);
 
+static Expr* sema_call_argument(Expr* call, int index) {
+    ExprList* argument = call ? call->call_args : NULL;
+    while (argument && index-- > 0) argument = argument->next;
+    return argument ? argument->expr : NULL;
+}
+
+static bool sema_atomic_order(Expr* call, const char* name, int index,
+                              int64_t* value, bool* is_constant) {
+    Expr* order = sema_call_argument(call, index);
+    int64_t evaluated;
+    if (is_constant) *is_constant = false;
+    if (!order) return false;
+    if (!order->type ||
+        (!type_is_integer(order->type) && order->type->kind != TYPE_ENUM)) {
+        rcc_error(order->loc, "%s memory order must have integer type", name);
+        return false;
+    }
+    if (!expr_eval_integer_constant(order, &evaluated)) return true;
+    if (is_constant) *is_constant = true;
+    if (value) *value = evaluated;
+    if (evaluated < 0 || evaluated > 5) {
+        rcc_error(order->loc, "%s memory order is outside the range 0..5",
+                  name);
+        return false;
+    }
+    return true;
+}
+
+static bool atomic_failure_order_allowed(int64_t success, int64_t failure) {
+    if (failure == 3 || failure == 4) return false;
+    switch (success) {
+        case 0: return failure == 0;
+        case 1: return failure == 0 || failure == 1;
+        case 2: return failure == 0 || failure == 1 || failure == 2;
+        case 3: return failure == 0;
+        case 4: return failure == 0 || failure == 1 || failure == 2;
+        case 5: return failure == 0 || failure == 1 || failure == 2 ||
+                       failure == 5;
+        default: return false;
+    }
+}
+
 /* ═══════════════════════════════════════
  * Type Checking Helpers
  * ═══════════════════════════════════════ */
@@ -611,6 +653,10 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     bool returns_void = false;
     bool returns_bool = false;
     Type* pointer_type = NULL;
+    int64_t success_order = 0;
+    int64_t failure_order = 0;
+    bool success_constant = false;
+    bool failure_constant = false;
 
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
@@ -683,6 +729,51 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                       "%s requires a 32-bit integer expected-value pointer",
                       name);
         }
+    }
+    if (strcmp(name, "__atomic_load_n") == 0) {
+        if (sema_atomic_order(expr, name, 1, &success_order,
+                              &success_constant) && success_constant &&
+            (success_order == 3 || success_order == 4)) {
+            rcc_error(sema_call_argument(expr, 1)->loc,
+                      "%s does not accept release or acq_rel order", name);
+        }
+    } else if (strcmp(name, "__atomic_store_n") == 0) {
+        if (sema_atomic_order(expr, name, 2, &success_order,
+                              &success_constant) && success_constant &&
+            (success_order == 1 || success_order == 2 ||
+             success_order == 4)) {
+            rcc_error(sema_call_argument(expr, 2)->loc,
+                      "%s accepts only relaxed, release, or seq_cst order",
+                      name);
+        }
+    } else if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
+        Expr* weak = sema_call_argument(expr, 3);
+        int64_t weak_value;
+        bool weak_constant = weak &&
+            expr_eval_integer_constant(weak, &weak_value);
+        if (weak && (!weak->type ||
+            (!type_is_integer(weak->type) && weak->type->kind != TYPE_ENUM))) {
+            rcc_error(weak->loc, "%s weak flag must have integer type", name);
+        } else if (weak_constant && weak_value != 0 && weak_value != 1) {
+            rcc_error(weak->loc, "%s weak flag must be zero or one", name);
+        }
+        sema_atomic_order(expr, name, 4, &success_order,
+                          &success_constant);
+        sema_atomic_order(expr, name, 5, &failure_order,
+                          &failure_constant);
+        if (success_constant && failure_constant &&
+            success_order >= 0 && success_order <= 5 &&
+            failure_order >= 0 && failure_order <= 5 &&
+            !atomic_failure_order_allowed(success_order, failure_order)) {
+            rcc_error(sema_call_argument(expr, 5)->loc,
+                      "%s failure order is invalid or stronger than success",
+                      name);
+        }
+    } else if (strncmp(name, "__atomic_", 9) == 0) {
+        int order_index = strcmp(name, "__atomic_thread_fence") == 0
+            ? 0 : 2;
+        sema_atomic_order(expr, name, order_index, &success_order,
+                          &success_constant);
     }
 
     function->type = type_ptr(type_void);

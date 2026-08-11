@@ -12,6 +12,10 @@ uint32_t atomic_load_value(volatile uint32_t* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
 
+uint32_t atomic_dynamic_load_value(volatile uint32_t* value, int order) {
+    return __atomic_load_n(value, order);
+}
+
 void atomic_store_value(volatile uint32_t* value, uint32_t desired) {
     __atomic_store_n(value, desired, __ATOMIC_RELEASE);
 }
