@@ -1143,7 +1143,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
-            emit64_mov_reg_imm32(mod, RAX, (uint32_t)expr->int_val);
+            emit64_mov_reg_imm64(mod, RAX, (uint64_t)expr->int_val);
             break;
 
         case EXPR_CHAR_LIT:

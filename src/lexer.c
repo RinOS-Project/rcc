@@ -6,6 +6,7 @@
 #include "rcc.h"
 #include "token.h"
 #include <ctype.h>
+#include <errno.h>
 
 /* Lexer state */
 typedef struct {
@@ -179,6 +180,10 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->loc = loc;
     tok->next = NULL;
     memset(&tok->value, 0, sizeof(tok->value));
+    tok->int_base = 0u;
+    tok->int_long_suffix = 0u;
+    tok->int_unsigned_suffix = false;
+    tok->int_overflow = false;
     return tok;
 }
 
@@ -321,6 +326,7 @@ static Token* lex_number(Lexer* lex) {
     const char* start = lex->pos;
     bool is_float = false;
     int base = 10;
+    const char* suffix_start;
 
     /* Check for hex/octal/binary prefix */
     if (peek(lex) == '0') {
@@ -373,14 +379,17 @@ static Token* lex_number(Lexer* lex) {
         }
     }
 
-    /* Check for suffix */
-    while (peek(lex) == 'u' || peek(lex) == 'U' ||
-           peek(lex) == 'l' || peek(lex) == 'L' ||
-           peek(lex) == 'f' || peek(lex) == 'F') {
-        if (peek(lex) == 'f' || peek(lex) == 'F') {
-            is_float = true;
+    suffix_start = lex->pos;
+    if (is_float) {
+        if (peek(lex) == 'f' || peek(lex) == 'F' ||
+            peek(lex) == 'l' || peek(lex) == 'L') {
+            advance(lex);
         }
-        advance(lex);
+    } else {
+        while (peek(lex) == 'u' || peek(lex) == 'U' ||
+               peek(lex) == 'l' || peek(lex) == 'L') {
+            advance(lex);
+        }
     }
 
     size_t len = lex->pos - start;
@@ -393,8 +402,50 @@ static Token* lex_number(Lexer* lex) {
         tok = token_new(TOK_FLOAT_LIT, loc);
         tok->value.float_val = strtod(str, NULL);
     } else {
+        const char* suffix = suffix_start;
+        bool suffix_valid = true;
+        bool saw_unsigned = false;
+        unsigned long_suffix = 0u;
+        uint64_t value;
+
+        while (suffix < lex->pos) {
+            if (*suffix == 'u' || *suffix == 'U') {
+                if (saw_unsigned) {
+                    suffix_valid = false;
+                    break;
+                }
+                saw_unsigned = true;
+                ++suffix;
+            } else if (*suffix == 'l' || *suffix == 'L') {
+                char long_case = *suffix++;
+                if (long_suffix != 0u) {
+                    suffix_valid = false;
+                    break;
+                }
+                long_suffix = 1u;
+                if (suffix < lex->pos && *suffix == long_case) {
+                    long_suffix = 2u;
+                    ++suffix;
+                }
+            } else {
+                suffix_valid = false;
+                break;
+            }
+        }
+        if (!suffix_valid) {
+            rcc_error(loc, "invalid integer literal suffix");
+        }
+        errno = 0;
+        value = strtoull(str, NULL, base);
         tok = token_new(TOK_INT_LIT, loc);
-        tok->value.int_val = strtoll(str, NULL, base);
+        tok->value.int_val = (int64_t)value;
+        tok->int_base = (uint8_t)base;
+        tok->int_long_suffix = (uint8_t)long_suffix;
+        tok->int_unsigned_suffix = saw_unsigned;
+        tok->int_overflow = errno == ERANGE;
+        if (tok->int_overflow) {
+            rcc_error(loc, "integer literal is too large for 64-bit C types");
+        }
     }
 
     rcc_free(str);

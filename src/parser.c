@@ -178,47 +178,102 @@ static Type* generic_selection_type(Type* type) {
 }
 
 /* Evaluate the integer-constant-expression subset required by C17
- * _Static_assert.  Keep this in the frontend so a failed assertion never
- * reaches sema or either code generator. */
-static bool eval_integer_constant(Expr* expr, int64_t* value) {
-    int64_t left;
-    int64_t right;
-    uint64_t unsigned_left;
+ * _Static_assert.  Values retain their type so unsigned comparisons and
+ * width-limited wrap follow the same target model as semantic analysis. */
+typedef struct {
+    uint64_t bits;
+    Type* type;
+} IntegerConstantValue;
+
+static uint64_t integer_type_mask(const Type* type) {
+    unsigned bits = type && type->size > 0 ? (unsigned)type->size * 8u : 0u;
+    if (bits == 0u) return 0u;
+    return bits >= 64u ? UINT64_MAX : (UINT64_C(1) << bits) - 1u;
+}
+
+static int64_t integer_constant_signed(IntegerConstantValue value) {
+    unsigned bits = value.type && value.type->size > 0
+        ? (unsigned)value.type->size * 8u : 64u;
+    uint64_t masked = value.bits & integer_type_mask(value.type);
+    if (bits < 64u && (masked & (UINT64_C(1) << (bits - 1u))) != 0u) {
+        masked |= ~integer_type_mask(value.type);
+    }
+    return (int64_t)masked;
+}
+
+static IntegerConstantValue integer_constant_convert(
+    IntegerConstantValue value, Type* target) {
+    uint64_t bits = value.bits & integer_type_mask(value.type);
+    if (value.type && !value.type->is_unsigned &&
+        integer_constant_signed(value) < 0) {
+        bits = (uint64_t)integer_constant_signed(value);
+    }
+    value.bits = bits & integer_type_mask(target);
+    value.type = target;
+    return value;
+}
+
+static bool eval_integer_constant_typed(Expr* expr,
+                                        IntegerConstantValue* value) {
+    IntegerConstantValue left;
+    IntegerConstantValue right;
+    Type* common;
+    uint64_t count;
+    unsigned width;
 
     if (!expr || !value) return false;
     switch (expr->kind) {
         case EXPR_INT_LIT:
-            *value = expr->int_val;
+            value->bits = (uint64_t)expr->int_val &
+                          integer_type_mask(expr->type);
+            value->type = expr->type ? expr->type : type_int;
             return true;
         case EXPR_CHAR_LIT:
-            *value = (unsigned char)expr->char_val;
+            value->bits = (unsigned char)expr->char_val;
+            value->type = type_int;
             return true;
         case EXPR_NEG:
-            if (!eval_integer_constant(expr->unary_operand, &left)) return false;
-            *value = (int64_t)(0u - (uint64_t)left);
+        case EXPR_BITNOT:
+            if (!eval_integer_constant_typed(expr->unary_operand, &left)) {
+                return false;
+            }
+            common = left.type->kind < TYPE_INT ? type_int : left.type;
+            left = integer_constant_convert(left, common);
+            value->bits = expr->kind == EXPR_NEG ? 0u - left.bits
+                                                 : ~left.bits;
+            value->bits &= integer_type_mask(common);
+            value->type = common;
             return true;
         case EXPR_NOT:
-            if (!eval_integer_constant(expr->unary_operand, &left)) return false;
-            *value = left == 0;
+            if (!eval_integer_constant_typed(expr->unary_operand, &left)) {
+                return false;
+            }
+            value->bits = (left.bits & integer_type_mask(left.type)) == 0u;
+            value->type = type_int;
             return true;
-        case EXPR_BITNOT:
-            if (!eval_integer_constant(expr->unary_operand, &left)) return false;
-            *value = (int64_t)~(uint64_t)left;
+        case EXPR_SIZEOF: {
+            Type* measured = expr->sizeof_type;
+            if (!measured && expr->unary_operand) {
+                measured = expr->unary_operand->type;
+            }
+            if (!measured || measured->size <= 0) return false;
+            value->bits = (uint64_t)measured->size;
+            value->type = type_uint;
             return true;
-        case EXPR_SIZEOF:
-            if (!expr->sizeof_type || expr->sizeof_type->size <= 0) return false;
-            *value = expr->sizeof_type->size;
-            return true;
+        }
         case EXPR_ALIGNOF:
-            if (!expr->sizeof_type || expr->sizeof_type->align <= 0) return false;
-            *value = expr->sizeof_type->align;
+            if (!expr->sizeof_type || expr->sizeof_type->align <= 0) {
+                return false;
+            }
+            value->bits = (uint64_t)expr->sizeof_type->align;
+            value->type = type_uint;
             return true;
         case EXPR_CAST:
             if (!expr->cast_type || !type_is_integer(expr->cast_type) ||
-                !eval_integer_constant(expr->cast_expr, &left)) {
+                !eval_integer_constant_typed(expr->cast_expr, &left)) {
                 return false;
             }
-            *value = left;
+            *value = integer_constant_convert(left, expr->cast_type);
             return true;
         case EXPR_GENERIC: {
             Type* control = expr->generic_control
@@ -236,30 +291,46 @@ static bool eval_integer_constant(Expr* expr, int64_t* value) {
             }
             selected = selected ? selected : fallback;
             return selected &&
-                   eval_integer_constant(selected->expr, value);
+                   eval_integer_constant_typed(selected->expr, value);
         }
         case EXPR_AND:
-            if (!eval_integer_constant(expr->binary_lhs, &left)) return false;
-            if (left == 0) {
-                *value = 0;
-                return true;
+            if (!eval_integer_constant_typed(expr->binary_lhs, &left)) {
+                return false;
             }
-            if (!eval_integer_constant(expr->binary_rhs, &right)) return false;
-            *value = right != 0;
+            if ((left.bits & integer_type_mask(left.type)) == 0u) {
+                value->bits = 0u;
+            } else {
+                if (!eval_integer_constant_typed(expr->binary_rhs, &right)) {
+                    return false;
+                }
+                value->bits =
+                    (right.bits & integer_type_mask(right.type)) != 0u;
+            }
+            value->type = type_int;
             return true;
         case EXPR_OR:
-            if (!eval_integer_constant(expr->binary_lhs, &left)) return false;
-            if (left != 0) {
-                *value = 1;
-                return true;
+            if (!eval_integer_constant_typed(expr->binary_lhs, &left)) {
+                return false;
             }
-            if (!eval_integer_constant(expr->binary_rhs, &right)) return false;
-            *value = right != 0;
+            if ((left.bits & integer_type_mask(left.type)) != 0u) {
+                value->bits = 1u;
+            } else {
+                if (!eval_integer_constant_typed(expr->binary_rhs, &right)) {
+                    return false;
+                }
+                value->bits =
+                    (right.bits & integer_type_mask(right.type)) != 0u;
+            }
+            value->type = type_int;
             return true;
         case EXPR_COND:
-            if (!eval_integer_constant(expr->cond_test, &left)) return false;
-            return eval_integer_constant(left != 0 ? expr->cond_then : expr->cond_else,
-                                         value);
+            if (!eval_integer_constant_typed(expr->cond_test, &left)) {
+                return false;
+            }
+            return eval_integer_constant_typed(
+                (left.bits & integer_type_mask(left.type)) != 0u
+                    ? expr->cond_then : expr->cond_else,
+                value);
         default:
             break;
     }
@@ -286,46 +357,107 @@ static bool eval_integer_constant(Expr* expr, int64_t* value) {
         default:
             return false;
     }
-
-    if (!eval_integer_constant(expr->binary_lhs, &left) ||
-        !eval_integer_constant(expr->binary_rhs, &right)) {
+    if (!eval_integer_constant_typed(expr->binary_lhs, &left) ||
+        !eval_integer_constant_typed(expr->binary_rhs, &right)) {
         return false;
     }
-    unsigned_left = (uint64_t)left;
-    switch (expr->kind) {
-        case EXPR_ADD: *value = (int64_t)(unsigned_left + (uint64_t)right); return true;
-        case EXPR_SUB: *value = (int64_t)(unsigned_left - (uint64_t)right); return true;
-        case EXPR_MUL: *value = (int64_t)(unsigned_left * (uint64_t)right); return true;
-        case EXPR_DIV:
-            if (right == 0 ||
-                (left == (-9223372036854775807LL - 1LL) && right == -1)) return false;
-            *value = left / right;
-            return true;
-        case EXPR_MOD:
-            if (right == 0 ||
-                (left == (-9223372036854775807LL - 1LL) && right == -1)) return false;
-            *value = left % right;
-            return true;
-        case EXPR_BITAND: *value = (int64_t)(unsigned_left & (uint64_t)right); return true;
-        case EXPR_BITOR: *value = (int64_t)(unsigned_left | (uint64_t)right); return true;
-        case EXPR_BITXOR: *value = (int64_t)(unsigned_left ^ (uint64_t)right); return true;
-        case EXPR_LSHIFT:
-            if (right < 0 || right >= 64) return false;
-            *value = (int64_t)(unsigned_left << (unsigned)right);
-            return true;
-        case EXPR_RSHIFT:
-            if (right < 0 || right >= 64) return false;
-            *value = left >> (unsigned)right;
-            return true;
-        case EXPR_EQ: *value = left == right; return true;
-        case EXPR_NE: *value = left != right; return true;
-        case EXPR_LT: *value = left < right; return true;
-        case EXPR_GT: *value = left > right; return true;
-        case EXPR_LE: *value = left <= right; return true;
-        case EXPR_GE: *value = left >= right; return true;
-        case EXPR_COMMA: *value = right; return true;
-        default: return false;
+    if (expr->kind == EXPR_COMMA) {
+        *value = right;
+        return true;
     }
+    if (expr->kind == EXPR_LSHIFT || expr->kind == EXPR_RSHIFT) {
+        common = left.type->kind < TYPE_INT ? type_int : left.type;
+        left = integer_constant_convert(left, common);
+        if (right.type->is_unsigned) {
+            count = right.bits & integer_type_mask(right.type);
+        } else {
+            int64_t signed_count = integer_constant_signed(right);
+            if (signed_count < 0) return false;
+            count = (uint64_t)signed_count;
+        }
+        width = (unsigned)common->size * 8u;
+        if (count >= width) return false;
+        if (expr->kind == EXPR_LSHIFT) {
+            value->bits = (left.bits << (unsigned)count) &
+                          integer_type_mask(common);
+        } else if (common->is_unsigned) {
+            value->bits = left.bits >> (unsigned)count;
+        } else {
+            value->bits = (uint64_t)(integer_constant_signed(left) >>
+                                     (unsigned)count) &
+                          integer_type_mask(common);
+        }
+        value->type = common;
+        return true;
+    }
+
+    common = type_common(left.type, right.type);
+    left = integer_constant_convert(left, common);
+    right = integer_constant_convert(right, common);
+    if (expr->kind >= EXPR_EQ && expr->kind <= EXPR_GE) {
+        bool result;
+        if (expr->kind == EXPR_EQ) result = left.bits == right.bits;
+        else if (expr->kind == EXPR_NE) result = left.bits != right.bits;
+        else if (common->is_unsigned) {
+            if (expr->kind == EXPR_LT) result = left.bits < right.bits;
+            else if (expr->kind == EXPR_GT) result = left.bits > right.bits;
+            else if (expr->kind == EXPR_LE) result = left.bits <= right.bits;
+            else result = left.bits >= right.bits;
+        } else {
+            int64_t signed_left = integer_constant_signed(left);
+            int64_t signed_right = integer_constant_signed(right);
+            if (expr->kind == EXPR_LT) result = signed_left < signed_right;
+            else if (expr->kind == EXPR_GT) result = signed_left > signed_right;
+            else if (expr->kind == EXPR_LE) result = signed_left <= signed_right;
+            else result = signed_left >= signed_right;
+        }
+        value->bits = result;
+        value->type = type_int;
+        return true;
+    }
+
+    value->type = common;
+    switch (expr->kind) {
+        case EXPR_ADD: value->bits = left.bits + right.bits; break;
+        case EXPR_SUB: value->bits = left.bits - right.bits; break;
+        case EXPR_MUL: value->bits = left.bits * right.bits; break;
+        case EXPR_BITAND: value->bits = left.bits & right.bits; break;
+        case EXPR_BITOR: value->bits = left.bits | right.bits; break;
+        case EXPR_BITXOR: value->bits = left.bits ^ right.bits; break;
+        case EXPR_DIV:
+        case EXPR_MOD:
+            if (right.bits == 0u) return false;
+            if (common->is_unsigned) {
+                value->bits = expr->kind == EXPR_DIV
+                    ? left.bits / right.bits : left.bits % right.bits;
+            } else {
+                int64_t signed_left = integer_constant_signed(left);
+                int64_t signed_right = integer_constant_signed(right);
+                int64_t minimum = common->size == 8
+                    ? INT64_MIN
+                    : -(INT64_C(1) << ((unsigned)common->size * 8u - 1u));
+                if (signed_right == 0 ||
+                    (signed_left == minimum && signed_right == -1)) {
+                    return false;
+                }
+                value->bits = (uint64_t)(expr->kind == EXPR_DIV
+                    ? signed_left / signed_right : signed_left % signed_right);
+            }
+            break;
+        default:
+            return false;
+    }
+    value->bits &= integer_type_mask(common);
+    return true;
+}
+
+static bool eval_integer_constant(Expr* expr, int64_t* value) {
+    IntegerConstantValue evaluated;
+    if (!value || !eval_integer_constant_typed(expr, &evaluated)) return false;
+    *value = evaluated.type && evaluated.type->is_unsigned
+        ? (int64_t)(evaluated.bits & integer_type_mask(evaluated.type))
+        : integer_constant_signed(evaluated);
+    return true;
 }
 
 bool expr_eval_integer_constant(Expr* expr, int64_t* value) {
@@ -418,7 +550,11 @@ static Expr* parse_primary(void) {
         return parse_generic_selection(loc);
     }
     if (match(TOK_INT_LIT)) {
-        return expr_int(previous()->value.int_val, loc);
+        Token* literal = previous();
+        return expr_integer_literal((uint64_t)literal->value.int_val,
+                                    literal->int_base,
+                                    literal->int_unsigned_suffix,
+                                    literal->int_long_suffix, loc);
     }
     if (match(TOK_FLOAT_LIT)) {
         return expr_float(previous()->value.float_val, loc);

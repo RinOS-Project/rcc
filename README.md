@@ -120,6 +120,9 @@ signed/unsigned比較、SHLD/SHRD shift、multiply、software divide/modulo、
 内部関数callを32-bit host processで
 直接実行します。未実装のwide演算は下位32-bitへ
 暗黙切り詰めせずdiagnosticにします。
+`test-integer-literals`はC17のdecimal/octal/hex候補型、`U/L/LL` suffix、ILP32/LP64
+の型差、unsigned定数式の比較・wrap、64-bit即値codegenを両archで直接実行し、
+候補型なし、64-bit overflow、不正suffixを各段階で拒否します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、

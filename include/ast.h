@@ -309,6 +309,9 @@ struct Expr {
 
 /* Expression constructors */
 Expr* expr_int(int64_t val, SourceLoc loc);
+Expr* expr_integer_literal(uint64_t val, unsigned base,
+                           bool unsigned_suffix, unsigned long_suffix,
+                           SourceLoc loc);
 Expr* expr_float(double val, SourceLoc loc);
 Expr* expr_char(char val, SourceLoc loc);
 Expr* expr_string(const char* val, SourceLoc loc);

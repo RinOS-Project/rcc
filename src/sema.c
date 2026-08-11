@@ -150,7 +150,7 @@ static Type* sema_expr(Expr* expr) {
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
-            expr->type = type_int;
+            if (!expr->type) expr->type = type_int;
             break;
 
         case EXPR_FLOAT_LIT:

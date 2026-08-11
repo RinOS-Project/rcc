@@ -276,6 +276,9 @@ bool type_is_compatible(Type* a, Type* b) {
 }
 
 Type* type_common(Type* a, Type* b) {
+    Type* signed_type;
+    Type* unsigned_type;
+
     /* Usual arithmetic conversions */
     if (a->kind == TYPE_DOUBLE || b->kind == TYPE_DOUBLE) return type_double;
     if (a->kind == TYPE_FLOAT || b->kind == TYPE_FLOAT) return type_float;
@@ -287,13 +290,21 @@ Type* type_common(Type* a, Type* b) {
     /* Same type */
     if (a->kind == b->kind && a->is_unsigned == b->is_unsigned) return a;
 
-    /* Unsigned has priority if same rank */
-    if (a->kind == b->kind) {
-        return a->is_unsigned ? a : b;
+    if (a->is_unsigned == b->is_unsigned) {
+        return a->kind > b->kind ? a : b;
     }
 
-    /* Higher rank wins */
-    return a->kind > b->kind ? a : b;
+    unsigned_type = a->is_unsigned ? a : b;
+    signed_type = a->is_unsigned ? b : a;
+    if (unsigned_type->kind >= signed_type->kind) return unsigned_type;
+    if (signed_type->size > unsigned_type->size) return signed_type;
+
+    switch (signed_type->kind) {
+        case TYPE_INT: return type_uint;
+        case TYPE_LONG: return type_ulong;
+        case TYPE_LLONG: return type_ullong;
+        default: return unsigned_type;
+    }
 }
 
 /* ═══════════════════════════════════════
@@ -307,6 +318,77 @@ Expr* expr_int(int64_t val, SourceLoc loc) {
     e->int_val = val;
     e->type = type_int;
     return e;
+}
+
+static bool integer_literal_fits(Type* type, uint64_t value) {
+    unsigned bits;
+    uint64_t maximum;
+    if (!type || !type_is_integer(type) || type->size <= 0) return false;
+    bits = (unsigned)type->size * 8u;
+    if (bits > 64u) return false;
+    if (type->is_unsigned) {
+        maximum = bits == 64u ? UINT64_MAX : (UINT64_C(1) << bits) - 1u;
+    } else {
+        maximum = bits == 64u ? (uint64_t)INT64_MAX
+                              : (UINT64_C(1) << (bits - 1u)) - 1u;
+    }
+    return value <= maximum;
+}
+
+Expr* expr_integer_literal(uint64_t val, unsigned base,
+                           bool unsigned_suffix, unsigned long_suffix,
+                           SourceLoc loc) {
+    Type* candidates[6];
+    size_t count = 0u;
+    bool decimal = base == 10u;
+    Type* selected = NULL;
+
+#define ADD_LITERAL_CANDIDATE(candidate) candidates[count++] = (candidate)
+    if (unsigned_suffix) {
+        if (long_suffix == 0u) {
+            ADD_LITERAL_CANDIDATE(type_uint);
+            ADD_LITERAL_CANDIDATE(type_ulong);
+            ADD_LITERAL_CANDIDATE(type_ullong);
+        } else if (long_suffix == 1u) {
+            ADD_LITERAL_CANDIDATE(type_ulong);
+            ADD_LITERAL_CANDIDATE(type_ullong);
+        } else {
+            ADD_LITERAL_CANDIDATE(type_ullong);
+        }
+    } else if (long_suffix == 0u) {
+        ADD_LITERAL_CANDIDATE(type_int);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_uint);
+        ADD_LITERAL_CANDIDATE(type_long);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ulong);
+        ADD_LITERAL_CANDIDATE(type_llong);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ullong);
+    } else if (long_suffix == 1u) {
+        ADD_LITERAL_CANDIDATE(type_long);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ulong);
+        ADD_LITERAL_CANDIDATE(type_llong);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ullong);
+    } else {
+        ADD_LITERAL_CANDIDATE(type_llong);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ullong);
+    }
+#undef ADD_LITERAL_CANDIDATE
+
+    for (size_t i = 0u; i < count; ++i) {
+        if (integer_literal_fits(candidates[i], val)) {
+            selected = candidates[i];
+            break;
+        }
+    }
+    if (!selected) {
+        rcc_error(loc, "integer literal has no representable C17 type");
+        selected = type_ullong;
+    }
+
+    {
+        Expr* expression = expr_int((int64_t)val, loc);
+        expression->type = selected;
+        return expression;
+    }
 }
 
 Expr* expr_float(double val, SourceLoc loc) {

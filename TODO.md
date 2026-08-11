@@ -29,6 +29,8 @@
   - [x] global/local文字配列のstring初期化、未指定長推論、末尾zero-fill
   - [x] global/local配列・struct・unionのbrace初期化、ネストdesignator列、zero-fill
 - [x] 式、制御文、scope、基本type conversion
+  - [x] C17 integer literalの基数別候補型、`U/L/LL` suffix、overflow診断
+  - [x] ILP32/LP64の通常算術変換と型付きunsigned整数定数式
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen

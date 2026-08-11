@@ -185,6 +185,12 @@ typedef union {
 typedef struct Token {
     TokenType type;
     TokenValue value;
+    /* TOK_INT_LIT metadata.  The value field keeps the exact low 64 bits;
+     * base and suffix drive C17 candidate-type selection in the parser. */
+    uint8_t int_base;
+    uint8_t int_long_suffix;
+    bool int_unsigned_suffix;
+    bool int_overflow;
     SourceLoc loc;
     struct Token* next;
 } Token;

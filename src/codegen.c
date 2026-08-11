@@ -2489,11 +2489,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CAST:
-            if (expr->cast_expr->kind == EXPR_INT_LIT) {
-                /* The lexer preserves the full literal value even while the
-                 * compact frontend still assigns its pre-conversion type. */
-                gen_expr64_pair(mod, expr->cast_expr);
-            } else if (gen_is_integer64(expr->cast_expr->type)) {
+            if (gen_is_integer64(expr->cast_expr->type)) {
                 gen_expr64_pair(mod, expr->cast_expr);
             } else {
                 gen_expr(mod, expr->cast_expr);

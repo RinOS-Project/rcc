@@ -47,7 +47,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -166,6 +166,33 @@ test-x86-wide-scalar: $(RCC_TARGET)
 		-o $(TEST_OUT)/x86-wide-scalar/invalid.ro \
 		tests/invalid_x86_wide_scalar.c
 	@echo "i686 64-bit scalar ABI test completed"
+
+test-integer-literals: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/integer-literals
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-literals/x86.ro tests/integer_literal.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-literals/x64.ro tests/integer_literal.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/integer-literals/run-test-x86 \
+		tests/integer_literal_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/integer-literals/run-test-x64 \
+		tests/integer_literal_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/integer-literals/run-test-x86 \
+		$(TEST_OUT)/integer-literals/x86.ro
+	$(TEST_OUT)/integer-literals/run-test-x64 \
+		$(TEST_OUT)/integer-literals/x64.ro
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-literals/invalid-decimal.ro \
+		tests/invalid_integer_literal.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-literals/invalid-overflow.ro \
+		tests/invalid_integer_literal_overflow.c
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-literals/invalid-suffix.ro \
+		tests/invalid_integer_literal_suffix.c
+	@echo "C17 integer literal type and value tests completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)
@@ -338,6 +365,12 @@ test-sanitize:
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/x86-wide-scalar.ro \
 		tests/x86_wide_scalar.c
+	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/integer-literal-x86.ro \
+		tests/integer_literal.c
+	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
+		-o $(SANITIZER_ROOT)/tests/integer-literal-x64.ro \
+		tests/integer_literal.c
 	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/invalid.ro \
 		tests/invalid_designated_initializer.c
