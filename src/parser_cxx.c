@@ -19,6 +19,7 @@ extern Parser parser;
 /* The current template is only needed while parsing dependent declarations;
  * instantiated types are resolved by the later template semantic phase. */
 static CxxTemplate* active_template;
+static CxxNamespace* active_namespace;
 
 /* Parser utilities from parser.c */
 static Token* peek(void) { return parser.cur; }
@@ -206,45 +207,25 @@ static const char* parse_operator_name(void) {
     }
 }
 
-/* Consume a constructor's mem-initializer-list without consuming its body. */
-static void skip_ctor_initializers(void) {
-    if (!match(TOK_COLON)) return;
-    do {
-        if (check(TOK_IDENT) || check(TOK_SCOPE)) {
-            (void)parse_qualified_name();
-        } else {
-            rcc_error(peek()->loc, "expected constructor initializer name");
-            return;
-        }
-        if (check(TOK_LPAREN)) {
-            skip_balanced(TOK_LPAREN, TOK_RPAREN);
-        } else if (check(TOK_LBRACE)) {
-            skip_balanced(TOK_LBRACE, TOK_RBRACE);
-        } else {
-            rcc_error(peek()->loc, "expected constructor initializer");
-            return;
-        }
-    } while (match(TOK_COMMA));
-}
-
 typedef struct ParsedConstructorInitializer {
-    const char* field;
-    Expr* value;
-    bool is_single;
+    CxxConstructorInitializer* items;
+    int count;
+    bool is_supported;
 } ParsedConstructorInitializer;
 
-/* Retain exactly one parenthesized mem-initializer.  More general lists keep
- * parsing correctly but are intentionally not candidates for aggregate
- * lowering: executing them requires the full C++ constructor pipeline. */
+/* Retain a parenthesized mem-initializer list.  It is lowered only when the
+ * later verifier proves a one-to-one, declaration-order mapping from fields
+ * to constructor parameters (or integer zeroes for a default constructor). */
 static ParsedConstructorInitializer parse_ctor_initializer(void) {
     ParsedConstructorInitializer result = {0};
-    int count = 0;
     bool supported = true;
+    CxxConstructorInitializer** tail = &result.items;
     if (!match(TOK_COLON)) return result;
     do {
         const char* field = NULL;
         Expr* value = NULL;
         bool current_supported = true;
+        CxxConstructorInitializer* item;
         if (check(TOK_IDENT) || check(TOK_SCOPE)) {
             field = parse_qualified_name();
         } else {
@@ -264,16 +245,16 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
             rcc_error(peek()->loc, "expected constructor initializer");
             return result;
         }
-        ++count;
-        if (count == 1) {
-            result.field = field;
-            result.value = value;
-        } else {
-            supported = false;
-        }
+        item = ast_arena_alloc(sizeof(*item));
+        item->field = field;
+        item->value = value;
+        item->next = NULL;
+        *tail = item;
+        tail = &item->next;
+        ++result.count;
         if (!current_supported) supported = false;
     } while (match(TOK_COMMA));
-    result.is_single = count == 1 && supported;
+    result.is_supported = result.count != 0 && supported;
     return result;
 }
 
@@ -286,47 +267,67 @@ static bool class_has_virtual_member(CxxClass* cls) {
 }
 
 /* Recognize constructors whose observable object representation is exactly
- * a zero/value initialization of one field.  This is sufficient for the SDK
- * status wrapper without pretending to execute arbitrary constructor code. */
+ * declaration-order initialization of their data fields.  This covers the
+ * SDK status/outcome wrappers without executing arbitrary constructor code. */
 static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     CxxConstructorInfo* constructor;
-    TypeParam* field;
     uint32_t mask = 0u;
     if (!cls || !cls->type->is_complete || cls->base_count != 0 ||
         cls->has_static_field || cls->has_field_initializer ||
         class_has_virtual_member(cls)) {
         return 0u;
     }
-    field = cls->fields;
-    if (!field || field->next || !cls->constructors) return 0u;
+    if (!cls->fields || !cls->constructors) return 0u;
     for (constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         unsigned arity;
+        TypeParam* field = cls->fields;
+        TypeParam* parameter = constructor->parameters;
+        CxxConstructorInitializer* initializer = constructor->initializers;
         if (constructor->is_deleted || constructor->is_defaulted ||
-            !constructor->initializer_is_single ||
-            !constructor->body_is_empty ||
-            !constructor->initializer_field ||
-            strcmp(constructor->initializer_field, field->name) != 0) {
+            !constructor->initializers_are_supported ||
+            !constructor->body_is_empty) {
             return 0u;
         }
         arity = (unsigned)constructor->parameter_count;
-        if (arity == 0u) {
-            if (!constructor->initializer_value ||
-                constructor->initializer_value->kind != EXPR_INT_LIT ||
-                constructor->initializer_value->int_val != 0) {
+        if (arity >= 32u) return 0u;
+        while (field && initializer) {
+            Type* parameter_value_type;
+            if (!initializer->field ||
+                strcmp(initializer->field, field->name) != 0 ||
+                !initializer->value) {
                 return 0u;
             }
-        } else if (arity == 1u) {
-            if (!constructor->parameter_name ||
-                !constructor->initializer_value ||
-                constructor->initializer_value->kind != EXPR_IDENT ||
-                strcmp(constructor->initializer_value->ident_name,
-                       constructor->parameter_name) != 0 ||
-                !type_is_compatible(field->type,
-                                    constructor->parameter_type)) {
-                return 0u;
+            if (arity == 0u) {
+                if (initializer->value->kind != EXPR_INT_LIT ||
+                    initializer->value->int_val != 0) {
+                    return 0u;
+                }
+            } else {
+                if (!parameter || !parameter->name ||
+                    initializer->value->kind != EXPR_IDENT ||
+                    strcmp(initializer->value->ident_name,
+                           parameter->name) != 0) {
+                    return 0u;
+                }
+                parameter_value_type = parameter->type;
+                if (parameter_value_type &&
+                    parameter_value_type->kind == TYPE_PTR &&
+                    parameter_value_type->is_reference) {
+                    parameter_value_type = parameter_value_type->base;
+                }
+                if (!type_is_compatible(field->type,
+                                        parameter_value_type)) {
+                    return 0u;
+                }
+                parameter = parameter->next;
             }
-        } else {
+            field = field->next;
+            initializer = initializer->next;
+        }
+        if (field || initializer || parameter ||
+            (arity != 0u &&
+             constructor->initializer_count != (int)arity)) {
             return 0u;
         }
         mask |= UINT32_C(1) << arity;
@@ -554,18 +555,16 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         }
 
         if (is_constructor) {
-            if (active_template) {
-                skip_ctor_initializers();
-            } else {
-                constructor_initializer = parse_ctor_initializer();
-            }
+            constructor_initializer = parse_ctor_initializer();
         }
 
         /* Method body or declaration */
         Stmt* body = NULL;
-        if (active_template && check(TOK_LBRACE)) {
-            /* Template member bodies are instantiated and parsed
-             * semantically only after template arguments are known. */
+        if (active_template && check(TOK_LBRACE) &&
+            !is_constructor && !(is_const && param_idx == 0)) {
+            /* Retain only constructor bodies and const zero-argument method
+             * bodies.  Those are the only template members consumed by the
+             * validated aggregate/accessor lowering implemented today. */
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
         } else if (match(TOK_LBRACE)) {
             /* Parse method body */
@@ -611,17 +610,15 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         if (is_constructor) cls->has_user_constructor = true;
 
-        if (is_constructor && !active_template) {
+        if (is_constructor) {
             CxxConstructorInfo* info = ast_arena_alloc(sizeof(*info));
             CxxConstructorInfo** tail = &cls->constructors;
             info->parameter_count = param_idx;
-            info->parameter_name = params && param_idx == 1
-                ? params->decl->name : NULL;
-            info->parameter_type = params && param_idx == 1
-                ? params->decl->type : NULL;
-            info->initializer_field = constructor_initializer.field;
-            info->initializer_value = constructor_initializer.value;
-            info->initializer_is_single = constructor_initializer.is_single;
+            info->parameters = method->decl->type->params;
+            info->initializers = constructor_initializer.items;
+            info->initializer_count = constructor_initializer.count;
+            info->initializers_are_supported =
+                constructor_initializer.is_supported;
             info->body_is_empty = body && body->kind == STMT_BLOCK &&
                                   body->block_stmts == NULL;
             info->is_deleted = is_deleted;
@@ -823,6 +820,7 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
 
 static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
     SourceLoc loc = previous()->loc;
+    CxxNamespace* outer_namespace = active_namespace;
 
     /* Namespace name (can be anonymous) */
     const char* ns_name = NULL;
@@ -832,6 +830,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
 
     CxxNamespace* ns = cxx_namespace_new(ns_name, loc);
     if (parent) cxx_namespace_add_namespace(parent, ns);
+    active_namespace = ns;
 
     expect(TOK_LBRACE, "{");
 
@@ -873,6 +872,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
     }
 
     expect(TOK_RBRACE, "}");
+    active_namespace = outer_namespace;
 
     return ns;
 }
@@ -897,6 +897,37 @@ static DeclList* parse_cxx_parameter_declarations(void) {
         if (!match(TOK_COMMA)) break;
     }
     return params;
+}
+
+/* Header-only SDK functions are emitted eagerly today.  Parse only bodies
+ * made from the common C/C++ expression subset; dependent auto deduction and
+ * exception/allocation constructs stay deferred instead of being assigned a
+ * guessed meaning. */
+static bool inline_body_is_lowerable(void) {
+    Token* cursor = parser.cur;
+    int depth = 0;
+    if (!cursor || cursor->type != TOK_LBRACE) return false;
+    do {
+        switch (cursor->type) {
+            case TOK_AUTO:
+            case TOK_TEMPLATE:
+            case TOK_TRY:
+            case TOK_THROW:
+            case TOK_NEW:
+            case TOK_DELETE:
+                return false;
+            case TOK_LBRACE:
+                ++depth;
+                break;
+            case TOK_RBRACE:
+                --depth;
+                break;
+            default:
+                break;
+        }
+        cursor = cursor->next;
+    } while (cursor && depth > 0);
+    return depth == 0;
 }
 
 static Decl* parse_cxx_function_declaration(bool parse_body,
@@ -930,15 +961,10 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
             skip_balanced(TOK_LPAREN, TOK_RPAREN);
         }
     }
-    /* Header-only SDK helpers returning a complete C ABI aggregate can be
-     * lowered through the common C statement/initializer pipeline.  Keep
-     * incomplete class and template return types deferred until their C++
-     * object model is implemented. */
+    /* Emit only the verified non-dependent header subset.  Incomplete class
+     * and template bodies remain deferred until their object model exists. */
     if (!parse_body && is_inline && type_is_complete(return_type) &&
-        (return_type->kind == TYPE_STRUCT ||
-         return_type->kind == TYPE_UNION) &&
-        check(TOK_LBRACE) && parser.cur->next &&
-        parser.cur->next->type == TOK_RETURN) {
+        check(TOK_LBRACE) && inline_body_is_lowerable()) {
         parse_body = true;
     }
     if (!parse_body && check(TOK_LBRACE)) {
@@ -1044,7 +1070,317 @@ CxxTemplate* parse_cxx_template(void) {
  * C++ Type Parsing
  * ═══════════════════════════════════════ */
 
+static CxxTemplate* namespace_template(CxxNamespace* ns,
+                                       const char* name) {
+    int index;
+    if (!ns || !name) return NULL;
+    for (index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* candidate = ns->templates[index];
+        if (candidate && candidate->name &&
+            strcmp(candidate->name, name) == 0) {
+            return candidate;
+        }
+    }
+    return NULL;
+}
+
+static CxxTemplate* find_class_template(const char* qualified_name) {
+    char buffer[512];
+    char* component;
+    char* next;
+    CxxNamespace* ns;
+    CxxTemplate* result;
+    const char* name = qualified_name;
+
+    if (!name) return NULL;
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    if (!strstr(name, "::")) {
+        for (ns = active_namespace; ns; ns = ns->parent) {
+            result = namespace_template(ns, name);
+            if (result && result->kind == TMPL_CLASS) return result;
+        }
+        result = namespace_template(g_global_namespace, name);
+        return result && result->kind == TMPL_CLASS ? result : NULL;
+    }
+
+    if (strlen(name) >= sizeof(buffer)) return NULL;
+    strcpy(buffer, name);
+    ns = g_global_namespace;
+    component = buffer;
+    for (;;) {
+        next = strstr(component, "::");
+        if (!next) break;
+        *next = '\0';
+        ns = cxx_namespace_lookup(ns, component);
+        if (!ns) return NULL;
+        component = next + 2;
+    }
+    result = namespace_template(ns, component);
+    return result && result->kind == TMPL_CLASS ? result : NULL;
+}
+
+static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
+    int index;
+    if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag) {
+        return -1;
+    }
+    for (index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].kind == TPARAM_TYPE &&
+            tmpl->params[index].name &&
+            strcmp(tmpl->params[index].name, type->tag) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
+                                      Type** arguments, int argument_count) {
+    Type* substituted;
+    int parameter_index;
+    if (!type) return NULL;
+    parameter_index = template_parameter_index(tmpl, type);
+    if (parameter_index >= 0 && parameter_index < argument_count) {
+        substituted = arguments[parameter_index];
+        if ((type->is_const && !substituted->is_const) ||
+            (type->is_volatile && !substituted->is_volatile)) {
+            Type* qualified = ast_arena_alloc(sizeof(*qualified));
+            *qualified = *substituted;
+            qualified->is_const = qualified->is_const || type->is_const;
+            qualified->is_volatile = qualified->is_volatile ||
+                                     type->is_volatile;
+            substituted = qualified;
+        }
+        return substituted;
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        Type* base = substitute_template_type(
+            tmpl, type->base, arguments, argument_count);
+        if (base != type->base) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *type;
+            substituted->base = base;
+            if (substituted->kind == TYPE_ARRAY) {
+                substituted->size = substituted->array_len > 0
+                    ? base->size * substituted->array_len : 0;
+                substituted->align = base->align;
+            }
+            return substituted;
+        }
+    }
+    return type;
+}
+
+static TypeParam* substitute_template_parameters(CxxTemplate* tmpl,
+                                                  TypeParam* parameters,
+                                                  Type** arguments,
+                                                  int argument_count) {
+    TypeParam* result = NULL;
+    TypeParam** tail = &result;
+    for (; parameters; parameters = parameters->next) {
+        TypeParam* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *parameters;
+        copy->type = substitute_template_type(
+            tmpl, parameters->type, arguments, argument_count);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return result;
+}
+
+static DeclList* substitute_template_decl_parameters(
+    CxxTemplate* tmpl, DeclList* parameters, Type** arguments,
+    int argument_count) {
+    DeclList* result = NULL;
+    for (; parameters; parameters = parameters->next) {
+        Decl* parameter = parameters->decl;
+        decllist_append(
+            &result,
+            decl_param(parameter->name,
+                       substitute_template_type(
+                           tmpl, parameter->type, arguments, argument_count),
+                       parameter->param_index, parameter->loc));
+    }
+    return result;
+}
+
+static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
+                                              CxxMethod* method,
+                                              Type** arguments,
+                                              int argument_count) {
+    CxxMethod* copy;
+    DeclList* parameters;
+    Type* return_type;
+    if (!method || !method->decl || !method->decl->type) return NULL;
+    parameters = substitute_template_decl_parameters(
+        tmpl, method->decl->func_params, arguments, argument_count);
+    return_type = substitute_template_type(
+        tmpl, method->decl->type->ret_type, arguments, argument_count);
+    copy = cxx_method_new(method->decl->name, return_type, parameters,
+                          method->decl->func_body, method->decl->loc);
+    copy->access = method->access;
+    copy->is_static = method->is_static;
+    copy->is_virtual = method->is_virtual;
+    copy->is_pure_virtual = method->is_pure_virtual;
+    copy->is_override = method->is_override;
+    copy->is_final = method->is_final;
+    copy->is_const = method->is_const;
+    copy->is_constexpr = method->is_constexpr;
+    copy->is_explicit = method->is_explicit;
+    copy->is_noexcept = method->is_noexcept;
+    copy->is_deleted = method->is_deleted;
+    copy->is_defaulted = method->is_defaulted;
+    copy->is_constructor = method->is_constructor;
+    copy->is_destructor = method->is_destructor;
+    copy->vtable_index = method->vtable_index;
+    return copy;
+}
+
+static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
+                                        int argument_count, SourceLoc loc) {
+    CxxClass* definition;
+    CxxClass* instance;
+    char tag[320];
+    int index;
+    uint32_t constructor_mask;
+
+    if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->templated_class ||
+        argument_count != tmpl->param_count) {
+        rcc_error(loc, "class template argument count mismatch");
+        return type_struct(tmpl && tmpl->name ? tmpl->name : "template");
+    }
+    for (index = 0; index < argument_count; ++index) {
+        if (tmpl->params[index].kind != TPARAM_TYPE || !arguments[index]) {
+            rcc_error(loc,
+                      "only type parameters are supported in class template instantiation");
+            return type_struct(tmpl->name);
+        }
+    }
+    for (index = 0; index < tmpl->instance_count; ++index) {
+        int argument_index;
+        bool matches = tmpl->instances[index].arg_count == argument_count;
+        for (argument_index = 0; matches &&
+             argument_index < argument_count; ++argument_index) {
+            matches = tmpl->instances[index].args[argument_index] ==
+                      arguments[argument_index];
+        }
+        if (matches) {
+            return ((CxxClass*)tmpl->instances[index].instantiated)->type;
+        }
+    }
+
+    definition = tmpl->templated_class;
+    snprintf(tag, sizeof(tag), "%s.__instance%d",
+             tmpl->name ? tmpl->name : "template", tmpl->instance_count);
+    instance = cxx_class_new(ast_arena_strdup(tag), loc);
+    instance->is_struct = definition->is_struct;
+    instance->has_user_constructor = definition->has_user_constructor;
+    instance->has_nonpublic_field = definition->has_nonpublic_field;
+    instance->has_static_field = definition->has_static_field;
+    instance->has_field_initializer = definition->has_field_initializer;
+    instance->templ = tmpl;
+    instance->template_arg_count = argument_count;
+    instance->template_args = ast_arena_alloc(
+        sizeof(Type*) * (size_t)argument_count);
+    memcpy(instance->template_args, arguments,
+           sizeof(Type*) * (size_t)argument_count);
+
+    for (TypeParam* field = definition->fields; field; field = field->next) {
+        cxx_class_add_field(
+            instance, field->name,
+            substitute_template_type(
+                tmpl, field->type, arguments, argument_count),
+            (AccessSpec)field->cxx_access);
+    }
+    for (struct CxxMember* member = definition->members; member;
+         member = member->next) {
+        CxxMethod* method = substitute_template_method(
+            tmpl, member->method, arguments, argument_count);
+        if (method) {
+            method->owner = instance;
+            cxx_class_add_method(instance, method);
+        }
+    }
+    for (CxxConstructorInfo* constructor = definition->constructors;
+         constructor; constructor = constructor->next) {
+        CxxConstructorInfo* copy = ast_arena_alloc(sizeof(*copy));
+        CxxConstructorInfo** tail = &instance->constructors;
+        *copy = *constructor;
+        copy->parameters = substitute_template_parameters(
+            tmpl, constructor->parameters, arguments, argument_count);
+        copy->next = NULL;
+        while (*tail) tail = &(*tail)->next;
+        *tail = copy;
+    }
+
+    cxx_class_compute_layout(instance);
+    register_inline_class_accessors(instance);
+    constructor_mask = lowerable_constructor_arity_mask(instance);
+    if (constructor_mask != 0u) {
+        rcc_parser_define_cxx_constructor_type(instance->name,
+                                               instance->type,
+                                               constructor_mask);
+    }
+
+    tmpl->instances = ast_arena_grow(
+        tmpl->instances,
+        sizeof(tmpl->instances[0]) * (size_t)tmpl->instance_count,
+        sizeof(tmpl->instances[0]) * (size_t)(tmpl->instance_count + 1));
+    tmpl->instances[tmpl->instance_count].args = instance->template_args;
+    tmpl->instances[tmpl->instance_count].arg_count = argument_count;
+    tmpl->instances[tmpl->instance_count].instantiated = instance;
+    ++tmpl->instance_count;
+    return instance->type;
+}
+
+static Type* parse_class_template_specialization(CxxTemplate* tmpl,
+                                                 SourceLoc loc) {
+    Type* arguments[32];
+    int argument_count = 0;
+    expect(TOK_LT, "<");
+    if (!check(TOK_GT)) {
+        do {
+            if (argument_count == (int)(sizeof(arguments) /
+                                        sizeof(arguments[0]))) {
+                rcc_error(loc, "class template argument limit exceeded");
+                break;
+            }
+            arguments[argument_count++] = parse_cxx_type_spec();
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, ">");
+    return instantiate_class_template(tmpl, arguments, argument_count, loc);
+}
+
+Type* rcc_parse_cxx_direct_list_type(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    SourceLoc loc = peek()->loc;
+    const char* name;
+    CxxTemplate* tmpl;
+    Type* type;
+
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    name = parse_qualified_name();
+    tmpl = check(TOK_LT) ? find_class_template(name) : NULL;
+    if (!tmpl) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    type = parse_class_template_specialization(tmpl, loc);
+    if (!check(TOK_LBRACE) ||
+        rcc_parser_cxx_constructor_arity_mask(type) == 0u) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    return type;
+}
+
 static Type* parse_cxx_type_spec(void) {
+    SourceLoc loc = peek()->loc;
     Type* t = NULL;
     bool is_unsigned = false;
     bool is_const = false;
@@ -1084,10 +1420,16 @@ static Type* parse_cxx_type_spec(void) {
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
         /* Class or namespace qualified type */
         const char* name = parse_qualified_name();
+        CxxTemplate* tmpl = check(TOK_LT)
+            ? find_class_template(name) : NULL;
         Type* known_type = strstr(name, "::") == NULL
             ? rcc_parser_lookup_type(name) : NULL;
-        if (check(TOK_LT)) skip_cxx_template_arguments();
-        t = known_type ? known_type : type_struct(name);
+        if (tmpl) {
+            t = parse_class_template_specialization(tmpl, loc);
+        } else {
+            if (check(TOK_LT)) skip_cxx_template_arguments();
+            t = known_type ? known_type : type_struct(name);
+        }
     } else {
         /* Default to int */
         t = is_unsigned ? type_uint : type_int;

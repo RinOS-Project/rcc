@@ -53,6 +53,7 @@ int main(int argc, char** argv)
     unary_function lowered_constructor_init;
     unary_function inline_accessor;
     unary_function temporary_accessor;
+    binary_function template_outcome_accessor;
     int_pointer_function pointer_accessor;
     reference_copy_function copy_reference;
     wide_binary_function reference_call;
@@ -91,6 +92,8 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(temporary_accessor, object, mapping,
                   "cxx_temporary_accessor");
     LOAD_FUNCTION(pointer_accessor, object, mapping, "cxx_pointer_accessor");
+    LOAD_FUNCTION(template_outcome_accessor, object, mapping,
+                  "cxx_template_outcome_accessor");
     LOAD_FUNCTION(copy_reference, object, mapping,
                   "_ZN3rin14copy_referenceERK10RinSliceV1");
     LOAD_FUNCTION(reference_call, object, mapping, "cxx_reference_call");
@@ -108,6 +111,8 @@ int main(int argc, char** argv)
         int code = -17;
         assert(pointer_accessor(&code) == code);
     }
+    assert(template_outcome_accessor(7, 99) == 7990);
+    assert(template_outcome_accessor(0, 41) == 411);
     {
         RinSliceV1 input = {UINT64_C(0x12345678), UINT64_C(0x87654321)};
         RinSliceV1 copied = copy_reference(&input);

@@ -31,6 +31,21 @@ private:
     int value_;
 };
 
+template<typename T>
+class CxxOutcome final {
+public:
+    constexpr CxxOutcome(int code, const T& value) noexcept
+        : code_(code), value_(value) {}
+
+    constexpr int code() const noexcept { return code_; }
+    constexpr bool ok() const noexcept { return code_ == 0; }
+    constexpr T value_copy() const noexcept { return value_; }
+
+private:
+    int code_;
+    T value_;
+};
+
 static CxxPair make_cxx_pair(int first, int second) {
     return CxxPair{first, second};
 }
@@ -111,6 +126,12 @@ int cxx_temporary_accessor(int input) {
 
 int cxx_pointer_accessor(const CxxStatus* status) {
     return status->code();
+}
+
+int cxx_template_outcome_accessor(int code, int value) {
+    return CxxOutcome<int>{code, value}.code() * 1000 +
+           CxxOutcome<int>{code, value}.value_copy() * 10 +
+           CxxOutcome<int>{code, value}.ok();
 }
 
 int cxx_reference_call(uint64_t address, uint64_t size) {

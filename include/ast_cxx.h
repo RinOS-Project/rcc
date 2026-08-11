@@ -14,6 +14,7 @@ typedef struct CxxNamespace CxxNamespace;
 typedef struct CxxTemplate CxxTemplate;
 typedef struct CxxMethod CxxMethod;
 typedef struct CxxConstructorInfo CxxConstructorInfo;
+typedef struct CxxConstructorInitializer CxxConstructorInitializer;
 
 /* Access specifier */
 typedef enum {
@@ -25,13 +26,18 @@ typedef enum {
 /* Constructor facts retained until all class fields are known.  Only the
  * deliberately small, ABI-transparent subset accepted by parser_cxx.c is
  * lowered through the common aggregate backend. */
+struct CxxConstructorInitializer {
+    const char* field;
+    Expr* value;
+    CxxConstructorInitializer* next;
+};
+
 struct CxxConstructorInfo {
     int parameter_count;
-    const char* parameter_name;
-    Type* parameter_type;
-    const char* initializer_field;
-    Expr* initializer_value;
-    bool initializer_is_single;
+    TypeParam* parameters;
+    CxxConstructorInitializer* initializers;
+    int initializer_count;
+    bool initializers_are_supported;
     bool body_is_empty;
     bool is_deleted;
     bool is_defaulted;
@@ -251,5 +257,10 @@ void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* typ
 /* C++ Parser entry point */
 struct TokenList;
 AST* rcc_parse_cxx(struct TokenList* tokens);
+
+/* Common-expression parser hook for a known class-template specialization
+ * followed by direct-list initialization.  Returns NULL without consuming
+ * tokens when the current spelling is not such a type. */
+Type* rcc_parse_cxx_direct_list_type(void);
 
 #endif /* AST_CXX_H */

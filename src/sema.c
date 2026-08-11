@@ -1173,6 +1173,13 @@ static void sema_stmt(Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->return_val) {
+                if (stmt->return_val->kind == EXPR_COMPOUND &&
+                    !stmt->return_val->compound_type && current_func_ret &&
+                    current_func_ret != type_void) {
+                    stmt->return_val->compound_type = current_func_ret;
+                    rcc_parser_validate_cxx_constructor_initializer(
+                        current_func_ret, stmt->return_val);
+                }
                 sema_expr(stmt->return_val);
                 if (current_func_ret && current_func_ret != type_void) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {

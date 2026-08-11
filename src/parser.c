@@ -651,8 +651,8 @@ uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type) {
     return 0u;
 }
 
-static void parser_validate_cxx_constructor_initializer(Type* type,
-                                                        Expr* initializer) {
+void rcc_parser_validate_cxx_constructor_initializer(Type* type,
+                                                     Expr* initializer) {
     uint32_t mask;
     unsigned arity = 0u;
     ExprList* item;
@@ -855,6 +855,17 @@ static Expr* parse_primary(void) {
      * initializer semantics as the compound-literal node already used by
      * the C backend.  Restrict this lowering to registered, complete C ABI
      * types; class construction remains with the C++ frontend. */
+    if (parser_cxx_mode &&
+        (check(TOK_IDENT) || check(TOK_SCOPE))) {
+        Type* direct_type = rcc_parse_cxx_direct_list_type();
+        if (direct_type) {
+            Expr* initializer = parse_initializer();
+            initializer->compound_type = direct_type;
+            rcc_parser_validate_cxx_constructor_initializer(direct_type,
+                                                            initializer);
+            return initializer;
+        }
+    }
     if (parser_cxx_mode && check(TOK_IDENT) && parser.cur->next &&
         parser.cur->next->type == TOK_LBRACE) {
         Type* direct_type = parser_lookup_type(peek()->value.str_val);
@@ -864,8 +875,8 @@ static Expr* parse_primary(void) {
             advance();
             Expr* initializer = parse_initializer();
             initializer->compound_type = direct_type;
-            parser_validate_cxx_constructor_initializer(direct_type,
-                                                        initializer);
+            rcc_parser_validate_cxx_constructor_initializer(direct_type,
+                                                            initializer);
             return initializer;
         }
     }
@@ -1887,7 +1898,8 @@ static Stmt* parse_return_stmt(void) {
     Expr* val = NULL;
 
     if (!check(TOK_SEMICOLON)) {
-        val = parse_expression();
+        val = parser_cxx_mode && check(TOK_LBRACE)
+            ? parse_initializer() : parse_expression();
     }
     expect(TOK_SEMICOLON, ";");
 
@@ -2147,7 +2159,7 @@ Stmt* parse_declaration(void) {
     } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
     }
-    parser_validate_cxx_constructor_initializer(type, init);
+    rcc_parser_validate_cxx_constructor_initializer(type, init);
 
     expect(TOK_SEMICOLON, ";");
 

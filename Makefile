@@ -16,6 +16,7 @@ SANITIZER_ROOT = build/sanitizers
 BOOTSTRAP_ROOT = build/bootstrap
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
+                      src/parser_cxx_stub.c \
                       src/optimize.c src/codegen.c src/codegen64.c \
                       src/preproc.c src/driver_policy.c src/emit_asm.c \
                       src/emit_ro.c src/emit_rin.c src/emit_rll.c \
@@ -25,7 +26,8 @@ BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c
                       src/main_cxx.c src/main_rld.c src/main_rar.c
 BOOTSTRAP_RCC_OBJECTS = utils lexer parser ast symtab sema codegen codegen64 \
                         preproc optimize emit_rin emit_rll emit_drv emit_ro \
-                        emit_asm build_manifest driver_policy main
+                        emit_asm build_manifest driver_policy parser_cxx_stub \
+                        main
 BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
                               close execvp exit fclose feof ferror fgets fopen \
                               fork fprintf fputc fputs fread free fseek ftell \
@@ -47,7 +49,7 @@ COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/a
 COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 # RCC (C compiler)
-RCC_SRCS = $(SRCDIR)/main.c
+RCC_SRCS = $(SRCDIR)/main.c $(SRCDIR)/parser_cxx_stub.c
 RCC_OBJS = $(RCC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RCC_TARGET = $(BINDIR)/rcc
 
@@ -261,6 +263,13 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		status=$$?; set -e; test $$status -ne 0
 	grep -q "method 'secret' is not accessible" \
 		$(TEST_OUT)/cxx-inline-aggregates/private-method.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/template-arity.ro \
+		tests/cxx_template_constructor_arity_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/template-arity.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "no safely lowerable constructor accepts 1 argument" \
+		$(TEST_OUT)/cxx-inline-aggregates/template-arity.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)
