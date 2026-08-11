@@ -54,6 +54,14 @@ public:
     constexpr CxxUnique(CxxUnique&& other) noexcept
         : handle_(other.release()) {}
 
+    CxxUnique& operator=(CxxUnique&& other) noexcept {
+        if (this != &other) {
+            (void)close();
+            handle_ = other.release();
+        }
+        return *this;
+    }
+
     ~CxxUnique() {
         if (handle_ != 0) {
             (void)cxx_cleanup_close(handle_);
@@ -64,6 +72,13 @@ public:
         Handle value = handle_;
         handle_ = 0;
         return value;
+    }
+
+    CxxStatus close() noexcept {
+        if (handle_ == 0) return CxxStatus{};
+        int result = cxx_cleanup_close(handle_);
+        if (result == 0) handle_ = 0;
+        return CxxStatus{result};
     }
 
     Handle get() const noexcept { return handle_; }
@@ -91,6 +106,14 @@ public:
     constexpr CxxWideUnique(CxxWideUnique&& other) noexcept
         : handle_(other.release()) {}
 
+    CxxWideUnique& operator=(CxxWideUnique&& other) noexcept {
+        if (this != &other) {
+            (void)close();
+            handle_ = other.release();
+        }
+        return *this;
+    }
+
     ~CxxWideUnique() {
         if (handle_ != 0) {
             (void)cxx_cleanup_close_wide(handle_);
@@ -101,6 +124,13 @@ public:
         uint64_t value = handle_;
         handle_ = 0;
         return value;
+    }
+
+    CxxStatus close() noexcept {
+        if (handle_ == 0) return CxxStatus{};
+        int result = cxx_cleanup_close_wide(handle_);
+        if (result == 0) handle_ = 0;
+        return CxxStatus{result};
     }
 
     uint64_t get() const noexcept { return handle_; }
@@ -443,6 +473,35 @@ int cxx_cleanup_wide_move(int* value) {
     auto target = CxxWideUnique{
         static_cast<CxxWideUnique&&>(source)};
     return (!source) * 10 + (target ? 1 : 0);
+}
+
+int cxx_cleanup_move_assignment(int* old_value, int* new_value) {
+    auto source = CxxUnique<int*>{new_value};
+    auto target = CxxUnique<int*>{old_value};
+    int* moved = (target = static_cast<CxxUnique<int*>&&>(source)).get();
+    int result = (!source) * 100 + (moved == new_value) * 10 +
+                 (target ? 1 : 0);
+    (void)target.release();
+    return result;
+}
+
+int cxx_cleanup_move_self_assignment(int* value) {
+    auto target = CxxUnique<int*>{value};
+    target = static_cast<CxxUnique<int*>&&>(target);
+    int result = target.get() == value && target;
+    (void)target.release();
+    return result;
+}
+
+int cxx_cleanup_wide_move_assignment(int* old_value, int* new_value) {
+    auto source = CxxWideUnique{
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(new_value))};
+    auto target = CxxWideUnique{
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(old_value))};
+    target = static_cast<CxxWideUnique&&>(source);
+    int result = (!source) * 100 + (target ? 1 : 0);
+    (void)target.release();
+    return result;
 }
 
 int cxx_cleanup_contextual_control(int* value) {

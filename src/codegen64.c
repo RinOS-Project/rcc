@@ -1318,6 +1318,42 @@ static bool gen64_inline_method_call(Module* mod, Expr* expr) {
     return true;
 }
 
+static bool gen64_cxx_move_assignment(Module* mod, Expr* expr) {
+    CxxMoveAssignment* lowering = expr ? expr->cxx_move_assignment : NULL;
+    TypeMethod* release;
+    TypeField* field;
+    int done_label;
+    if (!lowering || !lowering->source || !lowering->cleanup ||
+        !lowering->release || !lowering->release->call_method) {
+        return false;
+    }
+    release = lowering->release->call_method;
+    field = release->field;
+    if (!field) return false;
+
+    done_label = new_label64();
+    gen64_lvalue(mod, expr->binary_lhs);
+    emit64_push_reg(mod, RAX);
+    gen64_lvalue(mod, lowering->source);
+    emit64_pop_reg(mod, RCX);
+    emit64_cmp_reg_reg(mod, RAX, RCX);
+    emit64_jcc_label(mod, CC64_E, done_label);
+
+    gen64_expr(mod, lowering->cleanup);
+    gen64_expr(mod, lowering->release);
+    emit64_push_reg(mod, RAX);
+    gen64_lvalue(mod, expr->binary_lhs);
+    if (field->offset > 0) {
+        emit64_add_reg_imm(mod, RAX, field->offset);
+    }
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_pop_reg(mod, RAX);
+    emit64_store_typed(mod, RCX, 0, RAX, field->type);
+    emit64_label(mod, done_label);
+    gen64_lvalue(mod, expr->binary_lhs);
+    return true;
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -1610,6 +1646,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_ASSIGN:
+            if (gen64_cxx_move_assignment(mod, expr)) break;
             if (expr->binary_lhs->type &&
                 (expr->binary_lhs->type->kind == TYPE_STRUCT ||
                  expr->binary_lhs->type->kind == TYPE_UNION)) {

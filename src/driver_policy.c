@@ -248,9 +248,18 @@ static bool driver_validate_expr(Expr* expression)
         case EXPR_SUB_ASSIGN: case EXPR_MUL_ASSIGN: case EXPR_DIV_ASSIGN:
         case EXPR_MOD_ASSIGN: case EXPR_AND_ASSIGN: case EXPR_OR_ASSIGN:
         case EXPR_XOR_ASSIGN: case EXPR_LSHIFT_ASSIGN: case EXPR_RSHIFT_ASSIGN:
-        case EXPR_COMMA:
-            return driver_validate_expr(expression->binary_lhs) &&
-                   driver_validate_expr(expression->binary_rhs);
+        case EXPR_COMMA: {
+            bool valid = driver_validate_expr(expression->binary_lhs) &&
+                         driver_validate_expr(expression->binary_rhs);
+            if (valid && expression->kind == EXPR_ASSIGN &&
+                expression->cxx_move_assignment) {
+                valid = driver_validate_expr(
+                            expression->cxx_move_assignment->cleanup) &&
+                        driver_validate_expr(
+                            expression->cxx_move_assignment->release);
+            }
+            return valid;
+        }
         case EXPR_COND:
             return driver_validate_expr(expression->cond_test) &&
                    driver_validate_expr(expression->cond_then) &&

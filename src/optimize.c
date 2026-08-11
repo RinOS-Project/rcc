@@ -252,6 +252,11 @@ static void optimize_expr(Expr** expression) {
                 return;
             }
             optimize_expr(&value->binary_rhs);
+            if (value->kind == EXPR_ASSIGN &&
+                value->cxx_move_assignment) {
+                optimize_expr(&value->cxx_move_assignment->cleanup);
+                optimize_expr(&value->cxx_move_assignment->release);
+            }
             break;
         case EXPR_COND:
             optimize_expr(&value->cond_test);

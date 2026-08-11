@@ -16,6 +16,7 @@ typedef uint64_t (*wide_unary_function)(uint64_t);
 typedef int (*int_pointer_function)(const int*);
 typedef int (*mutable_int_pointer_function)(int*);
 typedef int (*mutable_int_pointer_binary_function)(int*, int);
+typedef int (*mutable_int_pointer_pair_function)(int*, int*);
 
 typedef struct RinSliceV1 {
     uint64_t address;
@@ -93,6 +94,9 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_wide_contextual_bool;
     mutable_int_pointer_function cleanup_move;
     mutable_int_pointer_function cleanup_wide_move;
+    mutable_int_pointer_pair_function cleanup_move_assignment;
+    mutable_int_pointer_function cleanup_move_self_assignment;
+    mutable_int_pointer_pair_function cleanup_wide_move_assignment;
     mutable_int_pointer_function cleanup_contextual_control;
 
     assert(argc == 2);
@@ -176,6 +180,12 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_move, object, mapping, "cxx_cleanup_move");
     LOAD_FUNCTION(cleanup_wide_move, object, mapping,
                   "cxx_cleanup_wide_move");
+    LOAD_FUNCTION(cleanup_move_assignment, object, mapping,
+                  "cxx_cleanup_move_assignment");
+    LOAD_FUNCTION(cleanup_move_self_assignment, object, mapping,
+                  "cxx_cleanup_move_self_assignment");
+    LOAD_FUNCTION(cleanup_wide_move_assignment, object, mapping,
+                  "cxx_cleanup_wide_move_assignment");
     LOAD_FUNCTION(cleanup_contextual_control, object, mapping,
                   "cxx_cleanup_contextual_control");
     assert(direct_value_init() == 1);
@@ -277,6 +287,19 @@ int main(int argc, char** argv)
         assert(value == 81);
         assert(cleanup_wide_move(&value) == 11);
         assert(value == 83);
+        {
+            int old_value = 10;
+            int new_value = 20;
+            assert(cleanup_move_assignment(&old_value, &new_value) == 111);
+            assert(old_value == 11);
+            assert(new_value == 20);
+            assert(cleanup_move_self_assignment(&old_value) == 1);
+            assert(old_value == 11);
+            assert(cleanup_wide_move_assignment(&old_value, &new_value) ==
+                   101);
+            assert(old_value == 13);
+            assert(new_value == 20);
+        }
         assert(cleanup_contextual_control(&value) == 11111);
         assert(value == 83);
     }

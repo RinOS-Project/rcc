@@ -2853,6 +2853,56 @@ static bool gen_inline_method_call(Module* mod, Expr* expr) {
     return true;
 }
 
+static bool gen_cxx_move_assignment(Module* mod, Expr* expr) {
+    CxxMoveAssignment* lowering = expr ? expr->cxx_move_assignment : NULL;
+    TypeMethod* release;
+    TypeField* field;
+    int done_label;
+    if (!lowering || !lowering->source || !lowering->cleanup ||
+        !lowering->release || !lowering->release->call_method) {
+        return false;
+    }
+    release = lowering->release->call_method;
+    field = release->field;
+    if (!field) return false;
+
+    done_label = new_label();
+    gen_lvalue(mod, expr->binary_lhs);
+    emit_push_reg(mod, EAX);
+    gen_lvalue(mod, lowering->source);
+    emit_pop_reg(mod, ECX);
+    emit_cmp_reg_reg(mod, EAX, ECX);
+    emit_jcc_label(mod, CC_E, done_label);
+
+    gen_expr(mod, lowering->cleanup);
+    if (gen_is_integer64(lowering->release->type)) {
+        gen_expr64_pair(mod, lowering->release);
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        gen_lvalue(mod, expr->binary_lhs);
+        if (field->offset > 0) {
+            emit_add_reg_imm(mod, EAX, field->offset);
+        }
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_pop_reg(mod, EAX);
+        emit_pop_reg(mod, EDX);
+        emit_mov_mem_reg(mod, ECX, 0, EAX);
+        emit_mov_mem_reg(mod, ECX, 4, EDX);
+    } else {
+        gen_expr(mod, lowering->release);
+        emit_push_reg(mod, EAX);
+        gen_lvalue(mod, expr->binary_lhs);
+        if (field->offset > 0) {
+            emit_add_reg_imm(mod, EAX, field->offset);
+        }
+        emit_pop_reg(mod, ECX);
+        emit_store_typed32(mod, EAX, 0, ECX, field->type);
+    }
+    emit_label(mod, done_label);
+    gen_lvalue(mod, expr->binary_lhs);
+    return true;
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int argc;
@@ -3275,6 +3325,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_ASSIGN:
+            if (gen_cxx_move_assignment(mod, expr)) break;
             if (expr->binary_lhs->type &&
                 (expr->binary_lhs->type->kind == TYPE_STRUCT ||
                  expr->binary_lhs->type->kind == TYPE_UNION)) {

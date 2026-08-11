@@ -192,6 +192,8 @@ static const char* parse_operator_name(void) {
     operation = peek()->type;
     switch (operation) {
         case TOK_ASSIGN:
+            advance();
+            return rcc_intern("operator=");
         case TOK_PLUS: case TOK_MINUS: case TOK_STAR: case TOK_SLASH:
         case TOK_PERCENT: case TOK_INC: case TOK_DEC:
         case TOK_EQ: case TOK_NE: case TOK_LT: case TOK_LE:
@@ -647,20 +649,26 @@ static void register_inline_class_releases(CxxClass* cls) {
     }
 }
 
-static bool move_parameter_is_self(CxxClass* cls, Type* parameter) {
+static bool class_reference_is_self(CxxClass* cls, Type* reference,
+                                    bool require_rvalue) {
     Type* referred;
     const char* template_name;
-    if (!cls || !parameter || parameter->kind != TYPE_PTR ||
-        !parameter->is_reference || !parameter->is_rvalue_reference ||
-        !parameter->base) {
+    if (!cls || !reference || reference->kind != TYPE_PTR ||
+        !reference->is_reference ||
+        reference->is_rvalue_reference != require_rvalue ||
+        !reference->base) {
         return false;
     }
-    referred = parameter->base;
+    referred = reference->base;
     if (type_is_compatible(referred, cls->type)) return true;
     template_name = cls->templ && cls->templ->templated_class
         ? cls->templ->templated_class->name : NULL;
     return template_name && referred->kind == TYPE_STRUCT && referred->tag &&
            strcmp(referred->tag, template_name) == 0;
+}
+
+static bool move_parameter_is_self(CxxClass* cls, Type* parameter) {
+    return class_reference_is_self(cls, parameter, true);
 }
 
 static TypeMethod* class_release_method(CxxClass* cls, const char* name,
@@ -835,6 +843,323 @@ static void register_inline_class_cleanup(CxxClass* cls) {
     }
 }
 
+static bool move_expression_is_identifier(Expr* expression,
+                                          const char* name) {
+    return expression && expression->kind == EXPR_IDENT &&
+           expression->ident_name && name &&
+           strcmp(expression->ident_name, name) == 0;
+}
+
+static bool expression_is_field_constant(Expr* expression, ExprKind kind,
+                                         const char* field_name,
+                                         int64_t expected) {
+    int64_t value;
+    if (!expression || expression->kind != kind) return false;
+    if (move_expression_is_identifier(expression->binary_lhs, field_name) &&
+        expr_eval_integer_constant(expression->binary_rhs, &value)) {
+        return value == expected;
+    }
+    if (move_expression_is_identifier(expression->binary_rhs, field_name) &&
+        expr_eval_integer_constant(expression->binary_lhs, &value)) {
+        return value == expected;
+    }
+    return false;
+}
+
+static bool expression_is_empty_compound(Expr* expression, Type* type) {
+    ExprList* item;
+    int64_t value;
+    if (!expression || expression->kind != EXPR_COMPOUND ||
+        !expression->compound_value_init || !expression->compound_type ||
+        !type_is_compatible(expression->compound_type, type)) {
+        return false;
+    }
+    for (item = expression->compound_init; item; item = item->next) {
+        if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr ||
+            !expr_eval_integer_constant(item->expr, &value) || value != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool expression_is_single_identifier_compound(Expr* expression,
+                                                      const char* name,
+                                                      Type* type) {
+    ExprList* item;
+    if (!expression || expression->kind != EXPR_COMPOUND ||
+        !expression->compound_type ||
+        !type_is_compatible(expression->compound_type, type)) {
+        return false;
+    }
+    item = expression->compound_init;
+    return item && !item->next &&
+           item->designator_kind == INIT_DESIGNATOR_NONE &&
+           move_expression_is_identifier(item->expr, name);
+}
+
+/* Prove the zero-argument close helper called by move assignment.  Its exact
+ * observable form is the SDK sequence:
+ *
+ *   if (field == invalid) return Result{};
+ *   Code result = cleanup_function((optional-cast)field);
+ *   if (result == success) field = invalid;
+ *   return Result{result};
+ *
+ * The result value is ignored by operator=, but constraining both returns and
+ * the success branch prevents a seemingly harmless helper name from hiding
+ * arbitrary side effects. */
+static bool class_has_validated_close(CxxClass* cls, const char* name,
+                                      TypeField* field) {
+    struct CxxMember* member;
+    for (member = cls ? cls->members : NULL; member; member = member->next) {
+        CxxMethod* method = member->method;
+        StmtList* statements;
+        Stmt* empty_guard;
+        Stmt* call_declaration;
+        Stmt* success_guard;
+        Stmt* final_return;
+        Stmt* action;
+        Decl* result;
+        Expr* call;
+        Expr* argument;
+        ExprList* arguments;
+        Type* return_type;
+        int64_t success;
+        if (!method || !method->decl || !method->decl->name || !name ||
+            strcmp(method->decl->name, name) != 0 || method->is_static ||
+            method->is_virtual || method->is_pure_virtual ||
+            method->is_deleted || method->is_defaulted ||
+            method->is_constructor || method->is_destructor ||
+            method->is_const || !method->decl->type ||
+            method->decl->type->kind != TYPE_FUNC ||
+            method->decl->func_params ||
+            !method->decl->func_body ||
+            method->decl->func_body->kind != STMT_BLOCK) {
+            continue;
+        }
+        return_type = method->decl->type->ret_type;
+        if (!return_type || return_type->is_reference ||
+            (return_type->kind != TYPE_STRUCT &&
+             return_type->kind != TYPE_UNION) ||
+            return_type->cleanup_function) {
+            continue;
+        }
+        statements = method->decl->func_body->block_stmts;
+        if (!statements || !statements->next ||
+            !statements->next->next || !statements->next->next->next ||
+            statements->next->next->next->next) {
+            continue;
+        }
+        empty_guard = statements->stmt;
+        call_declaration = statements->next->stmt;
+        success_guard = statements->next->next->stmt;
+        final_return = statements->next->next->next->stmt;
+        if (!empty_guard || empty_guard->kind != STMT_IF ||
+            empty_guard->if_else ||
+            !expression_is_field_constant(empty_guard->if_cond, EXPR_EQ,
+                                          field->name,
+                                          cls->type->cleanup_invalid)) {
+            continue;
+        }
+        action = cleanup_single_statement(empty_guard->if_then);
+        if (!action || action->kind != STMT_RETURN ||
+            !expression_is_empty_compound(action->return_val, return_type)) {
+            continue;
+        }
+        if (!call_declaration || call_declaration->kind != STMT_DECL ||
+            !call_declaration->decl ||
+            call_declaration->decl->kind != DECL_VAR ||
+            !call_declaration->decl->name ||
+            !call_declaration->decl->var_init) {
+            continue;
+        }
+        result = call_declaration->decl;
+        call = result->var_init;
+        if (call->kind != EXPR_CALL || !call->call_func ||
+            call->call_func->kind != EXPR_IDENT ||
+            !call->call_func->ident_name ||
+            strcmp(call->call_func->ident_name,
+                   cls->type->cleanup_function) != 0) {
+            continue;
+        }
+        arguments = call->call_args;
+        if (!arguments || arguments->next || !arguments->expr) continue;
+        argument = arguments->expr;
+        if (argument->kind == EXPR_CAST) argument = argument->cast_expr;
+        if (!move_expression_is_identifier(argument, field->name)) continue;
+        if (!success_guard || success_guard->kind != STMT_IF ||
+            success_guard->if_else || !success_guard->if_cond ||
+            success_guard->if_cond->kind != EXPR_EQ) {
+            continue;
+        }
+        if (move_expression_is_identifier(
+                success_guard->if_cond->binary_lhs, result->name) &&
+            expr_eval_integer_constant(
+                success_guard->if_cond->binary_rhs, &success)) {
+            /* matched */
+        } else if (move_expression_is_identifier(
+                       success_guard->if_cond->binary_rhs, result->name) &&
+                   expr_eval_integer_constant(
+                       success_guard->if_cond->binary_lhs, &success)) {
+            /* matched */
+        } else {
+            continue;
+        }
+        action = cleanup_single_statement(success_guard->if_then);
+        if (!action || action->kind != STMT_EXPR || !action->expr ||
+            action->expr->kind != EXPR_ASSIGN ||
+            !move_expression_is_identifier(action->expr->binary_lhs,
+                                           field->name) ||
+            !expr_eval_integer_constant(action->expr->binary_rhs, &success) ||
+            success != cls->type->cleanup_invalid) {
+            continue;
+        }
+        if (!final_return || final_return->kind != STMT_RETURN ||
+            !expression_is_single_identifier_compound(final_return->return_val,
+                                                      result->name,
+                                                      return_type)) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+/* Accept only the SDK ownership assignment:
+ *
+ *   Class& operator=(Class&& other) {
+ *     if (this != &other) { (void)close(); field = other.release(); }
+ *     return *this;
+ *   }
+ *
+ * close(), release(), the destructor cleanup, and the move constructor have
+ * all independently passed structural verification before this metadata is
+ * published to semantic analysis. */
+static void register_inline_class_move_assignment(CxxClass* cls) {
+    struct CxxMember* member;
+    TypeMethod* candidate = NULL;
+    TypeField* field;
+    if (!cls || !cls->type || !cls->type->is_complete ||
+        cls->base_count != 0 || cls->has_static_field ||
+        cls->has_field_initializer || class_has_virtual_member(cls) ||
+        !cls->type->cleanup_function || !cls->type->cleanup_field ||
+        !cls->type->move_constructor_method) {
+        return;
+    }
+    field = cls->type->fields;
+    if (!field || field->next || cls->type->cleanup_field != field ||
+        cls->type->move_constructor_method->field != field) {
+        return;
+    }
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        TypeParam* parameter;
+        StmtList* statements;
+        Stmt* guarded;
+        Stmt* returned;
+        StmtList* actions;
+        Expr* condition;
+        Expr* close_call;
+        Expr* assignment;
+        Expr* release_call;
+        Expr* release_callee;
+        TypeMethod* release;
+        const char* close_name;
+        if (!method || !method->decl || !method->decl->name ||
+            strcmp(method->decl->name, "operator=") != 0 ||
+            member->access != ACCESS_PUBLIC || method->is_static ||
+            method->is_virtual || method->is_pure_virtual ||
+            method->is_deleted || method->is_defaulted ||
+            method->is_constructor || method->is_destructor ||
+            method->is_const || !method->decl->type ||
+            !class_reference_is_self(cls, method->decl->type->ret_type,
+                                     false) ||
+            !method->decl->func_params ||
+            method->decl->func_params->next ||
+            !method->decl->func_params->decl ||
+            !move_parameter_is_self(
+                cls, method->decl->func_params->decl->type) ||
+            !method->decl->func_body ||
+            method->decl->func_body->kind != STMT_BLOCK) {
+            continue;
+        }
+        parameter = method->decl->type->params;
+        if (!parameter || parameter->next || !parameter->name) continue;
+        statements = method->decl->func_body->block_stmts;
+        if (!statements || !statements->next || statements->next->next) {
+            continue;
+        }
+        guarded = statements->stmt;
+        returned = statements->next->stmt;
+        if (!guarded || guarded->kind != STMT_IF || guarded->if_else ||
+            !returned || returned->kind != STMT_RETURN ||
+            !returned->return_val ||
+            returned->return_val->kind != EXPR_DEREF ||
+            !move_expression_is_identifier(
+                returned->return_val->unary_operand, "this")) {
+            continue;
+        }
+        condition = guarded->if_cond;
+        if (!condition || condition->kind != EXPR_NE ||
+            !move_expression_is_identifier(condition->binary_lhs, "this") ||
+            !condition->binary_rhs ||
+            condition->binary_rhs->kind != EXPR_ADDR ||
+            !move_expression_is_identifier(
+                condition->binary_rhs->unary_operand, parameter->name)) {
+            continue;
+        }
+        if (!guarded->if_then || guarded->if_then->kind != STMT_BLOCK) {
+            continue;
+        }
+        actions = guarded->if_then->block_stmts;
+        if (!actions || !actions->next || actions->next->next ||
+            !actions->stmt || actions->stmt->kind != STMT_EXPR ||
+            !actions->next->stmt ||
+            actions->next->stmt->kind != STMT_EXPR) {
+            continue;
+        }
+        close_call = cleanup_unwrap_void_cast(actions->stmt->expr);
+        if (!close_call || close_call->kind != EXPR_CALL ||
+            close_call->call_args || !close_call->call_func ||
+            close_call->call_func->kind != EXPR_IDENT ||
+            !close_call->call_func->ident_name) {
+            continue;
+        }
+        close_name = close_call->call_func->ident_name;
+        if (!class_has_validated_close(cls, close_name, field)) continue;
+        assignment = actions->next->stmt->expr;
+        if (!assignment || assignment->kind != EXPR_ASSIGN ||
+            !move_expression_is_identifier(assignment->binary_lhs,
+                                           field->name)) {
+            continue;
+        }
+        release_call = assignment->binary_rhs;
+        if (!release_call || release_call->kind != EXPR_CALL ||
+            release_call->call_args || !release_call->call_func ||
+            release_call->call_func->kind != EXPR_MEMBER) {
+            continue;
+        }
+        release_callee = release_call->call_func;
+        if (!release_callee->member_name || !release_callee->member_base ||
+            !move_expression_is_identifier(release_callee->member_base,
+                                           parameter->name)) {
+            continue;
+        }
+        release = class_release_method(cls, release_callee->member_name,
+                                       field);
+        if (!release || release != cls->type->move_constructor_method) {
+            continue;
+        }
+        if (candidate) {
+            cls->type->move_assignment_method = NULL;
+            return;
+        }
+        candidate = release;
+    }
+    cls->type->move_assignment_method = candidate;
+}
+
 /* Parse class member (field or method) */
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
@@ -966,10 +1291,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         Stmt* body = NULL;
         if (active_template && check(TOK_LBRACE) &&
             !is_constructor && !is_destructor &&
-            param_idx != 0) {
+            param_idx != 0 && strcmp(name, "operator=") != 0) {
             /* Retain constructor/destructor and zero-argument method bodies.
-             * Only structurally validated accessor/release patterns are
-             * lowered after template substitution. */
+             * The ownership assignment body is also retained, but only its
+             * exact SDK pattern is lowered after template substitution. */
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
         } else if (match(TOK_LBRACE)) {
             /* Parse method body */
@@ -1129,6 +1454,7 @@ CxxClass* parse_cxx_class(void) {
     register_inline_class_cleanup(cls);
     register_inline_class_releases(cls);
     register_inline_class_move_constructor(cls);
+    register_inline_class_move_assignment(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
      * reuse the common initializer/codegen backend. */
@@ -1864,6 +2190,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     register_inline_class_cleanup(instance);
     register_inline_class_releases(instance);
     register_inline_class_move_constructor(instance);
+    register_inline_class_move_assignment(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);
     if (constructor_mask != 0u) {
         rcc_parser_define_cxx_constructor_type(instance->name,

@@ -547,6 +547,129 @@ static Decl* sema_select_cxx_overload(Expr* call) {
     return best;
 }
 
+static Expr* sema_cxx_move_member(Expr* object, TypeField* field) {
+    Expr* member = expr_member(object, field->name, object->loc);
+    member->member_field = field;
+    member->type = field->type;
+    return member;
+}
+
+/* Attach executable AST only after parser_cxx.c has proved the complete SDK
+ * operator=, close, release, constructor, and destructor relationship.  The
+ * backend consumes these expressions behind an address-equality guard. */
+static bool sema_prepare_cxx_move_assignment(Expr* expression, Type* target) {
+    Expr* rhs;
+    Expr* source;
+    Type* cast_type = NULL;
+    TypeMethod* release;
+    TypeField* field;
+    Symbol* symbol;
+    Decl* cleanup_function;
+    TypeParam* cleanup_parameter;
+    Expr* condition;
+    Expr* function_expression;
+    Expr* cleanup_argument;
+    Expr* cleanup_call;
+    Expr* cleanup;
+    Expr* release_member;
+    Expr* release_call;
+    ExprList* cleanup_arguments = NULL;
+    CxxMoveAssignment* lowering;
+    bool names_move = false;
+    if (!expression || !target ||
+        (target->kind != TYPE_STRUCT && target->kind != TYPE_UNION)) {
+        return false;
+    }
+    rhs = expression->binary_rhs;
+    if (rhs && rhs->kind == EXPR_CAST) {
+        cast_type = rhs->cast_type;
+        names_move = cast_type && cast_type->kind == TYPE_PTR &&
+            cast_type->is_reference && cast_type->is_rvalue_reference &&
+            cast_type->base && type_is_compatible(cast_type->base, target);
+    }
+    if (!target->move_assignment_method && !names_move) {
+        if (target->cleanup_function && target->cleanup_field) {
+            rcc_error(expression->loc,
+                      "C++ scope-cleanup object assignment requires a validated operator=");
+        }
+        return false;
+    }
+    if (!target->move_assignment_method || !names_move) {
+        rcc_error(expression->loc,
+                  "C++ ownership assignment requires a validated rvalue operator=");
+        return false;
+    }
+    source = rhs->cast_expr;
+    if (!source || expression->binary_lhs->kind != EXPR_IDENT ||
+        source->kind != EXPR_IDENT || !is_lvalue(source)) {
+        rcc_error(expression->loc,
+                  "validated C++ ownership assignment requires named objects");
+        return false;
+    }
+    release = target->move_assignment_method;
+    field = release->field;
+    if (!field || target->cleanup_field != field ||
+        target->cleanup_invalid != release->constant ||
+        !target->cleanup_function) {
+        rcc_error(expression->loc,
+                  "validated C++ ownership assignment metadata is inconsistent");
+        return false;
+    }
+    symbol = symtab_lookup(g_symtab, target->cleanup_function);
+    cleanup_function = symbol && symbol->kind == SYM_FUNC
+        ? symbol->decl : NULL;
+    if (!cleanup_function || !cleanup_function->type ||
+        cleanup_function->type->kind != TYPE_FUNC) {
+        rcc_error(expression->loc,
+                  "C++ cleanup function '%s' is not declared",
+                  target->cleanup_function);
+        return false;
+    }
+    cleanup_parameter = cleanup_function->type->params;
+    if (!cleanup_parameter || cleanup_parameter->next ||
+        !type_is_compatible(cleanup_parameter->type, field->type)) {
+        rcc_error(expression->loc,
+                  "C++ cleanup function '%s' has an incompatible signature",
+                  target->cleanup_function);
+        return false;
+    }
+
+    condition = expr_binary(
+        EXPR_NE,
+        sema_cxx_move_member(expression->binary_lhs, field),
+        expr_int(target->cleanup_invalid, expression->loc),
+        expression->loc);
+    condition->type = type_int;
+    function_expression = expr_ident(cleanup_function->name,
+                                     expression->loc);
+    function_expression->ident_decl = cleanup_function;
+    function_expression->type = cleanup_function->type;
+    cleanup_argument = sema_cxx_move_member(expression->binary_lhs, field);
+    exprlist_append(&cleanup_arguments, cleanup_argument);
+    cleanup_call = expr_call(function_expression, cleanup_arguments,
+                             expression->loc);
+    cleanup_call->type = cleanup_function->type->ret_type;
+    cleanup = expr_cond(condition, cleanup_call,
+                        expr_int(0, expression->loc), expression->loc);
+    cleanup->type = cleanup_call->type &&
+        cleanup_call->type->kind != TYPE_VOID
+        ? cleanup_call->type : type_int;
+
+    release_member = expr_member(source, release->name, expression->loc);
+    release_call = expr_call(release_member, NULL, expression->loc);
+    release_call->call_method = release;
+    release_call->type = release->return_type &&
+        release->return_type->is_reference
+        ? release->return_type->base : release->return_type;
+
+    lowering = ast_arena_alloc(sizeof(*lowering));
+    lowering->source = source;
+    lowering->cleanup = cleanup;
+    lowering->release = release_call;
+    expression->cxx_move_assignment = lowering;
+    return true;
+}
+
 /* ═══════════════════════════════════════
  * Expression Semantic Analysis
  * ═══════════════════════════════════════ */
@@ -1002,6 +1125,7 @@ static Type* sema_expr(Expr* expr) {
             if (!is_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc, "assignment requires lvalue");
             }
+            sema_prepare_cxx_move_assignment(expr, lt);
             expr->type = lt;
             break;
         }

@@ -846,6 +846,9 @@ static const char* parse_expression_qualified_name(SourceLoc loc) {
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (parser_cxx_mode && match(TOK_THIS)) {
+        return expr_ident("this", loc);
+    }
     if (match(TOK_GENERIC)) {
         return parse_generic_selection(loc);
     }

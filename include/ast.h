@@ -90,6 +90,10 @@ struct Type {
     /* Ownership-transfer constructor lowered through a validated release
      * accessor.  NULL unless parser_cxx.c proved the exact move pattern. */
     TypeMethod* move_constructor_method;
+    /* Ownership-transfer assignment lowered through the same validated
+     * release accessor.  The frontend additionally proves the SDK close and
+     * self-assignment-guard bodies before setting this metadata. */
+    TypeMethod* move_assignment_method;
 
     union {
         /* TYPE_PTR, TYPE_ARRAY */
@@ -275,10 +279,18 @@ struct GenericAssociation {
     struct GenericAssociation* next;
 };
 
+typedef struct CxxMoveAssignment {
+    Expr* source;
+    Expr* cleanup;
+    Expr* release;
+} CxxMoveAssignment;
+
 struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
+    /* Non-NULL only for a semantically validated C++ ownership transfer. */
+    CxxMoveAssignment* cxx_move_assignment;
 
     union {
         /* EXPR_INT_LIT */
