@@ -1379,6 +1379,38 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         emit_memory_operand32(mod, EAX, ECX, 0);
         return true;
     }
+    if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
+        /* Evaluate the non-address control operands before reserving address
+         * values on the expression stack. */
+        gen_expr(mod, call_argument(call, 5));
+        gen_expr(mod, call_argument(call, 4));
+        gen_expr(mod, call_argument(call, 3));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 2));
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_pop_reg(mod, ECX); /* Expected-value address. */
+        emit_mov_reg_mem(mod, EAX, ECX, 0);
+        emit_push_reg(mod, ECX);
+        emit_mov_reg_mem(mod, ECX, ESP, 4); /* Object address. */
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB1); /* lock cmpxchg dword ptr [ecx], edx */
+        emit_memory_operand32(mod, EDX, ECX, 0);
+        emit_setcc(mod, CC_E, EDX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EDX, EDX));
+        emit_pop_reg(mod, ECX);
+        emit_add_reg_imm(mod, ESP, 4);
+        /* On success EAX still contains *expected; on failure CMPXCHG has
+         * replaced it with the observed object value. */
+        emit_mov_mem_reg(mod, ECX, 0, EAX);
+        emit_mov_reg_reg(mod, EAX, EDX);
+        return true;
+    }
     is_atomic = strncmp(name, "__atomic_", 9) == 0;
     if (strcmp(name, "__atomic_exchange_n") == 0 ||
         strcmp(name, "__sync_lock_test_and_set") == 0) {

@@ -100,9 +100,11 @@ metacharacterを含むsigner/output path、署名失敗時の既存成果物保�
 同一出力への並行実行、およびstaging fileの確実な後始末を確認します。
 `test-sanitize`はASan/UBSanとLeakSanitizerを有効にした別buildで、両archの大きな
 translation unit、C++ class、preprocessor、成功・診断・署名失敗経路を検査します。
-`test-atomic-builtins`は32-bit整数のload/store/exchange/CAS、fetch add/sub、fenceを
-両archで生成・linkし、AMD64生成コードの戻り値、memory更新、複数threadでの原子性を
-実行検査します。未実装の64-bit operandはdiagnostic付きで拒否します。
+`test-atomic-builtins`は32-bit整数のload/store/exchange/CAS、fetch add/sub、fenceと
+初期`<stdatomic.h>` APIを両archで生成・linkし、AMD64生成コードの戻り値、memory更新、
+compare-exchange失敗時のexpected更新、複数threadでの原子性を実行検査します。
+未実装の小幅・64-bit operandはnon-lock-freeとして公開し、builtin利用はdiagnostic付きで
+拒否します。
 `test-weak-link`は後続strong定義が先行weak定義のsection、binding、size、
 最終RVAを完全に置換することを確認します。
 `test-comdat-link`は`.ro v2`のCOMDAT ANY groupを入力順どおり一つだけ選択し、

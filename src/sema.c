@@ -607,6 +607,7 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     int argument_count = 0;
     int expected_count;
     bool requires_pointer = true;
+    bool requires_expected_pointer = false;
     bool returns_void = false;
     bool returns_bool = false;
     Type* pointer_type = NULL;
@@ -624,6 +625,10 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                strcmp(name, "__atomic_add_fetch") == 0 ||
                strcmp(name, "__atomic_sub_fetch") == 0) {
         expected_count = 3;
+    } else if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
+        expected_count = 6;
+        requires_expected_pointer = true;
+        returns_bool = true;
     } else if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
         expected_count = 3;
         returns_bool = true;
@@ -664,6 +669,18 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             !pointer_type->base || !type_is_integer(pointer_type->base) ||
             pointer_type->base->size != 4u) {
             rcc_error(expr->loc, "%s requires a pointer to a 32-bit integer",
+                      name);
+        }
+    }
+    if (requires_expected_pointer) {
+        argument = expr->call_args ? expr->call_args->next : NULL;
+        if (!argument || !argument->expr->type ||
+            argument->expr->type->kind != TYPE_PTR ||
+            !argument->expr->type->base ||
+            !type_is_integer(argument->expr->type->base) ||
+            argument->expr->type->base->size != 4u) {
+            rcc_error(expr->loc,
+                      "%s requires a 32-bit integer expected-value pointer",
                       name);
         }
     }

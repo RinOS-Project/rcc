@@ -26,6 +26,8 @@ typedef uint32_t (*atomic_binary_fn)(volatile uint32_t*, uint32_t);
 typedef int (*atomic_compare_bool_fn)(volatile uint32_t*, uint32_t, uint32_t);
 typedef uint32_t (*atomic_compare_value_fn)(volatile uint32_t*, uint32_t,
                                             uint32_t);
+typedef int (*standard_atomic_compare_fn)(volatile uint32_t*, uint32_t*,
+                                          uint32_t);
 typedef void (*atomic_release_fn)(volatile uint32_t*);
 typedef void (*atomic_fence_fn)(void);
 
@@ -77,6 +79,16 @@ int main(int argc, char** argv) {
     atomic_binary_fn sync_sub_fetch;
     atomic_fence_fn atomic_fence;
     atomic_fence_fn sync_fence;
+    atomic_store_fn standard_init;
+    atomic_load_fn standard_load;
+    atomic_store_fn standard_store;
+    atomic_binary_fn standard_exchange;
+    atomic_binary_fn standard_fetch_add;
+    standard_atomic_compare_fn standard_compare;
+    atomic_load_fn standard_flag_test_and_set;
+    atomic_release_fn standard_flag_clear;
+    atomic_load_fn standard_is_lock_free;
+    atomic_fence_fn standard_signal_fence;
     volatile uint32_t value = 5u;
     volatile uint32_t counter = 0u;
     pthread_t threads[4];
@@ -116,6 +128,26 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(sync_sub_fetch, object, mapping, "sync_sub_fetch_value");
     LOAD_FUNCTION(atomic_fence, object, mapping, "atomic_thread_fence_value");
     LOAD_FUNCTION(sync_fence, object, mapping, "sync_synchronize_value");
+    LOAD_FUNCTION(standard_init, object, mapping,
+                  "standard_atomic_init_value");
+    LOAD_FUNCTION(standard_load, object, mapping,
+                  "standard_atomic_load_value");
+    LOAD_FUNCTION(standard_store, object, mapping,
+                  "standard_atomic_store_value");
+    LOAD_FUNCTION(standard_exchange, object, mapping,
+                  "standard_atomic_exchange_value");
+    LOAD_FUNCTION(standard_fetch_add, object, mapping,
+                  "standard_atomic_fetch_add_value");
+    LOAD_FUNCTION(standard_compare, object, mapping,
+                  "standard_atomic_compare_exchange_value");
+    LOAD_FUNCTION(standard_flag_test_and_set, object, mapping,
+                  "standard_atomic_flag_test_and_set_value");
+    LOAD_FUNCTION(standard_flag_clear, object, mapping,
+                  "standard_atomic_flag_clear_value");
+    LOAD_FUNCTION(standard_is_lock_free, object, mapping,
+                  "standard_atomic_is_lock_free_value");
+    LOAD_FUNCTION(standard_signal_fence, object, mapping,
+                  "standard_atomic_signal_fence_value");
 
     assert(atomic_load(&value) == 5u);
     atomic_store(&value, 7u);
@@ -138,6 +170,27 @@ int main(int argc, char** argv) {
     assert(value == 0u);
     atomic_fence();
     sync_fence();
+
+    standard_init(&value, 12u);
+    assert(standard_load(&value) == 12u);
+    standard_store(&value, 14u);
+    assert(standard_exchange(&value, 20u) == 14u && value == 20u);
+    assert(standard_fetch_add(&value, 2u) == 20u && value == 22u);
+    {
+        uint32_t expected = 22u;
+        assert(standard_compare(&value, &expected, 30u) == 1);
+        assert(expected == 22u && value == 30u);
+        expected = 7u;
+        assert(standard_compare(&value, &expected, 40u) == 0);
+        assert(expected == 30u && value == 30u);
+    }
+    value = 0u;
+    assert(standard_flag_test_and_set(&value) == 0u && value == 1u);
+    assert(standard_flag_test_and_set(&value) == 1u && value == 1u);
+    standard_flag_clear(&value);
+    assert(value == 0u);
+    assert(standard_is_lock_free(&value) == 1u);
+    standard_signal_fence();
 
     for (i = 0; i < 4u; ++i) {
         workers[i].fetch_add = atomic_fetch_add;

@@ -1,4 +1,12 @@
 #include <stdint.h>
+#include <stdatomic.h>
+
+_Static_assert(ATOMIC_INT_LOCK_FREE == 2,
+               "32-bit integer atomics must be lock-free");
+_Static_assert(ATOMIC_LLONG_LOCK_FREE == 0,
+               "64-bit integer atomics are not implemented yet");
+_Static_assert(sizeof(atomic_uint) == 4,
+               "atomic_uint must use 32-bit storage");
 
 uint32_t atomic_load_value(volatile uint32_t* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
@@ -70,6 +78,51 @@ void atomic_thread_fence_value(void) {
 
 void sync_synchronize_value(void) {
     __sync_synchronize();
+}
+
+void standard_atomic_init_value(atomic_uint* value, uint32_t desired) {
+    atomic_init(value, desired);
+}
+
+uint32_t standard_atomic_load_value(atomic_uint* value) {
+    return atomic_load_explicit(value, memory_order_acquire);
+}
+
+void standard_atomic_store_value(atomic_uint* value, uint32_t desired) {
+    atomic_store_explicit(value, desired, memory_order_release);
+}
+
+uint32_t standard_atomic_exchange_value(atomic_uint* value,
+                                        uint32_t desired) {
+    return atomic_exchange(value, desired);
+}
+
+uint32_t standard_atomic_fetch_add_value(atomic_uint* value,
+                                         uint32_t operand) {
+    return atomic_fetch_add(value, operand);
+}
+
+int standard_atomic_compare_exchange_value(atomic_uint* value,
+                                           uint32_t* expected,
+                                           uint32_t desired) {
+    return atomic_compare_exchange_strong_explicit(value, expected, desired, \
+        memory_order_acq_rel, memory_order_acquire);
+}
+
+int standard_atomic_flag_test_and_set_value(atomic_flag* value) {
+    return atomic_flag_test_and_set(value);
+}
+
+void standard_atomic_flag_clear_value(atomic_flag* value) {
+    atomic_flag_clear_explicit(value, memory_order_release);
+}
+
+int standard_atomic_is_lock_free_value(atomic_uint* value) {
+    return atomic_is_lock_free(value);
+}
+
+void standard_atomic_signal_fence_value(void) {
+    atomic_signal_fence(memory_order_seq_cst);
 }
 
 int main(void) {

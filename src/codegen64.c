@@ -545,6 +545,34 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         emit_byte(mod, modrm64(0, RAX, RCX));
         return true;
     }
+    if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
+        gen64_expr(mod, call64_argument(call, 5));
+        gen64_expr(mod, call64_argument(call, 4));
+        gen64_expr(mod, call64_argument(call, 3));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 2));
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_pop_reg(mod, RCX); /* Expected-value address. */
+        emit_byte(mod, 0x8B); /* mov eax, dword ptr [rcx] */
+        emit_byte(mod, modrm64(0, RAX, RCX));
+        emit64_push_reg(mod, RCX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8); /* Object address. */
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB1); /* lock cmpxchg dword ptr [rcx], edx */
+        emit_byte(mod, modrm64(0, RDX, RCX));
+        emit64_setcc(mod, CC64_E, RDX);
+        emit64_movzx_r64_r8(mod, RDX, RDX);
+        emit64_pop_reg(mod, RCX);
+        emit64_add_reg_imm(mod, RSP, 8);
+        emit_byte(mod, 0x89); /* mov dword ptr [rcx], eax */
+        emit_byte(mod, modrm64(0, RAX, RCX));
+        emit64_mov_reg_reg(mod, RAX, RDX);
+        return true;
+    }
     is_atomic = strncmp(name, "__atomic_", 9) == 0;
     if (strcmp(name, "__atomic_exchange_n") == 0 ||
         strcmp(name, "__sync_lock_test_and_set") == 0) {
