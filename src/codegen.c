@@ -2766,7 +2766,9 @@ static bool gen_inline_method_address(Module* mod, Expr* expr) {
 
 static bool gen_inline_method_integer64(Module* mod, Expr* expr) {
     TypeMethod* method = expr ? expr->call_method : NULL;
-    if (!method || method->kind != TYPE_METHOD_FIELD || !expr->type ||
+    if (!method ||
+        (method->kind != TYPE_METHOD_FIELD &&
+         method->kind != TYPE_METHOD_FIELD_RELEASE) || !expr->type ||
         expr->type->size != 8 ||
         !(type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) ||
         !gen_inline_method_address(mod, expr)) {
@@ -2775,6 +2777,18 @@ static bool gen_inline_method_integer64(Module* mod, Expr* expr) {
     emit_mov_reg_reg(mod, ECX, EAX);
     emit_mov_reg_mem(mod, EAX, ECX, 0);
     emit_mov_reg_mem(mod, EDX, ECX, 4);
+    if (method->kind == TYPE_METHOD_FIELD_RELEASE) {
+        uint64_t invalid = (uint64_t)method->constant;
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_imm(mod, EAX, (int32_t)(uint32_t)invalid);
+        emit_mov_mem_reg(mod, ECX, 0, EAX);
+        emit_mov_reg_imm(mod, EAX,
+                         (int32_t)(uint32_t)(invalid >> 32));
+        emit_mov_mem_reg(mod, ECX, 4, EAX);
+        emit_pop_reg(mod, EAX);
+        emit_pop_reg(mod, EDX);
+    }
     return true;
 }
 
@@ -2785,6 +2799,15 @@ static bool gen_inline_method_call(Module* mod, Expr* expr) {
         (expr->type->kind == TYPE_STRUCT ||
          expr->type->kind == TYPE_UNION ||
          expr->type->kind == TYPE_ARRAY)) {
+        return true;
+    }
+    if (method->kind == TYPE_METHOD_FIELD_RELEASE) {
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_load_typed32(mod, EAX, ECX, 0, method->field->type);
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_imm(mod, EAX, (int32_t)method->constant);
+        emit_store_typed32(mod, ECX, 0, EAX, method->field->type);
+        emit_pop_reg(mod, EAX);
         return true;
     }
     emit_load_typed32(mod, EAX, EAX, 0, method->field->type);

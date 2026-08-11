@@ -1290,6 +1290,15 @@ static bool gen64_inline_method_call(Module* mod, Expr* expr) {
          expr->type->kind == TYPE_ARRAY)) {
         return true;
     }
+    if (method->kind == TYPE_METHOD_FIELD_RELEASE) {
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_load_typed(mod, RAX, RCX, 0, method->field->type);
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_imm64(mod, RAX, (uint64_t)method->constant);
+        emit64_store_typed(mod, RCX, 0, RAX, method->field->type);
+        emit64_pop_reg(mod, RAX);
+        return true;
+    }
     emit64_load_typed(mod, RAX, RAX, 0, method->field->type);
     if (method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
         method->kind == TYPE_METHOD_FIELD_NE_CONSTANT) {

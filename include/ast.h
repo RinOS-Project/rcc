@@ -59,10 +59,11 @@ typedef enum {
     TYPE_METHOD_FIELD,
     TYPE_METHOD_FIELD_EQ_CONSTANT,
     TYPE_METHOD_FIELD_NE_CONSTANT,
+    TYPE_METHOD_FIELD_RELEASE,
 } TypeMethodKind;
 
-/* A validated, side-effect-free C++ accessor that can be expanded by the
- * common backend without exposing private representation as a data member. */
+/* A structurally validated C++ zero-argument method that can be expanded by
+ * the common backend without exposing private representation as a member. */
 struct TypeMethod {
     const char* name;
     Type* return_type;

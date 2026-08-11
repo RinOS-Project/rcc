@@ -72,6 +72,8 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_block;
     mutable_int_pointer_function cleanup_return;
     mutable_int_pointer_function cleanup_wide;
+    mutable_int_pointer_function cleanup_release;
+    mutable_int_pointer_function cleanup_wide_release;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -122,6 +124,9 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_block, object, mapping, "cxx_cleanup_block");
     LOAD_FUNCTION(cleanup_return, object, mapping, "cxx_cleanup_return");
     LOAD_FUNCTION(cleanup_wide, object, mapping, "cxx_cleanup_wide");
+    LOAD_FUNCTION(cleanup_release, object, mapping, "cxx_cleanup_release");
+    LOAD_FUNCTION(cleanup_wide_release, object, mapping,
+                  "cxx_cleanup_wide_release");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
@@ -167,6 +172,13 @@ int main(int argc, char** argv)
         int value = 30;
         assert(cleanup_wide(&value) == 30);
         assert(value == 32);
+    }
+    {
+        int value = 40;
+        assert(cleanup_release(&value) == 1);
+        assert(value == 40);
+        assert(cleanup_wide_release(&value) == 1);
+        assert(value == 40);
     }
 
     assert(munmap(mapping, mapping_size) == 0);

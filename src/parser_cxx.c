@@ -463,6 +463,105 @@ static void register_inline_class_accessors(CxxClass* cls) {
     }
 }
 
+/* Accept the ownership-transfer primitive only in this exact form:
+ *
+ *   FieldType value = field;
+ *   field = integer-invalid;
+ *   return value;
+ *
+ * The backend can then return the old scalar and invalidate the object as one
+ * validated operation.  No arbitrary method body is interpreted. */
+static void register_inline_class_releases(CxxClass* cls) {
+    struct CxxMember* member;
+    TypeMethod** tail;
+    if (!cls || !cls->type || !cls->type->is_complete) return;
+    tail = &cls->type->methods;
+    while (*tail) tail = &(*tail)->next;
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        StmtList* statements;
+        Stmt* declaration_statement;
+        Stmt* assignment_statement;
+        Stmt* return_statement;
+        Decl* local;
+        Expr* assignment;
+        TypeField* field;
+        Type* return_type;
+        int64_t invalid;
+        TypeMethod* lowered;
+        if (!method || method->is_static || method->is_virtual ||
+            method->is_pure_virtual || method->is_deleted ||
+            method->is_defaulted || method->is_constructor ||
+            method->is_destructor || method->is_const ||
+            method->decl->func_params || !method->decl->func_body ||
+            method->decl->func_body->kind != STMT_BLOCK) {
+            continue;
+        }
+        statements = method->decl->func_body->block_stmts;
+        if (!statements || !statements->next ||
+            !statements->next->next || statements->next->next->next) {
+            continue;
+        }
+        declaration_statement = statements->stmt;
+        assignment_statement = statements->next->stmt;
+        return_statement = statements->next->next->stmt;
+        if (!declaration_statement ||
+            declaration_statement->kind != STMT_DECL ||
+            !declaration_statement->decl ||
+            declaration_statement->decl->kind != DECL_VAR ||
+            !declaration_statement->decl->var_init ||
+            declaration_statement->decl->var_init->kind != EXPR_IDENT ||
+            !assignment_statement ||
+            assignment_statement->kind != STMT_EXPR ||
+            !assignment_statement->expr ||
+            assignment_statement->expr->kind != EXPR_ASSIGN ||
+            !return_statement || return_statement->kind != STMT_RETURN ||
+            !return_statement->return_val ||
+            return_statement->return_val->kind != EXPR_IDENT) {
+            continue;
+        }
+        local = declaration_statement->decl;
+        assignment = assignment_statement->expr;
+        if (!local->name ||
+            strcmp(return_statement->return_val->ident_name,
+                   local->name) != 0 ||
+            !assignment->binary_lhs ||
+            assignment->binary_lhs->kind != EXPR_IDENT ||
+            !expr_eval_integer_constant(assignment->binary_rhs, &invalid)) {
+            continue;
+        }
+        field = class_layout_field(
+            cls, declaration_statement->decl->var_init->ident_name);
+        if (!field || !field->name ||
+            strcmp(assignment->binary_lhs->ident_name, field->name) != 0 ||
+            !field->type || field->type->size <= 0 ||
+            field->type->size > 8 ||
+            !(type_is_integer(field->type) ||
+              field->type->kind == TYPE_ENUM ||
+              field->type->kind == TYPE_PTR)) {
+            continue;
+        }
+        if (class_has_destructor(cls) &&
+            (!cls->type->cleanup_function ||
+             cls->type->cleanup_field != field ||
+             cls->type->cleanup_invalid != invalid)) {
+            continue;
+        }
+        return_type = method->decl->type->ret_type;
+        if (!type_is_compatible(return_type, field->type)) continue;
+        lowered = ast_arena_alloc(sizeof(*lowered));
+        lowered->name = method->decl->name;
+        lowered->return_type = return_type;
+        lowered->field = field;
+        lowered->kind = TYPE_METHOD_FIELD_RELEASE;
+        lowered->constant = invalid;
+        lowered->cxx_access = (unsigned char)member->access;
+        lowered->next = NULL;
+        *tail = lowered;
+        tail = &lowered->next;
+    }
+}
+
 static Expr* cleanup_unwrap_void_cast(Expr* expression) {
     if (expression && expression->kind == EXPR_CAST &&
         expression->cast_type == type_void) {
@@ -691,10 +790,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         Stmt* body = NULL;
         if (active_template && check(TOK_LBRACE) &&
             !is_constructor && !is_destructor &&
-            !(is_const && param_idx == 0)) {
-            /* Retain only constructor bodies and const zero-argument method
-             * bodies.  Those are the only template members consumed by the
-             * validated aggregate/accessor lowering implemented today. */
+            param_idx != 0) {
+            /* Retain constructor/destructor and zero-argument method bodies.
+             * Only structurally validated accessor/release patterns are
+             * lowered after template substitution. */
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
         } else if (match(TOK_LBRACE)) {
             /* Parse method body */
@@ -850,6 +949,7 @@ CxxClass* parse_cxx_class(void) {
     cxx_class_compute_layout(cls);
     register_inline_class_accessors(cls);
     register_inline_class_cleanup(cls);
+    register_inline_class_releases(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
      * reuse the common initializer/codegen backend. */
@@ -1581,6 +1681,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     cxx_class_compute_layout(instance);
     register_inline_class_accessors(instance);
     register_inline_class_cleanup(instance);
+    register_inline_class_releases(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);
     if (constructor_mask != 0u) {
         rcc_parser_define_cxx_constructor_type(instance->name,
