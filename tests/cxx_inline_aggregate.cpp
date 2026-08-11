@@ -38,6 +38,51 @@ private:
     int value_;
 };
 
+extern "C" int cxx_cleanup_close(int* value) {
+    *value = *value + 1;
+    return 0;
+}
+
+template<typename Handle>
+class CxxUnique final {
+public:
+    constexpr explicit CxxUnique(Handle handle) noexcept : handle_(handle) {}
+    CxxUnique(const CxxUnique&) = delete;
+    CxxUnique& operator=(const CxxUnique&) = delete;
+
+    ~CxxUnique() {
+        if (handle_ != 0) {
+            (void)cxx_cleanup_close(handle_);
+        }
+    }
+
+private:
+    Handle handle_;
+};
+
+extern "C" int cxx_cleanup_close_wide(uint64_t handle) {
+    int* value = reinterpret_cast<int*>(static_cast<uintptr_t>(handle));
+    *value = *value + 2;
+    return 0;
+}
+
+class CxxWideUnique final {
+public:
+    constexpr explicit CxxWideUnique(uint64_t handle) noexcept
+        : handle_(handle) {}
+    CxxWideUnique(const CxxWideUnique&) = delete;
+    CxxWideUnique& operator=(const CxxWideUnique&) = delete;
+
+    ~CxxWideUnique() {
+        if (handle_ != 0) {
+            (void)cxx_cleanup_close_wide(handle_);
+        }
+    }
+
+private:
+    uint64_t handle_;
+};
+
 template<typename T>
 class CxxOutcome final {
 public:
@@ -183,6 +228,24 @@ int cxx_reference_overload(uint64_t address, uint64_t size) {
            by_reference.size == size &&
            by_pointer.address == size &&
            by_pointer.size == address;
+}
+
+int cxx_cleanup_block(int* value) {
+    {
+        auto handle = CxxUnique<int*>{value};
+    }
+    return *value;
+}
+
+int cxx_cleanup_return(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    return value ? *value : 42;
+}
+
+int cxx_cleanup_wide(int* value) {
+    auto handle = CxxWideUnique{
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(value))};
+    return *value;
 }
 
 }

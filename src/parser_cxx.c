@@ -266,6 +266,14 @@ static bool class_has_virtual_member(CxxClass* cls) {
     return false;
 }
 
+static bool class_has_destructor(CxxClass* cls) {
+    struct CxxMember* member;
+    for (member = cls ? cls->members : NULL; member; member = member->next) {
+        if (member->method && member->method->is_destructor) return true;
+    }
+    return false;
+}
+
 /* Recognize constructors whose observable object representation is exactly
  * declaration-order initialization of their data fields.  This covers the
  * SDK status/outcome wrappers without executing arbitrary constructor code. */
@@ -274,41 +282,46 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     uint32_t mask = 0u;
     if (!cls || !cls->type->is_complete || cls->base_count != 0 ||
         cls->has_static_field || cls->has_field_initializer ||
-        class_has_virtual_member(cls)) {
+        class_has_virtual_member(cls) ||
+        (class_has_destructor(cls) && !cls->type->cleanup_function)) {
         return 0u;
     }
     if (!cls->fields || !cls->constructors) return 0u;
     for (constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         unsigned arity;
+        bool supported = true;
         TypeParam* field = cls->fields;
         TypeParam* parameter = constructor->parameters;
         CxxConstructorInitializer* initializer = constructor->initializers;
         if (constructor->is_deleted || constructor->is_defaulted ||
             !constructor->initializers_are_supported ||
             !constructor->body_is_empty) {
-            return 0u;
+            continue;
         }
         arity = (unsigned)constructor->parameter_count;
-        if (arity >= 32u) return 0u;
+        if (arity >= 32u) continue;
         while (field && initializer) {
             Type* parameter_value_type;
             if (!initializer->field ||
                 strcmp(initializer->field, field->name) != 0 ||
                 !initializer->value) {
-                return 0u;
+                supported = false;
+                break;
             }
             if (arity == 0u) {
                 if (initializer->value->kind != EXPR_INT_LIT ||
                     initializer->value->int_val != 0) {
-                    return 0u;
+                    supported = false;
+                    break;
                 }
             } else {
                 if (!parameter || !parameter->name ||
                     initializer->value->kind != EXPR_IDENT ||
                     strcmp(initializer->value->ident_name,
                            parameter->name) != 0) {
-                    return 0u;
+                    supported = false;
+                    break;
                 }
                 parameter_value_type = parameter->type;
                 if (parameter_value_type &&
@@ -318,17 +331,18 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 }
                 if (!type_is_compatible(field->type,
                                         parameter_value_type)) {
-                    return 0u;
+                    supported = false;
+                    break;
                 }
                 parameter = parameter->next;
             }
             field = field->next;
             initializer = initializer->next;
         }
-        if (field || initializer || parameter ||
+        if (!supported || field || initializer || parameter ||
             (arity != 0u &&
              constructor->initializer_count != (int)arity)) {
-            return 0u;
+            continue;
         }
         mask |= UINT32_C(1) << arity;
     }
@@ -446,6 +460,103 @@ static void register_inline_class_accessors(CxxClass* cls) {
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;
+    }
+}
+
+static Expr* cleanup_unwrap_void_cast(Expr* expression) {
+    if (expression && expression->kind == EXPR_CAST &&
+        expression->cast_type == type_void) {
+        return expression->cast_expr;
+    }
+    return expression;
+}
+
+static Stmt* cleanup_single_statement(Stmt* statement) {
+    if (statement && statement->kind == STMT_BLOCK) {
+        StmtList* items = statement->block_stmts;
+        if (!items || items->next) return NULL;
+        return items->stmt;
+    }
+    return statement;
+}
+
+/* Accept a destructor only when its complete observable behavior is:
+ *
+ *   if (field != integer-invalid)
+ *       (void)cleanup_function((optional-cast)field);
+ *
+ * This is sufficient for SDK opaque-handle RAII without interpreting an
+ * arbitrary C++ member-function body. */
+static void register_inline_class_cleanup(CxxClass* cls) {
+    struct CxxMember* member;
+    if (!cls || !cls->type || !cls->type->is_complete ||
+        cls->base_count != 0 || class_has_virtual_member(cls)) {
+        return;
+    }
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        StmtList* body;
+        Stmt* conditional;
+        Stmt* action;
+        Expr* condition;
+        Expr* call;
+        Expr* argument;
+        ExprList* arguments;
+        TypeField* field;
+        int64_t invalid;
+        if (!method || !method->is_destructor || method->is_deleted ||
+            method->is_defaulted || method->decl->func_params ||
+            !method->decl->func_body ||
+            method->decl->func_body->kind != STMT_BLOCK) {
+            continue;
+        }
+        body = method->decl->func_body->block_stmts;
+        if (!body || body->next) continue;
+        conditional = body->stmt;
+        if (!conditional || conditional->kind != STMT_IF ||
+            conditional->if_else) {
+            continue;
+        }
+        condition = conditional->if_cond;
+        if (!condition || condition->kind != EXPR_NE ||
+            !condition->binary_lhs ||
+            condition->binary_lhs->kind != EXPR_IDENT ||
+            !expr_eval_integer_constant(condition->binary_rhs, &invalid)) {
+            continue;
+        }
+        field = class_layout_field(
+            cls, condition->binary_lhs->ident_name);
+        if (!field || !field->type || field->type->size <= 0 ||
+            field->type->size > 8 ||
+            !(type_is_integer(field->type) ||
+              field->type->kind == TYPE_ENUM ||
+              field->type->kind == TYPE_PTR)) {
+            continue;
+        }
+        action = cleanup_single_statement(conditional->if_then);
+        if (!action || action->kind != STMT_EXPR) continue;
+        call = cleanup_unwrap_void_cast(action->expr);
+        if (!call || call->kind != EXPR_CALL || !call->call_func ||
+            call->call_func->kind != EXPR_IDENT ||
+            !call->call_func->ident_name) {
+            continue;
+        }
+        arguments = call->call_args;
+        if (!arguments || arguments->next || !arguments->expr) continue;
+        argument = arguments->expr;
+        if (argument->kind == EXPR_CAST) argument = argument->cast_expr;
+        if (!argument || argument->kind != EXPR_IDENT ||
+            strcmp(argument->ident_name, field->name) != 0) {
+            continue;
+        }
+        if (cls->type->cleanup_function) {
+            cls->type->cleanup_function = NULL;
+            cls->type->cleanup_field = NULL;
+            return;
+        }
+        cls->type->cleanup_function = call->call_func->ident_name;
+        cls->type->cleanup_field = field;
+        cls->type->cleanup_invalid = invalid;
     }
 }
 
@@ -579,7 +690,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Method body or declaration */
         Stmt* body = NULL;
         if (active_template && check(TOK_LBRACE) &&
-            !is_constructor && !(is_const && param_idx == 0)) {
+            !is_constructor && !is_destructor &&
+            !(is_const && param_idx == 0)) {
             /* Retain only constructor bodies and const zero-argument method
              * bodies.  Those are the only template members consumed by the
              * validated aggregate/accessor lowering implemented today. */
@@ -737,6 +849,7 @@ CxxClass* parse_cxx_class(void) {
 
     cxx_class_compute_layout(cls);
     register_inline_class_accessors(cls);
+    register_inline_class_cleanup(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
      * reuse the common initializer/codegen backend. */
@@ -746,6 +859,7 @@ CxxClass* parse_cxx_class(void) {
             rcc_parser_define_cxx_constructor_type(
                 cls->name, cls->type, constructor_mask);
         } else if (!cls->has_user_constructor &&
+                   !class_has_destructor(cls) &&
                    !cls->has_nonpublic_field &&
                    !cls->has_static_field &&
                    !cls->has_field_initializer &&
@@ -1466,6 +1580,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
 
     cxx_class_compute_layout(instance);
     register_inline_class_accessors(instance);
+    register_inline_class_cleanup(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);
     if (constructor_mask != 0u) {
         rcc_parser_define_cxx_constructor_type(instance->name,

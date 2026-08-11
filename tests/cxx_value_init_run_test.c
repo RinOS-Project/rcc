@@ -13,6 +13,7 @@ typedef int (*binary_function)(int, int);
 typedef int (*wide_binary_function)(uint64_t, uint64_t);
 typedef uint64_t (*int_wide_function)(int, uint64_t);
 typedef int (*int_pointer_function)(const int*);
+typedef int (*mutable_int_pointer_function)(int*);
 
 typedef struct RinSliceV1 {
     uint64_t address;
@@ -68,6 +69,9 @@ int main(int argc, char** argv)
     reference_copy_function copy_reference;
     wide_binary_function reference_call;
     wide_binary_function reference_overload;
+    mutable_int_pointer_function cleanup_block;
+    mutable_int_pointer_function cleanup_return;
+    mutable_int_pointer_function cleanup_wide;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -115,6 +119,9 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(reference_call, object, mapping, "cxx_reference_call");
     LOAD_FUNCTION(reference_overload, object, mapping,
                   "cxx_reference_overload");
+    LOAD_FUNCTION(cleanup_block, object, mapping, "cxx_cleanup_block");
+    LOAD_FUNCTION(cleanup_return, object, mapping, "cxx_cleanup_return");
+    LOAD_FUNCTION(cleanup_wide, object, mapping, "cxx_cleanup_wide");
     assert(direct_value_init() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
@@ -145,6 +152,22 @@ int main(int argc, char** argv)
                           UINT64_C(0x8877665544332211)) == 1);
     assert(reference_overload(UINT64_C(0x1020304050607080),
                               UINT64_C(0x8070605040302010)) == 1);
+    {
+        int value = 10;
+        assert(cleanup_block(&value) == 11);
+        assert(value == 11);
+    }
+    {
+        int value = 20;
+        assert(cleanup_return(&value) == 20);
+        assert(value == 21);
+    }
+    assert(cleanup_return(NULL) == 42);
+    {
+        int value = 30;
+        assert(cleanup_wide(&value) == 30);
+        assert(value == 32);
+    }
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

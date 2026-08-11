@@ -82,6 +82,10 @@ struct Type {
     bool is_volatile;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;
+    /* Structurally validated C++ scope cleanup.  NULL for ordinary types. */
+    const char* cleanup_function;
+    TypeField* cleanup_field;
+    int64_t cleanup_invalid;
 
     union {
         /* TYPE_PTR, TYPE_ARRAY */
@@ -574,6 +578,7 @@ struct Decl {
             bool var_is_global;
             bool var_is_thread_local;
             bool var_is_auto;       /* C++ placeholder type, deduced in sema. */
+            Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
         };
 
         /* DECL_FUNC */

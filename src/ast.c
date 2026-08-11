@@ -785,6 +785,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_is_global = false;
     d->var_is_thread_local = false;
     d->var_is_auto = false;
+    d->var_cleanup = NULL;
     return d;
 }
 

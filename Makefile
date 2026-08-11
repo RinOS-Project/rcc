@@ -284,6 +284,27 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		status=$$?; set -e; test $$status -ne 0
 	grep -q "auto variable requires an initializer" \
 		$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.ro \
+		tests/cxx_cleanup_copy_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "C++ scope-cleanup object requires a validated direct constructor" \
+		$(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.ro \
+		tests/cxx_cleanup_control_flow_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "goto, switch, break, and continue are not supported with C++ scope cleanup yet" \
+		$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-destructor.ro \
+		tests/cxx_unsafe_destructor_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-destructor.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "expected ;, got '{'" \
+		$(TEST_OUT)/cxx-inline-aggregates/unsafe-destructor.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)

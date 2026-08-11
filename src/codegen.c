@@ -4393,6 +4393,35 @@ static void gen_expr(Module* mod, Expr* expr) {
     }
 }
 
+typedef struct CleanupCodegen {
+    Expr* expression;
+    struct CleanupCodegen* previous;
+} CleanupCodegen;
+
+static CleanupCodegen* active_cleanups = NULL;
+
+static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
+    for (CleanupCodegen* item = active_cleanups; item && item != marker;
+         item = item->previous) {
+        gen_expr(mod, item->expression);
+    }
+}
+
+static void discard_cleanups_until(CleanupCodegen* marker) {
+    while (active_cleanups && active_cleanups != marker) {
+        CleanupCodegen* previous = active_cleanups->previous;
+        rcc_free(active_cleanups);
+        active_cleanups = previous;
+    }
+}
+
+static void gen_scoped_stmt(Module* mod, Stmt* statement) {
+    CleanupCodegen* marker = active_cleanups;
+    gen_stmt(mod, statement);
+    gen_cleanups_until(mod, marker);
+    discard_cleanups_until(marker);
+}
+
 static Type* codegen_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -4485,11 +4514,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             }
             break;
 
-        case STMT_BLOCK:
+        case STMT_BLOCK: {
+            CleanupCodegen* marker = active_cleanups;
             for (StmtList* s = stmt->block_stmts; s; s = s->next) {
                 gen_stmt(mod, s->stmt);
             }
+            gen_cleanups_until(mod, marker);
+            discard_cleanups_until(marker);
             break;
+        }
 
         case STMT_IF: {
             int else_label = new_label();
@@ -4499,7 +4532,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             emit_test_scalar_value(mod, stmt->if_cond->type);
             emit_jcc_label(mod, CC_E, else_label);
 
-            gen_stmt(mod, stmt->if_then);
+            gen_scoped_stmt(mod, stmt->if_then);
 
             if (stmt->if_else) {
                 emit_jmp_label(mod, end_label);
@@ -4508,7 +4541,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             emit_label(mod, else_label);
 
             if (stmt->if_else) {
-                gen_stmt(mod, stmt->if_else);
+                gen_scoped_stmt(mod, stmt->if_else);
                 emit_label(mod, end_label);
             }
             break;
@@ -4527,7 +4560,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             emit_test_scalar_value(mod, stmt->while_cond->type);
             emit_jcc_label(mod, CC_E, end_label);
 
-            gen_stmt(mod, stmt->while_body);
+            gen_scoped_stmt(mod, stmt->while_body);
 
             emit_jmp_label(mod, start_label);
             emit_label(mod, end_label);
@@ -4547,7 +4580,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             continue_label = cond_label;
 
             emit_label(mod, start_label);
-            gen_stmt(mod, stmt->while_body);
+            gen_scoped_stmt(mod, stmt->while_body);
 
             emit_label(mod, cond_label);
             gen_expr(mod, stmt->while_cond);
@@ -4562,6 +4595,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         }
 
         case STMT_FOR: {
+            CleanupCodegen* marker = active_cleanups;
             int start_label = new_label();
             int end_label = new_label();
             int inc_label = new_label();
@@ -4582,7 +4616,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 emit_jcc_label(mod, CC_E, end_label);
             }
 
-            gen_stmt(mod, stmt->for_body);
+            gen_scoped_stmt(mod, stmt->for_body);
 
             emit_label(mod, inc_label);
             if (stmt->for_inc) {
@@ -4591,6 +4625,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             emit_jmp_label(mod, start_label);
             emit_label(mod, end_label);
+            gen_cleanups_until(mod, marker);
+            discard_cleanups_until(marker);
 
             break_label = old_break;
             continue_label = old_continue;
@@ -4703,6 +4739,17 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                         current_function_return_type);
                 }
             }
+            if (active_cleanups) {
+                if (stmt->return_val) {
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EDX);
+                }
+                gen_cleanups_until(mod, NULL);
+                if (stmt->return_val) {
+                    emit_pop_reg(mod, EDX);
+                    emit_pop_reg(mod, EAX);
+                }
+            }
             emit_leave(mod);
             emit_ret(mod);
             break;
@@ -4734,6 +4781,12 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                               d->name);
                 }
             }
+            if (d->kind == DECL_VAR && d->var_cleanup) {
+                CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
+                cleanup->expression = d->var_cleanup;
+                cleanup->previous = active_cleanups;
+                active_cleanups = cleanup;
+            }
             break;
         }
 
@@ -4756,6 +4809,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 static void gen_function(Module* mod, Decl* decl) {
     int stack_size;
     Type* old_return_type;
+    CleanupCodegen* old_cleanups;
     if (!decl->func_body) return;
 
     stack_size = codegen_required_local_bytes(decl->func_body);
@@ -4779,8 +4833,12 @@ static void gen_function(Module* mod, Decl* decl) {
     current_function_return_type = decl->type &&
                                    decl->type->kind == TYPE_FUNC
         ? decl->type->ret_type : NULL;
+    old_cleanups = active_cleanups;
+    active_cleanups = NULL;
     named_codegen_labels = NULL;
     gen_stmt(mod, decl->func_body);
+    discard_cleanups_until(NULL);
+    active_cleanups = old_cleanups;
     codegen_release_named_labels();
     current_function_return_type = old_return_type;
 

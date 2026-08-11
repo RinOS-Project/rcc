@@ -1187,6 +1187,12 @@ static void sema_stmt(Stmt* stmt) {
                         current_func_ret, stmt->return_val);
                 }
                 sema_expr(stmt->return_val);
+                if (current_func_ret &&
+                    current_func_ret->cleanup_function) {
+                    rcc_error(stmt->loc,
+                              "returning a C++ scope-cleanup type is not "
+                              "supported yet");
+                }
                 if (current_func_ret && current_func_ret != type_void) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {
                         rcc_warning(stmt->loc, "incompatible return type");
@@ -1661,6 +1667,162 @@ static Type* sema_deduce_auto_type(Decl* declaration) {
     return deduced;
 }
 
+static Expr* sema_cleanup_member_expression(Decl* declaration,
+                                            TypeField* field) {
+    Expr* object = expr_ident(declaration->name, declaration->loc);
+    Expr* member = expr_member(object, field->name, declaration->loc);
+    object->ident_decl = declaration;
+    object->type = declaration->type;
+    member->member_field = field;
+    member->type = field->type;
+    return member;
+}
+
+static void sema_prepare_variable_cleanup(Decl* declaration,
+                                          bool is_global) {
+    Symbol* symbol;
+    Decl* function;
+    TypeParam* parameter;
+    TypeField* field;
+    Expr* condition;
+    Expr* function_expression;
+    Expr* argument;
+    Expr* call;
+    Expr* cleanup;
+    ExprList* arguments = NULL;
+    if (!declaration || !declaration->type ||
+        !declaration->type->cleanup_function ||
+        !declaration->type->cleanup_field) {
+        return;
+    }
+    if (is_global) {
+        rcc_error(declaration->loc,
+                  "C++ cleanup for static storage is not supported yet");
+        return;
+    }
+    if (!declaration->var_init ||
+        declaration->var_init->kind != EXPR_COMPOUND ||
+        declaration->var_init->compound_type != declaration->type) {
+        rcc_error(declaration->loc,
+                  "C++ scope-cleanup object requires a validated direct "
+                  "constructor");
+        return;
+    }
+    field = declaration->type->cleanup_field;
+    symbol = symtab_lookup(g_symtab, declaration->type->cleanup_function);
+    function = symbol && symbol->kind == SYM_FUNC ? symbol->decl : NULL;
+    if (!function || !function->type || function->type->kind != TYPE_FUNC) {
+        rcc_error(declaration->loc,
+                  "C++ cleanup function '%s' is not declared",
+                  declaration->type->cleanup_function);
+        return;
+    }
+    parameter = function->type->params;
+    if (!parameter || parameter->next ||
+        !type_is_compatible(parameter->type, field->type)) {
+        rcc_error(declaration->loc,
+                  "C++ cleanup function '%s' has an incompatible signature",
+                  declaration->type->cleanup_function);
+        return;
+    }
+
+    condition = expr_binary(
+        EXPR_NE,
+        sema_cleanup_member_expression(declaration, field),
+        expr_int(declaration->type->cleanup_invalid, declaration->loc),
+        declaration->loc);
+    condition->type = type_int;
+    function_expression = expr_ident(function->name, declaration->loc);
+    function_expression->ident_decl = function;
+    function_expression->type = function->type;
+    argument = sema_cleanup_member_expression(declaration, field);
+    exprlist_append(&arguments, argument);
+    call = expr_call(function_expression, arguments, declaration->loc);
+    call->type = function->type->ret_type;
+    cleanup = expr_cond(condition, call,
+                        expr_int(0, declaration->loc), declaration->loc);
+    cleanup->type = call->type && call->type->kind != TYPE_VOID
+        ? call->type : type_int;
+    declaration->var_cleanup = cleanup;
+}
+
+static bool sema_statement_has_cleanup(Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (sema_statement_has_cleanup(item->stmt)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return sema_statement_has_cleanup(statement->if_then) ||
+                   sema_statement_has_cleanup(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_statement_has_cleanup(statement->while_body);
+        case STMT_FOR:
+            return sema_statement_has_cleanup(statement->for_init) ||
+                   sema_statement_has_cleanup(statement->for_body);
+        case STMT_SWITCH:
+            return sema_statement_has_cleanup(statement->switch_body);
+        case STMT_CASE:
+            return sema_statement_has_cleanup(statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_statement_has_cleanup(statement->default_stmt);
+        case STMT_LABEL:
+            return sema_statement_has_cleanup(statement->label_stmt);
+        case STMT_DECL:
+            return statement->decl && statement->decl->var_cleanup;
+        default:
+            return false;
+    }
+}
+
+static bool sema_statement_has_unsupported_cleanup_flow(Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_GOTO:
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_SWITCH:
+            return true;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (sema_statement_has_unsupported_cleanup_flow(item->stmt)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_IF:
+            return sema_statement_has_unsupported_cleanup_flow(
+                       statement->if_then) ||
+                   sema_statement_has_unsupported_cleanup_flow(
+                       statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_statement_has_unsupported_cleanup_flow(
+                statement->while_body);
+        case STMT_FOR:
+            return sema_statement_has_unsupported_cleanup_flow(
+                       statement->for_init) ||
+                   sema_statement_has_unsupported_cleanup_flow(
+                       statement->for_body);
+        case STMT_CASE:
+            return sema_statement_has_unsupported_cleanup_flow(
+                statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_statement_has_unsupported_cleanup_flow(
+                statement->default_stmt);
+        case STMT_LABEL:
+            return sema_statement_has_unsupported_cleanup_flow(
+                statement->label_stmt);
+        default:
+            return false;
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
@@ -1717,6 +1879,7 @@ static void sema_decl(Decl* decl) {
             if (decl->var_init) {
                 sema_initializer(decl->type, decl->var_init);
             }
+            sema_prepare_variable_cleanup(decl, is_global);
             break;
         }
 
@@ -1801,6 +1964,13 @@ static void sema_decl(Decl* decl) {
                 loop_depth = 0;
                 current_switch = NULL;
                 sema_stmt(decl->func_body);
+                if (sema_statement_has_cleanup(decl->func_body) &&
+                    sema_statement_has_unsupported_cleanup_flow(
+                        decl->func_body)) {
+                    rcc_error(decl->loc,
+                              "goto, switch, break, and continue are not "
+                              "supported with C++ scope cleanup yet");
+                }
 
                 /* Check for undefined labels */
                 for (Symbol* label = g_symtab->labels; label; label = label->next) {

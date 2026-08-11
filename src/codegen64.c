@@ -2055,6 +2055,35 @@ static void gen64_expr(Module* mod, Expr* expr) {
     }
 }
 
+typedef struct CleanupCodegen64 {
+    Expr* expression;
+    struct CleanupCodegen64* previous;
+} CleanupCodegen64;
+
+static CleanupCodegen64* active_cleanups64 = NULL;
+
+static void gen64_cleanups_until(Module* mod, CleanupCodegen64* marker) {
+    for (CleanupCodegen64* item = active_cleanups64;
+         item && item != marker; item = item->previous) {
+        gen64_expr(mod, item->expression);
+    }
+}
+
+static void discard64_cleanups_until(CleanupCodegen64* marker) {
+    while (active_cleanups64 && active_cleanups64 != marker) {
+        CleanupCodegen64* previous = active_cleanups64->previous;
+        rcc_free(active_cleanups64);
+        active_cleanups64 = previous;
+    }
+}
+
+static void gen64_scoped_stmt(Module* mod, Stmt* statement) {
+    CleanupCodegen64* marker = active_cleanups64;
+    gen64_stmt(mod, statement);
+    gen64_cleanups_until(mod, marker);
+    discard64_cleanups_until(marker);
+}
+
 static Type* codegen64_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -2319,11 +2348,15 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             }
             break;
 
-        case STMT_BLOCK:
+        case STMT_BLOCK: {
+            CleanupCodegen64* marker = active_cleanups64;
             for (StmtList* s = stmt->block_stmts; s; s = s->next) {
                 gen64_stmt(mod, s->stmt);
             }
+            gen64_cleanups_until(mod, marker);
+            discard64_cleanups_until(marker);
             break;
+        }
 
         case STMT_IF: {
             int else_label = new_label64();
@@ -2333,7 +2366,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, else_label);
 
-            gen64_stmt(mod, stmt->if_then);
+            gen64_scoped_stmt(mod, stmt->if_then);
 
             if (stmt->if_else) {
                 emit64_jmp_label(mod, end_label);
@@ -2342,7 +2375,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             emit64_label(mod, else_label);
 
             if (stmt->if_else) {
-                gen64_stmt(mod, stmt->if_else);
+                gen64_scoped_stmt(mod, stmt->if_else);
                 emit64_label(mod, end_label);
             }
             break;
@@ -2361,7 +2394,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, end_label);
 
-            gen64_stmt(mod, stmt->while_body);
+            gen64_scoped_stmt(mod, stmt->while_body);
 
             emit64_jmp_label(mod, start_label);
             emit64_label(mod, end_label);
@@ -2381,7 +2414,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             continue_label64 = cond_label;
 
             emit64_label(mod, start_label);
-            gen64_stmt(mod, stmt->while_body);
+            gen64_scoped_stmt(mod, stmt->while_body);
 
             emit64_label(mod, cond_label);
             gen64_expr(mod, stmt->while_cond);
@@ -2396,6 +2429,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         }
 
         case STMT_FOR: {
+            CleanupCodegen64* marker = active_cleanups64;
             int start_label = new_label64();
             int end_label = new_label64();
             int inc_label = new_label64();
@@ -2416,7 +2450,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 emit64_jcc_label(mod, CC64_E, end_label);
             }
 
-            gen64_stmt(mod, stmt->for_body);
+            gen64_scoped_stmt(mod, stmt->for_body);
 
             emit64_label(mod, inc_label);
             if (stmt->for_inc) {
@@ -2425,6 +2459,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
             emit64_jmp_label(mod, start_label);
             emit64_label(mod, end_label);
+            gen64_cleanups_until(mod, marker);
+            discard64_cleanups_until(marker);
 
             break_label64 = old_break;
             continue_label64 = old_continue;
@@ -2533,6 +2569,17 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                         mod, RAX, current_function_return_type64);
                 }
             }
+            if (active_cleanups64) {
+                if (stmt->return_val) {
+                    emit64_push_reg(mod, RAX);
+                    emit64_push_reg(mod, RDX);
+                }
+                gen64_cleanups_until(mod, NULL);
+                if (stmt->return_val) {
+                    emit64_pop_reg(mod, RDX);
+                    emit64_pop_reg(mod, RAX);
+                }
+            }
             emit64_leave(mod);
             emit64_ret(mod);
             break;
@@ -2563,6 +2610,12 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     rcc_error(d->loc, "unsupported local initializer for '%s'",
                               d->name);
                 }
+            }
+            if (d->kind == DECL_VAR && d->var_cleanup) {
+                CleanupCodegen64* cleanup = rcc_alloc(sizeof(*cleanup));
+                cleanup->expression = d->var_cleanup;
+                cleanup->previous = active_cleanups64;
+                active_cleanups64 = cleanup;
             }
             break;
         }
@@ -2646,6 +2699,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     int stack_cursor = 16; /* saved RBP + return address */
     int stack_size;
     Type* old_return_type;
+    CleanupCodegen64* old_cleanups;
     int old_sret_offset;
     bool old_variadic;
     int old_va_gp_offset;
@@ -2773,8 +2827,12 @@ static void gen64_function(Module* mod, Decl* decl) {
     }
     current_function_va_overflow_offset64 = stack_cursor;
     current_function_va_reg_save_offset64 = va_reg_save_offset;
+    old_cleanups = active_cleanups64;
+    active_cleanups64 = NULL;
     named_codegen_labels64 = NULL;
     gen64_stmt(mod, decl->func_body);
+    discard64_cleanups_until(NULL);
+    active_cleanups64 = old_cleanups;
     codegen64_release_named_labels();
     current_function_return_type64 = old_return_type;
     current_function_sret_offset64 = old_sret_offset;
