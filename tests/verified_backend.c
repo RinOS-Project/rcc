@@ -41,6 +41,12 @@ int verified_local_pointer_array(int* left, int* right)
     return *values[0] + *values[2];
 }
 
+int verified_local_string_array(int index)
+{
+    char text[8] = "RinOS";
+    return text[index];
+}
+
 int verified_pointer_add(int* base, int index)
 {
     return *(base + index);

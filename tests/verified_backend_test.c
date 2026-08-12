@@ -46,6 +46,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* index;
     ObjSymbol* local_array;
     ObjSymbol* local_pointer_array;
+    ObjSymbol* local_string_array;
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
@@ -71,6 +72,8 @@ static void verify_object(const char* path, uint16_t arch)
     local_array = objfile_find_symbol(object, "verified_local_array");
     local_pointer_array = objfile_find_symbol(
         object, "verified_local_pointer_array");
+    local_string_array = objfile_find_symbol(
+        object, "verified_local_string_array");
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
@@ -104,6 +107,9 @@ static void verify_object(const char* path, uint16_t arch)
     assert(local_pointer_array != NULL &&
            local_pointer_array->type == SYM_GLOBAL &&
            local_pointer_array->section == 0);
+    assert(local_string_array != NULL &&
+           local_string_array->type == SYM_GLOBAL &&
+           local_string_array->section == 0);
     assert(pointer_add != NULL && pointer_add->type == SYM_GLOBAL &&
            pointer_add->section == 0);
     assert(pointer_sub != NULL && pointer_sub->type == SYM_GLOBAL &&
@@ -135,7 +141,7 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 20);
+    assert(object->symbol_count == 21);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -156,6 +162,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*pointer_function)(int*, int);
     int (*local_array_function)(int, int, int);
     int (*local_pointer_array_function)(int*, int*);
+    int (*local_string_array_function)(int);
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
@@ -184,6 +191,13 @@ static void verify_native_execution(const char* path, uint16_t arch)
     memcpy(&local_pointer_array_function, &address,
            sizeof(local_pointer_array_function));
     assert(local_pointer_array_function(values, values + 2) == 44);
+
+    symbol = objfile_find_symbol(object, "verified_local_string_array");
+    address = symbol_address(memory, symbol);
+    memcpy(&local_string_array_function, &address,
+           sizeof(local_string_array_function));
+    assert(local_string_array_function(1) == 'i');
+    assert(local_string_array_function(6) == 0);
 
     symbol = objfile_find_symbol(object, "verified_pointer_add");
     address = symbol_address(memory, symbol);

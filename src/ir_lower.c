@@ -1783,15 +1783,38 @@ static const Expr* lower_scalar_initializer_expression(
     return initializer;
 }
 
+static const Expr* lower_character_array_string(
+    const Type* array_type, const Expr* initializer) {
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        !array_type->base || array_type->base->kind != TYPE_CHAR ||
+        !initializer) return NULL;
+    if (initializer->kind == EXPR_STRING_LIT) return initializer;
+    if (initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_init &&
+        !initializer->compound_init->next &&
+        initializer->compound_init->designator_kind ==
+            INIT_DESIGNATOR_NONE &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
+        return initializer->compound_init->expr;
+    }
+    return NULL;
+}
+
 static bool lower_array_initializer(
     RccIrLowerContext* context, RccIrValue base,
     const Type* array_type, const Expr* initializer) {
     const ExprList* item;
+    const Expr* string;
     int64_t cursor = 0;
     if (!array_type || array_type->kind != TYPE_ARRAY ||
         array_type->array_len <= 0 || array_type->array_len > 4096 ||
-        !array_type->base || !initializer ||
-        initializer->kind != EXPR_COMPOUND) {
+        !array_type->base || !initializer) {
+        context->unsupported = true;
+        return false;
+    }
+    string = lower_character_array_string(array_type, initializer);
+    if (!string && initializer->kind != EXPR_COMPOUND) {
         context->unsupported = true;
         return false;
     }
@@ -1802,6 +1825,33 @@ static bool lower_array_initializer(
             context, array_type->base);
         if (!address.valid || !zero.valid ||
             !lower_store_address(context, address, zero)) return false;
+    }
+    if (string) {
+        size_t text_size = strlen(string->str_val);
+        size_t copy_size;
+        if (text_size == SIZE_MAX) {
+            context->unsupported = true;
+            return false;
+        }
+        ++text_size;
+        copy_size = text_size < (size_t)array_type->array_len
+            ? text_size : (size_t)array_type->array_len;
+        for (size_t index = 0u; index < copy_size; ++index) {
+            RccIrLowerValue address = lower_array_element_address(
+                context, base, array_type->base, index);
+            RccIrType element_type;
+            RccIrLowerValue value;
+            if (!lower_type(array_type->base, &element_type)) {
+                context->unsupported = true;
+                return false;
+            }
+            value = lower_integer_constant(
+                context, element_type, array_type->base->is_unsigned,
+                (uint8_t)string->str_val[index]);
+            if (!address.valid || !value.valid ||
+                !lower_store_address(context, address, value)) return false;
+        }
+        return true;
     }
     for (item = initializer->compound_init; item; item = item->next) {
         const Expr* expression;

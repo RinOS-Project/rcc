@@ -1,5 +1,5 @@
-int verified_local_string_initializer_fallback(void)
+int verified_nested_array_initializer_fallback(void)
 {
-    char values[] = "hi";
-    return values[0];
+    int values[2][2] = {{1, 2}, {3, 4}};
+    return values[1][0];
 }
