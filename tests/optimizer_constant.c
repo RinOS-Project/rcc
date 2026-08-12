@@ -126,6 +126,29 @@ int preserved_volatile_read(volatile int* value)
     return 31;
 }
 
+int preserved_postfix_volatile_read(int volatile* value)
+{
+    *value;
+    return 37;
+}
+
+int preserved_volatile_pointer_read(int* volatile value)
+{
+    value;
+    return *value;
+}
+
+int qualified_pointer_levels(int* left, int* right)
+{
+    int* const fixed = left;
+    int* volatile cursor = left;
+    int const* readonly = right;
+    *fixed += 2;
+    cursor = right;
+    cursor;
+    return *fixed + *cursor + *readonly;
+}
+
 extern void optimizer_external_effect(int* value);
 
 int preserved_call_expression(int* value)

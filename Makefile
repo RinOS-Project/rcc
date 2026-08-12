@@ -1597,6 +1597,20 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -O1 -driver \
 		--emit-unsigned-v3 -o $(TEST_OUT)/optimize/forbidden.drv \
 		tests/driver_policy_float.c
+	@set +e; $(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/invalid-qualifiers.ro \
+		tests/invalid_qualifiers.c \
+		>$(TEST_OUT)/optimize/invalid-qualifiers.log 2>&1; status=$$?; \
+		set -e; if [ $$status -eq 0 ]; then \
+		echo "const-qualified writes unexpectedly compiled"; exit 1; fi
+	test "$$(grep -c 'requires modifiable lvalue' \
+		$(TEST_OUT)/optimize/invalid-qualifiers.log)" -eq 4
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/qualifier-conversions.ro \
+		tests/qualifier_conversions.c \
+		>$(TEST_OUT)/optimize/qualifier-conversions.log 2>&1
+	test "$$(grep -c 'incompatible return type' \
+		$(TEST_OUT)/optimize/qualifier-conversions.log)" -eq 2
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/optimizer_run_test-x86 \
 		tests/optimizer_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c

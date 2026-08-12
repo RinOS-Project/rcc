@@ -43,7 +43,8 @@
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen
 - [ ] qualifierとeffective typeの完全なC17規則
-  - [x] declaration specifierの`volatile`保持と未使用readのDCE抑止
+  - [x] 前置・後置cv指定、pointer level cv、modifiable lvalue検査
+  - [x] `volatile` object/pointerの未使用readに対するDCE抑止
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] compatible aggregateのlocal copy初期化と匿名struct/union member

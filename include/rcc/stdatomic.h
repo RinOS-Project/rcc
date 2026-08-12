@@ -14,7 +14,7 @@ typedef enum memory_order {
     memory_order_seq_cst = __ATOMIC_SEQ_CST
 } memory_order;
 
-#define _Atomic(type) volatile type
+#define _Atomic(type) type volatile
 
 typedef volatile _Bool atomic_bool;
 typedef volatile char atomic_char;

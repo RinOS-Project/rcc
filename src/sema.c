@@ -215,6 +215,14 @@ static bool is_lvalue(Expr* e) {
     }
 }
 
+static bool is_modifiable_lvalue(Expr* expression) {
+    Type* type;
+    if (!expression || !is_lvalue(expression)) return false;
+    type = expression->type;
+    return type && !type->is_const && type->kind != TYPE_ARRAY &&
+           type->kind != TYPE_FUNC;
+}
+
 static Type* get_pointer_base(Type* t) {
     if (t->kind == TYPE_PTR) return t->base;
     if (t->kind == TYPE_ARRAY) return t->base;
@@ -267,7 +275,10 @@ static Type* implicit_cast(Expr* e, Type* target) {
         /* Reference arguments are passed as addresses by the backend, so the
          * supported subset deliberately requires addressable expressions. */
         if (!referred || !is_lvalue(e)) return NULL;
-        if (e->type->is_const && !referred->is_const) return NULL;
+        if ((e->type->is_const && !referred->is_const) ||
+            (e->type->is_volatile && !referred->is_volatile)) {
+            return NULL;
+        }
         return type_is_compatible(e->type, referred) ? target : NULL;
     }
 
@@ -299,6 +310,10 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* Array to pointer decay */
     if (type_is_array(e->type) && type_is_pointer(target)) {
+        if ((e->type->base->is_const && !target->base->is_const) ||
+            (e->type->base->is_volatile && !target->base->is_volatile)) {
+            return NULL;
+        }
         if ((target->base && target->base->kind == TYPE_VOID) ||
             type_is_compatible(e->type->base, target->base)) {
             return target;
@@ -311,6 +326,10 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* void* conversions */
     if (type_is_pointer(e->type) && type_is_pointer(target)) {
+        if ((e->type->base->is_const && !target->base->is_const) ||
+            (e->type->base->is_volatile && !target->base->is_volatile)) {
+            return NULL;
+        }
         if ((e->type->base && e->type->base->kind == TYPE_VOID) ||
             (target->base && target->base->kind == TYPE_VOID)) {
             return target;
@@ -390,7 +409,11 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
         source->is_rvalue_reference != target->is_rvalue_reference) {
         return false;
     }
-    if (!top_level && source->is_const != target->is_const) return false;
+    if (!top_level &&
+        (source->is_const != target->is_const ||
+         source->is_volatile != target->is_volatile)) {
+        return false;
+    }
     if (type_is_integer(source) &&
         source->is_unsigned != target->is_unsigned) {
         return false;
@@ -420,7 +443,10 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     if (target->is_reference) {
         target_base = target->base;
         if (!target_base || !is_lvalue(argument)) return -1;
-        if (source->is_const && !target_base->is_const) return -1;
+        if ((source->is_const && !target_base->is_const) ||
+            (source->is_volatile && !target_base->is_volatile)) {
+            return -1;
+        }
         if (cxx_same_parameter_type(source, target_base, false)) return 0;
         return type_is_compatible(source, target_base) ? 1 : -1;
     }
@@ -429,8 +455,9 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     if (source->kind == TYPE_ARRAY && target->kind == TYPE_PTR) {
         source_base = source->base;
         target_base = target->base;
-        if (source_base && target_base && source_base->is_const &&
-            !target_base->is_const) {
+        if (source_base && target_base &&
+            ((source_base->is_const && !target_base->is_const) ||
+             (source_base->is_volatile && !target_base->is_volatile))) {
             return -1;
         }
         if ((target_base && target_base->kind == TYPE_VOID) ||
@@ -446,8 +473,11 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         target_base = target->base;
         if (!source_base || !target_base) return -1;
         /* Standard qualification conversion may add, but never remove,
-         * pointee constness. */
-        if (source_base->is_const && !target_base->is_const) return -1;
+         * pointee cv-qualification. */
+        if ((source_base->is_const && !target_base->is_const) ||
+            (source_base->is_volatile && !target_base->is_volatile)) {
+            return -1;
+        }
         if (type_is_compatible(source_base, target_base)) return 1;
         if (source_base->kind == TYPE_VOID || target_base->kind == TYPE_VOID) {
             return 2;
@@ -965,8 +995,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_POSTINC:
         case EXPR_POSTDEC: {
             Type* t = sema_expr(expr->unary_operand);
-            if (!is_lvalue(expr->unary_operand)) {
-                rcc_error(expr->loc, "increment/decrement requires lvalue");
+            if (!is_modifiable_lvalue(expr->unary_operand)) {
+                rcc_error(expr->loc,
+                          "increment/decrement requires modifiable lvalue");
             }
             if (!type_is_arithmetic(t) &&
                 !(type_is_pointer(t) && is_pointer_arithmetic_type(t))) {
@@ -1306,8 +1337,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_SUB_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!is_lvalue(expr->binary_lhs)) {
-                rcc_error(expr->loc, "assignment requires lvalue");
+            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+                rcc_error(expr->loc,
+                          "assignment requires modifiable lvalue");
             }
             if (sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
                 rcc_error(expr->loc,
@@ -1327,8 +1359,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_DIV_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!is_lvalue(expr->binary_lhs)) {
-                rcc_error(expr->loc, "assignment requires lvalue");
+            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+                rcc_error(expr->loc,
+                          "assignment requires modifiable lvalue");
             }
             if (sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
                 rcc_error(expr->loc,
@@ -1350,8 +1383,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_RSHIFT_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!is_lvalue(expr->binary_lhs)) {
-                rcc_error(expr->loc, "assignment requires lvalue");
+            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+                rcc_error(expr->loc,
+                          "assignment requires modifiable lvalue");
             }
             if (sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
                 rcc_error(expr->loc,
@@ -1367,8 +1401,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             sema_expr(expr->binary_rhs);
-            if (!is_lvalue(expr->binary_lhs)) {
-                rcc_error(expr->loc, "assignment requires lvalue");
+            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+                rcc_error(expr->loc,
+                          "assignment requires modifiable lvalue");
             }
             if (sema_is_cxx_nullptr_expr(expr->binary_rhs) &&
                 !type_is_pointer(lt) && lt->kind != TYPE_NULLPTR) {
@@ -1573,6 +1608,16 @@ static Type* sema_expr(Expr* expr) {
                 if (strcmp(field->name, expr->member_name) == 0) {
                     expr->member_field = field;
                     expr->type = field->type;
+                    if ((bt->is_const && !expr->type->is_const) ||
+                        (bt->is_volatile && !expr->type->is_volatile)) {
+                        Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                        *qualified = *expr->type;
+                        qualified->is_const = qualified->is_const ||
+                                              bt->is_const;
+                        qualified->is_volatile = qualified->is_volatile ||
+                                                 bt->is_volatile;
+                        expr->type = qualified;
+                    }
                     if (field->cxx_access != 0u) {
                         rcc_error(expr->loc, "member '%s' is not accessible",
                                   expr->member_name);

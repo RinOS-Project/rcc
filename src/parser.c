@@ -1602,6 +1602,17 @@ static void parse_aggregate_body(Type* aggregate) {
     aggregate->is_complete = true;
 }
 
+static Type* parser_qualify_type(Type* type, bool is_const,
+                                 bool is_volatile) {
+    Type* qualified;
+    if (!type || (!is_const && !is_volatile)) return type;
+    qualified = ast_arena_alloc(sizeof(*qualified));
+    *qualified = *type;
+    qualified->is_const = qualified->is_const || is_const;
+    qualified->is_volatile = qualified->is_volatile || is_volatile;
+    return qualified;
+}
+
 static Type* parse_type_spec(void) {
     Type* t = NULL;
     bool is_unsigned = false;
@@ -1689,14 +1700,13 @@ static Type* parse_type_spec(void) {
         t = is_unsigned ? type_uint : type_int;
     }
 
-    if ((is_const || is_volatile) && t) {
-        /* Built-in and typedef types are shared, so qualify a private copy. */
-        Type* qualified = ast_arena_alloc(sizeof(*qualified));
-        *qualified = *t;
-        qualified->is_const = qualified->is_const || is_const;
-        qualified->is_volatile = qualified->is_volatile || is_volatile;
-        t = qualified;
+    /* Declaration specifiers permit qualifiers on either side of the type
+     * specifier (for example, both const int and int const). */
+    while (match(TOK_CONST) || match(TOK_VOLATILE)) {
+        if (previous()->type == TOK_CONST) is_const = true;
+        else is_volatile = true;
     }
+    t = parser_qualify_type(t, is_const, is_volatile);
 
     return t;
 }
@@ -1770,27 +1780,57 @@ static DeclList* parse_parameter_list(bool* variadic) {
     return parameters;
 }
 
+typedef struct ParsedPointerLevel {
+    bool is_const;
+    bool is_volatile;
+    struct ParsedPointerLevel* next;
+} ParsedPointerLevel;
+
+static ParsedPointerLevel* parse_pointer_levels(void) {
+    ParsedPointerLevel* levels = NULL;
+    ParsedPointerLevel** tail = &levels;
+    while (match(TOK_STAR)) {
+        ParsedPointerLevel* level = ast_arena_alloc(sizeof(*level));
+        while (check(TOK_CONST) || check(TOK_VOLATILE) ||
+               check(TOK_RESTRICT)) {
+            if (match(TOK_CONST)) level->is_const = true;
+            else if (match(TOK_VOLATILE)) level->is_volatile = true;
+            else advance();
+        }
+        *tail = level;
+        tail = &level->next;
+    }
+    return levels;
+}
+
+static Type* apply_pointer_levels(Type* type,
+                                  ParsedPointerLevel* levels) {
+    for (ParsedPointerLevel* level = levels; level; level = level->next) {
+        type = type_ptr(type);
+        type->is_const = level->is_const;
+        type->is_volatile = level->is_volatile;
+    }
+    return type;
+}
+
 static Type* parse_declarator(Type* base_type, const char** name,
                               DeclList** parameters) {
     Type* type = base_type;
-    int pointer_count = 0;
+    ParsedPointerLevel* leading_pointers;
     if (name) *name = NULL;
     if (parameters) *parameters = NULL;
 
-    while (match(TOK_STAR)) {
-        pointer_count++;
-        while (match(TOK_CONST) || match(TOK_VOLATILE) || match(TOK_RESTRICT)) {}
-    }
+    leading_pointers = parse_pointer_levels();
 
     /* Function-pointer declarator: return_type (*name)(parameters). */
     if (check(TOK_LPAREN) && parser.cur->next &&
         parser.cur->next->type == TOK_STAR) {
-        int nested_pointers = 0;
+        ParsedPointerLevel* nested_pointers;
         DeclList* function_parameters = NULL;
         bool variadic = false;
         bool has_prototype;
         advance();
-        while (match(TOK_STAR)) nested_pointers++;
+        nested_pointers = parse_pointer_levels();
         if (check(TOK_IDENT)) {
             Token* identifier = advance();
             if (name) *name = identifier->value.str_val;
@@ -1800,17 +1840,16 @@ static Type* parse_declarator(Type* base_type, const char** name,
         has_prototype = !check(TOK_RPAREN);
         function_parameters = parse_parameter_list(&variadic);
         expect(TOK_RPAREN, ")");
-        type = type_func(base_type,
+        type = type_func(apply_pointer_levels(base_type, leading_pointers),
                          parser_type_params(function_parameters, &variadic),
                          variadic);
         type->has_prototype = has_prototype;
-        while (nested_pointers-- > 0) type = type_ptr(type);
-        while (pointer_count-- > 0) type = type_ptr(type);
+        type = apply_pointer_levels(type, nested_pointers);
         if (parameters) *parameters = function_parameters;
         return type;
     }
 
-    while (pointer_count-- > 0) type = type_ptr(type);
+    type = apply_pointer_levels(type, leading_pointers);
     if (check(TOK_IDENT)) {
         Token* identifier = advance();
         if (name) *name = identifier->value.str_val;

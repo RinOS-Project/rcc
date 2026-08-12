@@ -85,6 +85,12 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "preserved_assignment_expression"));
     assert(function_extent(optimized, "preserved_volatile_read") ==
            function_extent(unoptimized, "preserved_volatile_read"));
+    assert(function_extent(optimized, "preserved_postfix_volatile_read") ==
+           function_extent(unoptimized,
+                           "preserved_postfix_volatile_read"));
+    assert(function_extent(optimized, "preserved_volatile_pointer_read") ==
+           function_extent(unoptimized,
+                           "preserved_volatile_pointer_read"));
     assert(function_extent(optimized, "preserved_call_expression") ==
            function_extent(unoptimized, "preserved_call_expression"));
     objfile_free(unoptimized);
@@ -146,6 +152,12 @@ int main(int argc, char** argv)
             object, "preserved_assignment_expression");
         ObjSymbol* preserved_volatile_read_symbol = function_symbol(
             object, "preserved_volatile_read");
+        ObjSymbol* preserved_postfix_volatile_read_symbol = function_symbol(
+            object, "preserved_postfix_volatile_read");
+        ObjSymbol* preserved_volatile_pointer_read_symbol = function_symbol(
+            object, "preserved_volatile_pointer_read");
+        ObjSymbol* qualified_pointer_levels_symbol = function_symbol(
+            object, "qualified_pointer_levels");
         ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
         ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
         ObjSymbol* for_symbol = function_symbol(object, "removed_for_loop");
@@ -175,6 +187,9 @@ int main(int argc, char** argv)
         int (*removed_pure_expression)(int);
         int (*preserved_assignment_expression)(int*);
         int (*preserved_volatile_read)(volatile int*);
+        int (*preserved_postfix_volatile_read)(volatile int*);
+        int (*preserved_volatile_pointer_read)(int* volatile);
+        int (*qualified_pointer_levels)(int*, int*);
         int (*folded_branch)(int*);
         int (*removed_loop)(int*);
         int (*removed_for_loop)(int*);
@@ -244,6 +259,15 @@ int main(int argc, char** argv)
         address = mapping + preserved_volatile_read_symbol->value;
         memcpy(&preserved_volatile_read, &address,
                sizeof(preserved_volatile_read));
+        address = mapping + preserved_postfix_volatile_read_symbol->value;
+        memcpy(&preserved_postfix_volatile_read, &address,
+               sizeof(preserved_postfix_volatile_read));
+        address = mapping + preserved_volatile_pointer_read_symbol->value;
+        memcpy(&preserved_volatile_pointer_read, &address,
+               sizeof(preserved_volatile_pointer_read));
+        address = mapping + qualified_pointer_levels_symbol->value;
+        memcpy(&qualified_pointer_levels, &address,
+               sizeof(qualified_pointer_levels));
         address = mapping + branch_symbol->value;
         memcpy(&folded_branch, &address, sizeof(folded_branch));
         address = mapping + loop_symbol->value;
@@ -286,6 +310,14 @@ int main(int argc, char** argv)
         assert(preserved_assignment_expression(&value) == 12);
         assert(value == 12);
         assert(preserved_volatile_read(&value) == 31);
+        assert(preserved_postfix_volatile_read(&value) == 37);
+        assert(preserved_volatile_pointer_read(&value) == 12);
+        {
+            int left = 4;
+            int right = 7;
+            assert(qualified_pointer_levels(&left, &right) == 20);
+            assert(left == 6 && right == 7);
+        }
         value = 3;
         assert(folded_branch(&value) == 5);
         assert(value == 3);
