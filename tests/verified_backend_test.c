@@ -46,6 +46,11 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
+    ObjSymbol* logical_and;
+    ObjSymbol* logical_or;
+    ObjSymbol* pointer_compound;
+    ObjSymbol* pointer_postincrement;
+    ObjSymbol* lvalue_once;
     ObjReloc* relocation;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -58,6 +63,13 @@ static void verify_object(const char* path, uint16_t arch)
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
+    logical_and = objfile_find_symbol(object, "verified_logical_and");
+    logical_or = objfile_find_symbol(object, "verified_logical_or");
+    pointer_compound = objfile_find_symbol(
+        object, "verified_pointer_compound");
+    pointer_postincrement = objfile_find_symbol(
+        object, "verified_pointer_postincrement");
+    lvalue_once = objfile_find_symbol(object, "verified_lvalue_once");
     assert(text != NULL && text->size != 0u && text->memory_size == text->size);
     assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
            (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -74,7 +86,19 @@ static void verify_object(const char* path, uint16_t arch)
            pointer_sub->section == 0);
     assert(conditional != NULL && conditional->type == SYM_GLOBAL &&
            conditional->section == 0);
-    assert(object->symbol_count == 8);
+    assert(logical_and != NULL && logical_and->type == SYM_GLOBAL &&
+           logical_and->section == 0);
+    assert(logical_or != NULL && logical_or->type == SYM_GLOBAL &&
+           logical_or->section == 0);
+    assert(pointer_compound != NULL &&
+           pointer_compound->type == SYM_GLOBAL &&
+           pointer_compound->section == 0);
+    assert(pointer_postincrement != NULL &&
+           pointer_postincrement->type == SYM_GLOBAL &&
+           pointer_postincrement->section == 0);
+    assert(lvalue_once != NULL && lvalue_once->type == SYM_GLOBAL &&
+           lvalue_once->section == 0);
+    assert(object->symbol_count == 13);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -94,6 +118,9 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int side_effect = 10;
     int (*pointer_function)(int*, int);
     int (*conditional_function)(int, int*);
+    int (*pointer_compound_function)(int**, int);
+    int (*pointer_postincrement_function)(int**);
+    int* cursor;
     void* address;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -121,6 +148,45 @@ static void verify_native_execution(const char* path, uint16_t arch)
     assert(side_effect == 11);
     assert(conditional_function(0, &side_effect) == 14);
     assert(side_effect == 14);
+
+    symbol = objfile_find_symbol(object, "verified_logical_and");
+    address = symbol_address(memory, symbol);
+    memcpy(&conditional_function, &address, sizeof(conditional_function));
+    assert(conditional_function(0, &side_effect) == 0);
+    assert(side_effect == 14);
+    assert(conditional_function(1, &side_effect) == 1);
+    assert(side_effect == 15);
+
+    symbol = objfile_find_symbol(object, "verified_logical_or");
+    address = symbol_address(memory, symbol);
+    memcpy(&conditional_function, &address, sizeof(conditional_function));
+    assert(conditional_function(1, &side_effect) == 1);
+    assert(side_effect == 15);
+    assert(conditional_function(0, &side_effect) == 1);
+    assert(side_effect == 16);
+
+    cursor = values;
+    symbol = objfile_find_symbol(object, "verified_pointer_compound");
+    address = symbol_address(memory, symbol);
+    memcpy(&pointer_compound_function, &address,
+           sizeof(pointer_compound_function));
+    assert(pointer_compound_function(&cursor, 2) == 33);
+    assert(cursor == values + 2);
+
+    cursor = values + 1;
+    symbol = objfile_find_symbol(object,
+                                 "verified_pointer_postincrement");
+    address = symbol_address(memory, symbol);
+    memcpy(&pointer_postincrement_function, &address,
+           sizeof(pointer_postincrement_function));
+    assert(pointer_postincrement_function(&cursor) == 55);
+    assert(cursor == values + 2);
+
+    symbol = objfile_find_symbol(object, "verified_lvalue_once");
+    address = symbol_address(memory, symbol);
+    memcpy(&pointer_function, &address, sizeof(pointer_function));
+    assert(pointer_function(values, 1) == 227);
+    assert(values[1] == 27 && values[2] == 33);
 
     assert(munmap(memory, mapping_size) == 0);
     objfile_free(object);
