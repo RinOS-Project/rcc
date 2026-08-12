@@ -87,7 +87,7 @@
 
 - [ ] typed SSA IRとCFG
   - [x] scalar/pointer SSA value、basic block、phi、terminator、dominance/use-def/type verifier
-  - [x] scalar ASTのalloca/load/store SSA loweringとif/while/do/for CFG shadow verification
+  - [x] scalar ASTのalloca/load/store、scaled pointer GEP、短絡条件演算子SSA loweringとif/while/do/for CFG shadow verification
   - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
@@ -124,7 +124,7 @@
   - [x] integer compare/setccとtruncate/zero/sign extension/reinterpret encoding
   - [x] stack addressとnative-width indirect load/store encoding
   - [x] scaled GEPとscalar selectのalias-safe encoding
-  - [x] C/C++の明示option付きverified `.ro v2` production経路とtranslation-unit fallback
+  - [x] C/C++の明示option付きverified `.ro v2` production経路、pointer GEP・条件phi実行検証、translation-unit fallback
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

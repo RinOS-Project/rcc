@@ -41,6 +41,14 @@ static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement);
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
+static bool lower_branch(RccIrLowerContext* context,
+                         RccIrBlockId target);
+static bool lower_conditional_branch(RccIrLowerContext* context,
+                                     RccIrLowerValue condition,
+                                     RccIrBlockId then_target,
+                                     RccIrBlockId else_target);
+static RccIrLowerValue lower_conditional_expression(
+    RccIrLowerContext* context, const Expr* expression);
 
 static RccIrLowerValue lower_invalid_value(void) {
     RccIrLowerValue value;
@@ -247,6 +255,88 @@ static RccIrLowerValue lower_truth(RccIrLowerContext* context,
     return lower_value(compare->result, i1, true);
 }
 
+static RccIrLowerValue lower_pointer_gep(
+    RccIrLowerContext* context, const Expr* pointer_expression,
+    const Expr* index_expression, bool subtract_index) {
+    const Type* pointer_type;
+    const Type* index_type;
+    RccIrLowerValue pointer;
+    RccIrLowerValue index;
+    RccIrLowerValue zero;
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    uint64_t scale;
+    if (!pointer_expression || !index_expression) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    pointer_type = pointer_expression->type;
+    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->base || pointer_type->base->size <= 0 ||
+        (uint64_t)pointer_type->base->size > (uint64_t)INT32_MAX) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    pointer = lower_expression(context, pointer_expression);
+    index = lower_expression(context, index_expression);
+    if (!pointer.valid || pointer.type.kind != RCC_IR_TYPE_POINTER ||
+        !index.valid || index.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    index_type = index.is_unsigned ? type_ulong : type_long;
+    index = lower_cast(context, index, index_type);
+    if (!index.valid) return lower_invalid_value();
+    if (subtract_index) {
+        zero = lower_integer_constant(context, index.type,
+                                      index.is_unsigned, 0u);
+        if (!zero.valid) return lower_invalid_value();
+        operands[0] = zero.value;
+        operands[1] = index.value;
+        instruction = lower_append(context, RCC_IR_SUB, index.type,
+                                   operands, 2u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        index = lower_value(instruction->result, index.type,
+                            index.is_unsigned);
+    }
+    operands[0] = pointer.value;
+    operands[1] = index.value;
+    instruction = lower_append(context, RCC_IR_GEP,
+                               rcc_ir_type_pointer(0u), operands, 2u,
+                               NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    scale = (uint64_t)pointer_type->base->size;
+    rcc_ir_set_immediate(instruction, scale);
+    return lower_value(instruction->result, rcc_ir_type_pointer(0u), true);
+}
+
+static RccIrLowerValue lower_pointer_binary(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Expr* pointer_expression = NULL;
+    const Expr* index_expression = NULL;
+    bool subtract_index = expression->kind == EXPR_SUB;
+    if (expression->binary_lhs && expression->binary_lhs->type &&
+        expression->binary_lhs->type->kind == TYPE_PTR &&
+        expression->binary_rhs && expression->binary_rhs->type &&
+        expression->binary_rhs->type->kind != TYPE_PTR) {
+        pointer_expression = expression->binary_lhs;
+        index_expression = expression->binary_rhs;
+    } else if (expression->kind == EXPR_ADD && expression->binary_rhs &&
+               expression->binary_rhs->type &&
+               expression->binary_rhs->type->kind == TYPE_PTR &&
+               expression->binary_lhs && expression->binary_lhs->type &&
+               expression->binary_lhs->type->kind != TYPE_PTR) {
+        pointer_expression = expression->binary_rhs;
+        index_expression = expression->binary_lhs;
+    }
+    if (!pointer_expression || !index_expression) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    return lower_pointer_gep(context, pointer_expression, index_expression,
+                             subtract_index);
+}
+
 static RccIrLowerValue lower_lvalue_address(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
@@ -267,6 +357,18 @@ static RccIrLowerValue lower_lvalue_address(
             return lower_invalid_value();
         }
         return pointer;
+    }
+    if (expression->kind == EXPR_INDEX) {
+        const Expr* pointer_expression = expression->index_base;
+        const Expr* index_expression = expression->index_expr;
+        if (pointer_expression && pointer_expression->type &&
+            pointer_expression->type->kind != TYPE_PTR && index_expression &&
+            index_expression->type && index_expression->type->kind == TYPE_PTR) {
+            pointer_expression = expression->index_expr;
+            index_expression = expression->index_base;
+        }
+        return lower_pointer_gep(context, pointer_expression,
+                                 index_expression, false);
     }
     context->unsupported = true;
     return lower_invalid_value();
@@ -670,6 +772,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             return lower_cast(context, operand, expression->type);
         case EXPR_ADD:
         case EXPR_SUB:
+            if (expression->type && expression->type->kind == TYPE_PTR) {
+                return lower_pointer_binary(context, expression);
+            }
+            return lower_integer_binary(context, expression);
         case EXPR_MUL:
         case EXPR_DIV:
         case EXPR_MOD:
@@ -718,8 +824,6 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_STRING_LIT:
         case EXPR_AND:
         case EXPR_OR:
-        case EXPR_COND:
-        case EXPR_INDEX:
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:
@@ -730,6 +834,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_VA_ARG:
             context->unsupported = true;
             return lower_invalid_value();
+        case EXPR_COND:
+            return lower_conditional_expression(context, expression);
+        case EXPR_INDEX:
+            return lower_load_lvalue(context, expression);
     }
     context->unsupported = true;
     return lower_invalid_value();
@@ -763,6 +871,70 @@ static bool lower_conditional_branch(RccIrLowerContext* context,
     }
     context->terminated = true;
     return true;
+}
+
+static RccIrLowerValue lower_conditional_expression(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerValue condition;
+    RccIrLowerValue then_value;
+    RccIrLowerValue else_value;
+    RccIrType result_type;
+    RccIrBlock* then_block;
+    RccIrBlock* else_block;
+    RccIrBlock* merge_block;
+    RccIrBlock* then_end;
+    RccIrBlock* else_end;
+    RccIrValue operands[2];
+    RccIrBlockId targets[2];
+    RccIrInstruction* phi;
+    if (!expression || !expression->type ||
+        !lower_type(expression->type, &result_type) ||
+        result_type.kind == RCC_IR_TYPE_VOID) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    condition = lower_expression(context, expression->cond_test);
+    if (!condition.valid) return lower_invalid_value();
+    then_block = rcc_ir_block_add(context->function, "cond.then");
+    else_block = rcc_ir_block_add(context->function, "cond.else");
+    merge_block = rcc_ir_block_add(context->function, "cond.end");
+    if (!then_block || !else_block || !merge_block ||
+        !lower_conditional_branch(context, condition, then_block->id,
+                                  else_block->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = then_block;
+    context->terminated = false;
+    then_value = lower_expression(context, expression->cond_then);
+    then_value = lower_cast(context, then_value, expression->type);
+    then_end = context->current;
+    if (!then_value.valid || context->terminated ||
+        !lower_branch(context, merge_block->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = else_block;
+    context->terminated = false;
+    else_value = lower_expression(context, expression->cond_else);
+    else_value = lower_cast(context, else_value, expression->type);
+    else_end = context->current;
+    if (!else_value.valid || context->terminated ||
+        !lower_branch(context, merge_block->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = merge_block;
+    context->terminated = false;
+    operands[0] = then_value.value;
+    operands[1] = else_value.value;
+    targets[0] = then_end->id;
+    targets[1] = else_end->id;
+    phi = lower_append(context, RCC_IR_PHI, result_type, operands, 2u,
+                       targets, 2u);
+    if (!phi) return lower_invalid_value();
+    return lower_value(phi->result, result_type,
+                       expression->type->is_unsigned);
 }
 
 static bool lower_block(RccIrLowerContext* context, const Stmt* block) {

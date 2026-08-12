@@ -34,7 +34,7 @@ int ir_lower_pointer_truth(int* value)
     return *value;
 }
 
-int ir_lower_explicit_fallback(int input)
+int ir_lower_conditional(int input)
 {
     return input ? 1 : 0;
 }

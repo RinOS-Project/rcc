@@ -191,9 +191,11 @@ definition、重複・型衝突も検査し、未解決direct imageを拒否す�
 `.ro v2`経由のmulti-object linkでは解決できることを確認します。
 `test-verified-backend`は`-fverified-backend -c`で、対応済みscalar C/C++
 translation unitをtyped SSA、MIR、SysV legalization、native encoderから`.ro v2`へ
-直接出力します。static内部callのscoped symbolと`REL32`を保持し、global dataまたは
-未対応構文を含む場合はtranslation unit全体を既存backendへ戻します。この切替は
-段階移行用の明示optionであり、通常compileの既定出力はまだ変更しません。
+直接出力します。static内部callのscoped symbolと`REL32`を保持し、pointer添字・加減算を
+符号を保つscaled GEPへ、条件演算子を短絡評価するCFG/phiへloweringします。生成した
+両archの`.text`はW^X mappingで直接実行して検証します。global dataまたは未対応構文を
+含む場合はtranslation unit全体を既存backendへ戻します。この切替は段階移行用の
+明示optionであり、通常compileの既定出力はまだ変更しません。
 `test-optimize`は`-O0`と`-O1`の両arch objectを比較し、整数constant folding、
 短絡式、定数`if`、ゼロ回`while`のコード縮小と副作用除去、およびx86_64生成コードの
 実行結果を確認します。
