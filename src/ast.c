@@ -108,6 +108,7 @@ static Type builtin_ulong  = BUILTIN_TYPE(TYPE_LONG,   4, 4, true);
 static Type builtin_ullong = BUILTIN_TYPE(TYPE_LLONG,  8, 8, true);
 static Type builtin_float  = BUILTIN_TYPE(TYPE_FLOAT,  4, 4, false);
 static Type builtin_double = BUILTIN_TYPE(TYPE_DOUBLE, 8, 8, false);
+static Type builtin_nullptr = BUILTIN_TYPE(TYPE_NULLPTR, 4, 4, false);
 
 #undef BUILTIN_TYPE
 
@@ -125,6 +126,7 @@ Type* type_ulong  = &builtin_ulong;
 Type* type_ullong = &builtin_ullong;
 Type* type_float  = &builtin_float;
 Type* type_double = &builtin_double;
+Type* type_nullptr = &builtin_nullptr;
 
 void type_configure_target(TargetArch architecture) {
     int long_size = architecture == ARCH_X64 ? 8 : 4;
@@ -132,6 +134,8 @@ void type_configure_target(TargetArch architecture) {
     builtin_long.align = long_size;
     builtin_ulong.size = long_size;
     builtin_ulong.align = long_size;
+    builtin_nullptr.size = long_size;
+    builtin_nullptr.align = long_size;
 }
 
 /* ═══════════════════════════════════════
@@ -217,7 +221,8 @@ bool type_is_arithmetic(Type* t) {
 }
 
 bool type_is_scalar(Type* t) {
-    return type_is_arithmetic(t) || t->kind == TYPE_PTR;
+    return type_is_arithmetic(t) || t->kind == TYPE_PTR ||
+           t->kind == TYPE_NULLPTR;
 }
 
 bool type_is_pointer(Type* t) {

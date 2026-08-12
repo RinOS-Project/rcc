@@ -1032,7 +1032,7 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         return true;
     }
     if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
-        type->kind != TYPE_PTR) {
+        type->kind != TYPE_PTR && type->kind != TYPE_NULLPTR) {
         return false;
     }
     gen64_expr(mod, initializer);

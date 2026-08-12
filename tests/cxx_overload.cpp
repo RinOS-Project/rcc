@@ -37,3 +37,8 @@ long call_ordered_long_int(long first, int second) {
 int call_null_pointer_overload() {
     return null_pointer(nullptr);
 }
+
+int call_null_pointer_variable_overload() {
+    auto value = nullptr;
+    return null_pointer(value);
+}

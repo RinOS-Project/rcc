@@ -224,8 +224,6 @@ test-cxx-overloads: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
 	grep -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
-	grep -q "auto deduction for nullptr_t is not supported yet" \
-		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
 	grep -q "nullptr can only be assigned to a pointer" \
 		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
 	@echo "RCC++ overload resolution tests completed"

@@ -86,6 +86,10 @@ char* cxx_mangle_type(Type* type) {
             break;
         case TYPE_FLOAT:  buf[pos++] = 'f'; break;
         case TYPE_DOUBLE: buf[pos++] = 'd'; break;
+        case TYPE_NULLPTR:
+            buf[pos++] = 'D';
+            buf[pos++] = 'n';
+            break;
         case TYPE_STRUCT:
         case TYPE_UNION:
             /* Named type */

@@ -32,12 +32,31 @@ static uint32_t read_u32(const uint8_t* bytes)
            ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
 }
 
+static int section_index(ObjectFile* object, ObjSection* target)
+{
+    int index = 0;
+    for (ObjSection* section = object->sections; section;
+         section = section->next, ++index) {
+        if (section == target) return index;
+    }
+    return -1;
+}
+
+static int bytes_are_zero(const uint8_t* bytes, uint64_t size)
+{
+    for (uint64_t index = 0u; index < size; ++index) {
+        if (bytes[index] != 0u) return 0;
+    }
+    return 1;
+}
+
 static void verify_object(const char* path, uint16_t arch, int cxx)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* tls;
     ObjSection* text;
     ObjSymbol* initialized;
+    uint64_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
     unsigned relocation_count = 0u;
     assert(object != NULL && object->arch == arch);
     tls = objfile_get_section(object, ".tls");
@@ -49,7 +68,23 @@ static void verify_object(const char* path, uint16_t arch, int cxx)
     assert(initialized != NULL && initialized->binding == BIND_TLS &&
            initialized->section >= 0 && initialized->value + 4u <= tls->size);
     assert(read_u32(tls->data + initialized->value) == (cxx ? 11u : 7u));
-    if (!cxx) {
+    if (cxx) {
+        ObjSection* data = objfile_get_section(object, ".data");
+        ObjSymbol* tls_pointer = objfile_find_symbol(
+            object, "_Z20tls_cpp_null_pointer");
+        ObjSymbol* global_pointer = objfile_find_symbol(
+            object, "_Z16cpp_null_pointer");
+        assert(data != NULL);
+        assert(tls_pointer != NULL && tls_pointer->binding == BIND_TLS &&
+               tls_pointer->section == section_index(object, tls) &&
+               tls_pointer->value + pointer_size <= tls->size &&
+               bytes_are_zero(tls->data + tls_pointer->value, pointer_size));
+        assert(global_pointer != NULL &&
+               global_pointer->section == section_index(object, data) &&
+               global_pointer->value + pointer_size <= data->size &&
+               bytes_are_zero(data->data + global_pointer->value,
+                              pointer_size));
+    } else {
         ObjSymbol* zero = NULL;
         for (ObjSymbol* symbol = object->symbols; symbol;
              symbol = symbol->next) {

@@ -74,6 +74,7 @@
 - [x] C frontendと共通のtarget/preprocessor CLI
 - [ ] class、継承、virtual dispatchの完全実装
 - [ ] overload resolution、namespace、ADL、two-phase lookup
+  - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
 - [ ] templates、concepts、constexpr/consteval、lambda
 - [ ] modules、coroutines、atomics、TLS
 - [ ] Itanium ABI mangling、exceptions、RTTI、static initialization

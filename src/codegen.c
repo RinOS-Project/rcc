@@ -557,7 +557,9 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
     if (!initializer || !type || type->size < (int)width) {
         return false;
     }
-    if (codegen_static_integer(initializer, &integer) && integer == 0) {
+    if ((initializer->type &&
+         initializer->type->kind == TYPE_NULLPTR) ||
+        (codegen_static_integer(initializer, &integer) && integer == 0)) {
         return true;
     }
     if (!codegen_static_address(mod, initializer, &symbol_name, &addend)) {
@@ -696,6 +698,10 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
     if (type->kind == TYPE_PTR) {
         return codegen_emit_static_pointer(mod, type, initializer, offset);
     }
+    if (type->kind == TYPE_NULLPTR) {
+        return initializer->type &&
+               initializer->type->kind == TYPE_NULLPTR;
+    }
     if (type_is_integer(type) || type->kind == TYPE_ENUM) {
         int64_t constant;
         uint32_t width = (uint32_t)type->size;
@@ -788,7 +794,14 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     }
     if (type->kind == TYPE_PTR) {
         int64_t constant;
-        return codegen_static_integer(initializer, &constant) && constant == 0;
+        return (initializer->type &&
+                initializer->type->kind == TYPE_NULLPTR) ||
+               (codegen_static_integer(initializer, &constant) &&
+                constant == 0);
+    }
+    if (type->kind == TYPE_NULLPTR) {
+        return initializer->type &&
+               initializer->type->kind == TYPE_NULLPTR;
     }
     if (type_is_integer(type) || type->kind == TYPE_ENUM) {
         int64_t constant;
@@ -4461,7 +4474,7 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         return true;
     }
     if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
-        type->kind != TYPE_PTR) {
+        type->kind != TYPE_PTR && type->kind != TYPE_NULLPTR) {
         return false;
     }
     gen_expr(mod, initializer);

@@ -237,6 +237,28 @@ int cxx_nullptr_assignment(void* value) {
     return pointer == nullptr;
 }
 
+int cxx_nullptr_auto(void* value) {
+    auto first = nullptr;
+    auto second = first;
+    first = second;
+    void* pointer = value;
+    pointer = second;
+    return (first == nullptr) * 1000 +
+           (second == 0) * 100 +
+           (!first) * 10 +
+           (pointer == nullptr);
+}
+
+int cxx_nullptr_size(void) {
+    auto value = nullptr;
+    return sizeof(value);
+}
+
+void* cxx_nullptr_conditional(int choose, void* value) {
+    auto empty = nullptr;
+    return choose ? value : empty;
+}
+
 int cxx_direct_value_init(void) {
     return RinSliceV1{}.address == 0 && RinSliceV1{}.size == 0;
 }

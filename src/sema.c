@@ -239,7 +239,8 @@ static bool sema_is_integer_type(Type* type) {
 }
 
 static bool sema_is_cxx_nullptr_expr(const Expr* expression) {
-    return expression && expression->is_cxx_nullptr;
+    return expression && (expression->is_cxx_nullptr ||
+        (expression->type && expression->type->kind == TYPE_NULLPTR));
 }
 
 static Type* sema_integer_promotion(Type* type) {
@@ -255,7 +256,8 @@ static Type* implicit_cast(Expr* e, Type* target) {
     /* nullptr has a zero machine representation, but it is not an integer.
      * Keep its standard null-pointer conversion separate from the legacy C
      * integer/pointer conversion paths below. */
-    if (e->is_cxx_nullptr) {
+    if (e->type->kind == TYPE_NULLPTR) {
+        if (target->kind == TYPE_NULLPTR) return target;
         return !target->is_reference && type_is_pointer(target)
             ? target : NULL;
     }
@@ -411,7 +413,8 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
 
     if (!argument || !argument->type || !target) return -1;
     source = argument->type;
-    if (argument->is_cxx_nullptr) {
+    if (argument->type->kind == TYPE_NULLPTR) {
+        if (target->kind == TYPE_NULLPTR) return 0;
         return !target->is_reference && type_is_pointer(target) ? 1 : -1;
     }
     if (target->is_reference) {
@@ -1257,7 +1260,7 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "assignment requires lvalue");
             }
             if (sema_is_cxx_nullptr_expr(expr->binary_rhs) &&
-                !type_is_pointer(lt)) {
+                !type_is_pointer(lt) && lt->kind != TYPE_NULLPTR) {
                 rcc_error(expr->loc,
                           "nullptr can only be assigned to a pointer");
             }
@@ -1270,7 +1273,21 @@ static Type* sema_expr(Expr* expr) {
             expr->cond_test = sema_contextual_bool(expr->cond_test);
             Type* tt = sema_expr(expr->cond_then);
             Type* et = sema_expr(expr->cond_else);
-            expr->type = type_common(tt, et);
+            Type* tv = generic_selection_type(tt);
+            Type* ev = generic_selection_type(et);
+            bool then_nullptr =
+                sema_is_cxx_nullptr_expr(expr->cond_then);
+            bool else_nullptr =
+                sema_is_cxx_nullptr_expr(expr->cond_else);
+            if (then_nullptr && else_nullptr) {
+                expr->type = type_nullptr;
+            } else if (then_nullptr && type_is_pointer(ev)) {
+                expr->type = ev;
+            } else if (else_nullptr && type_is_pointer(tv)) {
+                expr->type = tv;
+            } else {
+                expr->type = type_common(tt, et);
+            }
             break;
         }
 
@@ -2052,11 +2069,6 @@ static Type* sema_deduce_auto_type(Decl* declaration) {
     }
     deduced = declaration->var_init->type;
     if (!deduced) deduced = sema_expr(declaration->var_init);
-    if (declaration->var_init->is_cxx_nullptr) {
-        rcc_error(declaration->loc,
-                  "auto deduction for nullptr_t is not supported yet");
-        return type_int;
-    }
     if (deduced && deduced->is_reference && deduced->kind == TYPE_PTR) {
         deduced = deduced->base;
     } else if (deduced && deduced->kind == TYPE_ARRAY) {

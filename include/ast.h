@@ -36,6 +36,7 @@ typedef enum {
     TYPE_STRUCT,
     TYPE_UNION,
     TYPE_ENUM,
+    TYPE_NULLPTR,
 } TypeKind;
 
 typedef struct TypeField {
@@ -142,6 +143,7 @@ extern Type* type_ulong;
 extern Type* type_ullong;
 extern Type* type_float;
 extern Type* type_double;
+extern Type* type_nullptr;
 
 /* Configure target-dependent fundamental widths after option parsing and
  * before lexing/parsing a translation unit. */
@@ -299,8 +301,8 @@ struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
-    /* C++ nullptr is encoded as a zero-valued backend literal, but must not
-     * participate in integer conversions or integer constant expressions. */
+    /* Marks the literal spelling of C++ nullptr so it remains excluded from
+     * integer constant expressions.  Its semantic type is TYPE_NULLPTR. */
     bool is_cxx_nullptr;
     /* Non-NULL only for a semantically validated C++ ownership transfer. */
     CxxMoveAssignment* cxx_move_assignment;

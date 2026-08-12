@@ -11,6 +11,7 @@
 typedef int (*nullary_function)(void);
 typedef void* (*nullary_pointer_function)(void);
 typedef int (*nullable_pointer_function)(void*);
+typedef void* (*int_nullable_pointer_function)(int, void*);
 typedef int (*binary_function)(int, int);
 typedef int (*wide_binary_function)(uint64_t, uint64_t);
 typedef uint64_t (*int_wide_function)(int, uint64_t);
@@ -63,6 +64,9 @@ int main(int argc, char** argv)
     nullary_function nullptr_context;
     nullable_pointer_function nullptr_comparisons;
     nullable_pointer_function nullptr_assignment;
+    nullable_pointer_function nullptr_auto;
+    nullary_function nullptr_size;
+    int_nullable_pointer_function nullptr_conditional;
     nullary_function local_value_init;
     nullary_function scalar_value_init;
     nullary_function versioned_template_value;
@@ -140,6 +144,10 @@ int main(int argc, char** argv)
                   "cxx_nullptr_comparisons");
     LOAD_FUNCTION(nullptr_assignment, object, mapping,
                   "cxx_nullptr_assignment");
+    LOAD_FUNCTION(nullptr_auto, object, mapping, "cxx_nullptr_auto");
+    LOAD_FUNCTION(nullptr_size, object, mapping, "cxx_nullptr_size");
+    LOAD_FUNCTION(nullptr_conditional, object, mapping,
+                  "cxx_nullptr_conditional");
     LOAD_FUNCTION(local_value_init, object, mapping,
                   "cxx_local_value_init");
     LOAD_FUNCTION(scalar_value_init, object, mapping,
@@ -230,6 +238,10 @@ int main(int argc, char** argv)
     assert(nullptr_comparisons(NULL) == 1001);
     assert(nullptr_comparisons(mapping) == 1011);
     assert(nullptr_assignment(mapping) == 1);
+    assert(nullptr_auto(mapping) == 1111);
+    assert(nullptr_size() == (int)sizeof(void*));
+    assert(nullptr_conditional(0, mapping) == NULL);
+    assert(nullptr_conditional(1, mapping) == mapping);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
     assert(versioned_template_value() ==
