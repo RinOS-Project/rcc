@@ -75,3 +75,64 @@ long verified_pointer_difference(int* left, int* right)
 {
     return left - right;
 }
+
+int verified_switch(int value)
+{
+    int result = 1;
+    switch (value) {
+        case -1:
+            result = 10;
+            break;
+        case 2:
+            result += 20;
+        case 3:
+            result += 3;
+            break;
+        default:
+            result = 99;
+    }
+    return result;
+}
+
+int verified_nested_switch(int outer, int inner)
+{
+    int result = 0;
+    switch (outer) {
+        case 1:
+            switch (inner) {
+                case 4:
+                    result = 14;
+                    break;
+                default:
+                    result = 19;
+            }
+            result += 100;
+            break;
+        default:
+            result = -1;
+    }
+    return result;
+}
+
+int verified_switch_promotion(unsigned char value)
+{
+    switch (value) {
+        case 255:
+            return 1;
+        default:
+            return 0;
+    }
+    return 0;
+}
+
+int verified_switch_skips_prefix(int value, int* side_effect)
+{
+    switch (value) {
+        *side_effect = *side_effect + 1;
+        case 1:
+            return *side_effect;
+        default:
+            return 9;
+    }
+    return -1;
+}

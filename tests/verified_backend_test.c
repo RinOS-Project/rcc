@@ -52,6 +52,10 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* pointer_postincrement;
     ObjSymbol* lvalue_once;
     ObjSymbol* pointer_difference;
+    ObjSymbol* switch_symbol;
+    ObjSymbol* nested_switch;
+    ObjSymbol* switch_promotion;
+    ObjSymbol* switch_skips_prefix;
     ObjReloc* relocation;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -73,6 +77,12 @@ static void verify_object(const char* path, uint16_t arch)
     lvalue_once = objfile_find_symbol(object, "verified_lvalue_once");
     pointer_difference = objfile_find_symbol(
         object, "verified_pointer_difference");
+    switch_symbol = objfile_find_symbol(object, "verified_switch");
+    nested_switch = objfile_find_symbol(object, "verified_nested_switch");
+    switch_promotion = objfile_find_symbol(
+        object, "verified_switch_promotion");
+    switch_skips_prefix = objfile_find_symbol(
+        object, "verified_switch_skips_prefix");
     assert(text != NULL && text->size != 0u && text->memory_size == text->size);
     assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
            (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -104,7 +114,17 @@ static void verify_object(const char* path, uint16_t arch)
     assert(pointer_difference != NULL &&
            pointer_difference->type == SYM_GLOBAL &&
            pointer_difference->section == 0);
-    assert(object->symbol_count == 14);
+    assert(switch_symbol != NULL && switch_symbol->type == SYM_GLOBAL &&
+           switch_symbol->section == 0);
+    assert(nested_switch != NULL && nested_switch->type == SYM_GLOBAL &&
+           nested_switch->section == 0);
+    assert(switch_promotion != NULL &&
+           switch_promotion->type == SYM_GLOBAL &&
+           switch_promotion->section == 0);
+    assert(switch_skips_prefix != NULL &&
+           switch_skips_prefix->type == SYM_GLOBAL &&
+           switch_skips_prefix->section == 0);
+    assert(object->symbol_count == 18);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -127,6 +147,9 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
     long (*pointer_difference_function)(int*, int*);
+    int (*switch_function)(int);
+    int (*nested_switch_function)(int, int);
+    int (*switch_promotion_function)(unsigned char);
     int* cursor;
     void* address;
     assert(object != NULL && object->arch == arch);
@@ -201,6 +224,38 @@ static void verify_native_execution(const char* path, uint16_t arch)
            sizeof(pointer_difference_function));
     assert(pointer_difference_function(values + 4, values + 1) == 3);
     assert(pointer_difference_function(values + 1, values + 4) == -3);
+
+    symbol = objfile_find_symbol(object, "verified_switch");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_function, &address, sizeof(switch_function));
+    assert(switch_function(-1) == 10);
+    assert(switch_function(2) == 24);
+    assert(switch_function(3) == 4);
+    assert(switch_function(8) == 99);
+
+    symbol = objfile_find_symbol(object, "verified_nested_switch");
+    address = symbol_address(memory, symbol);
+    memcpy(&nested_switch_function, &address,
+           sizeof(nested_switch_function));
+    assert(nested_switch_function(1, 4) == 114);
+    assert(nested_switch_function(1, 7) == 119);
+    assert(nested_switch_function(2, 4) == -1);
+
+    symbol = objfile_find_symbol(object, "verified_switch_promotion");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_promotion_function, &address,
+           sizeof(switch_promotion_function));
+    assert(switch_promotion_function(255u) == 1);
+    assert(switch_promotion_function(7u) == 0);
+
+    side_effect = 5;
+    symbol = objfile_find_symbol(object, "verified_switch_skips_prefix");
+    address = symbol_address(memory, symbol);
+    memcpy(&conditional_function, &address, sizeof(conditional_function));
+    assert(conditional_function(1, &side_effect) == 5);
+    assert(side_effect == 5);
+    assert(conditional_function(7, &side_effect) == 9);
+    assert(side_effect == 5);
 
     assert(munmap(memory, mapping_size) == 0);
     objfile_free(object);

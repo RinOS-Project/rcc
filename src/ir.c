@@ -752,7 +752,9 @@ static bool ir_build_cfg(RccIrVerifier* verifier) {
         bool saw_non_phi = false;
         if (!terminator || !ir_is_terminator(terminator->opcode)) {
             return ir_verify_error(verifier,
-                                   "block %zu has no terminator", block_index);
+                                   "block %zu ('%s') has no terminator",
+                                   block_index,
+                                   block->name ? block->name : "");
         }
         for (RccIrInstruction* instruction = block->first; instruction;
              instruction = instruction->next, ++order) {

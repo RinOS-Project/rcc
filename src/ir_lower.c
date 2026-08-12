@@ -25,12 +25,28 @@ typedef struct {
     bool valid;
 } RccIrLowerValue;
 
+typedef struct RccIrLowerSwitchLabel {
+    const Stmt* statement;
+    RccIrBlock* block;
+    uint64_t case_bits;
+    struct RccIrLowerSwitchLabel* next;
+} RccIrLowerSwitchLabel;
+
+typedef struct RccIrLowerSwitch {
+    const Type* control_type;
+    RccIrLowerSwitchLabel* labels;
+    RccIrLowerSwitchLabel* labels_tail;
+    RccIrLowerSwitchLabel* default_label;
+    struct RccIrLowerSwitch* previous;
+} RccIrLowerSwitch;
+
 typedef struct {
     RccIrModule* module;
     RccIrFunction* function;
     const Type* ast_return_type;
     RccIrBlock* current;
     RccIrLowerLocal* locals;
+    RccIrLowerSwitch* current_switch;
     RccIrBlockId break_target;
     RccIrBlockId continue_target;
     bool terminated;
@@ -51,6 +67,10 @@ static RccIrLowerValue lower_conditional_expression(
     RccIrLowerContext* context, const Expr* expression);
 static RccIrLowerValue lower_logical_expression(
     RccIrLowerContext* context, const Expr* expression);
+static bool lower_switch(RccIrLowerContext* context,
+                         const Stmt* statement);
+static bool lower_switch_case(RccIrLowerContext* context,
+                              const Stmt* statement);
 
 static RccIrLowerValue lower_invalid_value(void) {
     RccIrLowerValue value;
@@ -1127,13 +1147,48 @@ static RccIrLowerValue lower_logical_expression(
                        expression->type->is_unsigned);
 }
 
+static bool lower_statement_has_switch_label(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_SWITCH:
+            return false;
+        case STMT_CASE:
+        case STMT_DEFAULT:
+            return true;
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (lower_statement_has_switch_label(item->stmt)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_IF:
+            return lower_statement_has_switch_label(statement->if_then) ||
+                lower_statement_has_switch_label(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return lower_statement_has_switch_label(statement->while_body);
+        case STMT_FOR:
+            return lower_statement_has_switch_label(statement->for_body);
+        case STMT_LABEL:
+            return lower_statement_has_switch_label(statement->label_stmt);
+        default:
+            return false;
+    }
+}
+
 static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
     if (!block || block->kind != STMT_BLOCK) {
         return lower_statement(context, block);
     }
     for (const StmtList* item = block->block_stmts; item;
          item = item->next) {
-        if (context->terminated) break;
+        if (context->terminated &&
+            (!context->current_switch ||
+             !lower_statement_has_switch_label(item->stmt))) {
+            continue;
+        }
         if (!lower_statement(context, item->stmt)) return false;
     }
     return !context->unsupported;
@@ -1338,6 +1393,282 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     return true;
 }
 
+static const Type* lower_switch_control_type(const Type* type) {
+    if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
+        return type_int;
+    }
+    return type;
+}
+
+static uint64_t lower_switch_case_bits(const Expr* expression,
+                                       const Type* control_type,
+                                       bool* valid) {
+    int64_t value = 0;
+    unsigned width;
+    uint64_t bits;
+    if (valid) *valid = false;
+    if (!expression || !control_type || control_type->size <= 0 ||
+        control_type->size > 8 ||
+        !expr_eval_integer_constant((Expr*)expression, &value)) {
+        return 0u;
+    }
+    width = (unsigned)control_type->size * 8u;
+    bits = (uint64_t)value;
+    if (width < 64u) bits &= (UINT64_C(1) << width) - 1u;
+    if (valid) *valid = true;
+    return bits;
+}
+
+static bool lower_switch_add_label(RccIrLowerContext* context,
+                                   RccIrLowerSwitch* switch_context,
+                                   const Stmt* statement,
+                                   bool is_default) {
+    RccIrLowerSwitchLabel* label;
+    bool valid = true;
+    if (!context || !switch_context || !statement ||
+        (is_default && switch_context->default_label)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    label = rcc_alloc(sizeof(*label));
+    label->statement = statement;
+    label->block = rcc_ir_block_add(
+        context->function, is_default ? "switch.default" : "switch.case");
+    label->case_bits = is_default ? 0u : lower_switch_case_bits(
+        statement->case_val, switch_context->control_type, &valid);
+    label->next = NULL;
+    if (!label->block || !valid) {
+        rcc_free(label);
+        context->unsupported = true;
+        return false;
+    }
+    if (is_default) {
+        switch_context->default_label = label;
+    } else {
+        if (switch_context->labels_tail) {
+            switch_context->labels_tail->next = label;
+        } else {
+            switch_context->labels = label;
+        }
+        switch_context->labels_tail = label;
+    }
+    return true;
+}
+
+static bool lower_collect_switch_labels(
+    RccIrLowerContext* context, RccIrLowerSwitch* switch_context,
+    const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return true;
+    switch (statement->kind) {
+        case STMT_SWITCH:
+            return true;
+        case STMT_CASE:
+            return lower_switch_add_label(context, switch_context,
+                                          statement, false) &&
+                lower_collect_switch_labels(context, switch_context,
+                                            statement->case_stmt);
+        case STMT_DEFAULT:
+            return lower_switch_add_label(context, switch_context,
+                                          statement, true) &&
+                lower_collect_switch_labels(context, switch_context,
+                                            statement->default_stmt);
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (!lower_collect_switch_labels(
+                        context, switch_context, item->stmt)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_IF:
+        case STMT_WHILE:
+        case STMT_DO:
+        case STMT_FOR:
+        case STMT_LABEL:
+            if (lower_statement_has_switch_label(statement)) {
+                context->unsupported = true;
+                return false;
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
+static void lower_release_switch_labels(RccIrLowerSwitch* switch_context) {
+    RccIrLowerSwitchLabel* label;
+    if (!switch_context) return;
+    label = switch_context->labels;
+    while (label) {
+        RccIrLowerSwitchLabel* next = label->next;
+        rcc_free(label);
+        label = next;
+    }
+    rcc_free(switch_context->default_label);
+    switch_context->labels = NULL;
+    switch_context->labels_tail = NULL;
+    switch_context->default_label = NULL;
+}
+
+static RccIrLowerSwitchLabel* lower_find_switch_label(
+    RccIrLowerSwitch* switch_context, const Stmt* statement) {
+    RccIrLowerSwitchLabel* label;
+    if (!switch_context || !statement) return NULL;
+    if (statement->kind == STMT_DEFAULT) {
+        label = switch_context->default_label;
+        return label && label->statement == statement ? label : NULL;
+    }
+    for (label = switch_context->labels; label; label = label->next) {
+        if (label->statement == statement) return label;
+    }
+    return NULL;
+}
+
+static bool lower_switch_case(RccIrLowerContext* context,
+                              const Stmt* statement) {
+    RccIrLowerSwitchLabel* label = lower_find_switch_label(
+        context ? context->current_switch : NULL, statement);
+    const Stmt* child;
+    if (!context || !label) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (!context->terminated && context->current != label->block &&
+        !lower_branch(context, label->block->id)) {
+        return false;
+    }
+    context->current = label->block;
+    context->terminated = false;
+    child = statement->kind == STMT_CASE
+        ? statement->case_stmt : statement->default_stmt;
+    return lower_statement(context, child);
+}
+
+static bool lower_switch(RccIrLowerContext* context,
+                         const Stmt* statement) {
+    RccIrLowerSwitch switch_context;
+    RccIrLowerSwitchLabel* label;
+    const Type* control_type;
+    RccIrLowerValue control;
+    RccIrLowerValue guard;
+    RccIrType ir_control_type;
+    RccIrBlock* dispatch_block;
+    RccIrBlock* shadow_block;
+    RccIrBlock* scan_block;
+    RccIrBlock* exit_block;
+    RccIrBlockId old_break;
+    RccIrValue compare_operands[2];
+    bool body_ok;
+    memset(&switch_context, 0, sizeof(switch_context));
+    if (!context || !statement || !statement->switch_expr ||
+        !statement->switch_expr->type) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    control_type = lower_switch_control_type(statement->switch_expr->type);
+    if (!lower_type(control_type, &ir_control_type) ||
+        ir_control_type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return false;
+    }
+    switch_context.control_type = control_type;
+    switch_context.previous = context->current_switch;
+    if (!lower_collect_switch_labels(
+            context, &switch_context, statement->switch_body)) {
+        lower_release_switch_labels(&switch_context);
+        return false;
+    }
+    control = lower_expression(context, statement->switch_expr);
+    control = lower_cast(context, control, control_type);
+    dispatch_block = rcc_ir_block_add(context->function, "switch.dispatch");
+    shadow_block = rcc_ir_block_add(context->function, "switch.shadow");
+    scan_block = rcc_ir_block_add(context->function, "switch.scan");
+    exit_block = rcc_ir_block_add(context->function, "switch.end");
+    guard = lower_integer_constant(
+        context, rcc_ir_type_integer(1u), true, 1u);
+    if (!control.valid || !dispatch_block || !shadow_block || !scan_block ||
+        !exit_block || !guard.valid || !lower_conditional_branch(
+            context, guard, dispatch_block->id, shadow_block->id)) {
+        lower_release_switch_labels(&switch_context);
+        return false;
+    }
+    context->current = shadow_block;
+    context->terminated = false;
+    if (!lower_conditional_branch(context, guard, scan_block->id,
+                                  exit_block->id)) {
+        lower_release_switch_labels(&switch_context);
+        return false;
+    }
+
+    context->current = dispatch_block;
+    context->terminated = false;
+    for (label = switch_context.labels; label; label = label->next) {
+        RccIrLowerValue case_value = lower_integer_constant(
+            context, ir_control_type, control_type->is_unsigned,
+            label->case_bits);
+        RccIrInstruction* compare;
+        RccIrLowerValue condition;
+        RccIrBlock* next_dispatch = label->next
+            ? rcc_ir_block_add(context->function, "switch.dispatch") : NULL;
+        RccIrBlockId miss_target = next_dispatch
+            ? next_dispatch->id
+            : (switch_context.default_label
+                   ? switch_context.default_label->block->id
+                   : exit_block->id);
+        if (!case_value.valid || (label->next && !next_dispatch)) {
+            lower_release_switch_labels(&switch_context);
+            return false;
+        }
+        compare_operands[0] = control.value;
+        compare_operands[1] = case_value.value;
+        compare = lower_append(context, RCC_IR_ICMP,
+                               rcc_ir_type_integer(1u), compare_operands,
+                               2u, NULL, 0u);
+        if (!compare) {
+            lower_release_switch_labels(&switch_context);
+            return false;
+        }
+        rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+        condition = lower_value(compare->result,
+                                rcc_ir_type_integer(1u), true);
+        if (!lower_conditional_branch(context, condition, label->block->id,
+                                      miss_target)) {
+            lower_release_switch_labels(&switch_context);
+            return false;
+        }
+        if (next_dispatch) {
+            context->current = next_dispatch;
+            context->terminated = false;
+        }
+    }
+    if (!switch_context.labels) {
+        RccIrBlockId target = switch_context.default_label
+            ? switch_context.default_label->block->id : exit_block->id;
+        if (!lower_branch(context, target)) {
+            lower_release_switch_labels(&switch_context);
+            return false;
+        }
+    }
+
+    old_break = context->break_target;
+    context->break_target = exit_block->id;
+    context->current_switch = &switch_context;
+    context->current = scan_block;
+    context->terminated = false;
+    body_ok = lower_statement(context, statement->switch_body);
+    if (body_ok && !context->terminated) {
+        body_ok = lower_branch(context, exit_block->id);
+    }
+    context->current_switch = switch_context.previous;
+    context->break_target = old_break;
+    lower_release_switch_labels(&switch_context);
+    if (!body_ok) return false;
+    context->current = exit_block;
+    context->terminated = false;
+    return true;
+}
+
 static bool lower_declaration(RccIrLowerContext* context,
                               const Decl* declaration) {
     RccIrType type;
@@ -1385,7 +1716,11 @@ static bool lower_statement(RccIrLowerContext* context,
         if (context) context->unsupported = true;
         return false;
     }
-    if (context->terminated) return true;
+    if (context->terminated &&
+        (!context->current_switch ||
+         !lower_statement_has_switch_label(statement))) {
+        return true;
+    }
     switch (statement->kind) {
         case STMT_NULL:
             return true;
@@ -1434,8 +1769,10 @@ static bool lower_statement(RccIrLowerContext* context,
         case STMT_CONTINUE:
             return lower_branch(context, context->continue_target);
         case STMT_SWITCH:
+            return lower_switch(context, statement);
         case STMT_CASE:
         case STMT_DEFAULT:
+            return lower_switch_case(context, statement);
         case STMT_GOTO:
         case STMT_LABEL:
         case STMT_ASM:

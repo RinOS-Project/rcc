@@ -195,7 +195,9 @@ translation unitをtyped SSA、MIR、SysV legalization、native encoderから`.r
 符号を保つscaled GEPへ、条件演算子と`&&`/`||`を短絡評価するCFG/phiへloweringします。
 pointerの前後incrementと`+=`/`-=`も同じGEP契約を使い、副作用を持つlvalue addressは
 一度だけ評価します。pointer差分はbyte差を要素サイズでsigned除算して`ptrdiff`要素数に
-正規化します。生成した両archの`.text`はW^X mappingで直接実行して検証します。
+正規化します。`switch`はinteger promotion後の比較chain、case/default block、break、
+fallthrough、nested switchをCFGへloweringし、case以前の文を実行しません。生成した
+両archの`.text`はW^X mappingで直接実行して検証します。
 global dataまたは未対応構文を
 含む場合はtranslation unit全体を既存backendへ戻します。この切替は段階移行用の
 明示optionであり、通常compileの既定出力はまだ変更しません。
