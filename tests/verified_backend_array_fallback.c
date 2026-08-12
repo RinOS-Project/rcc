@@ -1,10 +1,10 @@
-struct VerifiedAggregateFallback {
+union VerifiedAggregateFallback {
     int first;
     int second;
 };
 
-int verified_struct_initializer_fallback(void)
+int verified_union_initializer_fallback(void)
 {
-    struct VerifiedAggregateFallback value = {1, 2};
+    union VerifiedAggregateFallback value = {.first = 7};
     return value.first;
 }

@@ -1,5 +1,11 @@
 static int verified_helper(int value);
 
+struct VerifiedPair {
+    int first;
+    int second;
+    int* pointer;
+};
+
 int verified_call(int value)
 {
     return verified_helper(value) + 1;
@@ -51,6 +57,18 @@ int verified_nested_array(void)
 {
     int values[2][2] = {{1, 2}, [1] = {3, 4}};
     return values[1][0];
+}
+
+int verified_struct(int left, int right, int* value)
+{
+    struct VerifiedPair pair = {
+        .second = right,
+        .first = left,
+        .pointer = value,
+    };
+    struct VerifiedPair* view = &pair;
+    view->second += *view->pointer;
+    return view->first * 100 + view->second;
 }
 
 int verified_pointer_add(int* base, int index)
