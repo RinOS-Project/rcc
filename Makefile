@@ -17,7 +17,8 @@ BOOTSTRAP_ROOT = build/bootstrap
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
                       src/parser_cxx_stub.c \
-                      src/ir.c src/optimize.c src/codegen.c src/codegen64.c \
+                      src/ir.c src/ir_lower.c src/optimize.c \
+                      src/codegen.c src/codegen64.c \
                       src/preproc.c src/driver_policy.c src/emit_asm.c \
                       src/emit_ro.c src/emit_rin.c src/emit_rll.c \
                       src/emit_drv.c src/archive.c src/linker.c \
@@ -25,7 +26,7 @@ BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c
                       src/build_manifest.c src/utils.c src/main.c \
                       src/main_cxx.c src/main_rld.c src/main_rar.c
 BOOTSTRAP_RCC_OBJECTS = utils lexer parser ast symtab sema codegen codegen64 \
-                        preproc ir optimize emit_rin emit_rll emit_drv emit_ro \
+                        preproc ir ir_lower optimize emit_rin emit_rll emit_drv emit_ro \
                         emit_asm build_manifest driver_policy parser_cxx_stub \
                         main
 BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
@@ -43,7 +44,7 @@ BOOTSTRAP_RUNTIME_IMPORTS = $(foreach symbol,$(BOOTSTRAP_RUNTIME_FUNCTIONS),\
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
               $(SRCDIR)/symtab.c $(SRCDIR)/sema.c $(SRCDIR)/codegen.c \
               $(SRCDIR)/codegen64.c $(SRCDIR)/preproc.c \
-              $(SRCDIR)/ir.c $(SRCDIR)/optimize.c \
+              $(SRCDIR)/ir.c $(SRCDIR)/ir_lower.c $(SRCDIR)/optimize.c \
               $(SRCDIR)/emit_rin.c $(SRCDIR)/emit_rll.c $(SRCDIR)/emit_drv.c $(SRCDIR)/emit_ro.c \
               $(SRCDIR)/emit_asm.c $(SRCDIR)/build_manifest.c $(SRCDIR)/driver_policy.c
 COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
@@ -72,7 +73,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -1175,7 +1176,7 @@ test-sanitize:
 		TEST_OUT=$(SANITIZER_ROOT)/tests \
 		CFLAGS="$(CFLAGS) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
 		LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" \
-		all test-ir test-manifest test-signing test-executable-imports test-tls
+		all test-ir test-ir-lowering test-manifest test-signing test-executable-imports test-tls
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/class.ro tests/class_test.cpp
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -std=c++20 -c \
@@ -1582,6 +1583,20 @@ test-ir:
 	$(TEST_OUT)/ir_test-x86
 	$(TEST_OUT)/ir_test-x64
 
+test-ir-lowering: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/ir-lowering
+	$(RCC_TARGET) --target i686-unknown-rinos -O1 -v -c \
+		-o $(TEST_OUT)/ir-lowering/x86.ro tests/ir_lowering.c \
+		>$(TEST_OUT)/ir-lowering/x86.log
+	grep -q 'Typed SSA shadow verification: 3 function(s)' \
+		$(TEST_OUT)/ir-lowering/x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O3 -v -c \
+		-o $(TEST_OUT)/ir-lowering/x64.ro tests/ir_lowering.c \
+		>$(TEST_OUT)/ir-lowering/x64.log
+	grep -q 'Typed SSA shadow verification: 3 function(s)' \
+		$(TEST_OUT)/ir-lowering/x64.log
+	@echo "Dual-architecture scalar AST to typed SSA lowering tests completed"
+
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/optimize
 	$(RCC_TARGET) --target i686-unknown-rinos -O0 -c \
@@ -1705,7 +1720,8 @@ $(OBJDIR)/sema.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/symtab.h
 $(OBJDIR)/codegen.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h
 $(OBJDIR)/codegen64.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h
 $(OBJDIR)/ir.o: $(INCDIR)/rcc.h $(INCDIR)/ir.h
-$(OBJDIR)/optimize.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/optimize.h
+$(OBJDIR)/ir_lower.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/ir.h $(INCDIR)/ir_lower.h
+$(OBJDIR)/optimize.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/ir_lower.h $(INCDIR)/optimize.h
 $(OBJDIR)/preproc.o: $(INCDIR)/rcc.h $(INCDIR)/preproc.h
 $(OBJDIR)/emit_rin.o: $(INCDIR)/rcc.h $(INCDIR)/codegen.h
 $(OBJDIR)/emit_rll.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/codegen.h

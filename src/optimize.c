@@ -3,6 +3,7 @@
  */
 
 #include "optimize.h"
+#include "ir_lower.h"
 
 #include <limits.h>
 
@@ -1844,6 +1845,8 @@ static void optimize_stmt(Stmt* statement) {
 }
 
 void rcc_optimize(AST* ast) {
+    char ir_error[256];
+    size_t lowered_functions = 0u;
     if (!ast || g_opts.opt_level <= 0) return;
     for (DeclList* item = ast->decls; item; item = item->next) {
         Decl* declaration = item->decl;
@@ -1853,5 +1856,13 @@ void rcc_optimize(AST* ast) {
         } else if (declaration->kind == DECL_FUNC) {
             optimize_stmt(declaration->func_body);
         }
+    }
+    if (!rcc_ir_verify_ast_subset(ast, &lowered_functions, ir_error,
+                                  sizeof(ir_error))) {
+        rcc_fatal("typed SSA lowering failed: %s", ir_error);
+    }
+    if (g_opts.verbose) {
+        printf("Typed SSA shadow verification: %zu function(s)\n",
+               lowered_functions);
     }
 }
