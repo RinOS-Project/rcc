@@ -6,6 +6,12 @@ struct VerifiedPair {
     int* pointer;
 };
 
+struct VerifiedContainer {
+    struct VerifiedPair pair;
+    int values[3];
+    int matrix[2][2];
+};
+
 int verified_call(int value)
 {
     return verified_helper(value) + 1;
@@ -79,6 +85,25 @@ int verified_struct_copy_pointer(struct VerifiedPair* source)
 {
     struct VerifiedPair copy = *source;
     return copy.first * 100 + copy.second + *copy.pointer;
+}
+
+int verified_nested_struct(int left, int right, int* value)
+{
+    struct VerifiedContainer source = {
+        .values = {[1] = right},
+        .matrix = {{1, 2}, {3, 4}},
+        .pair = {.first = left, .pointer = value},
+    };
+    struct VerifiedContainer copy = source;
+    struct VerifiedContainer list[2] = {
+        copy,
+        {.pair = {.first = 7}, .values = {1, 2, 3},
+         .matrix = {{5, 6}, {7, 8}}},
+    };
+    list[0].values[2] = *list[0].pair.pointer;
+    return list[0].matrix[1][0] * 10000 +
+        list[0].pair.first * 1000 + list[0].values[1] * 100 +
+        list[0].values[2] * 10 + list[1].values[2];
 }
 
 int verified_pointer_add(int* base, int index)

@@ -56,6 +56,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* nested_array;
     ObjSymbol* struct_symbol;
     ObjSymbol* struct_copy_pointer;
+    ObjSymbol* nested_struct;
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
@@ -87,6 +88,8 @@ static void verify_object(const char* path, uint16_t arch)
     struct_symbol = objfile_find_symbol(object, "verified_struct");
     struct_copy_pointer = objfile_find_symbol(
         object, "verified_struct_copy_pointer");
+    nested_struct = objfile_find_symbol(
+        object, "verified_nested_struct");
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
@@ -130,6 +133,8 @@ static void verify_object(const char* path, uint16_t arch)
     assert(struct_copy_pointer != NULL &&
            struct_copy_pointer->type == SYM_GLOBAL &&
            struct_copy_pointer->section == 0);
+    assert(nested_struct != NULL && nested_struct->type == SYM_GLOBAL &&
+           nested_struct->section == 0);
     assert(pointer_add != NULL && pointer_add->type == SYM_GLOBAL &&
            pointer_add->section == 0);
     assert(pointer_sub != NULL && pointer_sub->type == SYM_GLOBAL &&
@@ -161,7 +166,7 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 24);
+    assert(object->symbol_count == 25);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -186,6 +191,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*nested_array_function)(void);
     int (*struct_function)(int, int, int*);
     int (*struct_copy_pointer_function)(struct VerifiedPair*);
+    int (*nested_struct_function)(int, int, int*);
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
@@ -242,6 +248,12 @@ static void verify_native_execution(const char* path, uint16_t arch)
                sizeof(struct_copy_pointer_function));
         assert(struct_copy_pointer_function(&pair) == 416);
     }
+
+    symbol = objfile_find_symbol(object, "verified_nested_struct");
+    address = symbol_address(memory, symbol);
+    memcpy(&nested_struct_function, &address,
+           sizeof(nested_struct_function));
+    assert(nested_struct_function(2, 3, values) == 32413);
 
     symbol = objfile_find_symbol(object, "verified_pointer_add");
     address = symbol_address(memory, symbol);
