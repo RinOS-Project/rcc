@@ -23,6 +23,20 @@ struct VerifiedArgument {
     int third;
 };
 
+struct VerifiedReturnPair {
+    int first;
+    int second;
+};
+
+struct VerifiedLargeReturn {
+    int first;
+    int second;
+    int third;
+    int fourth;
+    int fifth;
+    int sixth;
+};
+
 static void* map_text(ObjectFile* object, const ObjSection* text,
                       size_t* mapping_size)
 {
@@ -89,6 +103,10 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* compound_scalar;
     ObjSymbol* struct_parameter;
     ObjSymbol* struct_argument_call;
+    ObjSymbol* pair_return;
+    ObjSymbol* pair_return_call;
+    ObjSymbol* large_return;
+    ObjSymbol* large_return_call;
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
@@ -133,6 +151,14 @@ static void verify_object(const char* path, uint16_t arch)
         object, "verified_struct_parameter");
     struct_argument_call = objfile_find_symbol(
         object, "verified_struct_argument_call");
+    pair_return = objfile_find_symbol(
+        object, "verified_pair_return");
+    pair_return_call = objfile_find_symbol(
+        object, "verified_pair_return_call");
+    large_return = objfile_find_symbol(
+        object, "verified_large_return");
+    large_return_call = objfile_find_symbol(
+        object, "verified_large_return_call");
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
@@ -195,6 +221,16 @@ static void verify_object(const char* path, uint16_t arch)
     assert(struct_argument_call != NULL &&
            struct_argument_call->type == SYM_GLOBAL &&
            struct_argument_call->section == 0);
+    assert(pair_return != NULL && pair_return->type == SYM_GLOBAL &&
+           pair_return->section == 0);
+    assert(pair_return_call != NULL &&
+           pair_return_call->type == SYM_GLOBAL &&
+           pair_return_call->section == 0);
+    assert(large_return != NULL && large_return->type == SYM_GLOBAL &&
+           large_return->section == 0);
+    assert(large_return_call != NULL &&
+           large_return_call->type == SYM_GLOBAL &&
+           large_return_call->section == 0);
     assert(pointer_add != NULL && pointer_add->type == SYM_GLOBAL &&
            pointer_add->section == 0);
     assert(pointer_sub != NULL && pointer_sub->type == SYM_GLOBAL &&
@@ -226,11 +262,13 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 31);
+    assert(object->symbol_count == 35);
     {
         size_t relocation_count = 0u;
         bool found_helper = false;
         bool found_struct_call = false;
+        bool found_pair_return = false;
+        bool found_large_return = false;
         for (relocation = text->relocs; relocation;
              relocation = relocation->next) {
             assert(relocation->type == RELOC_REL32);
@@ -243,8 +281,17 @@ static void verify_object(const char* path, uint16_t arch)
                        "verified_struct_parameter") == 0) {
                 found_struct_call = true;
             }
+            if (strcmp(relocation->symbol_name,
+                       "verified_pair_return") == 0) {
+                found_pair_return = true;
+            }
+            if (strcmp(relocation->symbol_name,
+                       "verified_large_return") == 0) {
+                found_large_return = true;
+            }
         }
-        assert(relocation_count == 2u && found_helper && found_struct_call);
+        assert(relocation_count == 4u && found_helper && found_struct_call &&
+               found_pair_return && found_large_return);
     }
     objfile_free(object);
 }
@@ -273,6 +320,10 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*compound_scalar_function)(int);
     int (*struct_parameter_function)(struct VerifiedArgument, int);
     int (*struct_argument_call_function)(int, int, int);
+    struct VerifiedReturnPair (*pair_return_function)(int, int);
+    int (*pair_return_call_function)(int, int);
+    struct VerifiedLargeReturn (*large_return_function)(int, int, int);
+    int (*large_return_call_function)(int, int, int);
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
@@ -378,6 +429,39 @@ static void verify_native_execution(const char* path, uint16_t arch)
     memcpy(&struct_argument_call_function, &address,
            sizeof(struct_argument_call_function));
     assert(struct_argument_call_function(4, 5, 6) == 460);
+
+    {
+        struct VerifiedReturnPair result;
+        symbol = objfile_find_symbol(object, "verified_pair_return");
+        address = symbol_address(memory, symbol);
+        memcpy(&pair_return_function, &address,
+               sizeof(pair_return_function));
+        result = pair_return_function(7, 8);
+        assert(result.first == 7 && result.second == 8);
+    }
+
+    symbol = objfile_find_symbol(object, "verified_pair_return_call");
+    address = symbol_address(memory, symbol);
+    memcpy(&pair_return_call_function, &address,
+           sizeof(pair_return_call_function));
+    assert(pair_return_call_function(7, 8) == 78);
+
+    {
+        struct VerifiedLargeReturn result;
+        symbol = objfile_find_symbol(object, "verified_large_return");
+        address = symbol_address(memory, symbol);
+        memcpy(&large_return_function, &address,
+               sizeof(large_return_function));
+        result = large_return_function(4, 5, 6);
+        assert(result.first == 4 && result.second == 5 && result.third == 6 &&
+               result.fourth == 5 && result.fifth == 6 && result.sixth == 7);
+    }
+
+    symbol = objfile_find_symbol(object, "verified_large_return_call");
+    address = symbol_address(memory, symbol);
+    memcpy(&large_return_call_function, &address,
+           sizeof(large_return_call_function));
+    assert(large_return_call_function(4, 5, 6) == 474);
 
     symbol = objfile_find_symbol(object, "verified_pointer_add");
     address = symbol_address(memory, symbol);

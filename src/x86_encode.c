@@ -1188,7 +1188,19 @@ static bool x86_emit_prologue(RccX86Encoder* encoder) {
     return true;
 }
 
-static bool x86_emit_epilogue(RccX86Encoder* encoder) {
+static bool x86_emit_stack_subtract(RccX86Encoder* encoder,
+                                    uint32_t bytes) {
+    if (bytes == 0u) return true;
+    return x86_emit_prefix(encoder, encoder->function->pointer_size,
+                           RCC_X86_GPR_BP, RCC_X86_GPR_SP, false) &&
+        x86_emit_u8(encoder, 0x81u) &&
+        x86_emit_u8(encoder, x86_modrm(
+            3u, 5u, RCC_X86_GPR_SP)) &&
+        x86_emit_u32(encoder, bytes);
+}
+
+static bool x86_emit_epilogue(RccX86Encoder* encoder,
+                              uint16_t stack_pop) {
     const RccX86LegalFunction* function = encoder->function;
     size_t index = function->callee_save_count;
     while (index != 0u) {
@@ -1203,8 +1215,10 @@ static bool x86_emit_epilogue(RccX86Encoder* encoder) {
                            function->callee_saves[index].gpr,
                            slot, function->pointer_size)) return false;
     }
-    return x86_emit_u8(encoder, 0xc9u) &&
-        x86_emit_u8(encoder, 0xc3u);
+    if (!x86_emit_u8(encoder, 0xc9u)) return false;
+    if (stack_pop == 0u) return x86_emit_u8(encoder, 0xc3u);
+    return x86_emit_u8(encoder, 0xc2u) &&
+        x86_emit_u16(encoder, stack_pop);
 }
 
 static bool x86_emit_instruction(
@@ -1230,12 +1244,15 @@ static bool x86_emit_instruction(
         case RCC_X86_LEGAL_SHIFT:
             return x86_emit_shift(encoder, instruction);
         case RCC_X86_LEGAL_CALL:
-            return x86_emit_u8(encoder, 0xe8u) &&
-                x86_add_relocation(
+            if (!x86_emit_u8(encoder, 0xe8u) ||
+                !x86_add_relocation(
                     encoder, instruction->symbol,
-                    RCC_X86_CODE_RELOC_REL32);
+                    RCC_X86_CODE_RELOC_REL32)) return false;
+            return x86_emit_stack_subtract(
+                encoder, (uint32_t)instruction->immediate);
         case RCC_X86_LEGAL_RETURN:
-            return x86_emit_epilogue(encoder);
+            return x86_emit_epilogue(
+                encoder, (uint16_t)instruction->immediate);
         case RCC_X86_LEGAL_SELECTED:
             break;
         default:

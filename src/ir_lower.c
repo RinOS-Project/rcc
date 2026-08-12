@@ -49,6 +49,8 @@ typedef struct {
     RccIrLowerSwitch* current_switch;
     RccIrBlockId break_target;
     RccIrBlockId continue_target;
+    RccIrValue aggregate_return_address;
+    int aggregate_return_kind;
     bool terminated;
     bool unsupported;
 } RccIrLowerContext;
@@ -101,13 +103,22 @@ static RccIrLowerValue lower_compound_literal_address(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_abi_is_aggregate(const Type* type);
 static bool lower_abi_aggregate_supported(const Type* type);
+static int lower_abi_return_layout(const Type* type,
+                                   RccIrType* return_type);
 static size_t lower_abi_chunk_size(void);
 static bool lower_abi_parameter_layout(
-    const TypeParam* parameters, RccIrType** types_out,
-    size_t* count_out);
+    const TypeParam* parameters, const RccIrType* prefix_types,
+    size_t prefix_count, RccIrType** types_out, size_t* count_out);
 static RccIrLowerValue lower_load_aggregate_chunk(
     RccIrLowerContext* context, RccIrLowerValue base,
     const Type* aggregate_type, size_t offset);
+
+enum {
+    LOWER_ABI_RETURN_SCALAR = 0,
+    LOWER_ABI_RETURN_REGISTER_AGGREGATE,
+    LOWER_ABI_RETURN_SRET,
+    LOWER_ABI_RETURN_UNSUPPORTED,
+};
 
 static RccIrLowerValue lower_invalid_value(void) {
     RccIrLowerValue value;
@@ -914,6 +925,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     RccIrValue* operands = NULL;
     RccIrType* fixed_types = NULL;
     RccIrType return_type;
+    RccIrType hidden_type = rcc_ir_type_pointer(0u);
+    RccIrLowerValue aggregate_address = lower_invalid_value();
+    int return_kind = LOWER_ABI_RETURN_SCALAR;
     RccIrInstruction* call;
     if (expression->cxx_close_call || !expression->call_func ||
         expression->call_func->kind != EXPR_IDENT) {
@@ -923,10 +937,40 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     callee = expression->call_func->ident_decl;
     function_type = callee ? callee->type : NULL;
     if (!callee || callee->kind != DECL_FUNC || !function_type ||
-        function_type->kind != TYPE_FUNC ||
-        !lower_type(expression->type, &return_type) ||
-        !lower_abi_parameter_layout(
-            function_type->params, &fixed_types, &fixed_count)) {
+        function_type->kind != TYPE_FUNC || !expression->type ||
+        !function_type->ret_type ||
+        !type_is_compatible(function_type->ret_type, expression->type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (lower_abi_is_aggregate(expression->type)) {
+        RccIrInstruction* allocation;
+        size_t allocation_size;
+        return_kind = lower_abi_return_layout(
+            expression->type, &return_type);
+        if (return_kind == LOWER_ABI_RETURN_UNSUPPORTED) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        allocation_size = ((size_t)expression->type->size +
+                           chunk_size - 1u) / chunk_size * chunk_size;
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return lower_invalid_value();
+        rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
+        aggregate_address = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        if (return_kind == LOWER_ABI_RETURN_SRET) argument_count = 1u;
+    } else if (!lower_type(expression->type, &return_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (!lower_abi_parameter_layout(
+            function_type->params,
+            return_kind == LOWER_ABI_RETURN_SRET ? &hidden_type : NULL,
+            return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u,
+            &fixed_types, &fixed_count)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -968,6 +1012,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             return lower_invalid_value();
         }
         operands = rcc_alloc(argument_count * sizeof(*operands));
+    }
+    if (return_kind == LOWER_ABI_RETURN_SRET) {
+        operands[index++] = aggregate_address.value;
     }
     parameter = function_type->params;
     for (argument = expression->call_args; argument;
@@ -1025,6 +1072,21 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     rcc_free(operands);
     if (!call) return lower_invalid_value();
     rcc_ir_set_callee(call, decl_link_name(callee));
+    if (return_kind == LOWER_ABI_RETURN_SRET &&
+        g_opts.target_arch != ARCH_X64) {
+        rcc_ir_set_immediate(call, 4u);
+    }
+    if (return_kind == LOWER_ABI_RETURN_REGISTER_AGGREGATE) {
+        RccIrLowerValue value = lower_value(
+            call->result, return_type, true);
+        if (!lower_store_address(context, aggregate_address, value)) {
+            return lower_invalid_value();
+        }
+        return aggregate_address;
+    }
+    if (return_kind == LOWER_ABI_RETURN_SRET) {
+        return aggregate_address;
+    }
     if (return_type.kind == RCC_IR_TYPE_VOID) {
         RccIrLowerValue value = lower_invalid_value();
         value.type = return_type;
@@ -2149,6 +2211,29 @@ static bool lower_abi_aggregate_supported(const Type* type) {
         lower_abi_naturally_aligned_internal(type, 0u, 0u);
 }
 
+static int lower_abi_return_layout(const Type* type,
+                                   RccIrType* return_type) {
+    if (!lower_abi_is_aggregate(type) || !return_type ||
+        !lower_storage_type_supported_internal(type, 0u)) {
+        return LOWER_ABI_RETURN_UNSUPPORTED;
+    }
+    if (g_opts.target_arch != ARCH_X64) {
+        *return_type = rcc_ir_type_pointer(0u);
+        return LOWER_ABI_RETURN_SRET;
+    }
+    if (type->size <= 8 &&
+        lower_abi_naturally_aligned_internal(type, 0u, 0u)) {
+        *return_type = rcc_ir_type_integer(64u);
+        return LOWER_ABI_RETURN_REGISTER_AGGREGATE;
+    }
+    if (type->size > 16 ||
+        !lower_abi_naturally_aligned_internal(type, 0u, 0u)) {
+        *return_type = rcc_ir_type_pointer(0u);
+        return LOWER_ABI_RETURN_SRET;
+    }
+    return LOWER_ABI_RETURN_UNSUPPORTED;
+}
+
 static bool lower_abi_native_scalar_type(
     const Type* type, RccIrType* ir_type) {
     if (!lower_type(type, ir_type) ||
@@ -2164,16 +2249,16 @@ static size_t lower_abi_chunk_size(void) {
 }
 
 static bool lower_abi_parameter_layout(
-    const TypeParam* parameters, RccIrType** types_out,
-    size_t* count_out) {
+    const TypeParam* parameters, const RccIrType* prefix_types,
+    size_t prefix_count, RccIrType** types_out, size_t* count_out) {
     const TypeParam* parameter;
     RccIrType* types = NULL;
-    size_t count = 0u;
+    size_t count = prefix_count;
     size_t cursor = 0u;
     size_t chunk_size = lower_abi_chunk_size();
     if (types_out) *types_out = NULL;
     if (count_out) *count_out = 0u;
-    if (!count_out) return false;
+    if (!count_out || (prefix_count != 0u && !prefix_types)) return false;
     for (parameter = parameters; parameter; parameter = parameter->next) {
         size_t units = 1u;
         RccIrType scalar_type;
@@ -2193,7 +2278,12 @@ static bool lower_abi_parameter_layout(
     if (types_out && count != 0u) {
         if (count > SIZE_MAX / sizeof(*types)) return false;
         types = rcc_alloc(count * sizeof(*types));
+        if (prefix_count != 0u) {
+            memcpy(types, prefix_types,
+                   prefix_count * sizeof(*types));
+        }
     }
+    cursor = prefix_count;
     for (parameter = parameters; parameter; parameter = parameter->next) {
         if (lower_abi_is_aggregate(parameter->type)) {
             size_t units = ((size_t)parameter->type->size +
@@ -2878,7 +2968,53 @@ static bool lower_statement(RccIrLowerContext* context,
         case STMT_DECL:
             return lower_declaration(context, statement->decl);
         case STMT_RETURN:
-            if (context->function->return_type.kind == RCC_IR_TYPE_VOID) {
+            if (lower_abi_is_aggregate(context->ast_return_type)) {
+                RccIrLowerValue source;
+                RccIrLowerValue result;
+                RccIrInstruction* return_instruction;
+                if (!statement->return_val ||
+                    !statement->return_val->type ||
+                    !type_is_compatible((Type*)context->ast_return_type,
+                                        statement->return_val->type)) {
+                    context->unsupported = true;
+                    return false;
+                }
+                source = lower_expression(context, statement->return_val);
+                if (!source.valid ||
+                    source.type.kind != RCC_IR_TYPE_POINTER) return false;
+                if (context->aggregate_return_kind ==
+                    LOWER_ABI_RETURN_REGISTER_AGGREGATE) {
+                    result = lower_load_aggregate_chunk(
+                        context, source, context->ast_return_type, 0u);
+                } else if (context->aggregate_return_kind ==
+                           LOWER_ABI_RETURN_SRET) {
+                    bool copied = context->ast_return_type->kind == TYPE_STRUCT
+                        ? lower_copy_struct_storage(
+                              context, context->aggregate_return_address,
+                              source.value, context->ast_return_type)
+                        : lower_copy_union_storage(
+                              context, context->aggregate_return_address,
+                              source.value, context->ast_return_type);
+                    if (!copied) return false;
+                    result = lower_value(
+                        context->aggregate_return_address,
+                        rcc_ir_type_pointer(0u), true);
+                } else {
+                    context->unsupported = true;
+                    return false;
+                }
+                if (!result.valid) return false;
+                return_instruction = lower_append(
+                    context, RCC_IR_RETURN, rcc_ir_type_void(),
+                    &result.value, 1u, NULL, 0u);
+                if (!return_instruction) return false;
+                if (context->aggregate_return_kind ==
+                        LOWER_ABI_RETURN_SRET &&
+                    g_opts.target_arch != ARCH_X64) {
+                    rcc_ir_set_immediate(return_instruction, 4u);
+                }
+            } else if (context->function->return_type.kind ==
+                       RCC_IR_TYPE_VOID) {
                 if (statement->return_val) {
                     (void)lower_expression(context, statement->return_val);
                     if (context->unsupported) return false;
@@ -2932,7 +3068,8 @@ static bool lower_statement(RccIrLowerContext* context,
 static bool lower_parameters(RccIrLowerContext* context,
                              const Decl* declaration) {
     const DeclList* parameter = declaration->func_params;
-    size_t index = 0u;
+    size_t index = context->aggregate_return_kind ==
+                       LOWER_ABI_RETURN_SRET ? 1u : 0u;
     while (parameter) {
         const Decl* item = parameter->decl;
         RccIrType type;
@@ -3001,8 +3138,10 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                                        char* error, size_t error_size) {
     RccIrLowerContext context;
     RccIrType return_type;
+    RccIrType hidden_type = rcc_ir_type_pointer(0u);
     RccIrType* parameter_types = NULL;
     size_t parameter_count = 0u;
+    int aggregate_return_kind = LOWER_ABI_RETURN_SCALAR;
     RccIrModule* module;
     RccIrFunction* function;
     RccIrBlock* entry;
@@ -3011,11 +3150,23 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     if (!declaration || declaration->kind != DECL_FUNC ||
         !declaration->func_body || !declaration->type ||
         declaration->type->kind != TYPE_FUNC ||
-        !lower_type(declaration->type->ret_type, &return_type)) {
+        !declaration->type->ret_type) {
+        return RCC_IR_LOWER_UNSUPPORTED;
+    }
+    if (lower_abi_is_aggregate(declaration->type->ret_type)) {
+        aggregate_return_kind = lower_abi_return_layout(
+            declaration->type->ret_type, &return_type);
+        if (aggregate_return_kind == LOWER_ABI_RETURN_UNSUPPORTED) {
+            return RCC_IR_LOWER_UNSUPPORTED;
+        }
+    } else if (!lower_type(declaration->type->ret_type, &return_type)) {
         return RCC_IR_LOWER_UNSUPPORTED;
     }
     if (!lower_abi_parameter_layout(
             declaration->type->params,
+            aggregate_return_kind == LOWER_ABI_RETURN_SRET
+                ? &hidden_type : NULL,
+            aggregate_return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u,
             &parameter_types, &parameter_count)) {
         return RCC_IR_LOWER_UNSUPPORTED;
     }
@@ -3033,6 +3184,10 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     context.module = module;
     context.function = function;
     context.ast_return_type = declaration->type->ret_type;
+    context.aggregate_return_kind = aggregate_return_kind;
+    context.aggregate_return_address =
+        aggregate_return_kind == LOWER_ABI_RETURN_SRET
+            ? function->parameters[0] : RCC_IR_VALUE_NONE;
     context.current = entry;
     context.break_target = RCC_IR_BLOCK_NONE;
     context.continue_target = RCC_IR_BLOCK_NONE;

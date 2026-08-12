@@ -1,10 +1,11 @@
 struct VerifiedAggregateFallback {
     int first;
     int second;
+    int third;
 };
 
 struct VerifiedAggregateFallback verified_aggregate_return_fallback(void)
 {
-    struct VerifiedAggregateFallback value = {1, 2};
+    struct VerifiedAggregateFallback value = {1, 2, 3};
     return value;
 }

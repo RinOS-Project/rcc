@@ -467,7 +467,10 @@ static bool x86_legal_call_supported(
     size_t index;
     if (instruction->opcode != RCC_X86_CALL ||
         (instruction->type.kind != RCC_MIR_TYPE_VOID &&
-         !x86_legal_native_scalar(instruction->type, abi))) {
+         !x86_legal_native_scalar(instruction->type, abi)) ||
+        (instruction->immediate != 0u &&
+         (abi->target != RCC_X86_TARGET_I686 ||
+          instruction->immediate != abi->pointer_size))) {
         return false;
     }
     for (index = 0u; index < instruction->operand_count; ++index) {
@@ -912,6 +915,12 @@ static bool x86_legalize_return(
     RccX86Value destination;
     RccX86Value* operands = NULL;
     RccX86LegalInstruction* result;
+    if (source->immediate != 0u &&
+        (abi->target != RCC_X86_TARGET_I686 ||
+         source->immediate != abi->pointer_size)) {
+        return x86_legal_error(error, error_size,
+                               "x86 return stack pop is invalid");
+    }
     if (!x86_legal_resolve_instruction(
             source, abi, &destination, &operands,
             error, error_size)) return false;
@@ -929,6 +938,7 @@ static bool x86_legalize_return(
     result = x86_legal_append(
         function, block, RCC_X86_LEGAL_RETURN, RCC_X86_RETURN,
         function->return_type, NULL, NULL, NULL, 0u);
+    if (result) result->immediate = source->immediate;
     rcc_free(operands);
     if (!result) {
         return x86_legal_error(error, error_size,
@@ -1353,6 +1363,11 @@ bool rcc_x86_verify_legal_function(
                 (instruction->target_count != 0u &&
                  !instruction->targets) ||
                 !x86_legal_instruction_shape(instruction) ||
+                ((instruction->opcode == RCC_X86_LEGAL_CALL ||
+                  instruction->opcode == RCC_X86_LEGAL_RETURN) &&
+                 instruction->immediate != 0u &&
+                 (function->target != RCC_X86_TARGET_I686 ||
+                  instruction->immediate != abi.pointer_size)) ||
                 (instruction->has_destination &&
                  !x86_legal_value_valid(
                      instruction->destination, function, &abi)) ||

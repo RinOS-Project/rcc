@@ -29,6 +29,20 @@ struct VerifiedArgument {
     int third;
 };
 
+struct VerifiedReturnPair {
+    int first;
+    int second;
+};
+
+struct VerifiedLargeReturn {
+    int first;
+    int second;
+    int third;
+    int fourth;
+    int fifth;
+    int sixth;
+};
+
 int verified_call(int value)
 {
     return verified_helper(value) + 1;
@@ -165,6 +179,35 @@ int verified_struct_argument_call(int first, int second, int third)
 {
     struct VerifiedArgument value = {first, second, third};
     return verified_struct_parameter(value, 4);
+}
+
+struct VerifiedReturnPair verified_pair_return(int first, int second)
+{
+    struct VerifiedReturnPair value = {first, second};
+    return value;
+}
+
+int verified_pair_return_call(int first, int second)
+{
+    struct VerifiedReturnPair value = verified_pair_return(first, second);
+    return value.first * 10 + value.second;
+}
+
+struct VerifiedLargeReturn verified_large_return(
+    int first, int second, int third)
+{
+    struct VerifiedLargeReturn value = {
+        first, second, third, first + 1, second + 1, third + 1
+    };
+    return value;
+}
+
+int verified_large_return_call(int first, int second, int third)
+{
+    struct VerifiedLargeReturn value =
+        verified_large_return(first, second, third);
+    return value.first * 100 + value.second * 10 + value.third +
+        value.fourth + value.fifth + value.sixth;
 }
 
 int verified_pointer_add(int* base, int index)
