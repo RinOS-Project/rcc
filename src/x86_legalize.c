@@ -449,6 +449,12 @@ static bool x86_legal_is_shift(RccX86Opcode opcode) {
         opcode == RCC_X86_SAR;
 }
 
+static bool x86_legal_is_binary(RccX86Opcode opcode) {
+    return opcode == RCC_X86_ADD || opcode == RCC_X86_SUB ||
+        opcode == RCC_X86_MUL || opcode == RCC_X86_AND ||
+        opcode == RCC_X86_OR || opcode == RCC_X86_XOR;
+}
+
 static bool x86_legal_native_type(
     RccMirType type, const RccX86Abi* abi) {
     return type.kind == RCC_MIR_TYPE_INTEGER &&
@@ -486,6 +492,17 @@ static bool x86_legal_call_stack_bytes(
     return true;
 }
 
+static bool x86_legal_selected_location_equal(
+    RccMirLocation left, RccMirLocation right) {
+    if (left.kind != right.kind ||
+        left.register_class != right.register_class) return false;
+    if (left.kind == RCC_MIR_LOCATION_PHYSICAL) {
+        return left.physical_register == right.physical_register;
+    }
+    return left.spill_offset == right.spill_offset &&
+        left.spill_size == right.spill_size;
+}
+
 static bool x86_legal_prepare_outgoing_frame(
     RccX86LegalFunction* legal, const RccX86Function* selected,
     const RccX86Abi* abi, char* error, size_t error_size) {
@@ -500,19 +517,34 @@ static bool x86_legal_prepare_outgoing_frame(
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
             uint32_t bytes;
-            if (instruction->opcode != RCC_X86_CALL ||
-                !x86_legal_call_supported(instruction, abi)) continue;
-            if (abi->integer_argument_count > 1u &&
-                instruction->operand_count > 1u) {
+            if (instruction->opcode == RCC_X86_CALL &&
+                x86_legal_call_supported(instruction, abi)) {
+                if (abi->integer_argument_count > 1u &&
+                    instruction->operand_count > 1u) {
+                    may_need_temporary = true;
+                }
+                if (!x86_legal_call_stack_bytes(
+                        instruction, abi, &bytes) ||
+                    !x86_legal_align(
+                        bytes, abi->stack_alignment, &bytes)) {
+                    return x86_legal_error(
+                        error, error_size,
+                        "x86 outgoing argument area exceeds 32 bits");
+                }
+                if (bytes > maximum) maximum = bytes;
+            }
+            if (instruction->has_destination &&
+                instruction->operand_count == 2u &&
+                x86_legal_is_binary(instruction->opcode) &&
+                x86_legal_native_type(instruction->type, abi) &&
+                x86_legal_selected_location_equal(
+                    instruction->destination,
+                    instruction->operands[1]) &&
+                !x86_legal_selected_location_equal(
+                    instruction->destination,
+                    instruction->operands[0])) {
                 may_need_temporary = true;
             }
-            if (!x86_legal_call_stack_bytes(instruction, abi, &bytes) ||
-                !x86_legal_align(bytes, abi->stack_alignment, &bytes)) {
-                return x86_legal_error(
-                    error, error_size,
-                    "x86 outgoing argument area exceeds 32 bits");
-            }
-            if (bytes > maximum) maximum = bytes;
         }
     }
     if (may_need_temporary) {
@@ -755,6 +787,49 @@ static bool x86_legalize_shift(
     return true;
 }
 
+static bool x86_legalize_binary(
+    RccX86LegalFunction* function, RccX86LegalBlock* block,
+    const RccX86Instruction* source, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    RccX86Value destination;
+    RccX86Value* operands = NULL;
+    RccX86Value right;
+    RccX86LegalInstruction* binary;
+    if (!x86_legal_resolve_instruction(
+            source, abi, &destination, &operands,
+            error, error_size)) return false;
+    right = operands[1];
+    if (x86_legal_value_equal(destination, right) &&
+        !x86_legal_value_equal(destination, operands[0])) {
+        RccX86Value temporary;
+        if (!x86_legal_reserve_parallel_temporary(
+                function, abi, &temporary, error, error_size) ||
+            !x86_legal_append_copy(
+                function, block, source->operand_types[1], right,
+                temporary, error, error_size)) {
+            rcc_free(operands);
+            return false;
+        }
+        right = temporary;
+    }
+    if (!x86_legal_append_copy(
+            function, block, source->operand_types[0], operands[0],
+            destination, error, error_size)) {
+        rcc_free(operands);
+        return false;
+    }
+    binary = x86_legal_append(
+        function, block, RCC_X86_LEGAL_BINARY, source->opcode,
+        source->type, &destination, &right,
+        &source->operand_types[1], 1u);
+    rcc_free(operands);
+    if (!binary) {
+        return x86_legal_error(error, error_size,
+                               "x86 binary legalization is too large");
+    }
+    return true;
+}
+
 static bool x86_legalize_call(
     RccX86LegalFunction* function, RccX86LegalBlock* block,
     const RccX86Instruction* source, const RccX86Abi* abi,
@@ -992,6 +1067,11 @@ static bool x86_legal_instruction_shape(
                 instruction->has_destination &&
                 instruction->operand_count == 0u &&
                 instruction->target_count == 0u;
+        case RCC_X86_LEGAL_BINARY:
+            return x86_legal_is_binary(instruction->selected_opcode) &&
+                instruction->has_destination &&
+                instruction->operand_count == 1u &&
+                instruction->target_count == 0u;
         case RCC_X86_LEGAL_CALL:
             return instruction->selected_opcode == RCC_X86_CALL &&
                 !instruction->has_destination &&
@@ -1068,6 +1148,23 @@ static bool x86_legal_verify_shift(
                                instruction->destination)) {
         return x86_legal_error(error, error_size,
                                "x86 shift fixed-register sequence is invalid");
+    }
+    return true;
+}
+
+static bool x86_legal_verify_binary(
+    const RccX86LegalInstruction* instruction,
+    const RccX86Abi* abi, char* error, size_t error_size) {
+    const RccX86LegalInstruction* input = instruction->previous;
+    if (!x86_legal_native_type(instruction->type, abi) ||
+        !instruction->has_destination ||
+        instruction->operand_count != 1u || !input ||
+        input->opcode != RCC_X86_LEGAL_COPY ||
+        !input->has_destination || input->operand_count != 1u ||
+        !x86_legal_value_equal(
+            input->destination, instruction->destination)) {
+        return x86_legal_error(error, error_size,
+                               "x86 two-address binary sequence is invalid");
     }
     return true;
 }
@@ -1289,6 +1386,9 @@ bool rcc_x86_verify_legal_function(
             if (instruction->opcode == RCC_X86_LEGAL_SHIFT &&
                 !x86_legal_verify_shift(
                     instruction, &abi, error, error_size)) return false;
+            if (instruction->opcode == RCC_X86_LEGAL_BINARY &&
+                !x86_legal_verify_binary(
+                    instruction, &abi, error, error_size)) return false;
             if (instruction->opcode == RCC_X86_LEGAL_CALL &&
                 !x86_legal_verify_call(
                     instruction, function, &abi,
@@ -1301,6 +1401,12 @@ bool rcc_x86_verify_legal_function(
                 x86_legal_selected_call_supported(instruction, &abi)) {
                 return x86_legal_error(error, error_size,
                                        "native SysV call was not legalized");
+            }
+            if (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                x86_legal_is_binary(instruction->selected_opcode) &&
+                x86_legal_native_type(instruction->type, &abi)) {
+                return x86_legal_error(error, error_size,
+                                       "native binary op was not legalized");
             }
             if (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                 instruction->selected_opcode == RCC_X86_RETURN &&
@@ -1411,6 +1517,11 @@ bool rcc_x86_legalize_function(
             } else if (x86_legal_is_shift(source->opcode) &&
                        x86_legal_native_type(source->type, &abi)) {
                 if (!x86_legalize_shift(
+                        legal, block, source, &abi,
+                        error, error_size)) goto cleanup;
+            } else if (x86_legal_is_binary(source->opcode) &&
+                       x86_legal_native_type(source->type, &abi)) {
+                if (!x86_legalize_binary(
                         legal, block, source, &abi,
                         error, error_size)) goto cleanup;
             } else if (source->opcode == RCC_X86_CALL &&

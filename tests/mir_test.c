@@ -206,6 +206,7 @@ static void verify_fixed_register_constraints_target(bool x64)
     RccX86LegalFunction* legal = NULL;
     RccX86LegalInstruction* legal_divide = NULL;
     RccX86LegalInstruction* legal_shift = NULL;
+    RccX86LegalInstruction* legal_binary = NULL;
     uint64_t saved_forbidden;
     char error[256];
     assert(division != NULL);
@@ -270,16 +271,22 @@ static void verify_fixed_register_constraints_target(bool x64)
             legal_divide = instruction;
         } else if (instruction->opcode == RCC_X86_LEGAL_SHIFT) {
             legal_shift = instruction;
+        } else if (instruction->opcode == RCC_X86_LEGAL_BINARY) {
+            legal_binary = instruction;
         }
     }
     assert(legal_divide != NULL);
     assert(legal_shift != NULL);
+    assert(legal_binary != NULL);
     assert(legal_divide->previous->opcode ==
            RCC_X86_LEGAL_PREPARE_UNSIGNED_DIVIDEND);
     assert(legal_divide->previous->previous->destination.gpr ==
            RCC_X86_GPR_AX);
     assert(legal_divide->next->operands[0].gpr == RCC_X86_GPR_AX);
     assert(legal_shift->previous->destination.gpr == RCC_X86_GPR_CX);
+    assert(legal_binary->previous->opcode == RCC_X86_LEGAL_COPY);
+    assert(legal_binary->previous->destination.kind ==
+           legal_binary->destination.kind);
     assert(rcc_x86_verify_legal_function(
         legal, &policy, error, sizeof(error)));
     legal_divide->operands[0].kind = RCC_X86_VALUE_GPR;
