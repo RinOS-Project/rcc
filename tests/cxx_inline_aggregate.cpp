@@ -81,6 +81,8 @@ public:
         return CxxStatus{result};
     }
 
+    CxxStatus reset() noexcept { return close(); }
+
     Handle get() const noexcept { return handle_; }
     constexpr explicit operator bool() const noexcept {
         return handle_ != 0;
@@ -132,6 +134,8 @@ public:
         if (result == 0) handle_ = 0;
         return CxxStatus{result};
     }
+
+    CxxStatus reset() noexcept { return close(); }
 
     uint64_t get() const noexcept { return handle_; }
     constexpr explicit operator bool() const noexcept {
@@ -367,6 +371,28 @@ int cxx_cleanup_close_failure(int* value) {
 int cxx_cleanup_close_invalid(void) {
     auto handle = CxxUnique<int*>{0};
     auto result = handle.close();
+    return result.code() * 100 + (!handle) * 10 + result.ok();
+}
+
+int cxx_cleanup_reset_call(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    auto result = handle.reset();
+    return result.code() * 100 + (!handle) * 10 + result.ok();
+}
+
+int cxx_cleanup_reset_failure(int* value) {
+    auto handle = CxxUnique<int*>{value};
+    auto result = handle.reset();
+    int retained = handle.get() == value && handle;
+    (void)handle.release();
+    return (result.code() == -7) * 100 + retained * 10 +
+           (*value == -9);
+}
+
+int cxx_cleanup_wide_reset_call(int* value) {
+    auto handle = CxxWideUnique{
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(value))};
+    auto result = handle.reset();
     return result.code() * 100 + (!handle) * 10 + result.ok();
 }
 

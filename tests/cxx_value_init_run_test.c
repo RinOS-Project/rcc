@@ -86,6 +86,9 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_close_call;
     mutable_int_pointer_function cleanup_close_failure;
     nullary_function cleanup_close_invalid;
+    mutable_int_pointer_function cleanup_reset_call;
+    mutable_int_pointer_function cleanup_reset_failure;
+    mutable_int_pointer_function cleanup_wide_reset_call;
     mutable_int_pointer_function cleanup_wide_close_call;
     wide_unary_function cleanup_wide_get;
     mutable_int_pointer_function cleanup_break;
@@ -171,6 +174,12 @@ int main(int argc, char** argv)
                   "cxx_cleanup_close_failure");
     LOAD_FUNCTION(cleanup_close_invalid, object, mapping,
                   "cxx_cleanup_close_invalid");
+    LOAD_FUNCTION(cleanup_reset_call, object, mapping,
+                  "cxx_cleanup_reset_call");
+    LOAD_FUNCTION(cleanup_reset_failure, object, mapping,
+                  "cxx_cleanup_reset_failure");
+    LOAD_FUNCTION(cleanup_wide_reset_call, object, mapping,
+                  "cxx_cleanup_wide_reset_call");
     LOAD_FUNCTION(cleanup_wide_close_call, object, mapping,
                   "cxx_cleanup_wide_close_call");
     LOAD_FUNCTION(cleanup_wide_get, object, mapping,
@@ -279,8 +288,17 @@ int main(int argc, char** argv)
         assert(cleanup_close_failure(&failed) == 111);
         assert(failed == -9);
         assert(cleanup_close_invalid() == 11);
+        value = 30;
+        failed = -10;
+        wide = 40;
+        assert(cleanup_reset_call(&value) == 11);
+        assert(value == 31);
+        assert(cleanup_reset_failure(&failed) == 111);
+        assert(failed == -9);
+        assert(cleanup_wide_reset_call(&wide) == 11);
+        assert(wide == 42);
         assert(cleanup_wide_close_call(&wide) == 11);
-        assert(wide == 22);
+        assert(wide == 44);
     }
     assert(cleanup_wide_get(UINT64_C(0xfedcba9876543210)) ==
            UINT64_C(0xfedcba9876543210));

@@ -341,6 +341,13 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -q "condition requires scalar type or validated operator bool" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool-delegate.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.ro \
+		tests/cxx_unsafe_close_delegate_rejected.cpp \
+		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "no member named 'reset'" \
+		$(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move.ro \
 		tests/cxx_unsafe_move_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-move.log 2>&1; \

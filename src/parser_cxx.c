@@ -1074,6 +1074,77 @@ static TypeMethod* class_close_method(CxxClass* cls, const char* name,
     return NULL;
 }
 
+/* Accept a public close alias only when its complete body is exactly:
+ *
+ *   return validated_zero_argument_close();
+ *
+ * The target close has already proved the handle, cleanup function, result
+ * layout, success value, and retry semantics.  Cloning that metadata gives
+ * SDK wrappers a conventional reset() spelling without interpreting an
+ * arbitrary member body or allowing hidden side effects. */
+static void register_inline_class_close_delegates(CxxClass* cls) {
+    struct CxxMember* member;
+    TypeMethod** tail;
+    TypeField* field;
+    if (!cls || !cls->type || !cls->type->is_complete ||
+        !cls->type->cleanup_field) {
+        return;
+    }
+    field = cls->type->cleanup_field;
+    tail = &cls->type->methods;
+    while (*tail) tail = &(*tail)->next;
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        StmtList* statements;
+        Expr* returned;
+        Expr* callee;
+        TypeMethod* target;
+        TypeMethod* lowered;
+        if (!method || !method->decl || !method->decl->name ||
+            member->access != ACCESS_PUBLIC || method->is_static ||
+            method->is_virtual || method->is_pure_virtual ||
+            method->is_deleted || method->is_defaulted ||
+            method->is_constructor || method->is_destructor ||
+            method->is_const || !method->decl->type ||
+            method->decl->type->kind != TYPE_FUNC ||
+            method->decl->func_params || !method->decl->func_body ||
+            method->decl->func_body->kind != STMT_BLOCK) {
+            continue;
+        }
+        statements = method->decl->func_body->block_stmts;
+        if (!statements || statements->next || !statements->stmt ||
+            statements->stmt->kind != STMT_RETURN ||
+            !statements->stmt->return_val) {
+            continue;
+        }
+        returned = statements->stmt->return_val;
+        if (returned->kind != EXPR_CALL || returned->call_args ||
+            !returned->call_func ||
+            returned->call_func->kind != EXPR_IDENT) {
+            continue;
+        }
+        callee = returned->call_func;
+        if (!callee->ident_name ||
+            strcmp(callee->ident_name, method->decl->name) == 0) {
+            continue;
+        }
+        target = class_close_method(cls, callee->ident_name, field);
+        if (!target || !target->return_type ||
+            !type_is_compatible(method->decl->type->ret_type,
+                                target->return_type)) {
+            continue;
+        }
+        lowered = ast_arena_alloc(sizeof(*lowered));
+        *lowered = *target;
+        lowered->name = method->decl->name;
+        lowered->return_type = method->decl->type->ret_type;
+        lowered->cxx_access = (unsigned char)member->access;
+        lowered->next = NULL;
+        *tail = lowered;
+        tail = &lowered->next;
+    }
+}
+
 /* Accept only the SDK ownership assignment:
  *
  *   Class& operator=(Class&& other) {
@@ -1504,6 +1575,7 @@ CxxClass* parse_cxx_class(void) {
     register_inline_class_cleanup(cls);
     register_inline_class_releases(cls);
     register_inline_class_closes(cls);
+    register_inline_class_close_delegates(cls);
     register_inline_class_move_constructor(cls);
     register_inline_class_move_assignment(cls);
 
@@ -2241,6 +2313,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     register_inline_class_cleanup(instance);
     register_inline_class_releases(instance);
     register_inline_class_closes(instance);
+    register_inline_class_close_delegates(instance);
     register_inline_class_move_constructor(instance);
     register_inline_class_move_assignment(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);
