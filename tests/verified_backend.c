@@ -12,6 +12,17 @@ struct VerifiedContainer {
     int matrix[2][2];
 };
 
+struct VerifiedHalves {
+    unsigned short low;
+    unsigned short high;
+};
+
+union VerifiedUnion {
+    unsigned int bits;
+    int signed_value;
+    struct VerifiedHalves halves;
+};
+
 int verified_call(int value)
 {
     return verified_helper(value) + 1;
@@ -104,6 +115,19 @@ int verified_nested_struct(int left, int right, int* value)
     return list[0].matrix[1][0] * 10000 +
         list[0].pair.first * 1000 + list[0].values[1] * 100 +
         list[0].values[2] * 10 + list[1].values[2];
+}
+
+int verified_union(unsigned int bits)
+{
+    union VerifiedUnion source = {.bits = bits};
+    union VerifiedUnion copy = source;
+    union VerifiedUnion values[2] = {
+        {.signed_value = 0},
+        {.bits = 0x00070005u},
+    };
+    values[0] = copy;
+    return values[0].halves.low * 10 + values[0].halves.high +
+        values[1].halves.low - 5;
 }
 
 int verified_pointer_add(int* base, int index)
