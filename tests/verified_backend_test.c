@@ -58,6 +58,9 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* struct_copy_pointer;
     ObjSymbol* nested_struct;
     ObjSymbol* union_symbol;
+    ObjSymbol* compound_struct;
+    ObjSymbol* compound_array;
+    ObjSymbol* compound_scalar;
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
@@ -92,6 +95,12 @@ static void verify_object(const char* path, uint16_t arch)
     nested_struct = objfile_find_symbol(
         object, "verified_nested_struct");
     union_symbol = objfile_find_symbol(object, "verified_union");
+    compound_struct = objfile_find_symbol(
+        object, "verified_compound_struct");
+    compound_array = objfile_find_symbol(
+        object, "verified_compound_array");
+    compound_scalar = objfile_find_symbol(
+        object, "verified_compound_scalar");
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
@@ -139,6 +148,15 @@ static void verify_object(const char* path, uint16_t arch)
            nested_struct->section == 0);
     assert(union_symbol != NULL && union_symbol->type == SYM_GLOBAL &&
            union_symbol->section == 0);
+    assert(compound_struct != NULL &&
+           compound_struct->type == SYM_GLOBAL &&
+           compound_struct->section == 0);
+    assert(compound_array != NULL &&
+           compound_array->type == SYM_GLOBAL &&
+           compound_array->section == 0);
+    assert(compound_scalar != NULL &&
+           compound_scalar->type == SYM_GLOBAL &&
+           compound_scalar->section == 0);
     assert(pointer_add != NULL && pointer_add->type == SYM_GLOBAL &&
            pointer_add->section == 0);
     assert(pointer_sub != NULL && pointer_sub->type == SYM_GLOBAL &&
@@ -170,7 +188,7 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 26);
+    assert(object->symbol_count == 29);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -197,6 +215,9 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*struct_copy_pointer_function)(struct VerifiedPair*);
     int (*nested_struct_function)(int, int, int*);
     int (*union_function)(unsigned int);
+    int (*compound_struct_function)(int);
+    int (*compound_array_function)(int, int);
+    int (*compound_scalar_function)(int);
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
@@ -264,6 +285,24 @@ static void verify_native_execution(const char* path, uint16_t arch)
     address = symbol_address(memory, symbol);
     memcpy(&union_function, &address, sizeof(union_function));
     assert(union_function(0x00030002u) == 23);
+
+    symbol = objfile_find_symbol(object, "verified_compound_struct");
+    address = symbol_address(memory, symbol);
+    memcpy(&compound_struct_function, &address,
+           sizeof(compound_struct_function));
+    assert(compound_struct_function(5) == 509);
+
+    symbol = objfile_find_symbol(object, "verified_compound_array");
+    address = symbol_address(memory, symbol);
+    memcpy(&compound_array_function, &address,
+           sizeof(compound_array_function));
+    assert(compound_array_function(3, 8) == 8);
+
+    symbol = objfile_find_symbol(object, "verified_compound_scalar");
+    address = symbol_address(memory, symbol);
+    memcpy(&compound_scalar_function, &address,
+           sizeof(compound_scalar_function));
+    assert(compound_scalar_function(9) == 11);
 
     symbol = objfile_find_symbol(object, "verified_pointer_add");
     address = symbol_address(memory, symbol);

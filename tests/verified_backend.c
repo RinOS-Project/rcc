@@ -130,6 +130,26 @@ int verified_union(unsigned int bits)
         values[1].halves.low - 5;
 }
 
+int verified_compound_struct(int value)
+{
+    struct VerifiedPair* pair = &(struct VerifiedPair){
+        .first = value,
+        .second = 4,
+        .pointer = &value,
+    };
+    return pair->first * 100 + pair->second + *pair->pointer;
+}
+
+int verified_compound_array(int first, int second)
+{
+    return ((int[3]){first, second, 9})[1];
+}
+
+int verified_compound_scalar(int value)
+{
+    return (int){value + 2};
+}
+
 int verified_pointer_add(int* base, int index)
 {
     return *(base + index);

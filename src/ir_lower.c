@@ -97,6 +97,8 @@ static bool lower_zero_union_storage(
 static bool lower_initialize_union_storage(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type, const Expr* initializer);
+static RccIrLowerValue lower_compound_literal_address(
+    RccIrLowerContext* context, const Expr* expression);
 
 static RccIrLowerValue lower_invalid_value(void) {
     RccIrLowerValue value;
@@ -551,6 +553,9 @@ static RccIrLowerValue lower_lvalue_address(
         }
         return lower_byte_offset_address(
             context, base, (uint64_t)field->offset);
+    }
+    if (expression->kind == EXPR_COMPOUND) {
+        return lower_compound_literal_address(context, expression);
     }
     context->unsupported = true;
     return lower_invalid_value();
@@ -1134,7 +1139,6 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 address->result, rcc_ir_type_pointer(0u), true);
         }
         case EXPR_FLOAT_LIT:
-        case EXPR_COMPOUND:
         case EXPR_GENERIC:
         case EXPR_VA_START:
         case EXPR_VA_END:
@@ -1142,6 +1146,18 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_VA_ARG:
             context->unsupported = true;
             return lower_invalid_value();
+        case EXPR_COMPOUND: {
+            RccIrLowerValue address = lower_compound_literal_address(
+                context, expression);
+            if (!address.valid || !expression->type) {
+                return lower_invalid_value();
+            }
+            if (expression->type->kind == TYPE_ARRAY ||
+                expression->type->kind == TYPE_STRUCT ||
+                expression->type->kind == TYPE_UNION) return address;
+            return lower_load_address(
+                context, address, expression->type);
+        }
         case EXPR_COND:
             return lower_conditional_expression(context, expression);
         case EXPR_INDEX:
@@ -2444,6 +2460,64 @@ static bool lower_initialize_union_storage(
     }
     return lower_copy_union_storage(
         context, base, source.value, type);
+}
+
+static RccIrLowerValue lower_compound_literal_address(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Type* type;
+    RccIrInstruction* allocation;
+    if (!context || !expression || expression->kind != EXPR_COMPOUND) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    type = expression->compound_type
+        ? expression->compound_type : expression->type;
+    if (!type || type->size <= 0 || type->size > 65536 ||
+        type->is_reference || type->is_volatile ||
+        type->cleanup_function) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return lower_invalid_value();
+    rcc_ir_set_immediate(allocation, (uint64_t)type->size);
+    if (type->kind == TYPE_ARRAY) {
+        if (!lower_array_initializer(
+                context, allocation->result, type, expression)) {
+            return lower_invalid_value();
+        }
+    } else if (type->kind == TYPE_STRUCT) {
+        if (!lower_initialize_struct_storage(
+                context, allocation->result, type, expression)) {
+            return lower_invalid_value();
+        }
+    } else if (type->kind == TYPE_UNION) {
+        if (!lower_initialize_union_storage(
+                context, allocation->result, type, expression)) {
+            return lower_invalid_value();
+        }
+    } else {
+        const Expr* initializer = lower_scalar_initializer_expression(
+            expression);
+        RccIrLowerValue value;
+        RccIrLowerValue address;
+        if (!initializer) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        value = lower_expression(context, initializer);
+        value = lower_cast(context, value, type);
+        address = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        if (!value.valid ||
+            !lower_store_address(context, address, value)) {
+            return lower_invalid_value();
+        }
+    }
+    return lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
 }
 
 static bool lower_declaration(RccIrLowerContext* context,
