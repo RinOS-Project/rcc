@@ -186,9 +186,11 @@ static bool mir_alloc_align(uint32_t value, uint16_t alignment,
 }
 
 static bool mir_alloc_collect_positions(
-    const RccMirFunction* function, size_t** block_ends_out,
+    const RccMirFunction* function, size_t** block_starts_out,
+    size_t** block_ends_out,
     size_t** calls_out, size_t* call_count_out,
     RccMirLiveInterval* intervals, char* error, size_t error_size) {
+    size_t* block_starts;
     size_t* block_ends;
     size_t* calls;
     size_t call_capacity = 0u;
@@ -200,6 +202,8 @@ static bool mir_alloc_collect_positions(
         return mir_alloc_error(error, error_size,
                                "MIR block position table is too large");
     }
+    block_starts = rcc_alloc(
+        function->block_count * sizeof(*block_starts));
     block_ends = rcc_alloc(function->block_count * sizeof(*block_ends));
     calls = NULL;
     for (parameter = 0u; parameter < function->parameter_count; ++parameter) {
@@ -209,6 +213,7 @@ static bool mir_alloc_collect_positions(
     }
     for (block = function->first_block; block; block = block->next) {
         const RccMirInstruction* instruction;
+        block_starts[block->id] = position;
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
             size_t operand;
@@ -239,6 +244,7 @@ static bool mir_alloc_collect_positions(
                         ? 8u : call_capacity * 2u;
                     if (next_capacity < call_capacity ||
                         next_capacity > SIZE_MAX / sizeof(*calls)) {
+                        rcc_free(block_starts);
                         rcc_free(block_ends);
                         rcc_free(calls);
                         return mir_alloc_error(
@@ -252,6 +258,7 @@ static bool mir_alloc_collect_positions(
                 calls[call_count++] = position;
             }
             if (position == SIZE_MAX) {
+                rcc_free(block_starts);
                 rcc_free(block_ends);
                 rcc_free(calls);
                 return mir_alloc_error(error, error_size,
@@ -281,9 +288,124 @@ static bool mir_alloc_collect_positions(
             }
         }
     }
+    *block_starts_out = block_starts;
     *block_ends_out = block_ends;
     *calls_out = calls;
     *call_count_out = call_count;
+    return true;
+}
+
+static bool mir_alloc_extend_cfg_liveness(
+    const RccMirFunction* function, const size_t* block_starts,
+    const size_t* block_ends, RccMirLiveInterval* intervals,
+    char* error, size_t error_size) {
+    bool* definitions = NULL;
+    bool* uses = NULL;
+    bool* edge_uses = NULL;
+    bool* live_in = NULL;
+    bool* live_out = NULL;
+    size_t cells;
+    const RccMirBlock* block;
+    bool changed = true;
+    if (function->register_count != 0u &&
+        function->block_count > SIZE_MAX / function->register_count) {
+        return mir_alloc_error(error, error_size,
+                               "MIR liveness matrix is too large");
+    }
+    cells = function->block_count * function->register_count;
+    if (cells > SIZE_MAX / sizeof(*definitions)) {
+        return mir_alloc_error(error, error_size,
+                               "MIR liveness matrix is too large");
+    }
+    definitions = rcc_alloc(cells * sizeof(*definitions));
+    uses = rcc_alloc(cells * sizeof(*uses));
+    edge_uses = rcc_alloc(cells * sizeof(*edge_uses));
+    live_in = rcc_alloc(cells * sizeof(*live_in));
+    live_out = rcc_alloc(cells * sizeof(*live_out));
+    for (block = function->first_block; block; block = block->next) {
+        const RccMirInstruction* instruction;
+        size_t base = (size_t)block->id * function->register_count;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            size_t operand;
+            if (instruction->opcode != RCC_MIR_PHI) {
+                for (operand = 0u; operand < instruction->operand_count;
+                     ++operand) {
+                    RccMirVReg reg = instruction->operands[operand];
+                    if (!definitions[base + reg]) uses[base + reg] = true;
+                }
+            }
+            if (instruction->definition != RCC_MIR_VREG_NONE) {
+                definitions[base + instruction->definition] = true;
+            }
+        }
+    }
+    for (block = function->first_block; block; block = block->next) {
+        const RccMirInstruction* instruction;
+        for (instruction = block->first;
+             instruction && instruction->opcode == RCC_MIR_PHI;
+             instruction = instruction->next) {
+            size_t incoming;
+            for (incoming = 0u; incoming < instruction->operand_count;
+                 ++incoming) {
+                size_t predecessor = instruction->targets[incoming];
+                RccMirVReg reg = instruction->operands[incoming];
+                edge_uses[predecessor * function->register_count + reg] =
+                    true;
+            }
+        }
+    }
+    while (changed) {
+        changed = false;
+        for (block = function->first_block; block; block = block->next) {
+            const RccMirInstruction* terminator = block->last;
+            size_t base = (size_t)block->id * function->register_count;
+            size_t reg;
+            for (reg = 0u; reg < function->register_count; ++reg) {
+                bool out = edge_uses[base + reg];
+                size_t successor;
+                for (successor = 0u;
+                     !out && successor < terminator->target_count;
+                     ++successor) {
+                    size_t target = terminator->targets[successor];
+                    out = live_in[target * function->register_count + reg];
+                }
+                if (out && !live_out[base + reg]) {
+                    live_out[base + reg] = true;
+                    changed = true;
+                }
+                if ((uses[base + reg] ||
+                     (live_out[base + reg] && !definitions[base + reg])) &&
+                    !live_in[base + reg]) {
+                    live_in[base + reg] = true;
+                    changed = true;
+                }
+            }
+        }
+    }
+    for (block = function->first_block; block; block = block->next) {
+        size_t base = (size_t)block->id * function->register_count;
+        size_t reg;
+        for (reg = 0u; reg < function->register_count; ++reg) {
+            if (live_in[base + reg]) {
+                if (block_starts[block->id] < intervals[reg].start) {
+                    intervals[reg].start = block_starts[block->id];
+                }
+                if (block_starts[block->id] > intervals[reg].end) {
+                    intervals[reg].end = block_starts[block->id];
+                }
+            }
+            if (live_out[base + reg] &&
+                block_ends[block->id] > intervals[reg].end) {
+                intervals[reg].end = block_ends[block->id];
+            }
+        }
+    }
+    rcc_free(definitions);
+    rcc_free(uses);
+    rcc_free(edge_uses);
+    rcc_free(live_in);
+    rcc_free(live_out);
     return true;
 }
 
@@ -517,6 +639,7 @@ bool rcc_mir_linear_scan_allocate(
     const RccMirFunction* function, const RccMirRegisterPolicy* policy,
     RccMirAllocation* allocation, char* error, size_t error_size) {
     RccMirIntervalOrder* order = NULL;
+    size_t* block_starts = NULL;
     size_t* block_ends = NULL;
     size_t* calls = NULL;
     size_t call_count = 0u;
@@ -541,8 +664,13 @@ bool rcc_mir_linear_scan_allocate(
             mir_alloc_register_class(function->register_types[reg]);
     }
     if (!mir_alloc_collect_positions(
-            function, &block_ends, &calls, &call_count,
+            function, &block_starts, &block_ends, &calls, &call_count,
             allocation->intervals, error, error_size)) {
+        goto cleanup;
+    }
+    if (!mir_alloc_extend_cfg_liveness(
+            function, block_starts, block_ends, allocation->intervals,
+            error, error_size)) {
         goto cleanup;
     }
     if (!mir_alloc_apply_fixed_constraints(
@@ -586,6 +714,7 @@ bool rcc_mir_linear_scan_allocate(
     result = true;
 cleanup:
     rcc_free(order);
+    rcc_free(block_starts);
     rcc_free(block_ends);
     rcc_free(calls);
     if (!result) rcc_mir_allocation_release(allocation);

@@ -1314,8 +1314,9 @@ static bool ir_pass_remove_dead_instructions(
     return ir_pass_compact_values(function, NULL, 0u, error, error_size);
 }
 
-bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
-                     char* error, size_t error_size) {
+static bool ir_pass_simplify(RccIrFunction* function, bool enable_gvn,
+                             RccIrSimplifyStats* stats,
+                             char* error, size_t error_size) {
     RccIrSimplifyStats local_stats;
     memset(&local_stats, 0, sizeof(local_stats));
     if (stats) memset(stats, 0, sizeof(*stats));
@@ -1324,13 +1325,69 @@ bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
         return false;
     }
     if (!ir_pass_fold_constants(function, &local_stats) ||
-        !ir_pass_common_subexpressions(function, &local_stats,
-                                       error, error_size) ||
+        (enable_gvn &&
+         !ir_pass_common_subexpressions(function, &local_stats,
+                                        error, error_size)) ||
         !ir_pass_remove_dead_instructions(function, &local_stats,
                                           error, error_size) ||
         !rcc_ir_verify_function(function, error, error_size)) {
         return false;
     }
+    if (stats) *stats = local_stats;
+    return true;
+}
+
+bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
+                     char* error, size_t error_size) {
+    return ir_pass_simplify(function, true, stats, error, error_size);
+}
+
+bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
+                              RccIrOptimizationStats* stats,
+                              char* error, size_t error_size) {
+    RccIrOptimizationStats local_stats;
+    size_t round;
+    size_t round_limit;
+    memset(&local_stats, 0, sizeof(local_stats));
+    local_stats.level = level;
+    if (stats) memset(stats, 0, sizeof(*stats));
+    if (error && error_size != 0u) error[0] = '\0';
+    if (level > 3u) {
+        return ir_pass_error(error, error_size,
+                             "invalid SSA optimization level %u", level);
+    }
+    if (!function || !rcc_ir_verify_function(function, error, error_size)) {
+        return false;
+    }
+    if (level == 0u) {
+        if (stats) *stats = local_stats;
+        return true;
+    }
+    if (!rcc_ir_mem2reg(function, &local_stats.mem2reg,
+                        error, error_size)) {
+        return false;
+    }
+    round_limit = level == 3u ? 8u : 1u;
+    for (round = 0u; round < round_limit; ++round) {
+        RccIrSimplifyStats current;
+        bool changed;
+        if (!ir_pass_simplify(function, level >= 2u, &current,
+                              error, error_size)) {
+            return false;
+        }
+        local_stats.simplify.folded_instructions +=
+            current.folded_instructions;
+        local_stats.simplify.commoned_instructions +=
+            current.commoned_instructions;
+        local_stats.simplify.removed_instructions +=
+            current.removed_instructions;
+        ++local_stats.simplify_rounds;
+        changed = current.folded_instructions != 0u ||
+            current.commoned_instructions != 0u ||
+            current.removed_instructions != 0u;
+        if (level != 3u || changed == 0u) break;
+    }
+    if (!rcc_ir_verify_function(function, error, error_size)) return false;
     if (stats) *stats = local_stats;
     return true;
 }

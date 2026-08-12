@@ -107,9 +107,11 @@
   - [x] alias-free整数・cast・GEP・select・symbol addressのbasic-block内CSE
   - [x] dominator scopeと兄弟分岐隔離を持つSSA global value numbering
 - [ ] loop optimization、inlining
-- [ ] `-O0..3`ごとのpass pipeline
+- [x] `-O0..3`ごとのpass pipeline
+  - [x] O0検証のみ、O1 mem2reg/fold/DCE、O2 GVN追加、O3固定点反復
 - [ ] linear-scan / graph-coloring register allocation
   - [x] phi edge/call crossing対応MIR live intervalとpolicy駆動linear-scan/spill配置
+  - [x] 非レイアウト順successor/back-edge対応CFG fixed-point liveness
   - [x] DIV/REMのAX:DXと可変shiftのCXを命令位置だけ予約するfixed-register制約
 
 ## 5. backend

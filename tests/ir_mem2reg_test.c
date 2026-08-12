@@ -77,6 +77,93 @@ static size_t count_opcode(const RccIrFunction* function,
     return count;
 }
 
+static RccIrModule* build_optimization_pipeline_fixture(
+    RccIrFunction** function_out)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "optimization_pipeline", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue loaded;
+    RccIrValue operands[2];
+    RccIrInstruction* first;
+    RccIrInstruction* duplicate;
+    RccIrInstruction* product;
+    append_store(entry, function->parameters[0], address);
+    loaded = append_load(entry, i32, address);
+    operands[0] = loaded;
+    operands[1] = function->parameters[1];
+    first = rcc_ir_append(entry, RCC_IR_ADD, i32,
+                          operands, 2u, NULL, 0u);
+    operands[0] = function->parameters[1];
+    operands[1] = loaded;
+    duplicate = rcc_ir_append(entry, RCC_IR_ADD, i32,
+                              operands, 2u, NULL, 0u);
+    assert(first != NULL && duplicate != NULL);
+    operands[0] = first->result;
+    operands[1] = duplicate->result;
+    product = rcc_ir_append(entry, RCC_IR_MUL, i32,
+                            operands, 2u, NULL, 0u);
+    assert(product != NULL);
+    append_return(entry, product->result);
+    *function_out = function;
+    return module;
+}
+
+static void verify_optimization_level_pipeline(void)
+{
+    RccIrModule* module;
+    RccIrFunction* function;
+    RccIrOptimizationStats stats;
+    char error[256];
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 0u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 0u && stats.simplify_rounds == 0u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert(count_opcode(function, RCC_IR_STORE) == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 2u);
+    rcc_ir_module_destroy(module);
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 1u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 1u && stats.simplify_rounds == 1u);
+    assert(stats.mem2reg.promoted_allocas == 1u);
+    assert(stats.simplify.commoned_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 0u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+    assert(count_opcode(function, RCC_IR_STORE) == 0u);
+    assert(count_opcode(function, RCC_IR_ADD) == 2u);
+    rcc_ir_module_destroy(module);
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 2u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 2u && stats.simplify_rounds == 1u);
+    assert(stats.mem2reg.promoted_allocas == 1u);
+    assert(stats.simplify.commoned_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    rcc_ir_module_destroy(module);
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 3u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 3u && stats.simplify_rounds == 2u);
+    assert(stats.mem2reg.promoted_allocas == 1u);
+    assert(stats.simplify.commoned_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    assert(!rcc_ir_optimize_function(function, 4u, &stats,
+                                     error, sizeof(error)));
+    assert(strstr(error, "invalid SSA optimization level 4") != NULL);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_diamond_promotion(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -429,6 +516,7 @@ static void verify_sibling_values_are_not_commoned(void)
 
 int main(void)
 {
+    verify_optimization_level_pipeline();
     verify_diamond_promotion();
     verify_loop_promotion();
     verify_escape_is_not_promoted();

@@ -183,6 +183,77 @@ static void verify_call_crossing_pressure(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_cfg_liveness_across_backward_successor(bool x64)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "backward_successor", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrBlock* body = rcc_ir_block_add(ir, "body");
+    RccIrBlock* fallback = rcc_ir_block_add(ir, "fallback");
+    RccIrBlock* dispatch = rcc_ir_block_add(ir, "dispatch");
+    RccIrValue shared = append_const(entry, i32, 40u);
+    RccIrValue one;
+    RccIrValue add_operands[2];
+    RccIrInstruction* sum;
+    RccIrValue zero;
+    RccIrValue two;
+    RccIrValue compare_operands[2];
+    RccIrInstruction* compare;
+    RccIrBlockId targets[] = {body->id, fallback->id};
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    RccMirVReg late_value;
+    char error[256];
+    append_branch(entry, dispatch->id);
+    one = append_const(body, i32, 1u);
+    add_operands[0] = shared;
+    add_operands[1] = one;
+    sum = rcc_ir_append(body, RCC_IR_ADD, i32,
+                        add_operands, 2u, NULL, 0u);
+    assert(sum != NULL);
+    assert(rcc_ir_append(body, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &sum->result, 1u, NULL, 0u) != NULL);
+    zero = append_const(fallback, i32, 0u);
+    assert(rcc_ir_append(fallback, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &zero, 1u, NULL, 0u) != NULL);
+    two = append_const(dispatch, i32, 2u);
+    compare_operands[0] = ir->parameters[0];
+    compare_operands[1] = two;
+    compare = rcc_ir_append(dispatch, RCC_IR_ICMP,
+                            rcc_ir_type_integer(1u),
+                            compare_operands, 2u, NULL, 0u);
+    assert(compare != NULL);
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+    assert(rcc_ir_append(dispatch, RCC_IR_COND_BRANCH,
+                         rcc_ir_type_void(), &compare->result, 1u,
+                         targets, 2u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    if (x64) rcc_mir_register_policy_x86_64(&policy);
+    else rcc_mir_register_policy_i686(&policy);
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    late_value = two;
+    assert(allocation.intervals[shared].start == 1u);
+    assert(allocation.intervals[shared].end == 10u);
+    assert(allocation.intervals[late_value].start == 8u);
+    assert(allocation.intervals[late_value].end == 9u);
+    if (allocation.locations[shared].kind == RCC_MIR_LOCATION_PHYSICAL &&
+        allocation.locations[late_value].kind ==
+            RCC_MIR_LOCATION_PHYSICAL) {
+        assert(allocation.locations[shared].physical_register !=
+               allocation.locations[late_value].physical_register);
+    }
+    assert(rcc_mir_verify_allocation(
+        mir, &policy, &allocation, error, sizeof(error)));
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_fixed_register_constraints_target(bool x64)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -853,6 +924,8 @@ int main(void)
     verify_ir_to_mir_diamond();
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();
+    verify_cfg_liveness_across_backward_successor(false);
+    verify_cfg_liveness_across_backward_successor(true);
     verify_fixed_register_constraints();
     verify_phi_parallel_copy_cycle();
     verify_x86_critical_edge_selection();

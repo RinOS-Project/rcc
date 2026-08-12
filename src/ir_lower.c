@@ -3274,15 +3274,10 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     }
     lower_release_locals(context.locals);
     {
-        RccIrMem2RegStats stats;
-        if (!rcc_ir_mem2reg(function, &stats, error, error_size)) {
-            rcc_ir_module_destroy(module);
-            return RCC_IR_LOWER_INVALID;
-        }
-    }
-    {
-        RccIrSimplifyStats stats;
-        if (!rcc_ir_simplify(function, &stats, error, error_size)) {
+        RccIrOptimizationStats stats;
+        if (!rcc_ir_optimize_function(
+                function, (unsigned)g_opts.opt_level, &stats,
+                error, error_size)) {
             rcc_ir_module_destroy(module);
             return RCC_IR_LOWER_INVALID;
         }
