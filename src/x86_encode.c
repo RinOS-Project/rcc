@@ -203,7 +203,7 @@ static bool x86_emit_move_register_register(
 static bool x86_emit_load(RccX86Encoder* encoder,
                           RccX86HardwareGpr destination,
                           RccX86Value source, uint16_t size) {
-    int32_t displacement;
+    int32_t displacement = 0;
     if (!x86_value_displacement(encoder, source, &displacement) ||
         !x86_emit_prefix(encoder, size, destination, RCC_X86_GPR_BP,
                          size == 1u) ||
@@ -710,6 +710,153 @@ static bool x86_emit_conversion(
     }
 }
 
+static RccX86HardwareGpr x86_choose_scratch_three(
+    RccX86Value first, RccX86Value second, RccX86HardwareGpr excluded) {
+    static const RccX86HardwareGpr candidates[] = {
+        RCC_X86_GPR_AX, RCC_X86_GPR_CX, RCC_X86_GPR_DX,
+    };
+    for (size_t index = 0u;
+         index < sizeof(candidates) / sizeof(candidates[0]); ++index) {
+        RccX86HardwareGpr candidate = candidates[index];
+        if (candidate != excluded &&
+            (first.kind != RCC_X86_VALUE_GPR || first.gpr != candidate) &&
+            (second.kind != RCC_X86_VALUE_GPR || second.gpr != candidate)) {
+            return candidate;
+        }
+    }
+    return excluded == RCC_X86_GPR_AX ? RCC_X86_GPR_CX
+                                      : RCC_X86_GPR_AX;
+}
+
+static bool x86_emit_indirect_modrm(
+    RccX86Encoder* encoder, unsigned reg, RccX86HardwareGpr base) {
+    unsigned low = (unsigned)base & 7u;
+    if (low == 4u) {
+        return x86_emit_u8(encoder, x86_modrm(0u, reg, 4u)) &&
+            x86_emit_u8(encoder, 0x24u);
+    }
+    if (low == 5u) {
+        return x86_emit_u8(encoder, x86_modrm(1u, reg, low)) &&
+            x86_emit_u8(encoder, 0u);
+    }
+    return x86_emit_u8(encoder, x86_modrm(0u, reg, low));
+}
+
+static bool x86_emit_indirect_load(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    RccX86HardwareGpr address, uint16_t size) {
+    if (!x86_emit_prefix(encoder, size, destination, address,
+                         size == 1u) ||
+        !x86_emit_u8(encoder, size == 1u ? 0x8au : 0x8bu)) return false;
+    return x86_emit_indirect_modrm(encoder, destination, address);
+}
+
+static bool x86_emit_indirect_store(
+    RccX86Encoder* encoder, RccX86HardwareGpr address,
+    RccX86HardwareGpr source, uint16_t size) {
+    if (!x86_emit_prefix(encoder, size, source, address,
+                         size == 1u) ||
+        !x86_emit_u8(encoder, size == 1u ? 0x88u : 0x89u)) return false;
+    return x86_emit_indirect_modrm(encoder, source, address);
+}
+
+static bool x86_emit_stack_address(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value slot;
+    RccX86Value destination = instruction->destination;
+    RccX86HardwareGpr result = destination.kind == RCC_X86_VALUE_GPR
+        ? destination.gpr
+        : x86_choose_scratch(destination, destination);
+    int32_t displacement = 0;
+    bool preserve = destination.kind != RCC_X86_VALUE_GPR;
+    memset(&slot, 0, sizeof(slot));
+    slot.kind = RCC_X86_VALUE_FRAME;
+    slot.frame_offset = (uint32_t)instruction->immediate;
+    slot.size = encoder->function->pointer_size;
+    slot.alignment = encoder->function->pointer_size;
+    if (!x86_value_displacement(encoder, slot, &displacement) ||
+        (preserve && !x86_emit_push(encoder, result)) ||
+        !x86_emit_prefix(
+            encoder, encoder->function->pointer_size,
+            result, RCC_X86_GPR_BP, false) ||
+        !x86_emit_u8(encoder, 0x8du) ||
+        !x86_emit_memory_modrm(encoder, result, displacement) ||
+        (preserve && !x86_emit_store(
+            encoder, destination, result,
+            encoder->function->pointer_size)) ||
+        (preserve && !x86_emit_pop(encoder, result))) return false;
+    return true;
+}
+
+static bool x86_emit_pointer_load(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value address = instruction->operands[0];
+    RccX86Value destination = instruction->destination;
+    RccX86HardwareGpr address_register;
+    RccX86HardwareGpr result_register;
+    bool preserve_address = address.kind != RCC_X86_VALUE_GPR;
+    bool preserve_result = destination.kind != RCC_X86_VALUE_GPR;
+    address_register = preserve_address
+        ? x86_choose_scratch(address, destination) : address.gpr;
+    result_register = preserve_result
+        ? x86_choose_scratch_three(
+            address, destination, address_register)
+        : destination.gpr;
+    if ((preserve_address && !x86_emit_push(
+             encoder, address_register)) ||
+        (preserve_result && !x86_emit_push(
+             encoder, result_register)) ||
+        (preserve_address && !x86_emit_load(
+             encoder, address_register, address,
+             encoder->function->pointer_size)) ||
+        !x86_emit_indirect_load(
+            encoder, result_register, address_register,
+            destination.size) ||
+        (preserve_result && !x86_emit_store(
+             encoder, destination, result_register,
+             destination.size)) ||
+        (preserve_result && !x86_emit_pop(
+             encoder, result_register)) ||
+        (preserve_address && !x86_emit_pop(
+             encoder, address_register))) return false;
+    return true;
+}
+
+static bool x86_emit_pointer_store(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value value = instruction->operands[0];
+    RccX86Value address = instruction->operands[1];
+    RccX86HardwareGpr address_register;
+    RccX86HardwareGpr value_register;
+    bool preserve_address = address.kind != RCC_X86_VALUE_GPR;
+    bool preserve_value = value.kind != RCC_X86_VALUE_GPR;
+    address_register = preserve_address
+        ? x86_choose_scratch(address, value) : address.gpr;
+    value_register = preserve_value
+        ? x86_choose_scratch_three(
+            address, value, address_register)
+        : value.gpr;
+    if ((preserve_address && !x86_emit_push(
+             encoder, address_register)) ||
+        (preserve_value && !x86_emit_push(
+             encoder, value_register)) ||
+        (preserve_address && !x86_emit_load(
+             encoder, address_register, address,
+             encoder->function->pointer_size)) ||
+        (preserve_value && !x86_emit_load(
+             encoder, value_register, value, value.size)) ||
+        !x86_emit_indirect_store(
+            encoder, address_register, value_register, value.size) ||
+        (preserve_value && !x86_emit_pop(
+             encoder, value_register)) ||
+        (preserve_address && !x86_emit_pop(
+             encoder, address_register))) return false;
+    return true;
+}
+
 static bool x86_add_fixup(RccX86Encoder* encoder, uint32_t target) {
     RccX86BranchFixup* fixup;
     if (encoder->fixup_count == encoder->fixup_capacity) {
@@ -877,6 +1024,12 @@ static bool x86_emit_instruction(
         case RCC_X86_SIGN_EXTEND:
         case RCC_X86_REINTERPRET:
             return x86_emit_conversion(encoder, instruction);
+        case RCC_X86_STACK_ADDRESS:
+            return x86_emit_stack_address(encoder, instruction);
+        case RCC_X86_LOAD:
+            return x86_emit_pointer_load(encoder, instruction);
+        case RCC_X86_STORE:
+            return x86_emit_pointer_store(encoder, instruction);
         case RCC_X86_JUMP:
             return x86_emit_u8(encoder, 0xe9u) &&
                 x86_add_fixup(encoder, instruction->targets[0]);

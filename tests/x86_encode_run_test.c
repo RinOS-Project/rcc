@@ -305,6 +305,44 @@ static void verify_compare_and_conversion_execution(void)
     assert(execute_conversion_function(false, true, 0x1234) == 0x34);
 }
 
+static void verify_stack_memory_execution(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType parameter = i32;
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_stack", i32, &parameter, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* allocation = rcc_ir_append(
+        entry, RCC_IR_ALLOCA, pointer, NULL, 0u, NULL, 0u);
+    RccIrValue store_operands[2];
+    RccIrInstruction* load;
+    RccX86EncodedFunction encoded;
+    size_t mapping_size;
+    void* memory;
+    int (*function)(int);
+    assert(allocation != NULL);
+    rcc_ir_set_immediate(allocation, 4u);
+    store_operands[0] = ir->parameters[0];
+    store_operands[1] = allocation->result;
+    assert(rcc_ir_append(entry, RCC_IR_STORE, rcc_ir_type_void(),
+                         store_operands, 2u, NULL, 0u) != NULL);
+    load = rcc_ir_append(entry, RCC_IR_LOAD, i32,
+                         &allocation->result, 1u, NULL, 0u);
+    assert(load != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &load->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function(ir);
+    memory = map_code(&encoded, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    assert(function(0x12345678) == 0x12345678);
+    assert(function(-137) == -137);
+    assert(munmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_ir_module_destroy(module);
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 2);
@@ -312,6 +350,7 @@ int main(int argc, char** argv)
     verify_branch_execution();
     verify_fixed_register_execution();
     verify_compare_and_conversion_execution();
+    verify_stack_memory_execution();
     puts("Native legal-IR x86 encoding execution tests passed");
     return 0;
 }
