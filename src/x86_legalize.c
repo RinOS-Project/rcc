@@ -44,6 +44,106 @@ static bool x86_legal_native_scalar(
         type.bit_width <= (uint16_t)(abi->pointer_size * 8u);
 }
 
+static uint32_t x86_legal_hardware_callee_mask(const RccX86Abi* abi) {
+    uint32_t mask = 0u;
+    size_t index;
+    for (index = 0u; index < abi->gpr_count; ++index) {
+        if ((abi->callee_saved_abstract_mask &
+             (UINT64_C(1) << index)) != 0u) {
+            mask |= UINT32_C(1) << abi->gpr_map[index];
+        }
+    }
+    return mask;
+}
+
+static bool x86_legal_note_selected_location(
+    RccMirLocation location, const RccX86Abi* abi,
+    uint32_t* used_mask, char* error, size_t error_size) {
+    RccX86HardwareGpr hardware;
+    if (location.kind != RCC_MIR_LOCATION_PHYSICAL ||
+        location.register_class != RCC_MIR_REGCLASS_GPR) {
+        return true;
+    }
+    if (!rcc_x86_abi_hardware_gpr(
+            abi, location.physical_register, &hardware)) {
+        return x86_legal_error(
+            error, error_size,
+            "x86 frame planner cannot resolve a physical register");
+    }
+    *used_mask |= UINT32_C(1) << hardware;
+    return true;
+}
+
+static bool x86_legal_plan_callee_saves(
+    RccX86LegalFunction* legal, const RccX86Function* selected,
+    const RccX86Abi* abi, char* error, size_t error_size) {
+    const RccX86Block* block;
+    uint32_t selected_used = 0u;
+    uint32_t offset;
+    uint32_t end;
+    size_t count = 0u;
+    size_t index;
+    for (index = 0u; index < selected->parameter_count; ++index) {
+        if (!x86_legal_note_selected_location(
+                selected->parameters[index], abi, &selected_used,
+                error, error_size)) return false;
+    }
+    for (block = selected->first_block; block; block = block->next) {
+        const RccX86Instruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            size_t operand;
+            if (instruction->has_destination &&
+                !x86_legal_note_selected_location(
+                    instruction->destination, abi, &selected_used,
+                    error, error_size)) return false;
+            for (operand = 0u; operand < instruction->operand_count;
+                 ++operand) {
+                if (!x86_legal_note_selected_location(
+                        instruction->operands[operand], abi,
+                        &selected_used, error, error_size)) return false;
+            }
+        }
+    }
+    legal->callee_saved_gpr_mask = selected_used &
+        x86_legal_hardware_callee_mask(abi);
+    for (index = 0u; index < 16u; ++index) {
+        if ((legal->callee_saved_gpr_mask &
+             (UINT32_C(1) << index)) != 0u) ++count;
+    }
+    legal->callee_save_area_offset = legal->frame_size;
+    if (count != 0u) {
+        if (count > SIZE_MAX / sizeof(*legal->callee_saves)) {
+            return x86_legal_error(error, error_size,
+                                   "x86 callee-save table is too large");
+        }
+        legal->callee_saves = rcc_alloc(
+            count * sizeof(*legal->callee_saves));
+    }
+    offset = legal->callee_save_area_offset;
+    for (index = 0u; index < 16u; ++index) {
+        RccX86CalleeSave* save;
+        if ((legal->callee_saved_gpr_mask &
+             (UINT32_C(1) << index)) == 0u) continue;
+        if (offset > UINT32_MAX - abi->pointer_size) {
+            return x86_legal_error(error, error_size,
+                                   "x86 callee-save area exceeds 32 bits");
+        }
+        save = &legal->callee_saves[legal->callee_save_count++];
+        save->gpr = (RccX86HardwareGpr)index;
+        save->frame_offset = offset;
+        offset += abi->pointer_size;
+    }
+    legal->callee_save_area_size =
+        offset - legal->callee_save_area_offset;
+    if (!x86_legal_align(offset, abi->stack_alignment, &end)) {
+        return x86_legal_error(error, error_size,
+                               "x86 callee-save frame exceeds 32 bits");
+    }
+    legal->frame_size = end;
+    return true;
+}
+
 static bool x86_legal_value_equal(RccX86Value left, RccX86Value right) {
     if (left.kind != right.kind) return false;
     if (left.kind == RCC_X86_VALUE_GPR) return left.gpr == right.gpr;
@@ -176,6 +276,11 @@ static bool x86_legal_reserve_parallel_temporary(
     uint32_t offset;
     uint32_t end;
     if (!function->has_parallel_copy_temporary) {
+        if (function->frame_plan_complete) {
+            return x86_legal_error(
+                error, error_size,
+                "x86 parallel-copy temporary was not reserved");
+        }
         if (!x86_legal_align(function->frame_size, abi->pointer_size,
                              &offset) ||
             offset > UINT32_MAX - abi->pointer_size ||
@@ -425,6 +530,54 @@ static bool x86_legal_prepare_outgoing_frame(
     }
     legal->frame_size = aligned;
     return true;
+}
+
+static bool x86_legal_complete_frame_plan(
+    RccX86LegalFunction* legal, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    uint32_t consumed;
+    uint32_t remainder;
+    uint32_t padding;
+    consumed = (uint32_t)abi->pointer_size * 2u;
+    remainder = ((legal->frame_size % abi->stack_alignment) +
+                 (consumed % abi->stack_alignment)) %
+        abi->stack_alignment;
+    padding = remainder == 0u
+        ? 0u : (uint32_t)abi->stack_alignment - remainder;
+    if (legal->frame_size > UINT32_MAX - padding) {
+        return x86_legal_error(error, error_size,
+                               "x86 stack adjustment exceeds 32 bits");
+    }
+    legal->stack_alignment_padding = padding;
+    legal->stack_adjustment = legal->frame_size + padding;
+    legal->frame_plan_complete = true;
+    return true;
+}
+
+static uint32_t x86_legal_collect_used_gprs(
+    const RccX86LegalFunction* function) {
+    const RccX86LegalBlock* block;
+    uint32_t mask = 0u;
+    for (block = function->first_block; block; block = block->next) {
+        const RccX86LegalInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            size_t operand;
+            if (instruction->has_destination &&
+                instruction->destination.kind == RCC_X86_VALUE_GPR) {
+                mask |= UINT32_C(1) << instruction->destination.gpr;
+            }
+            for (operand = 0u; operand < instruction->operand_count;
+                 ++operand) {
+                if (instruction->operands[operand].kind ==
+                    RCC_X86_VALUE_GPR) {
+                    mask |= UINT32_C(1) <<
+                        instruction->operands[operand].gpr;
+                }
+            }
+        }
+    }
+    return mask;
 }
 
 static bool x86_legalize_parameters(
@@ -727,8 +880,14 @@ static bool x86_legal_value_valid(
     }
     if (value.frame_offset % value.alignment != 0u) return false;
     if (value.kind == RCC_X86_VALUE_FRAME) {
-        return value.frame_offset <= function->frame_size &&
-            value.size <= function->frame_size - value.frame_offset;
+        if (value.frame_offset <= function->source_frame_size &&
+            value.size <= function->source_frame_size -
+                value.frame_offset) return true;
+        return function->has_parallel_copy_temporary &&
+            value.frame_offset ==
+                function->parallel_copy_temporary_offset &&
+            value.size == abi->pointer_size &&
+            value.alignment == abi->pointer_size;
     }
     if (value.kind == RCC_X86_VALUE_OUTGOING_ARGUMENT) {
         uint32_t relative;
@@ -739,7 +898,10 @@ static bool x86_legal_value_valid(
         return relative <= function->outgoing_stack_size &&
             value.size <= function->outgoing_stack_size - relative;
     }
-    return value.kind == RCC_X86_VALUE_INCOMING_ARGUMENT;
+    return value.kind == RCC_X86_VALUE_INCOMING_ARGUMENT &&
+        value.alignment == abi->pointer_size &&
+        value.size <= abi->pointer_size &&
+        value.frame_offset <= UINT32_MAX - value.size;
 }
 
 static bool x86_legal_selected_shape(
@@ -966,6 +1128,78 @@ static bool x86_legal_verify_return(
     return true;
 }
 
+static bool x86_legal_verify_frame_plan(
+    const RccX86LegalFunction* function, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    uint32_t hardware_callee = x86_legal_hardware_callee_mask(abi);
+    uint32_t save_end;
+    uint32_t next_reserved;
+    uint32_t expected_mask = 0u;
+    size_t expected_count = 0u;
+    size_t index;
+    if (!function->frame_plan_complete ||
+        function->source_frame_size % function->stack_alignment != 0u ||
+        function->source_frame_size > function->frame_size ||
+        function->callee_save_area_offset !=
+            function->source_frame_size ||
+        function->callee_save_count >
+            UINT32_MAX / abi->pointer_size ||
+        function->callee_save_area_size !=
+            function->callee_save_count * abi->pointer_size ||
+        (function->callee_save_count != 0u) !=
+            (function->callee_saves != NULL) ||
+        function->callee_save_area_offset > UINT32_MAX -
+            function->callee_save_area_size ||
+        function->stack_alignment_padding >=
+            function->stack_alignment ||
+        function->stack_adjustment < function->frame_size ||
+        function->stack_alignment_padding !=
+            function->stack_adjustment - function->frame_size ||
+        ((function->stack_adjustment % function->stack_alignment) +
+         (((uint32_t)abi->pointer_size * 2u) %
+          function->stack_alignment)) % function->stack_alignment != 0u ||
+        function->callee_saved_gpr_mask !=
+            (function->used_gpr_mask & hardware_callee)) {
+        return x86_legal_error(error, error_size,
+                               "x86 frame plan is invalid");
+    }
+    save_end = function->callee_save_area_offset +
+        function->callee_save_area_size;
+    next_reserved = function->has_parallel_copy_temporary
+        ? function->parallel_copy_temporary_offset
+        : function->outgoing_stack_offset;
+    if (save_end > next_reserved) {
+        return x86_legal_error(error, error_size,
+                               "x86 callee-save area overlaps the frame");
+    }
+    for (index = 0u; index < function->callee_save_count; ++index) {
+        const RccX86CalleeSave* save = &function->callee_saves[index];
+        uint32_t bit;
+        if ((unsigned)save->gpr >= 16u) {
+            return x86_legal_error(error, error_size,
+                                   "x86 callee-save register is invalid");
+        }
+        bit = UINT32_C(1) << save->gpr;
+        if ((hardware_callee & bit) == 0u ||
+            (expected_mask & bit) != 0u ||
+            save->frame_offset != function->callee_save_area_offset +
+                (uint32_t)index * abi->pointer_size ||
+            (index != 0u &&
+             function->callee_saves[index - 1u].gpr >= save->gpr)) {
+            return x86_legal_error(error, error_size,
+                                   "x86 callee-save entry is invalid");
+        }
+        expected_mask |= bit;
+        ++expected_count;
+    }
+    if (expected_count != function->callee_save_count ||
+        expected_mask != function->callee_saved_gpr_mask) {
+        return x86_legal_error(error, error_size,
+                               "x86 callee-save mask is inconsistent");
+    }
+    return true;
+}
+
 bool rcc_x86_verify_legal_function(
     const RccX86LegalFunction* function,
     const RccMirRegisterPolicy* policy,
@@ -1000,6 +1234,8 @@ bool rcc_x86_verify_legal_function(
         return x86_legal_error(error, error_size,
                                "x86 legal-function header is invalid");
     }
+    if (!x86_legal_verify_frame_plan(
+            function, &abi, error, error_size)) return false;
     for (block = function->first_block; block; block = block->next) {
         const RccX86LegalInstruction* instruction;
         if (block->id != block_count || !block->first || !block->last) {
@@ -1090,6 +1326,10 @@ bool rcc_x86_verify_legal_function(
         }
         ++block_count;
     }
+    if (function->used_gpr_mask != x86_legal_collect_used_gprs(function)) {
+        return x86_legal_error(error, error_size,
+                               "x86 used-register mask is inconsistent");
+    }
     if (block_count != function->block_count ||
         instruction_count != function->legal_instruction_count) {
         return x86_legal_error(error, error_size,
@@ -1117,6 +1357,7 @@ void rcc_x86_legal_function_destroy(RccX86LegalFunction* function) {
         rcc_free(block);
         block = next_block;
     }
+    rcc_free(function->callee_saves);
     rcc_free(function);
 }
 
@@ -1140,12 +1381,17 @@ bool rcc_x86_legalize_function(
     legal->target = selected->target;
     legal->pointer_size = selected->pointer_size;
     legal->stack_alignment = selected->stack_alignment;
+    legal->source_frame_size = selected->frame_size;
     legal->frame_size = selected->frame_size;
     legal->return_type = selected->return_type;
     legal->original_block_count = selected->original_block_count;
     legal->source_instruction_count = selected->source_instruction_count;
-    if (!x86_legal_prepare_outgoing_frame(
-            legal, selected, &abi, error, error_size)) goto cleanup;
+    if (!x86_legal_plan_callee_saves(
+            legal, selected, &abi, error, error_size) ||
+        !x86_legal_prepare_outgoing_frame(
+            legal, selected, &abi, error, error_size) ||
+        !x86_legal_complete_frame_plan(
+            legal, &abi, error, error_size)) goto cleanup;
     for (source_block = selected->first_block; source_block;
          source_block = source_block->next) {
         const RccX86Instruction* source;
@@ -1186,6 +1432,7 @@ bool rcc_x86_legalize_function(
             }
         }
     }
+    legal->used_gpr_mask = x86_legal_collect_used_gprs(legal);
     if (!rcc_x86_verify_legal_function(
             legal, policy, error, error_size)) goto cleanup;
     *legal_out = legal;

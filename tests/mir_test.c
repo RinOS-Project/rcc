@@ -565,7 +565,22 @@ static void verify_sysv_call_legalization_target(bool x64)
     assert(legal->outgoing_stack_size == (x64 ? 16u : 32u));
     assert(legal->outgoing_stack_offset + legal->outgoing_stack_size ==
            legal->frame_size);
+    assert(legal->frame_plan_complete);
+    assert(legal->source_frame_size <= legal->callee_save_area_offset);
+    assert(legal->stack_adjustment == legal->frame_size +
+           legal->stack_alignment_padding);
+    assert((legal->stack_adjustment + 2u * policy.pointer_size) %
+           policy.stack_alignment == 0u);
+    assert(legal->stack_alignment_padding == (x64 ? 0u : 8u));
     assert(!x64 || legal->has_parallel_copy_temporary);
+    if (x64) {
+        assert(legal->callee_save_count == 2u);
+        assert(legal->callee_saves[0].gpr == RCC_X86_GPR_BX);
+        assert(legal->callee_saves[1].gpr == RCC_X86_GPR_R12);
+        assert(legal->callee_saved_gpr_mask ==
+               ((UINT32_C(1) << RCC_X86_GPR_BX) |
+                (UINT32_C(1) << RCC_X86_GPR_R12)));
+    }
     for (RccX86LegalInstruction* instruction = legal->first_block->first;
          instruction; instruction = instruction->next) {
         if (instruction->opcode == RCC_X86_LEGAL_CALL) {
@@ -588,6 +603,19 @@ static void verify_sysv_call_legalization_target(bool x64)
            RCC_X86_GPR_AX);
     assert(rcc_x86_verify_legal_function(
         legal, &policy, error, sizeof(error)));
+    if (legal->callee_save_count != 0u) {
+        uint32_t original_offset = legal->callee_saves[0].frame_offset;
+        legal->callee_saves[0].frame_offset += policy.pointer_size;
+        assert(!rcc_x86_verify_legal_function(
+            legal, &policy, error, sizeof(error)));
+        assert(strstr(error, "callee-save") != NULL);
+        legal->callee_saves[0].frame_offset = original_offset;
+    }
+    ++legal->stack_adjustment;
+    assert(!rcc_x86_verify_legal_function(
+        legal, &policy, error, sizeof(error)));
+    assert(strstr(error, "frame plan") != NULL);
+    --legal->stack_adjustment;
     legal_call->auxiliary = legal->outgoing_stack_size +
         policy.pointer_size;
     assert(!rcc_x86_verify_legal_function(

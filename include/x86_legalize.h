@@ -68,11 +68,32 @@ struct RccX86LegalBlock {
 };
 
 typedef struct {
+    RccX86HardwareGpr gpr;
+    uint32_t frame_offset;
+} RccX86CalleeSave;
+
+/*
+ * Frame offsets are relative to SP after: push BP; BP = SP;
+ * SP -= stack_adjustment.  The encoder stores callee_saves in array order
+ * and restores them in reverse order before leave/ret.  Incoming argument
+ * offsets are relative to BP + 2 * pointer_size.
+ */
+typedef struct {
     RccX86Target target;
     uint16_t pointer_size;
     uint16_t stack_alignment;
+    uint32_t source_frame_size;
     uint32_t frame_size;
+    uint32_t stack_adjustment;
+    uint32_t stack_alignment_padding;
+    bool frame_plan_complete;
     RccMirType return_type;
+    uint32_t used_gpr_mask;
+    uint32_t callee_saved_gpr_mask;
+    uint32_t callee_save_area_offset;
+    uint32_t callee_save_area_size;
+    RccX86CalleeSave* callee_saves;
+    size_t callee_save_count;
     uint32_t outgoing_stack_offset;
     uint32_t outgoing_stack_size;
     bool parameter_ingress_complete;
