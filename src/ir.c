@@ -99,6 +99,7 @@ static void ir_instruction_destroy(RccIrInstruction* instruction) {
 
 void rcc_ir_module_destroy(RccIrModule* module) {
     RccIrFunction* function;
+    RccIrConstant* constant;
     if (!module) return;
     function = module->first_function;
     while (function) {
@@ -123,7 +124,48 @@ void rcc_ir_module_destroy(RccIrModule* module) {
         rcc_free(function);
         function = next_function;
     }
+    constant = module->first_constant;
+    while (constant) {
+        RccIrConstant* next_constant = constant->next;
+        rcc_free(constant->name);
+        rcc_free(constant->data);
+        rcc_free(constant);
+        constant = next_constant;
+    }
     rcc_free(module);
+}
+
+const RccIrConstant* rcc_ir_module_intern_constant(
+    RccIrModule* module, const void* data, size_t size,
+    uint32_t alignment) {
+    RccIrConstant* constant;
+    char name[48];
+    if (!module || !data || size == 0u || size > UINT32_MAX ||
+        alignment == 0u || (alignment & (alignment - 1u)) != 0u ||
+        alignment > 4096u || module->constant_count >= UINT32_MAX) {
+        return NULL;
+    }
+    for (constant = module->first_constant; constant;
+         constant = constant->next) {
+        if (constant->size == size && constant->alignment == alignment &&
+            memcmp(constant->data, data, size) == 0) return constant;
+    }
+    constant = rcc_alloc(sizeof(*constant));
+    snprintf(name, sizeof(name), "$rcc.constant.%zu",
+             module->constant_count);
+    constant->name = rcc_strdup(name);
+    constant->data = rcc_alloc(size);
+    memcpy(constant->data, data, size);
+    constant->size = size;
+    constant->alignment = alignment;
+    if (module->last_constant) {
+        module->last_constant->next = constant;
+    } else {
+        module->first_constant = constant;
+    }
+    module->last_constant = constant;
+    ++module->constant_count;
+    return constant;
 }
 
 static void ir_reserve_values(RccIrFunction* function, size_t required) {
@@ -1047,12 +1089,50 @@ bool rcc_ir_verify_function(const RccIrFunction* function, char* error,
 bool rcc_ir_verify_module(const RccIrModule* module, char* error,
                           size_t error_size) {
     size_t count = 0u;
+    size_t constant_count = 0u;
+    const RccIrConstant* constant_last = NULL;
     const RccIrFunction* function;
     const RccIrFunction* last = NULL;
     if (error && error_size != 0u) error[0] = '\0';
     if (!module) {
         if (error && error_size != 0u) {
             snprintf(error, error_size, "invalid IR module");
+        }
+        return false;
+    }
+    for (const RccIrConstant* constant = module->first_constant;
+         constant; constant = constant->next) {
+        if (!constant->name || !constant->name[0] || !constant->data ||
+            constant->size == 0u || constant->size > UINT32_MAX ||
+            constant->alignment == 0u ||
+            (constant->alignment & (constant->alignment - 1u)) != 0u ||
+            constant->alignment > 4096u) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "invalid IR constant contract");
+            }
+            return false;
+        }
+        for (const RccIrConstant* earlier = module->first_constant;
+             earlier != constant; earlier = earlier->next) {
+            if (strcmp(earlier->name, constant->name) == 0) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "duplicate IR constant '%s'", constant->name);
+                }
+                return false;
+            }
+        }
+        constant_last = constant;
+        ++constant_count;
+    }
+    if (constant_count != module->constant_count ||
+        (constant_count == 0u && module->last_constant) ||
+        (constant_count != 0u &&
+         module->last_constant != constant_last)) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "IR constant list is inconsistent");
         }
         return false;
     }

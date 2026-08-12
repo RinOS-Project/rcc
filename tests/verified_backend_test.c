@@ -408,6 +408,7 @@ static void verify_global_object(const char* path, uint16_t arch,
     ObjSection* data;
     ObjSection* bss;
     ObjSection* text;
+    ObjSection* rodata;
     ObjSymbol* global_data;
     ObjSymbol* global_zero;
     ObjSymbol* static_data;
@@ -418,6 +419,8 @@ static void verify_global_object(const char* path, uint16_t arch,
     ObjSymbol* global_array;
     ObjSymbol* array_read;
     ObjSymbol* array_write;
+    ObjSymbol* string_constant;
+    ObjSymbol* string_read;
     ObjReloc* relocation;
     size_t absolute_relocations = 0u;
     size_t relative_relocations = 0u;
@@ -425,6 +428,7 @@ static void verify_global_object(const char* path, uint16_t arch,
     data = objfile_get_section(object, ".data");
     bss = objfile_get_section(object, ".bss");
     text = objfile_get_section(object, ".text");
+    rodata = objfile_get_section(object, ".rodata");
     global_data = objfile_find_symbol(object, "verified_global_data");
     global_zero = objfile_find_symbol(object, "verified_global_zero");
     static_data = objfile_find_symbol(
@@ -438,11 +442,19 @@ static void verify_global_object(const char* path, uint16_t arch,
         object, "verified_global_array_read");
     array_write = objfile_find_symbol(
         object, "verified_global_array_write");
+    string_constant = objfile_find_symbol(
+        object,
+        "tests/verified_backend_globals.c::verified_string_read::$rcc.constant.0");
+    string_read = objfile_find_symbol(object, "verified_string_read");
     assert(data != NULL && data->size == 20u &&
            (data->flags & SECT_FLAG_WRITE) != 0u &&
            (data->flags & SECT_FLAG_EXEC) == 0u);
     assert(bss != NULL && bss->size == 0u && bss->memory_size == 4u);
     assert(text != NULL && (text->flags & SECT_FLAG_WRITE) == 0u);
+    assert(rodata != NULL && rodata->size == 6u &&
+           memcmp(rodata->data, "RinOS", 6u) == 0 &&
+           (rodata->flags & SECT_FLAG_ALLOC) != 0u &&
+           (rodata->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u);
     assert(global_data != NULL && global_data->type == SYM_GLOBAL &&
            global_data->binding == BIND_DATA && global_data->section >= 0);
     assert(global_zero != NULL && global_zero->type == SYM_GLOBAL &&
@@ -463,6 +475,11 @@ static void verify_global_object(const char* path, uint16_t arch,
            array_read->section == 0);
     assert(array_write != NULL && array_write->binding == BIND_CODE &&
            array_write->section == 0);
+    assert(string_constant != NULL && string_constant->type == SYM_LOCAL &&
+           string_constant->binding == BIND_DATA &&
+           string_constant->section >= 0 && string_constant->size == 6u);
+    assert(string_read != NULL && string_read->binding == BIND_CODE &&
+           string_read->section == 0);
     for (relocation = text->relocs; relocation != NULL;
          relocation = relocation->next) {
         if (relocation->type == RELOC_REL32) {
@@ -473,7 +490,7 @@ static void verify_global_object(const char* path, uint16_t arch,
             ++absolute_relocations;
         }
     }
-    assert(absolute_relocations >= 9u && relative_relocations == 1u);
+    assert(absolute_relocations >= 11u && relative_relocations == 1u);
     if (execute) {
         MappedObject mapping = map_object(object);
         int (*read_function)(void);
@@ -481,6 +498,7 @@ static void verify_global_object(const char* path, uint16_t arch,
         int (*external_function)(void);
         int (*array_read_function)(int);
         int (*array_write_function)(int, int);
+        int (*string_function)(int);
         void* address = (uint8_t*)mapping.bases[0] + read_symbol->value;
         memcpy(&read_function, &address, sizeof(read_function));
         address = (uint8_t*)mapping.bases[0] + write_symbol->value;
@@ -492,6 +510,8 @@ static void verify_global_object(const char* path, uint16_t arch,
         address = (uint8_t*)mapping.bases[0] + array_write->value;
         memcpy(&array_write_function, &address,
                sizeof(array_write_function));
+        address = (uint8_t*)mapping.bases[0] + string_read->value;
+        memcpy(&string_function, &address, sizeof(string_function));
         assert(read_function() == 12);
         assert(write_function(20) == 48);
         assert(read_function() == 48);
@@ -499,6 +519,7 @@ static void verify_global_object(const char* path, uint16_t arch,
         assert(array_read_function(2) == 6);
         assert(array_write_function(1, 17) == 17);
         assert(array_read_function(1) == 17);
+        assert(string_function(1) == 'i' * 2);
         unmap_object(&mapping);
     }
     objfile_free(object);

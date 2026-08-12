@@ -33,3 +33,10 @@ int verified_global_array_write(int index, int value)
     verified_global_array[index] = value;
     return verified_global_array[index];
 }
+
+int verified_string_read(int index)
+{
+    const char* first = "RinOS";
+    const char* second = "RinOS";
+    return first[index] + second[index];
+}

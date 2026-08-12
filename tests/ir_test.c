@@ -139,6 +139,15 @@ static void verify_symbol_address_ir(void)
     RccIrInstruction* address = rcc_ir_append(
         entry, RCC_IR_SYMBOL_ADDRESS, pointer, NULL, 0u, NULL, 0u);
     RccIrInstruction* load;
+    const RccIrConstant* first;
+    const RccIrConstant* duplicate;
+    static const char text[] = "constant";
+    first = rcc_ir_module_intern_constant(
+        module, text, sizeof(text), 1u);
+    duplicate = rcc_ir_module_intern_constant(
+        module, text, sizeof(text), 1u);
+    assert(first != NULL && duplicate == first &&
+           module->constant_count == 1u);
     assert(address != NULL);
     rcc_ir_set_callee(address, "global_value");
     load = rcc_ir_append(entry, RCC_IR_LOAD, i32, &address->result, 1u,
@@ -146,6 +155,22 @@ static void verify_symbol_address_ir(void)
     assert(load != NULL);
     append_return(entry, load->result);
     expect_valid(module);
+}
+
+static void reject_malformed_constant(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "bad_constant", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue zero = append_const(entry, i32, 0u);
+    const RccIrConstant* constant = rcc_ir_module_intern_constant(
+        module, "x", 2u, 1u);
+    assert(constant != NULL);
+    append_return(entry, zero);
+    ((RccIrConstant*)constant)->alignment = 3u;
+    expect_invalid(module, "invalid IR constant contract");
 }
 
 static void reject_symbol_address_without_symbol(void)
@@ -337,6 +362,7 @@ int main(void)
     reject_bad_phi_predecessors();
     reject_unreachable_block();
     reject_symbol_address_without_symbol();
+    reject_malformed_constant();
     puts("Typed SSA IR and CFG verifier tests passed");
     return 0;
 }

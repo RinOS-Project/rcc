@@ -56,6 +56,103 @@ static char* verified_scoped_symbol(
     return scoped;
 }
 
+static int verified_section_index(
+    const ObjectFile* object, const ObjSection* target) {
+    int index = 0;
+    for (const ObjSection* section = object->sections; section;
+         section = section->next, ++index) {
+        if (section == target) return index;
+    }
+    return -1;
+}
+
+static char* verified_constant_symbol(
+    const char* translation_unit, const char* function_name,
+    const char* constant_name) {
+    size_t unit_length = strlen(translation_unit);
+    size_t function_length = strlen(function_name);
+    size_t constant_length = strlen(constant_name);
+    size_t prefix;
+    size_t total;
+    char* scoped;
+    if (function_length > SIZE_MAX - 5u ||
+        unit_length > SIZE_MAX - function_length - 5u) return NULL;
+    prefix = unit_length + function_length + 5u;
+    if (constant_length > SIZE_MAX - prefix) return NULL;
+    total = prefix + constant_length;
+    scoped = rcc_alloc(total);
+    snprintf(scoped, total, "%s::%s::%s", translation_unit,
+             function_name, constant_name);
+    return scoped;
+}
+
+static bool verified_add_constants(
+    ObjectFile* object, const RccIrModule* module,
+    const char* translation_unit, const char* function_name,
+    RccX86EncodedFunction* encoded,
+    char* error, size_t error_size) {
+    ObjSection* rodata = objfile_get_section(object, ".rodata");
+    int section_index;
+    if (rodata &&
+        (rodata->type != SECT_RODATA ||
+         (rodata->flags & SECT_FLAG_ALLOC) == 0u ||
+         (rodata->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) != 0u)) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified .rodata contract is invalid");
+        }
+        return false;
+    }
+    for (const RccIrConstant* constant = module->first_constant;
+         constant; constant = constant->next) {
+        size_t references = 0u;
+        char* symbol;
+        uint64_t offset;
+        for (size_t index = 0u; index < encoded->relocation_count; ++index) {
+            if (strcmp(encoded->relocations[index].symbol,
+                       constant->name) == 0) ++references;
+        }
+        if (references == 0u) continue;
+        if (!rodata) {
+            rodata = objfile_add_section(
+                object, ".rodata", SECT_RODATA, SECT_FLAG_ALLOC);
+        }
+        symbol = verified_constant_symbol(
+            translation_unit, function_name, constant->name);
+        if (!symbol || objfile_find_symbol(object, symbol)) {
+            rcc_free(symbol);
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified constant symbol is invalid or duplicate");
+            }
+            return false;
+        }
+        section_align(rodata, constant->alignment);
+        offset = section_add_data(rodata, constant->data, constant->size);
+        section_index = verified_section_index(object, rodata);
+        if (section_index < 0) {
+            rcc_free(symbol);
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified .rodata section is detached");
+            }
+            return false;
+        }
+        objfile_add_symbol(
+            object, symbol, SYM_LOCAL, BIND_DATA, section_index,
+            offset, constant->size);
+        for (size_t index = 0u; index < encoded->relocation_count; ++index) {
+            RccX86CodeRelocation* relocation = &encoded->relocations[index];
+            if (strcmp(relocation->symbol, constant->name) == 0) {
+                rcc_free(relocation->symbol);
+                relocation->symbol = rcc_strdup(symbol);
+            }
+        }
+        rcc_free(symbol);
+    }
+    return true;
+}
+
 static void verified_scope_static_relocations(
     const AST* ast, const char* translation_unit,
     RccX86EncodedFunction* encoded) {
@@ -148,6 +245,18 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             return verified_reason(
                 RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
                 "function '%s' is not encoded yet: %s",
+                declaration->name, pipeline_error);
+        }
+        if (!verified_add_constants(
+                object, module, translation_unit,
+                decl_link_name(declaration), &encoded,
+                pipeline_error, sizeof(pipeline_error))) {
+            rcc_x86_encoded_function_release(&encoded);
+            rcc_ir_module_destroy(module);
+            objfile_free(object);
+            return verified_reason(
+                RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+                "function '%s' constant emission failed: %s",
                 declaration->name, pipeline_error);
         }
         verified_scope_static_relocations(ast, translation_unit, &encoded);

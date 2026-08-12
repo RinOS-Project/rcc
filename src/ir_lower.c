@@ -986,8 +986,31 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             return lower_integer_constant(context, type,
                                           expression->type->is_unsigned,
                                           (uint64_t)constant);
+        case EXPR_STRING_LIT: {
+            const RccIrConstant* literal;
+            RccIrInstruction* address;
+            size_t size;
+            if (!expression->str_val) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            size = strlen(expression->str_val);
+            if (size == SIZE_MAX) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            ++size;
+            literal = rcc_ir_module_intern_constant(
+                context->module, expression->str_val, size, 1u);
+            address = lower_append(
+                context, RCC_IR_SYMBOL_ADDRESS,
+                rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+            if (!literal || !address) return lower_invalid_value();
+            rcc_ir_set_callee(address, literal->name);
+            return lower_value(
+                address->result, rcc_ir_type_pointer(0u), true);
+        }
         case EXPR_FLOAT_LIT:
-        case EXPR_STRING_LIT:
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:

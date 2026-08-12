@@ -42,7 +42,7 @@ BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
                               close execvp exit fclose feof ferror fgets fopen \
                               fork fprintf fputc fputs fread free fseek ftell \
                               fwrite isalnum isalpha isdigit isspace isxdigit \
-                              malloc memchr memcpy memset mkstemp perror printf \
+                              malloc memchr memcmp memcpy memset mkstemp perror printf \
                               qsort realloc remove rename snprintf strchr strcmp \
                               strcpy strlen strncat strncmp strncpy strrchr strtod \
                               strtoull tolower vfprintf vsnprintf waitpid
@@ -1682,9 +1682,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/globals-x64.ro \
 		tests/verified_backend_globals.c \
 		>$(TEST_OUT)/verified-backend/globals-x64.log
-	grep -q 'Verified backend: 5 function(s) emitted' \
+	grep -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/globals-x86.log
-	grep -q 'Verified backend: 5 function(s) emitted' \
+	grep -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/globals-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/fallback.ro \

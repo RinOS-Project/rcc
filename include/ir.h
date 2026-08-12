@@ -84,6 +84,7 @@ typedef struct RccIrInstruction RccIrInstruction;
 typedef struct RccIrBlock RccIrBlock;
 typedef struct RccIrFunction RccIrFunction;
 typedef struct RccIrModule RccIrModule;
+typedef struct RccIrConstant RccIrConstant;
 
 struct RccIrInstruction {
     RccIrOpcode opcode;
@@ -126,10 +127,21 @@ struct RccIrFunction {
     RccIrFunction* next;
 };
 
+struct RccIrConstant {
+    char* name;
+    uint8_t* data;
+    size_t size;
+    uint32_t alignment;
+    RccIrConstant* next;
+};
+
 struct RccIrModule {
     RccIrFunction* first_function;
     RccIrFunction* last_function;
     size_t function_count;
+    RccIrConstant* first_constant;
+    RccIrConstant* last_constant;
+    size_t constant_count;
 };
 
 RccIrType rcc_ir_type_void(void);
@@ -141,6 +153,9 @@ bool rcc_ir_type_equal(RccIrType left, RccIrType right);
 
 RccIrModule* rcc_ir_module_create(void);
 void rcc_ir_module_destroy(RccIrModule* module);
+const RccIrConstant* rcc_ir_module_intern_constant(
+    RccIrModule* module, const void* data, size_t size,
+    uint32_t alignment);
 RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
                                   RccIrType return_type,
                                   const RccIrType* parameter_types,
