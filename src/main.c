@@ -238,9 +238,13 @@ static int parse_args(int argc, char** argv) {
             strncpy(g_opts.output_file, arg + 2, RCC_MAX_PATH - 1);
         } else if (strncmp(arg, "-O", 2) == 0) {
             /* -O<level> */
-            g_opts.opt_level = atoi(arg + 2);
-            if (g_opts.opt_level < 0) g_opts.opt_level = 0;
-            if (g_opts.opt_level > 3) g_opts.opt_level = 3;
+            if (!rcc_parse_optimization_level(
+                    arg + 2, &g_opts.opt_level)) {
+                fprintf(stderr,
+                        "rcc: error: invalid optimization level '%s'; "
+                        "expected -O0 through -O3\n", arg);
+                return -1;
+            }
         } else if (strcmp(arg, "-I") == 0) {
             /* -I <path> */
             if (i + 1 >= argc) {

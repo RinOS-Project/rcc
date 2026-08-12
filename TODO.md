@@ -109,6 +109,7 @@
 - [ ] loop optimization、inlining
 - [x] `-O0..3`ごとのpass pipeline
   - [x] O0検証のみ、O1 mem2reg/fold/DCE、O2 GVN追加、O3固定点反復
+  - [x] rcc/rcc++共通の厳密な`-O0..3` CLI検証と範囲外fail-closed
 - [ ] linear-scan / graph-coloring register allocation
   - [x] phi edge/call crossing対応MIR live intervalとpolicy駆動linear-scan/spill配置
   - [x] 非レイアウト順successor/back-edge対応CFG fixed-point liveness

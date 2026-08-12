@@ -102,9 +102,13 @@ static int parse_cxx_args(int argc, char** argv) {
                 strncpy(g_opts.output_file, optarg, RCC_MAX_PATH - 1);
                 break;
             case 'O':
-                g_opts.opt_level = atoi(optarg);
-                if (g_opts.opt_level < 0) g_opts.opt_level = 0;
-                if (g_opts.opt_level > 3) g_opts.opt_level = 3;
+                if (!rcc_parse_optimization_level(
+                        optarg, &g_opts.opt_level)) {
+                    fprintf(stderr,
+                            "rcc++: error: invalid optimization level "
+                            "'-O%s'; expected -O0 through -O3\n", optarg);
+                    return -1;
+                }
                 break;
             case 'm':
                 if (strcmp(optarg, "32") == 0) {

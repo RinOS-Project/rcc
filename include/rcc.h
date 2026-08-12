@@ -98,6 +98,7 @@ typedef struct {
 
 bool rcc_parse_target_triple(const char* triple, TargetArch* arch_out);
 const char* rcc_target_triple(TargetArch arch);
+bool rcc_parse_optimization_level(const char* value, int* level_out);
 bool rcc_parse_signing_profile(const char* value, SigningProfile* profile_out);
 const char* rcc_signing_profile_name(SigningProfile profile);
 bool rcc_validate_signing_options(const char* tool_name, bool final_artifact);

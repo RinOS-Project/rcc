@@ -136,12 +136,18 @@ test-cxx: $(RCXX_TARGET)
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
 
-test-cxx-cli: $(RCXX_TARGET)
+test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -c -MMD \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -O3 -c -MMD \
 		-MF $(TEST_OUT)/cxx_cli_options.d -nostdinc -Itests/include \
 		-DRCC_CXX_CLI_VALUE=23 -DRCC_CXX_REMOVE_ME -URCC_CXX_REMOVE_ME \
 		-o $(TEST_OUT)/cxx_cli_options.ro tests/cxx_cli_options.cpp
+	! $(RCC_TARGET) -O4 -c -o $(TEST_OUT)/invalid-o-c.ro tests/hello.c \
+		>$(TEST_OUT)/invalid-o-c.log 2>&1
+	grep -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-c.log
+	! $(RCXX_TARGET) -Ofoo -c -o $(TEST_OUT)/invalid-o-cxx.ro \
+		tests/cxx_cli_options.cpp >$(TEST_OUT)/invalid-o-cxx.log 2>&1
+	grep -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-cxx.log
 	@echo "RCC++ command-line compatibility test completed"
 
 test-cxx-language-linkage: $(RCXX_TARGET)

@@ -49,6 +49,15 @@ const char* rcc_target_triple(TargetArch arch) {
     return arch == ARCH_X64 ? RCC_TARGET_X86_64 : RCC_TARGET_I686;
 }
 
+bool rcc_parse_optimization_level(const char* value, int* level_out) {
+    if (!value || !level_out || value[0] < '0' || value[0] > '3' ||
+        value[1] != '\0') {
+        return false;
+    }
+    *level_out = value[0] - '0';
+    return true;
+}
+
 bool rcc_parse_signing_profile(const char* value, SigningProfile* profile_out) {
     if (!value || !profile_out) return false;
     if (strcmp(value, "debug") == 0) {
