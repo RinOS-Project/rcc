@@ -1,5 +1,5 @@
-int verified_local_array_initializer_fallback(void)
+int verified_local_string_initializer_fallback(void)
 {
-    int values[2] = {1, 2};
+    char values[] = "hi";
     return values[0];
 }

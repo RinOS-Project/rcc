@@ -30,11 +30,15 @@ int verified_index(int* base, int index)
 
 int verified_local_array(int left, int middle, int right)
 {
-    int values[3];
-    values[0] = left;
-    values[1] = middle;
-    values[2] = right;
-    return values[0] + *(values + 1) * 2 + values[2] * 3;
+    int values[4] = {left, [2] = {middle}, right};
+    return values[0] + *(values + 1) * 5 +
+        values[2] * 2 + values[3] * 3;
+}
+
+int verified_local_pointer_array(int* left, int* right)
+{
+    int* values[3] = {left, 0, right};
+    return *values[0] + *values[2];
 }
 
 int verified_pointer_add(int* base, int index)
