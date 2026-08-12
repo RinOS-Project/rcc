@@ -41,6 +41,8 @@ typedef struct {
     uint64_t caller_saved_abstract_mask;
     uint64_t callee_saved_abstract_mask;
     uint64_t caller_saved_fpr_mask;
+    uint64_t division_fixed_abstract_mask;
+    uint64_t shift_count_fixed_abstract_mask;
     RccX86HardwareGpr integer_arguments[6];
     size_t integer_argument_count;
     RccX86HardwareGpr return_low;

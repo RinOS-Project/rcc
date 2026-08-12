@@ -180,6 +180,84 @@ static void verify_call_crossing_pressure(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_fixed_register_constraints_target(bool x64)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "fixed", i32, parameters, 3u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrValue div_operands[] = {
+        ir->parameters[0], ir->parameters[1]
+    };
+    RccIrInstruction* division = rcc_ir_append(
+        entry, RCC_IR_UDIV, i32, div_operands, 2u, NULL, 0u);
+    RccIrValue shift_operands[2];
+    RccIrInstruction* shift;
+    RccIrValue sum_operands[2];
+    RccIrInstruction* sum;
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    uint64_t saved_forbidden;
+    char error[256];
+    assert(division != NULL);
+    shift_operands[0] = division->result;
+    shift_operands[1] = ir->parameters[2];
+    shift = rcc_ir_append(entry, RCC_IR_SHL, i32,
+                          shift_operands, 2u, NULL, 0u);
+    assert(shift != NULL);
+    sum_operands[0] = shift->result;
+    sum_operands[1] = ir->parameters[0];
+    sum = rcc_ir_append(entry, RCC_IR_ADD, i32,
+                        sum_operands, 2u, NULL, 0u);
+    assert(sum != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &sum->result, 1u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    if (x64) rcc_mir_register_policy_x86_64(&policy);
+    else rcc_mir_register_policy_i686(&policy);
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert((allocation.intervals[division->result]
+                .forbidden_physical_mask &
+            policy.division_fixed_gpr_mask) ==
+           policy.division_fixed_gpr_mask);
+    assert((allocation.intervals[division->result]
+                .forbidden_physical_mask &
+            policy.shift_count_fixed_gpr_mask) ==
+           policy.shift_count_fixed_gpr_mask);
+    assert((allocation.intervals[shift->result]
+                .forbidden_physical_mask &
+            policy.shift_count_fixed_gpr_mask) != 0u);
+    for (size_t reg = 0u; reg < allocation.register_count; ++reg) {
+        RccMirLocation location = allocation.locations[reg];
+        if (location.kind == RCC_MIR_LOCATION_PHYSICAL) {
+            assert((allocation.intervals[reg].forbidden_physical_mask &
+                    (UINT64_C(1) << location.physical_register)) == 0u);
+        }
+    }
+    saved_forbidden = allocation.intervals[division->result]
+        .forbidden_physical_mask;
+    allocation.intervals[division->result].forbidden_physical_mask &=
+        ~policy.division_fixed_gpr_mask;
+    assert(!rcc_mir_verify_allocation(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert(strstr(error, "fixed-register") != NULL);
+    allocation.intervals[division->result].forbidden_physical_mask =
+        saved_forbidden;
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_fixed_register_constraints(void)
+{
+    verify_fixed_register_constraints_target(false);
+    verify_fixed_register_constraints_target(true);
+}
+
 static void verify_phi_parallel_copy_cycle(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -406,6 +484,7 @@ int main(void)
     verify_ir_to_mir_diamond();
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();
+    verify_fixed_register_constraints();
     verify_phi_parallel_copy_cycle();
     verify_x86_critical_edge_selection();
     puts("MIR lowering, allocation, phi-copy, and x86 selection tests passed");

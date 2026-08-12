@@ -31,6 +31,8 @@ void rcc_mir_register_policy_i686(RccMirRegisterPolicy* policy) {
     policy->allocatable_fpr_mask = UINT64_C(0xff);
     policy->caller_saved_gpr_mask = UINT64_C(0x07);
     policy->caller_saved_fpr_mask = UINT64_C(0xff);
+    policy->division_fixed_gpr_mask = UINT64_C(0x05);
+    policy->shift_count_fixed_gpr_mask = UINT64_C(0x02);
     policy->pointer_size = 4u;
     policy->stack_alignment = 16u;
 }
@@ -42,6 +44,8 @@ void rcc_mir_register_policy_x86_64(RccMirRegisterPolicy* policy) {
     policy->allocatable_fpr_mask = UINT64_C(0xffff);
     policy->caller_saved_gpr_mask = UINT64_C(0x01ff);
     policy->caller_saved_fpr_mask = UINT64_C(0xffff);
+    policy->division_fixed_gpr_mask = UINT64_C(0x05);
+    policy->shift_count_fixed_gpr_mask = UINT64_C(0x02);
     policy->pointer_size = 8u;
     policy->stack_alignment = 16u;
 }
@@ -55,8 +59,101 @@ static bool mir_alloc_policy_valid(const RccMirRegisterPolicy* policy) {
     if ((policy->caller_saved_gpr_mask &
          ~policy->allocatable_gpr_mask) != 0u ||
         (policy->caller_saved_fpr_mask &
-         ~policy->allocatable_fpr_mask) != 0u) {
+         ~policy->allocatable_fpr_mask) != 0u ||
+        (policy->division_fixed_gpr_mask &
+         ~policy->allocatable_gpr_mask) != 0u ||
+        (policy->shift_count_fixed_gpr_mask &
+         ~policy->allocatable_gpr_mask) != 0u) {
         return false;
+    }
+    return true;
+}
+
+static uint64_t mir_alloc_fixed_mask(
+    RccMirOpcode opcode, const RccMirRegisterPolicy* policy) {
+    switch (opcode) {
+        case RCC_MIR_UDIV:
+        case RCC_MIR_SDIV:
+        case RCC_MIR_UREM:
+        case RCC_MIR_SREM:
+            return policy->division_fixed_gpr_mask;
+        case RCC_MIR_SHL:
+        case RCC_MIR_LSHR:
+        case RCC_MIR_ASHR:
+            return policy->shift_count_fixed_gpr_mask;
+        default:
+            return 0u;
+    }
+}
+
+static bool mir_alloc_apply_fixed_constraints(
+    const RccMirFunction* function, const RccMirRegisterPolicy* policy,
+    RccMirLiveInterval* intervals, char* error, size_t error_size) {
+    const RccMirBlock* block;
+    size_t position = 1u;
+    for (block = function->first_block; block; block = block->next) {
+        const RccMirInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            uint64_t fixed_mask = mir_alloc_fixed_mask(
+                instruction->opcode, policy);
+            if (fixed_mask != 0u) {
+                size_t reg;
+                for (reg = 0u; reg < function->register_count; ++reg) {
+                    if (intervals[reg].register_class ==
+                            RCC_MIR_REGCLASS_GPR &&
+                        intervals[reg].start <= position &&
+                        position <= intervals[reg].end) {
+                        intervals[reg].forbidden_physical_mask |=
+                            fixed_mask;
+                    }
+                }
+            }
+            if (position == SIZE_MAX) {
+                return mir_alloc_error(
+                    error, error_size,
+                    "MIR fixed-register positions overflow");
+            }
+            ++position;
+        }
+    }
+    return true;
+}
+
+static bool mir_alloc_verify_fixed_constraints(
+    const RccMirFunction* function, const RccMirRegisterPolicy* policy,
+    const RccMirAllocation* allocation, char* error, size_t error_size) {
+    const RccMirBlock* block;
+    size_t position = 1u;
+    for (block = function->first_block; block; block = block->next) {
+        const RccMirInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            uint64_t fixed_mask = mir_alloc_fixed_mask(
+                instruction->opcode, policy);
+            if (fixed_mask != 0u) {
+                size_t reg;
+                for (reg = 0u; reg < allocation->register_count; ++reg) {
+                    RccMirLiveInterval interval =
+                        allocation->intervals[reg];
+                    if (interval.register_class == RCC_MIR_REGCLASS_GPR &&
+                        interval.start <= position &&
+                        position <= interval.end &&
+                        (interval.forbidden_physical_mask & fixed_mask) !=
+                            fixed_mask) {
+                        return mir_alloc_error(
+                            error, error_size,
+                            "MIR interval misses a fixed-register constraint");
+                    }
+                }
+            }
+            if (position == SIZE_MAX) {
+                return mir_alloc_error(
+                    error, error_size,
+                    "MIR fixed-register verification overflow");
+            }
+            ++position;
+        }
     }
     return true;
 }
@@ -275,6 +372,7 @@ static bool mir_alloc_linear_scan(
             allowed &= ~mir_alloc_caller_saved_mask(policy,
                                                      register_class);
         }
+        allowed &= ~interval.forbidden_physical_mask;
         while (active_index < active_count) {
             RccMirVReg active_reg = active[active_index];
             RccMirLiveInterval active_interval =
@@ -354,6 +452,10 @@ bool rcc_mir_verify_allocation(
         return mir_alloc_error(error, error_size,
                                "MIR allocation header is invalid");
     }
+    if (!mir_alloc_verify_fixed_constraints(
+            function, policy, allocation, error, error_size)) {
+        return false;
+    }
     for (left = 0u; left < allocation->register_count; ++left) {
         RccMirLiveInterval interval = allocation->intervals[left];
         RccMirLocation location = allocation->locations[left];
@@ -372,12 +474,13 @@ bool rcc_mir_verify_allocation(
             }
             bit = UINT64_C(1) << location.physical_register;
             if ((class_mask & bit) == 0u ||
+                (interval.forbidden_physical_mask & bit) != 0u ||
                 (interval.crosses_call &&
                  (mir_alloc_caller_saved_mask(
                       policy, interval.register_class) & bit) != 0u)) {
                 return mir_alloc_error(
                     error, error_size,
-                    "MIR physical register violates target policy");
+                    "MIR physical register violates target/fixed policy");
             }
         } else if (location.kind == RCC_MIR_LOCATION_SPILL) {
             if (location.spill_size == 0u ||
@@ -440,6 +543,11 @@ bool rcc_mir_linear_scan_allocate(
     if (!mir_alloc_collect_positions(
             function, &block_ends, &calls, &call_count,
             allocation->intervals, error, error_size)) {
+        goto cleanup;
+    }
+    if (!mir_alloc_apply_fixed_constraints(
+            function, policy, allocation->intervals,
+            error, error_size)) {
         goto cleanup;
     }
     for (reg = 0u; reg < function->register_count; ++reg) {

@@ -17,6 +17,7 @@ typedef struct {
     size_t end;
     RccMirRegisterClass register_class;
     bool crosses_call;
+    uint64_t forbidden_physical_mask;
 } RccMirLiveInterval;
 
 typedef enum {
@@ -38,6 +39,8 @@ typedef struct {
     uint64_t allocatable_fpr_mask;
     uint64_t caller_saved_gpr_mask;
     uint64_t caller_saved_fpr_mask;
+    uint64_t division_fixed_gpr_mask;
+    uint64_t shift_count_fixed_gpr_mask;
     uint16_t pointer_size;
     uint16_t stack_alignment;
 } RccMirRegisterPolicy;

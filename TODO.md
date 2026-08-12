@@ -108,6 +108,7 @@
 - [ ] `-O0..3`ごとのpass pipeline
 - [ ] linear-scan / graph-coloring register allocation
   - [x] phi edge/call crossing対応MIR live intervalとpolicy駆動linear-scan/spill配置
+  - [x] DIV/REMのAX:DXと可変shiftのCXを命令位置だけ予約するfixed-register制約
 
 ## 5. backend
 

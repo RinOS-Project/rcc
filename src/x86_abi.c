@@ -34,6 +34,8 @@ void rcc_x86_abi_i686(RccX86Abi* abi) {
     abi->caller_saved_abstract_mask = UINT64_C(0x07);
     abi->callee_saved_abstract_mask = UINT64_C(0x38);
     abi->caller_saved_fpr_mask = UINT64_C(0xff);
+    abi->division_fixed_abstract_mask = UINT64_C(0x05);
+    abi->shift_count_fixed_abstract_mask = UINT64_C(0x02);
     abi->return_low = RCC_X86_GPR_AX;
     abi->return_high = RCC_X86_GPR_DX;
     abi->shift_count = RCC_X86_GPR_CX;
@@ -64,6 +66,8 @@ void rcc_x86_abi_x86_64(RccX86Abi* abi) {
     abi->caller_saved_abstract_mask = UINT64_C(0x01ff);
     abi->callee_saved_abstract_mask = UINT64_C(0x3e00);
     abi->caller_saved_fpr_mask = UINT64_C(0xffff);
+    abi->division_fixed_abstract_mask = UINT64_C(0x05);
+    abi->shift_count_fixed_abstract_mask = UINT64_C(0x02);
     memcpy(abi->integer_arguments, arguments, sizeof(arguments));
     abi->integer_argument_count =
         sizeof(arguments) / sizeof(arguments[0]);
@@ -120,6 +124,10 @@ bool rcc_x86_abi_verify_policy(
             abi->caller_saved_abstract_mask ||
         policy->allocatable_fpr_mask != expected_fpr_mask ||
         policy->caller_saved_fpr_mask != abi->caller_saved_fpr_mask ||
+        policy->division_fixed_gpr_mask !=
+            abi->division_fixed_abstract_mask ||
+        policy->shift_count_fixed_gpr_mask !=
+            abi->shift_count_fixed_abstract_mask ||
         abi->callee_saved_abstract_mask !=
             (expected_gpr_mask & ~abi->caller_saved_abstract_mask)) {
         return x86_abi_error(error, error_size,
