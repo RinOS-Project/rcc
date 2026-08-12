@@ -51,19 +51,68 @@ static bool integer_literal(const Expr* expression, int64_t* value) {
     return false;
 }
 
-static bool signed_result_fits(const Expr* expression, int64_t value) {
-    Type* type = expression ? expression->type : NULL;
+static int integer_width(const Type* type) {
     int bits;
+    if (!type || !type_is_integer((Type*)type)) return 0;
+    bits = type->size * 8;
+    return bits > 0 && bits <= 64 ? bits : 0;
+}
+
+static uint64_t integer_mask(const Type* type) {
+    int bits = integer_width(type);
+    if (bits == 64) return UINT64_MAX;
+    return bits > 0 ? (UINT64_C(1) << bits) - 1u : 0u;
+}
+
+static int64_t integer_bits_to_value(uint64_t bits) {
+    if (bits <= (uint64_t)INT64_MAX) return (int64_t)bits;
+    return -1 - (int64_t)(UINT64_MAX - bits);
+}
+
+static uint64_t integer_unsigned_value(int64_t value, const Type* type) {
+    return (uint64_t)value & integer_mask(type);
+}
+
+static int64_t integer_signed_value(int64_t value, const Type* type) {
+    int bits = integer_width(type);
+    uint64_t mask = integer_mask(type);
+    uint64_t result = (uint64_t)value & mask;
+    if (bits > 0 && bits < 64 &&
+        (result & (UINT64_C(1) << (bits - 1))) != 0u) {
+        result |= ~mask;
+    }
+    return integer_bits_to_value(result);
+}
+
+static bool signed_type_limits(const Type* type, int64_t* minimum,
+                               int64_t* maximum) {
+    int bits;
+    if (!type || !minimum || !maximum || type->is_unsigned) return false;
+    bits = integer_width(type);
+    if (bits == 0) return false;
+    if (bits == 64) {
+        *minimum = INT64_MIN;
+        *maximum = INT64_MAX;
+    } else {
+        *minimum = -(INT64_C(1) << (bits - 1));
+        *maximum = (INT64_C(1) << (bits - 1)) - 1;
+    }
+    return true;
+}
+
+static bool signed_value_fits(const Type* type, int64_t value) {
     int64_t minimum;
     int64_t maximum;
-    if (!type || !type_is_integer(type) || type->is_unsigned) return false;
+    if (!type || !type_is_integer((Type*)type) || type->is_unsigned) {
+        return false;
+    }
     if (type->kind == TYPE_BOOL) return value == 0 || value == 1;
-    bits = type->size * 8;
-    if (bits <= 0 || bits > 64) return false;
-    if (bits == 64) return true;
-    minimum = -(INT64_C(1) << (bits - 1));
-    maximum = (INT64_C(1) << (bits - 1)) - 1;
-    return value >= minimum && value <= maximum;
+    return signed_type_limits(type, &minimum, &maximum) &&
+           value >= minimum && value <= maximum;
+}
+
+static bool signed_result_fits(const Expr* expression, int64_t value) {
+    return expression && signed_value_fits(expression->type, value);
 }
 
 static bool add_signed(int64_t left, int64_t right, int64_t* result) {
@@ -115,73 +164,194 @@ static void replace_integer(Expr* expression, int64_t value) {
     expression->loc = loc;
 }
 
+static void replace_unsigned_integer(Expr* expression, uint64_t value,
+                                     const Type* type) {
+    replace_integer(expression,
+                    integer_bits_to_value(value & integer_mask(type)));
+}
+
+static Type* fold_binary_value_type(const Expr* expression) {
+    if (!expression) return NULL;
+    switch (expression->kind) {
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            if (expression->binary_lhs && expression->binary_rhs &&
+                expression->binary_lhs->type &&
+                expression->binary_rhs->type &&
+                type_is_integer(expression->binary_lhs->type) &&
+                type_is_integer(expression->binary_rhs->type)) {
+                return type_common(expression->binary_lhs->type,
+                                   expression->binary_rhs->type);
+            }
+            return NULL;
+        default:
+            return expression->type;
+    }
+}
+
 static bool fold_binary(Expr* expression, int64_t left, int64_t right,
                         int64_t* result) {
-    bool signed_operands = expression->binary_lhs &&
-        expression->binary_rhs && expression->binary_lhs->type &&
-        expression->binary_rhs->type &&
-        !expression->binary_lhs->type->is_unsigned &&
-        !expression->binary_rhs->type->is_unsigned;
+    Type* value_type;
+    uint64_t left_unsigned;
+    uint64_t right_unsigned;
+    uint64_t unsigned_result;
+    uint64_t shift;
+    uint64_t mask;
+    int64_t left_signed;
+    int64_t right_signed;
+    int64_t minimum;
+    int64_t maximum;
+    int bits;
+
+    if (!expression || !result) return false;
+    if (expression->kind == EXPR_AND || expression->kind == EXPR_OR) {
+        *result = expression->kind == EXPR_AND
+            ? (left != 0 && right != 0) : (left != 0 || right != 0);
+        return true;
+    }
+    value_type = fold_binary_value_type(expression);
+    bits = integer_width(value_type);
+    if (bits == 0) return false;
+    mask = integer_mask(value_type);
+    left_unsigned = integer_unsigned_value(left, value_type);
+    right_unsigned = integer_unsigned_value(right, value_type);
+    left_signed = integer_signed_value(left, value_type);
+    right_signed = integer_signed_value(right, value_type);
+
     switch (expression->kind) {
         case EXPR_ADD:
-            return signed_operands && add_signed(left, right, result) &&
-                   signed_result_fits(expression, *result);
+            if (value_type->is_unsigned) {
+                *result = integer_bits_to_value(
+                    (left_unsigned + right_unsigned) & mask);
+                return true;
+            }
+            return add_signed(left_signed, right_signed, result) &&
+                   signed_value_fits(value_type, *result);
         case EXPR_SUB:
-            return signed_operands && subtract_signed(left, right, result) &&
-                   signed_result_fits(expression, *result);
+            if (value_type->is_unsigned) {
+                *result = integer_bits_to_value(
+                    (left_unsigned - right_unsigned) & mask);
+                return true;
+            }
+            return subtract_signed(left_signed, right_signed, result) &&
+                   signed_value_fits(value_type, *result);
         case EXPR_MUL:
-            return signed_operands && multiply_signed(left, right, result) &&
-                   signed_result_fits(expression, *result);
+            if (value_type->is_unsigned) {
+                *result = integer_bits_to_value(
+                    (left_unsigned * right_unsigned) & mask);
+                return true;
+            }
+            return multiply_signed(left_signed, right_signed, result) &&
+                   signed_value_fits(value_type, *result);
         case EXPR_DIV:
-            if (!signed_operands || right == 0 ||
-                (left == INT64_MIN && right == -1)) return false;
-            *result = left / right;
-            return signed_result_fits(expression, *result);
-        case EXPR_MOD:
-            if (!signed_operands || right == 0 ||
-                (left == INT64_MIN && right == -1)) return false;
-            *result = left % right;
-            return signed_result_fits(expression, *result);
-        case EXPR_BITAND:
-            *result = left & right;
-            return signed_operands && signed_result_fits(expression, *result);
-        case EXPR_BITOR:
-            *result = left | right;
-            return signed_operands && signed_result_fits(expression, *result);
-        case EXPR_BITXOR:
-            *result = left ^ right;
-            return signed_operands && signed_result_fits(expression, *result);
-        case EXPR_LSHIFT:
-            if (!signed_operands || left < 0 || right < 0 || right >= 63 ||
-                left > (INT64_MAX >> right)) return false;
-            *result = left << right;
-            return signed_result_fits(expression, *result);
-        case EXPR_RSHIFT:
-            if (!signed_operands || left < 0 || right < 0 || right >= 63) {
+            if (value_type->is_unsigned) {
+                if (right_unsigned == 0u) return false;
+                *result = integer_bits_to_value(
+                    (left_unsigned / right_unsigned) & mask);
+                return true;
+            }
+            if (right_signed == 0 ||
+                !signed_type_limits(value_type, &minimum, &maximum) ||
+                (left_signed == minimum && right_signed == -1)) {
                 return false;
             }
-            *result = left >> right;
-            return signed_result_fits(expression, *result);
-        case EXPR_EQ: *result = left == right; return true;
-        case EXPR_NE: *result = left != right; return true;
+            *result = left_signed / right_signed;
+            return signed_value_fits(value_type, *result);
+        case EXPR_MOD:
+            if (value_type->is_unsigned) {
+                if (right_unsigned == 0u) return false;
+                *result = integer_bits_to_value(
+                    (left_unsigned % right_unsigned) & mask);
+                return true;
+            }
+            if (right_signed == 0 ||
+                !signed_type_limits(value_type, &minimum, &maximum) ||
+                (left_signed == minimum && right_signed == -1)) {
+                return false;
+            }
+            *result = left_signed % right_signed;
+            return signed_value_fits(value_type, *result);
+        case EXPR_BITAND:
+            unsigned_result = left_unsigned & right_unsigned;
+            *result = value_type->is_unsigned
+                ? integer_bits_to_value(unsigned_result & mask)
+                : integer_signed_value(
+                      integer_bits_to_value(unsigned_result), value_type);
+            return true;
+        case EXPR_BITOR:
+            unsigned_result = left_unsigned | right_unsigned;
+            *result = value_type->is_unsigned
+                ? integer_bits_to_value(unsigned_result & mask)
+                : integer_signed_value(
+                      integer_bits_to_value(unsigned_result), value_type);
+            return true;
+        case EXPR_BITXOR:
+            unsigned_result = left_unsigned ^ right_unsigned;
+            *result = value_type->is_unsigned
+                ? integer_bits_to_value(unsigned_result & mask)
+                : integer_signed_value(
+                      integer_bits_to_value(unsigned_result), value_type);
+            return true;
+        case EXPR_LSHIFT:
+            shift = (uint64_t)right;
+            if (shift >= (uint64_t)bits) return false;
+            if (value_type->is_unsigned) {
+                *result = integer_bits_to_value(
+                    (left_unsigned << shift) & mask);
+                return true;
+            }
+            if (left_signed < 0 ||
+                !signed_type_limits(value_type, &minimum, &maximum) ||
+                left_signed > (maximum >> shift)) {
+                return false;
+            }
+            *result = integer_bits_to_value(
+                ((uint64_t)left_signed << shift) & mask);
+            return signed_value_fits(value_type, *result);
+        case EXPR_RSHIFT:
+            shift = (uint64_t)right;
+            if (shift >= (uint64_t)bits) return false;
+            if (value_type->is_unsigned) {
+                *result = integer_bits_to_value(left_unsigned >> shift);
+                return true;
+            }
+            if (left_signed < 0) return false;
+            *result = left_signed >> shift;
+            return signed_value_fits(value_type, *result);
+        case EXPR_EQ:
+            *result = value_type->is_unsigned
+                ? left_unsigned == right_unsigned
+                : left_signed == right_signed;
+            return true;
+        case EXPR_NE:
+            *result = value_type->is_unsigned
+                ? left_unsigned != right_unsigned
+                : left_signed != right_signed;
+            return true;
         case EXPR_LT:
-            if (!signed_operands) return false;
-            *result = left < right;
+            *result = value_type->is_unsigned
+                ? left_unsigned < right_unsigned
+                : left_signed < right_signed;
             return true;
         case EXPR_GT:
-            if (!signed_operands) return false;
-            *result = left > right;
+            *result = value_type->is_unsigned
+                ? left_unsigned > right_unsigned
+                : left_signed > right_signed;
             return true;
         case EXPR_LE:
-            if (!signed_operands) return false;
-            *result = left <= right;
+            *result = value_type->is_unsigned
+                ? left_unsigned <= right_unsigned
+                : left_signed <= right_signed;
             return true;
         case EXPR_GE:
-            if (!signed_operands) return false;
-            *result = left >= right;
+            *result = value_type->is_unsigned
+                ? left_unsigned >= right_unsigned
+                : left_signed >= right_signed;
             return true;
-        case EXPR_AND: *result = left != 0 && right != 0; return true;
-        case EXPR_OR: *result = left != 0 || right != 0; return true;
         default: return false;
     }
 }
@@ -305,10 +475,24 @@ static void optimize_expr(Expr** expression) {
     switch (value->kind) {
         case EXPR_NEG:
             if (integer_literal(value->unary_operand, &left) &&
-                left != INT64_MIN) {
-                result = -left;
-                if (signed_result_fits(value, result)) {
-                    replace_integer(value, result);
+                integer_width(value->type) != 0) {
+                if (value->type->is_unsigned) {
+                    replace_unsigned_integer(
+                        value,
+                        UINT64_C(0) -
+                            integer_unsigned_value(left, value->type),
+                        value->type);
+                } else {
+                    int64_t minimum;
+                    int64_t maximum;
+                    left = integer_signed_value(left, value->type);
+                    if (signed_type_limits(value->type, &minimum, &maximum) &&
+                        left != minimum) {
+                        result = -left;
+                        if (signed_result_fits(value, result)) {
+                            replace_integer(value, result);
+                        }
+                    }
                 }
             }
             return;
@@ -318,10 +502,36 @@ static void optimize_expr(Expr** expression) {
             }
             return;
         case EXPR_BITNOT:
-            if (integer_literal(value->unary_operand, &left)) {
-                result = ~left;
-                if (signed_result_fits(value, result)) {
+            if (integer_literal(value->unary_operand, &left) &&
+                integer_width(value->type) != 0) {
+                uint64_t bits =
+                    ~integer_unsigned_value(left, value->type) &
+                    integer_mask(value->type);
+                if (value->type->is_unsigned) {
+                    replace_unsigned_integer(value, bits, value->type);
+                } else {
+                    replace_integer(
+                        value,
+                        integer_signed_value(integer_bits_to_value(bits),
+                                             value->type));
+                }
+            }
+            return;
+        case EXPR_CAST:
+            if (integer_literal(value->cast_expr, &left) &&
+                integer_width(value->type) != 0) {
+                if (value->type->kind == TYPE_BOOL) {
+                    Type* source_type = value->cast_expr->type;
+                    result = source_type && integer_width(source_type) != 0
+                        ? integer_unsigned_value(left, source_type) != 0u
+                        : left != 0;
                     replace_integer(value, result);
+                } else if (value->type->is_unsigned) {
+                    replace_unsigned_integer(value, (uint64_t)left,
+                                             value->type);
+                } else {
+                    replace_integer(value,
+                                    integer_signed_value(left, value->type));
                 }
             }
             return;
