@@ -4,6 +4,7 @@
 #include "x86_select.h"
 #include "x86_legalize.h"
 #include "x86_encode.h"
+#include "x86_object.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -537,6 +538,10 @@ static void verify_sysv_call_legalization_target(bool x64)
     RccX86Function* selected = NULL;
     RccX86LegalFunction* legal = NULL;
     RccX86EncodedFunction encoded;
+    ObjectFile* object;
+    ObjSection* text;
+    ObjSymbol* function_symbol;
+    ObjSymbol* call_symbol;
     RccX86LegalInstruction* legal_call = NULL;
     size_t incoming_count = 0u;
     size_t outgoing_count = 0u;
@@ -627,6 +632,38 @@ static void verify_sysv_call_legalization_target(bool x64)
     assert(strcmp(encoded.relocations[0].symbol, "callee7") == 0);
     assert(encoded.relocations[0].offset >= 1u);
     assert(encoded.code[encoded.relocations[0].offset - 1u] == 0xe8u);
+    object = objfile_new(
+        "<x86-encoder-mismatch>", x64 ? ARCH_X86 : ARCH_X64);
+    assert(!rcc_x86_object_add_function(
+        object, "sysv_call", SYM_GLOBAL, &encoded,
+        error, sizeof(error)));
+    assert(strstr(error, "architecture") != NULL);
+    assert(object->section_count == 0 && object->symbol_count == 0);
+    objfile_free(object);
+    object = objfile_new(
+        "<x86-encoder>", x64 ? ARCH_X64 : ARCH_X86);
+    assert(rcc_x86_object_add_function(
+        object, "sysv_call", SYM_GLOBAL, &encoded,
+        error, sizeof(error)));
+    text = objfile_get_section(object, ".text");
+    function_symbol = objfile_find_symbol(object, "sysv_call");
+    call_symbol = objfile_find_symbol(object, "callee7");
+    assert(text != NULL && text->type == SECT_CODE);
+    assert((text->flags & SECT_FLAG_WRITE) == 0u);
+    assert(text->size == encoded.code_size);
+    assert(function_symbol != NULL && function_symbol->section == 0);
+    assert(function_symbol->value == 0u);
+    assert(function_symbol->size == encoded.code_size);
+    assert(call_symbol != NULL && call_symbol->section == -1);
+    assert(text->relocs != NULL && text->relocs->next == NULL);
+    assert(text->relocs->type == RELOC_REL32);
+    assert(text->relocs->offset == encoded.relocations[0].offset);
+    assert(strcmp(text->relocs->symbol_name, "callee7") == 0);
+    assert(!rcc_x86_object_add_function(
+        object, "sysv_call", SYM_GLOBAL, &encoded,
+        error, sizeof(error)));
+    assert(strstr(error, "duplicate") != NULL);
+    objfile_free(object);
     encoded.relocations[0].offset = (uint32_t)encoded.code_size;
     assert(!rcc_x86_verify_encoded_function(
         &encoded, error, sizeof(error)));

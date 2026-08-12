@@ -20,6 +20,7 @@ BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c
                       src/ir.c src/ir_pass.c src/mir.c src/mir_alloc.c \
                       src/mir_phi.c src/x86_abi.c src/x86_select.c \
                       src/x86_legalize.c src/x86_encode.c \
+                      src/x86_object.c \
                       src/ir_lower.c src/optimize.c \
                       src/codegen.c src/codegen64.c \
                       src/preproc.c src/driver_policy.c src/emit_asm.c \
@@ -29,7 +30,9 @@ BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c
                       src/build_manifest.c src/utils.c src/main.c \
                       src/main_cxx.c src/main_rld.c src/main_rar.c
 BOOTSTRAP_RCC_OBJECTS = utils lexer parser ast symtab sema codegen codegen64 \
-                        preproc ir ir_pass mir mir_alloc mir_phi x86_abi x86_select x86_legalize x86_encode ir_lower optimize \
+                        preproc ir ir_pass mir mir_alloc mir_phi x86_abi \
+                        x86_select x86_legalize x86_encode x86_object \
+                        ir_lower optimize \
                         emit_rin emit_rll emit_drv emit_ro \
                         emit_asm build_manifest driver_policy parser_cxx_stub \
                         main
@@ -52,6 +55,7 @@ COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/a
               $(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
               $(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
               $(SRCDIR)/x86_legalize.c $(SRCDIR)/x86_encode.c \
+              $(SRCDIR)/x86_object.c \
               $(SRCDIR)/ir_lower.c \
               $(SRCDIR)/optimize.c \
               $(SRCDIR)/emit_rin.c $(SRCDIR)/emit_rll.c $(SRCDIR)/emit_drv.c $(SRCDIR)/emit_ro.c \
@@ -1600,24 +1604,28 @@ test-ir:
 		$(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
 		$(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
 		$(SRCDIR)/x86_legalize.c $(SRCDIR)/x86_encode.c \
+		$(SRCDIR)/x86_object.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/mir_test-x64 \
 		tests/mir_test.c $(SRCDIR)/ir.c $(SRCDIR)/mir.c \
 		$(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
 		$(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
 		$(SRCDIR)/x86_legalize.c $(SRCDIR)/x86_encode.c \
+		$(SRCDIR)/x86_object.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/x86_encode_run_test-x86 \
 		tests/x86_encode_run_test.c $(SRCDIR)/ir.c $(SRCDIR)/mir.c \
 		$(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
 		$(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
 		$(SRCDIR)/x86_legalize.c $(SRCDIR)/x86_encode.c \
+		$(SRCDIR)/x86_object.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/x86_encode_run_test-x64 \
 		tests/x86_encode_run_test.c $(SRCDIR)/ir.c $(SRCDIR)/mir.c \
 		$(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
 		$(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
 		$(SRCDIR)/x86_legalize.c $(SRCDIR)/x86_encode.c \
+		$(SRCDIR)/x86_object.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c
 	$(TEST_OUT)/ir_test-x86
 	$(TEST_OUT)/ir_test-x64
@@ -1625,8 +1633,10 @@ test-ir:
 	$(TEST_OUT)/ir_mem2reg_test-x64
 	$(TEST_OUT)/mir_test-x86
 	$(TEST_OUT)/mir_test-x64
-	$(TEST_OUT)/x86_encode_run_test-x86
-	$(TEST_OUT)/x86_encode_run_test-x64
+	$(TEST_OUT)/x86_encode_run_test-x86 \
+		$(TEST_OUT)/encoded-native-x86.ro
+	$(TEST_OUT)/x86_encode_run_test-x64 \
+		$(TEST_OUT)/encoded-native-x64.ro
 
 test-ir-lowering: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/ir-lowering
@@ -1773,6 +1783,7 @@ $(OBJDIR)/x86_abi.o: $(INCDIR)/rcc.h $(INCDIR)/mir.h $(INCDIR)/mir_alloc.h $(INC
 $(OBJDIR)/x86_select.o: $(INCDIR)/rcc.h $(INCDIR)/mir.h $(INCDIR)/mir_alloc.h $(INCDIR)/mir_phi.h $(INCDIR)/x86_abi.h $(INCDIR)/x86_select.h
 $(OBJDIR)/x86_legalize.o: $(INCDIR)/rcc.h $(INCDIR)/mir.h $(INCDIR)/mir_alloc.h $(INCDIR)/mir_phi.h $(INCDIR)/x86_abi.h $(INCDIR)/x86_select.h $(INCDIR)/x86_legalize.h
 $(OBJDIR)/x86_encode.o: $(INCDIR)/rcc.h $(INCDIR)/mir.h $(INCDIR)/mir_alloc.h $(INCDIR)/mir_phi.h $(INCDIR)/x86_abi.h $(INCDIR)/x86_select.h $(INCDIR)/x86_legalize.h $(INCDIR)/x86_encode.h
+$(OBJDIR)/x86_object.o: $(INCDIR)/rcc.h $(INCDIR)/objfile.h $(INCDIR)/mir.h $(INCDIR)/mir_alloc.h $(INCDIR)/mir_phi.h $(INCDIR)/x86_abi.h $(INCDIR)/x86_select.h $(INCDIR)/x86_legalize.h $(INCDIR)/x86_encode.h $(INCDIR)/x86_object.h
 $(OBJDIR)/ir_lower.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/ir.h $(INCDIR)/ir_pass.h $(INCDIR)/mir.h $(INCDIR)/mir_alloc.h $(INCDIR)/mir_phi.h $(INCDIR)/x86_abi.h $(INCDIR)/x86_select.h $(INCDIR)/x86_legalize.h $(INCDIR)/ir_lower.h
 $(OBJDIR)/optimize.o: $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/ir_lower.h $(INCDIR)/optimize.h
 $(OBJDIR)/preproc.o: $(INCDIR)/rcc.h $(INCDIR)/preproc.h

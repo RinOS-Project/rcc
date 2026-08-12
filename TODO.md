@@ -119,6 +119,7 @@
   - [x] callee-saved保存表とi686/AMD64 stack alignmentを含むprologue/epilogue frame plan
   - [x] native integer binaryのx86 two-address化と右辺alias退避
   - [x] prologue/epilogue、copy、immediate、binary、branch、REL32 callの初期native encoder
+  - [x] native encoder出力の`.ro v2` `.text`/symbol/REL32 relocation bridge
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

@@ -8,6 +8,7 @@
 #include "x86_select.h"
 #include "x86_legalize.h"
 #include "x86_encode.h"
+#include "x86_object.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -88,7 +89,7 @@ static void* map_code(const RccX86EncodedFunction* encoded,
     return memory;
 }
 
-static void verify_add_execution(void)
+static void verify_add_execution(const char* object_path)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
     RccIrType parameters[] = {i32, i32};
@@ -102,6 +103,11 @@ static void verify_add_execution(void)
     size_t mapping_size;
     void* memory;
     int (*function)(int, int);
+    ObjectFile* object;
+    ObjectFile* roundtrip;
+    ObjSection* text;
+    ObjSymbol* symbol;
+    char error[256];
     assert(sum != NULL);
     assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
                          &sum->result, 1u, NULL, 0u) != NULL);
@@ -111,6 +117,24 @@ static void verify_add_execution(void)
     assert(function(13, 29) == 42);
     assert(function(-17, 5) == -12);
     assert(munmap(memory, mapping_size) == 0);
+    object = objfile_new(
+        object_path, host_target() == RCC_X86_TARGET_X86_64
+                         ? ARCH_X64 : ARCH_X86);
+    assert(rcc_x86_object_add_function(
+        object, "encoded_add", SYM_GLOBAL, &encoded,
+        error, sizeof(error)));
+    assert(objfile_write(object, object_path));
+    objfile_free(object);
+    roundtrip = objfile_read(object_path);
+    assert(roundtrip != NULL);
+    text = objfile_get_section(roundtrip, ".text");
+    symbol = objfile_find_symbol(roundtrip, "encoded_add");
+    assert(text != NULL && text->size == encoded.code_size);
+    assert(memcmp(text->data, encoded.code, encoded.code_size) == 0);
+    assert(text->relocs == NULL);
+    assert(symbol != NULL && symbol->value == 0u &&
+           symbol->size == encoded.code_size);
+    objfile_free(roundtrip);
     rcc_x86_encoded_function_release(&encoded);
     rcc_ir_module_destroy(module);
 }
@@ -152,9 +176,10 @@ static void verify_branch_execution(void)
     rcc_ir_module_destroy(module);
 }
 
-int main(void)
+int main(int argc, char** argv)
 {
-    verify_add_execution();
+    assert(argc == 2);
+    verify_add_execution(argv[1]);
     verify_branch_execution();
     puts("Native legal-IR x86 encoding execution tests passed");
     return 0;
