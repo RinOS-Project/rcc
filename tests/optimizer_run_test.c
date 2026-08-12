@@ -105,6 +105,12 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "propagated_compound_assignment"));
     assert(function_extent(optimized, "propagated_increment") <
            function_extent(unoptimized, "propagated_increment"));
+    assert(function_extent(optimized, "eliminated_dead_stores") <
+           function_extent(unoptimized, "eliminated_dead_stores"));
+    assert(function_extent(optimized, "eliminated_overwritten_store") <
+           function_extent(unoptimized, "eliminated_overwritten_store"));
+    assert(function_extent(optimized, "preserved_dead_volatile_store") ==
+           function_extent(unoptimized, "preserved_dead_volatile_store"));
     objfile_free(unoptimized);
     objfile_free(optimized);
 }
@@ -192,6 +198,16 @@ int main(int argc, char** argv)
             object, "propagated_compound_assignment");
         ObjSymbol* propagated_increment_symbol = function_symbol(
             object, "propagated_increment");
+        ObjSymbol* eliminated_dead_stores_symbol = function_symbol(
+            object, "eliminated_dead_stores");
+        ObjSymbol* eliminated_overwritten_store_symbol = function_symbol(
+            object, "eliminated_overwritten_store");
+        ObjSymbol* preserved_dead_store_effect_symbol = function_symbol(
+            object, "preserved_dead_store_effect");
+        ObjSymbol* preserved_dead_store_escape_symbol = function_symbol(
+            object, "preserved_dead_store_escape");
+        ObjSymbol* preserved_dead_volatile_store_symbol = function_symbol(
+            object, "preserved_dead_volatile_store");
         ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
         ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
         ObjSymbol* for_symbol = function_symbol(object, "removed_for_loop");
@@ -235,6 +251,11 @@ int main(int argc, char** argv)
         int (*preserved_while_state)(void);
         int (*propagated_compound_assignment)(void);
         int (*propagated_increment)(void);
+        int (*eliminated_dead_stores)(void);
+        int (*eliminated_overwritten_store)(int);
+        int (*preserved_dead_store_effect)(int*);
+        int (*preserved_dead_store_escape)(void);
+        int (*preserved_dead_volatile_store)(void);
         int (*folded_branch)(int*);
         int (*removed_loop)(int*);
         int (*removed_for_loop)(int*);
@@ -346,6 +367,21 @@ int main(int argc, char** argv)
         address = mapping + propagated_increment_symbol->value;
         memcpy(&propagated_increment, &address,
                sizeof(propagated_increment));
+        address = mapping + eliminated_dead_stores_symbol->value;
+        memcpy(&eliminated_dead_stores, &address,
+               sizeof(eliminated_dead_stores));
+        address = mapping + eliminated_overwritten_store_symbol->value;
+        memcpy(&eliminated_overwritten_store, &address,
+               sizeof(eliminated_overwritten_store));
+        address = mapping + preserved_dead_store_effect_symbol->value;
+        memcpy(&preserved_dead_store_effect, &address,
+               sizeof(preserved_dead_store_effect));
+        address = mapping + preserved_dead_store_escape_symbol->value;
+        memcpy(&preserved_dead_store_escape, &address,
+               sizeof(preserved_dead_store_escape));
+        address = mapping + preserved_dead_volatile_store_symbol->value;
+        memcpy(&preserved_dead_volatile_store, &address,
+               sizeof(preserved_dead_volatile_store));
         address = mapping + branch_symbol->value;
         memcpy(&folded_branch, &address, sizeof(folded_branch));
         address = mapping + loop_symbol->value;
@@ -409,6 +445,13 @@ int main(int argc, char** argv)
         assert(preserved_while_state() == 3);
         assert(propagated_compound_assignment() == 8);
         assert(propagated_increment() == 21);
+        assert(eliminated_dead_stores() == 5);
+        assert(eliminated_overwritten_store(18) == 19);
+        value = 0;
+        assert(preserved_dead_store_effect(&value) == 1);
+        assert(value == 1);
+        assert(preserved_dead_store_escape() == 7);
+        assert(preserved_dead_volatile_store() == 1);
         value = 3;
         assert(folded_branch(&value) == 5);
         assert(value == 3);

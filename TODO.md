@@ -96,6 +96,7 @@
     （`goto`および`case/default`からのentryを保持）
   - [x] block内control transfer後の直列DCEとlabel/case entry保持
   - [x] 未使用の副作用なし式文DCEとcall/volatile/C++ cleanup保持
+  - [x] escape/control-flow barrier付きblock-local整数dead-store除去
 - [ ] loop optimization、inlining
 - [ ] `-O0..3`ごとのpass pipeline
 - [ ] linear-scan / graph-coloring register allocation

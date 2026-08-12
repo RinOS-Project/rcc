@@ -248,6 +248,49 @@ int propagated_increment(void)
     return value * 3;
 }
 
+int eliminated_dead_stores(void)
+{
+    int dead = 7;
+    dead = 11;
+    dead++;
+    return 5;
+}
+
+int eliminated_overwritten_store(int input)
+{
+    int value = input;
+    value = input + 1;
+    return value;
+}
+
+static int dead_store_effect(int* counter)
+{
+    *counter += 1;
+    return 9;
+}
+
+int preserved_dead_store_effect(int* counter)
+{
+    int dead = 4;
+    dead = dead_store_effect(counter);
+    return *counter;
+}
+
+int preserved_dead_store_escape(void)
+{
+    int value = 3;
+    int* alias = &value;
+    value = 7;
+    return *alias;
+}
+
+int preserved_dead_volatile_store(void)
+{
+    volatile int value = 0;
+    value = 7;
+    return 1;
+}
+
 int folded_branch(int* value)
 {
     if ((2 + 2) == 4) {

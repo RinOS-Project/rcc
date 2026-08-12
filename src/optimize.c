@@ -9,6 +9,7 @@
 static void optimize_expr(Expr** expression);
 static void optimize_stmt(Stmt* statement);
 static void propagate_block_constants(Stmt* statement);
+static void eliminate_block_dead_stores(Stmt* statement);
 
 static bool expression_has_side_effect(const Expr* expression);
 
@@ -199,6 +200,7 @@ static void optimize_block(Stmt* statement) {
         if (statement_transfers_control(item->stmt)) reachable = false;
         link = &item->next;
     }
+    eliminate_block_dead_stores(statement);
 }
 
 static bool integer_literal(const Expr* expression, int64_t* value) {
@@ -1124,6 +1126,603 @@ static void propagate_block_constants(Stmt* statement) {
             case STMT_BREAK:
             case STMT_CONTINUE:
             case STMT_NULL:
+                break;
+        }
+    }
+}
+
+typedef struct DeadStoreLocal {
+    Decl* declaration;
+    bool escaped;
+    bool live;
+    struct DeadStoreLocal* next;
+} DeadStoreLocal;
+
+static DeadStoreLocal* find_dead_store_local(DeadStoreLocal* locals,
+                                              const Decl* declaration) {
+    while (locals && locals->declaration != declaration) {
+        locals = locals->next;
+    }
+    return locals;
+}
+
+static bool dead_store_candidate(const Decl* declaration) {
+    return declaration && declaration->kind == DECL_VAR &&
+        !declaration->var_is_global &&
+        !declaration->var_is_thread_local &&
+        declaration->storage != STORAGE_EXTERN &&
+        declaration->storage != STORAGE_STATIC && declaration->type &&
+        type_is_integer(declaration->type) &&
+        !declaration->type->is_volatile && !declaration->var_cleanup;
+}
+
+static DeadStoreLocal* collect_dead_store_locals(const Stmt* block) {
+    DeadStoreLocal* locals = NULL;
+    if (!block || block->kind != STMT_BLOCK) return NULL;
+    for (const StmtList* item = block->block_stmts; item;
+         item = item->next) {
+        Decl* declaration = item->stmt && item->stmt->kind == STMT_DECL
+            ? item->stmt->decl : NULL;
+        if (dead_store_candidate(declaration)) {
+            DeadStoreLocal* local = ast_arena_alloc(sizeof(*local));
+            local->declaration = declaration;
+            local->escaped = false;
+            local->live = false;
+            local->next = locals;
+            locals = local;
+        }
+    }
+    return locals;
+}
+
+static void mark_address_escapes_expr(const Expr* expression,
+                                      DeadStoreLocal* locals);
+
+static void mark_address_escapes_expr_list(const ExprList* list,
+                                           DeadStoreLocal* locals) {
+    for (; list; list = list->next) {
+        mark_address_escapes_expr(list->expr, locals);
+    }
+}
+
+static void mark_reference_escape(const Expr* expression,
+                                  DeadStoreLocal* locals) {
+    DeadStoreLocal* local;
+    while (expression && expression->kind == EXPR_CAST) {
+        expression = expression->cast_expr;
+    }
+    if (!expression || expression->kind != EXPR_IDENT) return;
+    local = find_dead_store_local(locals, expression->ident_decl);
+    if (local) local->escaped = true;
+}
+
+static void mark_address_escapes_expr(const Expr* expression,
+                                      DeadStoreLocal* locals) {
+    if (!expression) return;
+    if (expression->cxx_move_assignment) {
+        mark_address_escapes_expr(expression->cxx_move_assignment->source,
+                                  locals);
+        mark_address_escapes_expr(expression->cxx_move_assignment->cleanup,
+                                  locals);
+        mark_address_escapes_expr(expression->cxx_move_assignment->release,
+                                  locals);
+    }
+    if (expression->cxx_close_call) {
+        mark_address_escapes_expr(expression->cxx_close_call->object,
+                                  locals);
+        mark_address_escapes_expr(expression->cxx_close_call->handle,
+                                  locals);
+        mark_address_escapes_expr(expression->cxx_close_call->cleanup,
+                                  locals);
+    }
+    switch (expression->kind) {
+        case EXPR_ADDR:
+            mark_reference_escape(expression->unary_operand, locals);
+            mark_address_escapes_expr(expression->unary_operand, locals);
+            return;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            mark_address_escapes_expr(expression->unary_operand, locals);
+            return;
+        case EXPR_CAST:
+            mark_address_escapes_expr(expression->cast_expr, locals);
+            return;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            mark_address_escapes_expr(expression->binary_lhs, locals);
+            mark_address_escapes_expr(expression->binary_rhs, locals);
+            return;
+        case EXPR_COND:
+            mark_address_escapes_expr(expression->cond_test, locals);
+            mark_address_escapes_expr(expression->cond_then, locals);
+            mark_address_escapes_expr(expression->cond_else, locals);
+            return;
+        case EXPR_CALL: {
+            Type* function_type = expression->call_func
+                ? expression->call_func->type : NULL;
+            TypeParam* parameter;
+            const ExprList* argument;
+            if (function_type && function_type->kind == TYPE_PTR) {
+                function_type = function_type->base;
+            }
+            parameter = function_type && function_type->kind == TYPE_FUNC
+                ? function_type->params : NULL;
+            argument = expression->call_args;
+            while (argument) {
+                if (parameter && parameter->type &&
+                    parameter->type->is_reference) {
+                    mark_reference_escape(argument->expr, locals);
+                }
+                mark_address_escapes_expr(argument->expr, locals);
+                argument = argument->next;
+                if (parameter) parameter = parameter->next;
+            }
+            mark_address_escapes_expr(expression->call_func, locals);
+            return;
+        }
+        case EXPR_INDEX:
+            mark_address_escapes_expr(expression->index_base, locals);
+            mark_address_escapes_expr(expression->index_expr, locals);
+            return;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            mark_address_escapes_expr(expression->member_base, locals);
+            return;
+        case EXPR_COMPOUND:
+            mark_address_escapes_expr_list(expression->compound_init, locals);
+            return;
+        case EXPR_GENERIC:
+            mark_address_escapes_expr(expression->generic_control, locals);
+            for (const GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                mark_address_escapes_expr(association->expr, locals);
+            }
+            return;
+        case EXPR_VA_START:
+        case EXPR_VA_COPY:
+            mark_address_escapes_expr(expression->va_list_operand, locals);
+            mark_address_escapes_expr(expression->va_second_operand, locals);
+            return;
+        case EXPR_VA_END:
+        case EXPR_VA_ARG:
+            mark_address_escapes_expr(expression->va_list_operand, locals);
+            return;
+        case EXPR_IDENT:
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            return;
+    }
+}
+
+static void mark_address_escapes_stmt(const Stmt* statement,
+                                      DeadStoreLocal* locals) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            mark_address_escapes_expr(statement->expr, locals);
+            return;
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                mark_address_escapes_stmt(item->stmt, locals);
+            }
+            return;
+        case STMT_IF:
+            mark_address_escapes_expr(statement->if_cond, locals);
+            mark_address_escapes_stmt(statement->if_then, locals);
+            mark_address_escapes_stmt(statement->if_else, locals);
+            return;
+        case STMT_WHILE:
+        case STMT_DO:
+            mark_address_escapes_expr(statement->while_cond, locals);
+            mark_address_escapes_stmt(statement->while_body, locals);
+            return;
+        case STMT_FOR:
+            mark_address_escapes_stmt(statement->for_init, locals);
+            mark_address_escapes_expr(statement->for_cond, locals);
+            mark_address_escapes_expr(statement->for_inc, locals);
+            mark_address_escapes_stmt(statement->for_body, locals);
+            return;
+        case STMT_SWITCH:
+            mark_address_escapes_expr(statement->switch_expr, locals);
+            mark_address_escapes_stmt(statement->switch_body, locals);
+            return;
+        case STMT_CASE:
+            mark_address_escapes_expr(statement->case_val, locals);
+            mark_address_escapes_stmt(statement->case_stmt, locals);
+            return;
+        case STMT_DEFAULT:
+            mark_address_escapes_stmt(statement->default_stmt, locals);
+            return;
+        case STMT_RETURN:
+            mark_address_escapes_expr(statement->return_val, locals);
+            return;
+        case STMT_LABEL:
+            mark_address_escapes_stmt(statement->label_stmt, locals);
+            return;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR) {
+                if (statement->decl->type &&
+                    statement->decl->type->is_reference) {
+                    mark_reference_escape(statement->decl->var_init, locals);
+                }
+                mark_address_escapes_expr(statement->decl->var_init, locals);
+                mark_address_escapes_expr(statement->decl->var_cleanup,
+                                          locals);
+            }
+            return;
+        case STMT_ASM:
+            for (const AsmOperand* operand = statement->asm_outputs; operand;
+                 operand = operand->next) {
+                mark_address_escapes_expr(operand->expr, locals);
+            }
+            for (const AsmOperand* operand = statement->asm_inputs; operand;
+                 operand = operand->next) {
+                mark_address_escapes_expr(operand->expr, locals);
+            }
+            return;
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_NULL:
+            return;
+    }
+}
+
+static void mark_dead_store_reads(const Expr* expression,
+                                  DeadStoreLocal* locals);
+
+static void mark_dead_store_lvalue_reads(const Expr* expression,
+                                         DeadStoreLocal* locals) {
+    if (!expression) return;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            return;
+        case EXPR_DEREF:
+            mark_dead_store_reads(expression->unary_operand, locals);
+            return;
+        case EXPR_INDEX:
+            mark_dead_store_reads(expression->index_base, locals);
+            mark_dead_store_reads(expression->index_expr, locals);
+            return;
+        case EXPR_MEMBER:
+            mark_dead_store_lvalue_reads(expression->member_base, locals);
+            return;
+        case EXPR_PTR_MEMBER:
+            mark_dead_store_reads(expression->member_base, locals);
+            return;
+        default:
+            mark_dead_store_reads(expression, locals);
+            return;
+    }
+}
+
+static void mark_dead_store_expr_list_reads(const ExprList* list,
+                                            DeadStoreLocal* locals) {
+    for (; list; list = list->next) {
+        mark_dead_store_reads(list->expr, locals);
+    }
+}
+
+static void mark_dead_store_reads(const Expr* expression,
+                                  DeadStoreLocal* locals) {
+    DeadStoreLocal* local;
+    if (!expression) return;
+    if (expression->cxx_move_assignment || expression->cxx_close_call) {
+        for (local = locals; local; local = local->next) local->live = true;
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            local = find_dead_store_local(locals, expression->ident_decl);
+            if (local) local->live = true;
+            return;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            mark_dead_store_reads(expression->unary_operand, locals);
+            return;
+        case EXPR_ADDR:
+            mark_dead_store_lvalue_reads(expression->unary_operand, locals);
+            return;
+        case EXPR_CAST:
+            mark_dead_store_reads(expression->cast_expr, locals);
+            return;
+        case EXPR_ASSIGN:
+            mark_dead_store_lvalue_reads(expression->binary_lhs, locals);
+            mark_dead_store_reads(expression->binary_rhs, locals);
+            return;
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            mark_dead_store_reads(expression->binary_lhs, locals);
+            mark_dead_store_reads(expression->binary_rhs, locals);
+            return;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            mark_dead_store_reads(expression->binary_lhs, locals);
+            mark_dead_store_reads(expression->binary_rhs, locals);
+            return;
+        case EXPR_COND:
+            mark_dead_store_reads(expression->cond_test, locals);
+            mark_dead_store_reads(expression->cond_then, locals);
+            mark_dead_store_reads(expression->cond_else, locals);
+            return;
+        case EXPR_CALL:
+            mark_dead_store_reads(expression->call_func, locals);
+            mark_dead_store_expr_list_reads(expression->call_args, locals);
+            return;
+        case EXPR_INDEX:
+            mark_dead_store_reads(expression->index_base, locals);
+            mark_dead_store_reads(expression->index_expr, locals);
+            return;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            mark_dead_store_reads(expression->member_base, locals);
+            return;
+        case EXPR_COMPOUND:
+            mark_dead_store_expr_list_reads(expression->compound_init, locals);
+            return;
+        case EXPR_GENERIC:
+            mark_dead_store_reads(expression->generic_control, locals);
+            for (const GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                mark_dead_store_reads(association->expr, locals);
+            }
+            return;
+        case EXPR_VA_START:
+        case EXPR_VA_COPY:
+            mark_dead_store_reads(expression->va_list_operand, locals);
+            mark_dead_store_reads(expression->va_second_operand, locals);
+            return;
+        case EXPR_VA_END:
+        case EXPR_VA_ARG:
+            mark_dead_store_reads(expression->va_list_operand, locals);
+            return;
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            return;
+    }
+}
+
+static void mark_all_dead_store_locals_live(DeadStoreLocal* locals) {
+    for (; locals; locals = locals->next) locals->live = true;
+}
+
+static DeadStoreLocal* dead_store_target(const Expr* expression,
+                                         DeadStoreLocal* locals) {
+    const Expr* target = NULL;
+    if (!expression || expression->cxx_move_assignment ||
+        expression->cxx_close_call) {
+        return NULL;
+    }
+    switch (expression->kind) {
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            target = expression->binary_lhs;
+            break;
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            target = expression->unary_operand;
+            break;
+        default:
+            return NULL;
+    }
+    return target && target->kind == EXPR_IDENT
+        ? find_dead_store_local(locals, target->ident_decl) : NULL;
+}
+
+static bool dead_store_has_integer_rhs(const Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return true;
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return expression->binary_rhs && expression->binary_rhs->type &&
+                type_is_integer(expression->binary_rhs->type);
+        default:
+            return false;
+    }
+}
+
+static void eliminate_dead_store_expression(Stmt* statement,
+                                            DeadStoreLocal* local,
+                                            DeadStoreLocal* locals) {
+    Expr* expression = statement->expr;
+    bool simple_assignment = expression->kind == EXPR_ASSIGN;
+    bool increment = expression->kind == EXPR_PREINC ||
+        expression->kind == EXPR_PREDEC ||
+        expression->kind == EXPR_POSTINC ||
+        expression->kind == EXPR_POSTDEC;
+    if (!local->live && !local->escaped &&
+        dead_store_has_integer_rhs(expression)) {
+        Expr* preserved = increment ? NULL : expression->binary_rhs;
+        if (!preserved || !expression_has_side_effect(preserved)) {
+            statement->kind = STMT_NULL;
+            statement->expr = NULL;
+        } else {
+            statement->expr = preserved;
+            mark_dead_store_reads(preserved, locals);
+        }
+        local->live = false;
+        return;
+    }
+    if (simple_assignment) {
+        local->live = false;
+        mark_dead_store_reads(expression->binary_rhs, locals);
+    } else {
+        local->live = true;
+        if (!increment) {
+            mark_dead_store_reads(expression->binary_rhs, locals);
+        }
+    }
+}
+
+static void eliminate_block_dead_stores(Stmt* statement) {
+    DeadStoreLocal* locals;
+    StmtList** items;
+    size_t count = 0u;
+    size_t index = 0u;
+    if (!statement || statement->kind != STMT_BLOCK) return;
+    locals = collect_dead_store_locals(statement);
+    if (!locals) return;
+    mark_address_escapes_stmt(statement, locals);
+    for (StmtList* item = statement->block_stmts; item; item = item->next) {
+        ++count;
+    }
+    items = ast_arena_alloc(count * sizeof(*items));
+    for (StmtList* item = statement->block_stmts; item; item = item->next) {
+        items[index++] = item;
+    }
+    while (index != 0u) {
+        Stmt* current = items[--index]->stmt;
+        DeadStoreLocal* local;
+        if (!current) continue;
+        switch (current->kind) {
+            case STMT_EXPR:
+                local = dead_store_target(current->expr, locals);
+                if (local) {
+                    eliminate_dead_store_expression(current, local, locals);
+                } else {
+                    mark_dead_store_reads(current->expr, locals);
+                }
+                break;
+            case STMT_DECL:
+                local = current->decl
+                    ? find_dead_store_local(locals, current->decl) : NULL;
+                if (local) {
+                    bool initializer_needed = local->live;
+                    local->live = false;
+                    if (!initializer_needed && !local->escaped &&
+                        current->decl->var_init &&
+                        current->decl->var_init->type &&
+                        type_is_integer(current->decl->var_init->type) &&
+                        !expression_has_side_effect(
+                            current->decl->var_init)) {
+                        current->decl->var_init = NULL;
+                    }
+                    mark_dead_store_reads(current->decl->var_init, locals);
+                } else if (current->decl &&
+                           current->decl->kind == DECL_VAR) {
+                    mark_dead_store_reads(current->decl->var_init, locals);
+                    mark_dead_store_reads(current->decl->var_cleanup, locals);
+                }
+                break;
+            case STMT_RETURN:
+                mark_dead_store_reads(current->return_val, locals);
+                break;
+            case STMT_NULL:
+                break;
+            case STMT_BLOCK:
+            case STMT_IF:
+            case STMT_WHILE:
+            case STMT_DO:
+            case STMT_FOR:
+            case STMT_SWITCH:
+            case STMT_CASE:
+            case STMT_DEFAULT:
+            case STMT_BREAK:
+            case STMT_CONTINUE:
+            case STMT_GOTO:
+            case STMT_LABEL:
+            case STMT_ASM:
+                mark_all_dead_store_locals_live(locals);
                 break;
         }
     }
