@@ -86,6 +86,7 @@
 ## 4. IR / optimization
 
 - [ ] typed SSA IRとCFG
+  - [x] scalar/pointer SSA value、basic block、phi、terminator、dominance/use-def/type verifier
 - [ ] target-independent MIR
 - [ ] constant propagation / folding
   - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
