@@ -204,6 +204,46 @@ inline RinSliceV1 choose(const RinSliceV1* input) noexcept {
     return RinSliceV1{input->size, input->address};
 }
 
+inline int default_increment(int value, int amount = 5) noexcept {
+    return value + amount;
+}
+
+inline int default_pair(int first = 3, int second = 4) noexcept {
+    return first * 10 + second;
+}
+
+}
+
+int cxx_default_source() {
+    return 37;
+}
+
+int cxx_default_target(int first, int second = 7,
+                       int third = cxx_default_source()) {
+    return first * 100 + second * 10 + third;
+}
+
+int cxx_default_redeclared(int value = 13);
+
+int cxx_default_redeclared(int value) {
+    return value;
+}
+
+int cxx_default_accumulated(int first, int second = 19);
+int cxx_default_accumulated(int first = 2, int second);
+
+int cxx_default_accumulated(int first, int second) {
+    return first * 100 + second;
+}
+
+extern "C" {
+
+int cxx_default_c_linkage_target(int value = 17);
+
+int cxx_default_c_linkage_target(int value) {
+    return value;
+}
+
 }
 
 RinSliceV1 mutable_slice(void* data, uint64_t size) {
@@ -215,6 +255,26 @@ RinSliceV1 const_slice(const void* data, uint64_t size) {
 }
 
 extern "C" {
+
+int cxx_default_arguments(void) {
+    return cxx_default_target(2);
+}
+
+int cxx_default_redeclaration(void) {
+    return cxx_default_redeclared();
+}
+
+int cxx_default_redeclaration_accumulation(void) {
+    return cxx_default_accumulated();
+}
+
+int cxx_default_c_linkage(void) {
+    return cxx_default_c_linkage_target();
+}
+
+int cxx_default_namespace_inline(void) {
+    return rin::default_increment(7) * 100 + rin::default_pair();
+}
 
 void* cxx_nullptr_return(void) {
     return nullptr;

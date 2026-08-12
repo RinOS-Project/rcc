@@ -496,6 +496,108 @@ static bool cxx_same_function_parameters(Type* left, Type* right) {
     return left_parameter == NULL && right_parameter == NULL;
 }
 
+static void sema_analyze_cxx_default_arguments(Decl* function) {
+    for (DeclList* item = function ? function->func_params : NULL;
+         item; item = item->next) {
+        Decl* parameter = item->decl;
+        if (!parameter || !parameter->param_default) continue;
+        sema_expr(parameter->param_default);
+        /* Default arguments follow C++ implicit-conversion rules.  In
+         * particular, the C compatibility path in implicit_cast() permits
+         * arbitrary integer-to-pointer conversions, while C++ permits only
+         * a null pointer constant here. */
+        if (cxx_conversion_rank(parameter->param_default,
+                                parameter->type) < 0) {
+            rcc_error(parameter->param_default->loc,
+                      "default argument is incompatible with parameter %d",
+                      parameter->param_index + 1);
+        }
+    }
+}
+
+static void sema_merge_cxx_default_arguments(Decl* prior, Decl* current) {
+    DeclList* old_parameter = prior ? prior->func_params : NULL;
+    DeclList* new_parameter = current ? current->func_params : NULL;
+    for (; old_parameter && new_parameter;
+         old_parameter = old_parameter->next,
+         new_parameter = new_parameter->next) {
+        Expr* old_default = old_parameter->decl
+            ? old_parameter->decl->param_default : NULL;
+        Expr* new_default = new_parameter->decl
+            ? new_parameter->decl->param_default : NULL;
+        if (old_default && new_default) {
+            rcc_error(new_default->loc,
+                      "redefinition of default argument for parameter %d",
+                      new_parameter->decl->param_index + 1);
+        } else if (old_default && new_parameter->decl) {
+            new_parameter->decl->param_default = old_default;
+        }
+    }
+}
+
+static void sema_validate_cxx_default_suffix(Decl* function) {
+    bool saw_default = false;
+    for (DeclList* item = function ? function->func_params : NULL;
+         item; item = item->next) {
+        Decl* parameter = item->decl;
+        if (parameter && parameter->param_default) {
+            saw_default = true;
+        } else if (saw_default) {
+            if (parameter) {
+                rcc_error(
+                    parameter->loc,
+                    "parameter without a default follows a default argument");
+            } else {
+                rcc_error(
+                    function->loc,
+                    "parameter without a default follows a default argument");
+            }
+        }
+    }
+}
+
+static bool cxx_remaining_parameters_have_defaults(
+    TypeParam* parameter, DeclList* declaration) {
+    while (parameter && declaration) {
+        if (!declaration->decl || !declaration->decl->param_default) {
+            return false;
+        }
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    return parameter == NULL;
+}
+
+static bool sema_append_cxx_default_arguments(
+    Expr* call, Decl* function, TypeParam** remaining, int supplied_count) {
+    DeclList* declaration;
+    TypeParam* parameter;
+    int skipped = 0;
+
+    if (!call || !function || function->kind != DECL_FUNC || !remaining) {
+        return false;
+    }
+    declaration = function->func_params;
+    while (declaration && skipped < supplied_count) {
+        declaration = declaration->next;
+        ++skipped;
+    }
+    parameter = *remaining;
+    if (skipped != supplied_count) return false;
+    while (parameter && declaration) {
+        if (!declaration->decl || !declaration->decl->param_default) {
+            return false;
+        }
+        exprlist_append(&call->call_args,
+                        declaration->decl->param_default);
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    if (parameter) return false;
+    *remaining = NULL;
+    return true;
+}
+
 static Decl* sema_select_cxx_overload(Expr* call) {
     Decl* candidate;
     Decl* best = NULL;
@@ -511,6 +613,7 @@ static Decl* sema_select_cxx_overload(Expr* call) {
     candidate = call->call_func->ident_decl;
     for (; candidate; candidate = candidate->func_overload_next) {
         TypeParam* parameter;
+        DeclList* declared_parameter;
         ExprList* argument;
         int total = 0;
         int worst = 0;
@@ -521,6 +624,7 @@ static Decl* sema_select_cxx_overload(Expr* call) {
             continue;
         }
         parameter = candidate->type->params;
+        declared_parameter = candidate->func_params;
         argument = call->call_args;
         while (argument && parameter) {
             int rank = cxx_conversion_rank(argument->expr, parameter->type);
@@ -532,8 +636,15 @@ static Decl* sema_select_cxx_overload(Expr* call) {
             if (rank > worst) worst = rank;
             argument = argument->next;
             parameter = parameter->next;
+            if (declared_parameter) {
+                declared_parameter = declared_parameter->next;
+            }
         }
-        if (!viable || parameter) continue;
+        if (!viable ||
+            (parameter && !cxx_remaining_parameters_have_defaults(
+                parameter, declared_parameter))) {
+            continue;
+        }
         if (argument) {
             if (!candidate->type->variadic) continue;
             while (argument) {
@@ -1302,6 +1413,7 @@ static Type* sema_expr(Expr* expr) {
             TypeParam* parameter;
             ExprList* argument;
             Decl* selected_overload = NULL;
+            Decl* call_declaration = NULL;
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
@@ -1376,6 +1488,12 @@ static Type* sema_expr(Expr* expr) {
                     break;
                 }
             }
+            call_declaration = selected_overload;
+            if (!call_declaration && expr->call_func->kind == EXPR_IDENT &&
+                expr->call_func->ident_decl &&
+                expr->call_func->ident_decl->kind == DECL_FUNC) {
+                call_declaration = expr->call_func->ident_decl;
+            }
 
             parameter = ft->params;
             argument = expr->call_args;
@@ -1401,7 +1519,12 @@ static Type* sema_expr(Expr* expr) {
                 ++argument_index;
             }
             if (parameter) {
-                rcc_error(expr->loc, "too few arguments to function call");
+                if (!sema_append_cxx_default_arguments(
+                        expr, call_declaration, &parameter,
+                        argument_index - 1)) {
+                    rcc_error(expr->loc,
+                              "too few arguments to function call");
+                }
             }
 
             expr->type = ft->ret_type;
@@ -2390,6 +2513,8 @@ static void sema_decl(Decl* decl) {
         case DECL_FUNC: {
             Symbol* sym = symtab_lookup(g_symtab, decl->name);
             bool cxx_overload_set = false;
+            bool cxx_defaults_merged = false;
+            sema_analyze_cxx_default_arguments(decl);
             if (sym && sym->kind == SYM_FUNC &&
                 decl->func_has_cxx_linkage) {
                 Decl** slot = &sym->decl;
@@ -2408,6 +2533,9 @@ static void sema_decl(Decl* decl) {
                                       "redefinition of function '%s'",
                                       decl->name);
                         }
+                        sema_merge_cxx_default_arguments(prior, decl);
+                        sema_validate_cxx_default_suffix(decl);
+                        cxx_defaults_merged = true;
                         decl->func_overload_next =
                             prior->func_overload_next;
                         *slot = decl;
@@ -2423,6 +2551,14 @@ static void sema_decl(Decl* decl) {
                 }
                 sym->type = sym->decl->type;
             } else if (sym && sym->kind == SYM_FUNC) {
+                /* C language linkage suppresses overloading, but a function
+                 * declared from a C++ translation unit still owns and
+                 * accumulates default arguments in the surrounding scope. */
+                if (sym->decl) {
+                    sema_merge_cxx_default_arguments(sym->decl, decl);
+                    sema_validate_cxx_default_suffix(decl);
+                    cxx_defaults_merged = true;
+                }
                 /* Check for redefinition */
                 if (sym->is_defined && decl->func_body) {
                     rcc_error(decl->loc, "redefinition of function '%s'", decl->name);
@@ -2431,6 +2567,9 @@ static void sema_decl(Decl* decl) {
                 sym = symtab_define(g_symtab, decl->name, SYM_FUNC, decl->type, decl->loc);
             }
             if (!cxx_overload_set) sym->decl = decl;
+            if (!cxx_defaults_merged) {
+                sema_validate_cxx_default_suffix(decl);
+            }
 
             if (decl->func_body) {
                 sym->is_defined = true;

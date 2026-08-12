@@ -606,6 +606,10 @@ struct Decl {
     Type* type;
     SourceLoc loc;
     StorageClass storage;
+    /* C++ default arguments belong to parameter declarations rather than
+     * function types.  This remains outside the declaration union because
+     * parameters reuse variable-layout fields for stack code generation. */
+    Expr* param_default;
 
     union {
         /* DECL_VAR */

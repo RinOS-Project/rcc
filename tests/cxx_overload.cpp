@@ -10,6 +10,9 @@ long ordered(long first, int second);
 int null_pointer(void* value);
 long null_pointer(int value);
 
+int default_overload(int value, int extra = 5);
+long default_overload(long value);
+
 int call_integer_overload(int value) {
     return choose(value);
 }
@@ -41,4 +44,8 @@ int call_null_pointer_overload() {
 int call_null_pointer_variable_overload() {
     auto value = nullptr;
     return null_pointer(value);
+}
+
+int call_default_argument_overload() {
+    return default_overload(3);
 }

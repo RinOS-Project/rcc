@@ -1311,6 +1311,13 @@ static Expr* parse_assignment(void) {
     return e;
 }
 
+/* Export the assignment-expression grammar required by C++ default
+ * arguments.  Unlike parse_expression(), it deliberately leaves a top-level
+ * comma for the enclosing parameter list. */
+Expr* parse_assignment_expression(void) {
+    return parse_assignment();
+}
+
 /* Comma expression: a, b */
 Expr* parse_expression(void) {
     Expr* e = parse_assignment();
@@ -1722,6 +1729,8 @@ static DeclList* parse_parameter_list(bool* variadic) {
         Type* parameter_base;
         Type* parameter_type;
         const char* parameter_name = NULL;
+        Expr* parameter_default = NULL;
+        Decl* parameter;
         if (match(TOK_ELLIPSIS)) {
             if (parameter_index == 0) {
                 rcc_error(previous()->loc,
@@ -1742,9 +1751,13 @@ static DeclList* parse_parameter_list(bool* variadic) {
         } else if (parameter_type->kind == TYPE_FUNC) {
             parameter_type = type_ptr(parameter_type);
         }
-        decllist_append(&parameters,
-                        decl_param(parameter_name, parameter_type,
-                                   parameter_index++, peek()->loc));
+        if (parser_cxx_mode && match(TOK_ASSIGN)) {
+            parameter_default = parse_assignment();
+        }
+        parameter = decl_param(parameter_name, parameter_type,
+                               parameter_index++, peek()->loc);
+        parameter->param_default = parameter_default;
+        decllist_append(&parameters, parameter);
         if (!match(TOK_COMMA)) break;
         if (check(TOK_RPAREN)) {
             rcc_error(peek()->loc,

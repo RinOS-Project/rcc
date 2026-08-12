@@ -30,6 +30,8 @@ static void verify_overloads(const char* path, uint16_t architecture)
     assert(relocation_count(text, "_Z7orderedli") == 1u);
     assert(relocation_count(text, "_Z12null_pointerPv") == 2u);
     assert(relocation_count(text, "_Z12null_pointeri") == 0u);
+    assert(relocation_count(text, "_Z16default_overloadii") == 1u);
+    assert(relocation_count(text, "_Z16default_overloadl") == 0u);
     objfile_free(object);
 }
 

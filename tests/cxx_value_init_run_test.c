@@ -60,6 +60,11 @@ int main(int argc, char** argv)
     long page_size;
     size_t mapping_size;
     nullary_function direct_value_init;
+    nullary_function default_arguments;
+    nullary_function default_redeclaration;
+    nullary_function default_redeclaration_accumulation;
+    nullary_function default_c_linkage;
+    nullary_function default_namespace_inline;
     nullary_pointer_function nullptr_return;
     nullary_function nullptr_context;
     nullable_pointer_function nullptr_comparisons;
@@ -138,6 +143,16 @@ int main(int argc, char** argv)
 
     LOAD_FUNCTION(direct_value_init, object, mapping,
                   "cxx_direct_value_init");
+    LOAD_FUNCTION(default_arguments, object, mapping,
+                  "cxx_default_arguments");
+    LOAD_FUNCTION(default_redeclaration, object, mapping,
+                  "cxx_default_redeclaration");
+    LOAD_FUNCTION(default_redeclaration_accumulation, object, mapping,
+                  "cxx_default_redeclaration_accumulation");
+    LOAD_FUNCTION(default_c_linkage, object, mapping,
+                  "cxx_default_c_linkage");
+    LOAD_FUNCTION(default_namespace_inline, object, mapping,
+                  "cxx_default_namespace_inline");
     LOAD_FUNCTION(nullptr_return, object, mapping, "cxx_nullptr_return");
     LOAD_FUNCTION(nullptr_context, object, mapping, "cxx_nullptr_context");
     LOAD_FUNCTION(nullptr_comparisons, object, mapping,
@@ -233,6 +248,11 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_contextual_control, object, mapping,
                   "cxx_cleanup_contextual_control");
     assert(direct_value_init() == 1);
+    assert(default_arguments() == 307);
+    assert(default_redeclaration() == 13);
+    assert(default_redeclaration_accumulation() == 219);
+    assert(default_c_linkage() == 17);
+    assert(default_namespace_inline() == 1234);
     assert(nullptr_return() == NULL);
     assert(nullptr_context() == 1);
     assert(nullptr_comparisons(NULL) == 1001);

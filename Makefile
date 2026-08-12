@@ -226,6 +226,34 @@ test-cxx-overloads: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
 	grep -q "nullptr can only be assigned to a pointer" \
 		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/default-arguments.ro \
+		tests/cxx_default_arguments_rejected.cpp \
+		>$(TEST_OUT)/cxx-overloads/default-arguments.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "parameter without a default follows a default argument" \
+		$(TEST_OUT)/cxx-overloads/default-arguments.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/default-redefinition.ro \
+		tests/cxx_default_redefinition_rejected.cpp \
+		>$(TEST_OUT)/cxx-overloads/default-redefinition.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "redefinition of default argument for parameter 1" \
+		$(TEST_OUT)/cxx-overloads/default-redefinition.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/default-type.ro \
+		tests/cxx_default_type_rejected.cpp \
+		>$(TEST_OUT)/cxx-overloads/default-type.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "default argument is incompatible with parameter 1" \
+		$(TEST_OUT)/cxx-overloads/default-type.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/default-function-pointer.ro \
+		tests/cxx_default_function_pointer_rejected.cpp \
+		>$(TEST_OUT)/cxx-overloads/default-function-pointer.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "too few arguments to function call" \
+		$(TEST_OUT)/cxx-overloads/default-function-pointer.log
 	@echo "RCC++ overload resolution tests completed"
 
 test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)

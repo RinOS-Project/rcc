@@ -53,6 +53,7 @@ static Token* expect(TokenType type, const char* msg) {
 
 /* Forward declarations */
 static Expr* parse_cxx_expression(void);
+extern Expr* parse_assignment_expression(void);
 static Stmt* parse_cxx_statement(void);
 static Type* parse_cxx_type_spec(void);
 static Decl* parse_cxx_function_declaration(bool parse_body,
@@ -1345,6 +1346,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Method */
         DeclList* params = NULL;
         int param_idx = 0;
+        bool saw_default = false;
         ParsedConstructorInitializer constructor_initializer = {0};
 
         if (!check(TOK_RPAREN)) {
@@ -1357,11 +1359,16 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                     if (check(TOK_IDENT)) {
                         pname = advance()->value.str_val;
                     }
-                    /* Default value? */
+                    Expr* default_argument = NULL;
                     if (match(TOK_ASSIGN)) {
-                        parse_cxx_expression();  /* Ignore for now */
+                        default_argument = parse_assignment_expression();
+                        saw_default = true;
+                    } else if (saw_default) {
+                        rcc_error(peek()->loc,
+                                  "parameter without a default follows a default argument");
                     }
                     Decl* p = decl_param(pname, ptype, param_idx++, peek()->loc);
+                    p->param_default = default_argument;
                     decllist_append(&params, p);
                 } while (match(TOK_COMMA));
             }
@@ -1748,12 +1755,15 @@ static DeclList* parse_cxx_parameter_declarations(void) {
     while (!check(TOK_RPAREN) && !at_end()) {
         Type* type = parse_cxx_type_spec();
         const char* name = NULL;
+        Expr* default_argument = NULL;
+        Decl* parameter;
         if (check(TOK_IDENT)) name = advance()->value.str_val;
         if (match(TOK_ASSIGN)) {
-            (void)parse_cxx_expression();
+            default_argument = parse_assignment_expression();
         }
-        decllist_append(&params,
-                        decl_param(name, type, param_idx++, peek()->loc));
+        parameter = decl_param(name, type, param_idx++, peek()->loc);
+        parameter->param_default = default_argument;
+        decllist_append(&params, parameter);
         if (!match(TOK_COMMA)) break;
     }
     return params;
@@ -2187,12 +2197,15 @@ static DeclList* substitute_template_decl_parameters(
     DeclList* result = NULL;
     for (; parameters; parameters = parameters->next) {
         Decl* parameter = parameters->decl;
+        Decl* copy;
+        copy = decl_param(parameter->name,
+                          substitute_template_type(
+                              tmpl, parameter->type, arguments,
+                              argument_count),
+                          parameter->param_index, parameter->loc);
+        copy->param_default = parameter->param_default;
         decllist_append(
-            &result,
-            decl_param(parameter->name,
-                       substitute_template_type(
-                           tmpl, parameter->type, arguments, argument_count),
-                       parameter->param_index, parameter->loc));
+            &result, copy);
     }
     return result;
 }
