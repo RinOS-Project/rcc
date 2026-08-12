@@ -328,6 +328,16 @@ static bool mir_verify_instruction_type(
         case RCC_MIR_CALL:
             return instruction->target_count == 0u &&
                 instruction->callee && instruction->callee[0];
+        case RCC_MIR_CAPTURE_RETURN_PAIR:
+            return mir_shape(verifier, instruction, 1u, 0u) &&
+                rcc_mir_type_equal(instruction->type, void_type) &&
+                instruction->immediate >= 9u &&
+                instruction->immediate <= 16u &&
+                instruction->previous &&
+                instruction->previous->opcode == RCC_MIR_CALL &&
+                instruction->previous->type.kind == RCC_MIR_TYPE_VOID &&
+                mir_operand_type(verifier, instruction, 0u,
+                                 rcc_mir_type_pointer());
         case RCC_MIR_BRANCH:
             return mir_shape(verifier, instruction, 0u, 1u) &&
                 rcc_mir_type_equal(instruction->type, void_type);
@@ -339,6 +349,15 @@ static bool mir_verify_instruction_type(
             if (!rcc_mir_type_equal(instruction->type, void_type) ||
                 instruction->target_count != 0u) {
                 return false;
+            }
+            if (instruction->operand_count == 2u) {
+                RccMirType i64 = rcc_mir_type_integer(64u);
+                return instruction->immediate >= 9u &&
+                    instruction->immediate <= 16u &&
+                    rcc_mir_type_equal(verifier->function->return_type,
+                                       i64) &&
+                    mir_operand_type(verifier, instruction, 0u, i64) &&
+                    mir_operand_type(verifier, instruction, 1u, i64);
             }
             if (verifier->function->return_type.kind == RCC_MIR_TYPE_VOID) {
                 return mir_shape(verifier, instruction, 0u, 0u);

@@ -728,6 +728,68 @@ static void verify_ir_to_mir_call(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_x86_return_pair_target_contract(void)
+{
+    RccIrType void_type = rcc_ir_type_void();
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "capture_pair", void_type, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* allocation = rcc_ir_append(
+        entry, RCC_IR_ALLOCA, pointer, NULL, 0u, NULL, 0u);
+    RccIrInstruction* call = rcc_ir_append(
+        entry, RCC_IR_CALL, void_type, NULL, 0u, NULL, 0u);
+    RccIrInstruction* capture;
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation_plan;
+    RccMirPhiPlan phi_plan;
+    RccX86Function* selected = NULL;
+    char error[256];
+    assert(allocation != NULL && call != NULL);
+    rcc_ir_set_immediate(allocation, 16u);
+    rcc_ir_set_callee(call, "return_pair");
+    capture = rcc_ir_append(
+        entry, RCC_IR_CAPTURE_RETURN_PAIR, void_type,
+        &allocation->result, 1u, NULL, 0u);
+    assert(capture != NULL);
+    rcc_ir_set_immediate(capture, 12u);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, void_type,
+                         NULL, 0u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+
+    rcc_mir_register_policy_x86_64(&policy);
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation_plan, error, sizeof(error)));
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &allocation_plan, &phi_plan,
+        error, sizeof(error)));
+    assert(rcc_x86_select_function(
+        mir, RCC_X86_TARGET_X86_64, &policy, &allocation_plan,
+        &phi_plan, &selected, error, sizeof(error)));
+    assert(selected != NULL);
+    rcc_x86_function_destroy(selected);
+    rcc_mir_phi_plan_release(&phi_plan);
+    rcc_mir_allocation_release(&allocation_plan);
+
+    rcc_mir_register_policy_i686(&policy);
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation_plan, error, sizeof(error)));
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &allocation_plan, &phi_plan,
+        error, sizeof(error)));
+    assert(!rcc_x86_select_function(
+        mir, RCC_X86_TARGET_I686, &policy, &allocation_plan,
+        &phi_plan, &selected, error, sizeof(error)));
+    assert(selected == NULL);
+    assert(strstr(error, "instruction shape") != NULL);
+    rcc_mir_phi_plan_release(&phi_plan);
+    rcc_mir_allocation_release(&allocation_plan);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 int main(void)
 {
     verify_x86_abi_mapping();
@@ -738,6 +800,7 @@ int main(void)
     verify_phi_parallel_copy_cycle();
     verify_x86_critical_edge_selection();
     verify_sysv_call_legalization();
+    verify_x86_return_pair_target_contract();
     puts("MIR lowering, allocation, phi-copy, and x86 selection tests passed");
     return 0;
 }

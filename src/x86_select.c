@@ -119,6 +119,7 @@ static RccX86Instruction* x86_append_instruction(
                target_count * sizeof(*instruction->targets));
         instruction->target_count = target_count;
     }
+    instruction->previous = block->last;
     if (block->last) block->last->next = instruction;
     else block->first = instruction;
     block->last = instruction;
@@ -170,6 +171,8 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_GEP: return RCC_X86_GEP;
         case RCC_MIR_SYMBOL_ADDRESS: return RCC_X86_SYMBOL_ADDRESS;
         case RCC_MIR_CALL: return RCC_X86_CALL;
+        case RCC_MIR_CAPTURE_RETURN_PAIR:
+            return RCC_X86_CAPTURE_RETURN_PAIR;
         case RCC_MIR_BRANCH: return RCC_X86_JUMP;
         case RCC_MIR_COND_BRANCH: return RCC_X86_JUMP_IF;
         case RCC_MIR_RETURN: return RCC_X86_RETURN;
@@ -372,6 +375,13 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
         case RCC_X86_CALL:
             return instruction->target_count == 0u &&
                 instruction->symbol && instruction->symbol[0];
+        case RCC_X86_CAPTURE_RETURN_PAIR:
+            return !instruction->has_destination &&
+                instruction->operand_count == 1u &&
+                instruction->target_count == 0u &&
+                instruction->type.kind == RCC_MIR_TYPE_VOID &&
+                instruction->immediate >= 9u &&
+                instruction->immediate <= 16u;
         case RCC_X86_JUMP:
             return !instruction->has_destination &&
                 instruction->operand_count == 0u &&
@@ -382,7 +392,7 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->target_count == 2u;
         case RCC_X86_RETURN:
             return !instruction->has_destination &&
-                instruction->operand_count <= 1u &&
+                instruction->operand_count <= 2u &&
                 instruction->target_count == 0u;
         case RCC_X86_TRAP:
             return !instruction->has_destination &&
@@ -447,6 +457,23 @@ bool rcc_x86_verify_function(
             size_t target;
             ++instruction_count;
             if (!x86_instruction_shape(instruction) ||
+                (instruction->opcode == RCC_X86_CAPTURE_RETURN_PAIR &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER ||
+                  !instruction->previous ||
+                  instruction->previous->opcode != RCC_X86_CALL)) ||
+                (instruction->opcode == RCC_X86_RETURN &&
+                 instruction->operand_count == 2u &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->immediate < 9u ||
+                  instruction->immediate > 16u ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_INTEGER ||
+                  instruction->operand_types[0].bit_width != 64u ||
+                  instruction->operand_types[1].kind !=
+                      RCC_MIR_TYPE_INTEGER ||
+                  instruction->operand_types[1].bit_width != 64u)) ||
                 (x86_is_terminator(instruction->opcode) &&
                  instruction->next)) {
                 return x86_select_error(error, error_size,

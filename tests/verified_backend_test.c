@@ -105,6 +105,8 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* struct_argument_call;
     ObjSymbol* pair_return;
     ObjSymbol* pair_return_call;
+    ObjSymbol* triple_return;
+    ObjSymbol* triple_return_call;
     ObjSymbol* large_return;
     ObjSymbol* large_return_call;
     ObjSymbol* pointer_add;
@@ -155,6 +157,10 @@ static void verify_object(const char* path, uint16_t arch)
         object, "verified_pair_return");
     pair_return_call = objfile_find_symbol(
         object, "verified_pair_return_call");
+    triple_return = objfile_find_symbol(
+        object, "verified_triple_return");
+    triple_return_call = objfile_find_symbol(
+        object, "verified_triple_return_call");
     large_return = objfile_find_symbol(
         object, "verified_large_return");
     large_return_call = objfile_find_symbol(
@@ -226,6 +232,11 @@ static void verify_object(const char* path, uint16_t arch)
     assert(pair_return_call != NULL &&
            pair_return_call->type == SYM_GLOBAL &&
            pair_return_call->section == 0);
+    assert(triple_return != NULL && triple_return->type == SYM_GLOBAL &&
+           triple_return->section == 0);
+    assert(triple_return_call != NULL &&
+           triple_return_call->type == SYM_GLOBAL &&
+           triple_return_call->section == 0);
     assert(large_return != NULL && large_return->type == SYM_GLOBAL &&
            large_return->section == 0);
     assert(large_return_call != NULL &&
@@ -262,12 +273,13 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 35);
+    assert(object->symbol_count == 37);
     {
         size_t relocation_count = 0u;
         bool found_helper = false;
         bool found_struct_call = false;
         bool found_pair_return = false;
+        bool found_triple_return = false;
         bool found_large_return = false;
         for (relocation = text->relocs; relocation;
              relocation = relocation->next) {
@@ -286,12 +298,17 @@ static void verify_object(const char* path, uint16_t arch)
                 found_pair_return = true;
             }
             if (strcmp(relocation->symbol_name,
+                       "verified_triple_return") == 0) {
+                found_triple_return = true;
+            }
+            if (strcmp(relocation->symbol_name,
                        "verified_large_return") == 0) {
                 found_large_return = true;
             }
         }
-        assert(relocation_count == 4u && found_helper && found_struct_call &&
-               found_pair_return && found_large_return);
+        assert(relocation_count == 5u && found_helper && found_struct_call &&
+               found_pair_return && found_triple_return &&
+               found_large_return);
     }
     objfile_free(object);
 }
@@ -322,6 +339,8 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*struct_argument_call_function)(int, int, int);
     struct VerifiedReturnPair (*pair_return_function)(int, int);
     int (*pair_return_call_function)(int, int);
+    struct VerifiedArgument (*triple_return_function)(int, int, int);
+    int (*triple_return_call_function)(int, int, int);
     struct VerifiedLargeReturn (*large_return_function)(int, int, int);
     int (*large_return_call_function)(int, int, int);
     int (*conditional_function)(int, int*);
@@ -445,6 +464,22 @@ static void verify_native_execution(const char* path, uint16_t arch)
     memcpy(&pair_return_call_function, &address,
            sizeof(pair_return_call_function));
     assert(pair_return_call_function(7, 8) == 78);
+
+    {
+        struct VerifiedArgument result;
+        symbol = objfile_find_symbol(object, "verified_triple_return");
+        address = symbol_address(memory, symbol);
+        memcpy(&triple_return_function, &address,
+               sizeof(triple_return_function));
+        result = triple_return_function(4, 5, 6);
+        assert(result.first == 4 && result.second == 5 && result.third == 6);
+    }
+
+    symbol = objfile_find_symbol(object, "verified_triple_return_call");
+    address = symbol_address(memory, symbol);
+    memcpy(&triple_return_call_function, &address,
+           sizeof(triple_return_call_function));
+    assert(triple_return_call_function(4, 5, 6) == 456);
 
     {
         struct VerifiedLargeReturn result;

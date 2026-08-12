@@ -1045,6 +1045,7 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_LOAD:
         case RCC_IR_STORE:
         case RCC_IR_CALL:
+        case RCC_IR_CAPTURE_RETURN_PAIR:
         case RCC_IR_BRANCH:
         case RCC_IR_COND_BRANCH:
         case RCC_IR_RETURN:

@@ -349,6 +349,84 @@ static void reject_unreachable_block(void)
     expect_invalid(module, "is unreachable");
 }
 
+static void verify_return_pair_contract(void)
+{
+    RccIrType void_type = rcc_ir_type_void();
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType i64 = rcc_ir_type_integer(64u);
+    char error[256];
+    {
+        RccIrModule* module = rcc_ir_module_create();
+        RccIrFunction* function = rcc_ir_function_add(
+            module, "capture_pair", void_type, NULL, 0u);
+        RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+        RccIrInstruction* allocation = rcc_ir_append(
+            entry, RCC_IR_ALLOCA, pointer, NULL, 0u, NULL, 0u);
+        RccIrInstruction* call = rcc_ir_append(
+            entry, RCC_IR_CALL, void_type, NULL, 0u, NULL, 0u);
+        RccIrInstruction* capture;
+        assert(allocation != NULL && call != NULL);
+        rcc_ir_set_immediate(allocation, 16u);
+        rcc_ir_set_callee(call, "return_pair");
+        capture = rcc_ir_append(
+            entry, RCC_IR_CAPTURE_RETURN_PAIR, void_type,
+            &allocation->result, 1u, NULL, 0u);
+        assert(capture != NULL);
+        rcc_ir_set_immediate(capture, 12u);
+        assert(rcc_ir_append(entry, RCC_IR_RETURN, void_type,
+                             NULL, 0u, NULL, 0u) != NULL);
+        assert(rcc_ir_verify_module(module, error, sizeof(error)));
+        capture->immediate = 8u;
+        assert(!rcc_ir_verify_module(module, error, sizeof(error)));
+        assert(strstr(error, "return-pair capture") != NULL);
+        rcc_ir_module_destroy(module);
+    }
+    {
+        RccIrModule* module = rcc_ir_module_create();
+        RccIrFunction* function = rcc_ir_function_add(
+            module, "separated_capture", void_type, NULL, 0u);
+        RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+        RccIrInstruction* allocation = rcc_ir_append(
+            entry, RCC_IR_ALLOCA, pointer, NULL, 0u, NULL, 0u);
+        RccIrInstruction* call = rcc_ir_append(
+            entry, RCC_IR_CALL, void_type, NULL, 0u, NULL, 0u);
+        RccIrInstruction* capture;
+        assert(allocation != NULL && call != NULL);
+        rcc_ir_set_immediate(allocation, 16u);
+        rcc_ir_set_callee(call, "return_pair");
+        (void)append_const(entry, i64, 0u);
+        capture = rcc_ir_append(
+            entry, RCC_IR_CAPTURE_RETURN_PAIR, void_type,
+            &allocation->result, 1u, NULL, 0u);
+        assert(capture != NULL);
+        rcc_ir_set_immediate(capture, 12u);
+        assert(rcc_ir_append(entry, RCC_IR_RETURN, void_type,
+                             NULL, 0u, NULL, 0u) != NULL);
+        assert(!rcc_ir_verify_module(module, error, sizeof(error)));
+        assert(strstr(error, "return-pair capture") != NULL);
+        rcc_ir_module_destroy(module);
+    }
+    {
+        RccIrModule* module = rcc_ir_module_create();
+        RccIrFunction* function = rcc_ir_function_add(
+            module, "return_pair", i64, NULL, 0u);
+        RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+        RccIrValue values[] = {
+            append_const(entry, i64, 1u),
+            append_const(entry, i64, 2u),
+        };
+        RccIrInstruction* return_pair = rcc_ir_append(
+            entry, RCC_IR_RETURN, void_type, values, 2u, NULL, 0u);
+        assert(return_pair != NULL);
+        rcc_ir_set_immediate(return_pair, 12u);
+        assert(rcc_ir_verify_module(module, error, sizeof(error)));
+        return_pair->immediate = 8u;
+        assert(!rcc_ir_verify_module(module, error, sizeof(error)));
+        assert(strstr(error, "return-pair") != NULL);
+        rcc_ir_module_destroy(module);
+    }
+}
+
 int main(void)
 {
     verify_diamond_phi();
@@ -363,6 +441,7 @@ int main(void)
     reject_unreachable_block();
     reject_symbol_address_without_symbol();
     reject_malformed_constant();
+    verify_return_pair_contract();
     puts("Typed SSA IR and CFG verifier tests passed");
     return 0;
 }

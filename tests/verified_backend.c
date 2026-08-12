@@ -193,6 +193,20 @@ int verified_pair_return_call(int first, int second)
     return value.first * 10 + value.second;
 }
 
+struct VerifiedArgument verified_triple_return(
+    int first, int second, int third)
+{
+    struct VerifiedArgument value = {first, second, third};
+    return value;
+}
+
+int verified_triple_return_call(int first, int second, int third)
+{
+    struct VerifiedArgument value =
+        verified_triple_return(first, second, third);
+    return value.first * 100 + value.second * 10 + value.third;
+}
+
 struct VerifiedLargeReturn verified_large_return(
     int first, int second, int third)
 {

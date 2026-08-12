@@ -801,6 +801,41 @@ static bool x86_emit_indirect_store(
     return x86_emit_indirect_modrm(encoder, source, address);
 }
 
+static bool x86_emit_indirect_store_displacement(
+    RccX86Encoder* encoder, RccX86HardwareGpr address,
+    int32_t displacement, RccX86HardwareGpr source,
+    uint16_t size) {
+    if (!x86_emit_prefix(encoder, size, source, address,
+                         size == 1u) ||
+        !x86_emit_u8(encoder, size == 1u ? 0x88u : 0x89u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            2u, source, address))) return false;
+    if (((unsigned)address & 7u) == 4u &&
+        !x86_emit_u8(encoder, 0x24u)) return false;
+    return x86_emit_u32(encoder, (uint32_t)displacement);
+}
+
+static bool x86_emit_capture_return_pair(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value address = instruction->operands[0];
+    RccX86HardwareGpr address_register = address.kind == RCC_X86_VALUE_GPR
+        ? address.gpr : RCC_X86_GPR_R11;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        instruction->immediate < 9u || instruction->immediate > 16u) {
+        return x86_encode_error(
+            encoder, "x86 return-pair capture is invalid");
+    }
+    if (address.kind != RCC_X86_VALUE_GPR &&
+        !x86_emit_load(encoder, address_register, address, 8u)) {
+        return false;
+    }
+    return x86_emit_indirect_store_displacement(
+               encoder, address_register, 0, RCC_X86_GPR_AX, 8u) &&
+        x86_emit_indirect_store_displacement(
+               encoder, address_register, 8, RCC_X86_GPR_DX, 8u);
+}
+
 static bool x86_emit_stack_address(
     RccX86Encoder* encoder,
     const RccX86LegalInstruction* instruction) {
@@ -1252,7 +1287,9 @@ static bool x86_emit_instruction(
                 encoder, (uint32_t)instruction->immediate);
         case RCC_X86_LEGAL_RETURN:
             return x86_emit_epilogue(
-                encoder, (uint16_t)instruction->immediate);
+                encoder,
+                encoder->function->target == RCC_X86_TARGET_I686
+                    ? (uint16_t)instruction->immediate : 0u);
         case RCC_X86_LEGAL_SELECTED:
             break;
         default:
@@ -1285,6 +1322,8 @@ static bool x86_emit_instruction(
             return x86_emit_pointer_store(encoder, instruction);
         case RCC_X86_GEP:
             return x86_emit_gep(encoder, instruction);
+        case RCC_X86_CAPTURE_RETURN_PAIR:
+            return x86_emit_capture_return_pair(encoder, instruction);
         case RCC_X86_SELECT:
             return x86_emit_select(encoder, instruction);
         case RCC_X86_JUMP:

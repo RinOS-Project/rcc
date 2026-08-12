@@ -360,6 +360,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_GEP: return "gep";
         case RCC_IR_SYMBOL_ADDRESS: return "symbol_address";
         case RCC_IR_CALL: return "call";
+        case RCC_IR_CAPTURE_RETURN_PAIR: return "capture_return_pair";
         case RCC_IR_BRANCH: return "branch";
         case RCC_IR_COND_BRANCH: return "cond_branch";
         case RCC_IR_RETURN: return "return";
@@ -613,6 +614,20 @@ static bool ir_verify_instruction_types(
                 }
             }
             return true;
+        case RCC_IR_CAPTURE_RETURN_PAIR:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !rcc_ir_type_equal(instruction->type, void_type) ||
+                instruction->immediate < 9u ||
+                instruction->immediate > 16u ||
+                !instruction->previous ||
+                instruction->previous->opcode != RCC_IR_CALL ||
+                instruction->previous->type.kind != RCC_IR_TYPE_VOID) {
+                return ir_verify_error(
+                    verifier, "return-pair capture has invalid shape");
+            }
+            return ir_operand_has_type(
+                verifier, instruction, 0u,
+                rcc_ir_type_pointer(0u));
         case RCC_IR_BRANCH:
             if (!ir_require_shape(verifier, instruction, 0u, 1u) ||
                 !rcc_ir_type_equal(instruction->type, void_type)) {
@@ -632,6 +647,23 @@ static bool ir_verify_instruction_types(
                 instruction->target_count != 0u) {
                 return ir_verify_error(verifier,
                                        "return has invalid result or target");
+            }
+            if (instruction->operand_count == 2u) {
+                RccIrType i64 = rcc_ir_type_integer(64u);
+                if (instruction->immediate < 9u ||
+                    instruction->immediate > 16u ||
+                    !rcc_ir_type_equal(verifier->function->return_type,
+                                       i64)) {
+                    return ir_verify_error(
+                        verifier, "return-pair has invalid ABI metadata");
+                }
+                if (!ir_operand_has_type(
+                        verifier, instruction, 0u, i64) ||
+                    !ir_operand_has_type(
+                        verifier, instruction, 1u, i64)) {
+                    return false;
+                }
+                return true;
             }
             if (verifier->function->return_type.kind == RCC_IR_TYPE_VOID) {
                 return ir_require_shape(verifier, instruction, 0u, 0u);

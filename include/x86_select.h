@@ -36,6 +36,7 @@ typedef enum {
     RCC_X86_GEP,
     RCC_X86_SYMBOL_ADDRESS,
     RCC_X86_CALL,
+    RCC_X86_CAPTURE_RETURN_PAIR,
     RCC_X86_JUMP,
     RCC_X86_JUMP_IF,
     RCC_X86_RETURN,
@@ -60,6 +61,7 @@ struct RccX86Instruction {
     RccIrIntPredicate predicate;
     char* symbol;
     bool cycle_break;
+    RccX86Instruction* previous;
     RccX86Instruction* next;
 };
 

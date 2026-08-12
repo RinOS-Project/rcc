@@ -536,6 +536,10 @@ static bool x86_legal_prepare_outgoing_frame(
                 }
                 if (bytes > maximum) maximum = bytes;
             }
+            if (instruction->opcode == RCC_X86_RETURN &&
+                instruction->operand_count == 2u) {
+                may_need_temporary = true;
+            }
             if (instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 x86_legal_is_binary(instruction->opcode) &&
@@ -915,16 +919,32 @@ static bool x86_legalize_return(
     RccX86Value destination;
     RccX86Value* operands = NULL;
     RccX86LegalInstruction* result;
-    if (source->immediate != 0u &&
-        (abi->target != RCC_X86_TARGET_I686 ||
-         source->immediate != abi->pointer_size)) {
+    bool pair_return = source->operand_count == 2u;
+    if ((pair_return &&
+         (abi->target != RCC_X86_TARGET_X86_64 ||
+          source->immediate < 9u || source->immediate > 16u)) ||
+        (!pair_return && source->immediate != 0u &&
+         (abi->target != RCC_X86_TARGET_I686 ||
+          source->immediate != abi->pointer_size))) {
         return x86_legal_error(error, error_size,
                                "x86 return stack pop is invalid");
     }
     if (!x86_legal_resolve_instruction(
             source, abi, &destination, &operands,
             error, error_size)) return false;
-    if (source->operand_count == 1u) {
+    if (pair_return) {
+        RccX86Value destinations[2];
+        destinations[0] = x86_legal_fixed_gpr(
+            abi->return_low, source->operand_types[0], abi);
+        destinations[1] = x86_legal_fixed_gpr(
+            abi->return_high, source->operand_types[1], abi);
+        if (!x86_legal_schedule_parallel_copies(
+                function, block, abi, operands, destinations,
+                source->operand_types, 2u, error, error_size)) {
+            rcc_free(operands);
+            return false;
+        }
+    } else if (source->operand_count == 1u) {
         RccMirType type = source->operand_types[0];
         RccX86Value return_register = x86_legal_fixed_gpr(
             abi->return_low, type, abi);
@@ -938,7 +958,11 @@ static bool x86_legalize_return(
     result = x86_legal_append(
         function, block, RCC_X86_LEGAL_RETURN, RCC_X86_RETURN,
         function->return_type, NULL, NULL, NULL, 0u);
-    if (result) result->immediate = source->immediate;
+    if (result) {
+        result->immediate = source->immediate;
+        result->auxiliary = pair_return ? 2u :
+            (source->operand_count == 1u ? 1u : 0u);
+    }
     rcc_free(operands);
     if (!result) {
         return x86_legal_error(error, error_size,
@@ -1026,6 +1050,13 @@ static bool x86_legal_selected_shape(
         case RCC_X86_CALL:
             return instruction->target_count == 0u &&
                 instruction->symbol && instruction->symbol[0];
+        case RCC_X86_CAPTURE_RETURN_PAIR:
+            return !instruction->has_destination &&
+                instruction->operand_count == 1u &&
+                instruction->target_count == 0u &&
+                instruction->type.kind == RCC_MIR_TYPE_VOID &&
+                instruction->immediate >= 9u &&
+                instruction->immediate <= 16u;
         case RCC_X86_JUMP:
             return !instruction->has_destination &&
                 instruction->operand_count == 0u &&
@@ -1036,7 +1067,7 @@ static bool x86_legal_selected_shape(
                 instruction->target_count == 2u;
         case RCC_X86_RETURN:
             return !instruction->has_destination &&
-                instruction->operand_count <= 1u &&
+                instruction->operand_count <= 2u &&
                 instruction->target_count == 0u;
         case RCC_X86_TRAP:
             return !instruction->has_destination &&
@@ -1227,10 +1258,29 @@ static bool x86_legal_verify_return(
     }
     if (function->return_type.kind != RCC_MIR_TYPE_VOID) {
         const RccX86LegalInstruction* input = instruction->previous;
-        if (!input || input->opcode != RCC_X86_LEGAL_COPY ||
-            !input->has_destination ||
-            input->destination.kind != RCC_X86_VALUE_GPR ||
-            input->destination.gpr != abi->return_low) {
+        bool pair_return = function->target == RCC_X86_TARGET_X86_64 &&
+            instruction->immediate >= 9u &&
+            instruction->immediate <= 16u;
+        bool found_low = false;
+        bool found_high = false;
+        while (input && input->opcode == RCC_X86_LEGAL_COPY) {
+            if (input->has_destination &&
+                input->destination.kind == RCC_X86_VALUE_GPR) {
+                if (input->destination.gpr == abi->return_low) {
+                    found_low = true;
+                }
+                if (input->destination.gpr == abi->return_high) {
+                    found_high = true;
+                }
+            }
+            input = input->previous;
+        }
+        if (pair_return && instruction->auxiliary == 2u) return true;
+        if (!pair_return && instruction->auxiliary != 1u) {
+            return x86_legal_error(error, error_size,
+                                   "x86 return metadata is invalid");
+        }
+        if (!found_low || (pair_return && !found_high)) {
             return x86_legal_error(error, error_size,
                                    "x86 return-register sequence is invalid");
         }
@@ -1363,11 +1413,26 @@ bool rcc_x86_verify_legal_function(
                 (instruction->target_count != 0u &&
                  !instruction->targets) ||
                 !x86_legal_instruction_shape(instruction) ||
-                ((instruction->opcode == RCC_X86_LEGAL_CALL ||
-                  instruction->opcode == RCC_X86_LEGAL_RETURN) &&
+                (instruction->opcode == RCC_X86_LEGAL_CALL &&
                  instruction->immediate != 0u &&
                  (function->target != RCC_X86_TARGET_I686 ||
                   instruction->immediate != abi.pointer_size)) ||
+                (instruction->opcode == RCC_X86_LEGAL_RETURN &&
+                 instruction->immediate != 0u &&
+                 !((function->target == RCC_X86_TARGET_I686 &&
+                    instruction->immediate == abi.pointer_size) ||
+                   (function->target == RCC_X86_TARGET_X86_64 &&
+                    instruction->immediate >= 9u &&
+                    instruction->immediate <= 16u))) ||
+                (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                 instruction->selected_opcode ==
+                     RCC_X86_CAPTURE_RETURN_PAIR &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER ||
+                  !instruction->previous ||
+                  instruction->previous->opcode !=
+                      RCC_X86_LEGAL_CALL)) ||
                 (instruction->has_destination &&
                  !x86_legal_value_valid(
                      instruction->destination, function, &abi)) ||
