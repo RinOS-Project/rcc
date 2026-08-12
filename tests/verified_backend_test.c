@@ -44,6 +44,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* load;
     ObjSymbol* control;
     ObjSymbol* index;
+    ObjSymbol* local_array;
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
@@ -66,6 +67,7 @@ static void verify_object(const char* path, uint16_t arch)
     load = objfile_find_symbol(object, "verified_load");
     control = objfile_find_symbol(object, "verified_control");
     index = objfile_find_symbol(object, "verified_index");
+    local_array = objfile_find_symbol(object, "verified_local_array");
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
@@ -94,6 +96,8 @@ static void verify_object(const char* path, uint16_t arch)
     assert(control != NULL && control->type == SYM_GLOBAL &&
            control->section == 0);
     assert(index != NULL && index->type == SYM_GLOBAL && index->section == 0);
+    assert(local_array != NULL && local_array->type == SYM_GLOBAL &&
+           local_array->section == 0);
     assert(pointer_add != NULL && pointer_add->type == SYM_GLOBAL &&
            pointer_add->section == 0);
     assert(pointer_sub != NULL && pointer_sub->type == SYM_GLOBAL &&
@@ -125,7 +129,7 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 18);
+    assert(object->symbol_count == 19);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -144,6 +148,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int values[] = {11, 22, 33, 44, 55};
     int side_effect = 10;
     int (*pointer_function)(int*, int);
+    int (*local_array_function)(int, int, int);
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
@@ -161,6 +166,11 @@ static void verify_native_execution(const char* path, uint16_t arch)
     address = symbol_address(memory, symbol);
     memcpy(&pointer_function, &address, sizeof(pointer_function));
     assert(pointer_function(values + 2, -1) == 22);
+
+    symbol = objfile_find_symbol(object, "verified_local_array");
+    address = symbol_address(memory, symbol);
+    memcpy(&local_array_function, &address, sizeof(local_array_function));
+    assert(local_array_function(2, 3, 4) == 20);
 
     symbol = objfile_find_symbol(object, "verified_pointer_add");
     address = symbol_address(memory, symbol);
@@ -392,6 +402,9 @@ static void verify_global_object(const char* path, uint16_t arch,
     ObjSymbol* write_symbol;
     ObjSymbol* external_data;
     ObjSymbol* external_read;
+    ObjSymbol* global_array;
+    ObjSymbol* array_read;
+    ObjSymbol* array_write;
     ObjReloc* relocation;
     size_t absolute_relocations = 0u;
     size_t relative_relocations = 0u;
@@ -407,7 +420,12 @@ static void verify_global_object(const char* path, uint16_t arch,
     write_symbol = objfile_find_symbol(object, "verified_global_write");
     external_data = objfile_find_symbol(object, "verified_external_data");
     external_read = objfile_find_symbol(object, "verified_external_read");
-    assert(data != NULL && data->size == 8u &&
+    global_array = objfile_find_symbol(object, "verified_global_array");
+    array_read = objfile_find_symbol(
+        object, "verified_global_array_read");
+    array_write = objfile_find_symbol(
+        object, "verified_global_array_write");
+    assert(data != NULL && data->size == 20u &&
            (data->flags & SECT_FLAG_WRITE) != 0u &&
            (data->flags & SECT_FLAG_EXEC) == 0u);
     assert(bss != NULL && bss->size == 0u && bss->memory_size == 4u);
@@ -426,6 +444,12 @@ static void verify_global_object(const char* path, uint16_t arch,
            external_data->binding == BIND_DATA && external_data->section < 0);
     assert(external_read != NULL && external_read->binding == BIND_CODE &&
            external_read->section == 0);
+    assert(global_array != NULL && global_array->type == SYM_GLOBAL &&
+           global_array->binding == BIND_DATA && global_array->section >= 0);
+    assert(array_read != NULL && array_read->binding == BIND_CODE &&
+           array_read->section == 0);
+    assert(array_write != NULL && array_write->binding == BIND_CODE &&
+           array_write->section == 0);
     for (relocation = text->relocs; relocation != NULL;
          relocation = relocation->next) {
         if (relocation->type == RELOC_REL32) {
@@ -436,22 +460,32 @@ static void verify_global_object(const char* path, uint16_t arch,
             ++absolute_relocations;
         }
     }
-    assert(absolute_relocations >= 7u && relative_relocations == 1u);
+    assert(absolute_relocations >= 9u && relative_relocations == 1u);
     if (execute) {
         MappedObject mapping = map_object(object);
         int (*read_function)(void);
         int (*write_function)(int);
         int (*external_function)(void);
+        int (*array_read_function)(int);
+        int (*array_write_function)(int, int);
         void* address = (uint8_t*)mapping.bases[0] + read_symbol->value;
         memcpy(&read_function, &address, sizeof(read_function));
         address = (uint8_t*)mapping.bases[0] + write_symbol->value;
         memcpy(&write_function, &address, sizeof(write_function));
         address = (uint8_t*)mapping.bases[0] + external_read->value;
         memcpy(&external_function, &address, sizeof(external_function));
+        address = (uint8_t*)mapping.bases[0] + array_read->value;
+        memcpy(&array_read_function, &address, sizeof(array_read_function));
+        address = (uint8_t*)mapping.bases[0] + array_write->value;
+        memcpy(&array_write_function, &address,
+               sizeof(array_write_function));
         assert(read_function() == 12);
         assert(write_function(20) == 48);
         assert(read_function() == 48);
         assert(external_function() == mapped_external_value);
+        assert(array_read_function(2) == 6);
+        assert(array_write_function(1, 17) == 17);
+        assert(array_read_function(1) == 17);
         unmap_object(&mapping);
     }
     objfile_free(object);

@@ -2,6 +2,7 @@ int verified_global_data = 7;
 int verified_global_zero;
 static int verified_static_data = 5;
 extern int verified_external_data;
+int verified_global_array[3] = {4, 5, 6};
 
 int verified_global_read(void)
 {
@@ -20,4 +21,15 @@ int verified_global_write(int value)
 int verified_external_read(void)
 {
     return verified_external_data;
+}
+
+int verified_global_array_read(int index)
+{
+    return *(verified_global_array + index);
+}
+
+int verified_global_array_write(int index, int value)
+{
+    verified_global_array[index] = value;
+    return verified_global_array[index];
 }

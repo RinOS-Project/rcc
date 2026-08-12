@@ -28,6 +28,15 @@ int verified_index(int* base, int index)
     return base[index];
 }
 
+int verified_local_array(int left, int middle, int right)
+{
+    int values[3];
+    values[0] = left;
+    values[1] = middle;
+    values[2] = right;
+    return values[0] + *(values + 1) * 2 + values[2] * 3;
+}
+
 int verified_pointer_add(int* base, int index)
 {
     return *(base + index);

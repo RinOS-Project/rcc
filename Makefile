@@ -1664,9 +1664,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x64.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x64.log
-	grep -q 'Verified backend: 18 function(s) emitted' \
+	grep -q 'Verified backend: 19 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/x86.log
-	grep -q 'Verified backend: 18 function(s) emitted' \
+	grep -q 'Verified backend: 19 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/x64.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-x64.ro \
@@ -1682,9 +1682,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/globals-x64.ro \
 		tests/verified_backend_globals.c \
 		>$(TEST_OUT)/verified-backend/globals-x64.log
-	grep -q 'Verified backend: 3 function(s) emitted' \
+	grep -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/globals-x86.log
-	grep -q 'Verified backend: 3 function(s) emitted' \
+	grep -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/globals-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/fallback.ro \
@@ -1698,6 +1698,12 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/verified-backend/switch-fallback.log
 	grep -q "Verified backend fallback: function 'verified_switch_nested_label_fallback' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/switch-fallback.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/array-fallback.ro \
+		tests/verified_backend_array_fallback.c \
+		>$(TEST_OUT)/verified-backend/array-fallback.log
+	grep -q "Verified backend fallback: function 'verified_local_array_initializer_fallback' is outside the typed SSA subset" \
+		$(TEST_OUT)/verified-backend/array-fallback.log
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c

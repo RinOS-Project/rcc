@@ -286,7 +286,9 @@ static RccIrLowerValue lower_pointer_offset(
     RccIrValue operands[2];
     RccIrInstruction* instruction;
     uint64_t scale;
-    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+    if (!pointer_type ||
+        (pointer_type->kind != TYPE_PTR &&
+         pointer_type->kind != TYPE_ARRAY) ||
         !pointer_type->base || pointer_type->base->size <= 0 ||
         (uint64_t)pointer_type->base->size > (uint64_t)INT32_MAX) {
         context->unsupported = true;
@@ -345,16 +347,20 @@ static RccIrLowerValue lower_pointer_binary(
     const Expr* index_expression = NULL;
     bool subtract_index = expression->kind == EXPR_SUB;
     if (expression->binary_lhs && expression->binary_lhs->type &&
-        expression->binary_lhs->type->kind == TYPE_PTR &&
+        (expression->binary_lhs->type->kind == TYPE_PTR ||
+         expression->binary_lhs->type->kind == TYPE_ARRAY) &&
         expression->binary_rhs && expression->binary_rhs->type &&
-        expression->binary_rhs->type->kind != TYPE_PTR) {
+        expression->binary_rhs->type->kind != TYPE_PTR &&
+        expression->binary_rhs->type->kind != TYPE_ARRAY) {
         pointer_expression = expression->binary_lhs;
         index_expression = expression->binary_rhs;
     } else if (expression->kind == EXPR_ADD && expression->binary_rhs &&
                expression->binary_rhs->type &&
-               expression->binary_rhs->type->kind == TYPE_PTR &&
+               (expression->binary_rhs->type->kind == TYPE_PTR ||
+                expression->binary_rhs->type->kind == TYPE_ARRAY) &&
                expression->binary_lhs && expression->binary_lhs->type &&
-               expression->binary_lhs->type->kind != TYPE_PTR) {
+               expression->binary_lhs->type->kind != TYPE_PTR &&
+               expression->binary_lhs->type->kind != TYPE_ARRAY) {
         pointer_expression = expression->binary_rhs;
         index_expression = expression->binary_lhs;
     }
@@ -421,13 +427,14 @@ static RccIrLowerValue lower_lvalue_address(
         local = lower_find_local(context, expression->ident_decl);
         if (!local) {
             const Decl* declaration = expression->ident_decl;
-            RccIrType value_type;
             RccIrInstruction* address;
             if (!declaration || declaration->kind != DECL_VAR ||
                 !declaration->var_is_global ||
                 declaration->var_is_thread_local ||
-                !lower_type(declaration->type, &value_type) ||
-                value_type.kind == RCC_IR_TYPE_VOID) {
+                !declaration->type || declaration->type->size <= 0 ||
+                declaration->type->is_reference ||
+                declaration->type->is_volatile ||
+                declaration->type->cleanup_function) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
@@ -856,6 +863,9 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 context, type, expression->type->is_unsigned,
                 (unsigned char)expression->char_val);
         case EXPR_IDENT:
+            if (expression->type && expression->type->kind == TYPE_ARRAY) {
+                return lower_lvalue_address(context, expression);
+            }
             return lower_load_lvalue(context, expression);
         case EXPR_NEG:
             operand = lower_expression(context, expression->unary_operand);
@@ -1687,14 +1697,22 @@ static bool lower_switch(RccIrLowerContext* context,
 
 static bool lower_declaration(RccIrLowerContext* context,
                               const Decl* declaration) {
-    RccIrType type;
+    RccIrType type = rcc_ir_type_void();
     RccIrInstruction* allocation;
+    bool is_array = declaration && declaration->type &&
+        declaration->type->kind == TYPE_ARRAY;
     if (!declaration || declaration->kind != DECL_VAR ||
         declaration->var_is_global || declaration->var_is_thread_local ||
         declaration->storage == STORAGE_EXTERN ||
         declaration->storage == STORAGE_STATIC || declaration->var_cleanup ||
-        !lower_type(declaration->type, &type) ||
-        type.kind == RCC_IR_TYPE_VOID) {
+        (is_array
+             ? (declaration->type->size <= 0 ||
+                declaration->type->is_reference ||
+                declaration->type->is_volatile ||
+                declaration->type->cleanup_function ||
+                declaration->var_init != NULL)
+             : !lower_type(declaration->type, &type)) ||
+        (!is_array && type.kind == RCC_IR_TYPE_VOID)) {
         context->unsupported = true;
         return false;
     }
@@ -1704,6 +1722,7 @@ static bool lower_declaration(RccIrLowerContext* context,
     rcc_ir_set_immediate(allocation,
                          declaration->type->size > 0
                              ? (uint64_t)declaration->type->size : 1u);
+    if (is_array) type = rcc_ir_type_pointer(0u);
     if (!lower_add_local(context, declaration, allocation->result, type)) {
         context->unsupported = true;
         return false;
