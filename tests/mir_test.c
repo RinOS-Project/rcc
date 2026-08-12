@@ -2,6 +2,7 @@
 #include "mir_alloc.h"
 #include "mir_phi.h"
 #include "x86_select.h"
+#include "x86_legalize.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -200,6 +201,11 @@ static void verify_fixed_register_constraints_target(bool x64)
     RccMirFunction* mir = NULL;
     RccMirRegisterPolicy policy;
     RccMirAllocation allocation;
+    RccMirPhiPlan plan;
+    RccX86Function* selected = NULL;
+    RccX86LegalFunction* legal = NULL;
+    RccX86LegalInstruction* legal_divide = NULL;
+    RccX86LegalInstruction* legal_shift = NULL;
     uint64_t saved_forbidden;
     char error[256];
     assert(division != NULL);
@@ -247,6 +253,43 @@ static void verify_fixed_register_constraints_target(bool x64)
     assert(strstr(error, "fixed-register") != NULL);
     allocation.intervals[division->result].forbidden_physical_mask =
         saved_forbidden;
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    assert(rcc_x86_select_function(
+        mir,
+        x64 ? RCC_X86_TARGET_X86_64 : RCC_X86_TARGET_I686,
+        &policy, &allocation, &plan, &selected,
+        error, sizeof(error)));
+    assert(rcc_x86_legalize_function(
+        selected, &policy, &legal, error, sizeof(error)));
+    assert(legal->block_count == 1u);
+    assert(legal->legal_instruction_count == 9u);
+    for (RccX86LegalInstruction* instruction = legal->first_block->first;
+         instruction; instruction = instruction->next) {
+        if (instruction->opcode == RCC_X86_LEGAL_DIVIDE) {
+            legal_divide = instruction;
+        } else if (instruction->opcode == RCC_X86_LEGAL_SHIFT) {
+            legal_shift = instruction;
+        }
+    }
+    assert(legal_divide != NULL);
+    assert(legal_shift != NULL);
+    assert(legal_divide->previous->opcode ==
+           RCC_X86_LEGAL_PREPARE_UNSIGNED_DIVIDEND);
+    assert(legal_divide->previous->previous->destination.gpr ==
+           RCC_X86_GPR_AX);
+    assert(legal_divide->next->operands[0].gpr == RCC_X86_GPR_AX);
+    assert(legal_shift->previous->destination.gpr == RCC_X86_GPR_CX);
+    assert(rcc_x86_verify_legal_function(
+        legal, &policy, error, sizeof(error)));
+    legal_divide->operands[0].kind = RCC_X86_VALUE_GPR;
+    legal_divide->operands[0].gpr = RCC_X86_GPR_DX;
+    assert(!rcc_x86_verify_legal_function(
+        legal, &policy, error, sizeof(error)));
+    assert(strstr(error, "division fixed-register") != NULL);
+    rcc_x86_legal_function_destroy(legal);
+    rcc_x86_function_destroy(selected);
+    rcc_mir_phi_plan_release(&plan);
     rcc_mir_allocation_release(&allocation);
     rcc_mir_function_destroy(mir);
     rcc_ir_module_destroy(module);

@@ -50,6 +50,7 @@ struct RccX86Instruction {
     bool has_destination;
     RccMirLocation destination;
     RccMirLocation* operands;
+    RccMirType* operand_types;
     size_t operand_count;
     uint32_t* targets;
     size_t target_count;

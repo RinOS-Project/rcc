@@ -70,10 +70,11 @@ static RccX86Block* x86_append_block(
 static RccX86Instruction* x86_append_instruction(
     RccX86Block* block, RccX86Opcode opcode, RccMirType type,
     const RccMirLocation* destination,
-    const RccMirLocation* operands, size_t operand_count,
+    const RccMirLocation* operands, const RccMirType* operand_types,
+    size_t operand_count,
     const uint32_t* targets, size_t target_count) {
     RccX86Instruction* instruction;
-    if (!block || (operand_count != 0u && !operands) ||
+    if (!block || (operand_count != 0u && (!operands || !operand_types)) ||
         (target_count != 0u && !targets)) {
         return NULL;
     }
@@ -89,6 +90,10 @@ static RccX86Instruction* x86_append_instruction(
             operand_count * sizeof(*instruction->operands));
         memcpy(instruction->operands, operands,
                operand_count * sizeof(*instruction->operands));
+        instruction->operand_types = rcc_alloc(
+            operand_count * sizeof(*instruction->operand_types));
+        memcpy(instruction->operand_types, operand_types,
+               operand_count * sizeof(*instruction->operand_types));
         instruction->operand_count = operand_count;
     }
     if (target_count != 0u) {
@@ -112,7 +117,7 @@ static bool x86_append_edge_moves(RccX86Block* block,
         const RccMirScheduledMove* move = &edge->moves[index];
         RccX86Instruction* selected = x86_append_instruction(
             block, RCC_X86_COPY, move->type, &move->destination,
-            &move->source, 1u, NULL, 0u);
+            &move->source, &move->type, 1u, NULL, 0u);
         if (!selected) return false;
         selected->cycle_break = move->cycle_break;
     }
@@ -157,23 +162,30 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
     return RCC_X86_TRAP;
 }
 
-static bool x86_collect_locations(
+static bool x86_collect_operands(
     const RccMirInstruction* instruction,
+    const RccMirFunction* function,
     const RccMirAllocation* allocation,
-    RccMirLocation** locations_out) {
+    RccMirLocation** locations_out, RccMirType** types_out) {
     RccMirLocation* locations = NULL;
+    RccMirType* types = NULL;
     size_t index;
     if (instruction->operand_count != 0u) {
         if (instruction->operand_count >
             (size_t)-1 / sizeof(*locations)) return false;
         locations = rcc_alloc(
             instruction->operand_count * sizeof(*locations));
+        types = rcc_alloc(
+            instruction->operand_count * sizeof(*types));
         for (index = 0u; index < instruction->operand_count; ++index) {
             locations[index] =
                 allocation->locations[instruction->operands[index]];
+            types[index] =
+                function->register_types[instruction->operands[index]];
         }
     }
     *locations_out = locations;
+    *types_out = types;
     return true;
 }
 
@@ -199,6 +211,7 @@ static bool x86_select_instruction(
     const RccMirPhiPlan* phi_plan, const uint32_t* split_blocks,
     char* error, size_t error_size) {
     RccMirLocation* operands = NULL;
+    RccMirType* operand_types = NULL;
     RccMirLocation* destination = NULL;
     uint32_t targets[2];
     size_t target;
@@ -208,7 +221,9 @@ static bool x86_select_instruction(
     if (instruction->definition != RCC_MIR_VREG_NONE) {
         destination = &allocation->locations[instruction->definition];
     }
-    if (!x86_collect_locations(instruction, allocation, &operands)) {
+    if (!x86_collect_operands(
+            instruction, instruction->block->function, allocation,
+            &operands, &operand_types)) {
         return x86_select_error(error, error_size,
                                 "x86 operand table is too large");
     }
@@ -224,6 +239,7 @@ static bool x86_select_instruction(
                              &offset) ||
             offset > UINT32_MAX - (uint32_t)instruction->immediate) {
             rcc_free(operands);
+            rcc_free(operand_types);
             return x86_select_error(error, error_size,
                                     "x86 alloca frame exceeds 32 bits");
         }
@@ -241,15 +257,17 @@ static bool x86_select_instruction(
         if (edge && !edge->requires_edge_block &&
             !x86_append_edge_moves(selected_block, edge)) {
             rcc_free(operands);
+            rcc_free(operand_types);
             return x86_select_error(error, error_size,
                                     "x86 phi move table is too large");
         }
     }
     machine = x86_append_instruction(
         selected_block, x86_select_opcode(instruction->opcode), type,
-        destination, operands, instruction->operand_count,
+        destination, operands, operand_types, instruction->operand_count,
         targets, instruction->target_count);
     rcc_free(operands);
+    rcc_free(operand_types);
     if (!machine) {
         return x86_select_error(error, error_size,
                                 "x86 instruction table is too large");
@@ -292,6 +310,12 @@ static bool x86_location_valid(
 }
 
 static bool x86_instruction_shape(const RccX86Instruction* instruction) {
+    if (!instruction ||
+        (instruction->operand_count != 0u &&
+         (!instruction->operands || !instruction->operand_types)) ||
+        (instruction->target_count != 0u && !instruction->targets)) {
+        return false;
+    }
     switch (instruction->opcode) {
         case RCC_X86_COPY:
             return instruction->has_destination &&
@@ -407,6 +431,11 @@ bool rcc_x86_verify_function(
                     return x86_select_error(error, error_size,
                                             "x86 operand is invalid");
                 }
+                if (instruction->operand_types[operand].kind ==
+                        RCC_MIR_TYPE_VOID) {
+                    return x86_select_error(error, error_size,
+                                            "x86 operand type is invalid");
+                }
             }
             for (target = 0u; target < instruction->target_count;
                  ++target) {
@@ -446,6 +475,7 @@ void rcc_x86_function_destroy(RccX86Function* function) {
         while (instruction) {
             RccX86Instruction* next_instruction = instruction->next;
             rcc_free(instruction->operands);
+            rcc_free(instruction->operand_types);
             rcc_free(instruction->targets);
             rcc_free(instruction->symbol);
             rcc_free(instruction);
@@ -555,7 +585,7 @@ bool rcc_x86_select_function(
             if (!split || !x86_append_edge_moves(split, copies) ||
                 !x86_append_instruction(
                     split, RCC_X86_JUMP, rcc_mir_type_void(),
-                    NULL, NULL, 0u, &target_block, 1u)) {
+                    NULL, NULL, NULL, 0u, &target_block, 1u)) {
                 goto cleanup;
             }
         }
