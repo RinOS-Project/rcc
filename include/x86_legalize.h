@@ -10,6 +10,8 @@
 typedef enum {
     RCC_X86_VALUE_GPR,
     RCC_X86_VALUE_FRAME,
+    RCC_X86_VALUE_INCOMING_ARGUMENT,
+    RCC_X86_VALUE_OUTGOING_ARGUMENT,
 } RccX86ValueKind;
 
 typedef struct {
@@ -27,6 +29,8 @@ typedef enum {
     RCC_X86_LEGAL_PREPARE_SIGNED_DIVIDEND,
     RCC_X86_LEGAL_DIVIDE,
     RCC_X86_LEGAL_SHIFT,
+    RCC_X86_LEGAL_CALL,
+    RCC_X86_LEGAL_RETURN,
 } RccX86LegalOpcode;
 
 typedef struct RccX86LegalInstruction RccX86LegalInstruction;
@@ -68,6 +72,12 @@ typedef struct {
     uint16_t pointer_size;
     uint16_t stack_alignment;
     uint32_t frame_size;
+    RccMirType return_type;
+    uint32_t outgoing_stack_offset;
+    uint32_t outgoing_stack_size;
+    bool parameter_ingress_complete;
+    bool has_parallel_copy_temporary;
+    uint32_t parallel_copy_temporary_offset;
     size_t original_block_count;
     size_t block_count;
     size_t source_instruction_count;

@@ -23,6 +23,22 @@ static bool x86_is_terminator(RccX86Opcode opcode) {
         opcode == RCC_X86_RETURN || opcode == RCC_X86_TRAP;
 }
 
+static bool x86_type_valid(RccMirType type) {
+    switch (type.kind) {
+        case RCC_MIR_TYPE_VOID:
+            return type.bit_width == 0u;
+        case RCC_MIR_TYPE_INTEGER:
+            return type.bit_width == 1u || type.bit_width == 8u ||
+                type.bit_width == 16u || type.bit_width == 32u ||
+                type.bit_width == 64u;
+        case RCC_MIR_TYPE_FLOAT:
+            return type.bit_width == 32u || type.bit_width == 64u;
+        case RCC_MIR_TYPE_POINTER:
+            return type.bit_width == 0u;
+    }
+    return false;
+}
+
 static bool x86_align_frame(uint32_t value, uint16_t alignment,
                             uint32_t* result) {
     uint32_t mask;
@@ -390,10 +406,24 @@ bool rcc_x86_verify_function(
         function->stack_alignment != policy->stack_alignment ||
         function->stack_alignment == 0u ||
         function->frame_size % function->stack_alignment != 0u ||
+        !x86_type_valid(function->return_type) ||
+        (function->parameter_count != 0u &&
+         (!function->parameter_types || !function->parameters)) ||
         function->original_block_count == 0u ||
         function->block_count < function->original_block_count) {
         return x86_select_error(error, error_size,
                                 "x86 selected-function header is invalid");
+    }
+    for (size_t parameter = 0u;
+         parameter < function->parameter_count; ++parameter) {
+        if (!x86_type_valid(function->parameter_types[parameter]) ||
+            function->parameter_types[parameter].kind ==
+                RCC_MIR_TYPE_VOID ||
+            !x86_location_valid(function->parameters[parameter], policy,
+                                function->frame_size)) {
+            return x86_select_error(error, error_size,
+                                    "x86 parameter location is invalid");
+        }
     }
     for (block = function->first_block; block; block = block->next) {
         const RccX86Instruction* instruction;
@@ -484,6 +514,8 @@ void rcc_x86_function_destroy(RccX86Function* function) {
         rcc_free(block);
         block = next_block;
     }
+    rcc_free(function->parameter_types);
+    rcc_free(function->parameters);
     rcc_free(function);
 }
 
@@ -523,6 +555,23 @@ bool rcc_x86_select_function(
     selected->pointer_size = policy->pointer_size;
     selected->stack_alignment = policy->stack_alignment;
     selected->frame_size = phi_plan->frame_size;
+    selected->return_type = function->return_type;
+    selected->parameter_count = function->parameter_count;
+    if (function->parameter_count != 0u) {
+        selected->parameter_types = rcc_alloc(
+            function->parameter_count *
+                sizeof(*selected->parameter_types));
+        selected->parameters = rcc_alloc(
+            function->parameter_count * sizeof(*selected->parameters));
+        memcpy(selected->parameter_types, function->parameter_types,
+               function->parameter_count *
+                   sizeof(*selected->parameter_types));
+        for (size_t parameter = 0u;
+             parameter < function->parameter_count; ++parameter) {
+            selected->parameters[parameter] =
+                allocation->locations[function->parameters[parameter]];
+        }
+    }
     selected->original_block_count = function->block_count;
     blocks = rcc_alloc(function->block_count * sizeof(*blocks));
     split_blocks = rcc_alloc(phi_plan->edge_count * sizeof(*split_blocks));

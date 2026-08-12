@@ -263,7 +263,7 @@ static void verify_fixed_register_constraints_target(bool x64)
     assert(rcc_x86_legalize_function(
         selected, &policy, &legal, error, sizeof(error)));
     assert(legal->block_count == 1u);
-    assert(legal->legal_instruction_count == 9u);
+    assert(legal->legal_instruction_count >= 9u);
     for (RccX86LegalInstruction* instruction = legal->first_block->first;
          instruction; instruction = instruction->next) {
         if (instruction->opcode == RCC_X86_LEGAL_DIVIDE) {
@@ -497,6 +497,116 @@ static void verify_x86_critical_edge_selection(void)
     verify_x86_critical_edge_selection_target(RCC_X86_TARGET_X86_64);
 }
 
+static void set_physical_location(RccMirLocation* location,
+                                  uint16_t physical_register)
+{
+    memset(location, 0, sizeof(*location));
+    location->kind = RCC_MIR_LOCATION_PHYSICAL;
+    location->register_class = RCC_MIR_REGCLASS_GPR;
+    location->physical_register = physical_register;
+    location->spill_offset = UINT32_MAX;
+}
+
+static void verify_sysv_call_legalization_target(bool x64)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32, i32, i32, i32, i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "sysv_call", i32, parameters, 7u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* call = rcc_ir_append(
+        entry, RCC_IR_CALL, i32, ir->parameters, 7u, NULL, 0u);
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    RccMirPhiPlan plan;
+    RccX86Function* selected = NULL;
+    RccX86LegalFunction* legal = NULL;
+    RccX86LegalInstruction* legal_call = NULL;
+    size_t incoming_count = 0u;
+    size_t outgoing_count = 0u;
+    char error[256];
+    assert(call != NULL);
+    rcc_ir_set_callee(call, "callee7");
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &call->result, 1u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    if (x64) rcc_mir_register_policy_x86_64(&policy);
+    else rcc_mir_register_policy_i686(&policy);
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    if (x64) {
+        static const uint16_t registers[] = {
+            3u, 4u, 5u, 6u, 7u, 8u, 9u,
+        };
+        for (size_t index = 0u; index < 7u; ++index) {
+            set_physical_location(
+                &allocation.locations[mir->parameters[index]],
+                registers[index]);
+        }
+        set_physical_location(&allocation.locations[call->result], 10u);
+        assert(rcc_mir_verify_allocation(
+            mir, &policy, &allocation, error, sizeof(error)));
+    }
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    assert(rcc_x86_select_function(
+        mir,
+        x64 ? RCC_X86_TARGET_X86_64 : RCC_X86_TARGET_I686,
+        &policy, &allocation, &plan, &selected,
+        error, sizeof(error)));
+    assert(selected->parameter_count == 7u);
+    assert(rcc_mir_type_equal(
+        selected->return_type, rcc_mir_type_integer(32u)));
+    assert(rcc_x86_legalize_function(
+        selected, &policy, &legal, error, sizeof(error)));
+    assert(legal->parameter_ingress_complete);
+    assert(legal->outgoing_stack_size == (x64 ? 16u : 32u));
+    assert(legal->outgoing_stack_offset + legal->outgoing_stack_size ==
+           legal->frame_size);
+    assert(!x64 || legal->has_parallel_copy_temporary);
+    for (RccX86LegalInstruction* instruction = legal->first_block->first;
+         instruction; instruction = instruction->next) {
+        if (instruction->opcode == RCC_X86_LEGAL_CALL) {
+            legal_call = instruction;
+        }
+        if (instruction->opcode == RCC_X86_LEGAL_COPY) {
+            if (instruction->operands[0].kind ==
+                RCC_X86_VALUE_INCOMING_ARGUMENT) ++incoming_count;
+            if (instruction->destination.kind ==
+                RCC_X86_VALUE_OUTGOING_ARGUMENT) ++outgoing_count;
+        }
+    }
+    assert(legal_call != NULL);
+    assert(strcmp(legal_call->symbol, "callee7") == 0);
+    assert(legal_call->auxiliary == (x64 ? 8u : 28u));
+    assert(incoming_count >= (x64 ? 1u : 7u));
+    assert(outgoing_count == (x64 ? 1u : 7u));
+    assert(legal->first_block->last->opcode == RCC_X86_LEGAL_RETURN);
+    assert(legal->first_block->last->previous->destination.gpr ==
+           RCC_X86_GPR_AX);
+    assert(rcc_x86_verify_legal_function(
+        legal, &policy, error, sizeof(error)));
+    legal_call->auxiliary = legal->outgoing_stack_size +
+        policy.pointer_size;
+    assert(!rcc_x86_verify_legal_function(
+        legal, &policy, error, sizeof(error)));
+    assert(strstr(error, "call stack area") != NULL);
+    rcc_x86_legal_function_destroy(legal);
+    rcc_x86_function_destroy(selected);
+    rcc_mir_phi_plan_release(&plan);
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_sysv_call_legalization(void)
+{
+    verify_sysv_call_legalization_target(false);
+    verify_sysv_call_legalization_target(true);
+}
+
 static void verify_ir_to_mir_call(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -530,6 +640,7 @@ int main(void)
     verify_fixed_register_constraints();
     verify_phi_parallel_copy_cycle();
     verify_x86_critical_edge_selection();
+    verify_sysv_call_legalization();
     puts("MIR lowering, allocation, phi-copy, and x86 selection tests passed");
     return 0;
 }

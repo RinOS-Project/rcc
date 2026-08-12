@@ -78,6 +78,10 @@ typedef struct {
     uint16_t pointer_size;
     uint16_t stack_alignment;
     uint32_t frame_size;
+    RccMirType return_type;
+    RccMirType* parameter_types;
+    RccMirLocation* parameters;
+    size_t parameter_count;
     size_t original_block_count;
     size_t block_count;
     size_t source_instruction_count;

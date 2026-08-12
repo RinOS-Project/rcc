@@ -25,6 +25,25 @@ static uint16_t x86_legal_type_size(
     return (uint16_t)(type.bit_width / 8u);
 }
 
+static bool x86_legal_align(uint32_t value, uint16_t alignment,
+                            uint32_t* result) {
+    uint32_t mask;
+    if (alignment == 0u || (alignment & (alignment - 1u)) != 0u) {
+        return false;
+    }
+    mask = (uint32_t)alignment - 1u;
+    if (value > UINT32_MAX - mask) return false;
+    *result = (value + mask) & ~mask;
+    return true;
+}
+
+static bool x86_legal_native_scalar(
+    RccMirType type, const RccX86Abi* abi) {
+    if (type.kind == RCC_MIR_TYPE_POINTER) return true;
+    return type.kind == RCC_MIR_TYPE_INTEGER && type.bit_width != 0u &&
+        type.bit_width <= (uint16_t)(abi->pointer_size * 8u);
+}
+
 static bool x86_legal_value_equal(RccX86Value left, RccX86Value right) {
     if (left.kind != right.kind) return false;
     if (left.kind == RCC_X86_VALUE_GPR) return left.gpr == right.gpr;
@@ -40,6 +59,18 @@ static RccX86Value x86_legal_fixed_gpr(
     value.gpr = gpr;
     value.size = x86_legal_type_size(type, abi);
     value.alignment = value.size;
+    return value;
+}
+
+static RccX86Value x86_legal_argument_value(
+    RccX86ValueKind kind, uint32_t offset, RccMirType type,
+    const RccX86Abi* abi) {
+    RccX86Value value;
+    memset(&value, 0, sizeof(value));
+    value.kind = kind;
+    value.frame_offset = offset;
+    value.size = x86_legal_type_size(type, abi);
+    value.alignment = abi->pointer_size;
     return value;
 }
 
@@ -126,6 +157,131 @@ static RccX86LegalInstruction* x86_legal_append(
     return instruction;
 }
 
+static bool x86_legal_append_copy(
+    RccX86LegalFunction* function, RccX86LegalBlock* block,
+    RccMirType type, RccX86Value source, RccX86Value destination,
+    char* error, size_t error_size) {
+    if (!x86_legal_append(
+            function, block, RCC_X86_LEGAL_COPY, RCC_X86_COPY,
+            type, &destination, &source, &type, 1u)) {
+        return x86_legal_error(error, error_size,
+                               "x86 legal copy table is too large");
+    }
+    return true;
+}
+
+static bool x86_legal_reserve_parallel_temporary(
+    RccX86LegalFunction* function, const RccX86Abi* abi,
+    RccX86Value* temporary, char* error, size_t error_size) {
+    uint32_t offset;
+    uint32_t end;
+    if (!function->has_parallel_copy_temporary) {
+        if (!x86_legal_align(function->frame_size, abi->pointer_size,
+                             &offset) ||
+            offset > UINT32_MAX - abi->pointer_size ||
+            !x86_legal_align(offset + abi->pointer_size,
+                             abi->stack_alignment, &end)) {
+            return x86_legal_error(
+                error, error_size,
+                "x86 parallel-copy temporary exceeds the frame");
+        }
+        function->has_parallel_copy_temporary = true;
+        function->parallel_copy_temporary_offset = offset;
+        function->frame_size = end;
+    }
+    memset(temporary, 0, sizeof(*temporary));
+    temporary->kind = RCC_X86_VALUE_FRAME;
+    temporary->frame_offset = function->parallel_copy_temporary_offset;
+    temporary->size = abi->pointer_size;
+    temporary->alignment = abi->pointer_size;
+    return true;
+}
+
+static bool x86_legal_schedule_parallel_copies(
+    RccX86LegalFunction* function, RccX86LegalBlock* block,
+    const RccX86Abi* abi, const RccX86Value* input_sources,
+    const RccX86Value* input_destinations,
+    const RccMirType* types, size_t count,
+    char* error, size_t error_size) {
+    RccX86Value* sources;
+    RccX86Value* destinations;
+    bool* pending;
+    size_t remaining = 0u;
+    size_t index;
+    if (count == 0u) return true;
+    if (!input_sources || !input_destinations || !types ||
+        count > (size_t)-1 / sizeof(*sources) ||
+        count > (size_t)-1 / sizeof(*pending)) {
+        return x86_legal_error(error, error_size,
+                               "x86 parallel-copy table is too large");
+    }
+    sources = rcc_alloc(count * sizeof(*sources));
+    destinations = rcc_alloc(count * sizeof(*destinations));
+    pending = rcc_alloc(count * sizeof(*pending));
+    memcpy(sources, input_sources, count * sizeof(*sources));
+    memcpy(destinations, input_destinations,
+           count * sizeof(*destinations));
+    for (index = 0u; index < count; ++index) {
+        if (!x86_legal_value_equal(sources[index], destinations[index])) {
+            pending[index] = true;
+            ++remaining;
+        }
+    }
+    while (remaining != 0u) {
+        bool progress = false;
+        for (index = 0u; index < count; ++index) {
+            bool destination_is_source = false;
+            size_t other;
+            if (!pending[index]) continue;
+            for (other = 0u; other < count; ++other) {
+                if (pending[other] && other != index &&
+                    x86_legal_value_equal(destinations[index],
+                                          sources[other])) {
+                    destination_is_source = true;
+                    break;
+                }
+            }
+            if (destination_is_source) continue;
+            if (!x86_legal_append_copy(
+                    function, block, types[index], sources[index],
+                    destinations[index], error, error_size)) goto fail;
+            pending[index] = false;
+            --remaining;
+            progress = true;
+        }
+        if (!progress) {
+            RccX86Value temporary;
+            size_t other;
+            for (index = 0u; index < count; ++index) {
+                if (pending[index]) break;
+            }
+            if (index == count ||
+                !x86_legal_reserve_parallel_temporary(
+                    function, abi, &temporary,
+                    error, error_size) ||
+                !x86_legal_append_copy(
+                    function, block, types[index], destinations[index],
+                    temporary, error, error_size)) goto fail;
+            for (other = 0u; other < count; ++other) {
+                if (pending[other] &&
+                    x86_legal_value_equal(sources[other],
+                                          destinations[index])) {
+                    sources[other] = temporary;
+                }
+            }
+        }
+    }
+    rcc_free(sources);
+    rcc_free(destinations);
+    rcc_free(pending);
+    return true;
+fail:
+    rcc_free(sources);
+    rcc_free(destinations);
+    rcc_free(pending);
+    return false;
+}
+
 static bool x86_legal_copy_selected_metadata(
     RccX86LegalInstruction* destination,
     const RccX86Instruction* source) {
@@ -193,6 +349,148 @@ static bool x86_legal_native_type(
     return type.kind == RCC_MIR_TYPE_INTEGER &&
         type.bit_width != 0u &&
         type.bit_width <= (uint16_t)(abi->pointer_size * 8u);
+}
+
+static bool x86_legal_call_supported(
+    const RccX86Instruction* instruction, const RccX86Abi* abi) {
+    size_t index;
+    if (instruction->opcode != RCC_X86_CALL ||
+        (instruction->type.kind != RCC_MIR_TYPE_VOID &&
+         !x86_legal_native_scalar(instruction->type, abi))) {
+        return false;
+    }
+    for (index = 0u; index < instruction->operand_count; ++index) {
+        if (!x86_legal_native_scalar(
+                instruction->operand_types[index], abi)) return false;
+    }
+    return true;
+}
+
+static bool x86_legal_call_stack_bytes(
+    const RccX86Instruction* instruction, const RccX86Abi* abi,
+    uint32_t* bytes_out) {
+    size_t first_stack = abi->integer_argument_count;
+    size_t stack_count;
+    if (!x86_legal_call_supported(instruction, abi)) return false;
+    if (first_stack > instruction->operand_count) {
+        first_stack = instruction->operand_count;
+    }
+    stack_count = instruction->operand_count - first_stack;
+    if (stack_count > UINT32_MAX / abi->pointer_size) return false;
+    *bytes_out = (uint32_t)stack_count * abi->pointer_size;
+    return true;
+}
+
+static bool x86_legal_prepare_outgoing_frame(
+    RccX86LegalFunction* legal, const RccX86Function* selected,
+    const RccX86Abi* abi, char* error, size_t error_size) {
+    const RccX86Block* block;
+    uint32_t maximum = 0u;
+    uint32_t aligned;
+    bool may_need_temporary =
+        abi->integer_argument_count != 0u &&
+        selected->parameter_count > 1u;
+    for (block = selected->first_block; block; block = block->next) {
+        const RccX86Instruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            uint32_t bytes;
+            if (instruction->opcode != RCC_X86_CALL ||
+                !x86_legal_call_supported(instruction, abi)) continue;
+            if (abi->integer_argument_count > 1u &&
+                instruction->operand_count > 1u) {
+                may_need_temporary = true;
+            }
+            if (!x86_legal_call_stack_bytes(instruction, abi, &bytes) ||
+                !x86_legal_align(bytes, abi->stack_alignment, &bytes)) {
+                return x86_legal_error(
+                    error, error_size,
+                    "x86 outgoing argument area exceeds 32 bits");
+            }
+            if (bytes > maximum) maximum = bytes;
+        }
+    }
+    if (may_need_temporary) {
+        RccX86Value temporary;
+        if (!x86_legal_reserve_parallel_temporary(
+                legal, abi, &temporary, error, error_size)) return false;
+    }
+    legal->outgoing_stack_size = maximum;
+    legal->outgoing_stack_offset = legal->frame_size;
+    if (legal->frame_size > UINT32_MAX - maximum ||
+        !x86_legal_align(legal->frame_size + maximum,
+                         abi->stack_alignment, &aligned)) {
+        return x86_legal_error(error, error_size,
+                               "x86 call frame exceeds 32 bits");
+    }
+    legal->frame_size = aligned;
+    return true;
+}
+
+static bool x86_legalize_parameters(
+    RccX86LegalFunction* legal, RccX86LegalBlock* block,
+    const RccX86Function* selected, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    RccX86Value* sources = NULL;
+    RccX86Value* destinations = NULL;
+    uint32_t incoming_offset = 0u;
+    size_t index;
+    if (selected->parameter_count == 0u) {
+        legal->parameter_ingress_complete = true;
+        return true;
+    }
+    for (index = 0u; index < selected->parameter_count; ++index) {
+        if (!x86_legal_native_scalar(
+                selected->parameter_types[index], abi)) {
+            return true;
+        }
+    }
+    if (selected->parameter_count >
+        (size_t)-1 / sizeof(*sources)) {
+        return x86_legal_error(error, error_size,
+                               "x86 parameter copy table is too large");
+    }
+    sources = rcc_alloc(selected->parameter_count * sizeof(*sources));
+    destinations = rcc_alloc(
+        selected->parameter_count * sizeof(*destinations));
+    for (index = 0u; index < selected->parameter_count; ++index) {
+        RccMirType type = selected->parameter_types[index];
+        if (index < abi->integer_argument_count) {
+            sources[index] = x86_legal_fixed_gpr(
+                abi->integer_arguments[index], type, abi);
+        } else {
+            if (incoming_offset > UINT32_MAX - abi->pointer_size) {
+                rcc_free(sources);
+                rcc_free(destinations);
+                return x86_legal_error(
+                    error, error_size,
+                    "x86 incoming argument area exceeds 32 bits");
+            }
+            sources[index] = x86_legal_argument_value(
+                RCC_X86_VALUE_INCOMING_ARGUMENT,
+                incoming_offset, type, abi);
+            incoming_offset += abi->pointer_size;
+        }
+        if (!x86_legal_resolve_location(
+                selected->parameters[index], type, abi,
+                &destinations[index], error, error_size)) {
+            rcc_free(sources);
+            rcc_free(destinations);
+            return false;
+        }
+    }
+    if (!x86_legal_schedule_parallel_copies(
+            legal, block, abi, sources, destinations,
+            selected->parameter_types, selected->parameter_count,
+            error, error_size)) {
+        rcc_free(sources);
+        rcc_free(destinations);
+        return false;
+    }
+    rcc_free(sources);
+    rcc_free(destinations);
+    legal->parameter_ingress_complete = true;
+    return true;
 }
 
 static bool x86_legal_clone_selected(
@@ -304,6 +602,113 @@ static bool x86_legalize_shift(
     return true;
 }
 
+static bool x86_legalize_call(
+    RccX86LegalFunction* function, RccX86LegalBlock* block,
+    const RccX86Instruction* source, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    RccX86Value destination;
+    RccX86Value* operands = NULL;
+    RccX86Value* register_destinations = NULL;
+    uint32_t stack_bytes;
+    size_t register_count = source->operand_count;
+    size_t index;
+    RccX86LegalInstruction* call;
+    if (register_count > abi->integer_argument_count) {
+        register_count = abi->integer_argument_count;
+    }
+    if (!x86_legal_call_stack_bytes(source, abi, &stack_bytes) ||
+        !x86_legal_resolve_instruction(
+            source, abi, &destination, &operands,
+            error, error_size)) {
+        return false;
+    }
+    for (index = register_count; index < source->operand_count; ++index) {
+        uint32_t stack_index = (uint32_t)(index - register_count);
+        RccX86Value outgoing = x86_legal_argument_value(
+            RCC_X86_VALUE_OUTGOING_ARGUMENT,
+            function->outgoing_stack_offset +
+                stack_index * abi->pointer_size,
+            source->operand_types[index], abi);
+        if (!x86_legal_append_copy(
+                function, block, source->operand_types[index],
+                operands[index], outgoing, error, error_size)) {
+            rcc_free(operands);
+            return false;
+        }
+    }
+    if (register_count != 0u) {
+        register_destinations = rcc_alloc(
+            register_count * sizeof(*register_destinations));
+        for (index = 0u; index < register_count; ++index) {
+            register_destinations[index] = x86_legal_fixed_gpr(
+                abi->integer_arguments[index],
+                source->operand_types[index], abi);
+        }
+        if (!x86_legal_schedule_parallel_copies(
+                function, block, abi, operands, register_destinations,
+                source->operand_types, register_count,
+                error, error_size)) {
+            rcc_free(register_destinations);
+            rcc_free(operands);
+            return false;
+        }
+        rcc_free(register_destinations);
+    }
+    call = x86_legal_append(
+        function, block, RCC_X86_LEGAL_CALL, RCC_X86_CALL,
+        source->type, NULL, NULL, NULL, 0u);
+    if (!call || !x86_legal_copy_selected_metadata(call, source)) {
+        rcc_free(operands);
+        return x86_legal_error(error, error_size,
+                               "x86 legal call is too large");
+    }
+    call->auxiliary = stack_bytes;
+    if (source->has_destination) {
+        RccX86Value result = x86_legal_fixed_gpr(
+            abi->return_low, source->type, abi);
+        if (!x86_legal_append_copy(
+                function, block, source->type, result, destination,
+                error, error_size)) {
+            rcc_free(operands);
+            return false;
+        }
+    }
+    rcc_free(operands);
+    return true;
+}
+
+static bool x86_legalize_return(
+    RccX86LegalFunction* function, RccX86LegalBlock* block,
+    const RccX86Instruction* source, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    RccX86Value destination;
+    RccX86Value* operands = NULL;
+    RccX86LegalInstruction* result;
+    if (!x86_legal_resolve_instruction(
+            source, abi, &destination, &operands,
+            error, error_size)) return false;
+    if (source->operand_count == 1u) {
+        RccMirType type = source->operand_types[0];
+        RccX86Value return_register = x86_legal_fixed_gpr(
+            abi->return_low, type, abi);
+        if (!x86_legal_append_copy(
+                function, block, type, operands[0], return_register,
+                error, error_size)) {
+            rcc_free(operands);
+            return false;
+        }
+    }
+    result = x86_legal_append(
+        function, block, RCC_X86_LEGAL_RETURN, RCC_X86_RETURN,
+        function->return_type, NULL, NULL, NULL, 0u);
+    rcc_free(operands);
+    if (!result) {
+        return x86_legal_error(error, error_size,
+                               "x86 legal return is too large");
+    }
+    return true;
+}
+
 static bool x86_legal_gpr_allowed(RccX86HardwareGpr gpr,
                                   const RccX86Abi* abi) {
     size_t index;
@@ -320,10 +725,21 @@ static bool x86_legal_value_valid(
     if (value.kind == RCC_X86_VALUE_GPR) {
         return x86_legal_gpr_allowed(value.gpr, abi);
     }
-    return value.kind == RCC_X86_VALUE_FRAME &&
-        value.frame_offset % value.alignment == 0u &&
-        value.frame_offset <= function->frame_size &&
-        value.size <= function->frame_size - value.frame_offset;
+    if (value.frame_offset % value.alignment != 0u) return false;
+    if (value.kind == RCC_X86_VALUE_FRAME) {
+        return value.frame_offset <= function->frame_size &&
+            value.size <= function->frame_size - value.frame_offset;
+    }
+    if (value.kind == RCC_X86_VALUE_OUTGOING_ARGUMENT) {
+        uint32_t relative;
+        if (value.frame_offset < function->outgoing_stack_offset) {
+            return false;
+        }
+        relative = value.frame_offset - function->outgoing_stack_offset;
+        return relative <= function->outgoing_stack_size &&
+            value.size <= function->outgoing_stack_size - relative;
+    }
+    return value.kind == RCC_X86_VALUE_INCOMING_ARGUMENT;
 }
 
 static bool x86_legal_selected_shape(
@@ -414,16 +830,28 @@ static bool x86_legal_instruction_shape(
                 instruction->has_destination &&
                 instruction->operand_count == 0u &&
                 instruction->target_count == 0u;
+        case RCC_X86_LEGAL_CALL:
+            return instruction->selected_opcode == RCC_X86_CALL &&
+                !instruction->has_destination &&
+                instruction->operand_count == 0u &&
+                instruction->target_count == 0u &&
+                instruction->symbol && instruction->symbol[0];
+        case RCC_X86_LEGAL_RETURN:
+            return instruction->selected_opcode == RCC_X86_RETURN &&
+                !instruction->has_destination &&
+                instruction->operand_count == 0u &&
+                instruction->target_count == 0u;
     }
     return false;
 }
 
 static bool x86_legal_is_terminator(const RccX86LegalInstruction* item) {
-    return item->opcode == RCC_X86_LEGAL_SELECTED &&
-        (item->selected_opcode == RCC_X86_JUMP ||
-         item->selected_opcode == RCC_X86_JUMP_IF ||
-         item->selected_opcode == RCC_X86_RETURN ||
-         item->selected_opcode == RCC_X86_TRAP);
+    return item->opcode == RCC_X86_LEGAL_RETURN ||
+        (item->opcode == RCC_X86_LEGAL_SELECTED &&
+         (item->selected_opcode == RCC_X86_JUMP ||
+          item->selected_opcode == RCC_X86_JUMP_IF ||
+          item->selected_opcode == RCC_X86_RETURN ||
+          item->selected_opcode == RCC_X86_TRAP));
 }
 
 static bool x86_legal_verify_divide(
@@ -482,6 +910,62 @@ static bool x86_legal_verify_shift(
     return true;
 }
 
+static bool x86_legal_selected_call_supported(
+    const RccX86LegalInstruction* instruction, const RccX86Abi* abi) {
+    size_t index;
+    if (instruction->selected_opcode != RCC_X86_CALL ||
+        (instruction->type.kind != RCC_MIR_TYPE_VOID &&
+         !x86_legal_native_scalar(instruction->type, abi))) return false;
+    for (index = 0u; index < instruction->operand_count; ++index) {
+        if (!x86_legal_native_scalar(
+                instruction->operand_types[index], abi)) return false;
+    }
+    return true;
+}
+
+static bool x86_legal_verify_call(
+    const RccX86LegalInstruction* instruction,
+    const RccX86LegalFunction* function, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    if (instruction->auxiliary > function->outgoing_stack_size ||
+        instruction->auxiliary % abi->pointer_size != 0u) {
+        return x86_legal_error(error, error_size,
+                               "x86 call stack area is invalid");
+    }
+    if (instruction->type.kind != RCC_MIR_TYPE_VOID) {
+        const RccX86LegalInstruction* output = instruction->next;
+        if (!output || output->opcode != RCC_X86_LEGAL_COPY ||
+            output->operand_count != 1u ||
+            output->operands[0].kind != RCC_X86_VALUE_GPR ||
+            output->operands[0].gpr != abi->return_low) {
+            return x86_legal_error(error, error_size,
+                                   "x86 call result sequence is invalid");
+        }
+    }
+    return true;
+}
+
+static bool x86_legal_verify_return(
+    const RccX86LegalInstruction* instruction,
+    const RccX86LegalFunction* function, const RccX86Abi* abi,
+    char* error, size_t error_size) {
+    if (!rcc_mir_type_equal(instruction->type, function->return_type)) {
+        return x86_legal_error(error, error_size,
+                               "x86 return type is invalid");
+    }
+    if (function->return_type.kind != RCC_MIR_TYPE_VOID) {
+        const RccX86LegalInstruction* input = instruction->previous;
+        if (!input || input->opcode != RCC_X86_LEGAL_COPY ||
+            !input->has_destination ||
+            input->destination.kind != RCC_X86_VALUE_GPR ||
+            input->destination.gpr != abi->return_low) {
+            return x86_legal_error(error, error_size,
+                                   "x86 return-register sequence is invalid");
+        }
+    }
+    return true;
+}
+
 bool rcc_x86_verify_legal_function(
     const RccX86LegalFunction* function,
     const RccMirRegisterPolicy* policy,
@@ -497,6 +981,21 @@ bool rcc_x86_verify_legal_function(
         function->pointer_size != abi.pointer_size ||
         function->stack_alignment != abi.stack_alignment ||
         function->frame_size % function->stack_alignment != 0u ||
+        function->outgoing_stack_size % function->stack_alignment != 0u ||
+        function->outgoing_stack_offset > function->frame_size ||
+        function->outgoing_stack_size > function->frame_size -
+            function->outgoing_stack_offset ||
+        function->outgoing_stack_size != function->frame_size -
+            function->outgoing_stack_offset ||
+        (function->has_parallel_copy_temporary &&
+         (function->parallel_copy_temporary_offset >
+              function->frame_size ||
+          abi.pointer_size > function->frame_size -
+              function->parallel_copy_temporary_offset ||
+          function->parallel_copy_temporary_offset >
+              function->outgoing_stack_offset ||
+          abi.pointer_size > function->outgoing_stack_offset -
+              function->parallel_copy_temporary_offset)) ||
         function->block_count < function->original_block_count) {
         return x86_legal_error(error, error_size,
                                "x86 legal-function header is invalid");
@@ -554,6 +1053,26 @@ bool rcc_x86_verify_legal_function(
             if (instruction->opcode == RCC_X86_LEGAL_SHIFT &&
                 !x86_legal_verify_shift(
                     instruction, &abi, error, error_size)) return false;
+            if (instruction->opcode == RCC_X86_LEGAL_CALL &&
+                !x86_legal_verify_call(
+                    instruction, function, &abi,
+                    error, error_size)) return false;
+            if (instruction->opcode == RCC_X86_LEGAL_RETURN &&
+                !x86_legal_verify_return(
+                    instruction, function, &abi,
+                    error, error_size)) return false;
+            if (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                x86_legal_selected_call_supported(instruction, &abi)) {
+                return x86_legal_error(error, error_size,
+                                       "native SysV call was not legalized");
+            }
+            if (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                instruction->selected_opcode == RCC_X86_RETURN &&
+                (function->return_type.kind == RCC_MIR_TYPE_VOID ||
+                 x86_legal_native_scalar(function->return_type, &abi))) {
+                return x86_legal_error(error, error_size,
+                                       "native SysV return was not legalized");
+            }
             if ((instruction->opcode ==
                      RCC_X86_LEGAL_PREPARE_UNSIGNED_DIVIDEND ||
                  instruction->opcode ==
@@ -622,14 +1141,21 @@ bool rcc_x86_legalize_function(
     legal->pointer_size = selected->pointer_size;
     legal->stack_alignment = selected->stack_alignment;
     legal->frame_size = selected->frame_size;
+    legal->return_type = selected->return_type;
     legal->original_block_count = selected->original_block_count;
     legal->source_instruction_count = selected->source_instruction_count;
+    if (!x86_legal_prepare_outgoing_frame(
+            legal, selected, &abi, error, error_size)) goto cleanup;
     for (source_block = selected->first_block; source_block;
          source_block = source_block->next) {
         const RccX86Instruction* source;
         RccX86LegalBlock* block = x86_legal_append_block(
             legal, source_block);
         if (!block) goto cleanup;
+        if (source_block == selected->first_block &&
+            !x86_legalize_parameters(
+                legal, block, selected, &abi,
+                error, error_size)) goto cleanup;
         for (source = source_block->first; source; source = source->next) {
             if (x86_legal_is_division(source->opcode) &&
                 x86_legal_native_type(source->type, &abi)) {
@@ -639,6 +1165,18 @@ bool rcc_x86_legalize_function(
             } else if (x86_legal_is_shift(source->opcode) &&
                        x86_legal_native_type(source->type, &abi)) {
                 if (!x86_legalize_shift(
+                        legal, block, source, &abi,
+                        error, error_size)) goto cleanup;
+            } else if (source->opcode == RCC_X86_CALL &&
+                       x86_legal_call_supported(source, &abi)) {
+                if (!x86_legalize_call(
+                        legal, block, source, &abi,
+                        error, error_size)) goto cleanup;
+            } else if (source->opcode == RCC_X86_RETURN &&
+                       (selected->return_type.kind == RCC_MIR_TYPE_VOID ||
+                        x86_legal_native_scalar(
+                            selected->return_type, &abi))) {
+                if (!x86_legalize_return(
                         legal, block, source, &abi,
                         error, error_size)) goto cleanup;
             } else if (!x86_legal_clone_selected(
