@@ -50,6 +50,63 @@ int folded_mixed_unsigned_comparison(void)
     return -1LL < 1ULL;
 }
 
+int removed_after_return(int* value)
+{
+    return 7;
+    *value = 91;
+}
+
+int removed_after_goto(int* value)
+{
+    goto done;
+    *value = 92;
+done:
+    return *value;
+}
+
+int preserved_nested_label(int value)
+{
+    goto nested;
+    if (value) {
+nested:
+        return 23;
+    }
+    return 0;
+}
+
+int removed_after_break(int* value)
+{
+    while (*value < 5) {
+        *value += 1;
+        break;
+        *value = 93;
+    }
+    return *value;
+}
+
+int removed_after_continue(int* value)
+{
+    while (*value < 3) {
+        *value += 1;
+        continue;
+        *value = 94;
+    }
+    return *value;
+}
+
+int preserved_case_after_break(int choice)
+{
+    switch (choice) {
+        while (1) {
+            break;
+            return 99;
+        case 3:
+            return 33;
+        }
+    }
+    return 0;
+}
+
 int folded_branch(int* value)
 {
     if ((2 + 2) == 4) {

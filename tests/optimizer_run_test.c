@@ -71,6 +71,14 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "folded_unsigned_unary"));
     assert(function_extent(optimized, "folded_mixed_unsigned_comparison") <
            function_extent(unoptimized, "folded_mixed_unsigned_comparison"));
+    assert(function_extent(optimized, "removed_after_return") <
+           function_extent(unoptimized, "removed_after_return"));
+    assert(function_extent(optimized, "removed_after_goto") <
+           function_extent(unoptimized, "removed_after_goto"));
+    assert(function_extent(optimized, "removed_after_break") <
+           function_extent(unoptimized, "removed_after_break"));
+    assert(function_extent(optimized, "removed_after_continue") <
+           function_extent(unoptimized, "removed_after_continue"));
     objfile_free(unoptimized);
     objfile_free(optimized);
 }
@@ -112,6 +120,18 @@ int main(int argc, char** argv)
             object, "folded_unsigned_unary");
         ObjSymbol* mixed_unsigned_comparison_symbol = function_symbol(
             object, "folded_mixed_unsigned_comparison");
+        ObjSymbol* removed_after_return_symbol = function_symbol(
+            object, "removed_after_return");
+        ObjSymbol* removed_after_goto_symbol = function_symbol(
+            object, "removed_after_goto");
+        ObjSymbol* preserved_nested_label_symbol = function_symbol(
+            object, "preserved_nested_label");
+        ObjSymbol* removed_after_break_symbol = function_symbol(
+            object, "removed_after_break");
+        ObjSymbol* removed_after_continue_symbol = function_symbol(
+            object, "removed_after_continue");
+        ObjSymbol* preserved_case_after_break_symbol = function_symbol(
+            object, "preserved_case_after_break");
         ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
         ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
         ObjSymbol* for_symbol = function_symbol(object, "removed_for_loop");
@@ -132,6 +152,12 @@ int main(int argc, char** argv)
         uint32_t (*folded_unsigned_narrow)(void);
         uint64_t (*folded_unsigned_unary)(void);
         int (*folded_mixed_unsigned_comparison)(void);
+        int (*removed_after_return)(int*);
+        int (*removed_after_goto)(int*);
+        int (*preserved_nested_label)(int);
+        int (*removed_after_break)(int*);
+        int (*removed_after_continue)(int*);
+        int (*preserved_case_after_break)(int);
         int (*folded_branch)(int*);
         int (*removed_loop)(int*);
         int (*removed_for_loop)(int*);
@@ -176,6 +202,22 @@ int main(int argc, char** argv)
         address = mapping + mixed_unsigned_comparison_symbol->value;
         memcpy(&folded_mixed_unsigned_comparison, &address,
                sizeof(folded_mixed_unsigned_comparison));
+        address = mapping + removed_after_return_symbol->value;
+        memcpy(&removed_after_return, &address,
+               sizeof(removed_after_return));
+        address = mapping + removed_after_goto_symbol->value;
+        memcpy(&removed_after_goto, &address, sizeof(removed_after_goto));
+        address = mapping + preserved_nested_label_symbol->value;
+        memcpy(&preserved_nested_label, &address,
+               sizeof(preserved_nested_label));
+        address = mapping + removed_after_break_symbol->value;
+        memcpy(&removed_after_break, &address, sizeof(removed_after_break));
+        address = mapping + removed_after_continue_symbol->value;
+        memcpy(&removed_after_continue, &address,
+               sizeof(removed_after_continue));
+        address = mapping + preserved_case_after_break_symbol->value;
+        memcpy(&preserved_case_after_break, &address,
+               sizeof(preserved_case_after_break));
         address = mapping + branch_symbol->value;
         memcpy(&folded_branch, &address, sizeof(folded_branch));
         address = mapping + loop_symbol->value;
@@ -199,6 +241,20 @@ int main(int argc, char** argv)
         assert(folded_unsigned_narrow() == UINT32_C(5));
         assert(folded_unsigned_unary() == UINT64_C(0));
         assert(folded_mixed_unsigned_comparison() == 0);
+        assert(removed_after_return(&value) == 7);
+        assert(value == 3);
+        assert(removed_after_goto(&value) == 3);
+        assert(value == 3);
+        assert(preserved_nested_label(0) == 23);
+        assert(preserved_nested_label(1) == 23);
+        value = 0;
+        assert(removed_after_break(&value) == 1);
+        assert(value == 1);
+        value = 0;
+        assert(removed_after_continue(&value) == 3);
+        assert(value == 3);
+        assert(preserved_case_after_break(0) == 0);
+        assert(preserved_case_after_break(3) == 33);
         assert(folded_branch(&value) == 5);
         assert(value == 3);
         assert(removed_loop(&value) == 3);

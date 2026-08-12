@@ -38,6 +38,53 @@ static bool statement_contains_label(const Stmt* statement) {
     }
 }
 
+static bool statement_transfers_control(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_RETURN:
+        case STMT_GOTO:
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            return true;
+        case STMT_BLOCK:
+            item = statement->block_stmts;
+            if (!item) return false;
+            while (item->next) item = item->next;
+            return statement_transfers_control(item->stmt);
+        case STMT_IF:
+            return statement->if_else &&
+                   statement_transfers_control(statement->if_then) &&
+                   statement_transfers_control(statement->if_else);
+        case STMT_LABEL:
+            return statement_transfers_control(statement->label_stmt);
+        case STMT_CASE:
+            return statement_transfers_control(statement->case_stmt);
+        case STMT_DEFAULT:
+            return statement_transfers_control(statement->default_stmt);
+        default:
+            return false;
+    }
+}
+
+static void optimize_block(Stmt* statement) {
+    StmtList** link;
+    bool reachable = true;
+    if (!statement || statement->kind != STMT_BLOCK) return;
+    link = &statement->block_stmts;
+    while (*link) {
+        StmtList* item = *link;
+        if (!reachable && !statement_contains_label(item->stmt)) {
+            *link = item->next;
+            continue;
+        }
+        if (!reachable) reachable = true;
+        optimize_stmt(item->stmt);
+        if (statement_transfers_control(item->stmt)) reachable = false;
+        link = &item->next;
+    }
+}
+
 static bool integer_literal(const Expr* expression, int64_t* value) {
     if (!expression || !value) return false;
     if (expression->kind == EXPR_INT_LIT) {
@@ -576,10 +623,7 @@ static void optimize_stmt(Stmt* statement) {
             optimize_expr(&statement->expr);
             break;
         case STMT_BLOCK:
-            for (StmtList* item = statement->block_stmts; item;
-                 item = item->next) {
-                optimize_stmt(item->stmt);
-            }
+            optimize_block(statement);
             break;
         case STMT_IF:
             optimize_expr(&statement->if_cond);
