@@ -24,6 +24,9 @@ typedef struct {
     size_t error_size;
 } RccX86Encoder;
 
+static bool x86_emit_compare_zero(RccX86Encoder* encoder,
+                                  RccX86Value value, uint16_t size);
+
 static bool x86_encode_error(RccX86Encoder* encoder,
                              const char* format, ...) {
     if (encoder->error && encoder->error_size != 0u) {
@@ -356,6 +359,26 @@ static bool x86_emit_binary_register(
         return x86_emit_memory_modrm(
             encoder, destination, displacement);
     }
+}
+
+static bool x86_emit_multiply_immediate_register(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    uint16_t size, uint64_t immediate) {
+    if (size != 4u && size != 8u) {
+        return x86_encode_error(
+            encoder, "x86 GEP pointer width is unsupported");
+    }
+    if (immediate == 1u) return true;
+    if (immediate == 0u || immediate > (uint64_t)INT32_MAX) {
+        return x86_encode_error(
+            encoder, "x86 GEP scale does not fit signed imm32");
+    }
+    if (!x86_emit_prefix(
+            encoder, size, destination, destination, false) ||
+        !x86_emit_u8(encoder, 0x69u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            3u, destination, destination))) return false;
+    return x86_emit_u32(encoder, (uint32_t)immediate);
 }
 
 static bool x86_emit_binary(RccX86Encoder* encoder,
@@ -857,6 +880,158 @@ static bool x86_emit_pointer_store(
     return true;
 }
 
+static bool x86_emit_gep_index(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    RccX86Value source, RccMirType type) {
+    uint16_t source_size;
+    uint16_t pointer_size = encoder->function->pointer_size;
+    if (type.kind != RCC_MIR_TYPE_INTEGER || type.bit_width == 0u) {
+        return x86_encode_error(encoder,
+                                "x86 GEP index is not an integer");
+    }
+    switch (type.bit_width) {
+        case 1u: case 8u: source_size = 1u; break;
+        case 16u: source_size = 2u; break;
+        case 32u: source_size = 4u; break;
+        case 64u: source_size = 8u; break;
+        default: source_size = 0u; break;
+    }
+    if (source_size == 0u || source_size > pointer_size ||
+        source.size != source_size) {
+        return x86_encode_error(
+            encoder, "x86 GEP index width is unsupported");
+    }
+    if (source_size == pointer_size) {
+        return x86_emit_copy(
+            encoder, source,
+            (RccX86Value){RCC_X86_VALUE_GPR, destination, 0u,
+                          pointer_size, pointer_size},
+            pointer_size);
+    }
+    return x86_emit_extend_register(
+        encoder, destination, source, source_size,
+        pointer_size, true);
+}
+
+static bool x86_emit_gep(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value base = instruction->operands[0];
+    RccX86Value index = instruction->operands[1];
+    RccX86Value destination = instruction->destination;
+    RccX86HardwareGpr result;
+    bool destination_is_base =
+        destination.kind == RCC_X86_VALUE_GPR &&
+        base.kind == RCC_X86_VALUE_GPR &&
+        destination.gpr == base.gpr;
+    bool preserve_result;
+    if (base.size != encoder->function->pointer_size ||
+        destination.size != encoder->function->pointer_size) {
+        return x86_encode_error(
+            encoder, "x86 GEP pointer operand width is invalid");
+    }
+    if (instruction->auxiliary == 0u) {
+        return x86_encode_error(encoder, "x86 GEP scale is zero");
+    }
+    result = destination.kind == RCC_X86_VALUE_GPR &&
+             !destination_is_base
+        ? destination.gpr : x86_choose_scratch(base, index);
+    preserve_result = destination.kind != RCC_X86_VALUE_GPR ||
+        result != destination.gpr;
+    if ((preserve_result && !x86_emit_push(encoder, result)) ||
+        !x86_emit_gep_index(
+            encoder, result, index, instruction->operand_types[1]) ||
+        !x86_emit_multiply_immediate_register(
+            encoder, result, encoder->function->pointer_size,
+            instruction->auxiliary)) return false;
+    if (destination_is_base) {
+        if (!x86_emit_binary_register(
+                encoder, RCC_X86_ADD, destination.gpr,
+                (RccX86Value){RCC_X86_VALUE_GPR, result, 0u,
+                              encoder->function->pointer_size,
+                              encoder->function->pointer_size},
+                encoder->function->pointer_size)) return false;
+    } else {
+        if (!x86_emit_binary_register(
+                encoder, RCC_X86_ADD, result, base,
+                encoder->function->pointer_size) ||
+            (destination.kind != RCC_X86_VALUE_GPR &&
+             !x86_emit_store(
+                 encoder, destination, result,
+                 encoder->function->pointer_size))) return false;
+    }
+    return !preserve_result || x86_emit_pop(encoder, result);
+}
+
+static bool x86_patch_rel32_to_here(
+    RccX86Encoder* encoder, uint32_t offset) {
+    int64_t delta;
+    int32_t encoded;
+    if (offset > encoder->output.code_size ||
+        4u > encoder->output.code_size - offset) {
+        return x86_encode_error(encoder,
+                                "x86 local branch fixup is invalid");
+    }
+    delta = (int64_t)encoder->output.code_size -
+        ((int64_t)offset + 4);
+    if (delta < INT32_MIN || delta > INT32_MAX) {
+        return x86_encode_error(
+            encoder, "x86 local branch displacement overflows");
+    }
+    encoded = (int32_t)delta;
+    for (size_t byte = 0u; byte < sizeof(encoded); ++byte) {
+        encoder->output.code[offset + byte] =
+            (uint8_t)((uint32_t)encoded >> (byte * 8u));
+    }
+    return true;
+}
+
+static bool x86_emit_select(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value condition = instruction->operands[0];
+    RccX86Value when_true = instruction->operands[1];
+    RccX86Value when_false = instruction->operands[2];
+    RccX86Value destination = instruction->destination;
+    uint16_t size = 0u;
+    uint32_t branch_offset;
+    if (instruction->type.kind == RCC_MIR_TYPE_POINTER) {
+        size = encoder->function->pointer_size;
+    } else if (instruction->type.kind == RCC_MIR_TYPE_INTEGER) {
+        switch (instruction->type.bit_width) {
+            case 1u: case 8u: size = 1u; break;
+            case 16u: size = 2u; break;
+            case 32u: size = 4u; break;
+            case 64u: size = 8u; break;
+            default: break;
+        }
+    }
+    if (size == 0u || size > encoder->function->pointer_size ||
+        condition.size != 1u || destination.size != size ||
+        when_true.size != size || when_false.size != size) {
+        return x86_encode_error(encoder,
+                                "x86 select width is not native");
+    }
+    if (x86_value_equal(destination, when_true) &&
+        x86_value_equal(destination, when_false)) return true;
+    if (!x86_emit_compare_zero(encoder, condition, 1u)) return false;
+    if (x86_value_equal(destination, when_true)) {
+        if (!x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x85u)) return false;
+        branch_offset = (uint32_t)encoder->output.code_size;
+        return x86_emit_u32(encoder, 0u) &&
+            x86_emit_copy(encoder, when_false, destination, size) &&
+            x86_patch_rel32_to_here(encoder, branch_offset);
+    }
+    if (!x86_emit_copy(encoder, when_false, destination, size) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, 0x84u)) return false;
+    branch_offset = (uint32_t)encoder->output.code_size;
+    return x86_emit_u32(encoder, 0u) &&
+        x86_emit_copy(encoder, when_true, destination, size) &&
+        x86_patch_rel32_to_here(encoder, branch_offset);
+}
+
 static bool x86_add_fixup(RccX86Encoder* encoder, uint32_t target) {
     RccX86BranchFixup* fixup;
     if (encoder->fixup_count == encoder->fixup_capacity) {
@@ -1030,6 +1205,10 @@ static bool x86_emit_instruction(
             return x86_emit_pointer_load(encoder, instruction);
         case RCC_X86_STORE:
             return x86_emit_pointer_store(encoder, instruction);
+        case RCC_X86_GEP:
+            return x86_emit_gep(encoder, instruction);
+        case RCC_X86_SELECT:
+            return x86_emit_select(encoder, instruction);
         case RCC_X86_JUMP:
             return x86_emit_u8(encoder, 0xe9u) &&
                 x86_add_fixup(encoder, instruction->targets[0]);

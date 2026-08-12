@@ -343,6 +343,71 @@ static void verify_stack_memory_execution(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_gep_execution(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType parameters[] = {pointer, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_gep", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* address = rcc_ir_append(
+        entry, RCC_IR_GEP, pointer, ir->parameters, 2u, NULL, 0u);
+    RccIrInstruction* load;
+    RccX86EncodedFunction encoded;
+    size_t mapping_size;
+    void* memory;
+    int (*function)(int*, int);
+    int values[] = {17, 29, 43, 71};
+    assert(address != NULL);
+    rcc_ir_set_immediate(address, sizeof(values[0]));
+    load = rcc_ir_append(
+        entry, RCC_IR_LOAD, i32, &address->result, 1u, NULL, 0u);
+    assert(load != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &load->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function(ir);
+    memory = map_code(&encoded, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    assert(function(values, 0) == 17);
+    assert(function(values, 3) == 71);
+    assert(function(values + 2, -1) == 29);
+    assert(munmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_select_execution(void)
+{
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i1, i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_select", i32, parameters, 3u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* selected = rcc_ir_append(
+        entry, RCC_IR_SELECT, i32, ir->parameters, 3u, NULL, 0u);
+    RccX86EncodedFunction encoded;
+    size_t mapping_size;
+    void* memory;
+    int (*function)(int, int, int);
+    assert(selected != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &selected->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function(ir);
+    memory = map_code(&encoded, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    assert(function(1, 37, 91) == 37);
+    assert(function(0, 37, 91) == 91);
+    assert(function(1, -13, 8) == -13);
+    assert(function(0, -13, 8) == 8);
+    assert(munmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_ir_module_destroy(module);
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 2);
@@ -351,6 +416,8 @@ int main(int argc, char** argv)
     verify_fixed_register_execution();
     verify_compare_and_conversion_execution();
     verify_stack_memory_execution();
+    verify_gep_execution();
+    verify_select_execution();
     puts("Native legal-IR x86 encoding execution tests passed");
     return 0;
 }
