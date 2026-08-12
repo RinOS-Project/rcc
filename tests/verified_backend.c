@@ -272,6 +272,13 @@ long verified_pointer_difference(int* left, int* right)
     return left - right;
 }
 
+int verified_common_subexpression(int left, int right)
+{
+    int sum = left + right;
+    int same = right + left;
+    return sum * same;
+}
+
 int verified_switch(int value)
 {
     int result = 1;

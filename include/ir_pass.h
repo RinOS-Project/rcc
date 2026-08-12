@@ -16,6 +16,7 @@ typedef struct {
 
 typedef struct {
     size_t folded_instructions;
+    size_t commoned_instructions;
     size_t removed_instructions;
 } RccIrSimplifyStats;
 

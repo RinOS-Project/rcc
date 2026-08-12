@@ -270,6 +270,79 @@ static void verify_undefined_folds_are_preserved(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_block_local_cse(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "block_cse", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue first_operands[] = {
+        function->parameters[0], function->parameters[1],
+    };
+    RccIrValue reversed_operands[] = {
+        function->parameters[1], function->parameters[0],
+    };
+    RccIrInstruction* first = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, first_operands, 2u, NULL, 0u);
+    RccIrInstruction* duplicate = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, reversed_operands, 2u, NULL, 0u);
+    RccIrValue product_operands[2];
+    RccIrInstruction* product;
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(first != NULL && duplicate != NULL);
+    product_operands[0] = first->result;
+    product_operands[1] = duplicate->result;
+    product = rcc_ir_append(entry, RCC_IR_MUL, i32,
+                            product_operands, 2u, NULL, 0u);
+    assert(product != NULL);
+    append_return(entry, product->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions == 0u);
+    assert(stats.commoned_instructions == 1u);
+    assert(stats.removed_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    assert(count_opcode(function, RCC_IR_MUL) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_memory_is_not_commoned(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "memory_cse_barrier", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first;
+    RccIrValue second;
+    RccIrValue operands[2];
+    RccIrInstruction* sum;
+    RccIrSimplifyStats stats;
+    char error[256];
+    append_store(entry, function->parameters[0], address);
+    first = append_load(entry, i32, address);
+    append_store(entry, first, address);
+    second = append_load(entry, i32, address);
+    operands[0] = first;
+    operands[1] = second;
+    sum = rcc_ir_append(entry, RCC_IR_ADD, i32,
+                        operands, 2u, NULL, 0u);
+    assert(sum != NULL);
+    append_return(entry, sum->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.commoned_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 2u);
+    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 int main(void)
 {
     verify_diamond_promotion();
@@ -277,6 +350,8 @@ int main(void)
     verify_escape_is_not_promoted();
     verify_integer_simplification();
     verify_undefined_folds_are_preserved();
+    verify_block_local_cse();
+    verify_memory_is_not_commoned();
     puts("Typed SSA mem2reg and simplification tests passed");
     return 0;
 }

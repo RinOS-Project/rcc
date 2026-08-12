@@ -104,6 +104,7 @@
   - [x] 未使用の副作用なし式文DCEとcall/volatile/C++ cleanup保持
   - [x] escape/control-flow barrier付きblock-local整数dead-store除去
   - [x] side effectのない未使用SSA定義の再帰的除去
+  - [x] alias-free整数・cast・GEP・select・symbol addressのbasic-block内CSE
 - [ ] loop optimization、inlining
 - [ ] `-O0..3`ごとのpass pipeline
 - [ ] linear-scan / graph-coloring register allocation

@@ -1013,6 +1013,145 @@ static bool ir_pass_fold_constants(RccIrFunction* function,
     return true;
 }
 
+static bool ir_pass_cse_candidate(const RccIrInstruction* instruction) {
+    switch (instruction->opcode) {
+        case RCC_IR_CONST_INT:
+        case RCC_IR_ADD:
+        case RCC_IR_SUB:
+        case RCC_IR_MUL:
+        case RCC_IR_UDIV:
+        case RCC_IR_SDIV:
+        case RCC_IR_UREM:
+        case RCC_IR_SREM:
+        case RCC_IR_AND:
+        case RCC_IR_OR:
+        case RCC_IR_XOR:
+        case RCC_IR_SHL:
+        case RCC_IR_LSHR:
+        case RCC_IR_ASHR:
+        case RCC_IR_ICMP:
+        case RCC_IR_TRUNC:
+        case RCC_IR_ZEXT:
+        case RCC_IR_SEXT:
+        case RCC_IR_PTR_TO_INT:
+        case RCC_IR_INT_TO_PTR:
+        case RCC_IR_BITCAST:
+        case RCC_IR_SELECT:
+        case RCC_IR_GEP:
+        case RCC_IR_SYMBOL_ADDRESS:
+            return instruction->result != RCC_IR_VALUE_NONE &&
+                instruction->target_count == 0u;
+        case RCC_IR_PHI:
+        case RCC_IR_ALLOCA:
+        case RCC_IR_LOAD:
+        case RCC_IR_STORE:
+        case RCC_IR_CALL:
+        case RCC_IR_CAPTURE_RETURN_PAIR:
+        case RCC_IR_BRANCH:
+        case RCC_IR_COND_BRANCH:
+        case RCC_IR_RETURN:
+        case RCC_IR_UNREACHABLE:
+            return false;
+    }
+    return false;
+}
+
+static bool ir_pass_cse_commutative(RccIrOpcode opcode,
+                                    RccIrIntPredicate predicate) {
+    return opcode == RCC_IR_ADD || opcode == RCC_IR_MUL ||
+        opcode == RCC_IR_AND || opcode == RCC_IR_OR ||
+        opcode == RCC_IR_XOR ||
+        (opcode == RCC_IR_ICMP &&
+         (predicate == RCC_IR_ICMP_EQ || predicate == RCC_IR_ICMP_NE));
+}
+
+static bool ir_pass_cse_equal(const RccIrInstruction* left,
+                              const RccIrInstruction* right) {
+    size_t index;
+    if (left->opcode != right->opcode ||
+        !rcc_ir_type_equal(left->type, right->type) ||
+        left->operand_count != right->operand_count ||
+        left->immediate != right->immediate ||
+        left->predicate != right->predicate) {
+        return false;
+    }
+    if ((left->callee || right->callee) &&
+        (!left->callee || !right->callee ||
+         strcmp(left->callee, right->callee) != 0)) {
+        return false;
+    }
+    for (index = 0u; index < left->operand_count; ++index) {
+        if (left->operands[index] != right->operands[index]) break;
+    }
+    if (index == left->operand_count) return true;
+    return left->operand_count == 2u &&
+        ir_pass_cse_commutative(left->opcode, left->predicate) &&
+        left->operands[0] == right->operands[1] &&
+        left->operands[1] == right->operands[0];
+}
+
+static bool ir_pass_common_subexpressions(
+    RccIrFunction* function, RccIrSimplifyStats* stats,
+    char* error, size_t error_size) {
+    RccIrValue* replacements;
+    RccIrBlock* block;
+    size_t index;
+    if (function->value_count == 0u) return true;
+    replacements = rcc_alloc(function->value_count * sizeof(*replacements));
+    for (index = 0u; index < function->value_count; ++index) {
+        replacements[index] = RCC_IR_VALUE_NONE;
+    }
+    for (block = function->first_block; block; block = block->next) {
+        RccIrInstruction* instruction = block->first;
+        while (instruction) {
+            RccIrInstruction* next = instruction->next;
+            RccIrInstruction* candidate;
+            size_t operand;
+            for (operand = 0u; operand < instruction->operand_count;
+                 ++operand) {
+                RccIrValue resolved = ir_pass_resolve(
+                    replacements, function->value_count,
+                    instruction->operands[operand]);
+                if (resolved == RCC_IR_VALUE_NONE) {
+                    rcc_free(replacements);
+                    return ir_pass_error(
+                        error, error_size,
+                        "SSA CSE found a replacement cycle");
+                }
+                instruction->operands[operand] = resolved;
+            }
+            if (!ir_pass_cse_candidate(instruction)) {
+                instruction = next;
+                continue;
+            }
+            for (candidate = block->first; candidate != instruction;
+                 candidate = candidate->next) {
+                if (ir_pass_cse_candidate(candidate) &&
+                    ir_pass_cse_equal(candidate, instruction)) {
+                    break;
+                }
+            }
+            if (candidate == instruction) {
+                instruction = next;
+                continue;
+            }
+            replacements[instruction->result] = candidate->result;
+            ir_pass_unlink_instruction(instruction);
+            ++stats->commoned_instructions;
+            ++stats->removed_instructions;
+            instruction = next;
+        }
+    }
+    if (!ir_pass_compact_values(
+            function, replacements, function->value_count,
+            error, error_size)) {
+        rcc_free(replacements);
+        return false;
+    }
+    rcc_free(replacements);
+    return true;
+}
+
 static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
     switch (instruction->opcode) {
         case RCC_IR_CONST_INT:
@@ -1112,6 +1251,8 @@ bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
         return false;
     }
     if (!ir_pass_fold_constants(function, &local_stats) ||
+        !ir_pass_common_subexpressions(function, &local_stats,
+                                       error, error_size) ||
         !ir_pass_remove_dead_instructions(function, &local_stats,
                                           error, error_size) ||
         !rcc_ir_verify_function(function, error, error_size)) {
