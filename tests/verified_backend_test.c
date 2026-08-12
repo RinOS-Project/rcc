@@ -51,6 +51,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* pointer_compound;
     ObjSymbol* pointer_postincrement;
     ObjSymbol* lvalue_once;
+    ObjSymbol* pointer_difference;
     ObjReloc* relocation;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -70,6 +71,8 @@ static void verify_object(const char* path, uint16_t arch)
     pointer_postincrement = objfile_find_symbol(
         object, "verified_pointer_postincrement");
     lvalue_once = objfile_find_symbol(object, "verified_lvalue_once");
+    pointer_difference = objfile_find_symbol(
+        object, "verified_pointer_difference");
     assert(text != NULL && text->size != 0u && text->memory_size == text->size);
     assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
            (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -98,7 +101,10 @@ static void verify_object(const char* path, uint16_t arch)
            pointer_postincrement->section == 0);
     assert(lvalue_once != NULL && lvalue_once->type == SYM_GLOBAL &&
            lvalue_once->section == 0);
-    assert(object->symbol_count == 13);
+    assert(pointer_difference != NULL &&
+           pointer_difference->type == SYM_GLOBAL &&
+           pointer_difference->section == 0);
+    assert(object->symbol_count == 14);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -120,6 +126,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
+    long (*pointer_difference_function)(int*, int*);
     int* cursor;
     void* address;
     assert(object != NULL && object->arch == arch);
@@ -187,6 +194,13 @@ static void verify_native_execution(const char* path, uint16_t arch)
     memcpy(&pointer_function, &address, sizeof(pointer_function));
     assert(pointer_function(values, 1) == 227);
     assert(values[1] == 27 && values[2] == 33);
+
+    symbol = objfile_find_symbol(object, "verified_pointer_difference");
+    address = symbol_address(memory, symbol);
+    memcpy(&pointer_difference_function, &address,
+           sizeof(pointer_difference_function));
+    assert(pointer_difference_function(values + 4, values + 1) == 3);
+    assert(pointer_difference_function(values + 1, values + 4) == -3);
 
     assert(munmap(memory, mapping_size) == 0);
     objfile_free(object);

@@ -70,3 +70,8 @@ int verified_lvalue_once(int* base, int index)
     base[index++] += 5;
     return index * 100 + base[index - 1];
 }
+
+long verified_pointer_difference(int* left, int* right)
+{
+    return left - right;
+}

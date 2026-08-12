@@ -346,6 +346,53 @@ static RccIrLowerValue lower_pointer_binary(
                              subtract_index);
 }
 
+static RccIrLowerValue lower_pointer_difference(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Type* pointer_type;
+    RccIrLowerValue left;
+    RccIrLowerValue right;
+    RccIrLowerValue scale;
+    RccIrType result_type;
+    RccIrValue operands[2];
+    RccIrInstruction* difference;
+    RccIrInstruction* quotient;
+    if (!expression || !expression->binary_lhs ||
+        !expression->binary_rhs || !expression->binary_lhs->type ||
+        !expression->binary_rhs->type ||
+        expression->binary_lhs->type->kind != TYPE_PTR ||
+        expression->binary_rhs->type->kind != TYPE_PTR ||
+        !expression->type || !lower_type(expression->type, &result_type) ||
+        result_type.kind != RCC_IR_TYPE_INTEGER ||
+        expression->type->is_unsigned) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    pointer_type = expression->binary_lhs->type;
+    if (!pointer_type->base || pointer_type->base->size <= 0) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    left = lower_expression(context, expression->binary_lhs);
+    right = lower_expression(context, expression->binary_rhs);
+    left = lower_cast(context, left, expression->type);
+    right = lower_cast(context, right, expression->type);
+    if (!left.valid || !right.valid) return lower_invalid_value();
+    operands[0] = left.value;
+    operands[1] = right.value;
+    difference = lower_append(context, RCC_IR_SUB, result_type,
+                              operands, 2u, NULL, 0u);
+    if (!difference) return lower_invalid_value();
+    scale = lower_integer_constant(
+        context, result_type, false, (uint64_t)pointer_type->base->size);
+    if (!scale.valid) return lower_invalid_value();
+    operands[0] = difference->result;
+    operands[1] = scale.value;
+    quotient = lower_append(context, RCC_IR_SDIV, result_type,
+                            operands, 2u, NULL, 0u);
+    if (!quotient) return lower_invalid_value();
+    return lower_value(quotient->result, result_type, false);
+}
+
 static RccIrLowerValue lower_lvalue_address(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
@@ -451,6 +498,8 @@ static RccIrLowerValue lower_integer_binary(
     RccIrInstruction* instruction;
     RccIrOpcode opcode;
     if (!left.valid || !right.valid ||
+        left.type.kind == RCC_IR_TYPE_POINTER ||
+        right.type.kind == RCC_IR_TYPE_POINTER ||
         !lower_type(expression->type, &result_type) ||
         result_type.kind != RCC_IR_TYPE_INTEGER) {
         context->unsupported = true;
@@ -838,6 +887,13 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_SUB:
             if (expression->type && expression->type->kind == TYPE_PTR) {
                 return lower_pointer_binary(context, expression);
+            }
+            if (expression->kind == EXPR_SUB && expression->binary_lhs &&
+                expression->binary_lhs->type &&
+                expression->binary_lhs->type->kind == TYPE_PTR &&
+                expression->binary_rhs && expression->binary_rhs->type &&
+                expression->binary_rhs->type->kind == TYPE_PTR) {
+                return lower_pointer_difference(context, expression);
             }
             return lower_integer_binary(context, expression);
         case EXPR_MUL:
