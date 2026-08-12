@@ -209,7 +209,7 @@ static void verify_fixed_register_constraints_target(bool x64)
     RccX86LegalInstruction* legal_divide = NULL;
     RccX86LegalInstruction* legal_shift = NULL;
     RccX86LegalInstruction* legal_binary = NULL;
-    RccX86EncodedFunction unsupported_encoded;
+    RccX86EncodedFunction fixed_encoded;
     uint64_t saved_forbidden;
     char error[256];
     assert(division != NULL);
@@ -292,10 +292,12 @@ static void verify_fixed_register_constraints_target(bool x64)
            legal_binary->destination.kind);
     assert(rcc_x86_verify_legal_function(
         legal, &policy, error, sizeof(error)));
-    assert(!rcc_x86_encode_function(
-        legal, &policy, &unsupported_encoded, error, sizeof(error)));
-    assert(strstr(error, "not encoded yet") != NULL);
-    assert(unsupported_encoded.code == NULL);
+    assert(rcc_x86_encode_function(
+        legal, &policy, &fixed_encoded, error, sizeof(error)));
+    assert(rcc_x86_verify_encoded_function(
+        &fixed_encoded, error, sizeof(error)));
+    assert(fixed_encoded.relocation_count == 0u);
+    rcc_x86_encoded_function_release(&fixed_encoded);
     legal_divide->operands[0].kind = RCC_X86_VALUE_GPR;
     legal_divide->operands[0].gpr = RCC_X86_GPR_DX;
     assert(!rcc_x86_verify_legal_function(

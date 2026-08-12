@@ -402,6 +402,110 @@ static bool x86_emit_binary(RccX86Encoder* encoder,
     }
 }
 
+static bool x86_emit_prepare_dividend(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    uint16_t size = instruction->type.bit_width <= 8u
+        ? 1u : (uint16_t)(instruction->type.bit_width / 8u);
+    if (size == 1u) {
+        return x86_encode_error(
+            encoder, "x86 byte division is not encoded yet");
+    }
+    if (instruction->opcode ==
+        RCC_X86_LEGAL_PREPARE_UNSIGNED_DIVIDEND) {
+        RccX86Value high;
+        memset(&high, 0, sizeof(high));
+        high.kind = RCC_X86_VALUE_GPR;
+        high.gpr = RCC_X86_GPR_DX;
+        high.size = size;
+        high.alignment = size;
+        return x86_emit_binary_register(
+            encoder, RCC_X86_XOR, RCC_X86_GPR_DX, high, size);
+    }
+    if (size == 2u && !x86_emit_u8(encoder, 0x66u)) return false;
+    if (!x86_emit_rex(encoder, size == 8u, RCC_X86_GPR_AX,
+                      RCC_X86_GPR_AX, false)) return false;
+    if (size != 2u && size != 4u && size != 8u) {
+        return x86_encode_error(
+            encoder, "x86 signed dividend width is invalid");
+    }
+    return x86_emit_u8(encoder, 0x99u);
+}
+
+static bool x86_emit_divide(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value divisor = instruction->operands[0];
+    uint16_t size = instruction->type.bit_width <= 8u
+        ? 1u : (uint16_t)(instruction->type.bit_width / 8u);
+    unsigned extension =
+        instruction->selected_opcode == RCC_X86_SDIV ||
+        instruction->selected_opcode == RCC_X86_SREM ? 7u : 6u;
+    if (size == 1u) {
+        return x86_encode_error(
+            encoder, "x86 byte division is not encoded yet");
+    }
+    if (divisor.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_prefix(
+                encoder, size, (RccX86HardwareGpr)extension,
+                divisor.gpr, false) ||
+            !x86_emit_u8(encoder, 0xf7u)) return false;
+        return x86_emit_u8(encoder, x86_modrm(
+            3u, extension, divisor.gpr));
+    }
+    {
+        int32_t displacement;
+        if (!x86_value_displacement(
+                encoder, divisor, &displacement) ||
+            !x86_emit_prefix(
+                encoder, size, (RccX86HardwareGpr)extension,
+                RCC_X86_GPR_BP, false) ||
+            !x86_emit_u8(encoder, 0xf7u)) return false;
+        return x86_emit_memory_modrm(
+            encoder, extension, displacement);
+    }
+}
+
+static bool x86_emit_shift(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    uint16_t size = instruction->type.bit_width <= 8u
+        ? 1u : (uint16_t)(instruction->type.bit_width / 8u);
+    unsigned extension;
+    switch (instruction->selected_opcode) {
+        case RCC_X86_SHL: extension = 4u; break;
+        case RCC_X86_SHR: extension = 5u; break;
+        case RCC_X86_SAR: extension = 7u; break;
+        default:
+            return x86_encode_error(
+                encoder, "x86 shift opcode is invalid");
+    }
+    if (destination.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_prefix(
+                encoder, size, (RccX86HardwareGpr)extension,
+                destination.gpr, size == 1u) ||
+            !x86_emit_u8(encoder, size == 1u ? 0xd2u : 0xd3u)) {
+            return false;
+        }
+        return x86_emit_u8(encoder, x86_modrm(
+            3u, extension, destination.gpr));
+    }
+    {
+        int32_t displacement;
+        if (!x86_value_displacement(
+                encoder, destination, &displacement) ||
+            !x86_emit_prefix(
+                encoder, size, (RccX86HardwareGpr)extension,
+                RCC_X86_GPR_BP, false) ||
+            !x86_emit_u8(encoder, size == 1u ? 0xd2u : 0xd3u)) {
+            return false;
+        }
+        return x86_emit_memory_modrm(
+            encoder, extension, displacement);
+    }
+}
+
 static bool x86_add_fixup(RccX86Encoder* encoder, uint32_t target) {
     RccX86BranchFixup* fixup;
     if (encoder->fixup_count == encoder->fixup_capacity) {
@@ -535,6 +639,13 @@ static bool x86_emit_instruction(
                 instruction->destination, size);
         case RCC_X86_LEGAL_BINARY:
             return x86_emit_binary(encoder, instruction);
+        case RCC_X86_LEGAL_PREPARE_UNSIGNED_DIVIDEND:
+        case RCC_X86_LEGAL_PREPARE_SIGNED_DIVIDEND:
+            return x86_emit_prepare_dividend(encoder, instruction);
+        case RCC_X86_LEGAL_DIVIDE:
+            return x86_emit_divide(encoder, instruction);
+        case RCC_X86_LEGAL_SHIFT:
+            return x86_emit_shift(encoder, instruction);
         case RCC_X86_LEGAL_CALL:
             return x86_emit_u8(encoder, 0xe8u) &&
                 x86_add_relocation(encoder, instruction->symbol);

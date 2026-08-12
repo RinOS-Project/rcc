@@ -176,11 +176,52 @@ static void verify_branch_execution(void)
     rcc_ir_module_destroy(module);
 }
 
+static int execute_binary_function(RccIrOpcode opcode,
+                                   int left, int right)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_fixed", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* result = rcc_ir_append(
+        entry, opcode, i32, ir->parameters, 2u, NULL, 0u);
+    RccX86EncodedFunction encoded;
+    size_t mapping_size;
+    void* memory;
+    int (*function)(int, int);
+    int value;
+    assert(result != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &result->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function(ir);
+    memory = map_code(&encoded, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    value = function(left, right);
+    assert(munmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_ir_module_destroy(module);
+    return value;
+}
+
+static void verify_fixed_register_execution(void)
+{
+    assert(execute_binary_function(RCC_IR_UDIV, 84, 2) == 42);
+    assert(execute_binary_function(RCC_IR_UREM, 85, 7) == 1);
+    assert(execute_binary_function(RCC_IR_SDIV, -84, 4) == -21);
+    assert(execute_binary_function(RCC_IR_SREM, -85, 7) == -1);
+    assert(execute_binary_function(RCC_IR_SHL, 21, 1) == 42);
+    assert(execute_binary_function(RCC_IR_LSHR, 84, 1) == 42);
+    assert(execute_binary_function(RCC_IR_ASHR, -84, 1) == -42);
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 2);
     verify_add_execution(argv[1]);
     verify_branch_execution();
+    verify_fixed_register_execution();
     puts("Native legal-IR x86 encoding execution tests passed");
     return 0;
 }
