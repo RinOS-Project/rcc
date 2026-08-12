@@ -101,6 +101,10 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "propagated_unsigned_narrow"));
     assert(function_extent(optimized, "propagated_local_branch") <
            function_extent(unoptimized, "propagated_local_branch"));
+    assert(function_extent(optimized, "propagated_compound_assignment") <
+           function_extent(unoptimized, "propagated_compound_assignment"));
+    assert(function_extent(optimized, "propagated_increment") <
+           function_extent(unoptimized, "propagated_increment"));
     objfile_free(unoptimized);
     objfile_free(optimized);
 }
@@ -184,6 +188,10 @@ int main(int argc, char** argv)
             object, "preserved_do_state");
         ObjSymbol* preserved_while_state_symbol = function_symbol(
             object, "preserved_while_state");
+        ObjSymbol* propagated_compound_assignment_symbol = function_symbol(
+            object, "propagated_compound_assignment");
+        ObjSymbol* propagated_increment_symbol = function_symbol(
+            object, "propagated_increment");
         ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
         ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
         ObjSymbol* for_symbol = function_symbol(object, "removed_for_loop");
@@ -225,6 +233,8 @@ int main(int argc, char** argv)
         int (*preserved_conditional_state)(int);
         int (*preserved_do_state)(void);
         int (*preserved_while_state)(void);
+        int (*propagated_compound_assignment)(void);
+        int (*propagated_increment)(void);
         int (*folded_branch)(int*);
         int (*removed_loop)(int*);
         int (*removed_for_loop)(int*);
@@ -330,6 +340,12 @@ int main(int argc, char** argv)
         address = mapping + preserved_while_state_symbol->value;
         memcpy(&preserved_while_state, &address,
                sizeof(preserved_while_state));
+        address = mapping + propagated_compound_assignment_symbol->value;
+        memcpy(&propagated_compound_assignment, &address,
+               sizeof(propagated_compound_assignment));
+        address = mapping + propagated_increment_symbol->value;
+        memcpy(&propagated_increment, &address,
+               sizeof(propagated_increment));
         address = mapping + branch_symbol->value;
         memcpy(&folded_branch, &address, sizeof(folded_branch));
         address = mapping + loop_symbol->value;
@@ -391,6 +407,8 @@ int main(int argc, char** argv)
         assert(preserved_conditional_state(1) == 2);
         assert(preserved_do_state() == 3);
         assert(preserved_while_state() == 3);
+        assert(propagated_compound_assignment() == 8);
+        assert(propagated_increment() == 21);
         value = 3;
         assert(folded_branch(&value) == 5);
         assert(value == 3);

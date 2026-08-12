@@ -783,6 +783,35 @@ static void invalidate_local_constant(ConstantState* state,
     if (binding) binding->known = false;
 }
 
+static ExprKind compound_binary_kind(ExprKind kind) {
+    switch (kind) {
+        case EXPR_ADD_ASSIGN: return EXPR_ADD;
+        case EXPR_SUB_ASSIGN: return EXPR_SUB;
+        case EXPR_MUL_ASSIGN: return EXPR_MUL;
+        case EXPR_DIV_ASSIGN: return EXPR_DIV;
+        case EXPR_MOD_ASSIGN: return EXPR_MOD;
+        case EXPR_AND_ASSIGN: return EXPR_BITAND;
+        case EXPR_OR_ASSIGN: return EXPR_BITOR;
+        case EXPR_XOR_ASSIGN: return EXPR_BITXOR;
+        case EXPR_LSHIFT_ASSIGN: return EXPR_LSHIFT;
+        case EXPR_RSHIFT_ASSIGN: return EXPR_RSHIFT;
+        default: return kind;
+    }
+}
+
+static bool evaluate_local_update(ExprKind kind, Type* left_type,
+                                  Type* right_type, int64_t left,
+                                  int64_t right, int64_t* result) {
+    Expr operation = {0};
+    if (!left_type || !right_type || !result) return false;
+    operation.kind = compound_binary_kind(kind);
+    operation.type = operation.kind == EXPR_LSHIFT ||
+            operation.kind == EXPR_RSHIFT
+        ? type_common(left_type, type_int)
+        : type_common(left_type, right_type);
+    return fold_binary(&operation, left, right, result);
+}
+
 static void declare_local_constant(ConstantState* state, Decl* declaration) {
     LocalConstant* binding;
     int64_t value;
@@ -879,8 +908,20 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
             propagate_constant_lvalue(value->unary_operand, state);
             if (value->unary_operand &&
                 value->unary_operand->kind == EXPR_IDENT) {
-                invalidate_local_constant(
-                    state, value->unary_operand->ident_decl);
+                Decl* declaration = value->unary_operand->ident_decl;
+                int64_t updated;
+                binding = find_local_constant(state, declaration);
+                if (binding && binding->known &&
+                    evaluate_local_update(
+                        value->kind == EXPR_PREINC ||
+                                value->kind == EXPR_POSTINC
+                            ? EXPR_ADD : EXPR_SUB,
+                        declaration->type, type_int, binding->value, 1,
+                        &updated)) {
+                    set_local_constant(state, declaration, updated);
+                } else {
+                    invalidate_local_constant(state, declaration);
+                }
             } else {
                 clear_local_constants(state);
             }
@@ -921,8 +962,19 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
             propagate_constant_expr(&value->binary_rhs, state);
             if (value->binary_lhs &&
                 value->binary_lhs->kind == EXPR_IDENT) {
-                invalidate_local_constant(
-                    state, value->binary_lhs->ident_decl);
+                Decl* declaration = value->binary_lhs->ident_decl;
+                int64_t right;
+                int64_t updated;
+                binding = find_local_constant(state, declaration);
+                if (binding && binding->known &&
+                    integer_literal(value->binary_rhs, &right) &&
+                    evaluate_local_update(value->kind, declaration->type,
+                                          value->binary_rhs->type,
+                                          binding->value, right, &updated)) {
+                    set_local_constant(state, declaration, updated);
+                } else {
+                    invalidate_local_constant(state, declaration);
+                }
             } else {
                 clear_local_constants(state);
             }

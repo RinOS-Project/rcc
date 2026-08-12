@@ -232,6 +232,22 @@ int preserved_while_state(void)
     return value;
 }
 
+int propagated_compound_assignment(void)
+{
+    unsigned char value = 250;
+    value += 10;
+    value ^= 3;
+    return value + 1;
+}
+
+int propagated_increment(void)
+{
+    int value = 5;
+    value++;
+    ++value;
+    return value * 3;
+}
+
 int folded_branch(int* value)
 {
     if ((2 + 2) == 4) {
