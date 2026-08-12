@@ -1,5 +1,6 @@
 #include "mir.h"
 #include "mir_alloc.h"
+#include "mir_phi.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -148,6 +149,103 @@ static void verify_call_crossing_pressure(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_phi_parallel_copy_cycle(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "phi_cycle", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrBlock* left = rcc_ir_block_add(ir, "left");
+    RccIrBlock* right = rcc_ir_block_add(ir, "right");
+    RccIrBlock* merge = rcc_ir_block_add(ir, "merge");
+    RccIrBlockId branch_targets[] = {left->id, right->id};
+    RccIrValue left_first;
+    RccIrValue left_second;
+    RccIrValue right_first;
+    RccIrValue right_second;
+    RccIrValue first_inputs[2];
+    RccIrValue second_inputs[2];
+    RccIrBlockId input_blocks[] = {left->id, right->id};
+    RccIrInstruction* first_phi;
+    RccIrInstruction* second_phi;
+    RccIrValue sum_inputs[2];
+    RccIrInstruction* sum;
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    RccMirPhiPlan plan;
+    RccMirLocation swapped;
+    char error[256];
+    assert(rcc_ir_append(entry, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         &ir->parameters[0], 1u, branch_targets, 2u) != NULL);
+    left_first = append_const(left, i32, 1u);
+    left_second = append_const(left, i32, 2u);
+    append_branch(left, merge->id);
+    right_first = append_const(right, i32, 3u);
+    right_second = append_const(right, i32, 4u);
+    append_branch(right, merge->id);
+    first_inputs[0] = left_first;
+    first_inputs[1] = right_first;
+    first_phi = rcc_ir_append(merge, RCC_IR_PHI, i32, first_inputs, 2u,
+                              input_blocks, 2u);
+    assert(first_phi != NULL);
+    second_inputs[0] = left_second;
+    second_inputs[1] = right_second;
+    second_phi = rcc_ir_append(merge, RCC_IR_PHI, i32, second_inputs, 2u,
+                               input_blocks, 2u);
+    assert(second_phi != NULL);
+    sum_inputs[0] = first_phi->result;
+    sum_inputs[1] = second_phi->result;
+    sum = rcc_ir_append(merge, RCC_IR_ADD, i32, sum_inputs, 2u,
+                        NULL, 0u);
+    assert(sum != NULL);
+    assert(rcc_ir_append(merge, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &sum->result, 1u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    memset(&policy, 0, sizeof(policy));
+    policy.allocatable_gpr_mask = UINT64_C(0x3);
+    policy.pointer_size = 4u;
+    policy.stack_alignment = 16u;
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert(allocation.locations[first_phi->result].kind ==
+           RCC_MIR_LOCATION_PHYSICAL);
+    assert(allocation.locations[second_phi->result].kind ==
+           RCC_MIR_LOCATION_PHYSICAL);
+    swapped = allocation.locations[first_phi->result];
+    allocation.locations[first_phi->result] =
+        allocation.locations[second_phi->result];
+    allocation.locations[second_phi->result] = swapped;
+    assert(rcc_mir_verify_allocation(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    assert(plan.edge_count == 2u);
+    assert(plan.has_cycle_temporary);
+    assert(plan.cycle_temporary_size >= 4u);
+    assert(plan.frame_size % 16u == 0u);
+    for (size_t edge = 0u; edge < plan.edge_count; ++edge) {
+        assert(plan.edges[edge].copy_count == 2u);
+        assert(plan.edges[edge].move_count == 3u);
+        assert(!plan.edges[edge].requires_edge_block);
+        assert(plan.edges[edge].moves[0].cycle_break);
+    }
+    assert(rcc_mir_verify_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    plan.edges[0].moves[1].source =
+        plan.edges[0].moves[1].destination;
+    assert(!rcc_mir_verify_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    assert(strstr(error, "parallel-copy semantics") != NULL);
+    rcc_mir_phi_plan_release(&plan);
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_ir_to_mir_call(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -177,6 +275,7 @@ int main(void)
     verify_ir_to_mir_diamond();
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();
-    puts("MIR lowering, liveness, and linear-scan tests passed");
+    verify_phi_parallel_copy_cycle();
+    puts("MIR lowering, allocation, and phi-copy tests passed");
     return 0;
 }
