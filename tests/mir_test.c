@@ -3,6 +3,7 @@
 #include "mir_phi.h"
 #include "x86_select.h"
 #include "x86_legalize.h"
+#include "x86_encode.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -207,6 +208,7 @@ static void verify_fixed_register_constraints_target(bool x64)
     RccX86LegalInstruction* legal_divide = NULL;
     RccX86LegalInstruction* legal_shift = NULL;
     RccX86LegalInstruction* legal_binary = NULL;
+    RccX86EncodedFunction unsupported_encoded;
     uint64_t saved_forbidden;
     char error[256];
     assert(division != NULL);
@@ -289,6 +291,10 @@ static void verify_fixed_register_constraints_target(bool x64)
            legal_binary->destination.kind);
     assert(rcc_x86_verify_legal_function(
         legal, &policy, error, sizeof(error)));
+    assert(!rcc_x86_encode_function(
+        legal, &policy, &unsupported_encoded, error, sizeof(error)));
+    assert(strstr(error, "not encoded yet") != NULL);
+    assert(unsupported_encoded.code == NULL);
     legal_divide->operands[0].kind = RCC_X86_VALUE_GPR;
     legal_divide->operands[0].gpr = RCC_X86_GPR_DX;
     assert(!rcc_x86_verify_legal_function(
@@ -530,6 +536,7 @@ static void verify_sysv_call_legalization_target(bool x64)
     RccMirPhiPlan plan;
     RccX86Function* selected = NULL;
     RccX86LegalFunction* legal = NULL;
+    RccX86EncodedFunction encoded;
     RccX86LegalInstruction* legal_call = NULL;
     size_t incoming_count = 0u;
     size_t outgoing_count = 0u;
@@ -610,6 +617,21 @@ static void verify_sysv_call_legalization_target(bool x64)
            RCC_X86_GPR_AX);
     assert(rcc_x86_verify_legal_function(
         legal, &policy, error, sizeof(error)));
+    assert(rcc_x86_encode_function(
+        legal, &policy, &encoded, error, sizeof(error)));
+    assert(rcc_x86_verify_encoded_function(
+        &encoded, error, sizeof(error)));
+    assert(encoded.code[0] == 0x55u);
+    assert(encoded.code[encoded.code_size - 1u] == 0xc3u);
+    assert(encoded.relocation_count == 1u);
+    assert(strcmp(encoded.relocations[0].symbol, "callee7") == 0);
+    assert(encoded.relocations[0].offset >= 1u);
+    assert(encoded.code[encoded.relocations[0].offset - 1u] == 0xe8u);
+    encoded.relocations[0].offset = (uint32_t)encoded.code_size;
+    assert(!rcc_x86_verify_encoded_function(
+        &encoded, error, sizeof(error)));
+    assert(strstr(error, "relocation") != NULL);
+    rcc_x86_encoded_function_release(&encoded);
     if (legal->callee_save_count != 0u) {
         uint32_t original_offset = legal->callee_saves[0].frame_offset;
         legal->callee_saves[0].frame_offset += policy.pointer_size;
