@@ -8,6 +8,7 @@
 #include "mir.h"
 #include "mir_alloc.h"
 #include "mir_phi.h"
+#include "x86_select.h"
 
 typedef struct RccIrLowerLocal {
     const Decl* declaration;
@@ -1210,6 +1211,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         RccMirRegisterPolicy policy;
         RccMirAllocation allocation;
         RccMirPhiPlan phi_plan;
+        RccX86Function* selected = NULL;
         if (!rcc_mir_lower_ir(function, &mir, error, error_size)) {
             rcc_ir_module_destroy(module);
             return RCC_IR_LOWER_INVALID;
@@ -1233,6 +1235,19 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             rcc_ir_module_destroy(module);
             return RCC_IR_LOWER_INVALID;
         }
+        if (!rcc_x86_select_function(
+                mir,
+                g_opts.target_arch == ARCH_X64
+                    ? RCC_X86_TARGET_X86_64 : RCC_X86_TARGET_I686,
+                &policy, &allocation, &phi_plan, &selected,
+                error, error_size)) {
+            rcc_mir_phi_plan_release(&phi_plan);
+            rcc_mir_allocation_release(&allocation);
+            rcc_mir_function_destroy(mir);
+            rcc_ir_module_destroy(module);
+            return RCC_IR_LOWER_INVALID;
+        }
+        rcc_x86_function_destroy(selected);
         rcc_mir_phi_plan_release(&phi_plan);
         rcc_mir_allocation_release(&allocation);
         rcc_mir_function_destroy(mir);

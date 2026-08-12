@@ -1,6 +1,7 @@
 #include "mir.h"
 #include "mir_alloc.h"
 #include "mir_phi.h"
+#include "x86_select.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -246,6 +247,105 @@ static void verify_phi_parallel_copy_cycle(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_x86_critical_edge_selection_target(
+    RccX86Target target)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "critical", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrBlock* pivot = rcc_ir_block_add(ir, "pivot");
+    RccIrBlock* side = rcc_ir_block_add(ir, "side");
+    RccIrBlock* other = rcc_ir_block_add(ir, "other");
+    RccIrBlock* merge = rcc_ir_block_add(ir, "merge");
+    RccIrBlockId entry_targets[] = {pivot->id, side->id};
+    RccIrBlockId pivot_targets[] = {merge->id, other->id};
+    RccIrBlockId phi_targets[] = {pivot->id, side->id};
+    RccIrValue pivot_value;
+    RccIrValue side_value;
+    RccIrValue other_value;
+    RccIrValue phi_values[2];
+    RccIrInstruction* phi;
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    RccMirPhiPlan plan;
+    RccX86Function* selected = NULL;
+    RccX86Block* pivot_machine;
+    RccX86Block* split;
+    char error[256];
+    assert(rcc_ir_append(entry, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         &ir->parameters[0], 1u,
+                         entry_targets, 2u) != NULL);
+    pivot_value = append_const(pivot, i32, 1u);
+    assert(rcc_ir_append(pivot, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         &ir->parameters[0], 1u,
+                         pivot_targets, 2u) != NULL);
+    side_value = append_const(side, i32, 3u);
+    append_branch(side, merge->id);
+    other_value = append_const(other, i32, 9u);
+    assert(rcc_ir_append(other, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &other_value, 1u, NULL, 0u) != NULL);
+    phi_values[0] = pivot_value;
+    phi_values[1] = side_value;
+    phi = rcc_ir_append(merge, RCC_IR_PHI, i32, phi_values, 2u,
+                        phi_targets, 2u);
+    assert(phi != NULL);
+    assert(rcc_ir_append(merge, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &phi->result, 1u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    if (target == RCC_X86_TARGET_X86_64) {
+        rcc_mir_register_policy_x86_64(&policy);
+    } else {
+        rcc_mir_register_policy_i686(&policy);
+    }
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    assert(plan.edge_count == 2u);
+    assert(plan.edges[0].requires_edge_block ||
+           plan.edges[1].requires_edge_block);
+    assert(rcc_x86_select_function(
+        mir, target, &policy, &allocation, &plan,
+        &selected, error, sizeof(error)));
+    assert(selected->original_block_count == 5u);
+    assert(selected->block_count == 6u);
+    assert(selected->pointer_size ==
+           (target == RCC_X86_TARGET_X86_64 ? 8u : 4u));
+    pivot_machine = selected->first_block->next;
+    assert(pivot_machine->id == pivot->id);
+    assert(pivot_machine->last->opcode == RCC_X86_JUMP_IF);
+    assert(pivot_machine->last->targets[0] == 5u);
+    split = selected->last_block;
+    assert(split->edge_split);
+    assert(split->edge_predecessor == pivot->id);
+    assert(split->edge_successor == merge->id);
+    assert(split->first->opcode == RCC_X86_COPY);
+    assert(split->last->opcode == RCC_X86_JUMP);
+    assert(split->last->targets[0] == merge->id);
+    assert(rcc_x86_verify_function(
+        selected, &policy, error, sizeof(error)));
+    split->last->targets[0] = (uint32_t)selected->block_count;
+    assert(!rcc_x86_verify_function(
+        selected, &policy, error, sizeof(error)));
+    assert(strstr(error, "target") != NULL);
+    rcc_x86_function_destroy(selected);
+    rcc_mir_phi_plan_release(&plan);
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_x86_critical_edge_selection(void)
+{
+    verify_x86_critical_edge_selection_target(RCC_X86_TARGET_I686);
+    verify_x86_critical_edge_selection_target(RCC_X86_TARGET_X86_64);
+}
+
 static void verify_ir_to_mir_call(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -276,6 +376,7 @@ int main(void)
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();
     verify_phi_parallel_copy_cycle();
-    puts("MIR lowering, allocation, and phi-copy tests passed");
+    verify_x86_critical_edge_selection();
+    puts("MIR lowering, allocation, phi-copy, and x86 selection tests passed");
     return 0;
 }
