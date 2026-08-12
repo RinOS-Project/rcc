@@ -44,6 +44,16 @@ static bool x86_legal_native_scalar(
         type.bit_width <= (uint16_t)(abi->pointer_size * 8u);
 }
 
+static bool x86_legal_type_supported(
+    RccMirType type, const RccX86Abi* abi) {
+    if (type.kind == RCC_MIR_TYPE_VOID) return type.bit_width == 0u;
+    if (type.kind == RCC_MIR_TYPE_POINTER) return type.bit_width == 0u;
+    if (!x86_legal_native_scalar(type, abi)) return false;
+    return type.bit_width == 1u || type.bit_width == 8u ||
+        type.bit_width == 16u || type.bit_width == 32u ||
+        type.bit_width == 64u;
+}
+
 static uint32_t x86_legal_hardware_callee_mask(const RccX86Abi* abi) {
     uint32_t mask = 0u;
     size_t index;
@@ -1381,6 +1391,7 @@ bool rcc_x86_verify_legal_function(
             function->outgoing_stack_offset ||
         function->outgoing_stack_size != function->frame_size -
             function->outgoing_stack_offset ||
+        !x86_legal_type_supported(function->return_type, &abi) ||
         (function->has_parallel_copy_temporary &&
          (function->parallel_copy_temporary_offset >
               function->frame_size ||
@@ -1413,6 +1424,7 @@ bool rcc_x86_verify_legal_function(
                 (instruction->target_count != 0u &&
                  !instruction->targets) ||
                 !x86_legal_instruction_shape(instruction) ||
+                !x86_legal_type_supported(instruction->type, &abi) ||
                 (instruction->opcode == RCC_X86_LEGAL_CALL &&
                  instruction->immediate != 0u &&
                  (function->target != RCC_X86_TARGET_I686 ||
@@ -1443,7 +1455,11 @@ bool rcc_x86_verify_legal_function(
             }
             for (operand = 0u; operand < instruction->operand_count;
                  ++operand) {
-                if (!x86_legal_value_valid(
+                if (!x86_legal_type_supported(
+                        instruction->operand_types[operand], &abi) ||
+                    instruction->operand_types[operand].kind ==
+                        RCC_MIR_TYPE_VOID ||
+                    !x86_legal_value_valid(
                         instruction->operands[operand], function, &abi)) {
                     return x86_legal_error(error, error_size,
                                            "x86 legal operand is invalid");

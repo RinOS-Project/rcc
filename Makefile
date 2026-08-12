@@ -1716,6 +1716,18 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/verified-backend/packed-argument-fallback.log
 	grep -q "Verified backend fallback: function 'verified_packed_argument_fallback' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/packed-argument-fallback.log
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/wide-scalar-x86.ro \
+		tests/verified_backend_wide_scalar_fallback.c \
+		>$(TEST_OUT)/verified-backend/wide-scalar-x86.log
+	grep -q "Verified backend fallback: function 'verified_wide_scalar_fallback' is outside the typed SSA subset" \
+		$(TEST_OUT)/verified-backend/wide-scalar-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/wide-scalar-x64.ro \
+		tests/verified_backend_wide_scalar_fallback.c \
+		>$(TEST_OUT)/verified-backend/wide-scalar-x64.log
+	grep -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/wide-scalar-x64.log
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c

@@ -158,7 +158,10 @@ static bool lower_type(const Type* type, RccIrType* result) {
         case TYPE_LONG:
         case TYPE_LLONG:
         case TYPE_ENUM:
-            if (type->size <= 0 || type->size > 8) return false;
+            if (type->size <= 0 ||
+                type->size > (g_opts.target_arch == ARCH_X64 ? 8 : 4)) {
+                return false;
+            }
             *result = rcc_ir_type_integer((uint16_t)(type->size * 8));
             return true;
         case TYPE_PTR:

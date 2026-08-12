@@ -39,6 +39,16 @@ static bool x86_type_valid(RccMirType type) {
     return false;
 }
 
+static bool x86_type_supported_for_target(RccMirType type,
+                                          RccX86Target target) {
+    uint16_t maximum_width = target == RCC_X86_TARGET_X86_64 ? 64u : 32u;
+    if (!x86_type_valid(type)) return false;
+    if (type.kind == RCC_MIR_TYPE_VOID ||
+        type.kind == RCC_MIR_TYPE_POINTER) return true;
+    return type.kind == RCC_MIR_TYPE_INTEGER &&
+        type.bit_width <= maximum_width;
+}
+
 static bool x86_align_frame(uint32_t value, uint16_t alignment,
                             uint32_t* result) {
     uint32_t mask;
@@ -420,7 +430,8 @@ bool rcc_x86_verify_function(
         function->stack_alignment != policy->stack_alignment ||
         function->stack_alignment == 0u ||
         function->frame_size % function->stack_alignment != 0u ||
-        !x86_type_valid(function->return_type) ||
+        !x86_type_supported_for_target(
+            function->return_type, function->target) ||
         (function->parameter_count != 0u &&
          (!function->parameter_types || !function->parameters)) ||
         function->original_block_count == 0u ||
@@ -430,7 +441,8 @@ bool rcc_x86_verify_function(
     }
     for (size_t parameter = 0u;
          parameter < function->parameter_count; ++parameter) {
-        if (!x86_type_valid(function->parameter_types[parameter]) ||
+        if (!x86_type_supported_for_target(
+                function->parameter_types[parameter], function->target) ||
             function->parameter_types[parameter].kind ==
                 RCC_MIR_TYPE_VOID ||
             !x86_location_valid(function->parameters[parameter], policy,
@@ -457,6 +469,8 @@ bool rcc_x86_verify_function(
             size_t target;
             ++instruction_count;
             if (!x86_instruction_shape(instruction) ||
+                !x86_type_supported_for_target(
+                    instruction->type, function->target) ||
                 (instruction->opcode == RCC_X86_CAPTURE_RETURN_PAIR &&
                  (function->target != RCC_X86_TARGET_X86_64 ||
                   instruction->operand_types[0].kind !=
@@ -492,7 +506,10 @@ bool rcc_x86_verify_function(
                     return x86_select_error(error, error_size,
                                             "x86 operand is invalid");
                 }
-                if (instruction->operand_types[operand].kind ==
+                if (!x86_type_supported_for_target(
+                        instruction->operand_types[operand],
+                        function->target) ||
+                    instruction->operand_types[operand].kind ==
                         RCC_MIR_TYPE_VOID) {
                     return x86_select_error(error, error_size,
                                             "x86 operand type is invalid");
