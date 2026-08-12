@@ -4,6 +4,24 @@ static int verified_static_data = 5;
 extern int verified_external_data;
 int verified_global_array[3] = {4, 5, 6};
 
+struct VerifiedGlobalPair {
+    int first;
+    int values[2];
+};
+
+struct VerifiedGlobalHalves {
+    unsigned short low;
+    unsigned short high;
+};
+
+union VerifiedGlobalWord {
+    unsigned int bits;
+    struct VerifiedGlobalHalves halves;
+};
+
+struct VerifiedGlobalPair verified_global_pair = {8, {9, 10}};
+union VerifiedGlobalWord verified_global_word = {.bits = 0x00030002u};
+
 int verified_global_read(void)
 {
     return verified_global_data + verified_global_zero +
@@ -39,4 +57,21 @@ int verified_string_read(int index)
     const char* first = "RinOS";
     const char* second = "RinOS";
     return first[index] + second[index];
+}
+
+int verified_global_aggregate_read(int index)
+{
+    struct VerifiedGlobalPair copy = verified_global_pair;
+    return copy.first * 100 + copy.values[index] +
+        verified_global_word.halves.high;
+}
+
+int verified_global_aggregate_write(int value)
+{
+    verified_global_pair.values[0] = value;
+    verified_global_word.bits = 0x00050004u;
+    return verified_global_pair.first * 100 +
+        verified_global_pair.values[0] * 10 +
+        verified_global_word.halves.low +
+        verified_global_word.halves.high;
 }

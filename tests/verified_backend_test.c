@@ -540,6 +540,10 @@ static void verify_global_object(const char* path, uint16_t arch,
     ObjSymbol* array_write;
     ObjSymbol* string_constant;
     ObjSymbol* string_read;
+    ObjSymbol* global_pair;
+    ObjSymbol* global_word;
+    ObjSymbol* aggregate_read;
+    ObjSymbol* aggregate_write;
     ObjReloc* relocation;
     size_t absolute_relocations = 0u;
     size_t relative_relocations = 0u;
@@ -565,7 +569,13 @@ static void verify_global_object(const char* path, uint16_t arch,
         object,
         "tests/verified_backend_globals.c::verified_string_read::$rcc.constant.0");
     string_read = objfile_find_symbol(object, "verified_string_read");
-    assert(data != NULL && data->size == 20u &&
+    global_pair = objfile_find_symbol(object, "verified_global_pair");
+    global_word = objfile_find_symbol(object, "verified_global_word");
+    aggregate_read = objfile_find_symbol(
+        object, "verified_global_aggregate_read");
+    aggregate_write = objfile_find_symbol(
+        object, "verified_global_aggregate_write");
+    assert(data != NULL && data->size == 36u &&
            (data->flags & SECT_FLAG_WRITE) != 0u &&
            (data->flags & SECT_FLAG_EXEC) == 0u);
     assert(bss != NULL && bss->size == 0u && bss->memory_size == 4u);
@@ -599,6 +609,16 @@ static void verify_global_object(const char* path, uint16_t arch,
            string_constant->section >= 0 && string_constant->size == 6u);
     assert(string_read != NULL && string_read->binding == BIND_CODE &&
            string_read->section == 0);
+    assert(global_pair != NULL && global_pair->type == SYM_GLOBAL &&
+           global_pair->binding == BIND_DATA && global_pair->section >= 0);
+    assert(global_word != NULL && global_word->type == SYM_GLOBAL &&
+           global_word->binding == BIND_DATA && global_word->section >= 0);
+    assert(aggregate_read != NULL &&
+           aggregate_read->binding == BIND_CODE &&
+           aggregate_read->section == 0);
+    assert(aggregate_write != NULL &&
+           aggregate_write->binding == BIND_CODE &&
+           aggregate_write->section == 0);
     for (relocation = text->relocs; relocation != NULL;
          relocation = relocation->next) {
         if (relocation->type == RELOC_REL32) {
@@ -618,6 +638,8 @@ static void verify_global_object(const char* path, uint16_t arch,
         int (*array_read_function)(int);
         int (*array_write_function)(int, int);
         int (*string_function)(int);
+        int (*aggregate_read_function)(int);
+        int (*aggregate_write_function)(int);
         void* address = (uint8_t*)mapping.bases[0] + read_symbol->value;
         memcpy(&read_function, &address, sizeof(read_function));
         address = (uint8_t*)mapping.bases[0] + write_symbol->value;
@@ -631,6 +653,12 @@ static void verify_global_object(const char* path, uint16_t arch,
                sizeof(array_write_function));
         address = (uint8_t*)mapping.bases[0] + string_read->value;
         memcpy(&string_function, &address, sizeof(string_function));
+        address = (uint8_t*)mapping.bases[0] + aggregate_read->value;
+        memcpy(&aggregate_read_function, &address,
+               sizeof(aggregate_read_function));
+        address = (uint8_t*)mapping.bases[0] + aggregate_write->value;
+        memcpy(&aggregate_write_function, &address,
+               sizeof(aggregate_write_function));
         assert(read_function() == 12);
         assert(write_function(20) == 48);
         assert(read_function() == 48);
@@ -639,6 +667,9 @@ static void verify_global_object(const char* path, uint16_t arch,
         assert(array_write_function(1, 17) == 17);
         assert(array_read_function(1) == 17);
         assert(string_function(1) == 'i' * 2);
+        assert(aggregate_read_function(1) == 813);
+        assert(aggregate_write_function(12) == 929);
+        assert(aggregate_read_function(0) == 817);
         unmap_object(&mapping);
     }
     objfile_free(object);
