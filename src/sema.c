@@ -238,6 +238,10 @@ static bool sema_is_integer_type(Type* type) {
     return type && (type_is_integer(type) || type->kind == TYPE_ENUM);
 }
 
+static bool sema_is_cxx_nullptr_expr(const Expr* expression) {
+    return expression && expression->is_cxx_nullptr;
+}
+
 static Type* sema_integer_promotion(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -785,7 +789,10 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_NEG: {
             Type* t = sema_expr(expr->unary_operand);
-            if (!type_is_arithmetic(t) && t->kind != TYPE_ENUM) {
+            if (sema_is_cxx_nullptr_expr(expr->unary_operand)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support arithmetic operators");
+            } else if (!type_is_arithmetic(t) && t->kind != TYPE_ENUM) {
                 rcc_error(expr->loc, "invalid operand type for unary operator");
             }
             expr->type = sema_is_integer_type(t)
@@ -795,7 +802,10 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_BITNOT: {
             Type* t = sema_expr(expr->unary_operand);
-            if (!sema_is_integer_type(t)) {
+            if (sema_is_cxx_nullptr_expr(expr->unary_operand)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support integer operators");
+            } else if (!sema_is_integer_type(t)) {
                 rcc_error(expr->loc,
                           "bitwise complement requires integer operand");
             }
@@ -911,13 +921,20 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_SUB: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
+            bool has_nullptr =
+                sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
+                sema_is_cxx_nullptr_expr(expr->binary_rhs);
             bool left_pointer = type_is_pointer(lt) || type_is_array(lt);
             bool right_pointer = type_is_pointer(rt) || type_is_array(rt);
             Type* left_result = type_is_array(lt) ? type_ptr(lt->base) : lt;
             Type* right_result = type_is_array(rt) ? type_ptr(rt->base) : rt;
 
             /* Pointer arithmetic */
-            if (left_pointer && type_is_integer(rt)) {
+            if (has_nullptr) {
+                rcc_error(expr->loc,
+                          "nullptr does not support arithmetic operators");
+                expr->type = type_int;
+            } else if (left_pointer && type_is_integer(rt)) {
                 if (!is_pointer_arithmetic_type(lt)) {
                     rcc_error(expr->loc,
                               "pointer arithmetic requires a complete object type");
@@ -954,7 +971,11 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_DIV: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!type_is_arithmetic(lt) || !type_is_arithmetic(rt)) {
+            if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
+                sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support arithmetic operators");
+            } else if (!type_is_arithmetic(lt) || !type_is_arithmetic(rt)) {
                 rcc_error(expr->loc, "invalid operands to binary operator");
             }
             expr->type = type_common(lt, rt);
@@ -1046,7 +1067,12 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_MOD: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!sema_is_integer_type(lt) || !sema_is_integer_type(rt)) {
+            if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
+                sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support integer operators");
+            } else if (!sema_is_integer_type(lt) ||
+                       !sema_is_integer_type(rt)) {
                 rcc_error(expr->loc, "remainder operator requires integer operands");
             }
             expr->type = type_common(sema_integer_promotion(lt),
@@ -1059,7 +1085,12 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_BITXOR: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!sema_is_integer_type(lt) || !sema_is_integer_type(rt)) {
+            if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
+                sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support integer operators");
+            } else if (!sema_is_integer_type(lt) ||
+                       !sema_is_integer_type(rt)) {
                 rcc_error(expr->loc, "bitwise operator requires integer operands");
             }
             expr->type = type_common(sema_integer_promotion(lt),
@@ -1071,7 +1102,12 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_RSHIFT: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!sema_is_integer_type(lt) || !sema_is_integer_type(rt)) {
+            if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
+                sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support integer operators");
+            } else if (!sema_is_integer_type(lt) ||
+                       !sema_is_integer_type(rt)) {
                 rcc_error(expr->loc, "shift operator requires integer operands");
             }
             /* C17 6.5.7 promotes each operand independently; unlike most
@@ -1091,24 +1127,39 @@ static Type* sema_expr(Expr* expr) {
             Type* right = sema_expr(expr->binary_rhs);
             Type* left_value = generic_selection_type(left);
             Type* right_value = generic_selection_type(right);
-            bool arithmetic = (type_is_arithmetic(left_value) ||
+            bool equality = expr->kind == EXPR_EQ || expr->kind == EXPR_NE;
+            bool left_nullptr =
+                sema_is_cxx_nullptr_expr(expr->binary_lhs);
+            bool right_nullptr =
+                sema_is_cxx_nullptr_expr(expr->binary_rhs);
+            bool arithmetic = !left_nullptr && !right_nullptr &&
+                              (type_is_arithmetic(left_value) ||
                                left_value->kind == TYPE_ENUM) &&
                               (type_is_arithmetic(right_value) ||
                                right_value->kind == TYPE_ENUM);
             bool pointers = type_is_pointer(left_value) &&
                             type_is_pointer(right_value);
-            int64_t null_value = 1;
-            bool pointer_null = (expr->kind == EXPR_EQ ||
-                                 expr->kind == EXPR_NE) &&
+            int64_t left_constant = 1;
+            int64_t right_constant = 1;
+            bool left_zero = sema_is_integer_type(left_value) &&
+                expr_eval_integer_constant(expr->binary_lhs,
+                                           &left_constant) &&
+                left_constant == 0;
+            bool right_zero = sema_is_integer_type(right_value) &&
+                expr_eval_integer_constant(expr->binary_rhs,
+                                           &right_constant) &&
+                right_constant == 0;
+            bool nullptr_equality = equality &&
+                ((left_nullptr && right_nullptr) ||
+                 (left_nullptr && right_zero) ||
+                 (right_nullptr && left_zero));
+            bool pointer_null = equality &&
                 ((type_is_pointer(left_value) &&
-                  sema_is_integer_type(right_value) &&
-                  expr_eval_integer_constant(expr->binary_rhs, &null_value) &&
-                  null_value == 0) ||
+                  (right_nullptr || right_zero)) ||
                  (type_is_pointer(right_value) &&
-                  sema_is_integer_type(left_value) &&
-                  expr_eval_integer_constant(expr->binary_lhs, &null_value) &&
-                  null_value == 0));
-            if (!arithmetic && !pointers && !pointer_null) {
+                  (left_nullptr || left_zero)));
+            if (!arithmetic && !pointers && !pointer_null &&
+                !nullptr_equality) {
                 rcc_error(expr->loc,
                           "comparison requires arithmetic or pointer operands");
             }
@@ -1144,8 +1195,12 @@ static Type* sema_expr(Expr* expr) {
             if (!is_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc, "assignment requires lvalue");
             }
-            if (!((type_is_pointer(lt) && is_pointer_arithmetic_type(lt) &&
-                   type_is_integer(rt)) ||
+            if (sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support arithmetic operators");
+            } else if (!((type_is_pointer(lt) &&
+                          is_pointer_arithmetic_type(lt) &&
+                          type_is_integer(rt)) ||
                   (type_is_arithmetic(lt) && type_is_arithmetic(rt)))) {
                 rcc_error(expr->loc,
                           "invalid operands to compound pointer arithmetic");
@@ -1161,7 +1216,11 @@ static Type* sema_expr(Expr* expr) {
             if (!is_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc, "assignment requires lvalue");
             }
-            if (!type_is_arithmetic(lt) || !type_is_arithmetic(rt)) {
+            if (sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support arithmetic operators");
+            } else if (!type_is_arithmetic(lt) ||
+                       !type_is_arithmetic(rt)) {
                 rcc_error(expr->loc,
                           "multiplicative compound assignment requires arithmetic operands");
             }
@@ -1180,7 +1239,10 @@ static Type* sema_expr(Expr* expr) {
             if (!is_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc, "assignment requires lvalue");
             }
-            if (!type_is_integer(lt) || !type_is_integer(rt)) {
+            if (sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
+                rcc_error(expr->loc,
+                          "nullptr does not support integer operators");
+            } else if (!type_is_integer(lt) || !type_is_integer(rt)) {
                 rcc_error(expr->loc,
                           "integer compound assignment requires integer operands");
             }
@@ -1193,6 +1255,11 @@ static Type* sema_expr(Expr* expr) {
             sema_expr(expr->binary_rhs);
             if (!is_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc, "assignment requires lvalue");
+            }
+            if (sema_is_cxx_nullptr_expr(expr->binary_rhs) &&
+                !type_is_pointer(lt)) {
+                rcc_error(expr->loc,
+                          "nullptr can only be assigned to a pointer");
             }
             sema_prepare_cxx_move_assignment(expr, lt);
             expr->type = lt;
@@ -1985,6 +2052,11 @@ static Type* sema_deduce_auto_type(Decl* declaration) {
     }
     deduced = declaration->var_init->type;
     if (!deduced) deduced = sema_expr(declaration->var_init);
+    if (declaration->var_init->is_cxx_nullptr) {
+        rcc_error(declaration->loc,
+                  "auto deduction for nullptr_t is not supported yet");
+        return type_int;
+    }
     if (deduced && deduced->is_reference && deduced->kind == TYPE_PTR) {
         deduced = deduced->base;
     } else if (deduced && deduced->kind == TYPE_ARRAY) {

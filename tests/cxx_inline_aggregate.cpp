@@ -224,6 +224,19 @@ int cxx_nullptr_context(void) {
     return nullptr ? -1 : 1;
 }
 
+int cxx_nullptr_comparisons(void* value) {
+    return (nullptr == nullptr) * 1000 +
+           (nullptr != nullptr) * 100 +
+           (value != nullptr) * 10 +
+           (nullptr == 0);
+}
+
+int cxx_nullptr_assignment(void* value) {
+    void* pointer = value;
+    pointer = nullptr;
+    return pointer == nullptr;
+}
+
 int cxx_direct_value_init(void) {
     return RinSliceV1{}.address == 0 && RinSliceV1{}.size == 0;
 }

@@ -213,6 +213,21 @@ test-cxx-overloads: $(RCXX_TARGET)
 		test $$status -ne 0
 	grep -q "incompatible type for argument 1 to 'consume_integer'" \
 		$(TEST_OUT)/cxx-overloads/nullptr-integer.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/nullptr-operators.ro \
+		tests/cxx_nullptr_operators_rejected.cpp \
+		>$(TEST_OUT)/cxx-overloads/nullptr-operators.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "nullptr does not support arithmetic operators" \
+		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
+	grep -q "nullptr does not support integer operators" \
+		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
+	grep -q "comparison requires arithmetic or pointer operands" \
+		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
+	grep -q "auto deduction for nullptr_t is not supported yet" \
+		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
+	grep -q "nullptr can only be assigned to a pointer" \
+		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
 	@echo "RCC++ overload resolution tests completed"
 
 test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
