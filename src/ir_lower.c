@@ -71,6 +71,10 @@ static bool lower_switch(RccIrLowerContext* context,
                          const Stmt* statement);
 static bool lower_switch_case(RccIrLowerContext* context,
                               const Stmt* statement);
+static bool lower_struct_type_supported(const Type* type);
+static bool lower_copy_struct_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type);
 
 static RccIrLowerValue lower_invalid_value(void) {
     RccIrLowerValue value;
@@ -676,6 +680,29 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (expression->binary_lhs && expression->binary_lhs->type &&
+        expression->binary_lhs->type->kind == TYPE_STRUCT) {
+        RccIrLowerValue destination;
+        if (!expression->binary_rhs || !expression->binary_rhs->type ||
+            expression->binary_rhs->type->kind != TYPE_STRUCT ||
+            !type_is_compatible(expression->binary_lhs->type,
+                                expression->binary_rhs->type) ||
+            !lower_struct_type_supported(expression->binary_lhs->type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        destination = lower_lvalue_address(
+            context, expression->binary_lhs);
+        value = lower_expression(context, expression->binary_rhs);
+        if (!destination.valid || !value.valid ||
+            value.type.kind != RCC_IR_TYPE_POINTER ||
+            !lower_copy_struct_storage(
+                context, destination.value, value.value,
+                expression->binary_lhs->type)) {
+            return lower_invalid_value();
+        }
+        return destination;
+    }
     value = lower_expression(context, expression->binary_rhs);
     if (!value.valid || !expression->binary_lhs ||
         !expression->binary_lhs->type) {
@@ -918,7 +945,9 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 context, type, expression->type->is_unsigned,
                 (unsigned char)expression->char_val);
         case EXPR_IDENT:
-            if (expression->type && expression->type->kind == TYPE_ARRAY) {
+            if (expression->type &&
+                (expression->type->kind == TYPE_ARRAY ||
+                 expression->type->kind == TYPE_STRUCT)) {
                 return lower_lvalue_address(context, expression);
             }
             return lower_load_lvalue(context, expression);
@@ -975,6 +1004,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_ADDR:
             return lower_lvalue_address(context, expression->unary_operand);
         case EXPR_DEREF:
+            if (expression->type &&
+                expression->type->kind == TYPE_STRUCT) {
+                return lower_lvalue_address(context, expression);
+            }
             return lower_load_lvalue(context, expression);
         case EXPR_PREINC:
         case EXPR_PREDEC:
@@ -1992,6 +2025,32 @@ static bool lower_struct_type_supported(const Type* type) {
     return true;
 }
 
+static bool lower_copy_struct_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type) {
+    const TypeField* field;
+    if (!lower_struct_type_supported(type)) {
+        context->unsupported = true;
+        return false;
+    }
+    for (field = type->fields; field; field = field->next) {
+        RccIrLowerValue destination_base = lower_value(
+            destination, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue source_base = lower_value(
+            source, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue destination_address = lower_byte_offset_address(
+            context, destination_base, (uint64_t)field->offset);
+        RccIrLowerValue source_address = lower_byte_offset_address(
+            context, source_base, (uint64_t)field->offset);
+        RccIrLowerValue value = lower_load_address(
+            context, source_address, field->type);
+        if (!destination_address.valid || !source_address.valid ||
+            !value.valid || !lower_store_address(
+                context, destination_address, value)) return false;
+    }
+    return true;
+}
+
 static const TypeField* lower_struct_field(
     const Type* type, const char* name) {
     const TypeField* field;
@@ -2106,9 +2165,26 @@ static bool lower_declaration(RccIrLowerContext* context,
             declaration->type, declaration->var_init);
     }
     if (is_struct && declaration->var_init) {
-        return lower_struct_initializer(
-            context, allocation->result,
-            declaration->type, declaration->var_init);
+        if (declaration->var_init->kind == EXPR_COMPOUND) {
+            return lower_struct_initializer(
+                context, allocation->result,
+                declaration->type, declaration->var_init);
+        }
+        {
+            RccIrLowerValue initializer = lower_expression(
+                context, declaration->var_init);
+            if (!initializer.valid ||
+                initializer.type.kind != RCC_IR_TYPE_POINTER ||
+                !declaration->var_init->type ||
+                !type_is_compatible(
+                    declaration->type, declaration->var_init->type)) {
+                context->unsupported = true;
+                return false;
+            }
+            return lower_copy_struct_storage(
+                context, allocation->result, initializer.value,
+                declaration->type);
+        }
     }
     if (declaration->var_init) {
         RccIrLowerValue initializer = lower_expression(

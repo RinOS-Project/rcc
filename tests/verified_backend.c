@@ -66,9 +66,19 @@ int verified_struct(int left, int right, int* value)
         .first = left,
         .pointer = value,
     };
-    struct VerifiedPair* view = &pair;
+    struct VerifiedPair copy = pair;
+    struct VerifiedPair target = {0};
+    target = copy = pair;
+    struct VerifiedPair* view = &target;
     view->second += *view->pointer;
-    return view->first * 100 + view->second;
+    return view->first * 100 + view->second +
+        (copy.first == pair.first ? 0 : 10000);
+}
+
+int verified_struct_copy_pointer(struct VerifiedPair* source)
+{
+    struct VerifiedPair copy = *source;
+    return copy.first * 100 + copy.second + *copy.pointer;
 }
 
 int verified_pointer_add(int* base, int index)

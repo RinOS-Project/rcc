@@ -11,6 +11,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+struct VerifiedPair {
+    int first;
+    int second;
+    int* pointer;
+};
+
 static void* map_text(const ObjSection* text, size_t* mapping_size)
 {
     long page = sysconf(_SC_PAGESIZE);
@@ -49,6 +55,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* local_string_array;
     ObjSymbol* nested_array;
     ObjSymbol* struct_symbol;
+    ObjSymbol* struct_copy_pointer;
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
@@ -78,6 +85,8 @@ static void verify_object(const char* path, uint16_t arch)
         object, "verified_local_string_array");
     nested_array = objfile_find_symbol(object, "verified_nested_array");
     struct_symbol = objfile_find_symbol(object, "verified_struct");
+    struct_copy_pointer = objfile_find_symbol(
+        object, "verified_struct_copy_pointer");
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
@@ -118,6 +127,9 @@ static void verify_object(const char* path, uint16_t arch)
            nested_array->section == 0);
     assert(struct_symbol != NULL && struct_symbol->type == SYM_GLOBAL &&
            struct_symbol->section == 0);
+    assert(struct_copy_pointer != NULL &&
+           struct_copy_pointer->type == SYM_GLOBAL &&
+           struct_copy_pointer->section == 0);
     assert(pointer_add != NULL && pointer_add->type == SYM_GLOBAL &&
            pointer_add->section == 0);
     assert(pointer_sub != NULL && pointer_sub->type == SYM_GLOBAL &&
@@ -149,7 +161,7 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 23);
+    assert(object->symbol_count == 24);
     relocation = text->relocs;
     assert(relocation != NULL && relocation->next == NULL);
     assert(relocation->type == RELOC_REL32);
@@ -173,6 +185,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*local_string_array_function)(int);
     int (*nested_array_function)(void);
     int (*struct_function)(int, int, int*);
+    int (*struct_copy_pointer_function)(struct VerifiedPair*);
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
@@ -219,6 +232,16 @@ static void verify_native_execution(const char* path, uint16_t arch)
     address = symbol_address(memory, symbol);
     memcpy(&struct_function, &address, sizeof(struct_function));
     assert(struct_function(2, 3, values) == 214);
+
+    {
+        struct VerifiedPair pair = {4, 5, values};
+        symbol = objfile_find_symbol(
+            object, "verified_struct_copy_pointer");
+        address = symbol_address(memory, symbol);
+        memcpy(&struct_copy_pointer_function, &address,
+               sizeof(struct_copy_pointer_function));
+        assert(struct_copy_pointer_function(&pair) == 416);
+    }
 
     symbol = objfile_find_symbol(object, "verified_pointer_add");
     address = symbol_address(memory, symbol);
