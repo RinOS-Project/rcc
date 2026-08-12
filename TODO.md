@@ -90,6 +90,7 @@
 - [ ] constant propagation / folding
   - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
   - [x] 8/16/32/64-bit unsigned modulo演算・shift・比較・narrow cast folding
+  - [x] alias/control-flow barrier付きblock-local整数constant propagation
 - [ ] mem2reg、DCE、CSE/GVN
   - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
     （`goto`および`case/default`からのentryを保持）

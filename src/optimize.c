@@ -8,6 +8,7 @@
 
 static void optimize_expr(Expr** expression);
 static void optimize_stmt(Stmt* statement);
+static void propagate_block_constants(Stmt* statement);
 
 static bool expression_has_side_effect(const Expr* expression);
 
@@ -180,6 +181,21 @@ static void optimize_block(Stmt* statement) {
         }
         if (!reachable) reachable = true;
         optimize_stmt(item->stmt);
+        if (statement_transfers_control(item->stmt)) reachable = false;
+        link = &item->next;
+    }
+    propagate_block_constants(statement);
+
+    /* Propagation may turn a conditional into an unconditional transfer. */
+    reachable = true;
+    link = &statement->block_stmts;
+    while (*link) {
+        StmtList* item = *link;
+        if (!reachable && !statement_contains_label(item->stmt)) {
+            *link = item->next;
+            continue;
+        }
+        if (!reachable) reachable = true;
         if (statement_transfers_control(item->stmt)) reachable = false;
         link = &item->next;
     }
@@ -713,6 +729,351 @@ static void optimize_expr(Expr** expression) {
             return;
         default:
             return;
+    }
+}
+
+typedef struct LocalConstant {
+    Decl* declaration;
+    int64_t value;
+    bool known;
+    struct LocalConstant* next;
+} LocalConstant;
+
+typedef struct {
+    LocalConstant* bindings;
+} ConstantState;
+
+static LocalConstant* find_local_constant(ConstantState* state,
+                                          const Decl* declaration) {
+    LocalConstant* binding = state ? state->bindings : NULL;
+    while (binding && binding->declaration != declaration) {
+        binding = binding->next;
+    }
+    return binding;
+}
+
+static void clear_local_constants(ConstantState* state) {
+    if (!state) return;
+    for (LocalConstant* binding = state->bindings; binding;
+         binding = binding->next) {
+        binding->known = false;
+    }
+}
+
+static int64_t normalize_local_constant(Type* type, int64_t value) {
+    if (!type || integer_width(type) == 0) return value;
+    if (type->kind == TYPE_BOOL) return value != 0;
+    if (type->is_unsigned) {
+        return integer_bits_to_value(integer_unsigned_value(value, type));
+    }
+    return integer_signed_value(value, type);
+}
+
+static void set_local_constant(ConstantState* state, Decl* declaration,
+                               int64_t value) {
+    LocalConstant* binding = find_local_constant(state, declaration);
+    if (!binding || !declaration || !declaration->type) return;
+    binding->value = normalize_local_constant(declaration->type, value);
+    binding->known = true;
+}
+
+static void invalidate_local_constant(ConstantState* state,
+                                      const Decl* declaration) {
+    LocalConstant* binding = find_local_constant(state, declaration);
+    if (binding) binding->known = false;
+}
+
+static void declare_local_constant(ConstantState* state, Decl* declaration) {
+    LocalConstant* binding;
+    int64_t value;
+    if (!state || !declaration || declaration->kind != DECL_VAR ||
+        declaration->var_is_global || declaration->var_is_thread_local ||
+        declaration->storage == STORAGE_EXTERN ||
+        declaration->storage == STORAGE_STATIC || !declaration->type ||
+        !type_is_integer(declaration->type) ||
+        declaration->type->is_volatile) {
+        return;
+    }
+    binding = ast_arena_alloc(sizeof(*binding));
+    binding->declaration = declaration;
+    binding->known = false;
+    binding->next = state->bindings;
+    state->bindings = binding;
+    if (integer_literal(declaration->var_init, &value)) {
+        set_local_constant(state, declaration, value);
+    }
+}
+
+static void propagate_constant_expr(Expr** expression, ConstantState* state);
+
+static void propagate_constant_lvalue(Expr* expression,
+                                      ConstantState* state) {
+    if (!expression) return;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            return;
+        case EXPR_DEREF:
+            propagate_constant_expr(&expression->unary_operand, state);
+            return;
+        case EXPR_INDEX:
+            propagate_constant_expr(&expression->index_base, state);
+            propagate_constant_expr(&expression->index_expr, state);
+            return;
+        case EXPR_MEMBER:
+            propagate_constant_lvalue(expression->member_base, state);
+            return;
+        case EXPR_PTR_MEMBER:
+            propagate_constant_expr(&expression->member_base, state);
+            return;
+        default:
+            return;
+    }
+}
+
+static void propagate_constant_expr_list(ExprList* list,
+                                         ConstantState* state) {
+    for (ExprList* item = list; item; item = item->next) {
+        propagate_constant_expr(&item->expr, state);
+    }
+}
+
+static void propagate_constant_expr(Expr** expression, ConstantState* state) {
+    Expr* value;
+    LocalConstant* binding;
+    int64_t condition;
+    bool arguments_have_side_effect = false;
+    if (!expression || !*expression || !state) return;
+    value = *expression;
+
+    switch (value->kind) {
+        case EXPR_IDENT:
+            binding = find_local_constant(state, value->ident_decl);
+            if (binding && binding->known && value->type &&
+                !value->type->is_volatile) {
+                replace_integer(value, binding->value);
+            }
+            return;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_DEREF:
+            propagate_constant_expr(&value->unary_operand, state);
+            optimize_expr(expression);
+            return;
+        case EXPR_CAST:
+            propagate_constant_expr(&value->cast_expr, state);
+            optimize_expr(expression);
+            return;
+        case EXPR_ADDR:
+            if (value->unary_operand &&
+                value->unary_operand->kind == EXPR_IDENT) {
+                invalidate_local_constant(
+                    state, value->unary_operand->ident_decl);
+            }
+            propagate_constant_lvalue(value->unary_operand, state);
+            return;
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            propagate_constant_lvalue(value->unary_operand, state);
+            if (value->unary_operand &&
+                value->unary_operand->kind == EXPR_IDENT) {
+                invalidate_local_constant(
+                    state, value->unary_operand->ident_decl);
+            } else {
+                clear_local_constants(state);
+            }
+            return;
+        case EXPR_ASSIGN:
+            propagate_constant_lvalue(value->binary_lhs, state);
+            propagate_constant_expr(&value->binary_rhs, state);
+            optimize_expr(&value->binary_rhs);
+            if (value->cxx_move_assignment) {
+                clear_local_constants(state);
+            } else if (value->binary_lhs &&
+                       value->binary_lhs->kind == EXPR_IDENT) {
+                int64_t assigned;
+                binding = find_local_constant(
+                    state, value->binary_lhs->ident_decl);
+                if (binding && integer_literal(value->binary_rhs, &assigned)) {
+                    set_local_constant(state,
+                                       value->binary_lhs->ident_decl,
+                                       assigned);
+                } else if (binding) {
+                    binding->known = false;
+                }
+            } else {
+                clear_local_constants(state);
+            }
+            return;
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            propagate_constant_lvalue(value->binary_lhs, state);
+            propagate_constant_expr(&value->binary_rhs, state);
+            if (value->binary_lhs &&
+                value->binary_lhs->kind == EXPR_IDENT) {
+                invalidate_local_constant(
+                    state, value->binary_lhs->ident_decl);
+            } else {
+                clear_local_constants(state);
+            }
+            return;
+        case EXPR_AND:
+        case EXPR_OR:
+            propagate_constant_expr(&value->binary_lhs, state);
+            optimize_expr(&value->binary_lhs);
+            if (integer_literal(value->binary_lhs, &condition) &&
+                ((value->kind == EXPR_AND && condition == 0) ||
+                 (value->kind == EXPR_OR && condition != 0))) {
+                optimize_expr(expression);
+                return;
+            }
+            propagate_constant_expr(&value->binary_rhs, state);
+            clear_local_constants(state);
+            optimize_expr(expression);
+            return;
+        case EXPR_COND:
+            propagate_constant_expr(&value->cond_test, state);
+            optimize_expr(&value->cond_test);
+            if (integer_literal(value->cond_test, &condition)) {
+                Expr** selected = condition != 0
+                    ? &value->cond_then : &value->cond_else;
+                propagate_constant_expr(selected, state);
+                optimize_expr(expression);
+                return;
+            }
+            clear_local_constants(state);
+            return;
+        case EXPR_COMMA:
+            propagate_constant_expr(&value->binary_lhs, state);
+            propagate_constant_expr(&value->binary_rhs, state);
+            optimize_expr(expression);
+            return;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            propagate_constant_expr(&value->binary_lhs, state);
+            propagate_constant_expr(&value->binary_rhs, state);
+            optimize_expr(expression);
+            return;
+        case EXPR_CALL:
+            for (ExprList* item = value->call_args; item; item = item->next) {
+                if (expression_has_side_effect(item->expr)) {
+                    arguments_have_side_effect = true;
+                    break;
+                }
+            }
+            if (!arguments_have_side_effect) {
+                propagate_constant_expr_list(value->call_args, state);
+            }
+            clear_local_constants(state);
+            return;
+        case EXPR_INDEX:
+            propagate_constant_expr(&value->index_base, state);
+            propagate_constant_expr(&value->index_expr, state);
+            return;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            propagate_constant_expr(&value->member_base, state);
+            return;
+        case EXPR_COMPOUND:
+            propagate_constant_expr_list(value->compound_init, state);
+            return;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            clear_local_constants(state);
+            return;
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_GENERIC:
+            return;
+    }
+}
+
+static void propagate_block_constants(Stmt* statement) {
+    ConstantState state = {0};
+    if (!statement || statement->kind != STMT_BLOCK) return;
+    for (StmtList* item = statement->block_stmts; item; item = item->next) {
+        Stmt* current = item->stmt;
+        if (!current) continue;
+        switch (current->kind) {
+            case STMT_DECL:
+                if (current->decl && current->decl->kind == DECL_VAR) {
+                    propagate_constant_expr(&current->decl->var_init, &state);
+                    optimize_expr(&current->decl->var_init);
+                    declare_local_constant(&state, current->decl);
+                }
+                break;
+            case STMT_EXPR:
+                propagate_constant_expr(&current->expr, &state);
+                optimize_expr(&current->expr);
+                if (!expression_has_side_effect(current->expr)) {
+                    current->kind = STMT_NULL;
+                    current->expr = NULL;
+                }
+                break;
+            case STMT_RETURN:
+                propagate_constant_expr(&current->return_val, &state);
+                optimize_expr(&current->return_val);
+                break;
+            case STMT_IF:
+                propagate_constant_expr(&current->if_cond, &state);
+                optimize_stmt(current);
+                clear_local_constants(&state);
+                break;
+            case STMT_WHILE:
+            case STMT_DO:
+            case STMT_FOR:
+                /* Loop conditions observe mutations from earlier iterations,
+                 * so block-entry constants are not valid in the condition. */
+                clear_local_constants(&state);
+                break;
+            case STMT_SWITCH:
+                propagate_constant_expr(&current->switch_expr, &state);
+                optimize_stmt(current);
+                clear_local_constants(&state);
+                break;
+            case STMT_BLOCK:
+            case STMT_CASE:
+            case STMT_DEFAULT:
+            case STMT_GOTO:
+            case STMT_LABEL:
+            case STMT_ASM:
+                clear_local_constants(&state);
+                break;
+            case STMT_BREAK:
+            case STMT_CONTINUE:
+            case STMT_NULL:
+                break;
+        }
     }
 }
 

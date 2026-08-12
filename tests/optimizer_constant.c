@@ -157,6 +157,81 @@ int preserved_call_expression(int* value)
     return *value;
 }
 
+int propagated_local_arithmetic(void)
+{
+    int first = 7;
+    int second = first + 5;
+    return second * 3;
+}
+
+int propagated_local_assignment(void)
+{
+    int value = 2;
+    value = 7;
+    return value * 6;
+}
+
+unsigned int propagated_unsigned_narrow(void)
+{
+    unsigned char value = 260;
+    return value + 1;
+}
+
+int propagated_local_branch(int* value)
+{
+    int choice = 8;
+    if (choice == 8) {
+        return 41;
+    }
+    *value = 99;
+    return *value;
+}
+
+static void optimizer_mutate_local(int* value)
+{
+    *value = 23;
+}
+
+int preserved_call_barrier(void)
+{
+    int value = 5;
+    optimizer_mutate_local(&value);
+    return value;
+}
+
+int preserved_address_alias(void)
+{
+    int value = 6;
+    int* alias = &value;
+    *alias = 29;
+    return value;
+}
+
+int preserved_conditional_state(int flag)
+{
+    int value = 1;
+    flag ? (value = 2) : 0;
+    return value;
+}
+
+int preserved_do_state(void)
+{
+    int value = 0;
+    do {
+        value += 1;
+    } while (value < 3);
+    return value;
+}
+
+int preserved_while_state(void)
+{
+    int value = 0;
+    while (value < 3) {
+        value += 1;
+    }
+    return value;
+}
+
 int folded_branch(int* value)
 {
     if ((2 + 2) == 4) {

@@ -93,6 +93,14 @@ static void verify_smaller(const char* unoptimized_path,
                            "preserved_volatile_pointer_read"));
     assert(function_extent(optimized, "preserved_call_expression") ==
            function_extent(unoptimized, "preserved_call_expression"));
+    assert(function_extent(optimized, "propagated_local_arithmetic") <
+           function_extent(unoptimized, "propagated_local_arithmetic"));
+    assert(function_extent(optimized, "propagated_local_assignment") <
+           function_extent(unoptimized, "propagated_local_assignment"));
+    assert(function_extent(optimized, "propagated_unsigned_narrow") <
+           function_extent(unoptimized, "propagated_unsigned_narrow"));
+    assert(function_extent(optimized, "propagated_local_branch") <
+           function_extent(unoptimized, "propagated_local_branch"));
     objfile_free(unoptimized);
     objfile_free(optimized);
 }
@@ -158,6 +166,24 @@ int main(int argc, char** argv)
             object, "preserved_volatile_pointer_read");
         ObjSymbol* qualified_pointer_levels_symbol = function_symbol(
             object, "qualified_pointer_levels");
+        ObjSymbol* propagated_local_arithmetic_symbol = function_symbol(
+            object, "propagated_local_arithmetic");
+        ObjSymbol* propagated_local_assignment_symbol = function_symbol(
+            object, "propagated_local_assignment");
+        ObjSymbol* propagated_unsigned_narrow_symbol = function_symbol(
+            object, "propagated_unsigned_narrow");
+        ObjSymbol* propagated_local_branch_symbol = function_symbol(
+            object, "propagated_local_branch");
+        ObjSymbol* preserved_call_barrier_symbol = function_symbol(
+            object, "preserved_call_barrier");
+        ObjSymbol* preserved_address_alias_symbol = function_symbol(
+            object, "preserved_address_alias");
+        ObjSymbol* preserved_conditional_state_symbol = function_symbol(
+            object, "preserved_conditional_state");
+        ObjSymbol* preserved_do_state_symbol = function_symbol(
+            object, "preserved_do_state");
+        ObjSymbol* preserved_while_state_symbol = function_symbol(
+            object, "preserved_while_state");
         ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
         ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
         ObjSymbol* for_symbol = function_symbol(object, "removed_for_loop");
@@ -190,6 +216,15 @@ int main(int argc, char** argv)
         int (*preserved_postfix_volatile_read)(volatile int*);
         int (*preserved_volatile_pointer_read)(int* volatile);
         int (*qualified_pointer_levels)(int*, int*);
+        int (*propagated_local_arithmetic)(void);
+        int (*propagated_local_assignment)(void);
+        uint32_t (*propagated_unsigned_narrow)(void);
+        int (*propagated_local_branch)(int*);
+        int (*preserved_call_barrier)(void);
+        int (*preserved_address_alias)(void);
+        int (*preserved_conditional_state)(int);
+        int (*preserved_do_state)(void);
+        int (*preserved_while_state)(void);
         int (*folded_branch)(int*);
         int (*removed_loop)(int*);
         int (*removed_for_loop)(int*);
@@ -268,6 +303,33 @@ int main(int argc, char** argv)
         address = mapping + qualified_pointer_levels_symbol->value;
         memcpy(&qualified_pointer_levels, &address,
                sizeof(qualified_pointer_levels));
+        address = mapping + propagated_local_arithmetic_symbol->value;
+        memcpy(&propagated_local_arithmetic, &address,
+               sizeof(propagated_local_arithmetic));
+        address = mapping + propagated_local_assignment_symbol->value;
+        memcpy(&propagated_local_assignment, &address,
+               sizeof(propagated_local_assignment));
+        address = mapping + propagated_unsigned_narrow_symbol->value;
+        memcpy(&propagated_unsigned_narrow, &address,
+               sizeof(propagated_unsigned_narrow));
+        address = mapping + propagated_local_branch_symbol->value;
+        memcpy(&propagated_local_branch, &address,
+               sizeof(propagated_local_branch));
+        address = mapping + preserved_call_barrier_symbol->value;
+        memcpy(&preserved_call_barrier, &address,
+               sizeof(preserved_call_barrier));
+        address = mapping + preserved_address_alias_symbol->value;
+        memcpy(&preserved_address_alias, &address,
+               sizeof(preserved_address_alias));
+        address = mapping + preserved_conditional_state_symbol->value;
+        memcpy(&preserved_conditional_state, &address,
+               sizeof(preserved_conditional_state));
+        address = mapping + preserved_do_state_symbol->value;
+        memcpy(&preserved_do_state, &address,
+               sizeof(preserved_do_state));
+        address = mapping + preserved_while_state_symbol->value;
+        memcpy(&preserved_while_state, &address,
+               sizeof(preserved_while_state));
         address = mapping + branch_symbol->value;
         memcpy(&folded_branch, &address, sizeof(folded_branch));
         address = mapping + loop_symbol->value;
@@ -318,6 +380,17 @@ int main(int argc, char** argv)
             assert(qualified_pointer_levels(&left, &right) == 20);
             assert(left == 6 && right == 7);
         }
+        assert(propagated_local_arithmetic() == 36);
+        assert(propagated_local_assignment() == 42);
+        assert(propagated_unsigned_narrow() == UINT32_C(5));
+        assert(propagated_local_branch(&value) == 41);
+        assert(value == 12);
+        assert(preserved_call_barrier() == 23);
+        assert(preserved_address_alias() == 29);
+        assert(preserved_conditional_state(0) == 1);
+        assert(preserved_conditional_state(1) == 2);
+        assert(preserved_do_state() == 3);
+        assert(preserved_while_state() == 3);
         value = 3;
         assert(folded_branch(&value) == 5);
         assert(value == 3);
