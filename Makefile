@@ -20,7 +20,8 @@ BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c
                       src/ir.c src/ir_pass.c src/mir.c src/mir_alloc.c \
                       src/mir_phi.c src/x86_abi.c src/x86_select.c \
                       src/x86_legalize.c src/x86_encode.c \
-                      src/x86_object.c \
+                      src/x86_object.c src/x86_pipeline.c \
+                      src/verified_codegen.c \
                       src/ir_lower.c src/optimize.c \
                       src/codegen.c src/codegen64.c \
                       src/preproc.c src/driver_policy.c src/emit_asm.c \
@@ -32,6 +33,7 @@ BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c
 BOOTSTRAP_RCC_OBJECTS = utils lexer parser ast symtab sema codegen codegen64 \
                         preproc ir ir_pass mir mir_alloc mir_phi x86_abi \
                         x86_select x86_legalize x86_encode x86_object \
+                        x86_pipeline verified_codegen \
                         ir_lower optimize \
                         emit_rin emit_rll emit_drv emit_ro \
                         emit_asm build_manifest driver_policy parser_cxx_stub \
@@ -55,7 +57,8 @@ COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/a
               $(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
               $(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
               $(SRCDIR)/x86_legalize.c $(SRCDIR)/x86_encode.c \
-              $(SRCDIR)/x86_object.c \
+              $(SRCDIR)/x86_object.c $(SRCDIR)/x86_pipeline.c \
+              $(SRCDIR)/verified_codegen.c \
               $(SRCDIR)/ir_lower.c \
               $(SRCDIR)/optimize.c \
               $(SRCDIR)/emit_rin.c $(SRCDIR)/emit_rll.c $(SRCDIR)/emit_drv.c $(SRCDIR)/emit_ro.c \
@@ -86,7 +89,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 
@@ -1189,7 +1192,8 @@ test-sanitize:
 		TEST_OUT=$(SANITIZER_ROOT)/tests \
 		CFLAGS="$(CFLAGS) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
 		LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" \
-		all test-ir test-ir-lowering test-manifest test-signing test-executable-imports test-tls
+		all test-ir test-ir-lowering test-verified-backend test-manifest \
+		test-signing test-executable-imports test-tls
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/class.ro tests/class_test.cpp
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -std=c++20 -c \
@@ -1651,6 +1655,40 @@ test-ir-lowering: $(RCC_TARGET)
 	grep -q 'Typed SSA shadow verification: 3 function(s)' \
 		$(TEST_OUT)/ir-lowering/x64.log
 	@echo "Dual-architecture scalar AST to typed SSA lowering tests completed"
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/verified-backend
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
+		>$(TEST_OUT)/verified-backend/x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/x64.ro tests/verified_backend.c \
+		>$(TEST_OUT)/verified-backend/x64.log
+	grep -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/x86.log
+	grep -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/x64.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-x64.ro \
+		tests/verified_backend.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-x64.log
+	grep -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-x64.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/fallback.ro \
+		tests/verified_backend_fallback.c \
+		>$(TEST_OUT)/verified-backend/fallback.log
+	grep -q 'Verified backend fallback: translation unit contains global data' \
+		$(TEST_OUT)/verified-backend/fallback.log
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/verify \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/verify \
+		$(TEST_OUT)/verified-backend/x86.ro \
+		$(TEST_OUT)/verified-backend/x64.ro \
+		$(TEST_OUT)/verified-backend/cxx-x64.ro \
+		$(TEST_OUT)/verified-backend/fallback.ro
+	@echo "Verified backend production object and fallback tests completed"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/optimize

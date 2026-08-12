@@ -657,6 +657,7 @@ static void verify_sysv_call_legalization_target(bool x64)
     assert(function_symbol->value == 0u);
     assert(function_symbol->size == encoded.code_size);
     assert(call_symbol != NULL && call_symbol->section == -1);
+    assert(call_symbol->type == SYM_UNDEF);
     assert(text->relocs != NULL && text->relocs->next == NULL);
     assert(text->relocs->type == RELOC_REL32);
     assert(text->relocs->offset == encoded.relocations[0].offset);

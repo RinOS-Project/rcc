@@ -34,6 +34,7 @@ bool rcc_x86_object_add_function(
     const RccX86EncodedFunction* encoded,
     char* error, size_t error_size) {
     ObjSection* text;
+    ObjSymbol* function_symbol;
     uint16_t expected_arch;
     uint64_t function_offset;
     int section_index;
@@ -53,7 +54,11 @@ bool rcc_x86_object_add_function(
         return x86_object_error(
             error, error_size, "x86 object architecture mismatch");
     }
-    if (objfile_find_symbol(object, name)) {
+    function_symbol = objfile_find_symbol(object, name);
+    if (function_symbol &&
+        (function_symbol->type != SYM_UNDEF ||
+         function_symbol->binding != BIND_CODE ||
+         function_symbol->section != -1)) {
         return x86_object_error(
             error, error_size, "x86 object function symbol is duplicate");
     }
@@ -88,15 +93,23 @@ bool rcc_x86_object_add_function(
         return x86_object_error(
             error, error_size, "x86 object .text section is detached");
     }
-    objfile_add_symbol(
-        object, name, symbol_type, BIND_CODE, section_index,
-        function_offset, encoded->code_size);
+    if (function_symbol) {
+        function_symbol->type = symbol_type;
+        function_symbol->binding = BIND_CODE;
+        function_symbol->section = section_index;
+        function_symbol->value = function_offset;
+        function_symbol->size = encoded->code_size;
+    } else {
+        objfile_add_symbol(
+            object, name, symbol_type, BIND_CODE, section_index,
+            function_offset, encoded->code_size);
+    }
     for (size_t index = 0u; index < encoded->relocation_count; ++index) {
         const RccX86CodeRelocation* relocation =
             &encoded->relocations[index];
         if (!objfile_find_symbol(object, relocation->symbol)) {
             objfile_add_symbol(
-                object, relocation->symbol, SYM_GLOBAL, BIND_CODE,
+                object, relocation->symbol, SYM_UNDEF, BIND_CODE,
                 -1, 0u, 0u);
         }
         objfile_add_reloc(

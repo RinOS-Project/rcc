@@ -12,6 +12,7 @@
 #include "optimize.h"
 #include "preproc.h"
 #include "build_manifest.h"
+#include "verified_codegen.h"
 #include <getopt.h>
 
 /* Print usage */
@@ -55,6 +56,7 @@ static void print_usage(void) {
     printf("\n");
     printf("Code generation:\n");
     printf("  -ffreestanding  Freestanding environment\n");
+    printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("\n");
     printf("Other:\n");
     printf("  -v              Verbose output\n");
@@ -293,6 +295,9 @@ static int parse_args(int argc, char** argv) {
                 return -1;
             }
             g_opts.undefines[g_opts.undef_count++] = arg + 2;
+        } else if (strcmp(arg, "-fverified-backend") == 0 ||
+                   strcmp(arg, "--verified-backend") == 0) {
+            g_opts.verified_backend = true;
         } else if (strncmp(arg, "-f", 2) == 0) {
             /* Ignore unknown -f options */
             if (g_opts.verbose) {
@@ -330,6 +335,12 @@ static int parse_args(int argc, char** argv) {
                    (g_opts.output_format == OUTPUT_RIN ||
                     g_opts.output_format == OUTPUT_RLL ||
                     g_opts.output_format == OUTPUT_DRV))) {
+        return -1;
+    }
+    if (g_opts.verified_backend && !g_opts.preprocess_only &&
+        g_opts.output_format != OUTPUT_OBJ) {
+        fprintf(stderr,
+                "rcc: error: -fverified-backend currently requires -c\n");
         return -1;
     }
 
@@ -611,7 +622,30 @@ int main(int argc, char** argv) {
     }
     switch (g_opts.output_format) {
         case OUTPUT_OBJ:
-            emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+            if (g_opts.verified_backend) {
+                char reason[256];
+                size_t verified_functions = 0u;
+                RccVerifiedObjectStatus status = rcc_emit_verified_object(
+                    ast, g_opts.input_file, g_opts.output_file,
+                    &verified_functions, reason, sizeof(reason));
+                if (status == RCC_VERIFIED_OBJECT_EMITTED) {
+                    emit_ok = true;
+                    if (g_opts.verbose) {
+                        printf("Verified backend: %lu function(s) emitted\n",
+                               (unsigned long)verified_functions);
+                    }
+                } else if (status == RCC_VERIFIED_OBJECT_FALLBACK) {
+                    if (g_opts.verbose) {
+                        printf("Verified backend fallback: %s\n", reason);
+                    }
+                    emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+                } else {
+                    fprintf(stderr, "rcc: verified backend failed: %s\n",
+                            reason);
+                }
+            } else {
+                emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+            }
             break;
         case OUTPUT_RIN:
             emit_ok = rcc_emit(mod, emit_path);

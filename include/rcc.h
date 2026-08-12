@@ -79,6 +79,7 @@ typedef struct {
     bool nostdinc;              /* -nostdinc */
     bool wall;                  /* -Wall */
     bool pedantic;              /* -pedantic */
+    bool verified_backend;      /* -fverified-backend (.ro v2 only) */
 
     /* Final artifact signing.  Keys are paths only and are never embedded. */
     const char* sign_key;
