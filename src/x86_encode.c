@@ -506,6 +506,210 @@ static bool x86_emit_shift(
     }
 }
 
+static RccX86HardwareGpr x86_choose_scratch(
+    RccX86Value first, RccX86Value second) {
+    static const RccX86HardwareGpr candidates[] = {
+        RCC_X86_GPR_AX, RCC_X86_GPR_CX, RCC_X86_GPR_DX,
+    };
+    for (size_t index = 0u;
+         index < sizeof(candidates) / sizeof(candidates[0]); ++index) {
+        RccX86HardwareGpr candidate = candidates[index];
+        if ((first.kind != RCC_X86_VALUE_GPR || first.gpr != candidate) &&
+            (second.kind != RCC_X86_VALUE_GPR || second.gpr != candidate)) {
+            return candidate;
+        }
+    }
+    return RCC_X86_GPR_AX;
+}
+
+static uint8_t x86_setcc_opcode(RccIrIntPredicate predicate) {
+    switch (predicate) {
+        case RCC_IR_ICMP_EQ: return 0x94u;
+        case RCC_IR_ICMP_NE: return 0x95u;
+        case RCC_IR_ICMP_ULT: return 0x92u;
+        case RCC_IR_ICMP_ULE: return 0x96u;
+        case RCC_IR_ICMP_UGT: return 0x97u;
+        case RCC_IR_ICMP_UGE: return 0x93u;
+        case RCC_IR_ICMP_SLT: return 0x9cu;
+        case RCC_IR_ICMP_SLE: return 0x9eu;
+        case RCC_IR_ICMP_SGT: return 0x9fu;
+        case RCC_IR_ICMP_SGE: return 0x9du;
+    }
+    return 0u;
+}
+
+static bool x86_emit_compare_values(
+    RccX86Encoder* encoder, RccX86Value left,
+    RccX86Value right, uint16_t size) {
+    uint8_t opcode;
+    if (left.kind == RCC_X86_VALUE_GPR) {
+        if (right.kind == RCC_X86_VALUE_GPR) {
+            opcode = size == 1u ? 0x38u : 0x39u;
+            if (!x86_emit_prefix(encoder, size, right.gpr, left.gpr,
+                                 size == 1u) ||
+                !x86_emit_u8(encoder, opcode)) return false;
+            return x86_emit_u8(encoder, x86_modrm(
+                3u, right.gpr, left.gpr));
+        }
+        {
+            int32_t displacement;
+            opcode = size == 1u ? 0x3au : 0x3bu;
+            if (!x86_value_displacement(encoder, right, &displacement) ||
+                !x86_emit_prefix(encoder, size, left.gpr,
+                                 RCC_X86_GPR_BP, size == 1u) ||
+                !x86_emit_u8(encoder, opcode)) return false;
+            return x86_emit_memory_modrm(
+                encoder, left.gpr, displacement);
+        }
+    }
+    if (right.kind == RCC_X86_VALUE_GPR) {
+        int32_t displacement;
+        opcode = size == 1u ? 0x38u : 0x39u;
+        if (!x86_value_displacement(encoder, left, &displacement) ||
+            !x86_emit_prefix(encoder, size, right.gpr,
+                             RCC_X86_GPR_BP, size == 1u) ||
+            !x86_emit_u8(encoder, opcode)) return false;
+        return x86_emit_memory_modrm(
+            encoder, right.gpr, displacement);
+    }
+    {
+        RccX86HardwareGpr scratch = x86_choose_scratch(left, right);
+        return x86_emit_push(encoder, scratch) &&
+            x86_emit_load(encoder, scratch, left, size) &&
+            x86_emit_compare_values(
+                encoder,
+                (RccX86Value){RCC_X86_VALUE_GPR, scratch, 0u,
+                              size, size},
+                right, size) &&
+            x86_emit_pop(encoder, scratch);
+    }
+}
+
+static bool x86_emit_setcc(RccX86Encoder* encoder,
+                           RccX86Value destination,
+                           RccIrIntPredicate predicate) {
+    uint8_t opcode = x86_setcc_opcode(predicate);
+    if (opcode == 0u) {
+        return x86_encode_error(encoder,
+                                "x86 integer predicate is invalid");
+    }
+    if (destination.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_rex(
+                encoder, false, RCC_X86_GPR_AX, destination.gpr,
+                ((unsigned)destination.gpr & 7u) >= 4u) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, opcode)) return false;
+        return x86_emit_u8(encoder, x86_modrm(
+            3u, 0u, destination.gpr));
+    }
+    {
+        int32_t displacement;
+        if (!x86_value_displacement(
+                encoder, destination, &displacement) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, opcode)) return false;
+        return x86_emit_memory_modrm(encoder, 0u, displacement);
+    }
+}
+
+static bool x86_emit_compare_set(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    uint16_t size = instruction->operand_types[0].kind ==
+                        RCC_MIR_TYPE_POINTER
+        ? encoder->function->pointer_size
+        : (instruction->operand_types[0].bit_width <= 8u
+               ? 1u
+               : (uint16_t)(instruction->operand_types[0].bit_width / 8u));
+    return x86_emit_compare_values(
+               encoder, instruction->operands[0],
+               instruction->operands[1], size) &&
+        x86_emit_setcc(
+            encoder, instruction->destination,
+            instruction->predicate);
+}
+
+static bool x86_emit_extend_register(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    RccX86Value source, uint16_t source_size,
+    uint16_t destination_size, bool sign_extend) {
+    uint8_t opcode;
+    int32_t displacement = 0;
+    if (source_size == 4u && destination_size == 8u) {
+        if (!sign_extend) {
+            return source.kind == RCC_X86_VALUE_GPR
+                ? x86_emit_move_register_register(
+                    encoder, destination, source.gpr, 4u)
+                : x86_emit_load(encoder, destination, source, 4u);
+        }
+        if (!x86_emit_rex(
+                encoder, true, destination,
+                source.kind == RCC_X86_VALUE_GPR
+                    ? source.gpr : RCC_X86_GPR_BP,
+                false) || !x86_emit_u8(encoder, 0x63u)) return false;
+    } else if (source_size == 1u || source_size == 2u) {
+        opcode = sign_extend
+            ? (source_size == 1u ? 0xbeu : 0xbfu)
+            : (source_size == 1u ? 0xb6u : 0xb7u);
+        if (!x86_emit_rex(
+                encoder, destination_size == 8u, destination,
+                source.kind == RCC_X86_VALUE_GPR
+                    ? source.gpr : RCC_X86_GPR_BP,
+                source_size == 1u && source.kind == RCC_X86_VALUE_GPR &&
+                    ((unsigned)source.gpr & 7u) >= 4u) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, opcode)) return false;
+    } else {
+        return x86_encode_error(encoder,
+                                "x86 extension width is unsupported");
+    }
+    if (source.kind == RCC_X86_VALUE_GPR) {
+        return x86_emit_u8(encoder, x86_modrm(
+            3u, destination, source.gpr));
+    }
+    if (!x86_value_displacement(encoder, source, &displacement)) {
+        return false;
+    }
+    return x86_emit_memory_modrm(
+        encoder, destination, displacement);
+}
+
+static bool x86_emit_conversion(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value source = instruction->operands[0];
+    uint16_t destination_size = destination.size;
+    uint16_t source_size = source.size;
+    bool sign_extend =
+        instruction->selected_opcode == RCC_X86_SIGN_EXTEND;
+    if (instruction->selected_opcode == RCC_X86_TRUNCATE ||
+        instruction->selected_opcode == RCC_X86_REINTERPRET ||
+        source_size == destination_size) {
+        return x86_emit_copy(
+            encoder, source, destination, destination_size);
+    }
+    if (destination_size <= source_size) {
+        return x86_encode_error(encoder,
+                                "x86 extension does not widen");
+    }
+    if (destination.kind == RCC_X86_VALUE_GPR) {
+        return x86_emit_extend_register(
+            encoder, destination.gpr, source, source_size,
+            destination_size, sign_extend);
+    }
+    {
+        RccX86HardwareGpr scratch = x86_choose_scratch(source, destination);
+        return x86_emit_push(encoder, scratch) &&
+            x86_emit_extend_register(
+                encoder, scratch, source, source_size,
+                destination_size, sign_extend) &&
+            x86_emit_store(
+                encoder, destination, scratch, destination_size) &&
+            x86_emit_pop(encoder, scratch);
+    }
+}
+
 static bool x86_add_fixup(RccX86Encoder* encoder, uint32_t target) {
     RccX86BranchFixup* fixup;
     if (encoder->fixup_count == encoder->fixup_capacity) {
@@ -666,6 +870,13 @@ static bool x86_emit_instruction(
             return x86_emit_immediate(
                 encoder, instruction->destination,
                 size, instruction->immediate);
+        case RCC_X86_COMPARE_SET:
+            return x86_emit_compare_set(encoder, instruction);
+        case RCC_X86_TRUNCATE:
+        case RCC_X86_ZERO_EXTEND:
+        case RCC_X86_SIGN_EXTEND:
+        case RCC_X86_REINTERPRET:
+            return x86_emit_conversion(encoder, instruction);
         case RCC_X86_JUMP:
             return x86_emit_u8(encoder, 0xe9u) &&
                 x86_add_fixup(encoder, instruction->targets[0]);

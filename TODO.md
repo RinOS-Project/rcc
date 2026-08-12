@@ -121,6 +121,7 @@
   - [x] prologue/epilogue、copy、immediate、binary、branch、REL32 callの初期native encoder
   - [x] native encoder出力の`.ro v2` `.text`/symbol/REL32 relocation bridge
   - [x] 16/32/64-bit unsigned/signed DIV/REMと可変shiftのnative encoding
+  - [x] integer compare/setccとtruncate/zero/sign extension/reinterpret encoding
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

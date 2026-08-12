@@ -216,12 +216,102 @@ static void verify_fixed_register_execution(void)
     assert(execute_binary_function(RCC_IR_ASHR, -84, 1) == -42);
 }
 
+static int execute_compare_function(RccIrIntPredicate predicate,
+                                    int left, int right)
+{
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_compare", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* compare = rcc_ir_append(
+        entry, RCC_IR_ICMP, i1, ir->parameters, 2u, NULL, 0u);
+    RccIrInstruction* extended;
+    RccX86EncodedFunction encoded;
+    size_t mapping_size;
+    void* memory;
+    int (*function)(int, int);
+    int value;
+    assert(compare != NULL);
+    rcc_ir_set_predicate(compare, predicate);
+    extended = rcc_ir_append(
+        entry, RCC_IR_ZEXT, i32, &compare->result, 1u, NULL, 0u);
+    assert(extended != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &extended->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function(ir);
+    memory = map_code(&encoded, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    value = function(left, right);
+    assert(munmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_ir_module_destroy(module);
+    return value;
+}
+
+static int execute_conversion_function(bool sign_extend,
+                                       bool truncate, int input)
+{
+    RccIrType i8 = rcc_ir_type_integer(8u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameter = truncate ? i32 : i8;
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_conversion", i32, &parameter, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* first;
+    RccIrInstruction* result;
+    RccX86EncodedFunction encoded;
+    size_t mapping_size;
+    void* memory;
+    int (*function)(int);
+    int value;
+    if (truncate) {
+        first = rcc_ir_append(
+            entry, RCC_IR_TRUNC, i8, ir->parameters, 1u, NULL, 0u);
+        assert(first != NULL);
+        result = rcc_ir_append(
+            entry, RCC_IR_ZEXT, i32, &first->result, 1u, NULL, 0u);
+    } else {
+        result = rcc_ir_append(
+            entry, sign_extend ? RCC_IR_SEXT : RCC_IR_ZEXT,
+            i32, ir->parameters, 1u, NULL, 0u);
+    }
+    assert(result != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &result->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function(ir);
+    memory = map_code(&encoded, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    value = function(input);
+    assert(munmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_ir_module_destroy(module);
+    return value;
+}
+
+static void verify_compare_and_conversion_execution(void)
+{
+    assert(execute_compare_function(RCC_IR_ICMP_EQ, 7, 7) == 1);
+    assert(execute_compare_function(RCC_IR_ICMP_NE, 7, 7) == 0);
+    assert(execute_compare_function(RCC_IR_ICMP_ULT, 1, -1) == 1);
+    assert(execute_compare_function(RCC_IR_ICMP_UGE, 1, -1) == 0);
+    assert(execute_compare_function(RCC_IR_ICMP_SLT, -1, 1) == 1);
+    assert(execute_compare_function(RCC_IR_ICMP_SGE, -1, 1) == 0);
+    assert(execute_conversion_function(false, false, 0xff) == 255);
+    assert(execute_conversion_function(true, false, 0xff) == -1);
+    assert(execute_conversion_function(false, true, 0x1234) == 0x34);
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 2);
     verify_add_execution(argv[1]);
     verify_branch_execution();
     verify_fixed_register_execution();
+    verify_compare_and_conversion_execution();
     puts("Native legal-IR x86 encoding execution tests passed");
     return 0;
 }
