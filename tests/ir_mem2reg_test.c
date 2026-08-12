@@ -211,11 +211,72 @@ static void verify_escape_is_not_promoted(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_integer_simplification(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "simplify", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue two = append_const(entry, i32, 2u);
+    RccIrValue three = append_const(entry, i32, 3u);
+    RccIrValue add_operands[] = {two, three};
+    RccIrInstruction* add = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, add_operands, 2u, NULL, 0u);
+    RccIrValue four = append_const(entry, i32, 4u);
+    RccIrValue multiply_operands[2];
+    RccIrInstruction* multiply;
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(add != NULL);
+    multiply_operands[0] = add->result;
+    multiply_operands[1] = four;
+    multiply = rcc_ir_append(entry, RCC_IR_MUL, i32,
+                             multiply_operands, 2u, NULL, 0u);
+    assert(multiply != NULL);
+    append_return(entry, multiply->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions == 2u);
+    assert(stats.removed_instructions == 4u);
+    assert(count_opcode(function, RCC_IR_CONST_INT) == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 0u);
+    assert(count_opcode(function, RCC_IR_MUL) == 0u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_undefined_folds_are_preserved(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "preserve_undefined", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue minimum = append_const(entry, i32, UINT32_C(0x80000000));
+    RccIrValue negative_one = append_const(entry, i32, UINT32_MAX);
+    RccIrValue operands[] = {minimum, negative_one};
+    RccIrInstruction* divide = rcc_ir_append(
+        entry, RCC_IR_SDIV, i32, operands, 2u, NULL, 0u);
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(divide != NULL);
+    append_return(entry, divide->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.folded_instructions == 0u);
+    assert(stats.removed_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_SDIV) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 int main(void)
 {
     verify_diamond_promotion();
     verify_loop_promotion();
     verify_escape_is_not_promoted();
-    puts("Typed SSA mem2reg tests passed");
+    verify_integer_simplification();
+    verify_undefined_folds_are_preserved();
+    puts("Typed SSA mem2reg and simplification tests passed");
     return 0;
 }

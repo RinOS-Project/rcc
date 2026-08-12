@@ -14,7 +14,14 @@ typedef struct {
     size_t inserted_phis;
 } RccIrMem2RegStats;
 
+typedef struct {
+    size_t folded_instructions;
+    size_t removed_instructions;
+} RccIrSimplifyStats;
+
 bool rcc_ir_mem2reg(RccIrFunction* function, RccIrMem2RegStats* stats,
                     char* error, size_t error_size);
+bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
+                     char* error, size_t error_size);
 
 #endif /* RCC_IR_PASS_H */

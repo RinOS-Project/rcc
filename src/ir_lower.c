@@ -1195,6 +1195,13 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             return RCC_IR_LOWER_INVALID;
         }
     }
+    {
+        RccIrSimplifyStats stats;
+        if (!rcc_ir_simplify(function, &stats, error, error_size)) {
+            rcc_ir_module_destroy(module);
+            return RCC_IR_LOWER_INVALID;
+        }
+    }
     if (!rcc_ir_verify_module(module, error, error_size)) {
         rcc_ir_module_destroy(module);
         return RCC_IR_LOWER_INVALID;

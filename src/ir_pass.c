@@ -822,3 +822,299 @@ cleanup:
     if (result && stats) *stats = local_stats;
     return result;
 }
+
+static uint64_t ir_pass_integer_mask(uint16_t bit_width) {
+    if (bit_width >= 64u) return UINT64_MAX;
+    return (UINT64_C(1) << bit_width) - UINT64_C(1);
+}
+
+static int64_t ir_pass_signed_value(uint64_t value, uint16_t bit_width) {
+    uint64_t mask = ir_pass_integer_mask(bit_width);
+    uint64_t sign = UINT64_C(1) << (bit_width - 1u);
+    value &= mask;
+    if ((value & sign) != 0u) value |= ~mask;
+    return (int64_t)value;
+}
+
+static bool ir_pass_is_binary_integer(RccIrOpcode opcode) {
+    return opcode >= RCC_IR_ADD && opcode <= RCC_IR_ASHR;
+}
+
+static bool ir_pass_fold_binary(const RccIrInstruction* instruction,
+                                uint64_t left, uint64_t right,
+                                uint64_t* result) {
+    uint16_t width = instruction->type.bit_width;
+    uint64_t mask = ir_pass_integer_mask(width);
+    uint64_t shift = right & mask;
+    int64_t signed_left;
+    int64_t signed_right;
+    int64_t signed_minimum;
+    switch (instruction->opcode) {
+        case RCC_IR_ADD: *result = (left + right) & mask; return true;
+        case RCC_IR_SUB: *result = (left - right) & mask; return true;
+        case RCC_IR_MUL: *result = (left * right) & mask; return true;
+        case RCC_IR_UDIV:
+            if ((right & mask) == 0u) return false;
+            *result = (left & mask) / (right & mask);
+            return true;
+        case RCC_IR_UREM:
+            if ((right & mask) == 0u) return false;
+            *result = (left & mask) % (right & mask);
+            return true;
+        case RCC_IR_SDIV:
+        case RCC_IR_SREM:
+            signed_left = ir_pass_signed_value(left, width);
+            signed_right = ir_pass_signed_value(right, width);
+            signed_minimum = width == 64u
+                ? INT64_MIN : -(INT64_C(1) << (width - 1u));
+            if (signed_right == 0) return false;
+            if (signed_left == signed_minimum && signed_right == -1) {
+                return false;
+            }
+            if (instruction->opcode == RCC_IR_SDIV) {
+                *result = (uint64_t)(signed_left / signed_right) & mask;
+            } else {
+                *result = (uint64_t)(signed_left % signed_right) & mask;
+            }
+            return true;
+        case RCC_IR_AND: *result = (left & right) & mask; return true;
+        case RCC_IR_OR: *result = (left | right) & mask; return true;
+        case RCC_IR_XOR: *result = (left ^ right) & mask; return true;
+        case RCC_IR_SHL:
+            if (shift >= width) return false;
+            *result = (left << shift) & mask;
+            return true;
+        case RCC_IR_LSHR:
+            if (shift >= width) return false;
+            *result = (left & mask) >> shift;
+            return true;
+        case RCC_IR_ASHR:
+            if (shift >= width) return false;
+            signed_left = ir_pass_signed_value(left, width);
+            *result = (uint64_t)(signed_left >> shift) & mask;
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool ir_pass_fold_compare(const RccIrInstruction* instruction,
+                                 RccIrType operand_type,
+                                 uint64_t left, uint64_t right,
+                                 uint64_t* result) {
+    uint64_t mask;
+    int64_t signed_left;
+    int64_t signed_right;
+    if (operand_type.kind != RCC_IR_TYPE_INTEGER) return false;
+    mask = ir_pass_integer_mask(operand_type.bit_width);
+    left &= mask;
+    right &= mask;
+    signed_left = ir_pass_signed_value(left, operand_type.bit_width);
+    signed_right = ir_pass_signed_value(right, operand_type.bit_width);
+    switch (instruction->predicate) {
+        case RCC_IR_ICMP_EQ: *result = left == right; return true;
+        case RCC_IR_ICMP_NE: *result = left != right; return true;
+        case RCC_IR_ICMP_ULT: *result = left < right; return true;
+        case RCC_IR_ICMP_ULE: *result = left <= right; return true;
+        case RCC_IR_ICMP_UGT: *result = left > right; return true;
+        case RCC_IR_ICMP_UGE: *result = left >= right; return true;
+        case RCC_IR_ICMP_SLT:
+            *result = signed_left < signed_right;
+            return true;
+        case RCC_IR_ICMP_SLE:
+            *result = signed_left <= signed_right;
+            return true;
+        case RCC_IR_ICMP_SGT:
+            *result = signed_left > signed_right;
+            return true;
+        case RCC_IR_ICMP_SGE:
+            *result = signed_left >= signed_right;
+            return true;
+    }
+    return false;
+}
+
+static void ir_pass_make_integer_constant(RccIrInstruction* instruction,
+                                          uint64_t value) {
+    rcc_free(instruction->operands);
+    rcc_free(instruction->targets);
+    rcc_free(instruction->callee);
+    instruction->operands = NULL;
+    instruction->operand_count = 0u;
+    instruction->targets = NULL;
+    instruction->target_count = 0u;
+    instruction->callee = NULL;
+    instruction->opcode = RCC_IR_CONST_INT;
+    instruction->immediate = value &
+        ir_pass_integer_mask(instruction->type.bit_width);
+}
+
+static bool ir_pass_fold_constants(RccIrFunction* function,
+                                   RccIrSimplifyStats* stats) {
+    bool* known;
+    uint64_t* constants;
+    RccIrBlock* block;
+    if (function->value_count == 0u) return true;
+    known = rcc_alloc(function->value_count * sizeof(*known));
+    constants = rcc_alloc(function->value_count * sizeof(*constants));
+    for (block = function->first_block; block; block = block->next) {
+        RccIrInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            uint64_t result = 0u;
+            bool folded = false;
+            if (instruction->opcode == RCC_IR_CONST_INT) {
+                known[instruction->result] = true;
+                constants[instruction->result] = instruction->immediate;
+                continue;
+            }
+            if (ir_pass_is_binary_integer(instruction->opcode) &&
+                known[instruction->operands[0]] &&
+                known[instruction->operands[1]]) {
+                folded = ir_pass_fold_binary(
+                    instruction, constants[instruction->operands[0]],
+                    constants[instruction->operands[1]], &result);
+            } else if (instruction->opcode == RCC_IR_ICMP &&
+                       known[instruction->operands[0]] &&
+                       known[instruction->operands[1]]) {
+                RccIrType operand_type = function->value_types[
+                    instruction->operands[0]];
+                folded = ir_pass_fold_compare(
+                    instruction, operand_type,
+                    constants[instruction->operands[0]],
+                    constants[instruction->operands[1]], &result);
+            } else if ((instruction->opcode == RCC_IR_TRUNC ||
+                        instruction->opcode == RCC_IR_ZEXT ||
+                        instruction->opcode == RCC_IR_SEXT ||
+                        instruction->opcode == RCC_IR_BITCAST) &&
+                       instruction->operand_count == 1u &&
+                       known[instruction->operands[0]] &&
+                       instruction->type.kind == RCC_IR_TYPE_INTEGER) {
+                RccIrType source_type = function->value_types[
+                    instruction->operands[0]];
+                result = constants[instruction->operands[0]];
+                if (instruction->opcode == RCC_IR_SEXT) {
+                    result = (uint64_t)ir_pass_signed_value(
+                        result, source_type.bit_width);
+                }
+                folded = source_type.kind == RCC_IR_TYPE_INTEGER;
+            }
+            if (folded) {
+                RccIrValue value = instruction->result;
+                ir_pass_make_integer_constant(instruction, result);
+                known[value] = true;
+                constants[value] = instruction->immediate;
+                ++stats->folded_instructions;
+            }
+        }
+    }
+    rcc_free(known);
+    rcc_free(constants);
+    return true;
+}
+
+static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
+    switch (instruction->opcode) {
+        case RCC_IR_CONST_INT:
+        case RCC_IR_ADD:
+        case RCC_IR_SUB:
+        case RCC_IR_MUL:
+        case RCC_IR_UDIV:
+        case RCC_IR_SDIV:
+        case RCC_IR_UREM:
+        case RCC_IR_SREM:
+        case RCC_IR_AND:
+        case RCC_IR_OR:
+        case RCC_IR_XOR:
+        case RCC_IR_SHL:
+        case RCC_IR_LSHR:
+        case RCC_IR_ASHR:
+        case RCC_IR_ICMP:
+        case RCC_IR_TRUNC:
+        case RCC_IR_ZEXT:
+        case RCC_IR_SEXT:
+        case RCC_IR_PTR_TO_INT:
+        case RCC_IR_INT_TO_PTR:
+        case RCC_IR_BITCAST:
+        case RCC_IR_PHI:
+        case RCC_IR_SELECT:
+        case RCC_IR_ALLOCA:
+        case RCC_IR_GEP:
+            return true;
+        case RCC_IR_LOAD:
+        case RCC_IR_STORE:
+        case RCC_IR_CALL:
+        case RCC_IR_BRANCH:
+        case RCC_IR_COND_BRANCH:
+        case RCC_IR_RETURN:
+        case RCC_IR_UNREACHABLE:
+            return false;
+    }
+    return false;
+}
+
+static bool ir_pass_remove_dead_instructions(
+    RccIrFunction* function, RccIrSimplifyStats* stats,
+    char* error, size_t error_size) {
+    bool changed = true;
+    while (changed) {
+        size_t* uses;
+        RccIrBlock* block;
+        changed = false;
+        if (function->value_count == 0u) break;
+        uses = rcc_alloc(function->value_count * sizeof(*uses));
+        for (block = function->first_block; block; block = block->next) {
+            RccIrInstruction* instruction;
+            for (instruction = block->first; instruction;
+                 instruction = instruction->next) {
+                size_t operand;
+                for (operand = 0u; operand < instruction->operand_count;
+                     ++operand) {
+                    if (instruction->operands[operand] >=
+                        function->value_count) {
+                        rcc_free(uses);
+                        return ir_pass_error(
+                            error, error_size,
+                            "SSA simplification found an invalid use");
+                    }
+                    ++uses[instruction->operands[operand]];
+                }
+            }
+        }
+        for (block = function->first_block; block; block = block->next) {
+            RccIrInstruction* instruction = block->first;
+            while (instruction) {
+                RccIrInstruction* next = instruction->next;
+                if (instruction->result != RCC_IR_VALUE_NONE &&
+                    uses[instruction->result] == 0u &&
+                    ir_pass_instruction_is_dead(instruction)) {
+                    ir_pass_unlink_instruction(instruction);
+                    ++stats->removed_instructions;
+                    changed = true;
+                }
+                instruction = next;
+            }
+        }
+        rcc_free(uses);
+    }
+    return ir_pass_compact_values(function, NULL, 0u, error, error_size);
+}
+
+bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
+                     char* error, size_t error_size) {
+    RccIrSimplifyStats local_stats;
+    memset(&local_stats, 0, sizeof(local_stats));
+    if (stats) memset(stats, 0, sizeof(*stats));
+    if (error && error_size != 0u) error[0] = '\0';
+    if (!function || !rcc_ir_verify_function(function, error, error_size)) {
+        return false;
+    }
+    if (!ir_pass_fold_constants(function, &local_stats) ||
+        !ir_pass_remove_dead_instructions(function, &local_stats,
+                                          error, error_size) ||
+        !rcc_ir_verify_function(function, error, error_size)) {
+        return false;
+    }
+    if (stats) *stats = local_stats;
+    return true;
+}
