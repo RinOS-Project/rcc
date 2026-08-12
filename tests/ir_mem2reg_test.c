@@ -343,6 +343,90 @@ static void verify_memory_is_not_commoned(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_dominator_scoped_gvn(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32, i32, i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dominator_gvn", i32, parameters, 3u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* left = rcc_ir_block_add(function, "left");
+    RccIrBlock* right = rcc_ir_block_add(function, "right");
+    RccIrValue operands[] = {
+        function->parameters[0], function->parameters[1],
+    };
+    RccIrValue reversed[] = {
+        function->parameters[1], function->parameters[0],
+    };
+    RccIrInstruction* dominating = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    RccIrInstruction* left_duplicate;
+    RccIrInstruction* right_duplicate;
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(dominating != NULL);
+    append_cond_branch(entry, function->parameters[2],
+                       left->id, right->id);
+    left_duplicate = rcc_ir_append(
+        left, RCC_IR_ADD, i32, reversed, 2u, NULL, 0u);
+    right_duplicate = rcc_ir_append(
+        right, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    assert(left_duplicate != NULL && right_duplicate != NULL);
+    append_return(left, left_duplicate->result);
+    append_return(right, right_duplicate->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.commoned_instructions == 2u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_sibling_values_are_not_commoned(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32, i32, i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "sibling_gvn", i32, parameters, 3u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* left = rcc_ir_block_add(function, "left");
+    RccIrBlock* right = rcc_ir_block_add(function, "right");
+    RccIrBlock* merge = rcc_ir_block_add(function, "merge");
+    RccIrValue operands[] = {
+        function->parameters[0], function->parameters[1],
+    };
+    RccIrInstruction* left_value;
+    RccIrInstruction* right_value;
+    RccIrValue incoming[2];
+    RccIrBlockId targets[] = {left->id, right->id};
+    RccIrInstruction* phi;
+    RccIrSimplifyStats stats;
+    char error[256];
+    append_cond_branch(entry, function->parameters[2],
+                       left->id, right->id);
+    left_value = rcc_ir_append(
+        left, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    right_value = rcc_ir_append(
+        right, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    assert(left_value != NULL && right_value != NULL);
+    append_branch(left, merge->id);
+    append_branch(right, merge->id);
+    incoming[0] = left_value->result;
+    incoming[1] = right_value->result;
+    phi = rcc_ir_append(merge, RCC_IR_PHI, i32,
+                        incoming, 2u, targets, 2u);
+    assert(phi != NULL);
+    append_return(merge, phi->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.commoned_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_ADD) == 2u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 int main(void)
 {
     verify_diamond_promotion();
@@ -352,6 +436,8 @@ int main(void)
     verify_undefined_folds_are_preserved();
     verify_block_local_cse();
     verify_memory_is_not_commoned();
+    verify_dominator_scoped_gvn();
+    verify_sibling_values_are_not_commoned();
     puts("Typed SSA mem2reg and simplification tests passed");
     return 0;
 }

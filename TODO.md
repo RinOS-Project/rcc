@@ -97,7 +97,7 @@
   - [x] 8/16/32/64-bit unsigned modulo演算・shift・比較・narrow cast folding
   - [x] alias/control-flow barrier付きblock-local整数constant propagation
   - [x] typed SSA整数演算・比較・castのconstant folding
-- [ ] mem2reg、DCE、CSE/GVN
+- [x] mem2reg、DCE、CSE/GVN
   - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
     （`goto`および`case/default`からのentryを保持）
   - [x] block内control transfer後の直列DCEとlabel/case entry保持
@@ -105,6 +105,7 @@
   - [x] escape/control-flow barrier付きblock-local整数dead-store除去
   - [x] side effectのない未使用SSA定義の再帰的除去
   - [x] alias-free整数・cast・GEP・select・symbol addressのbasic-block内CSE
+  - [x] dominator scopeと兄弟分岐隔離を持つSSA global value numbering
 - [ ] loop optimization、inlining
 - [ ] `-O0..3`ごとのpass pipeline
 - [ ] linear-scan / graph-coloring register allocation

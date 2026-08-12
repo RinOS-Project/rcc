@@ -1090,66 +1090,139 @@ static bool ir_pass_cse_equal(const RccIrInstruction* left,
         left->operands[1] == right->operands[0];
 }
 
+typedef struct {
+    RccIrBlock** blocks;
+    size_t block_count;
+    const bool* dominator_children;
+    RccIrInstruction** available;
+    size_t available_count;
+    RccIrValue* replacements;
+    size_t replacement_count;
+    RccIrSimplifyStats* stats;
+    char* error;
+    size_t error_size;
+    bool failed;
+} RccIrCseContext;
+
+static void ir_pass_common_block(RccIrCseContext* context,
+                                 size_t block_index) {
+    RccIrInstruction* instruction;
+    size_t saved_count;
+    size_t child;
+    if (!context || context->failed || block_index >= context->block_count) {
+        if (context) context->failed = true;
+        return;
+    }
+    saved_count = context->available_count;
+    instruction = context->blocks[block_index]->first;
+    while (instruction) {
+        RccIrInstruction* next = instruction->next;
+        RccIrInstruction* candidate = NULL;
+        size_t operand;
+        size_t available;
+        for (operand = 0u; operand < instruction->operand_count;
+             ++operand) {
+            RccIrValue resolved = ir_pass_resolve(
+                context->replacements, context->replacement_count,
+                instruction->operands[operand]);
+            if (resolved == RCC_IR_VALUE_NONE) {
+                ir_pass_error(context->error, context->error_size,
+                              "SSA GVN found a replacement cycle");
+                context->failed = true;
+                return;
+            }
+            instruction->operands[operand] = resolved;
+        }
+        if (!ir_pass_cse_candidate(instruction)) {
+            instruction = next;
+            continue;
+        }
+        for (available = context->available_count; available != 0u;
+             --available) {
+            RccIrInstruction* prior = context->available[available - 1u];
+            if (ir_pass_cse_equal(prior, instruction)) {
+                candidate = prior;
+                break;
+            }
+        }
+        if (candidate) {
+            context->replacements[instruction->result] = candidate->result;
+            ir_pass_unlink_instruction(instruction);
+            ++context->stats->commoned_instructions;
+            ++context->stats->removed_instructions;
+        } else {
+            if (context->available_count >= context->replacement_count) {
+                ir_pass_error(context->error, context->error_size,
+                              "SSA GVN availability table overflow");
+                context->failed = true;
+                return;
+            }
+            context->available[context->available_count++] = instruction;
+        }
+        instruction = next;
+    }
+    for (child = 0u; child < context->block_count; ++child) {
+        if (context->dominator_children[
+                block_index * context->block_count + child]) {
+            ir_pass_common_block(context, child);
+            if (context->failed) return;
+        }
+    }
+    context->available_count = saved_count;
+}
+
 static bool ir_pass_common_subexpressions(
     RccIrFunction* function, RccIrSimplifyStats* stats,
     char* error, size_t error_size) {
-    RccIrValue* replacements;
-    RccIrBlock* block;
+    RccIrBlock** blocks = NULL;
+    bool* predecessors = NULL;
+    bool* dominators = NULL;
+    size_t* immediate = NULL;
+    bool* children = NULL;
+    RccIrCseContext context;
+    bool result = false;
     size_t index;
     if (function->value_count == 0u) return true;
-    replacements = rcc_alloc(function->value_count * sizeof(*replacements));
+    memset(&context, 0, sizeof(context));
+    if (!ir_pass_collect_blocks(function, &blocks, error, error_size) ||
+        !ir_pass_build_cfg(blocks, function->block_count, &predecessors,
+                           error, error_size) ||
+        !ir_pass_compute_dominators(predecessors, function->block_count,
+                                    &dominators, &immediate, &children,
+                                    error, error_size)) {
+        goto cleanup;
+    }
+    context.blocks = blocks;
+    context.block_count = function->block_count;
+    context.dominator_children = children;
+    context.available = rcc_alloc(
+        function->value_count * sizeof(*context.available));
+    context.replacements = rcc_alloc(
+        function->value_count * sizeof(*context.replacements));
+    context.replacement_count = function->value_count;
+    context.stats = stats;
+    context.error = error;
+    context.error_size = error_size;
     for (index = 0u; index < function->value_count; ++index) {
-        replacements[index] = RCC_IR_VALUE_NONE;
+        context.replacements[index] = RCC_IR_VALUE_NONE;
     }
-    for (block = function->first_block; block; block = block->next) {
-        RccIrInstruction* instruction = block->first;
-        while (instruction) {
-            RccIrInstruction* next = instruction->next;
-            RccIrInstruction* candidate;
-            size_t operand;
-            for (operand = 0u; operand < instruction->operand_count;
-                 ++operand) {
-                RccIrValue resolved = ir_pass_resolve(
-                    replacements, function->value_count,
-                    instruction->operands[operand]);
-                if (resolved == RCC_IR_VALUE_NONE) {
-                    rcc_free(replacements);
-                    return ir_pass_error(
-                        error, error_size,
-                        "SSA CSE found a replacement cycle");
-                }
-                instruction->operands[operand] = resolved;
-            }
-            if (!ir_pass_cse_candidate(instruction)) {
-                instruction = next;
-                continue;
-            }
-            for (candidate = block->first; candidate != instruction;
-                 candidate = candidate->next) {
-                if (ir_pass_cse_candidate(candidate) &&
-                    ir_pass_cse_equal(candidate, instruction)) {
-                    break;
-                }
-            }
-            if (candidate == instruction) {
-                instruction = next;
-                continue;
-            }
-            replacements[instruction->result] = candidate->result;
-            ir_pass_unlink_instruction(instruction);
-            ++stats->commoned_instructions;
-            ++stats->removed_instructions;
-            instruction = next;
-        }
-    }
+    ir_pass_common_block(&context, 0u);
+    if (context.failed) goto cleanup;
     if (!ir_pass_compact_values(
-            function, replacements, function->value_count,
+            function, context.replacements, context.replacement_count,
             error, error_size)) {
-        rcc_free(replacements);
-        return false;
+        goto cleanup;
     }
-    rcc_free(replacements);
-    return true;
+    result = true;
+cleanup:
+    rcc_free(context.available);
+    rcc_free(context.replacements);
+    rcc_free(blocks);
+    rcc_free(predecessors);
+    rcc_free(dominators);
+    rcc_free(immediate);
+    rcc_free(children);
+    return result;
 }
 
 static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {

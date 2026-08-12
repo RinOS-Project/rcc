@@ -355,7 +355,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     long (*pointer_difference_function)(int*, int*);
     int (*switch_function)(int);
     int (*nested_switch_function)(int, int);
-    int (*binary_function)(int, int);
+    int (*ternary_function)(int, int, int);
     int (*switch_promotion_function)(unsigned char);
     int* cursor;
     void* address;
@@ -572,8 +572,9 @@ static void verify_native_execution(const char* path, uint16_t arch)
     symbol = objfile_find_symbol(
         object, "verified_common_subexpression");
     address = symbol_address(memory, symbol);
-    memcpy(&binary_function, &address, sizeof(binary_function));
-    assert(binary_function(7, 5) == 144);
+    memcpy(&ternary_function, &address, sizeof(ternary_function));
+    assert(ternary_function(7, 5, 0) == 12);
+    assert(ternary_function(7, 5, 1) == 12);
 
     symbol = objfile_find_symbol(object, "verified_switch");
     address = symbol_address(memory, symbol);
