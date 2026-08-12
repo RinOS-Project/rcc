@@ -5,6 +5,7 @@
 #include "rcc.h"
 #include "ir_lower.h"
 #include "ir_pass.h"
+#include "mir.h"
 
 typedef struct RccIrLowerLocal {
     const Decl* declaration;
@@ -1201,6 +1202,14 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             rcc_ir_module_destroy(module);
             return RCC_IR_LOWER_INVALID;
         }
+    }
+    {
+        RccMirFunction* mir = NULL;
+        if (!rcc_mir_lower_ir(function, &mir, error, error_size)) {
+            rcc_ir_module_destroy(module);
+            return RCC_IR_LOWER_INVALID;
+        }
+        rcc_mir_function_destroy(mir);
     }
     if (!rcc_ir_verify_module(module, error, error_size)) {
         rcc_ir_module_destroy(module);

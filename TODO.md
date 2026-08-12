@@ -90,6 +90,7 @@
   - [x] scalar ASTのalloca/load/store SSA loweringとif/while/do/for CFG shadow verification
   - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
 - [ ] target-independent MIR
+  - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
 - [ ] constant propagation / folding
   - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
   - [x] 8/16/32/64-bit unsigned modulo演算・shift・比較・narrow cast folding
