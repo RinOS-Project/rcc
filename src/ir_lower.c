@@ -1024,6 +1024,9 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_COND:
             return lower_conditional_expression(context, expression);
         case EXPR_INDEX:
+            if (expression->type && expression->type->kind == TYPE_ARRAY) {
+                return lower_lvalue_address(context, expression);
+            }
             return lower_load_lvalue(context, expression);
         case EXPR_AND:
         case EXPR_OR:
@@ -1801,6 +1804,33 @@ static const Expr* lower_character_array_string(
     return NULL;
 }
 
+static bool lower_zero_array_storage(
+    RccIrLowerContext* context, RccIrValue base,
+    const Type* array_type) {
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        array_type->array_len <= 0 || array_type->array_len > 4096 ||
+        array_type->size <= 0 || array_type->size > 65536 ||
+        !array_type->base) {
+        context->unsupported = true;
+        return false;
+    }
+    for (int index = 0; index < array_type->array_len; ++index) {
+        RccIrLowerValue address = lower_array_element_address(
+            context, base, array_type->base, (uint64_t)index);
+        if (!address.valid) return false;
+        if (array_type->base->kind == TYPE_ARRAY) {
+            if (!lower_zero_array_storage(
+                    context, address.value, array_type->base)) return false;
+        } else {
+            RccIrLowerValue zero = lower_zero_initializer(
+                context, array_type->base);
+            if (!zero.valid ||
+                !lower_store_address(context, address, zero)) return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_array_initializer(
     RccIrLowerContext* context, RccIrValue base,
     const Type* array_type, const Expr* initializer) {
@@ -1809,6 +1839,7 @@ static bool lower_array_initializer(
     int64_t cursor = 0;
     if (!array_type || array_type->kind != TYPE_ARRAY ||
         array_type->array_len <= 0 || array_type->array_len > 4096 ||
+        array_type->size <= 0 || array_type->size > 65536 ||
         !array_type->base || !initializer) {
         context->unsupported = true;
         return false;
@@ -1818,14 +1849,7 @@ static bool lower_array_initializer(
         context->unsupported = true;
         return false;
     }
-    for (int index = 0; index < array_type->array_len; ++index) {
-        RccIrLowerValue address = lower_array_element_address(
-            context, base, array_type->base, (uint64_t)index);
-        RccIrLowerValue zero = lower_zero_initializer(
-            context, array_type->base);
-        if (!address.valid || !zero.valid ||
-            !lower_store_address(context, address, zero)) return false;
-    }
+    if (!lower_zero_array_storage(context, base, array_type)) return false;
     if (string) {
         size_t text_size = strlen(string->str_val);
         size_t copy_size;
@@ -1865,12 +1889,23 @@ static bool lower_array_initializer(
             cursor = item->designator_index;
         }
         expression = lower_scalar_initializer_expression(item->expr);
-        if (cursor < 0 || cursor >= array_type->array_len || !expression) {
+        if (cursor < 0 || cursor >= array_type->array_len) {
             context->unsupported = true;
             return false;
         }
         address = lower_array_element_address(
             context, base, array_type->base, (uint64_t)cursor);
+        if (array_type->base->kind == TYPE_ARRAY) {
+            if (!address.valid || !lower_array_initializer(
+                    context, address.value, array_type->base,
+                    item->expr)) return false;
+            ++cursor;
+            continue;
+        }
+        if (!expression) {
+            context->unsupported = true;
+            return false;
+        }
         value = lower_expression(context, expression);
         value = lower_cast(context, value, array_type->base);
         if (!address.valid || !value.valid ||

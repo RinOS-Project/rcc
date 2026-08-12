@@ -47,6 +47,12 @@ int verified_local_string_array(int index)
     return text[index];
 }
 
+int verified_nested_array(void)
+{
+    int values[2][2] = {{1, 2}, [1] = {3, 4}};
+    return values[1][0];
+}
+
 int verified_pointer_add(int* base, int index)
 {
     return *(base + index);
