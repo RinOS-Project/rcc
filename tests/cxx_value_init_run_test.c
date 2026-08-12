@@ -98,6 +98,7 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_continue;
     mutable_int_pointer_function cleanup_for_break;
     mutable_int_pointer_function cleanup_for_continue;
+    mutable_int_pointer_function cleanup_zero_for;
     mutable_int_pointer_binary_function cleanup_switch;
     mutable_int_pointer_function cleanup_goto_exit;
     mutable_int_pointer_function cleanup_goto_backward;
@@ -197,6 +198,8 @@ int main(int argc, char** argv)
                   "cxx_cleanup_for_break");
     LOAD_FUNCTION(cleanup_for_continue, object, mapping,
                   "cxx_cleanup_for_continue");
+    LOAD_FUNCTION(cleanup_zero_for, object, mapping,
+                  "cxx_cleanup_zero_for");
     LOAD_FUNCTION(cleanup_switch, object, mapping, "cxx_cleanup_switch");
     LOAD_FUNCTION(cleanup_goto_exit, object, mapping,
                   "cxx_cleanup_goto_exit");
@@ -322,6 +325,11 @@ int main(int argc, char** argv)
         assert(value == 64);
         assert(cleanup_for_continue(&value) == 67);
         assert(value == 67);
+        {
+            int zero_trip_value = 5;
+            assert(cleanup_zero_for(&zero_trip_value) == 6);
+            assert(zero_trip_value == 6);
+        }
         assert(cleanup_switch(&value, 0) == 68);
         assert(value == 69);
         assert(cleanup_switch(&value, 1) == 71);

@@ -457,6 +457,13 @@ int cxx_cleanup_for_continue(int* value) {
     return *value;
 }
 
+int cxx_cleanup_zero_for(int* value) {
+    for (auto handle = CxxUnique<int*>{value}; 0; ) {
+        *value = 1000;
+    }
+    return *value;
+}
+
 int cxx_cleanup_switch(int* value, int selector) {
     auto outer = CxxUnique<int*>{value};
     switch (selector) {

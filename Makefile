@@ -1562,15 +1562,37 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	cmp $(TEST_OUT)/optimize/x64-o1.ro $(TEST_OUT)/optimize/x64-o3.ro
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/cxx-o1.ro tests/hello.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O1 -c \
+		-o $(TEST_OUT)/optimize/cxx-cleanup-x86.ro \
+		tests/cxx_inline_aggregate.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O1 -c \
+		-o $(TEST_OUT)/optimize/cxx-cleanup-x64.ro \
+		tests/cxx_inline_aggregate.cpp
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -O1 -driver \
 		--emit-unsigned-v3 -o $(TEST_OUT)/optimize/forbidden.drv \
 		tests/driver_policy_float.c
-	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimizer_run_test \
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/optimizer_run_test-x86 \
 		tests/optimizer_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
-	$(TEST_OUT)/optimizer_run_test \
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimizer_run_test-x64 \
+		tests/optimizer_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/optimizer_run_test-x86 \
 		$(TEST_OUT)/optimize/x86-o0.ro $(TEST_OUT)/optimize/x86-o1.ro \
 		$(TEST_OUT)/optimize/x64-o0.ro $(TEST_OUT)/optimize/x64-o1.ro
-	@echo "AST integer constant-folding tests completed"
+	$(TEST_OUT)/optimizer_run_test-x64 \
+		$(TEST_OUT)/optimize/x86-o0.ro $(TEST_OUT)/optimize/x86-o1.ro \
+		$(TEST_OUT)/optimize/x64-o0.ro $(TEST_OUT)/optimize/x64-o1.ro
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/optimize/cxx-cleanup-run-x86 \
+		tests/cxx_value_init_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/optimize/cxx-cleanup-run-x64 \
+		tests/cxx_value_init_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/optimize/cxx-cleanup-run-x86 \
+		$(TEST_OUT)/optimize/cxx-cleanup-x86.ro
+	$(TEST_OUT)/optimize/cxx-cleanup-run-x64 \
+		$(TEST_OUT)/optimize/cxx-cleanup-x64.ro
+	@echo "Dual-architecture AST integer folding and dead-code tests completed"
 
 test-generic: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/generic

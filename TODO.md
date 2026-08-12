@@ -86,7 +86,8 @@
 - [ ] constant propagation / folding
   - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
 - [ ] mem2reg、DCE、CSE/GVN
-  - [x] 定数`if`分岐選択とゼロ回`while`のAST dead-code除去
+  - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
+    （`goto`および`case/default`からのentryを保持）
 - [ ] loop optimization、inlining
 - [ ] `-O0..3`ごとのpass pipeline
 - [ ] linear-scan / graph-coloring register allocation

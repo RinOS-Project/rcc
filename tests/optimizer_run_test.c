@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#if defined(__x86_64__) && !defined(_WIN32)
+#if !defined(_WIN32) && \
+    (defined(__x86_64__) || defined(__i386__))
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
@@ -49,9 +50,18 @@ int main(int argc, char** argv)
     assert(argc == 5);
     verify_smaller(argv[1], argv[2], ARCH_X86);
     verify_smaller(argv[3], argv[4], ARCH_X64);
-#if defined(__x86_64__) && !defined(_WIN32)
+#if !defined(_WIN32) && \
+    (defined(__x86_64__) || defined(__i386__))
     {
-        ObjectFile* object = objfile_read(argv[4]);
+#if defined(__i386__)
+        const char* execution_path = argv[2];
+        const uint16_t execution_architecture = ARCH_X86;
+#else
+        const char* execution_path = argv[4];
+        const uint16_t execution_architecture = ARCH_X64;
+#endif
+        ObjectFile* object = objfile_read(execution_path);
+        assert(object != NULL && object->arch == execution_architecture);
         ObjSection* code = code_section(object);
         ObjSymbol* arithmetic_symbol = function_symbol(
             object, "folded_arithmetic");
@@ -60,6 +70,11 @@ int main(int argc, char** argv)
             object, "folded_short_circuit");
         ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
         ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
+        ObjSymbol* for_symbol = function_symbol(object, "removed_for_loop");
+        ObjSymbol* case_loop_symbol = function_symbol(
+            object, "preserved_case_loop");
+        ObjSymbol* case_for_symbol = function_symbol(
+            object, "preserved_case_for");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
@@ -68,6 +83,9 @@ int main(int argc, char** argv)
         int (*folded_short_circuit)(int*);
         int (*folded_branch)(int*);
         int (*removed_loop)(int*);
+        int (*removed_for_loop)(int*);
+        int (*preserved_case_loop)(int);
+        int (*preserved_case_for)(int);
         void* address;
         int value = 3;
         assert(page_size > 0);
@@ -90,6 +108,12 @@ int main(int argc, char** argv)
         memcpy(&folded_branch, &address, sizeof(folded_branch));
         address = mapping + loop_symbol->value;
         memcpy(&removed_loop, &address, sizeof(removed_loop));
+        address = mapping + for_symbol->value;
+        memcpy(&removed_for_loop, &address, sizeof(removed_for_loop));
+        address = mapping + case_loop_symbol->value;
+        memcpy(&preserved_case_loop, &address, sizeof(preserved_case_loop));
+        address = mapping + case_for_symbol->value;
+        memcpy(&preserved_case_for, &address, sizeof(preserved_case_for));
         assert(folded_arithmetic() == 19);
         assert(folded_choice(7) == 42);
         assert(folded_short_circuit(&value) == 1);
@@ -98,6 +122,12 @@ int main(int argc, char** argv)
         assert(value == 3);
         assert(removed_loop(&value) == 3);
         assert(value == 3);
+        assert(removed_for_loop(&value) == 5);
+        assert(value == 5);
+        assert(preserved_case_loop(0) == 0);
+        assert(preserved_case_loop(1) == 17);
+        assert(preserved_case_for(0) == 0);
+        assert(preserved_case_for(2) == 29);
 
         assert(munmap(mapping, mapping_size) == 0);
         objfile_free(object);

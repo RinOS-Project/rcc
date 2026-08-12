@@ -13,6 +13,8 @@ static bool statement_contains_label(const Stmt* statement) {
     if (!statement) return false;
     switch (statement->kind) {
         case STMT_LABEL:
+        case STMT_CASE:
+        case STMT_DEFAULT:
             return true;
         case STMT_BLOCK:
             for (StmtList* item = statement->block_stmts; item;
@@ -31,10 +33,6 @@ static bool statement_contains_label(const Stmt* statement) {
                    statement_contains_label(statement->for_body);
         case STMT_SWITCH:
             return statement_contains_label(statement->switch_body);
-        case STMT_CASE:
-            return statement_contains_label(statement->case_stmt);
-        case STMT_DEFAULT:
-            return statement_contains_label(statement->default_stmt);
         default:
             return false;
     }
@@ -417,6 +415,24 @@ static void optimize_stmt(Stmt* statement) {
         case STMT_FOR:
             optimize_stmt(statement->for_init);
             optimize_expr(&statement->for_cond);
+            {
+                int64_t condition;
+                if (integer_literal(statement->for_cond, &condition) &&
+                    condition == 0 &&
+                    !statement_contains_label(statement->for_body)) {
+                    Stmt* initializer = statement->for_init;
+                    if (initializer) {
+                        StmtList* only = ast_arena_alloc(sizeof(*only));
+                        only->stmt = initializer;
+                        only->next = NULL;
+                        statement->kind = STMT_BLOCK;
+                        statement->block_stmts = only;
+                    } else {
+                        statement->kind = STMT_NULL;
+                    }
+                    return;
+                }
+            }
             optimize_expr(&statement->for_inc);
             optimize_stmt(statement->for_body);
             break;

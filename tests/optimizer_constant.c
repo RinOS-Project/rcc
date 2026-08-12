@@ -30,3 +30,33 @@ int removed_loop(int* value)
     }
     return *value;
 }
+
+int removed_for_loop(int* value)
+{
+    for (*value += 2; 3 < 2; *value = 99) {
+        *value = 88;
+    }
+    return *value;
+}
+
+int preserved_case_loop(int choice)
+{
+    switch (choice) {
+        while (0) {
+            case 1:
+                return 17;
+        }
+    }
+    return 0;
+}
+
+int preserved_case_for(int choice)
+{
+    switch (choice) {
+        for (; 0; ) {
+            case 2:
+                return 29;
+        }
+    }
+    return 0;
+}
