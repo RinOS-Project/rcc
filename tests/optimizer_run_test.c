@@ -79,6 +79,14 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "removed_after_break"));
     assert(function_extent(optimized, "removed_after_continue") <
            function_extent(unoptimized, "removed_after_continue"));
+    assert(function_extent(optimized, "removed_pure_expression") <
+           function_extent(unoptimized, "removed_pure_expression"));
+    assert(function_extent(optimized, "preserved_assignment_expression") ==
+           function_extent(unoptimized, "preserved_assignment_expression"));
+    assert(function_extent(optimized, "preserved_volatile_read") ==
+           function_extent(unoptimized, "preserved_volatile_read"));
+    assert(function_extent(optimized, "preserved_call_expression") ==
+           function_extent(unoptimized, "preserved_call_expression"));
     objfile_free(unoptimized);
     objfile_free(optimized);
 }
@@ -132,6 +140,12 @@ int main(int argc, char** argv)
             object, "removed_after_continue");
         ObjSymbol* preserved_case_after_break_symbol = function_symbol(
             object, "preserved_case_after_break");
+        ObjSymbol* removed_pure_expression_symbol = function_symbol(
+            object, "removed_pure_expression");
+        ObjSymbol* preserved_assignment_expression_symbol = function_symbol(
+            object, "preserved_assignment_expression");
+        ObjSymbol* preserved_volatile_read_symbol = function_symbol(
+            object, "preserved_volatile_read");
         ObjSymbol* branch_symbol = function_symbol(object, "folded_branch");
         ObjSymbol* loop_symbol = function_symbol(object, "removed_loop");
         ObjSymbol* for_symbol = function_symbol(object, "removed_for_loop");
@@ -158,6 +172,9 @@ int main(int argc, char** argv)
         int (*removed_after_break)(int*);
         int (*removed_after_continue)(int*);
         int (*preserved_case_after_break)(int);
+        int (*removed_pure_expression)(int);
+        int (*preserved_assignment_expression)(int*);
+        int (*preserved_volatile_read)(volatile int*);
         int (*folded_branch)(int*);
         int (*removed_loop)(int*);
         int (*removed_for_loop)(int*);
@@ -218,6 +235,15 @@ int main(int argc, char** argv)
         address = mapping + preserved_case_after_break_symbol->value;
         memcpy(&preserved_case_after_break, &address,
                sizeof(preserved_case_after_break));
+        address = mapping + removed_pure_expression_symbol->value;
+        memcpy(&removed_pure_expression, &address,
+               sizeof(removed_pure_expression));
+        address = mapping + preserved_assignment_expression_symbol->value;
+        memcpy(&preserved_assignment_expression, &address,
+               sizeof(preserved_assignment_expression));
+        address = mapping + preserved_volatile_read_symbol->value;
+        memcpy(&preserved_volatile_read, &address,
+               sizeof(preserved_volatile_read));
         address = mapping + branch_symbol->value;
         memcpy(&folded_branch, &address, sizeof(folded_branch));
         address = mapping + loop_symbol->value;
@@ -255,6 +281,12 @@ int main(int argc, char** argv)
         assert(value == 3);
         assert(preserved_case_after_break(0) == 0);
         assert(preserved_case_after_break(3) == 33);
+        assert(removed_pure_expression(8) == 9);
+        value = 10;
+        assert(preserved_assignment_expression(&value) == 12);
+        assert(value == 12);
+        assert(preserved_volatile_read(&value) == 31);
+        value = 3;
         assert(folded_branch(&value) == 5);
         assert(value == 3);
         assert(removed_loop(&value) == 3);

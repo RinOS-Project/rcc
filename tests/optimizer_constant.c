@@ -107,6 +107,33 @@ int preserved_case_after_break(int choice)
     return 0;
 }
 
+int removed_pure_expression(int value)
+{
+    value * (value + 3);
+    (value ^ 17) < (value + 41);
+    return value + 1;
+}
+
+int preserved_assignment_expression(int* value)
+{
+    *value = *value + 2;
+    return *value;
+}
+
+int preserved_volatile_read(volatile int* value)
+{
+    *value;
+    return 31;
+}
+
+extern void optimizer_external_effect(int* value);
+
+int preserved_call_expression(int* value)
+{
+    optimizer_external_effect(value);
+    return *value;
+}
+
 int folded_branch(int* value)
 {
     if ((2 + 2) == 4) {

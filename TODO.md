@@ -43,6 +43,7 @@
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen
 - [ ] qualifierとeffective typeの完全なC17規則
+  - [x] declaration specifierの`volatile`保持と未使用readのDCE抑止
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] compatible aggregateのlocal copy初期化と匿名struct/union member
@@ -92,6 +93,7 @@
   - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
     （`goto`および`case/default`からのentryを保持）
   - [x] block内control transfer後の直列DCEとlabel/case entry保持
+  - [x] 未使用の副作用なし式文DCEとcall/volatile/C++ cleanup保持
 - [ ] loop optimization、inlining
 - [ ] `-O0..3`ごとのpass pipeline
 - [ ] linear-scan / graph-coloring register allocation

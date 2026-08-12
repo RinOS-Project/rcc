@@ -9,6 +9,106 @@
 static void optimize_expr(Expr** expression);
 static void optimize_stmt(Stmt* statement);
 
+static bool expression_has_side_effect(const Expr* expression);
+
+static bool expression_list_has_side_effect(const ExprList* list) {
+    for (const ExprList* item = list; item; item = item->next) {
+        if (expression_has_side_effect(item->expr)) return true;
+    }
+    return false;
+}
+
+static bool expression_has_side_effect(const Expr* expression) {
+    if (!expression) return false;
+
+    /* These lowerings own cleanup/release actions that cannot be discarded. */
+    if (expression->cxx_move_assignment || expression->cxx_close_call ||
+        (expression->type && expression->type->cleanup_function)) {
+        return true;
+    }
+
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            return false;
+        case EXPR_IDENT:
+            return expression->type && expression->type->is_volatile;
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_CALL:
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return true;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_CAST:
+            return expression_has_side_effect(expression->unary_operand);
+        case EXPR_DEREF:
+            return (expression->type && expression->type->is_volatile) ||
+                   expression_has_side_effect(expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            return expression_has_side_effect(expression->binary_lhs) ||
+                   expression_has_side_effect(expression->binary_rhs);
+        case EXPR_COND:
+            return expression_has_side_effect(expression->cond_test) ||
+                   expression_has_side_effect(expression->cond_then) ||
+                   expression_has_side_effect(expression->cond_else);
+        case EXPR_INDEX:
+            return (expression->type && expression->type->is_volatile) ||
+                   expression_has_side_effect(expression->index_base) ||
+                   expression_has_side_effect(expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return (expression->type && expression->type->is_volatile) ||
+                   expression_has_side_effect(expression->member_base);
+        case EXPR_COMPOUND:
+            return expression_list_has_side_effect(expression->compound_init);
+        case EXPR_GENERIC:
+            /* Sema replaces valid generic selections before optimization. */
+            return true;
+    }
+    return true;
+}
+
 static bool statement_contains_label(const Stmt* statement) {
     if (!statement) return false;
     switch (statement->kind) {
@@ -621,6 +721,10 @@ static void optimize_stmt(Stmt* statement) {
     switch (statement->kind) {
         case STMT_EXPR:
             optimize_expr(&statement->expr);
+            if (!expression_has_side_effect(statement->expr)) {
+                statement->kind = STMT_NULL;
+                statement->expr = NULL;
+            }
             break;
         case STMT_BLOCK:
             optimize_block(statement);

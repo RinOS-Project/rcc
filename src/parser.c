@@ -1607,6 +1607,7 @@ static Type* parse_type_spec(void) {
     bool is_unsigned = false;
     bool saw_sign = false;
     bool is_const = false;
+    bool is_volatile = false;
     int long_count = 0;
     bool is_short = false;
 
@@ -1614,7 +1615,7 @@ static Type* parse_type_spec(void) {
         if (match(TOK_CONST)) {
             is_const = true;
         } else if (match(TOK_VOLATILE)) {
-            /* ignore for now */
+            is_volatile = true;
         } else if (match(TOK_UNSIGNED)) {
             is_unsigned = true;
             saw_sign = true;
@@ -1688,12 +1689,13 @@ static Type* parse_type_spec(void) {
         t = is_unsigned ? type_uint : type_int;
     }
 
-    if (is_const && t) {
-        /* Make a copy with const flag */
-        Type* ct = ast_arena_alloc(sizeof(Type));
-        *ct = *t;
-        ct->is_const = true;
-        t = ct;
+    if ((is_const || is_volatile) && t) {
+        /* Built-in and typedef types are shared, so qualify a private copy. */
+        Type* qualified = ast_arena_alloc(sizeof(*qualified));
+        *qualified = *t;
+        qualified->is_const = qualified->is_const || is_const;
+        qualified->is_volatile = qualified->is_volatile || is_volatile;
+        t = qualified;
     }
 
     return t;
