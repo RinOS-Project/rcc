@@ -23,6 +23,36 @@ static void append_branch(RccIrBlock* block, RccIrBlockId target)
                          NULL, 0u, &target, 1u) != NULL);
 }
 
+static void verify_x86_abi_mapping(void)
+{
+    RccX86Abi abi;
+    RccMirRegisterPolicy policy;
+    RccX86HardwareGpr hardware;
+    char error[256];
+    rcc_x86_abi_i686(&abi);
+    rcc_mir_register_policy_i686(&policy);
+    assert(rcc_x86_abi_verify_policy(
+        &abi, &policy, error, sizeof(error)));
+    assert(abi.integer_argument_count == 0u);
+    assert(abi.return_low == RCC_X86_GPR_AX);
+    assert(abi.return_high == RCC_X86_GPR_DX);
+    assert(rcc_x86_abi_hardware_gpr(&abi, 4u, &hardware));
+    assert(hardware == RCC_X86_GPR_SI);
+    rcc_x86_abi_x86_64(&abi);
+    rcc_mir_register_policy_x86_64(&policy);
+    assert(rcc_x86_abi_verify_policy(
+        &abi, &policy, error, sizeof(error)));
+    assert(abi.integer_argument_count == 6u);
+    assert(abi.integer_arguments[0] == RCC_X86_GPR_DI);
+    assert(abi.integer_arguments[5] == RCC_X86_GPR_R9);
+    assert(rcc_x86_abi_hardware_gpr(&abi, 10u, &hardware));
+    assert(hardware == RCC_X86_GPR_R12);
+    policy.caller_saved_gpr_mask ^= UINT64_C(1);
+    assert(!rcc_x86_abi_verify_policy(
+        &abi, &policy, error, sizeof(error)));
+    assert(strstr(error, "disagrees") != NULL);
+}
+
 static void verify_ir_to_mir_diamond(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -372,6 +402,7 @@ static void verify_ir_to_mir_call(void)
 
 int main(void)
 {
+    verify_x86_abi_mapping();
     verify_ir_to_mir_diamond();
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();

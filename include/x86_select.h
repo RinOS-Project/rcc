@@ -6,11 +6,7 @@
 #define RCC_X86_SELECT_H
 
 #include "mir_phi.h"
-
-typedef enum {
-    RCC_X86_TARGET_I686,
-    RCC_X86_TARGET_X86_64,
-} RccX86Target;
+#include "x86_abi.h"
 
 typedef enum {
     RCC_X86_COPY,

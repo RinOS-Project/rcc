@@ -112,6 +112,7 @@
 ## 5. backend
 
 - [x] MIR allocation/phi planからのdual-arch scalar machine IR instruction selectionとcritical-edge split verifier
+  - [x] abstract physical registerから実x86 encoding registerへのSysV ABI mapping
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

@@ -353,9 +353,12 @@ bool rcc_x86_verify_function(
     const RccMirRegisterPolicy* policy,
     char* error, size_t error_size) {
     const RccX86Block* block;
+    RccX86Abi abi;
     size_t blocks = 0u;
     if (error && error_size != 0u) error[0] = '\0';
     if (!function || !policy ||
+        !rcc_x86_abi_for_target(function->target, &abi) ||
+        !rcc_x86_abi_verify_policy(&abi, policy, error, error_size) ||
         (function->target == RCC_X86_TARGET_I686
              ? function->pointer_size != 4u
              : function->pointer_size != 8u) ||
