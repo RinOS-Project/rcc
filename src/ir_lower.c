@@ -4,6 +4,7 @@
 
 #include "rcc.h"
 #include "ir_lower.h"
+#include "ir_pass.h"
 
 typedef struct RccIrLowerLocal {
     const Decl* declaration;
@@ -1187,6 +1188,13 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         context.terminated = true;
     }
     lower_release_locals(context.locals);
+    {
+        RccIrMem2RegStats stats;
+        if (!rcc_ir_mem2reg(function, &stats, error, error_size)) {
+            rcc_ir_module_destroy(module);
+            return RCC_IR_LOWER_INVALID;
+        }
+    }
     if (!rcc_ir_verify_module(module, error, error_size)) {
         rcc_ir_module_destroy(module);
         return RCC_IR_LOWER_INVALID;

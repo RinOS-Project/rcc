@@ -88,6 +88,7 @@
 - [ ] typed SSA IRとCFG
   - [x] scalar/pointer SSA value、basic block、phi、terminator、dominance/use-def/type verifier
   - [x] scalar ASTのalloca/load/store SSA loweringとif/while/do/for CFG shadow verification
+  - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
 - [ ] target-independent MIR
 - [ ] constant propagation / folding
   - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
