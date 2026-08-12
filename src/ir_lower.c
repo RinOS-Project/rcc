@@ -6,6 +6,7 @@
 #include "ir_lower.h"
 #include "ir_pass.h"
 #include "mir.h"
+#include "mir_alloc.h"
 
 typedef struct RccIrLowerLocal {
     const Decl* declaration;
@@ -1205,10 +1206,24 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     }
     {
         RccMirFunction* mir = NULL;
+        RccMirRegisterPolicy policy;
+        RccMirAllocation allocation;
         if (!rcc_mir_lower_ir(function, &mir, error, error_size)) {
             rcc_ir_module_destroy(module);
             return RCC_IR_LOWER_INVALID;
         }
+        if (g_opts.target_arch == ARCH_X64) {
+            rcc_mir_register_policy_x86_64(&policy);
+        } else {
+            rcc_mir_register_policy_i686(&policy);
+        }
+        if (!rcc_mir_linear_scan_allocate(
+                mir, &policy, &allocation, error, error_size)) {
+            rcc_mir_function_destroy(mir);
+            rcc_ir_module_destroy(module);
+            return RCC_IR_LOWER_INVALID;
+        }
+        rcc_mir_allocation_release(&allocation);
         rcc_mir_function_destroy(mir);
     }
     if (!rcc_ir_verify_module(module, error, error_size)) {

@@ -106,6 +106,7 @@
 - [ ] loop optimization、inlining
 - [ ] `-O0..3`ごとのpass pipeline
 - [ ] linear-scan / graph-coloring register allocation
+  - [x] phi edge/call crossing対応MIR live intervalとpolicy駆動linear-scan/spill配置
 
 ## 5. backend
 
