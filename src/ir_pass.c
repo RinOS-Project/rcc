@@ -1040,6 +1040,7 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_SELECT:
         case RCC_IR_ALLOCA:
         case RCC_IR_GEP:
+        case RCC_IR_SYMBOL_ADDRESS:
             return true;
         case RCC_IR_LOAD:
         case RCC_IR_STORE:

@@ -420,8 +420,24 @@ static RccIrLowerValue lower_lvalue_address(
     if (expression->kind == EXPR_IDENT) {
         local = lower_find_local(context, expression->ident_decl);
         if (!local) {
-            context->unsupported = true;
-            return lower_invalid_value();
+            const Decl* declaration = expression->ident_decl;
+            RccIrType value_type;
+            RccIrInstruction* address;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                !declaration->var_is_global ||
+                declaration->var_is_thread_local ||
+                !lower_type(declaration->type, &value_type) ||
+                value_type.kind == RCC_IR_TYPE_VOID) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            address = lower_append(
+                context, RCC_IR_SYMBOL_ADDRESS,
+                rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+            if (!address) return lower_invalid_value();
+            rcc_ir_set_callee(address, decl_link_name(declaration));
+            return lower_value(
+                address->result, rcc_ir_type_pointer(0u), true);
         }
         return lower_value(local->address, rcc_ir_type_pointer(0u), true);
     }

@@ -34,6 +34,7 @@ typedef enum {
     RCC_X86_LOAD,
     RCC_X86_STORE,
     RCC_X86_GEP,
+    RCC_X86_SYMBOL_ADDRESS,
     RCC_X86_CALL,
     RCC_X86_JUMP,
     RCC_X86_JUMP_IF,

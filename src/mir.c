@@ -321,6 +321,10 @@ static bool mir_verify_instruction_type(
                                     rcc_mir_type_pointer()) &&
                 second.kind == RCC_MIR_TYPE_INTEGER &&
                 instruction->immediate != 0u;
+        case RCC_MIR_SYMBOL_ADDRESS:
+            return mir_shape(verifier, instruction, 0u, 0u) &&
+                instruction->type.kind == RCC_MIR_TYPE_POINTER &&
+                instruction->callee && instruction->callee[0];
         case RCC_MIR_CALL:
             return instruction->target_count == 0u &&
                 instruction->callee && instruction->callee[0];

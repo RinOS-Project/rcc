@@ -9,6 +9,8 @@
 
 typedef enum {
     RCC_X86_CODE_RELOC_REL32,
+    RCC_X86_CODE_RELOC_ABS32U,
+    RCC_X86_CODE_RELOC_ABS64,
 } RccX86CodeRelocationType;
 
 typedef struct {

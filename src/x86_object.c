@@ -63,12 +63,20 @@ bool rcc_x86_object_add_function(
             error, error_size, "x86 object function symbol is duplicate");
     }
     for (size_t index = 0u; index < encoded->relocation_count; ++index) {
+        const RccX86CodeRelocation* relocation =
+            &encoded->relocations[index];
         ObjSymbol* target = objfile_find_symbol(
-            object, encoded->relocations[index].symbol);
-        if (target && target->binding != BIND_CODE) {
+            object, relocation->symbol);
+        bool is_call =
+            relocation->type == RCC_X86_CODE_RELOC_REL32;
+        bool binding_valid = !target ||
+            (is_call && target->binding == BIND_CODE) ||
+            (!is_call && (target->binding == BIND_DATA ||
+                          target->binding == BIND_BSS));
+        if (!binding_valid) {
             return x86_object_error(
                 error, error_size,
-                "x86 call relocation target is not a code symbol");
+                "x86 relocation target has incompatible binding");
         }
     }
     text = objfile_get_section(object, ".text");
@@ -107,15 +115,21 @@ bool rcc_x86_object_add_function(
     for (size_t index = 0u; index < encoded->relocation_count; ++index) {
         const RccX86CodeRelocation* relocation =
             &encoded->relocations[index];
+        bool is_call =
+            relocation->type == RCC_X86_CODE_RELOC_REL32;
+        RelocType object_type = is_call ? RELOC_REL32
+            : relocation->type == RCC_X86_CODE_RELOC_ABS64
+                ? RELOC_ABS64 : RELOC_ABS32U;
         if (!objfile_find_symbol(object, relocation->symbol)) {
             objfile_add_symbol(
-                object, relocation->symbol, SYM_UNDEF, BIND_CODE,
+                object, relocation->symbol, SYM_UNDEF,
+                is_call ? BIND_CODE : BIND_DATA,
                 -1, 0u, 0u);
         }
         objfile_add_reloc(
             object, section_index,
             function_offset + relocation->offset,
-            relocation->symbol, RELOC_REL32, relocation->addend);
+            relocation->symbol, object_type, relocation->addend);
     }
     return true;
 }

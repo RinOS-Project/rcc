@@ -168,6 +168,7 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_LOAD: return RCC_X86_LOAD;
         case RCC_MIR_STORE: return RCC_X86_STORE;
         case RCC_MIR_GEP: return RCC_X86_GEP;
+        case RCC_MIR_SYMBOL_ADDRESS: return RCC_X86_SYMBOL_ADDRESS;
         case RCC_MIR_CALL: return RCC_X86_CALL;
         case RCC_MIR_BRANCH: return RCC_X86_JUMP;
         case RCC_MIR_COND_BRANCH: return RCC_X86_JUMP_IF;
@@ -339,9 +340,12 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->target_count == 0u;
         case RCC_X86_MOV_IMMEDIATE:
         case RCC_X86_STACK_ADDRESS:
+        case RCC_X86_SYMBOL_ADDRESS:
             return instruction->has_destination &&
                 instruction->operand_count == 0u &&
-                instruction->target_count == 0u;
+                instruction->target_count == 0u &&
+                (instruction->opcode != RCC_X86_SYMBOL_ADDRESS ||
+                 (instruction->symbol && instruction->symbol[0]));
         case RCC_X86_ADD: case RCC_X86_SUB: case RCC_X86_MUL:
         case RCC_X86_UDIV: case RCC_X86_SDIV: case RCC_X86_UREM:
         case RCC_X86_SREM: case RCC_X86_AND: case RCC_X86_OR:

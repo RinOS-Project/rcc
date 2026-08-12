@@ -1674,11 +1674,23 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/verified-backend/cxx-x64.log
 	grep -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-x64.log
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/globals-x86.ro \
+		tests/verified_backend_globals.c \
+		>$(TEST_OUT)/verified-backend/globals-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/globals-x64.ro \
+		tests/verified_backend_globals.c \
+		>$(TEST_OUT)/verified-backend/globals-x64.log
+	grep -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/globals-x86.log
+	grep -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/globals-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/fallback.ro \
 		tests/verified_backend_fallback.c \
 		>$(TEST_OUT)/verified-backend/fallback.log
-	grep -q 'Verified backend fallback: translation unit contains global data' \
+	grep -q 'Verified backend fallback: translation unit contains thread-local data' \
 		$(TEST_OUT)/verified-backend/fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/switch-fallback.ro \
@@ -1696,12 +1708,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/verified-backend/x86.ro \
 		$(TEST_OUT)/verified-backend/x64.ro \
 		$(TEST_OUT)/verified-backend/cxx-x64.ro \
-		$(TEST_OUT)/verified-backend/fallback.ro
+		$(TEST_OUT)/verified-backend/globals-x86.ro \
+		$(TEST_OUT)/verified-backend/globals-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 \
 		$(TEST_OUT)/verified-backend/x86.ro \
 		$(TEST_OUT)/verified-backend/x64.ro \
 		$(TEST_OUT)/verified-backend/cxx-x64.ro \
-		$(TEST_OUT)/verified-backend/fallback.ro
+		$(TEST_OUT)/verified-backend/globals-x86.ro \
+		$(TEST_OUT)/verified-backend/globals-x64.ro
 	@echo "Verified backend production object and fallback tests completed"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)

@@ -1052,8 +1052,9 @@ static bool x86_add_fixup(RccX86Encoder* encoder, uint32_t target) {
     return x86_emit_u32(encoder, 0u);
 }
 
-static bool x86_add_relocation(RccX86Encoder* encoder,
-                               const char* symbol) {
+static bool x86_add_relocation(
+    RccX86Encoder* encoder, const char* symbol,
+    RccX86CodeRelocationType type) {
     RccX86CodeRelocation* relocation;
     if (encoder->output.relocation_count ==
         encoder->relocation_capacity) {
@@ -1073,9 +1074,47 @@ static bool x86_add_relocation(RccX86Encoder* encoder,
         encoder->output.relocation_count++];
     memset(relocation, 0, sizeof(*relocation));
     relocation->offset = (uint32_t)encoder->output.code_size;
-    relocation->type = RCC_X86_CODE_RELOC_REL32;
+    relocation->type = type;
     relocation->symbol = rcc_strdup(symbol);
-    return x86_emit_u32(encoder, 0u);
+    return type == RCC_X86_CODE_RELOC_ABS64
+        ? x86_emit_u64(encoder, 0u) : x86_emit_u32(encoder, 0u);
+}
+
+static bool x86_emit_symbol_address_register(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    const char* symbol) {
+    RccX86CodeRelocationType type =
+        encoder->function->target == RCC_X86_TARGET_X86_64
+            ? RCC_X86_CODE_RELOC_ABS64
+            : RCC_X86_CODE_RELOC_ABS32U;
+    if (!x86_emit_rex(
+            encoder, encoder->function->pointer_size == 8u,
+            RCC_X86_GPR_AX, destination, false) ||
+        !x86_emit_u8(encoder, (uint8_t)(
+            0xb8u + ((unsigned)destination & 7u)))) return false;
+    return x86_add_relocation(encoder, symbol, type);
+}
+
+static bool x86_emit_symbol_address(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    uint16_t size = encoder->function->pointer_size;
+    if (destination.size != size || !instruction->symbol ||
+        !instruction->symbol[0]) {
+        return x86_encode_error(
+            encoder, "x86 symbol address contract is invalid");
+    }
+    if (destination.kind == RCC_X86_VALUE_GPR) {
+        return x86_emit_symbol_address_register(
+            encoder, destination.gpr, instruction->symbol);
+    }
+    return x86_emit_push(encoder, RCC_X86_GPR_AX) &&
+        x86_emit_symbol_address_register(
+            encoder, RCC_X86_GPR_AX, instruction->symbol) &&
+        x86_emit_store(
+            encoder, destination, RCC_X86_GPR_AX, size) &&
+        x86_emit_pop(encoder, RCC_X86_GPR_AX);
 }
 
 static bool x86_emit_compare_zero(RccX86Encoder* encoder,
@@ -1174,7 +1213,9 @@ static bool x86_emit_instruction(
             return x86_emit_shift(encoder, instruction);
         case RCC_X86_LEGAL_CALL:
             return x86_emit_u8(encoder, 0xe8u) &&
-                x86_add_relocation(encoder, instruction->symbol);
+                x86_add_relocation(
+                    encoder, instruction->symbol,
+                    RCC_X86_CODE_RELOC_REL32);
         case RCC_X86_LEGAL_RETURN:
             return x86_emit_epilogue(encoder);
         case RCC_X86_LEGAL_SELECTED:
@@ -1201,6 +1242,8 @@ static bool x86_emit_instruction(
             return x86_emit_conversion(encoder, instruction);
         case RCC_X86_STACK_ADDRESS:
             return x86_emit_stack_address(encoder, instruction);
+        case RCC_X86_SYMBOL_ADDRESS:
+            return x86_emit_symbol_address(encoder, instruction);
         case RCC_X86_LOAD:
             return x86_emit_pointer_load(encoder, instruction);
         case RCC_X86_STORE:
@@ -1304,11 +1347,18 @@ bool rcc_x86_verify_encoded_function(
     for (size_t index = 0u; index < encoded->relocation_count; ++index) {
         const RccX86CodeRelocation* relocation =
             &encoded->relocations[index];
-        if (relocation->type != RCC_X86_CODE_RELOC_REL32 ||
+        uint32_t width = relocation->type == RCC_X86_CODE_RELOC_ABS64
+            ? 8u : 4u;
+        bool type_valid = relocation->type == RCC_X86_CODE_RELOC_REL32 ||
+            (relocation->type == RCC_X86_CODE_RELOC_ABS32U &&
+             encoded->target == RCC_X86_TARGET_I686) ||
+            (relocation->type == RCC_X86_CODE_RELOC_ABS64 &&
+             encoded->target == RCC_X86_TARGET_X86_64);
+        if (!type_valid ||
             relocation->addend != 0 ||
             !relocation->symbol || !relocation->symbol[0] ||
             relocation->offset > encoded->code_size ||
-            4u > encoded->code_size - relocation->offset ||
+            width > encoded->code_size - relocation->offset ||
             (index != 0u && relocation->offset <=
                 encoded->relocations[index - 1u].offset)) {
             if (error && error_size != 0u) {

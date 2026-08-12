@@ -5,6 +5,7 @@
 #include "rcc.h"
 #include "verified_codegen.h"
 
+#include "codegen.h"
 #include "ir_lower.h"
 #include "objfile.h"
 #include "x86_object.h"
@@ -29,9 +30,13 @@ static const Decl* verified_static_definition(
     const DeclList* item;
     for (item = ast->decls; item; item = item->next) {
         const Decl* declaration = item->decl;
-        if (declaration && declaration->kind == DECL_FUNC &&
-            declaration->func_body &&
-            declaration->storage == STORAGE_STATIC &&
+        bool is_definition = declaration &&
+            ((declaration->kind == DECL_FUNC && declaration->func_body) ||
+             (declaration->kind == DECL_VAR &&
+              declaration->var_is_global &&
+              !(declaration->storage == STORAGE_EXTERN &&
+                !declaration->var_init)));
+        if (is_definition && declaration->storage == STORAGE_STATIC &&
             strcmp(decl_link_name(declaration), name) == 0) {
             return declaration;
         }
@@ -71,6 +76,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     const char* output_path, size_t* function_count,
     char* reason, size_t reason_size) {
     const DeclList* item;
+    Module* data_module = NULL;
     ObjectFile* object = NULL;
     size_t emitted = 0u;
     uint16_t arch = g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86;
@@ -85,13 +91,24 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             "invalid verified object request");
     }
     for (item = ast->decls; item; item = item->next) {
-        if (item->decl && item->decl->kind == DECL_VAR) {
+        if (item->decl && item->decl->kind == DECL_VAR &&
+            item->decl->var_is_global &&
+            item->decl->var_is_thread_local) {
             return verified_reason(
                 RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
-                "translation unit contains global data");
+                "translation unit contains thread-local data");
         }
     }
-    object = objfile_new(translation_unit, arch);
+    data_module = codegen_new();
+    codegen_emit_global_data(data_module, (AST*)ast);
+    object = module_to_objfile(data_module, translation_unit);
+    codegen_free(data_module);
+    if (!object || object->arch != arch) {
+        objfile_free(object);
+        return verified_reason(
+            RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+            "failed to emit verified global data");
+    }
     for (item = ast->decls; item; item = item->next) {
         const Decl* declaration = item->decl;
         RccIrModule* module = NULL;

@@ -316,6 +316,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_LOAD: return "load";
         case RCC_IR_STORE: return "store";
         case RCC_IR_GEP: return "gep";
+        case RCC_IR_SYMBOL_ADDRESS: return "symbol_address";
         case RCC_IR_CALL: return "call";
         case RCC_IR_BRANCH: return "branch";
         case RCC_IR_COND_BRANCH: return "cond_branch";
@@ -545,6 +546,15 @@ static bool ir_verify_instruction_types(
                 instruction->immediate == 0u) {
                 return ir_verify_error(verifier,
                                        "gep has incompatible operands");
+            }
+            return true;
+        case RCC_IR_SYMBOL_ADDRESS:
+            if (!ir_require_shape(verifier, instruction, 0u, 0u) ||
+                instruction->type.kind != RCC_IR_TYPE_POINTER ||
+                !instruction->callee || !instruction->callee[0]) {
+                return ir_verify_error(
+                    verifier,
+                    "symbol_address requires pointer type and symbol");
             }
             return true;
         case RCC_IR_CALL:

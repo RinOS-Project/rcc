@@ -128,6 +128,45 @@ static void verify_memory_ir(void)
     expect_valid(module);
 }
 
+static void verify_symbol_address_ir(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "global_load", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrInstruction* address = rcc_ir_append(
+        entry, RCC_IR_SYMBOL_ADDRESS, pointer, NULL, 0u, NULL, 0u);
+    RccIrInstruction* load;
+    assert(address != NULL);
+    rcc_ir_set_callee(address, "global_value");
+    load = rcc_ir_append(entry, RCC_IR_LOAD, i32, &address->result, 1u,
+                         NULL, 0u);
+    assert(load != NULL);
+    append_return(entry, load->result);
+    expect_valid(module);
+}
+
+static void reject_symbol_address_without_symbol(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "bad_global", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrInstruction* address = rcc_ir_append(
+        entry, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    RccIrInstruction* load;
+    assert(address != NULL);
+    load = rcc_ir_append(entry, RCC_IR_LOAD, i32, &address->result, 1u,
+                         NULL, 0u);
+    assert(load != NULL);
+    append_return(entry, load->result);
+    expect_invalid(module, "symbol_address requires");
+}
+
 static void verify_loop_phi(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -289,6 +328,7 @@ int main(void)
 {
     verify_diamond_phi();
     verify_memory_ir();
+    verify_symbol_address_ir();
     verify_loop_phi();
     reject_type_mismatch();
     reject_missing_terminator();
@@ -296,6 +336,7 @@ int main(void)
     reject_non_dominating_use();
     reject_bad_phi_predecessors();
     reject_unreachable_block();
+    reject_symbol_address_without_symbol();
     puts("Typed SSA IR and CFG verifier tests passed");
     return 0;
 }

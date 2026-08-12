@@ -155,6 +155,8 @@ int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
                                     int stack_alignment);
 
 /* Object file output */
+struct ObjectFile;
+struct ObjectFile* module_to_objfile(Module* mod, const char* filename);
 bool rcc_emit_obj(Module* mod, const char* filename);
 
 #endif /* CODEGEN_H */

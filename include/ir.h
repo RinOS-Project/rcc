@@ -59,6 +59,7 @@ typedef enum {
     RCC_IR_LOAD,
     RCC_IR_STORE,
     RCC_IR_GEP,
+    RCC_IR_SYMBOL_ADDRESS,
     RCC_IR_CALL,
     RCC_IR_BRANCH,
     RCC_IR_COND_BRANCH,
