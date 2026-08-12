@@ -206,6 +206,13 @@ test-cxx-overloads: $(RCXX_TARGET)
 		test $$status -ne 0
 	grep -q "ambiguous overload for 'ambiguous'" \
 		$(TEST_OUT)/cxx-overloads/ambiguous.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/nullptr-integer.ro \
+		tests/cxx_nullptr_integer_rejected.cpp \
+		>$(TEST_OUT)/cxx-overloads/nullptr-integer.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "incompatible type for argument 1 to 'consume_integer'" \
+		$(TEST_OUT)/cxx-overloads/nullptr-integer.log
 	@echo "RCC++ overload resolution tests completed"
 
 test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)

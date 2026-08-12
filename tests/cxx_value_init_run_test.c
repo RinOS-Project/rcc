@@ -9,6 +9,7 @@
 #include "objfile.h"
 
 typedef int (*nullary_function)(void);
+typedef void* (*nullary_pointer_function)(void);
 typedef int (*binary_function)(int, int);
 typedef int (*wide_binary_function)(uint64_t, uint64_t);
 typedef uint64_t (*int_wide_function)(int, uint64_t);
@@ -57,6 +58,8 @@ int main(int argc, char** argv)
     long page_size;
     size_t mapping_size;
     nullary_function direct_value_init;
+    nullary_pointer_function nullptr_return;
+    nullary_function nullptr_context;
     nullary_function local_value_init;
     nullary_function scalar_value_init;
     nullary_function versioned_template_value;
@@ -124,6 +127,8 @@ int main(int argc, char** argv)
 
     LOAD_FUNCTION(direct_value_init, object, mapping,
                   "cxx_direct_value_init");
+    LOAD_FUNCTION(nullptr_return, object, mapping, "cxx_nullptr_return");
+    LOAD_FUNCTION(nullptr_context, object, mapping, "cxx_nullptr_context");
     LOAD_FUNCTION(local_value_init, object, mapping,
                   "cxx_local_value_init");
     LOAD_FUNCTION(scalar_value_init, object, mapping,
@@ -201,6 +206,8 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_contextual_control, object, mapping,
                   "cxx_cleanup_contextual_control");
     assert(direct_value_init() == 1);
+    assert(nullptr_return() == NULL);
+    assert(nullptr_context() == 1);
     assert(local_value_init() == 1);
     assert(scalar_value_init() == 1);
     assert(versioned_template_value() ==

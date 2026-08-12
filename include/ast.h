@@ -299,6 +299,9 @@ struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
+    /* C++ nullptr is encoded as a zero-valued backend literal, but must not
+     * participate in integer conversions or integer constant expressions. */
+    bool is_cxx_nullptr;
     /* Non-NULL only for a semantically validated C++ ownership transfer. */
     CxxMoveAssignment* cxx_move_assignment;
     /* Non-NULL only for the structurally validated SDK close operation. */

@@ -298,6 +298,7 @@ static bool eval_integer_constant_typed(Expr* expr,
     if (!expr || !value) return false;
     switch (expr->kind) {
         case EXPR_INT_LIT:
+            if (expr->is_cxx_nullptr) return false;
             value->bits = (uint64_t)expr->int_val &
                           integer_type_mask(expr->type);
             value->type = expr->type ? expr->type : type_int;
@@ -848,6 +849,11 @@ static Expr* parse_primary(void) {
 
     if (parser_cxx_mode && match(TOK_THIS)) {
         return expr_ident("this", loc);
+    }
+    if (parser_cxx_mode && match(TOK_NULLPTR)) {
+        Expr* null_pointer = expr_int(0, loc);
+        null_pointer->is_cxx_nullptr = true;
+        return null_pointer;
     }
     if (match(TOK_GENERIC)) {
         return parse_generic_selection(loc);

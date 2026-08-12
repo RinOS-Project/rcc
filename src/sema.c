@@ -248,6 +248,14 @@ static Type* sema_integer_promotion(Type* type) {
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
+    /* nullptr has a zero machine representation, but it is not an integer.
+     * Keep its standard null-pointer conversion separate from the legacy C
+     * integer/pointer conversion paths below. */
+    if (e->is_cxx_nullptr) {
+        return !target->is_reference && type_is_pointer(target)
+            ? target : NULL;
+    }
+
     if (target->is_reference) {
         Type* referred = target->base;
         /* Reference arguments are passed as addresses by the backend, so the
@@ -399,6 +407,9 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
 
     if (!argument || !argument->type || !target) return -1;
     source = argument->type;
+    if (argument->is_cxx_nullptr) {
+        return !target->is_reference && type_is_pointer(target) ? 1 : -1;
+    }
     if (target->is_reference) {
         target_base = target->base;
         if (!target_base || !is_lvalue(argument)) return -1;

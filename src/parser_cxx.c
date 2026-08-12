@@ -2503,7 +2503,9 @@ static Expr* parse_cxx_primary(void) {
 
     /* nullptr */
     if (match(TOK_NULLPTR)) {
-        return expr_int(0, loc);  /* Treat as null pointer */
+        Expr* null_pointer = expr_int(0, loc);
+        null_pointer->is_cxx_nullptr = true;
+        return null_pointer;
     }
 
     /* true/false */

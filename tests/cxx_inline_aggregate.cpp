@@ -212,6 +212,14 @@ RinSliceV1 const_slice(const void* data, uint64_t size) {
 
 extern "C" {
 
+void* cxx_nullptr_return(void) {
+    return nullptr;
+}
+
+int cxx_nullptr_context(void) {
+    return nullptr ? -1 : 1;
+}
+
 int cxx_direct_value_init(void) {
     return RinSliceV1{}.address == 0 && RinSliceV1{}.size == 0;
 }

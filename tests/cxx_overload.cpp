@@ -7,6 +7,9 @@ long pointer_kind(const void* value);
 int ordered(int first, long second);
 long ordered(long first, int second);
 
+int null_pointer(void* value);
+long null_pointer(int value);
+
 int call_integer_overload(int value) {
     return choose(value);
 }
@@ -29,4 +32,8 @@ int call_ordered_int_long(int first, long second) {
 
 long call_ordered_long_int(long first, int second) {
     return ordered(first, second);
+}
+
+int call_null_pointer_overload() {
+    return null_pointer(nullptr);
 }
