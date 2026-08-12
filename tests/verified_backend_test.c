@@ -17,7 +17,14 @@ struct VerifiedPair {
     int* pointer;
 };
 
-static void* map_text(const ObjSection* text, size_t* mapping_size)
+struct VerifiedArgument {
+    int first;
+    int second;
+    int third;
+};
+
+static void* map_text(ObjectFile* object, const ObjSection* text,
+                      size_t* mapping_size)
 {
     long page = sysconf(_SC_PAGESIZE);
     size_t size;
@@ -30,6 +37,25 @@ static void* map_text(const ObjSection* text, size_t* mapping_size)
                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     assert(memory != MAP_FAILED);
     memcpy(memory, text->data, (size_t)text->size);
+    for (ObjReloc* relocation = text->relocs; relocation;
+         relocation = relocation->next) {
+        ObjSymbol* symbol = objfile_find_symbol(
+            object, relocation->symbol_name);
+        uint8_t* place;
+        int64_t target;
+        int64_t delta;
+        int32_t encoded;
+        assert(relocation->type == RELOC_REL32 && symbol != NULL &&
+               symbol->section == 0 && relocation->offset <= text->size &&
+               sizeof(encoded) <= text->size - relocation->offset);
+        place = (uint8_t*)memory + relocation->offset;
+        target = (int64_t)(uintptr_t)memory + (int64_t)symbol->value +
+            relocation->addend;
+        delta = target - (int64_t)(uintptr_t)(place + sizeof(encoded));
+        encoded = (int32_t)delta;
+        assert((int64_t)encoded == delta);
+        memcpy(place, &encoded, sizeof(encoded));
+    }
     assert(mprotect(memory, size, PROT_READ | PROT_EXEC) == 0);
     *mapping_size = size;
     return memory;
@@ -61,6 +87,8 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* compound_struct;
     ObjSymbol* compound_array;
     ObjSymbol* compound_scalar;
+    ObjSymbol* struct_parameter;
+    ObjSymbol* struct_argument_call;
     ObjSymbol* pointer_add;
     ObjSymbol* pointer_sub;
     ObjSymbol* conditional;
@@ -101,6 +129,10 @@ static void verify_object(const char* path, uint16_t arch)
         object, "verified_compound_array");
     compound_scalar = objfile_find_symbol(
         object, "verified_compound_scalar");
+    struct_parameter = objfile_find_symbol(
+        object, "verified_struct_parameter");
+    struct_argument_call = objfile_find_symbol(
+        object, "verified_struct_argument_call");
     pointer_add = objfile_find_symbol(object, "verified_pointer_add");
     pointer_sub = objfile_find_symbol(object, "verified_pointer_sub");
     conditional = objfile_find_symbol(object, "verified_conditional");
@@ -157,6 +189,12 @@ static void verify_object(const char* path, uint16_t arch)
     assert(compound_scalar != NULL &&
            compound_scalar->type == SYM_GLOBAL &&
            compound_scalar->section == 0);
+    assert(struct_parameter != NULL &&
+           struct_parameter->type == SYM_GLOBAL &&
+           struct_parameter->section == 0);
+    assert(struct_argument_call != NULL &&
+           struct_argument_call->type == SYM_GLOBAL &&
+           struct_argument_call->section == 0);
     assert(pointer_add != NULL && pointer_add->type == SYM_GLOBAL &&
            pointer_add->section == 0);
     assert(pointer_sub != NULL && pointer_sub->type == SYM_GLOBAL &&
@@ -188,12 +226,26 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 29);
-    relocation = text->relocs;
-    assert(relocation != NULL && relocation->next == NULL);
-    assert(relocation->type == RELOC_REL32);
-    assert(strcmp(relocation->symbol_name,
-                  "tests/verified_backend.c::verified_helper") == 0);
+    assert(object->symbol_count == 31);
+    {
+        size_t relocation_count = 0u;
+        bool found_helper = false;
+        bool found_struct_call = false;
+        for (relocation = text->relocs; relocation;
+             relocation = relocation->next) {
+            assert(relocation->type == RELOC_REL32);
+            ++relocation_count;
+            if (strcmp(relocation->symbol_name,
+                       "tests/verified_backend.c::verified_helper") == 0) {
+                found_helper = true;
+            }
+            if (strcmp(relocation->symbol_name,
+                       "verified_struct_parameter") == 0) {
+                found_struct_call = true;
+            }
+        }
+        assert(relocation_count == 2u && found_helper && found_struct_call);
+    }
     objfile_free(object);
 }
 
@@ -206,6 +258,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     void* memory;
     int values[] = {11, 22, 33, 44, 55};
     int side_effect = 10;
+    int (*call_function)(int);
     int (*pointer_function)(int*, int);
     int (*local_array_function)(int, int, int);
     int (*local_pointer_array_function)(int*, int*);
@@ -218,6 +271,8 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int (*compound_struct_function)(int);
     int (*compound_array_function)(int, int);
     int (*compound_scalar_function)(int);
+    int (*struct_parameter_function)(struct VerifiedArgument, int);
+    int (*struct_argument_call_function)(int, int, int);
     int (*conditional_function)(int, int*);
     int (*pointer_compound_function)(int**, int);
     int (*pointer_postincrement_function)(int**);
@@ -229,7 +284,12 @@ static void verify_native_execution(const char* path, uint16_t arch)
     void* address;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
-    memory = map_text(text, &mapping_size);
+    memory = map_text(object, text, &mapping_size);
+
+    symbol = objfile_find_symbol(object, "verified_call");
+    address = symbol_address(memory, symbol);
+    memcpy(&call_function, &address, sizeof(call_function));
+    assert(call_function(7) == 22);
 
     symbol = objfile_find_symbol(object, "verified_index");
     address = symbol_address(memory, symbol);
@@ -303,6 +363,21 @@ static void verify_native_execution(const char* path, uint16_t arch)
     memcpy(&compound_scalar_function, &address,
            sizeof(compound_scalar_function));
     assert(compound_scalar_function(9) == 11);
+
+    {
+        struct VerifiedArgument argument = {4, 5, 6};
+        symbol = objfile_find_symbol(object, "verified_struct_parameter");
+        address = symbol_address(memory, symbol);
+        memcpy(&struct_parameter_function, &address,
+               sizeof(struct_parameter_function));
+        assert(struct_parameter_function(argument, 7) == 463);
+    }
+
+    symbol = objfile_find_symbol(object, "verified_struct_argument_call");
+    address = symbol_address(memory, symbol);
+    memcpy(&struct_argument_call_function, &address,
+           sizeof(struct_argument_call_function));
+    assert(struct_argument_call_function(4, 5, 6) == 460);
 
     symbol = objfile_find_symbol(object, "verified_pointer_add");
     address = symbol_address(memory, symbol);

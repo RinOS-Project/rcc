@@ -23,6 +23,12 @@ union VerifiedUnion {
     struct VerifiedHalves halves;
 };
 
+struct VerifiedArgument {
+    int first;
+    int second;
+    int third;
+};
+
 int verified_call(int value)
 {
     return verified_helper(value) + 1;
@@ -148,6 +154,17 @@ int verified_compound_array(int first, int second)
 int verified_compound_scalar(int value)
 {
     return (int){value + 2};
+}
+
+int verified_struct_parameter(struct VerifiedArgument value, int bias)
+{
+    return value.first * 100 + value.second * 10 + value.third + bias;
+}
+
+int verified_struct_argument_call(int first, int second, int third)
+{
+    struct VerifiedArgument value = {first, second, third};
+    return verified_struct_parameter(value, 4);
 }
 
 int verified_pointer_add(int* base, int index)

@@ -143,6 +143,7 @@ static bool x86_value_equal(RccX86Value left, RccX86Value right) {
 static bool x86_value_displacement(RccX86Encoder* encoder,
                                    RccX86Value value,
                                    int32_t* displacement) {
+    uint32_t frame_offset;
     uint32_t magnitude;
     if (value.kind == RCC_X86_VALUE_INCOMING_ARGUMENT) {
         uint32_t base = (uint32_t)encoder->function->pointer_size * 2u;
@@ -158,11 +159,28 @@ static bool x86_value_displacement(RccX86Encoder* encoder,
         return x86_encode_error(encoder,
                                 "x86 encoder expected a memory value");
     }
-    if (value.frame_offset > encoder->function->stack_adjustment) {
+    if (value.kind == RCC_X86_VALUE_OUTGOING_ARGUMENT) {
+        if (value.frame_offset <
+                encoder->function->outgoing_stack_offset) {
+            return x86_encode_error(
+                encoder, "x86 outgoing argument precedes its frame");
+        }
+        frame_offset = value.frame_offset -
+            encoder->function->outgoing_stack_offset;
+    } else {
+        if (value.frame_offset > UINT32_MAX -
+                encoder->function->outgoing_stack_size) {
+            return x86_encode_error(
+                encoder, "x86 shifted frame offset overflows");
+        }
+        frame_offset = value.frame_offset +
+            encoder->function->outgoing_stack_size;
+    }
+    if (frame_offset > encoder->function->stack_adjustment) {
         return x86_encode_error(encoder,
                                 "x86 frame displacement is positive");
     }
-    magnitude = encoder->function->stack_adjustment - value.frame_offset;
+    magnitude = encoder->function->stack_adjustment - frame_offset;
     if (magnitude > UINT32_C(0x80000000)) {
         return x86_encode_error(encoder,
                                 "x86 frame displacement overflows");

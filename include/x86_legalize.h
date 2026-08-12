@@ -74,10 +74,12 @@ typedef struct {
 } RccX86CalleeSave;
 
 /*
- * Frame offsets are relative to SP after: push BP; BP = SP;
- * SP -= stack_adjustment.  The encoder stores callee_saves in array order
- * and restores them in reverse order before leave/ret.  Incoming argument
- * offsets are relative to BP + 2 * pointer_size.
+ * Selected frame offsets precede the reserved outgoing argument area.  The
+ * encoder shifts frame values above that area; outgoing offsets are relative
+ * to its base at SP after: push BP; BP = SP; SP -= stack_adjustment.  The
+ * encoder stores callee_saves in array order and restores them in reverse
+ * order before leave/ret.  Incoming argument offsets are relative to
+ * BP + 2 * pointer_size.
  */
 typedef struct {
     RccX86Target target;
