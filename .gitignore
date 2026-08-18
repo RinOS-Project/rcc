@@ -49,6 +49,7 @@
 /rcc++
 /rld
 /rar
+/aqc
 
 # Generated RinOS compiler/linker fixtures
 *.ro

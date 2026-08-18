@@ -10,6 +10,7 @@ SRCDIR = src
 INCDIR = include
 OBJDIR = obj
 BINDIR = .
+RINOS_ROOT ?= ..
 TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
@@ -82,6 +83,12 @@ RLD_SRCS = $(SRCDIR)/main_rld.c $(SRCDIR)/linker.c
 RLD_OBJS = $(RLD_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RLD_TARGET = $(BINDIR)/rld
 
+# Aquamarine Shader Language compiler. RSH1 validation is shared with RinGPU
+# from the containing RinOS checkout selected by RINOS_ROOT.
+AQC_SRCS = $(SRCDIR)/main_aqc.c $(SRCDIR)/aqc.c
+AQC_OBJS = $(AQC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o) $(OBJDIR)/rin_shader.o
+AQC_TARGET = $(BINDIR)/aqc
+
 # RAR (Archiver) - uses minimal common code
 RAR_COMMON_SRCS = $(SRCDIR)/utils.c
 RAR_COMMON_OBJS = $(RAR_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
@@ -91,7 +98,7 @@ RAR_TARGET = $(BINDIR)/rar
 
 .PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
-all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
+all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
 build-rcc: $(OBJDIR) $(RCC_TARGET)
 
@@ -100,6 +107,8 @@ build-rcxx: $(OBJDIR) $(RCXX_TARGET)
 build-rld: $(OBJDIR) $(RLD_TARGET)
 
 build-rar: $(OBJDIR) $(RAR_TARGET)
+
+build-aqc: $(OBJDIR) $(AQC_TARGET)
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
@@ -119,17 +128,31 @@ $(RLD_TARGET): $(RLD_COMMON_OBJS) $(RLD_OBJS) | $(BINDIR)
 $(RAR_TARGET): $(RAR_COMMON_OBJS) $(RAR_OBJS) | $(BINDIR)
 	$(CC) $(LDFLAGS) -o $@ $^
 
+$(AQC_TARGET): $(AQC_OBJS) | $(BINDIR)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+$(OBJDIR)/rin_shader.o: $(RINOS_ROOT)/src/subsystems/ringpu/shader.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/src/api -c -o $@ $<
+
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -c -o $@ $<
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(RINOS_ROOT)/src/api -c -o $@ $<
 
 clean:
-	rm -rf $(OBJDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET)
+	rm -rf $(OBJDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
 # Test
 test: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)
 	$(RCC_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello.rin tests/hello.c
 	@echo "RCC test completed"
+
+test-aqc: $(AQC_TARGET)
+	mkdir -p $(TEST_OUT)
+	$(AQC_TARGET) -o $(TEST_OUT)/passthrough_vertex.rsh \
+		$(RINOS_ROOT)/resources/shaders/passthrough_vertex.aq
+	$(AQC_TARGET) -o $(TEST_OUT)/sample_fragment.rsh \
+		$(RINOS_ROOT)/resources/shaders/sample_fragment.aq
+	@echo "AQC test completed"
 
 test-cxx: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)
