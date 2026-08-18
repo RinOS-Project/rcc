@@ -1,4 +1,4 @@
-# rcc / rcc++
+# rcc / rcc++ / aqc
 
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
 このrepositoryはRIN v3 toolchainの実装途中です。現時点でC17またはC++20への
@@ -35,6 +35,7 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
 - `.ro/.ra v2` reader/writer、typed import、依存libraryを扱う`rld`
 - external signerを安全な引数配列で起動する最終v3出力
 - debug/release署名profile、衝突しないprivate staging、失敗時の既存成果物保持
+- Aquamarine Shader Language `.aq`からRinShader `RSH1`へのbounded native compiler
 
 `-O1`以上では安全な整数constant folding、短絡式・定数分岐の除去を行いますが、各levelの
 SSA最適化pipelineと完全なDWARF生成は未完成です。C++ frontendも実験段階で、classの基本構文を
@@ -51,7 +52,9 @@ make -j
 `test-atomic-builtins`は生成したi686 codeも直接実行するため、hostの32-bit libc開発環境
 （Debian/Ubuntuでは`gcc-multilib`相当）を必要とします。
 
-生成物は`rcc`、`rcc++`、`rld`、`rar`です。Windows用既存binaryを更新せずに
+生成物は`rcc`、`rcc++`、`rld`、`rar`、`aqc`です。`aqc`は同じRinOS
+checkoutの公開RSH1 ABI／validatorを使うため、別配置では`RINOS_ROOT`を指定します。
+Windows用既存binaryを更新せずに
 検証する場合は、出力directoryを分離できます。
 
 ```sh
@@ -70,12 +73,14 @@ rld --target x86_64-unknown-rinos --shared \
   --dep rinbase.rll --import rin_log_write=rinbase.rll@function \
   --sign-profile debug --rinsign ../scripts/rinsign.py --sign-key debug.pem \
   --public-key debug-public.der -o sample.rll sample.ro
+aqc --dump-ir -o sample.rsh sample.aq
 ```
 
 ## 回帰試験
 
 ```sh
 make test-static-assert
+make test-aqc
 make test-cxx-cli
 make test-atomic-builtins
 make test-x86-wide-scalar

@@ -149,6 +149,16 @@
 - [ ] inline asm constraintの完全検証
 - [x] driver modeでのFPU/SIMD禁止検査
 
+## Aquamarine shader frontend
+
+- [x] `.aq` sourceをRinShader `RSH1`へloweringするnative `aqc`をRinCompilerへ統合
+  - [x] vertex／fragment／compute、typed IO/resource、scalar Int32／Float32／bool
+  - [x] immutable local、演算／比較／変換、forward if/else、stage builtin、storage／sampling／discard
+  - [x] source／identifier／nesting／register／instruction上限、definite output、resource kind検査
+  - [x] RinGPU共有validatorによる生成RSH1の再検査とCLI／host corpus
+- [ ] vector／matrix、interpolation、bounded loop、atomics／barrier、derivative／storage image
+- [ ] optimization、source map、module linker、SPIR-V／DXIL import、backend code generation
+
 ## 6. bootstrap / quality gates
 
 - [x] `#pragma pack`/`offsetof`を両arch layoutへ接続し、archive/linker、v3 packager、`.ro v2` emitterを再現bootstrap対象へ追加
