@@ -113,6 +113,8 @@ void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
 void codegen_emit_global_data(Module* mod, AST* ast);
 
 /* Object file output */
+struct ObjectFile;
+struct ObjectFile* module_to_objfile(Module* mod, const char* filename);
 bool rcc_emit_obj(Module* mod, const char* filename);
 
 #endif /* CODEGEN_H */

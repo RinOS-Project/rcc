@@ -13,6 +13,13 @@
 #define RIN_DRIVER_IMAGE_VERSION_3 UINT32_C(0x00030000)
 #define RIN_DRIVER_ABI_MAJOR UINT16_C(0x0003)
 #define RIN_DRIVER_ABI_MINOR UINT16_C(0x0000)
+#define RIN_RESOURCE_MAGIC UINT32_C(0x31535252) /* RRS1, little endian */
+#define RIN_RESOURCE_VERSION_1 UINT16_C(0x0001)
+#define RIN_RESOURCE_MAX_COUNT UINT32_C(0x00000080)
+#define RIN_RESOURCE_MAX_SECTION_SIZE UINT32_C(0x01000000)
+#define RIN_ICON_RESOURCE_VERSION_1 UINT16_C(0x0001)
+#define RIN_ICON_IMAGE_MAX_DIMENSION UINT16_C(0x0400)
+#define RIN_ICON_IMAGE_MAX_BYTES UINT32_C(0x00400000)
 
 typedef enum RinImageArchitecture {
     RIN_ARCH_UNKNOWN = 0,
@@ -78,6 +85,26 @@ typedef enum RinDriverBusV3 {
     RIN_DRIVER_BUS_VIRTIO = 4
 } RinDriverBusV3;
 
+typedef enum RinResourceTypeV1 {
+    RIN_RESOURCE_INVALID = 0,
+    RIN_RESOURCE_ICON = 1,
+    RIN_RESOURCE_STRING = 2,
+    RIN_RESOURCE_MANIFEST = 3,
+    RIN_RESOURCE_VERSION = 4,
+    RIN_RESOURCE_CURSOR = 5
+} RinResourceTypeV1;
+
+typedef enum RinResourceNamespaceV1 {
+    RIN_RESOURCE_NAMESPACE_APPLICATION = 1,
+    RIN_RESOURCE_NAMESPACE_SYSTEM = 2
+} RinResourceNamespaceV1;
+
+typedef enum RinIconImageFormatV1 {
+    RIN_ICON_FORMAT_INVALID = 0,
+    RIN_ICON_FORMAT_PNG = 1,
+    RIN_ICON_FORMAT_BGRA8888 = 2
+} RinIconImageFormatV1;
+
 typedef uint32_t RinImageFlags;
 #define RIN_IMAGE_EXECUTABLE UINT32_C(0x00000001)
 #define RIN_IMAGE_LIBRARY UINT32_C(0x00000002)
@@ -126,6 +153,14 @@ typedef uint16_t RinDriverMatchFlagsV3;
 #define RIN_DRIVER_MATCH_SUBSYSTEM UINT16_C(0x0002)
 #define RIN_DRIVER_MATCH_CLASS UINT16_C(0x0004)
 #define RIN_DRIVER_MATCH_REVISION UINT16_C(0x0008)
+
+typedef uint32_t RinResourceFlagsV1;
+#define RIN_RESOURCE_FLAG_REQUIRED UINT32_C(0x00000001)
+
+typedef uint32_t RinIconImageFlagsV1;
+#define RIN_ICON_FLAG_SYMBOLIC UINT32_C(0x00000001)
+#define RIN_ICON_FLAG_DARK UINT32_C(0x00000002)
+#define RIN_ICON_FLAG_LIGHT UINT32_C(0x00000004)
 
 #pragma pack(push, 1)
 
@@ -204,6 +239,54 @@ typedef struct RinExportV3 {
     uint64_t reserved;
 } RinExportV3;
 
+typedef struct RinResourceHeaderV1 {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t header_size;
+    uint32_t resource_count;
+    uint32_t resource_entry_size;
+    uint32_t resource_table_offset;
+    uint32_t string_table_offset;
+    uint32_t string_table_size;
+    uint32_t namespace_id;
+    uint32_t flags;
+    uint32_t section_size;
+    uint32_t reserved;
+} RinResourceHeaderV1;
+
+typedef struct RinResourceEntryV1 {
+    uint16_t type;
+    uint16_t flags;
+    uint32_t resource_id;
+    uint32_t name_offset;
+    uint32_t data_offset;
+    uint32_t data_size;
+    uint32_t reserved[3];
+} RinResourceEntryV1;
+
+typedef struct RinIconResourceV1 {
+    uint16_t version;
+    uint16_t header_size;
+    uint32_t image_count;
+    uint32_t image_entry_size;
+    uint32_t image_table_offset;
+    uint32_t flags;
+    uint32_t reserved[3];
+} RinIconResourceV1;
+
+typedef struct RinIconImageV1 {
+    uint16_t width;
+    uint16_t height;
+    uint16_t scale_numerator;
+    uint16_t scale_denominator;
+    uint32_t format;
+    uint32_t flags;
+    uint32_t data_offset;
+    uint32_t data_size;
+    uint32_t variant;
+    uint32_t reserved[3];
+} RinIconImageV1;
+
 typedef struct RinDriverHeaderV3 {
     uint32_t magic;
     uint32_t version;
@@ -263,6 +346,10 @@ static_assert(sizeof(RinDependencyV3) == 32u, "RinDependencyV3 ABI drift");
 static_assert(sizeof(RinRelocationV3) == 16u, "RinRelocationV3 ABI drift");
 static_assert(sizeof(RinImportV3) == 32u, "RinImportV3 ABI drift");
 static_assert(sizeof(RinExportV3) == 32u, "RinExportV3 ABI drift");
+static_assert(sizeof(RinResourceHeaderV1) == 44u, "RinResourceHeaderV1 ABI drift");
+static_assert(sizeof(RinResourceEntryV1) == 32u, "RinResourceEntryV1 ABI drift");
+static_assert(sizeof(RinIconResourceV1) == 32u, "RinIconResourceV1 ABI drift");
+static_assert(sizeof(RinIconImageV1) == 40u, "RinIconImageV1 ABI drift");
 static_assert(sizeof(RinDriverHeaderV3) == 256u, "RinDriverHeaderV3 ABI drift");
 static_assert(sizeof(RinDriverMatchV3) == 64u, "RinDriverMatchV3 ABI drift");
 static_assert(offsetof(RinHeaderV3, content_hash) == 116u, "RinHeaderV3.content_hash ABI drift");
@@ -275,6 +362,10 @@ _Static_assert(sizeof(RinDependencyV3) == 32u, "RinDependencyV3 ABI drift");
 _Static_assert(sizeof(RinRelocationV3) == 16u, "RinRelocationV3 ABI drift");
 _Static_assert(sizeof(RinImportV3) == 32u, "RinImportV3 ABI drift");
 _Static_assert(sizeof(RinExportV3) == 32u, "RinExportV3 ABI drift");
+_Static_assert(sizeof(RinResourceHeaderV1) == 44u, "RinResourceHeaderV1 ABI drift");
+_Static_assert(sizeof(RinResourceEntryV1) == 32u, "RinResourceEntryV1 ABI drift");
+_Static_assert(sizeof(RinIconResourceV1) == 32u, "RinIconResourceV1 ABI drift");
+_Static_assert(sizeof(RinIconImageV1) == 40u, "RinIconImageV1 ABI drift");
 _Static_assert(sizeof(RinDriverHeaderV3) == 256u, "RinDriverHeaderV3 ABI drift");
 _Static_assert(sizeof(RinDriverMatchV3) == 64u, "RinDriverMatchV3 ABI drift");
 _Static_assert(offsetof(RinHeaderV3, content_hash) == 116u, "RinHeaderV3.content_hash ABI drift");

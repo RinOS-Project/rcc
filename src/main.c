@@ -8,7 +8,11 @@
 #include "ast.h"
 #include "symtab.h"
 #include "codegen.h"
+#include "driver_policy.h"
+#include "optimize.h"
 #include "preproc.h"
+#include "build_manifest.h"
+#include "verified_codegen.h"
 #include <getopt.h>
 
 /* Print usage */
@@ -28,9 +32,11 @@ static void print_usage(void) {
     printf("  -m32            Generate 32-bit code (default)\n");
     printf("  -m64            Generate 64-bit code\n");
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
+    printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign <file>    Isolated v3 signer program\n");
     printf("  --sign-key <file>   Explicit RSA private key (final outputs)\n");
     printf("  --public-key <file> Provisioned PKCS#1 public DER key\n");
+    printf("  --sign-profile <p>  Build profile: debug or release\n");
     printf("  -O<level>       Optimization level (0-3)\n");
     printf("  -g              Generate debug info\n");
     printf("\n");
@@ -50,6 +56,7 @@ static void print_usage(void) {
     printf("\n");
     printf("Code generation:\n");
     printf("  -ffreestanding  Freestanding environment\n");
+    printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("\n");
     printf("Other:\n");
     printf("  -v              Verbose output\n");
@@ -90,10 +97,12 @@ static int parse_args(int argc, char** argv) {
         /* Options starting with - */
         if (strcmp(arg, "-c") == 0) {
             g_opts.output_format = OUTPUT_OBJ;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-E") == 0) {
             g_opts.preprocess_only = true;
         } else if (strcmp(arg, "-S") == 0) {
             g_opts.output_format = OUTPUT_ASM;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-MMD") == 0) {
             g_opts.emit_dependencies = true;
         } else if (strcmp(arg, "-MF") == 0) {
@@ -122,8 +131,10 @@ static int parse_args(int argc, char** argv) {
             g_opts.freestanding = true;
         } else if (strcmp(arg, "-shared") == 0 || strcmp(arg, "--shared") == 0) {
             g_opts.output_format = OUTPUT_RLL;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-driver") == 0 || strcmp(arg, "--driver") == 0) {
             g_opts.output_format = OUTPUT_DRV;
+            g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-m32") == 0) {
             if (g_opts.target_explicit && g_opts.target_arch != ARCH_X86) {
                 fprintf(stderr, "rcc: error: -m32 conflicts with --target=%s\n",
@@ -162,6 +173,21 @@ static int parse_args(int argc, char** argv) {
             }
             g_opts.target_arch = target_arch;
             g_opts.target_explicit = true;
+        } else if (strcmp(arg, "--manifest") == 0 ||
+                   strncmp(arg, "--manifest=", 11) == 0) {
+            if (strcmp(arg, "--manifest") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "rcc: error: --manifest requires an argument\n");
+                    return -1;
+                }
+                g_opts.manifest_path = argv[++i];
+            } else {
+                g_opts.manifest_path = arg + 11;
+            }
+            if (!g_opts.manifest_path[0]) {
+                fprintf(stderr, "rcc: error: empty --manifest path\n");
+                return -1;
+            }
         } else if (strcmp(arg, "--rinsign") == 0 ||
                    strcmp(arg, "--sign-key") == 0 ||
                    strcmp(arg, "--public-key") == 0 ||
@@ -174,6 +200,23 @@ static int parse_args(int argc, char** argv) {
             else if (strcmp(arg, "--sign-key") == 0) g_opts.sign_key = argv[++i];
             else if (strcmp(arg, "--public-key") == 0) g_opts.public_key = argv[++i];
             else g_opts.python_path = argv[++i];
+        } else if (strcmp(arg, "--sign-profile") == 0 ||
+                   strncmp(arg, "--sign-profile=", 15) == 0) {
+            const char* profile;
+            if (strcmp(arg, "--sign-profile") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "rcc: error: --sign-profile requires an argument\n");
+                    return -1;
+                }
+                profile = argv[++i];
+            } else {
+                profile = arg + 15;
+            }
+            if (!rcc_parse_signing_profile(profile, &g_opts.signing_profile)) {
+                fprintf(stderr, "rcc: error: signing profile must be debug or release\n");
+                return -1;
+            }
+            g_opts.signing_profile_explicit = true;
         } else if (strcmp(arg, "--emit-unsigned-v3") == 0) {
             g_opts.emit_unsigned_v3 = true;
         } else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
@@ -195,9 +238,13 @@ static int parse_args(int argc, char** argv) {
             strncpy(g_opts.output_file, arg + 2, RCC_MAX_PATH - 1);
         } else if (strncmp(arg, "-O", 2) == 0) {
             /* -O<level> */
-            g_opts.opt_level = atoi(arg + 2);
-            if (g_opts.opt_level < 0) g_opts.opt_level = 0;
-            if (g_opts.opt_level > 3) g_opts.opt_level = 3;
+            if (!rcc_parse_optimization_level(
+                    arg + 2, &g_opts.opt_level)) {
+                fprintf(stderr,
+                        "rcc: error: invalid optimization level '%s'; "
+                        "expected -O0 through -O3\n", arg);
+                return -1;
+            }
         } else if (strcmp(arg, "-I") == 0) {
             /* -I <path> */
             if (i + 1 >= argc) {
@@ -252,6 +299,9 @@ static int parse_args(int argc, char** argv) {
                 return -1;
             }
             g_opts.undefines[g_opts.undef_count++] = arg + 2;
+        } else if (strcmp(arg, "-fverified-backend") == 0 ||
+                   strcmp(arg, "--verified-backend") == 0) {
+            g_opts.verified_backend = true;
         } else if (strncmp(arg, "-f", 2) == 0) {
             /* Ignore unknown -f options */
             if (g_opts.verbose) {
@@ -273,12 +323,28 @@ static int parse_args(int argc, char** argv) {
         fprintf(stderr, "rcc: error: no input file\n");
         return -1;
     }
-    if ((g_opts.output_format == OUTPUT_RIN ||
-         g_opts.output_format == OUTPUT_RLL ||
-         g_opts.output_format == OUTPUT_DRV) && !g_opts.preprocess_only &&
-        !g_opts.emit_unsigned_v3 &&
-        (!g_opts.rinsign_path || !g_opts.sign_key || !g_opts.public_key)) {
-        fprintf(stderr, "rcc: error: final v3 output requires --rinsign, --sign-key and --public-key\n");
+    if (g_opts.manifest_path) {
+        RccBuildManifest manifest;
+        char error[RCC_BUILD_MANIFEST_ERROR_MAX];
+        if (!rcc_manifest_load(g_opts.manifest_path, &manifest,
+                               error, sizeof(error)) ||
+            !rcc_manifest_apply_compiler(&manifest, &g_opts,
+                                         error, sizeof(error))) {
+            fprintf(stderr, "rcc: error: %s\n", error);
+            return -1;
+        }
+    }
+    if (!rcc_validate_signing_options(
+            "rcc", !g_opts.preprocess_only &&
+                   (g_opts.output_format == OUTPUT_RIN ||
+                    g_opts.output_format == OUTPUT_RLL ||
+                    g_opts.output_format == OUTPUT_DRV))) {
+        return -1;
+    }
+    if (g_opts.verified_backend && !g_opts.preprocess_only &&
+        g_opts.output_format != OUTPUT_OBJ) {
+        fprintf(stderr,
+                "rcc: error: -fverified-backend currently requires -c\n");
         return -1;
     }
 
@@ -333,9 +399,26 @@ int main(int argc, char** argv) {
 
     /* Add standard include paths (unless -nostdinc) */
     if (!g_opts.nostdinc) {
+        char tool_include[RCC_MAX_PATH];
+        char tool_bootstrap_include[RCC_MAX_PATH];
+        char installed_include[RCC_MAX_PATH];
         pp_add_include_path(pp, ".");
         pp_add_include_path(pp, "include");
         pp_add_include_path(pp, "include/rcc");  /* RCC intrinsic headers */
+        if (rcc_tool_relative_path(argv[0], "include/rcc", tool_include,
+                                   sizeof(tool_include))) {
+            pp_add_include_path(pp, tool_include);
+        }
+        if (rcc_tool_relative_path(argv[0], "bootstrap/include",
+                                   tool_bootstrap_include,
+                                   sizeof(tool_bootstrap_include))) {
+            pp_add_include_path(pp, tool_bootstrap_include);
+        }
+        if (rcc_tool_relative_path(argv[0], "../include/rcc",
+                                   installed_include,
+                                   sizeof(installed_include))) {
+            pp_add_include_path(pp, installed_include);
+        }
         pp_add_include_path(pp, "/rinos/include");
     }
 
@@ -375,6 +458,7 @@ int main(int argc, char** argv) {
     char* pp_source = pp_process_file(pp, g_opts.input_file);
     if (!pp_source || g_error_count > 0) {
         fprintf(stderr, "rcc: %d error(s) in preprocessing\n", g_error_count);
+        rcc_free(pp_source);
         pp_free(pp);
         return 1;
     }
@@ -411,6 +495,9 @@ int main(int argc, char** argv) {
     TokenList* tokens = rcc_lex_string(pp_source, g_opts.input_file);
     if (g_error_count > 0) {
         fprintf(stderr, "rcc: %d error(s) in lexical analysis\n", g_error_count);
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -439,6 +526,8 @@ int main(int argc, char** argv) {
     if (g_error_count > 0) {
         fprintf(stderr, "rcc: %d error(s) in parsing\n", g_error_count);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -469,7 +558,21 @@ int main(int argc, char** argv) {
     if (!rcc_sema(ast)) {
         fprintf(stderr, "rcc: %d error(s) in semantic analysis\n", g_error_count);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
+    }
+    if (g_opts.output_format == OUTPUT_DRV &&
+        !rcc_validate_driver_policy(ast)) {
+        fprintf(stderr, "rcc: driver policy validation failed\n");
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
+        return 1;
+    }
+    if (g_opts.opt_level > 0) {
+        if (g_opts.verbose) printf("Optimization (-O%d)...\n", g_opts.opt_level);
+        rcc_optimize(ast);
     }
 
     /* Phase 4: Code generation */
@@ -483,9 +586,13 @@ int main(int argc, char** argv) {
     } else {
         mod = rcc_codegen(ast);
     }
-    if (!mod) {
-        fprintf(stderr, "rcc: code generation failed\n");
+    if (!mod || g_error_count > 0) {
+        fprintf(stderr, "rcc: code generation failed with %d error(s)\n",
+                g_error_count);
+        if (mod) codegen_free(mod);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -503,19 +610,46 @@ int main(int argc, char** argv) {
     bool final_artifact = g_opts.output_format == OUTPUT_RIN ||
                           g_opts.output_format == OUTPUT_RLL ||
                           g_opts.output_format == OUTPUT_DRV;
-    char unsigned_path[RCC_MAX_PATH + 32];
+    char unsigned_path[RCC_MAX_PATH + 64];
     const char* emit_path = g_opts.output_file;
     if (final_artifact && !g_opts.emit_unsigned_v3) {
-        if (snprintf(unsigned_path, sizeof(unsigned_path), "%s.rcc-unsigned.tmp",
-                     g_opts.output_file) >= (int)sizeof(unsigned_path)) {
-            fprintf(stderr, "rcc: output path is too long for signing stage\n");
+        if (!rcc_create_signing_temp(g_opts.output_file, "rcc-unsigned",
+                                     unsigned_path, sizeof(unsigned_path))) {
+            perror("rcc: cannot create unsigned staging file");
+            codegen_free(mod);
+            tokenlist_free(tokens);
+            rcc_free(pp_source);
+            pp_free(pp);
             return 1;
         }
         emit_path = unsigned_path;
     }
     switch (g_opts.output_format) {
         case OUTPUT_OBJ:
-            emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+            if (g_opts.verified_backend) {
+                char reason[256];
+                size_t verified_functions = 0u;
+                RccVerifiedObjectStatus status = rcc_emit_verified_object(
+                    ast, g_opts.input_file, g_opts.output_file,
+                    &verified_functions, reason, sizeof(reason));
+                if (status == RCC_VERIFIED_OBJECT_EMITTED) {
+                    emit_ok = true;
+                    if (g_opts.verbose) {
+                        printf("Verified backend: %lu function(s) emitted\n",
+                               (unsigned long)verified_functions);
+                    }
+                } else if (status == RCC_VERIFIED_OBJECT_FALLBACK) {
+                    if (g_opts.verbose) {
+                        printf("Verified backend fallback: %s\n", reason);
+                    }
+                    emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+                } else {
+                    fprintf(stderr, "rcc: verified backend failed: %s\n",
+                            reason);
+                }
+            } else {
+                emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+            }
             break;
         case OUTPUT_RIN:
             emit_ok = rcc_emit(mod, emit_path);
@@ -533,8 +667,8 @@ int main(int argc, char** argv) {
             fprintf(stderr, "rcc: unsupported output format\n");
             break;
     }
-    if (emit_ok && final_artifact && !g_opts.emit_unsigned_v3) {
-        emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
+    if (final_artifact && !g_opts.emit_unsigned_v3) {
+        if (emit_ok) emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
         remove(emit_path);
     }
 
@@ -542,6 +676,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "rcc: failed to write output\n");
         codegen_free(mod);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 

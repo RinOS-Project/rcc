@@ -9,7 +9,11 @@
 #include "ast_cxx.h"
 #include "symtab.h"
 #include "codegen.h"
+#include "driver_policy.h"
+#include "optimize.h"
 #include "preproc.h"
+#include "build_manifest.h"
+#include "verified_codegen.h"
 #include <stdarg.h>
 #include <getopt.h>
 
@@ -33,7 +37,9 @@ static void print_usage_cxx(void) {
     printf("  -m32            Generate 32-bit code (default)\n");
     printf("  -m64            Generate 64-bit code\n");
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
+    printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign/--sign-key/--public-key  Required final v3 signing inputs\n");
+    printf("  --sign-profile <p>  Build profile: debug or release\n");
     printf("  -O<level>       Optimization level (0-3)\n");
     printf("  -std=c++<ver>   C++ standard (11, 14, 17, 20)\n");
     printf("  -g              Generate debug info\n");
@@ -43,6 +49,7 @@ static void print_usage_cxx(void) {
     printf("  -MMD/-MF <file> Emit user-header dependencies\n");
     printf("  -Wall/-Werror   Warning controls\n");
     printf("  -ffreestanding  Freestanding environment\n");
+    printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("  -v              Verbose output\n");
     printf("  -h, --help      Show this help\n");
     printf("  --version       Show version\n");
@@ -77,6 +84,10 @@ static int parse_cxx_args(int argc, char** argv) {
         {"nostdinc", no_argument, 0, 12},
         {"ffreestanding", no_argument, 0, 13},
         {"pedantic", no_argument, 0, 14},
+        {"manifest", required_argument, 0, 15},
+        {"sign-profile", required_argument, 0, 16},
+        {"verified-backend", no_argument, 0, 17},
+        {"fverified-backend", no_argument, 0, 17},
         {0, 0, 0, 0}
     };
 
@@ -85,14 +96,19 @@ static int parse_cxx_args(int argc, char** argv) {
         switch (opt) {
             case 'c':
                 g_opts.output_format = OUTPUT_OBJ;
+                g_opts.output_format_explicit = true;
                 break;
             case 'o':
                 strncpy(g_opts.output_file, optarg, RCC_MAX_PATH - 1);
                 break;
             case 'O':
-                g_opts.opt_level = atoi(optarg);
-                if (g_opts.opt_level < 0) g_opts.opt_level = 0;
-                if (g_opts.opt_level > 3) g_opts.opt_level = 3;
+                if (!rcc_parse_optimization_level(
+                        optarg, &g_opts.opt_level)) {
+                    fprintf(stderr,
+                            "rcc++: error: invalid optimization level "
+                            "'-O%s'; expected -O0 through -O3\n", optarg);
+                    return -1;
+                }
                 break;
             case 'm':
                 if (strcmp(optarg, "32") == 0) {
@@ -118,6 +134,7 @@ static int parse_cxx_args(int argc, char** argv) {
                 break;
             case 'S':
                 g_opts.output_format = OUTPUT_ASM;
+                g_opts.output_format_explicit = true;
                 break;
             case 'E':
                 g_opts.preprocess_only = true;
@@ -169,9 +186,11 @@ static int parse_cxx_args(int argc, char** argv) {
                 exit(0);
             case 1:  /* --shared */
                 g_opts.output_format = OUTPUT_RLL;
+                g_opts.output_format_explicit = true;
                 break;
             case 2:  /* --driver */
                 g_opts.output_format = OUTPUT_DRV;
+                g_opts.output_format_explicit = true;
                 break;
             case 3: { /* --target */
                 TargetArch target_arch;
@@ -211,6 +230,18 @@ static int parse_cxx_args(int argc, char** argv) {
             case 12: g_opts.nostdinc = true; break;
             case 13: g_opts.freestanding = true; break;
             case 14: g_opts.pedantic = true; break;
+            case 15: g_opts.manifest_path = optarg; break;
+            case 16:
+                if (!rcc_parse_signing_profile(optarg,
+                                               &g_opts.signing_profile)) {
+                    fprintf(stderr, "rcc++: error: signing profile must be debug or release\n");
+                    return -1;
+                }
+                g_opts.signing_profile_explicit = true;
+                break;
+            case 17:
+                g_opts.verified_backend = true;
+                break;
             default:
                 return -1;
         }
@@ -224,12 +255,29 @@ static int parse_cxx_args(int argc, char** argv) {
 
     strncpy(g_opts.input_file, argv[optind], RCC_MAX_PATH - 1);
 
-    if ((g_opts.output_format == OUTPUT_RIN ||
-         g_opts.output_format == OUTPUT_RLL ||
-         g_opts.output_format == OUTPUT_DRV) && !g_opts.preprocess_only &&
-        !g_opts.emit_unsigned_v3 &&
-        (!g_opts.rinsign_path || !g_opts.sign_key || !g_opts.public_key)) {
-        fprintf(stderr, "rcc++: error: final v3 output requires --rinsign, --sign-key and --public-key\n");
+    if (g_opts.manifest_path) {
+        RccBuildManifest manifest;
+        char error[RCC_BUILD_MANIFEST_ERROR_MAX];
+        if (!rcc_manifest_load(g_opts.manifest_path, &manifest,
+                               error, sizeof(error)) ||
+            !rcc_manifest_apply_compiler(&manifest, &g_opts,
+                                         error, sizeof(error))) {
+            fprintf(stderr, "rcc++: error: %s\n", error);
+            return -1;
+        }
+    }
+
+    if (!rcc_validate_signing_options(
+            "rcc++", !g_opts.preprocess_only &&
+                     (g_opts.output_format == OUTPUT_RIN ||
+                      g_opts.output_format == OUTPUT_RLL ||
+                      g_opts.output_format == OUTPUT_DRV))) {
+        return -1;
+    }
+    if (g_opts.verified_backend && !g_opts.preprocess_only &&
+        g_opts.output_format != OUTPUT_OBJ) {
+        fprintf(stderr,
+                "rcc++: error: -fverified-backend currently requires -c\n");
         return -1;
     }
 
@@ -288,9 +336,26 @@ int main(int argc, char** argv) {
 
     /* Add standard include paths (unless -nostdinc). */
     if (!g_opts.nostdinc) {
+        char tool_include[RCC_MAX_PATH];
+        char tool_bootstrap_include[RCC_MAX_PATH];
+        char installed_include[RCC_MAX_PATH];
         pp_add_include_path(pp, ".");
         pp_add_include_path(pp, "include");
         pp_add_include_path(pp, "include/rcc");
+        if (rcc_tool_relative_path(argv[0], "include/rcc", tool_include,
+                                   sizeof(tool_include))) {
+            pp_add_include_path(pp, tool_include);
+        }
+        if (rcc_tool_relative_path(argv[0], "bootstrap/include",
+                                   tool_bootstrap_include,
+                                   sizeof(tool_bootstrap_include))) {
+            pp_add_include_path(pp, tool_bootstrap_include);
+        }
+        if (rcc_tool_relative_path(argv[0], "../include/rcc",
+                                   installed_include,
+                                   sizeof(installed_include))) {
+            pp_add_include_path(pp, installed_include);
+        }
         pp_add_include_path(pp, "/rinos/include");
     }
     for (int i = 0; i < g_opts.include_count; ++i) {
@@ -328,6 +393,7 @@ int main(int argc, char** argv) {
     char* pp_source = pp_process_file(pp, g_opts.input_file);
     if (!pp_source || g_error_count > 0) {
         fprintf(stderr, "rcc++: %d error(s) in preprocessing\n", g_error_count);
+        rcc_free(pp_source);
         pp_free(pp);
         return 1;
     }
@@ -362,6 +428,9 @@ int main(int argc, char** argv) {
     TokenList* tokens = rcc_lex_string(pp_source, g_opts.input_file);
     if (g_error_count > 0) {
         fprintf(stderr, "rcc++: %d error(s) in lexical analysis\n", g_error_count);
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -377,6 +446,8 @@ int main(int argc, char** argv) {
     if (g_error_count > 0) {
         fprintf(stderr, "rcc++: %d error(s) in parsing\n", g_error_count);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -397,7 +468,21 @@ int main(int argc, char** argv) {
     if (!rcc_sema(ast)) {
         fprintf(stderr, "rcc++: %d error(s) in semantic analysis\n", g_error_count);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
+    }
+    if (g_opts.output_format == OUTPUT_DRV &&
+        !rcc_validate_driver_policy(ast)) {
+        fprintf(stderr, "rcc++: driver policy validation failed\n");
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
+        return 1;
+    }
+    if (g_opts.opt_level > 0) {
+        if (g_opts.verbose) printf("Optimization (-O%d)...\n", g_opts.opt_level);
+        rcc_optimize(ast);
     }
 
     /* Phase 4: Code generation */
@@ -411,9 +496,13 @@ int main(int argc, char** argv) {
     } else {
         mod = rcc_codegen(ast);
     }
-    if (!mod) {
-        fprintf(stderr, "rcc++: code generation failed\n");
+    if (!mod || g_error_count > 0) {
+        fprintf(stderr, "rcc++: code generation failed with %d error(s)\n",
+                g_error_count);
+        if (mod) codegen_free(mod);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 
@@ -431,12 +520,16 @@ int main(int argc, char** argv) {
     bool final_artifact = g_opts.output_format == OUTPUT_RIN ||
                           g_opts.output_format == OUTPUT_RLL ||
                           g_opts.output_format == OUTPUT_DRV;
-    char unsigned_path[RCC_MAX_PATH + 32];
+    char unsigned_path[RCC_MAX_PATH + 64];
     const char* emit_path = g_opts.output_file;
     if (final_artifact && !g_opts.emit_unsigned_v3) {
-        if (snprintf(unsigned_path, sizeof(unsigned_path), "%s.rcc-unsigned.tmp",
-                     g_opts.output_file) >= (int)sizeof(unsigned_path)) {
-            fprintf(stderr, "rcc++: output path is too long for signing stage\n");
+        if (!rcc_create_signing_temp(g_opts.output_file, "rcc-unsigned",
+                                     unsigned_path, sizeof(unsigned_path))) {
+            perror("rcc++: cannot create unsigned staging file");
+            codegen_free(mod);
+            tokenlist_free(tokens);
+            rcc_free(pp_source);
+            pp_free(pp);
             return 1;
         }
         emit_path = unsigned_path;
@@ -452,7 +545,30 @@ int main(int argc, char** argv) {
             emit_ok = rcc_emit_drv(mod, ast, emit_path);
             break;
         case OUTPUT_OBJ:
-            emit_ok = rcc_emit_obj(mod, emit_path);
+            if (g_opts.verified_backend) {
+                char reason[256];
+                size_t verified_functions = 0u;
+                RccVerifiedObjectStatus status = rcc_emit_verified_object(
+                    ast, g_opts.input_file, emit_path,
+                    &verified_functions, reason, sizeof(reason));
+                if (status == RCC_VERIFIED_OBJECT_EMITTED) {
+                    emit_ok = true;
+                    if (g_opts.verbose) {
+                        printf("Verified backend: %lu function(s) emitted\n",
+                               (unsigned long)verified_functions);
+                    }
+                } else if (status == RCC_VERIFIED_OBJECT_FALLBACK) {
+                    if (g_opts.verbose) {
+                        printf("Verified backend fallback: %s\n", reason);
+                    }
+                    emit_ok = rcc_emit_obj(mod, emit_path);
+                } else {
+                    fprintf(stderr,
+                            "rcc++: verified backend failed: %s\n", reason);
+                }
+            } else {
+                emit_ok = rcc_emit_obj(mod, emit_path);
+            }
             break;
         case OUTPUT_ASM:
             emit_ok = rcc_emit_asm(mod, emit_path);
@@ -461,8 +577,8 @@ int main(int argc, char** argv) {
             fprintf(stderr, "rcc++: unsupported output format\n");
             break;
     }
-    if (emit_ok && final_artifact && !g_opts.emit_unsigned_v3) {
-        emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
+    if (final_artifact && !g_opts.emit_unsigned_v3) {
+        if (emit_ok) emit_ok = rcc_run_rinsign(emit_path, g_opts.output_file);
         remove(emit_path);
     }
 
@@ -470,6 +586,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "rcc++: failed to write output\n");
         codegen_free(mod);
         tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
         return 1;
     }
 

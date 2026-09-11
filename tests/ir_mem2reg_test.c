@@ -1,0 +1,531 @@
+#include "ir_pass.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+static RccIrValue append_const(RccIrBlock* block, RccIrType type,
+                               uint64_t value)
+{
+    RccIrInstruction* instruction = rcc_ir_append(
+        block, RCC_IR_CONST_INT, type, NULL, 0u, NULL, 0u);
+    assert(instruction != NULL);
+    rcc_ir_set_immediate(instruction, value);
+    return instruction->result;
+}
+
+static RccIrValue append_alloca(RccIrBlock* block, uint64_t size)
+{
+    RccIrInstruction* instruction = rcc_ir_append(
+        block, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u), NULL, 0u,
+        NULL, 0u);
+    assert(instruction != NULL);
+    rcc_ir_set_immediate(instruction, size);
+    return instruction->result;
+}
+
+static void append_store(RccIrBlock* block, RccIrValue value,
+                         RccIrValue address)
+{
+    RccIrValue operands[] = {value, address};
+    assert(rcc_ir_append(block, RCC_IR_STORE, rcc_ir_type_void(),
+                         operands, 2u, NULL, 0u) != NULL);
+}
+
+static RccIrValue append_load(RccIrBlock* block, RccIrType type,
+                              RccIrValue address)
+{
+    RccIrInstruction* instruction = rcc_ir_append(
+        block, RCC_IR_LOAD, type, &address, 1u, NULL, 0u);
+    assert(instruction != NULL);
+    return instruction->result;
+}
+
+static void append_branch(RccIrBlock* block, RccIrBlockId target)
+{
+    assert(rcc_ir_append(block, RCC_IR_BRANCH, rcc_ir_type_void(),
+                         NULL, 0u, &target, 1u) != NULL);
+}
+
+static void append_cond_branch(RccIrBlock* block, RccIrValue condition,
+                               RccIrBlockId then_target,
+                               RccIrBlockId else_target)
+{
+    RccIrBlockId targets[] = {then_target, else_target};
+    assert(rcc_ir_append(block, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         &condition, 1u, targets, 2u) != NULL);
+}
+
+static void append_return(RccIrBlock* block, RccIrValue value)
+{
+    assert(rcc_ir_append(block, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &value, 1u, NULL, 0u) != NULL);
+}
+
+static size_t count_opcode(const RccIrFunction* function,
+                           RccIrOpcode opcode)
+{
+    size_t count = 0u;
+    const RccIrBlock* block;
+    for (block = function->first_block; block; block = block->next) {
+        const RccIrInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            if (instruction->opcode == opcode) ++count;
+        }
+    }
+    return count;
+}
+
+static RccIrModule* build_optimization_pipeline_fixture(
+    RccIrFunction** function_out)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "optimization_pipeline", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue loaded;
+    RccIrValue operands[2];
+    RccIrInstruction* first;
+    RccIrInstruction* duplicate;
+    RccIrInstruction* product;
+    append_store(entry, function->parameters[0], address);
+    loaded = append_load(entry, i32, address);
+    operands[0] = loaded;
+    operands[1] = function->parameters[1];
+    first = rcc_ir_append(entry, RCC_IR_ADD, i32,
+                          operands, 2u, NULL, 0u);
+    operands[0] = function->parameters[1];
+    operands[1] = loaded;
+    duplicate = rcc_ir_append(entry, RCC_IR_ADD, i32,
+                              operands, 2u, NULL, 0u);
+    assert(first != NULL && duplicate != NULL);
+    operands[0] = first->result;
+    operands[1] = duplicate->result;
+    product = rcc_ir_append(entry, RCC_IR_MUL, i32,
+                            operands, 2u, NULL, 0u);
+    assert(product != NULL);
+    append_return(entry, product->result);
+    *function_out = function;
+    return module;
+}
+
+static void verify_optimization_level_pipeline(void)
+{
+    RccIrModule* module;
+    RccIrFunction* function;
+    RccIrOptimizationStats stats;
+    char error[256];
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 0u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 0u && stats.simplify_rounds == 0u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert(count_opcode(function, RCC_IR_STORE) == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 2u);
+    rcc_ir_module_destroy(module);
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 1u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 1u && stats.simplify_rounds == 1u);
+    assert(stats.mem2reg.promoted_allocas == 1u);
+    assert(stats.simplify.commoned_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 0u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+    assert(count_opcode(function, RCC_IR_STORE) == 0u);
+    assert(count_opcode(function, RCC_IR_ADD) == 2u);
+    rcc_ir_module_destroy(module);
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 2u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 2u && stats.simplify_rounds == 1u);
+    assert(stats.mem2reg.promoted_allocas == 1u);
+    assert(stats.simplify.commoned_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    rcc_ir_module_destroy(module);
+
+    module = build_optimization_pipeline_fixture(&function);
+    assert(rcc_ir_optimize_function(function, 3u, &stats,
+                                    error, sizeof(error)));
+    assert(stats.level == 3u && stats.simplify_rounds == 2u);
+    assert(stats.mem2reg.promoted_allocas == 1u);
+    assert(stats.simplify.commoned_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    assert(!rcc_ir_optimize_function(function, 4u, &stats,
+                                     error, sizeof(error)));
+    assert(strstr(error, "invalid SSA optimization level 4") != NULL);
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_diamond_promotion(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "diamond", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* left = rcc_ir_block_add(function, "left");
+    RccIrBlock* right = rcc_ir_block_add(function, "right");
+    RccIrBlock* merge = rcc_ir_block_add(function, "merge");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue one;
+    RccIrValue two;
+    RccIrValue result;
+    RccIrMem2RegStats stats;
+    char error[256];
+    append_store(entry, zero, address);
+    append_cond_branch(entry, function->parameters[0], left->id, right->id);
+    one = append_const(left, i32, 1u);
+    append_store(left, one, address);
+    append_branch(left, merge->id);
+    two = append_const(right, i32, 2u);
+    append_store(right, two, address);
+    append_branch(right, merge->id);
+    result = append_load(merge, i32, address);
+    append_return(merge, result);
+    if (!rcc_ir_mem2reg(function, &stats, error, sizeof(error))) {
+        fprintf(stderr, "diamond mem2reg failed: %s\n", error);
+        assert(0);
+    }
+    assert(error[0] == '\0');
+    assert(stats.promoted_allocas == 1u);
+    assert(stats.removed_loads == 1u);
+    assert(stats.removed_stores == 3u);
+    assert(stats.inserted_phis == 1u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 0u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+    assert(count_opcode(function, RCC_IR_STORE) == 0u);
+    assert(count_opcode(function, RCC_IR_PHI) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_loop_promotion(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "loop", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* condition = rcc_ir_block_add(function, "condition");
+    RccIrBlock* body = rcc_ir_block_add(function, "body");
+    RccIrBlock* exit = rcc_ir_block_add(function, "exit");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue current;
+    RccIrValue limit;
+    RccIrValue compare_operands[2];
+    RccIrInstruction* compare;
+    RccIrValue one;
+    RccIrValue add_operands[2];
+    RccIrInstruction* add;
+    RccIrValue result;
+    RccIrMem2RegStats stats;
+    char error[256];
+    append_store(entry, zero, address);
+    append_branch(entry, condition->id);
+    current = append_load(condition, i32, address);
+    limit = append_const(condition, i32, 4u);
+    compare_operands[0] = current;
+    compare_operands[1] = limit;
+    compare = rcc_ir_append(condition, RCC_IR_ICMP,
+                            rcc_ir_type_integer(1u), compare_operands, 2u,
+                            NULL, 0u);
+    assert(compare != NULL);
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_SLT);
+    append_cond_branch(condition, compare->result, body->id, exit->id);
+    current = append_load(body, i32, address);
+    one = append_const(body, i32, 1u);
+    add_operands[0] = current;
+    add_operands[1] = one;
+    add = rcc_ir_append(body, RCC_IR_ADD, i32, add_operands, 2u,
+                        NULL, 0u);
+    assert(add != NULL);
+    append_store(body, add->result, address);
+    append_branch(body, condition->id);
+    result = append_load(exit, i32, address);
+    append_return(exit, result);
+    if (!rcc_ir_mem2reg(function, &stats, error, sizeof(error))) {
+        fprintf(stderr, "loop mem2reg failed: %s\n", error);
+        assert(0);
+    }
+    assert(error[0] == '\0');
+    assert(stats.promoted_allocas == 1u);
+    assert(stats.removed_loads == 3u);
+    assert(stats.removed_stores == 2u);
+    assert(stats.inserted_phis == 1u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 0u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+    assert(count_opcode(function, RCC_IR_STORE) == 0u);
+    assert(count_opcode(function, RCC_IR_PHI) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_escape_is_not_promoted(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "escape", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrInstruction* call;
+    RccIrMem2RegStats stats;
+    char error[256];
+    append_store(entry, zero, address);
+    call = rcc_ir_append(entry, RCC_IR_CALL, rcc_ir_type_void(),
+                         &address, 1u, NULL, 0u);
+    assert(call != NULL);
+    rcc_ir_set_callee(call, "capture");
+    append_return(entry, zero);
+    assert(rcc_ir_mem2reg(function, &stats, error, sizeof(error)));
+    assert(stats.promoted_allocas == 0u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 1u);
+    assert(count_opcode(function, RCC_IR_STORE) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_integer_simplification(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "simplify", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue two = append_const(entry, i32, 2u);
+    RccIrValue three = append_const(entry, i32, 3u);
+    RccIrValue add_operands[] = {two, three};
+    RccIrInstruction* add = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, add_operands, 2u, NULL, 0u);
+    RccIrValue four = append_const(entry, i32, 4u);
+    RccIrValue multiply_operands[2];
+    RccIrInstruction* multiply;
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(add != NULL);
+    multiply_operands[0] = add->result;
+    multiply_operands[1] = four;
+    multiply = rcc_ir_append(entry, RCC_IR_MUL, i32,
+                             multiply_operands, 2u, NULL, 0u);
+    assert(multiply != NULL);
+    append_return(entry, multiply->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions == 2u);
+    assert(stats.removed_instructions == 4u);
+    assert(count_opcode(function, RCC_IR_CONST_INT) == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 0u);
+    assert(count_opcode(function, RCC_IR_MUL) == 0u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_undefined_folds_are_preserved(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "preserve_undefined", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue minimum = append_const(entry, i32, UINT32_C(0x80000000));
+    RccIrValue negative_one = append_const(entry, i32, UINT32_MAX);
+    RccIrValue operands[] = {minimum, negative_one};
+    RccIrInstruction* divide = rcc_ir_append(
+        entry, RCC_IR_SDIV, i32, operands, 2u, NULL, 0u);
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(divide != NULL);
+    append_return(entry, divide->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.folded_instructions == 0u);
+    assert(stats.removed_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_SDIV) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_block_local_cse(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "block_cse", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue first_operands[] = {
+        function->parameters[0], function->parameters[1],
+    };
+    RccIrValue reversed_operands[] = {
+        function->parameters[1], function->parameters[0],
+    };
+    RccIrInstruction* first = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, first_operands, 2u, NULL, 0u);
+    RccIrInstruction* duplicate = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, reversed_operands, 2u, NULL, 0u);
+    RccIrValue product_operands[2];
+    RccIrInstruction* product;
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(first != NULL && duplicate != NULL);
+    product_operands[0] = first->result;
+    product_operands[1] = duplicate->result;
+    product = rcc_ir_append(entry, RCC_IR_MUL, i32,
+                            product_operands, 2u, NULL, 0u);
+    assert(product != NULL);
+    append_return(entry, product->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions == 0u);
+    assert(stats.commoned_instructions == 1u);
+    assert(stats.removed_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    assert(count_opcode(function, RCC_IR_MUL) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_memory_is_not_commoned(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "memory_cse_barrier", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first;
+    RccIrValue second;
+    RccIrValue operands[2];
+    RccIrInstruction* sum;
+    RccIrSimplifyStats stats;
+    char error[256];
+    append_store(entry, function->parameters[0], address);
+    first = append_load(entry, i32, address);
+    append_store(entry, first, address);
+    second = append_load(entry, i32, address);
+    operands[0] = first;
+    operands[1] = second;
+    sum = rcc_ir_append(entry, RCC_IR_ADD, i32,
+                        operands, 2u, NULL, 0u);
+    assert(sum != NULL);
+    append_return(entry, sum->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.commoned_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 2u);
+    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_dominator_scoped_gvn(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32, i32, i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dominator_gvn", i32, parameters, 3u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* left = rcc_ir_block_add(function, "left");
+    RccIrBlock* right = rcc_ir_block_add(function, "right");
+    RccIrValue operands[] = {
+        function->parameters[0], function->parameters[1],
+    };
+    RccIrValue reversed[] = {
+        function->parameters[1], function->parameters[0],
+    };
+    RccIrInstruction* dominating = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    RccIrInstruction* left_duplicate;
+    RccIrInstruction* right_duplicate;
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(dominating != NULL);
+    append_cond_branch(entry, function->parameters[2],
+                       left->id, right->id);
+    left_duplicate = rcc_ir_append(
+        left, RCC_IR_ADD, i32, reversed, 2u, NULL, 0u);
+    right_duplicate = rcc_ir_append(
+        right, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    assert(left_duplicate != NULL && right_duplicate != NULL);
+    append_return(left, left_duplicate->result);
+    append_return(right, right_duplicate->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.commoned_instructions == 2u);
+    assert(count_opcode(function, RCC_IR_ADD) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_sibling_values_are_not_commoned(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32, i32, i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "sibling_gvn", i32, parameters, 3u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* left = rcc_ir_block_add(function, "left");
+    RccIrBlock* right = rcc_ir_block_add(function, "right");
+    RccIrBlock* merge = rcc_ir_block_add(function, "merge");
+    RccIrValue operands[] = {
+        function->parameters[0], function->parameters[1],
+    };
+    RccIrInstruction* left_value;
+    RccIrInstruction* right_value;
+    RccIrValue incoming[2];
+    RccIrBlockId targets[] = {left->id, right->id};
+    RccIrInstruction* phi;
+    RccIrSimplifyStats stats;
+    char error[256];
+    append_cond_branch(entry, function->parameters[2],
+                       left->id, right->id);
+    left_value = rcc_ir_append(
+        left, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    right_value = rcc_ir_append(
+        right, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    assert(left_value != NULL && right_value != NULL);
+    append_branch(left, merge->id);
+    append_branch(right, merge->id);
+    incoming[0] = left_value->result;
+    incoming[1] = right_value->result;
+    phi = rcc_ir_append(merge, RCC_IR_PHI, i32,
+                        incoming, 2u, targets, 2u);
+    assert(phi != NULL);
+    append_return(merge, phi->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.commoned_instructions == 0u);
+    assert(count_opcode(function, RCC_IR_ADD) == 2u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+int main(void)
+{
+    verify_optimization_level_pipeline();
+    verify_diamond_promotion();
+    verify_loop_promotion();
+    verify_escape_is_not_promoted();
+    verify_integer_simplification();
+    verify_undefined_folds_are_preserved();
+    verify_block_local_cse();
+    verify_memory_is_not_commoned();
+    verify_dominator_scoped_gvn();
+    verify_sibling_values_are_not_commoned();
+    puts("Typed SSA mem2reg and simplification tests passed");
+    return 0;
+}
