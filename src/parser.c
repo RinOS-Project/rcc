@@ -1563,6 +1563,45 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     *tail = field;
 }
 
+static bool parser_is_flexible_array(Type* type) {
+    return type && type->kind == TYPE_ARRAY && type->array_len == -1 &&
+           !type->array_bound && !type->array_unspecified_bound;
+}
+
+static void parser_validate_flexible_array_members(Type* aggregate) {
+    TypeField* field;
+    TypeField* last_named = NULL;
+    int named_count = 0;
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION)) return;
+    for (field = aggregate->fields; field; field = field->next) {
+        if (field->name) {
+            last_named = field;
+            ++named_count;
+        }
+    }
+    for (field = aggregate->fields; field; field = field->next) {
+        Type* element;
+        if (!parser_is_flexible_array(field->type)) continue;
+        if (aggregate->kind == TYPE_UNION) {
+            rcc_error(peek()->loc,
+                      "flexible array member is not allowed in a union");
+        } else if (named_count == 1) {
+            rcc_error(peek()->loc,
+                      "flexible array member requires another named member");
+        }
+        if (aggregate->kind == TYPE_STRUCT && field != last_named) {
+            rcc_error(peek()->loc,
+                      "flexible array member must be the last member of a struct");
+        }
+        element = field->type->base;
+        if (!element || element->size <= 0 || !type_is_complete(element)) {
+            rcc_error(peek()->loc,
+                      "flexible array member has an incomplete element type");
+        }
+    }
+}
+
 static bool parser_type_has_array_parameter_spec(Type* type) {
     if (!type) return false;
     if (type->kind == TYPE_ARRAY) {
@@ -1658,6 +1697,7 @@ static void parse_aggregate_body(Type* aggregate) {
         expect(TOK_SEMICOLON, ";");
     }
     expect(TOK_RBRACE, "}");
+    parser_validate_flexible_array_members(aggregate);
     aggregate->size = parser_align_up(aggregate->size, aggregate->align);
     aggregate->is_complete = true;
 }

@@ -68,6 +68,8 @@
         実行時byte extentを計算
   - [x] 配列parameterの`static`／`const`／`volatile`／`restrict`指定を保持し、
         調整後pointerへ反映。parameter以外の誤用とboundなし`static`を診断
+  - [x] flexible array memberの構造体末尾・要素型・union制約を診断し、
+        構造体初期化ではflexible memberを省略して扱う
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] scalar-only brace省略列を型のsubobject順にnested initializerへ正規化し、
         i686/AMD64のstatic/automatic storageへlowering

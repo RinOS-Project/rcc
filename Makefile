@@ -106,7 +106,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -296,6 +296,48 @@ test-initializer-brace-elision: $(RCC_TARGET)
 		-o $(TEST_OUT)/initializer-brace-elision/x64.ro \
 		tests/initializer_brace_elision.c
 	@echo "RCC C17 brace-elided initializer tests completed"
+
+test-flexible-arrays: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/flexible-arrays)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/flexible-arrays/x86.ro tests/flexible_array.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/flexible-arrays/x64.ro tests/flexible_array.c
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/flexible-arrays/run-test-x86 \
+		tests/flexible_array_run_test.c src/emit_ro.c src/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/flexible-arrays/run-test-x64 \
+		tests/flexible_array_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/flexible-arrays/run-test-x86 \
+		$(TEST_OUT)/flexible-arrays/x86.ro
+	$(TEST_OUT)/flexible-arrays/run-test-x64 \
+		$(TEST_OUT)/flexible-arrays/x64.ro
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/flexible-arrays/invalid-x86.ro \
+		tests/invalid_flexible_array.c \
+		>$(TEST_OUT)/flexible-arrays/invalid-x86.log 2>&1
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/flexible-arrays/invalid-x64.ro \
+		tests/invalid_flexible_array.c \
+		>$(TEST_OUT)/flexible-arrays/invalid-x64.log 2>&1
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/flexible-arrays/invalid-initializer-x86.ro \
+		tests/invalid_flexible_initializer.c \
+		>$(TEST_OUT)/flexible-arrays/invalid-initializer-x86.log 2>&1
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/flexible-arrays/invalid-initializer-x64.ro \
+		tests/invalid_flexible_initializer.c \
+		>$(TEST_OUT)/flexible-arrays/invalid-initializer-x64.log 2>&1
+	grep -q "flexible array member requires another named member" \
+		$(TEST_OUT)/flexible-arrays/invalid-x86.log
+	grep -q "flexible array member must be the last member" \
+		$(TEST_OUT)/flexible-arrays/invalid-x86.log
+	grep -q "flexible array member is not allowed in a union" \
+		$(TEST_OUT)/flexible-arrays/invalid-x86.log
+	grep -q "flexible array member cannot be initialized" \
+		$(TEST_OUT)/flexible-arrays/invalid-initializer-x86.log
+	@echo "Dual-architecture C17 flexible array member tests completed"
 
 test-floating-static-initializers: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/floating-static-initializers)

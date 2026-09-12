@@ -2512,6 +2512,16 @@ static void sema_initializer(Type* type, Expr* initializer) {
                           "too many initializers for aggregate");
                 continue;
             }
+            if (field->type && field->type->kind == TYPE_ARRAY &&
+                field->type->array_len == -1 &&
+                !field->type->array_bound &&
+                !field->type->array_unspecified_bound) {
+                rcc_error(item->expr->loc,
+                          "flexible array member cannot be initialized");
+                cursor = field->next;
+                ++initialized;
+                continue;
+            }
             sema_initializer(field->type, item->expr);
             cursor = field->next;
             ++initialized;
