@@ -634,6 +634,7 @@ struct Decl {
             Stmt* func_body;        /* NULL for declaration only */
             bool func_is_inline;
             bool func_is_defined;
+            bool func_is_template_instance;
             bool func_has_cxx_linkage;
             Decl* func_overload_next;
         };

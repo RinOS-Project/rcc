@@ -1569,7 +1569,9 @@ static Type* sema_expr(Expr* expr) {
                     g_symtab, expr->call_func->ident_name);
                 if (overload && overload->kind == SYM_FUNC &&
                     overload->decl && overload->decl->func_has_cxx_linkage &&
-                    overload->decl->func_overload_next) {
+                    overload->decl->func_overload_next &&
+                    (!expr->call_func->ident_decl ||
+                     !expr->call_func->ident_decl->func_is_template_instance)) {
                     expr->call_func->ident_decl = overload->decl;
                     for (argument = expr->call_args; argument;
                          argument = argument->next) {
@@ -2639,8 +2641,14 @@ static void sema_decl(Decl* decl) {
                 Decl** slot = &sym->decl;
                 while (*slot) {
                     Decl* prior = *slot;
+                    bool distinct_template_instances =
+                        prior->func_is_template_instance &&
+                        decl->func_is_template_instance &&
+                        prior->link_name && decl->link_name &&
+                        strcmp(prior->link_name, decl->link_name) != 0;
                     if (cxx_same_function_parameters(prior->type,
-                                                     decl->type)) {
+                                                     decl->type) &&
+                        !distinct_template_instances) {
                         if (!type_is_compatible(prior->type->ret_type,
                                                 decl->type->ret_type)) {
                             rcc_error(decl->loc,

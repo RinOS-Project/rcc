@@ -820,6 +820,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_body = body;
     d->func_is_inline = false;
     d->func_is_defined = (body != NULL);
+    d->func_is_template_instance = false;
     d->func_has_cxx_linkage = false;
     d->func_overload_next = NULL;
     return d;

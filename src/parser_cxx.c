@@ -2566,6 +2566,8 @@ Expr* rcc_parse_cxx_template_call(void) {
     }
     if (tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT) {
         Type* template_arguments[32];
+        int64_t template_values[32] = { 0 };
+        bool template_value_present[32] = { false };
         int argument_count = 0;
         Decl* instance;
         ExprList* call_arguments = NULL;
@@ -2586,21 +2588,59 @@ Expr* rcc_parse_cxx_template_call(void) {
                     template_arguments[argument_count++] =
                         parse_cxx_type_spec();
                 } else {
-                    rcc_error(peek()->loc,
-                              "non-type function template arguments are not implemented");
-                    while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
-                        advance();
+                    TemplateParam* parameter = argument_count <
+                        tmpl->param_count
+                        ? &tmpl->params[argument_count] : NULL;
+                    Expr* value_expression;
+                    int64_t value;
+
+                    if (!parameter || parameter->kind != TPARAM_NONTYPE) {
+                        rcc_error(peek()->loc,
+                                  "too many function template arguments");
+                        while (!check(TOK_COMMA) && !check(TOK_GT) &&
+                               !at_end()) {
+                            advance();
+                        }
+                        template_arguments[argument_count++] = type_int;
+                        continue;
                     }
-                    template_arguments[argument_count++] = type_int;
+                    rcc_parser_set_cxx_template_default_mode(true);
+                    value_expression = parse_assignment_expression();
+                    rcc_parser_set_cxx_template_default_mode(false);
+                    if (!expr_eval_integer_constant(value_expression, &value)) {
+                        rcc_error(value_expression ? value_expression->loc : loc,
+                                  "function template non-type argument must be "
+                                  "an integer constant expression");
+                        value = 0;
+                    }
+                    template_arguments[argument_count] = parameter->type;
+                    template_values[argument_count] = value;
+                    template_value_present[argument_count] = true;
+                    ++argument_count;
                 }
             } while (match(TOK_COMMA));
         }
         while (argument_count < tmpl->param_count &&
-               tmpl->params[argument_count].kind == TPARAM_TYPE &&
-               tmpl->params[argument_count].has_default &&
-               tmpl->params[argument_count].default_type) {
-            template_arguments[argument_count] =
-                tmpl->params[argument_count].default_type;
+               tmpl->params[argument_count].has_default) {
+            TemplateParam* parameter = &tmpl->params[argument_count];
+            if (parameter->kind == TPARAM_TYPE && parameter->default_type) {
+                template_arguments[argument_count] = parameter->default_type;
+            } else if (parameter->kind == TPARAM_NONTYPE &&
+                       parameter->default_value) {
+                int64_t value;
+                if (!expr_eval_integer_constant(parameter->default_value,
+                                                &value)) {
+                    rcc_error(loc,
+                              "function template non-type default must be "
+                              "an integer constant expression");
+                    value = 0;
+                }
+                template_arguments[argument_count] = parameter->type;
+                template_values[argument_count] = value;
+                template_value_present[argument_count] = true;
+            } else {
+                break;
+            }
             ++argument_count;
         }
         expect(TOK_GT, ">");
@@ -2620,8 +2660,9 @@ Expr* rcc_parse_cxx_template_call(void) {
                       name, tmpl->param_count);
             return expr_int(0, loc);
         }
-        instance = (Decl*)cxx_template_instantiate(
-            tmpl, template_arguments, argument_count);
+        instance = (Decl*)cxx_template_instantiate_with_values(
+            tmpl, template_arguments, template_values,
+            template_value_present, argument_count);
         if (!instance || instance->kind != DECL_FUNC) {
             rcc_error(loc, "could not instantiate function template '%s'", name);
             return expr_int(0, loc);

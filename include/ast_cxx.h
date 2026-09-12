@@ -170,6 +170,8 @@ struct CxxTemplate {
     /* Instantiations */
     struct {
         Type** args;
+        int64_t* value_args;
+        bool* value_present;
         int arg_count;
         void* instantiated;  /* CxxClass* or Decl* */
     } *instances;
@@ -218,6 +220,10 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl);
 /* Template operations (core API) */
 CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int count);
 void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count);
+void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
+                                            const int64_t* value_args,
+                                            const bool* value_present,
+                                            int arg_count);
 
 /* Parser-owned class-template substitution used by the public template API.
  * The returned class is the cached specialization, not merely its Type. */
