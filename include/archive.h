@@ -59,7 +59,7 @@ _Static_assert(sizeof(RaSymbol) == 16, "RaSymbol v2 ABI drift");
 typedef struct ArchiveMember {
     char* name;             /* Member file name */
     uint8_t* data;          /* Member data */
-    uint32_t size;          /* Member size */
+    uint64_t size;          /* Member size */
     struct ArchiveMember* next;
 } ArchiveMember;
 

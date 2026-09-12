@@ -22,14 +22,19 @@ typedef struct LinkImportSpec {
 /* Linker options */
 typedef struct {
     char output_file[RCC_MAX_PATH];
+    bool output_explicit;
     char** input_files;
     int input_count;
     uint16_t arch;
     bool arch_explicit;
     bool verbose;
     bool shared;        /* Create shared library (.rll) */
-    uint32_t base_addr; /* Base load address */
+    bool shared_explicit;
+    uint64_t base_addr; /* Base load address */
     const char* entry;  /* Entry point symbol */
+    bool entry_explicit;
+    char manifest_entry[RCC_MAX_IDENT];
+    const char* manifest_path;
     const char* dependencies[RLD_MAX_DEPENDENCIES];
     int dependency_count;
     LinkImportSpec imports[RLD_MAX_IMPORTS];
@@ -45,18 +50,19 @@ typedef struct LinkedSection {
     SectionType type;
     uint32_t flags;
     uint8_t* data;
-    uint32_t size;
-    uint32_t capacity;
+    uint64_t size;        /* Bytes stored in the output image */
+    uint64_t memory_size; /* Bytes occupied after zero-fill */
+    uint64_t capacity;
     uint32_t align;
-    uint32_t vaddr;     /* Virtual address after linking */
+    uint64_t vaddr;     /* Virtual address after linking */
     struct LinkedSection* next;
 } LinkedSection;
 
 /* Global symbol (after linking) */
 typedef struct GlobalSymbol {
     const char* name;
-    uint32_t value;     /* Final resolved address */
-    uint32_t size;
+    uint64_t value;     /* Final resolved address */
+    uint64_t size;
     SymbolType type;
     SymbolBinding binding;
     int section;        /* Index into linked sections */
@@ -67,10 +73,10 @@ typedef struct GlobalSymbol {
 
 /* Pending relocation */
 typedef struct PendingReloc {
-    uint32_t offset;        /* Offset in linked section */
+    uint64_t offset;        /* Offset in linked section */
     const char* symbol;     /* Symbol name */
     RelocType type;
-    int32_t addend;
+    int64_t addend;
     int section;            /* Which linked section */
     const char* source;     /* Source object file */
     struct PendingReloc* next;
@@ -95,8 +101,8 @@ typedef struct Linker {
     int reloc_count;
 
     /* Layout info */
-    uint32_t base_addr;
-    uint32_t entry_addr;
+    uint64_t base_addr;
+    uint64_t entry_addr;
 } Linker;
 
 /* Linker functions */
@@ -112,7 +118,7 @@ bool linker_merge_sections(Linker* ld);
 bool linker_collect_symbols(Linker* ld);
 bool linker_resolve_symbols(Linker* ld);
 bool linker_apply_relocations(Linker* ld);
-bool linker_layout(Linker* ld, uint32_t base_addr);
+bool linker_layout(Linker* ld, uint64_t base_addr);
 
 /* Output */
 bool linker_emit_rin(Linker* ld, const char* filename);

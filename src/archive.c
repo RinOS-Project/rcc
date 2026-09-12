@@ -5,6 +5,7 @@
 
 #include "archive.h"
 #include "objfile.h"
+#include <inttypes.h>
 #include <limits.h>
 #include <string.h>
 
@@ -112,7 +113,7 @@ bool archive_add_member(Archive* ar, const char* filename) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (size <= 0 || (unsigned long)size > UINT32_MAX) {
+    if (size <= 0 || (uint64_t)size > SIZE_MAX) {
         fclose(f);
         fprintf(stderr, "rar: member is empty or exceeds the current memory limit: %s\n",
                 filename);
@@ -139,7 +140,7 @@ bool archive_add_member(Archive* ar, const char* filename) {
 
     m->name = rcc_strdup(base);
     m->data = data;
-    m->size = (uint32_t)size;
+    m->size = (uint64_t)size;
     m->next = NULL;
 
     /* Append to list */
@@ -395,7 +396,7 @@ Archive* archive_read(const char* filename) {
             !memchr(ar->strtab + mh->name, '\0',
                     (size_t)hdr.strtab_size - mh->name) ||
             mh->arch > ARCH_X64 || mh->flags != 0u ||
-            mh->size > UINT32_MAX ||
+            mh->size > SIZE_MAX ||
             !archive_range(mh->offset, mh->size, actual_size)) {
             goto read_failed;
         }
@@ -404,7 +405,7 @@ Archive* archive_read(const char* filename) {
         m->name = rcc_strdup(ar->strtab + mh->name);
 
         m->data = rcc_alloc((size_t)mh->size);
-        m->size = (uint32_t)mh->size;
+        m->size = mh->size;
 
         if (!archive_seek(f, mh->offset, SEEK_SET) ||
             (mh->size != 0u && fread(m->data, (size_t)mh->size, 1, f) != 1)) {
@@ -497,7 +498,7 @@ bool rar_list(const char* filename) {
 
     printf("Members:\n");
     for (ArchiveMember* m = ar->members; m; m = m->next) {
-        printf("  %-20s %8u bytes\n", m->name, m->size);
+        printf("  %-20s %8" PRIu64 " bytes\n", m->name, m->size);
     }
 
     printf("\nSymbols:\n");

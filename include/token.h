@@ -59,6 +59,8 @@ typedef enum {
     TOK__ALIGNOF,
     TOK__ALIGNAS,
     TOK_STATIC_ASSERT,
+    TOK_GENERIC,
+    TOK_THREAD_LOCAL,
 
     /* GNU Extensions */
     TOK_ASM,            /* asm, __asm, __asm__ */
@@ -162,6 +164,7 @@ typedef enum {
     /* Preprocessor (handled specially) */
     TOK_HASH,           /* # */
     TOK_HASHHASH,       /* ## */
+    TOK_PRAGMA_PACK,    /* Preserved #pragma pack state transition */
 
     /* C++ specific operators */
     TOK_SCOPE,          /* :: */
@@ -183,6 +186,12 @@ typedef union {
 typedef struct Token {
     TokenType type;
     TokenValue value;
+    /* TOK_INT_LIT metadata.  The value field keeps the exact low 64 bits;
+     * base and suffix drive C17 candidate-type selection in the parser. */
+    uint8_t int_base;
+    uint8_t int_long_suffix;
+    bool int_unsigned_suffix;
+    bool int_overflow;
     SourceLoc loc;
     struct Token* next;
 } Token;

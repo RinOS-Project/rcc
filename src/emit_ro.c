@@ -32,6 +32,48 @@ static bool ro_range(uint64_t offset, uint64_t size, uint64_t limit) {
     return offset <= limit && size <= limit - offset;
 }
 
+static bool ro_relocation_type_valid(uint16_t type) {
+    return type <= RELOC_PLT32 || type == RELOC_ABS32U ||
+           type == RELOC_ABS32S || type == RELOC_TLSOFF32S;
+}
+
+static bool ro_section_policy(uint16_t arch, const RoSection* section) {
+    uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
+    uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC |
+                             SECT_FLAG_ALLOC | SECT_FLAG_COMDAT;
+    if (section->type < SECT_CODE || section->type > SECT_FINI_ARRAY ||
+        (section->flags & ~allowed_flags) != 0u ||
+        (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
+            (SECT_FLAG_WRITE | SECT_FLAG_EXEC) ||
+        (section->flags & SECT_FLAG_ALLOC) == 0u) return false;
+
+    switch ((SectionType)section->type) {
+    case SECT_CODE:
+        return (section->flags & SECT_FLAG_EXEC) != 0u &&
+               (section->flags & SECT_FLAG_WRITE) == 0u;
+    case SECT_DATA:
+    case SECT_TLS:
+        return (section->flags & SECT_FLAG_WRITE) != 0u &&
+               (section->flags & SECT_FLAG_EXEC) == 0u;
+    case SECT_BSS:
+        return section->size == 0u &&
+               (section->flags & SECT_FLAG_WRITE) != 0u &&
+               (section->flags & SECT_FLAG_EXEC) == 0u;
+    case SECT_INIT_ARRAY:
+    case SECT_FINI_ARRAY:
+        return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u &&
+               section->size == section->memory_size &&
+               section->memory_size % pointer_size == 0u;
+    case SECT_RODATA:
+        return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u;
+    case SECT_UNWIND:
+        return (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u &&
+               section->size == section->memory_size;
+    default:
+        return false;
+    }
+}
+
 /* ═══════════════════════════════════════
  * Object File Creation
  * ═══════════════════════════════════════ */
@@ -58,11 +100,14 @@ void objfile_free(ObjectFile* obj) {
     ObjSection* sect = obj->sections;
     while (sect) {
         ObjSection* next = sect->next;
+        rcc_free((void*)sect->name);
+        rcc_free((void*)sect->comdat_key);
         rcc_free(sect->data);
         /* Free relocs */
         ObjReloc* r = sect->relocs;
         while (r) {
             ObjReloc* rn = r->next;
+            rcc_free((void*)r->symbol_name);
             rcc_free(r);
             r = rn;
         }
@@ -74,11 +119,13 @@ void objfile_free(ObjectFile* obj) {
     ObjSymbol* sym = obj->symbols;
     while (sym) {
         ObjSymbol* next = sym->next;
+        rcc_free((void*)sym->name);
         rcc_free(sym);
         sym = next;
     }
 
     rcc_free(obj->strtab);
+    rcc_free((void*)obj->filename);
     rcc_free(obj);
 }
 
@@ -91,8 +138,12 @@ ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType t
     sect->name = rcc_strdup(name);
     sect->type = type;
     sect->flags = flags;
+    sect->comdat_selection = 0u;
+    sect->comdat_key = NULL;
+    sect->comdat_selected = true;
     sect->data = rcc_alloc(256);
     sect->size = 0;
+    sect->memory_size = 0;
     sect->capacity = 256;
     sect->align = 1;
     sect->relocs = NULL;
@@ -111,6 +162,17 @@ ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType t
     return sect;
 }
 
+bool objfile_set_comdat(ObjSection* sect, const char* key,
+                        uint32_t selection) {
+    if (!sect || !key || key[0] == '\0' ||
+        selection != RO_COMDAT_SELECT_ANY) return false;
+    rcc_free((void*)sect->comdat_key);
+    sect->comdat_key = rcc_strdup(key);
+    sect->comdat_selection = selection;
+    sect->flags |= SECT_FLAG_COMDAT;
+    return true;
+}
+
 ObjSection* objfile_get_section(ObjectFile* obj, const char* name) {
     for (ObjSection* s = obj->sections; s; s = s->next) {
         if (strcmp(s->name, name) == 0) {
@@ -120,43 +182,73 @@ ObjSection* objfile_get_section(ObjectFile* obj, const char* name) {
     return NULL;
 }
 
-static void section_ensure_capacity(ObjSection* sect, uint32_t need) {
-    if (sect->size + need <= sect->capacity) return;
+static void section_ensure_capacity(ObjSection* sect, uint64_t need) {
+    uint64_t required;
+    uint64_t new_cap;
+    if (need > UINT64_MAX - sect->size) rcc_fatal("object section size overflow");
+    required = sect->size + need;
+    if (required <= sect->capacity) return;
+    if (required > SIZE_MAX) rcc_fatal("object section exceeds host memory limit");
 
-    uint32_t new_cap = sect->capacity * 2;
-    while (new_cap < sect->size + need) {
-        new_cap *= 2;
+    new_cap = sect->capacity;
+    while (new_cap < required) {
+        if (new_cap > UINT64_MAX / 2u) {
+            new_cap = required;
+            break;
+        }
+        new_cap *= 2u;
     }
-    sect->data = rcc_realloc(sect->data, new_cap);
+    sect->data = rcc_realloc(sect->data, (size_t)new_cap);
     sect->capacity = new_cap;
 }
 
-uint32_t section_add_data(ObjSection* sect, const void* data, uint32_t size) {
+uint64_t section_add_data(ObjSection* sect, const void* data, uint64_t size) {
+    if (sect->memory_size > sect->size) {
+        uint64_t gap = sect->memory_size - sect->size;
+        section_ensure_capacity(sect, gap);
+        memset(sect->data + (size_t)sect->size, 0, (size_t)gap);
+        sect->size = sect->memory_size;
+    }
     section_ensure_capacity(sect, size);
-    uint32_t offset = sect->size;
-    memcpy(sect->data + sect->size, data, size);
+    uint64_t offset = sect->size;
+    memcpy(sect->data + (size_t)sect->size, data, (size_t)size);
     sect->size += size;
+    sect->memory_size = sect->size;
     return offset;
 }
 
-uint32_t section_add_byte(ObjSection* sect, uint8_t byte) {
-    section_ensure_capacity(sect, 1);
-    uint32_t offset = sect->size;
-    sect->data[sect->size++] = byte;
-    return offset;
+uint64_t section_add_byte(ObjSection* sect, uint8_t byte) {
+    return section_add_data(sect, &byte, 1u);
 }
 
-uint32_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint32_t count) {
+uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t count) {
     return section_add_data(sect, bytes, count);
 }
 
 void section_align(ObjSection* sect, uint32_t align) {
+    uint64_t mask;
     if (align <= 1) return;
     if (align > sect->align) sect->align = align;
+
+    if (sect->memory_size > sect->size) {
+        mask = (uint64_t)align - 1u;
+        if (sect->memory_size > UINT64_MAX - mask) {
+            rcc_fatal("object section alignment overflow");
+        }
+        sect->memory_size = (sect->memory_size + mask) & ~mask;
+        return;
+    }
 
     while (sect->size % align != 0) {
         section_add_byte(sect, 0);
     }
+}
+
+void section_set_memory_size(ObjSection* sect, uint64_t memory_size) {
+    if (memory_size < sect->size) {
+        rcc_fatal("object section memory size is smaller than file size");
+    }
+    sect->memory_size = memory_size;
 }
 
 /* ═══════════════════════════════════════
@@ -164,7 +256,8 @@ void section_align(ObjSection* sect, uint32_t align) {
  * ═══════════════════════════════════════ */
 
 ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type,
-                              SymbolBinding binding, int section, uint32_t value, uint32_t size) {
+                              SymbolBinding binding, int section, uint64_t value,
+                              uint64_t size) {
     ObjSymbol* sym = rcc_alloc(sizeof(ObjSymbol));
     sym->name = rcc_strdup(name);
     sym->value = value;
@@ -200,8 +293,8 @@ ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name) {
  * Relocation Operations
  * ═══════════════════════════════════════ */
 
-void objfile_add_reloc(ObjectFile* obj, int section_idx, uint32_t offset,
-                       const char* symbol, RelocType type, int32_t addend) {
+void objfile_add_reloc(ObjectFile* obj, int section_idx, uint64_t offset,
+                       const char* symbol, RelocType type, int64_t addend) {
     /* Find section */
     int idx = 0;
     ObjSection* sect = obj->sections;
@@ -265,6 +358,33 @@ uint32_t objfile_add_string(ObjectFile* obj, const char* str) {
  * ═══════════════════════════════════════ */
 
 bool objfile_write(ObjectFile* obj, const char* filename) {
+    for (ObjSection* section = obj->sections; section; section = section->next) {
+        bool is_comdat = (section->flags & SECT_FLAG_COMDAT) != 0u;
+        if ((is_comdat &&
+             (section->comdat_selection != RO_COMDAT_SELECT_ANY ||
+              !section->comdat_key || section->comdat_key[0] == '\0')) ||
+            (!is_comdat &&
+             (section->comdat_selection != 0u || section->comdat_key))) {
+            rcc_error((SourceLoc){filename, 0, 0},
+                      "invalid .ro v2 section metadata for '%s'",
+                      section->name);
+            return false;
+        }
+        for (ObjReloc* relocation = section->relocs; relocation;
+             relocation = relocation->next) {
+            if (!ro_relocation_type_valid((uint16_t)relocation->type)) {
+                rcc_error((SourceLoc){filename, 0, 0},
+                          "unsupported .ro v2 relocation type %u",
+                          (unsigned)relocation->type);
+                return false;
+            }
+            if (relocation->type == RELOC_ABS32) {
+                rcc_error((SourceLoc){filename, 0, 0},
+                          "new .ro v2 objects must use ABS32U or ABS32S");
+                return false;
+            }
+        }
+    }
     FILE* f = fopen(filename, "wb");
     uint64_t* section_data_off = NULL;
     uint64_t* reloc_off = NULL;
@@ -341,10 +461,14 @@ bool objfile_write(ObjectFile* obj, const char* filename) {
         sh.flags = s->flags;
         sh.offset = section_data_off[sect_idx];
         sh.size = s->size;
-        sh.memory_size = s->size;
+        sh.memory_size = s->memory_size;
         sh.align = s->align;
         sh.reloc_off = reloc_off[sect_idx];
         sh.reloc_count = reloc_count[sect_idx];
+        if ((s->flags & SECT_FLAG_COMDAT) != 0u) {
+            sh.reserved0 = s->comdat_selection;
+            sh.reserved1 = objfile_add_string(obj, s->comdat_key);
+        }
         fwrite(&sh, sizeof(sh), 1, f);
         sect_idx++;
     }
@@ -437,122 +561,133 @@ write_failed:
     return false;
 }
 
-ObjectFile* objfile_read(const char* filename) {
-    FILE* f = fopen(filename, "rb");
+ObjectFile* objfile_read_memory(const void* data, uint64_t size,
+                                const char* display_name) {
+    const uint8_t* bytes = data;
     ObjectFile* obj = NULL;
     RoSection* sections = NULL;
-    ObjSection** sect_ptrs = NULL;
     ObjSymbol** sym_ptrs = NULL;
-    uint64_t actual_size;
-    if (!f) {
-        return NULL;
-    }
-
-    if (!ro_seek(f, 0, SEEK_END) ||
-        (actual_size = ro_tell(f)) == UINT64_MAX ||
-        !ro_seek(f, 0, SEEK_SET)) {
-        fclose(f);
-        return NULL;
-    }
-
     RoHeader hdr;
-    if (fread(&hdr, sizeof(hdr), 1, f) != 1) {
-        fclose(f);
-        return NULL;
-    }
+    if (!bytes || size < sizeof(hdr) || size > SIZE_MAX) return NULL;
+    memcpy(&hdr, bytes, sizeof(hdr));
     if (hdr.magic != RO_MAGIC || hdr.version != RO_VERSION ||
-        hdr.header_size != sizeof(RoHeader) || hdr.file_size != actual_size ||
+        hdr.header_size != sizeof(RoHeader) || hdr.flags != 0u ||
+        hdr.file_size != size ||
         hdr.arch > ARCH_X64 || hdr.section_count > 65535u ||
         hdr.symbol_count > 1048576u || hdr.strtab_size == 0u ||
         hdr.strtab_size > UINT32_MAX ||
         !ro_range(hdr.section_off,
-                  (uint64_t)hdr.section_count * sizeof(RoSection), actual_size) ||
+                  (uint64_t)hdr.section_count * sizeof(RoSection), size) ||
         !ro_range(hdr.symbol_off,
-                  (uint64_t)hdr.symbol_count * sizeof(RoSymbol), actual_size) ||
-        !ro_range(hdr.strtab_off, hdr.strtab_size, actual_size)) {
-        fclose(f);
-        return NULL;
-    }
+                  (uint64_t)hdr.symbol_count * sizeof(RoSymbol), size) ||
+        !ro_range(hdr.strtab_off, hdr.strtab_size, size)) return NULL;
 
-    obj = objfile_new(filename, hdr.arch);
+    obj = objfile_new(display_name ? display_name : "<memory>", hdr.arch);
 
     obj->strtab = rcc_realloc(obj->strtab, (size_t)hdr.strtab_size);
     obj->strtab_size = (uint32_t)hdr.strtab_size;
     obj->strtab_cap = (uint32_t)hdr.strtab_size;
-    if (!ro_seek(f, hdr.strtab_off, SEEK_SET) ||
-        fread(obj->strtab, (size_t)hdr.strtab_size, 1, f) != 1 ||
-        obj->strtab[0] != '\0') goto read_failed;
+    memcpy(obj->strtab, bytes + (size_t)hdr.strtab_off,
+           (size_t)hdr.strtab_size);
+    if (obj->strtab[0] != '\0') goto read_failed;
 
-    if (!ro_seek(f, hdr.section_off, SEEK_SET)) goto read_failed;
-    sections = rcc_alloc(sizeof(RoSection) * hdr.section_count);
-    if (hdr.section_count != 0u &&
-        fread(sections, sizeof(RoSection), hdr.section_count, f) !=
-            hdr.section_count) goto read_failed;
+    if (hdr.section_count != 0u) {
+        sections = rcc_alloc(sizeof(RoSection) * hdr.section_count);
+        memcpy(sections, bytes + (size_t)hdr.section_off,
+               sizeof(RoSection) * hdr.section_count);
+    }
 
-    sect_ptrs = rcc_alloc(sizeof(ObjSection*) * hdr.section_count);
     for (uint32_t i = 0; i < hdr.section_count; i++) {
         RoSection* sh = &sections[i];
+        bool is_comdat = (sh->flags & SECT_FLAG_COMDAT) != 0u;
+        bool comdat_valid = !is_comdat
+            ? sh->reserved0 == 0u && sh->reserved1 == 0u
+            : sh->reserved0 == RO_COMDAT_SELECT_ANY &&
+              sh->reserved1 < hdr.strtab_size &&
+              obj->strtab[sh->reserved1] != '\0' &&
+              memchr(obj->strtab + (size_t)sh->reserved1, '\0',
+                     (size_t)(hdr.strtab_size - sh->reserved1)) != NULL;
         if (sh->name >= hdr.strtab_size ||
             !memchr(obj->strtab + sh->name, '\0',
                     (size_t)hdr.strtab_size - sh->name) ||
-            sh->type > SECT_BSS || sh->align == 0u ||
+            !ro_section_policy(hdr.arch, sh) || sh->align == 0u ||
             (sh->align & (sh->align - 1u)) != 0u ||
-            sh->size > UINT32_MAX || sh->memory_size < sh->size ||
-            !ro_range(sh->offset, sh->size, actual_size) ||
+            sh->size > SIZE_MAX || sh->memory_size < sh->size ||
+            !ro_range(sh->offset, sh->size, size) ||
             (sh->reloc_count != 0u &&
              !ro_range(sh->reloc_off,
                        (uint64_t)sh->reloc_count * sizeof(RoReloc),
-                       actual_size)) ||
-            sh->reserved0 != 0u || sh->reserved1 != 0u) goto read_failed;
+                       size)) || !comdat_valid) goto read_failed;
         const char* name = obj->strtab + sh->name;
 
         ObjSection* sect = objfile_add_section(obj, name, sh->type, sh->flags);
         sect->align = sh->align;
-        sect_ptrs[i] = sect;
+        if (is_comdat &&
+            !objfile_set_comdat(sect,
+                                obj->strtab + (size_t)sh->reserved1,
+                                sh->reserved0)) goto read_failed;
 
         if (sh->size > 0) {
-            section_ensure_capacity(sect, (uint32_t)sh->size);
-            if (!ro_seek(f, sh->offset, SEEK_SET) ||
-                fread(sect->data, (size_t)sh->size, 1, f) != 1) {
-                goto read_failed;
-            }
-            sect->size = (uint32_t)sh->size;
+            section_ensure_capacity(sect, sh->size);
+            memcpy(sect->data, bytes + (size_t)sh->offset,
+                   (size_t)sh->size);
+            sect->size = sh->size;
         }
+        sect->memory_size = sh->memory_size;
     }
 
-    sym_ptrs = rcc_alloc(sizeof(ObjSymbol*) * hdr.symbol_count);
-    if (!ro_seek(f, hdr.symbol_off, SEEK_SET)) goto read_failed;
+    if (hdr.symbol_count != 0u) {
+        sym_ptrs = rcc_alloc(sizeof(ObjSymbol*) * hdr.symbol_count);
+    }
     for (uint32_t i = 0; i < hdr.symbol_count; i++) {
         RoSymbol rs;
-        if (fread(&rs, sizeof(rs), 1, f) != 1 ||
-            rs.name >= hdr.strtab_size ||
+        memcpy(&rs, bytes + (size_t)hdr.symbol_off +
+                    (size_t)i * sizeof(rs), sizeof(rs));
+        if (rs.name >= hdr.strtab_size ||
             !memchr(obj->strtab + rs.name, '\0',
                     (size_t)hdr.strtab_size - rs.name) ||
-            rs.type > SYM_WEAK || rs.binding > BIND_ABS ||
-            rs.section > hdr.section_count || rs.value > UINT32_MAX ||
-            rs.size > UINT32_MAX || rs.flags != 0u || rs.reserved != 0u) {
+            rs.type > SYM_WEAK || rs.binding > BIND_TLS ||
+            rs.section > hdr.section_count || rs.flags != 0u ||
+            rs.reserved != 0u) {
             goto read_failed;
+        }
+        if (rs.section == 0u) {
+            if (rs.type != SYM_UNDEF && rs.binding != BIND_ABS) {
+                goto read_failed;
+            }
+        } else {
+            RoSection* owner = &sections[rs.section - 1u];
+            if (rs.type == SYM_UNDEF || rs.binding == BIND_ABS ||
+                ((rs.binding == BIND_TLS) !=
+                 (owner->type == SECT_TLS)) ||
+                rs.value > owner->memory_size ||
+                rs.size > owner->memory_size - rs.value) {
+                goto read_failed;
+            }
         }
 
         const char* name = obj->strtab + rs.name;
         sym_ptrs[i] = objfile_add_symbol(obj, name, rs.type, rs.binding,
                                          (int)rs.section - 1,
-                                         (uint32_t)rs.value,
-                                         (uint32_t)rs.size);
+                                         rs.value, rs.size);
     }
 
     for (uint32_t i = 0; i < hdr.section_count; i++) {
         RoSection* sh = &sections[i];
         if (sh->reloc_count == 0) continue;
 
-        if (!ro_seek(f, sh->reloc_off, SEEK_SET)) goto read_failed;
         for (uint32_t j = 0; j < sh->reloc_count; j++) {
             RoReloc rr;
-            if (fread(&rr, sizeof(rr), 1, f) != 1 ||
-                rr.offset > UINT32_MAX || rr.symbol >= hdr.symbol_count ||
-                rr.type > RELOC_PLT32 || rr.flags != 0u ||
-                rr.addend < INT32_MIN || rr.addend > INT32_MAX ||
+            uint64_t width;
+            memcpy(&rr, bytes + (size_t)sh->reloc_off +
+                        (size_t)j * sizeof(rr), sizeof(rr));
+            if (rr.symbol >= hdr.symbol_count ||
+                !ro_relocation_type_valid(rr.type) || rr.flags != 0u ||
                 rr.reserved != 0u) goto read_failed;
+            width = rr.type == RELOC_ABS64 ? 8u :
+                    rr.type == RELOC_REL8 ? 1u : 4u;
+            if (rr.offset > sh->memory_size ||
+                width > sh->memory_size - rr.offset) goto read_failed;
 
             const char* sym_name = NULL;
             if (rr.symbol < hdr.symbol_count && sym_ptrs[rr.symbol]) {
@@ -560,26 +695,50 @@ ObjectFile* objfile_read(const char* filename) {
             }
 
             if (sym_name) {
-                objfile_add_reloc(obj, (int)i, (uint32_t)rr.offset,
-                                  sym_name, rr.type, (int32_t)rr.addend);
+                objfile_add_reloc(obj, (int)i, rr.offset,
+                                  sym_name, rr.type, rr.addend);
             }
         }
     }
 
-    rcc_free(sect_ptrs);
     rcc_free(sym_ptrs);
     rcc_free(sections);
-    fclose(f);
-
     return obj;
 
 read_failed:
-    rcc_free(sect_ptrs);
     rcc_free(sym_ptrs);
     rcc_free(sections);
     objfile_free(obj);
-    fclose(f);
     return NULL;
+}
+
+ObjectFile* objfile_read(const char* filename) {
+    FILE* f = fopen(filename, "rb");
+    uint8_t* data = NULL;
+    uint64_t size;
+    ObjectFile* obj;
+    if (!f) return NULL;
+
+    if (!ro_seek(f, 0, SEEK_END) ||
+        (size = ro_tell(f)) == UINT64_MAX || size > SIZE_MAX ||
+        !ro_seek(f, 0, SEEK_SET)) {
+        fclose(f);
+        return NULL;
+    }
+    data = rcc_alloc((size_t)(size == 0u ? 1u : size));
+    if (size != 0u && fread(data, (size_t)size, 1, f) != 1) {
+        rcc_free(data);
+        fclose(f);
+        return NULL;
+    }
+    if (fclose(f) != 0) {
+        rcc_free(data);
+        return NULL;
+    }
+
+    obj = objfile_read_memory(data, size, filename);
+    rcc_free(data);
+    return obj;
 }
 
 /* ═══════════════════════════════════════
@@ -609,26 +768,52 @@ static char* module_scoped_symbol(const char* filename, const char* name) {
 
 ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjectFile* obj = objfile_new(filename, g_opts.target_arch);
+    int next_section = 1;
+    int rodata_section = -1;
+    int data_section = -1;
+    int bss_section = -1;
+    int tls_section = -1;
 
     /* Create .text section */
     ObjSection* text = objfile_add_section(obj, ".text", SECT_CODE,
                                            SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
     section_add_data(text, mod->code.data, mod->code.size);
 
-    /* Create .data section */
+    if (mod->rodata.size > 0u) {
+        ObjSection* rodata = objfile_add_section(
+            obj, ".rodata", SECT_RODATA, SECT_FLAG_ALLOC);
+        section_add_data(rodata, mod->rodata.data, mod->rodata.size);
+        rodata_section = next_section++;
+    }
+
     if (mod->data.size > 0) {
         ObjSection* data = objfile_add_section(obj, ".data", SECT_DATA,
                                                SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
         section_add_data(data, mod->data.data, mod->data.size);
+        data_section = next_section++;
     }
 
-    /* Create .rodata section for string literals etc */
-    /* TODO: separate from .data */
+    if (mod->bss.size > 0u) {
+        ObjSection* bss = objfile_add_section(obj, ".bss", SECT_BSS,
+                                              SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+        section_set_memory_size(bss, mod->bss.size);
+        bss->align = mod->bss.align;
+        bss_section = next_section++;
+    }
+
+    if (mod->tls.size > 0u) {
+        ObjSection* tls = objfile_add_section(
+            obj, ".tls", SECT_TLS, SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+        section_add_data(tls, mod->tls.data, mod->tls.size);
+        tls->align = mod->tls_align;
+        tls_section = next_section++;
+    }
 
     /* Add symbols from module */
     for (int i = 0; i < mod->symbol_count; i++) {
         ModuleSymbol* ms = &mod->symbols[i];
         const char* object_name = ms->name;
+        char* scoped_name = NULL;
         bool referenced = ms->is_defined;
         if (!referenced) {
             for (int relocation_index = 0;
@@ -645,39 +830,86 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
          * Emit an undefined symbol only when generated code references it. */
         if (!referenced) continue;
         SymbolType type = ms->is_defined
-            ? (ms->is_global ? SYM_GLOBAL : SYM_LOCAL)
+            ? (ms->is_weak ? SYM_WEAK
+                           : (ms->is_global ? SYM_GLOBAL : SYM_LOCAL))
             : SYM_UNDEF;
-        SymbolBinding binding = ms->is_code ? BIND_CODE : BIND_DATA;
-        int section = ms->is_defined ? (ms->is_code ? 0 : 1) : -1;
+        SymbolBinding binding = ms->section == MODULE_SYMBOL_CODE
+            ? BIND_CODE : ms->section == MODULE_SYMBOL_BSS
+                ? BIND_BSS : ms->section == MODULE_SYMBOL_TLS
+                    ? BIND_TLS : BIND_DATA;
+        int section = -1;
+        if (ms->is_defined) {
+            section = ms->section == MODULE_SYMBOL_CODE ? 0
+                : ms->section == MODULE_SYMBOL_RODATA ? rodata_section
+                : ms->section == MODULE_SYMBOL_BSS ? bss_section
+                : ms->section == MODULE_SYMBOL_TLS ? tls_section
+                : data_section;
+            if (section < 0) {
+                rcc_error((SourceLoc){filename, 0, 0},
+                          "defined symbol '%s' has no output section",
+                          ms->name);
+                objfile_free(obj);
+                return NULL;
+            }
+        }
 
         if (ms->is_defined && !ms->is_global) {
-            object_name = module_scoped_symbol(filename, ms->name);
+            scoped_name = module_scoped_symbol(filename, ms->name);
+            object_name = scoped_name;
         }
 
         objfile_add_symbol(obj, object_name, type, binding, section,
                            ms->offset, 0);
+        rcc_free(scoped_name);
     }
 
     /* Add relocations */
     for (int i = 0; i < mod->reloc_count; i++) {
         ModuleReloc* mr = &mod->relocs_arr[i];
-        RelocType type = mr->is_relative ? RELOC_REL32 :
-            (mr->is_64bit ? RELOC_ABS64 : RELOC_ABS32);
+        int source_section = mr->source_section == MODULE_SYMBOL_CODE ? 0
+            : mr->source_section == MODULE_SYMBOL_RODATA ? rodata_section
+            : mr->source_section == MODULE_SYMBOL_DATA ? data_section
+            : mr->source_section == MODULE_SYMBOL_TLS ? tls_section
+            : -1;
+        uint64_t source_size = mr->source_section == MODULE_SYMBOL_CODE
+            ? mod->code.size
+            : mr->source_section == MODULE_SYMBOL_RODATA
+                ? mod->rodata.size
+                : mr->source_section == MODULE_SYMBOL_DATA
+                    ? mod->data.size
+                    : mr->source_section == MODULE_SYMBOL_TLS
+                        ? mod->tls.size : 0u;
+        uint64_t relocation_width = mr->is_relative || !mr->is_64bit
+            ? 4u : 8u;
+        RelocType type = mr->is_tls ? RELOC_TLSOFF32S :
+            mr->is_relative ? RELOC_REL32 :
+            (mr->is_64bit ? RELOC_ABS64 : RELOC_ABS32U);
+
+        if (source_section < 0 || mr->offset > source_size ||
+            relocation_width > source_size - mr->offset) {
+            rcc_error((SourceLoc){filename, 0, 0},
+                      "invalid relocation source section or offset");
+            objfile_free(obj);
+            return NULL;
+        }
 
         /* Use symbol name directly if available */
         const char* sym_name = mr->symbol_name;
+        char* scoped_name = NULL;
         const ModuleSymbol* module_symbol = sym_name
             ? module_find_symbol(mod, sym_name) : NULL;
 
         if (module_symbol && module_symbol->is_defined &&
             !module_symbol->is_global) {
-            sym_name = module_scoped_symbol(filename, sym_name);
+            scoped_name = module_scoped_symbol(filename, sym_name);
+            sym_name = scoped_name;
         }
 
         /* If no symbol name, try to find by offset */
         if (!sym_name) {
             for (int j = 0; j < mod->symbol_count; j++) {
-                if (mod->symbols[j].offset == mr->target && !mod->symbols[j].is_code) {
+                if (mod->symbols[j].offset == mr->target &&
+                    mod->symbols[j].section != MODULE_SYMBOL_CODE) {
                     sym_name = mod->symbols[j].name;
                     break;
                 }
@@ -685,9 +917,10 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         }
 
         if (sym_name) {
-            objfile_add_reloc(obj, 0, mr->offset, sym_name, type,
-                              (int32_t)mr->target);
+            objfile_add_reloc(obj, source_section, mr->offset, sym_name, type,
+                              (int64_t)mr->target);
         }
+        rcc_free(scoped_name);
     }
 
     return obj;
@@ -695,8 +928,17 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
 
 /* Emit object file from Module */
 bool rcc_emit_obj(Module* mod, const char* filename) {
-    ObjectFile* obj = module_to_objfile(mod, filename);
-    bool ok = objfile_write(obj, filename);
+    /* Local symbols need a translation-unit scope so independently compiled
+     * objects cannot collide at link time.  The output path is not that
+     * identity: embedding it makes otherwise identical objects depend on the
+     * selected build directory.  Prefer the source path used by the driver;
+     * retain the filename fallback for direct emitter users. */
+    const char* translation_unit = g_opts.input_file[0] != '\0'
+        ? g_opts.input_file : filename;
+    ObjectFile* obj = module_to_objfile(mod, translation_unit);
+    bool ok;
+    if (!obj) return false;
+    ok = objfile_write(obj, filename);
     objfile_free(obj);
     return ok;
 }

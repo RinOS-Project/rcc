@@ -42,6 +42,22 @@ static void buf_append_str(PPBuffer* buf, const char* str) {
     buf_append(buf, str, strlen(str));
 }
 
+static const char* buf_append_quoted_token(PPBuffer* buffer,
+                                           const char* input) {
+    char quote = *input;
+    buf_append_char(buffer, *input++);
+    while (*input) {
+        char current = *input++;
+        buf_append_char(buffer, current);
+        if (current == '\\' && *input) {
+            buf_append_char(buffer, *input++);
+        } else if (current == quote) {
+            break;
+        }
+    }
+    return input;
+}
+
 /* Hash function for macro names */
 static unsigned int hash_macro(const char* name) {
     unsigned int h = 0;
@@ -68,7 +84,13 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__RCC__", "1");
     pp_define(pp, "__RINOS__", "1");
     pp_define(pp, "__STDC__", "1");
-    pp_define(pp, "__STDC_VERSION__", "201112L");
+    pp_define(pp, "__STDC_VERSION__", "201710L");
+    pp_define(pp, "__ATOMIC_RELAXED", "0");
+    pp_define(pp, "__ATOMIC_CONSUME", "1");
+    pp_define(pp, "__ATOMIC_ACQUIRE", "2");
+    pp_define(pp, "__ATOMIC_RELEASE", "3");
+    pp_define(pp, "__ATOMIC_ACQ_REL", "4");
+    pp_define(pp, "__ATOMIC_SEQ_CST", "5");
 
     /* Architecture */
     if (g_opts.target_arch == ARCH_X86) {
@@ -82,11 +104,29 @@ Preprocessor* pp_new(void) {
     return pp;
 }
 
+static void macro_release_storage(Macro* macro, bool release_name) {
+    int parameter_count;
+    if (!macro) return;
+    parameter_count = macro->param_count > 0 ? macro->param_count : 0;
+    if (release_name) rcc_free((void*)macro->name);
+    rcc_free((void*)macro->value);
+    for (int index = 0; index < parameter_count; ++index) {
+        rcc_free((void*)macro->params[index]);
+    }
+    rcc_free(macro->params);
+    rcc_free((void*)macro->body);
+    macro->value = NULL;
+    macro->params = NULL;
+    macro->body = NULL;
+}
+
 void pp_free(Preprocessor* pp) {
+    if (!pp) return;
     /* Free macros */
     Macro* m = pp->macros;
     while (m) {
         Macro* next = m->next;
+        macro_release_storage(m, true);
         rcc_free(m);
         m = next;
     }
@@ -117,15 +157,15 @@ void pp_define(Preprocessor* pp, const char* name, const char* value) {
     Macro* existing = pp_get_macro(pp, name);
     if (existing) {
         /* Redefine */
-        existing->value = value ? rcc_strdup(value) : "";
+        macro_release_storage(existing, false);
+        existing->value = rcc_strdup(value ? value : "");
         existing->param_count = -1;
-        existing->body = NULL;
         return;
     }
 
     Macro* m = rcc_alloc(sizeof(Macro));
     m->name = rcc_strdup(name);
-    m->value = value ? rcc_strdup(value) : "";
+    m->value = rcc_strdup(value ? value : "");
     m->params = NULL;
     m->param_count = -1;  /* Object-like macro */
     m->body = NULL;
@@ -136,18 +176,24 @@ void pp_define(Preprocessor* pp, const char* name, const char* value) {
 
 void pp_define_func(Preprocessor* pp, const char* name, const char** params,
                     int param_count, const char* body) {
-    Macro* m = rcc_alloc(sizeof(Macro));
-    m->name = rcc_strdup(name);
+    Macro* m = pp_get_macro(pp, name);
+    if (m) {
+        macro_release_storage(m, false);
+    } else {
+        m = rcc_alloc(sizeof(Macro));
+        m->name = rcc_strdup(name);
+        m->next = pp->macros;
+        pp->macros = m;
+    }
     m->value = NULL;
-    m->params = rcc_alloc(sizeof(const char*) * param_count);
+    m->params = param_count > 0
+        ? rcc_alloc(sizeof(const char*) * (size_t)param_count) : NULL;
     for (int i = 0; i < param_count; i++) {
         m->params[i] = rcc_strdup(params[i]);
     }
     m->param_count = param_count;
     m->body = rcc_strdup(body);
     m->is_builtin = false;
-    m->next = pp->macros;
-    pp->macros = m;
 }
 
 void pp_undef(Preprocessor* pp, const char* name) {
@@ -156,6 +202,7 @@ void pp_undef(Preprocessor* pp, const char* name) {
         if (strcmp((*mp)->name, name) == 0) {
             Macro* m = *mp;
             *mp = m->next;
+            macro_release_storage(m, true);
             rcc_free(m);
             return;
         }
@@ -370,6 +417,96 @@ static bool pp_eval_expression(Preprocessor* pp, const char* expression) {
     return pp_eval_or(pp, &expression) != 0;
 }
 
+/* C17 translation phase 2 removes every backslash-newline pair before
+ * directives, comments, and tokens are interpreted.  Doing this once for the
+ * complete file also makes continued #if expressions follow the same rules as
+ * continued macro definitions and ordinary source lines. */
+static char* splice_source_lines(const char* source) {
+    size_t input_length = strlen(source);
+    char* spliced = rcc_alloc(input_length + 1u);
+    size_t input = 0;
+    size_t output = 0;
+
+    while (input < input_length) {
+        if (source[input] == '\\' && source[input + 1u] == '\n') {
+            input += 2u;
+            continue;
+        }
+        if (source[input] == '\\' && source[input + 1u] == '\r' &&
+            source[input + 2u] == '\n') {
+            input += 3u;
+            continue;
+        }
+        spliced[output++] = source[input++];
+    }
+    spliced[output] = '\0';
+    return spliced;
+}
+
+/* C17 translation phase 3 replaces comments with whitespace before
+ * directives and macro replacement are interpreted.  Preserve newlines and
+ * columns so diagnostics and directive boundaries remain stable. */
+static char* strip_source_comments(const char* source) {
+    size_t length = strlen(source);
+    char* stripped = rcc_alloc(length + 1u);
+    size_t input = 0;
+    size_t output = 0;
+    char quoted = '\0';
+
+    while (input < length) {
+        char current = source[input];
+        if (quoted != '\0') {
+            stripped[output++] = current;
+            input++;
+            if (current == '\\' && input < length) {
+                stripped[output++] = source[input++];
+            } else if (current == quoted) {
+                quoted = '\0';
+            }
+            continue;
+        }
+        if (current == '"' || current == '\'') {
+            quoted = current;
+            stripped[output++] = current;
+            input++;
+            continue;
+        }
+        if (current == '/' && input + 1u < length &&
+            source[input + 1u] == '/') {
+            stripped[output++] = ' ';
+            stripped[output++] = ' ';
+            input += 2u;
+            while (input < length && source[input] != '\n') {
+                stripped[output++] = ' ';
+                input++;
+            }
+            continue;
+        }
+        if (current == '/' && input + 1u < length &&
+            source[input + 1u] == '*') {
+            stripped[output++] = ' ';
+            stripped[output++] = ' ';
+            input += 2u;
+            while (input < length) {
+                if (source[input] == '*' && input + 1u < length &&
+                    source[input + 1u] == '/') {
+                    stripped[output++] = ' ';
+                    stripped[output++] = ' ';
+                    input += 2u;
+                    break;
+                }
+                stripped[output++] = source[input] == '\n' ? '\n' : ' ';
+                input++;
+            }
+            continue;
+        }
+        stripped[output++] = current;
+        input++;
+    }
+    stripped[output] = '\0';
+    return stripped;
+}
+
 static const char* read_macro_body(const char* p, char* body, size_t body_size) {
     size_t used = 0;
     for (;;) {
@@ -435,7 +572,9 @@ static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int
 
     const char* p = macro->body;
     while (*p) {
-        if (isalpha(*p) || *p == '_') {
+        if (*p == '"' || *p == '\'') {
+            p = buf_append_quoted_token(&result, p);
+        } else if (isalpha(*p) || *p == '_') {
             char ident[256];
             const char* end = read_ident(p, ident, sizeof(ident));
 
@@ -477,7 +616,9 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
 
     const char* p = input;
     while (*p) {
-        if (isalpha(*p) || *p == '_') {
+        if (*p == '"' || *p == '\'') {
+            p = buf_append_quoted_token(&result, p);
+        } else if (isalpha(*p) || *p == '_') {
             char ident[256];
             const char* end = read_ident(p, ident, sizeof(ident));
 
@@ -492,10 +633,20 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
                         char arg_bufs[PP_MAX_PARAMS][1024];
                         int arg_count = 0;
                         int paren_depth = 1;
+                        char quoted = '\0';
 
                         const char* arg_start = args_start;
                         while (*args_start && paren_depth > 0) {
-                            if (*args_start == '(') paren_depth++;
+                            if (quoted != '\0') {
+                                if (*args_start == '\\' && args_start[1]) {
+                                    args_start += 2;
+                                    continue;
+                                }
+                                if (*args_start == quoted) quoted = '\0';
+                            } else if (*args_start == '"' ||
+                                       *args_start == '\'') {
+                                quoted = *args_start;
+                            } else if (*args_start == '(') paren_depth++;
                             else if (*args_start == ')') {
                                 paren_depth--;
                                 if (paren_depth == 0) {
@@ -553,7 +704,8 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
 
 /* Process a single directive */
 static const char* process_directive(Preprocessor* pp, const char* p,
-                                     const char* filename, PPBuffer* output) {
+                                     const char* filename, int source_line,
+                                     PPBuffer* output) {
     p = skip_ws(p + 1); /* Skip '#' and whitespace */
 
     char directive[64];
@@ -591,6 +743,12 @@ static const char* process_directive(Preprocessor* pp, const char* p,
 
         buf_append_str(output, processed);
         buf_append_char(output, '\n');
+        {
+            char return_line[256];
+            snprintf(return_line, sizeof(return_line), "#line %d \"%s\"\n",
+                     source_line + 1, filename);
+            buf_append_str(output, return_line);
+        }
 
         rcc_free(content);
         rcc_free(processed);
@@ -817,8 +975,16 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     }
 
     if (strcmp(directive, "pragma") == 0) {
-        /* Ignore pragmas for now */
-        return skip_to_eol(p);
+        const char* end = skip_to_eol(p);
+        if (pp_is_active(pp)) {
+            /* Packing directives affect the layout of declarations that
+             * follow them, so they must survive preprocessing.  The lexer
+             * recognizes #pragma pack and continues to ignore other pragmas.
+             */
+            buf_append_str(output, "#pragma ");
+            buf_append(output, p, (size_t)(end - p));
+        }
+        return end;
     }
 
     if (strcmp(directive, "line") == 0) {
@@ -838,7 +1004,9 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
     PPBuffer output;
     buf_init(&output);
 
-    const char* p = source;
+    char* spliced_source = splice_source_lines(source);
+    char* comment_free_source = strip_source_comments(spliced_source);
+    const char* p = comment_free_source;
     int line = 1;
     int initial_cond_depth = pp->cond_depth;
 
@@ -854,7 +1022,7 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
         if (*p == '#') {
             /* Preprocessor directive */
-            p = process_directive(pp, p, filename, &output);
+            p = process_directive(pp, p, filename, line, &output);
             if (*p == '\n') {
                 buf_append_char(&output, '\n');
                 p++;
@@ -901,6 +1069,8 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
         pp->cond_depth = initial_cond_depth;
     }
 
+    rcc_free(comment_free_source);
+    rcc_free(spliced_source);
     return output.data;
 }
 

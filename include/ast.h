@@ -13,6 +13,8 @@ typedef struct Type Type;
 typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
+typedef struct GenericAssociation GenericAssociation;
+typedef struct TypeMethod TypeMethod;
 
 /* ═══════════════════════════════════════
  * Type System
@@ -34,20 +36,48 @@ typedef enum {
     TYPE_STRUCT,
     TYPE_UNION,
     TYPE_ENUM,
+    TYPE_NULLPTR,
 } TypeKind;
 
 typedef struct TypeField {
     const char* name;
     Type* type;
     int offset;
+    /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
+     * C AST does not depend on the C++ extension header. */
+    unsigned char cxx_access;
     struct TypeField* next;
 } TypeField;
 
 typedef struct TypeParam {
     const char* name;
     Type* type;
+    unsigned char cxx_access;
     struct TypeParam* next;
 } TypeParam;
+
+typedef enum {
+    TYPE_METHOD_FIELD,
+    TYPE_METHOD_FIELD_EQ_CONSTANT,
+    TYPE_METHOD_FIELD_NE_CONSTANT,
+    TYPE_METHOD_FIELD_RELEASE,
+    TYPE_METHOD_FIELD_CLOSE,
+} TypeMethodKind;
+
+/* A structurally validated C++ zero-argument method that can be expanded by
+ * the common backend without exposing private representation as a member. */
+struct TypeMethod {
+    const char* name;
+    Type* return_type;
+    TypeField* field;
+    TypeMethodKind kind;
+    int64_t constant;
+    const char* cleanup_function;
+    TypeField* result_field;
+    int64_t success_constant;
+    unsigned char cxx_access;
+    TypeMethod* next;
+};
 
 struct Type {
     TypeKind kind;
@@ -56,6 +86,19 @@ struct Type {
     bool is_unsigned;
     bool is_const;
     bool is_volatile;
+    bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
+    bool is_rvalue_reference;
+    /* Structurally validated C++ scope cleanup.  NULL for ordinary types. */
+    const char* cleanup_function;
+    TypeField* cleanup_field;
+    int64_t cleanup_invalid;
+    /* Ownership-transfer constructor lowered through a validated release
+     * accessor.  NULL unless parser_cxx.c proved the exact move pattern. */
+    TypeMethod* move_constructor_method;
+    /* Ownership-transfer assignment lowered through the same validated
+     * release accessor.  The frontend additionally proves the SDK close and
+     * self-assignment-guard bodies before setting this metadata. */
+    TypeMethod* move_assignment_method;
 
     union {
         /* TYPE_PTR, TYPE_ARRAY */
@@ -68,11 +111,13 @@ struct Type {
             Type* ret_type;
             TypeParam* params;
             bool variadic;
+            bool has_prototype;
         };
         /* TYPE_STRUCT, TYPE_UNION */
         struct {
             const char* tag;
             TypeField* fields;
+            TypeMethod* methods;
             bool is_complete;
         };
         /* TYPE_ENUM */
@@ -98,10 +143,28 @@ extern Type* type_ulong;
 extern Type* type_ullong;
 extern Type* type_float;
 extern Type* type_double;
+extern Type* type_nullptr;
 
 /* Configure target-dependent fundamental widths after option parsing and
  * before lexing/parsing a translation unit. */
 void type_configure_target(TargetArch architecture);
+Type* rcc_parser_lookup_type(const char* name);
+void rcc_parser_define_type(const char* name, Type* type);
+void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,
+                                            uint32_t arity_mask);
+uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type);
+void rcc_parser_validate_cxx_constructor_initializer(Type* type,
+                                                     Expr* initializer);
+Type* rcc_parse_cxx_direct_list_type(void);
+Type* rcc_parse_cxx_type_name(void);
+Expr* rcc_parse_cxx_template_call(void);
+Stmt* rcc_parse_cxx_auto_local_declaration(void);
+
+/* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
+ * process exit by the single-shot host compiler. */
+void* ast_arena_alloc(size_t size);
+void* ast_arena_grow(void* pointer, size_t old_size, size_t new_size);
+char* ast_arena_strdup(const char* text);
 
 /* Type constructors */
 Type* type_ptr(Type* base);
@@ -194,17 +257,57 @@ typedef enum {
 
     /* Compound literal */
     EXPR_COMPOUND,      /* (type){...} */
+    EXPR_GENERIC,       /* _Generic(control, type: expression, ...) */
+    EXPR_VA_START,      /* __builtin_va_start(list, last) */
+    EXPR_VA_END,        /* __builtin_va_end(list) */
+    EXPR_VA_COPY,       /* __builtin_va_copy(destination, source) */
+    EXPR_VA_ARG,        /* __builtin_va_arg(list, type) */
 } ExprKind;
+
+typedef enum {
+    INIT_DESIGNATOR_NONE,
+    INIT_DESIGNATOR_INDEX,
+    INIT_DESIGNATOR_FIELD,
+} InitDesignatorKind;
 
 typedef struct ExprList {
     Expr* expr;
+    InitDesignatorKind designator_kind;
+    int64_t designator_index;
+    const char* designator_field;
     struct ExprList* next;
 } ExprList;
+
+struct GenericAssociation {
+    Type* type;                 /* NULL for default */
+    Expr* expr;
+    SourceLoc loc;
+    struct GenericAssociation* next;
+};
+
+typedef struct CxxMoveAssignment {
+    Expr* source;
+    Expr* cleanup;
+    Expr* release;
+} CxxMoveAssignment;
+
+typedef struct CxxCloseCall {
+    Expr* object;
+    Expr* handle;
+    Expr* cleanup;
+} CxxCloseCall;
 
 struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
+    /* Marks the literal spelling of C++ nullptr so it remains excluded from
+     * integer constant expressions.  Its semantic type is TYPE_NULLPTR. */
+    bool is_cxx_nullptr;
+    /* Non-NULL only for a semantically validated C++ ownership transfer. */
+    CxxMoveAssignment* cxx_move_assignment;
+    /* Non-NULL only for the structurally validated SDK close operation. */
+    CxxCloseCall* cxx_close_call;
 
     union {
         /* EXPR_INT_LIT */
@@ -228,7 +331,7 @@ struct Expr {
         /* Unary expressions */
         struct {
             Expr* unary_operand;
-            Type* sizeof_type;      /* For EXPR_SIZEOF with type */
+            Type* sizeof_type;      /* For EXPR_SIZEOF/EXPR_ALIGNOF type */
         };
 
         /* Binary expressions */
@@ -248,6 +351,8 @@ struct Expr {
         struct {
             Expr* call_func;
             ExprList* call_args;
+            int call_result_offset;  /* Aggregate return spill/sret slot. */
+            TypeMethod* call_method; /* Validated inline C++ accessor. */
         };
 
         /* EXPR_INDEX */
@@ -273,12 +378,30 @@ struct Expr {
         struct {
             Type* compound_type;
             ExprList* compound_init;
+            int compound_offset;     /* Assigned automatic-storage slot. */
+            bool compound_value_init; /* Spelled as an empty C++ {} list. */
+        };
+
+        /* EXPR_GENERIC */
+        struct {
+            Expr* generic_control;
+            GenericAssociation* generic_associations;
+        };
+
+        /* EXPR_VA_START/END/COPY/ARG */
+        struct {
+            Expr* va_list_operand;
+            Expr* va_second_operand;
+            Type* va_arg_type;
         };
     };
 };
 
 /* Expression constructors */
 Expr* expr_int(int64_t val, SourceLoc loc);
+Expr* expr_integer_literal(uint64_t val, unsigned base,
+                           bool unsigned_suffix, unsigned long_suffix,
+                           SourceLoc loc);
 Expr* expr_float(double val, SourceLoc loc);
 Expr* expr_char(char val, SourceLoc loc);
 Expr* expr_string(const char* val, SourceLoc loc);
@@ -292,6 +415,15 @@ Expr* expr_member(Expr* base, const char* name, SourceLoc loc);
 Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_type(Type* type, SourceLoc loc);
+Expr* expr_alignof_type(Type* type, SourceLoc loc);
+Expr* expr_initializer_list(ExprList* items, SourceLoc loc);
+Expr* expr_generic(Expr* control, GenericAssociation* associations,
+                   SourceLoc loc);
+Expr* expr_vararg(ExprKind kind, Expr* list, Expr* second, Type* type,
+                  SourceLoc loc);
+void generic_association_append(GenericAssociation** list, Type* type,
+                                Expr* expr, SourceLoc loc);
+bool expr_eval_integer_constant(Expr* expr, int64_t* value);
 
 /* ═══════════════════════════════════════
  * Statements
@@ -386,7 +518,10 @@ struct Stmt {
         Expr* return_val;
 
         /* STMT_GOTO */
-        const char* goto_label;
+        struct {
+            const char* goto_label;
+            unsigned goto_cleanup_count;
+        };
 
         /* STMT_LABEL */
         struct {
@@ -463,9 +598,18 @@ typedef struct DeclList {
 struct Decl {
     DeclKind kind;
     const char* name;
+    /* Source-level lookup name and ABI symbol spelling are deliberately
+     * separate.  They are identical for C declarations; C++ namespaces and
+     * overloads retain a readable qualified name while code generation uses
+     * the Itanium ABI spelling. */
+    const char* link_name;
     Type* type;
     SourceLoc loc;
     StorageClass storage;
+    /* C++ default arguments belong to parameter declarations rather than
+     * function types.  This remains outside the declaration union because
+     * parameters reuse variable-layout fields for stack code generation. */
+    Expr* param_default;
 
     union {
         /* DECL_VAR */
@@ -473,6 +617,9 @@ struct Decl {
             Expr* var_init;
             int var_offset;         /* Stack offset (set during codegen) */
             bool var_is_global;
+            bool var_is_thread_local;
+            bool var_is_auto;       /* C++ placeholder type, deduced in sema. */
+            Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
         };
 
         /* DECL_FUNC */
@@ -481,6 +628,8 @@ struct Decl {
             Stmt* func_body;        /* NULL for declaration only */
             bool func_is_inline;
             bool func_is_defined;
+            bool func_has_cxx_linkage;
+            Decl* func_overload_next;
         };
 
         /* DECL_PARAM */
@@ -519,6 +668,7 @@ Decl* decl_struct(const char* name, DeclList* fields, SourceLoc loc);
 Decl* decl_union(const char* name, DeclList* fields, SourceLoc loc);
 Decl* decl_enum(const char* name, DeclList* consts, SourceLoc loc);
 Decl* decl_enum_const(const char* name, int64_t val, SourceLoc loc);
+const char* decl_link_name(const Decl* decl);
 
 /* ═══════════════════════════════════════
  * AST (Translation Unit)
@@ -537,6 +687,9 @@ void ast_add_decl(AST* ast, Decl* decl);
 
 ExprList* exprlist_new(Expr* expr);
 void exprlist_append(ExprList** list, Expr* expr);
+void exprlist_append_designated(ExprList** list, Expr* expr,
+                                InitDesignatorKind kind, int64_t index,
+                                const char* field);
 int exprlist_len(ExprList* list);
 
 StmtList* stmtlist_new(Stmt* stmt);

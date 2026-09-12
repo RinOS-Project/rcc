@@ -4,12 +4,18 @@
  */
 
 #include "linker.h"
+#include "archive.h"
 #include "objfile.h"
 #include "rin_formats_v3.h"
+#include <inttypes.h>
+#include <limits.h>
 #include <string.h>
 
 /* Global linker options */
 LinkerOpts g_linker_opts;
+
+static bool linker_section_selected(const ObjSection* section);
+static ObjSection* object_section_at(const ObjectFile* object, int index);
 
 /* ═══════════════════════════════════════
  * Linker Creation/Destruction
@@ -43,6 +49,7 @@ void linker_free(Linker* ld) {
     LinkedSection* s = ld->sections;
     while (s) {
         LinkedSection* next = s->next;
+        rcc_free((void*)s->name);
         rcc_free(s->data);
         rcc_free(s);
         s = next;
@@ -52,6 +59,7 @@ void linker_free(Linker* ld) {
     GlobalSymbol* sym = ld->symbols;
     while (sym) {
         GlobalSymbol* next = sym->next;
+        rcc_free((void*)sym->name);
         rcc_free(sym);
         sym = next;
     }
@@ -60,6 +68,7 @@ void linker_free(Linker* ld) {
     PendingReloc* rel = ld->relocs;
     while (rel) {
         PendingReloc* next = rel->next;
+        rcc_free((void*)rel->symbol);
         rcc_free(rel);
         rel = next;
     }
@@ -71,22 +80,32 @@ void linker_free(Linker* ld) {
  * Object File Loading
  * ═══════════════════════════════════════ */
 
-bool linker_add_object(Linker* ld, const char* filename) {
-    ObjectFile* obj = objfile_read(filename);
-    if (!obj) {
-        fprintf(stderr, "rld: cannot read object file: %s\n", filename);
-        return false;
-    }
-
+static bool linker_append_object(Linker* ld, ObjectFile* obj) {
     if (ld->object_count == 0 && !g_linker_opts.arch_explicit) {
         g_linker_opts.arch = obj->arch;
     } else if (obj->arch != g_linker_opts.arch) {
         fprintf(stderr,
                 "rld: architecture mismatch: %s is %s, link target is %s\n",
-                filename, obj->arch == ARCH_X64 ? "x86_64" : "x86",
+                obj->filename, obj->arch == ARCH_X64 ? "x86_64" : "x86",
                 g_linker_opts.arch == ARCH_X64 ? "x86_64" : "x86");
         objfile_free(obj);
         return false;
+    }
+
+    for (ObjSection* section = obj->sections; section;
+         section = section->next) {
+        if ((section->flags & SECT_FLAG_COMDAT) == 0u) continue;
+        for (int previous = 0; previous < ld->object_count; previous++) {
+            for (ObjSection* candidate = ld->objects[previous]->sections;
+                 candidate; candidate = candidate->next) {
+                if ((candidate->flags & SECT_FLAG_COMDAT) != 0u &&
+                    strcmp(candidate->comdat_key, section->comdat_key) == 0) {
+                    section->comdat_selected = false;
+                    break;
+                }
+            }
+            if (!section->comdat_selected) break;
+        }
     }
 
     /* Expand object array */
@@ -95,15 +114,180 @@ bool linker_add_object(Linker* ld, const char* filename) {
 
     if (g_linker_opts.verbose) {
         printf("  + %s: %d sections, %d symbols\n",
-               filename, obj->section_count, obj->symbol_count);
+               obj->filename, obj->section_count, obj->symbol_count);
     }
 
     return true;
 }
 
+bool linker_add_object(Linker* ld, const char* filename) {
+    ObjectFile* obj = objfile_read(filename);
+    if (!obj) {
+        fprintf(stderr, "rld: cannot read object file: %s\n", filename);
+        return false;
+    }
+    return linker_append_object(ld, obj);
+}
+
+static bool linker_has_definition(const Linker* ld, const char* name) {
+    for (int index = 0; index < ld->object_count; ++index) {
+        for (ObjSymbol* symbol = ld->objects[index]->symbols; symbol;
+             symbol = symbol->next) {
+            if (strcmp(symbol->name, name) == 0 &&
+                (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
+                (symbol->section >= 0 || symbol->binding == BIND_ABS)) {
+                ObjSection* owner = symbol->section < 0 ? NULL :
+                    object_section_at(ld->objects[index], symbol->section);
+                if (owner && !linker_section_selected(owner)) {
+                    continue;
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool linker_symbol_is_unresolved(const Linker* ld, const char* name) {
+    bool referenced = !g_linker_opts.shared && g_linker_opts.entry &&
+                      strcmp(g_linker_opts.entry, name) == 0;
+    if (linker_has_definition(ld, name)) return false;
+    for (int index = 0; index < ld->object_count; ++index) {
+        for (ObjSymbol* symbol = ld->objects[index]->symbols; symbol;
+             symbol = symbol->next) {
+            if (symbol->type == SYM_UNDEF &&
+                strcmp(symbol->name, name) == 0) return true;
+        }
+    }
+    return referenced;
+}
+
+static bool object_defines_symbol(const ObjectFile* obj, const char* name) {
+    for (ObjSymbol* symbol = obj->symbols; symbol; symbol = symbol->next) {
+        if (strcmp(symbol->name, name) == 0 &&
+            (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
+            (symbol->section >= 0 || symbol->binding == BIND_ABS)) return true;
+    }
+    return false;
+}
+
+static ArchiveMember* archive_member_at(Archive* archive, int member_index) {
+    ArchiveMember* member = archive->members;
+    while (member && member_index-- > 0) member = member->next;
+    return member;
+}
+
+static const char* archive_needed_symbol(const Linker* ld,
+                                         const Archive* archive,
+                                         int member_index) {
+    for (ArchiveSymbol* symbol = archive->symbols; symbol;
+         symbol = symbol->next) {
+        if (symbol->member_idx == member_index &&
+            linker_symbol_is_unresolved(ld, symbol->name)) return symbol->name;
+    }
+    return NULL;
+}
+
+static bool linker_add_archive(Linker* ld, const char* filename) {
+    Archive* archive = archive_read(filename);
+    bool* selected = NULL;
+    bool ok = false;
+    if (!archive) {
+        fprintf(stderr, "rld: cannot read archive: %s\n", filename);
+        return false;
+    }
+    if (archive->member_count != 0) {
+        selected = rcc_alloc(sizeof(bool) * (size_t)archive->member_count);
+    }
+
+    for (;;) {
+        int candidate = -1;
+        const char* needed = NULL;
+        for (int index = 0; index < archive->member_count; ++index) {
+            if (selected[index]) continue;
+            needed = archive_needed_symbol(ld, archive, index);
+            if (needed) {
+                candidate = index;
+                break;
+            }
+        }
+        if (candidate < 0) break;
+
+        ArchiveMember* member = archive_member_at(archive, candidate);
+        size_t filename_size;
+        size_t member_size;
+        size_t display_size;
+        char* display_name;
+        ObjectFile* obj;
+        if (!member) {
+            fprintf(stderr, "rld: invalid archive member index in %s\n", filename);
+            goto done;
+        }
+        filename_size = strlen(filename);
+        member_size = strlen(member->name);
+        if (member_size > SIZE_MAX - 3u ||
+            filename_size > SIZE_MAX - member_size - 3u) {
+            fprintf(stderr, "rld: archive member name is too long: %s\n", filename);
+            goto done;
+        }
+        display_size = filename_size + member_size + 3u;
+        display_name = rcc_alloc(display_size);
+        snprintf(display_name, display_size, "%s(%s)", filename, member->name);
+        obj = objfile_read_memory(member->data, member->size, display_name);
+        rcc_free(display_name);
+        if (!obj) {
+            fprintf(stderr, "rld: invalid object member %s(%s)\n",
+                    filename, member->name);
+            goto done;
+        }
+        if (!object_defines_symbol(obj, needed)) {
+            fprintf(stderr,
+                    "rld: archive symbol '%s' is not defined by %s(%s)\n",
+                    needed, filename, member->name);
+            objfile_free(obj);
+            goto done;
+        }
+        selected[candidate] = true;
+        if (g_linker_opts.verbose) {
+            printf("  archive %s: selecting %s for %s\n",
+                   filename, member->name, needed);
+        }
+        if (!linker_append_object(ld, obj)) goto done;
+    }
+
+    ok = true;
+done:
+    rcc_free(selected);
+    archive_free(archive);
+    return ok;
+}
+
+static bool linker_input_magic(const char* filename, uint32_t* magic) {
+    FILE* file = fopen(filename, "rb");
+    uint8_t bytes[sizeof(uint32_t)];
+    bool read_ok;
+    bool close_ok;
+    if (!file) return false;
+    read_ok = fread(bytes, sizeof(bytes), 1, file) == 1;
+    close_ok = fclose(file) == 0;
+    if (!read_ok || !close_ok) return false;
+    memcpy(magic, bytes, sizeof(*magic));
+    return true;
+}
+
 bool linker_add_objects(Linker* ld, char** files, int count) {
     for (int i = 0; i < count; i++) {
-        if (!linker_add_object(ld, files[i])) {
+        uint32_t magic;
+        if (!linker_input_magic(files[i], &magic)) {
+            fprintf(stderr, "rld: cannot read input file: %s\n", files[i]);
+            return false;
+        }
+        if (magic == RO_MAGIC) {
+            if (!linker_add_object(ld, files[i])) return false;
+        } else if (magic == RA_MAGIC) {
+            if (!linker_add_archive(ld, files[i])) return false;
+        } else {
+            fprintf(stderr, "rld: unsupported input format: %s\n", files[i]);
             return false;
         }
     }
@@ -119,6 +303,12 @@ static LinkedSection* find_or_create_section(Linker* ld, const char* name,
     /* Search for existing section */
     for (LinkedSection* s = ld->sections; s; s = s->next) {
         if (strcmp(s->name, name) == 0) {
+            if (s->type != type || s->flags != flags) {
+                fprintf(stderr,
+                        "rld: section '%s' has conflicting type or flags\n",
+                        name);
+                return NULL;
+            }
             return s;
         }
     }
@@ -130,6 +320,7 @@ static LinkedSection* find_or_create_section(Linker* ld, const char* name,
     s->flags = flags;
     s->data = rcc_alloc(1024);
     s->size = 0;
+    s->memory_size = 0;
     s->capacity = 1024;
     s->align = 1;
     s->vaddr = 0;
@@ -148,22 +339,36 @@ static LinkedSection* find_or_create_section(Linker* ld, const char* name,
     return s;
 }
 
-static void linked_section_ensure_capacity(LinkedSection* s, uint32_t need) {
-    if (s->size + need <= s->capacity) return;
-
-    uint32_t new_cap = s->capacity * 2;
-    while (new_cap < s->size + need) {
-        new_cap *= 2;
+static void linked_section_ensure_capacity(LinkedSection* s,
+                                           uint64_t required) {
+    uint64_t new_cap;
+    if (required <= s->capacity) return;
+    if (required > SIZE_MAX) rcc_fatal("linked section exceeds host memory limit");
+    new_cap = s->capacity;
+    while (new_cap < required) {
+        if (new_cap > UINT64_MAX / 2u) {
+            new_cap = required;
+            break;
+        }
+        new_cap *= 2u;
     }
-    s->data = rcc_realloc(s->data, new_cap);
+    s->data = rcc_realloc(s->data, (size_t)new_cap);
     s->capacity = new_cap;
 }
 
-static uint32_t linked_section_add_data(LinkedSection* s, const void* data, uint32_t size) {
-    linked_section_ensure_capacity(s, size);
-    uint32_t offset = s->size;
-    memcpy(s->data + s->size, data, size);
-    s->size += size;
+static uint64_t linked_section_add_data(LinkedSection* s, const void* data,
+                                        uint64_t size) {
+    uint64_t offset = s->memory_size;
+    uint64_t required;
+    if (size > UINT64_MAX - offset) rcc_fatal("linked section size overflow");
+    required = offset + size;
+    linked_section_ensure_capacity(s, required);
+    if (s->size < offset) {
+        memset(s->data + (size_t)s->size, 0, (size_t)(offset - s->size));
+    }
+    memcpy(s->data + (size_t)offset, data, (size_t)size);
+    s->size = required;
+    s->memory_size = required;
     return offset;
 }
 
@@ -171,10 +376,51 @@ static void linked_section_align(LinkedSection* s, uint32_t align) {
     if (align <= 1) return;
     if (align > s->align) s->align = align;
 
-    while (s->size % align != 0) {
-        linked_section_ensure_capacity(s, 1);
-        s->data[s->size++] = 0;
+    uint64_t mask = (uint64_t)align - 1u;
+    if (s->memory_size > UINT64_MAX - mask) {
+        rcc_fatal("linked section alignment overflow");
     }
+    s->memory_size = (s->memory_size + mask) & ~mask;
+}
+
+static uint64_t linked_section_add_object_section(LinkedSection* linked,
+                                                  const ObjSection* input) {
+    uint64_t offset;
+    uint64_t file_end;
+    uint64_t memory_end;
+    linked_section_align(linked, input->align);
+    offset = linked->memory_size;
+    if (input->size > UINT64_MAX - offset ||
+        input->memory_size > UINT64_MAX - offset) {
+        rcc_fatal("linked section size overflow");
+    }
+    file_end = offset + input->size;
+    memory_end = offset + input->memory_size;
+    if (input->size != 0u) {
+        linked_section_ensure_capacity(linked, file_end);
+        if (linked->size < offset) {
+            memset(linked->data + (size_t)linked->size, 0,
+                   (size_t)(offset - linked->size));
+        }
+        memcpy(linked->data + (size_t)offset, input->data,
+               (size_t)input->size);
+        linked->size = file_end;
+    }
+    linked->memory_size = memory_end;
+    return offset;
+}
+
+/* COMDAT ANY keeps the first input object that contributes a group key.  All
+ * sections with that key in the winning object are retained as one group. */
+static bool linker_section_selected(const ObjSection* section) {
+    return (section->flags & SECT_FLAG_COMDAT) == 0u ||
+           section->comdat_selected;
+}
+
+static ObjSection* object_section_at(const ObjectFile* object, int index) {
+    ObjSection* section = object->sections;
+    while (section && index-- > 0) section = section->next;
+    return section;
 }
 
 bool linker_merge_sections(Linker* ld) {
@@ -186,7 +432,7 @@ bool linker_merge_sections(Linker* ld) {
     typedef struct {
         int obj_idx;
         int sect_idx;
-        uint32_t offset;  /* Offset in linked section */
+        uint64_t offset;  /* Offset in linked section */
     } SectionOffset;
 
     SectionOffset* offsets = NULL;
@@ -198,25 +444,34 @@ bool linker_merge_sections(Linker* ld) {
 
         int sect_idx = 0;
         for (ObjSection* sect = obj->sections; sect; sect = sect->next, sect_idx++) {
+            uint32_t output_flags;
+            if (!linker_section_selected(sect)) {
+                if (g_linker_opts.verbose) {
+                    printf("    %s:%s discarded (COMDAT %s)\n",
+                           obj->filename, sect->name, sect->comdat_key);
+                }
+                continue;
+            }
+            output_flags = sect->flags & ~SECT_FLAG_COMDAT;
             /* Find or create linked section */
             LinkedSection* linked = find_or_create_section(ld, sect->name,
-                                                           sect->type, sect->flags);
-
-            /* Align section */
-            linked_section_align(linked, sect->align);
+                                                           sect->type,
+                                                           output_flags);
+            if (!linked) {
+                rcc_free(offsets);
+                return false;
+            }
 
             /* Record offset for relocation adjustment */
             offsets = rcc_realloc(offsets, sizeof(SectionOffset) * (offset_count + 1));
             offsets[offset_count].obj_idx = obj_idx;
             offsets[offset_count].sect_idx = sect_idx;
-            offsets[offset_count].offset = linked->size;
+            offsets[offset_count].offset =
+                linked_section_add_object_section(linked, sect);
             offset_count++;
 
-            /* Copy section data */
-            linked_section_add_data(linked, sect->data, sect->size);
-
             if (g_linker_opts.verbose) {
-                printf("    %s:%s -> %s (+%u bytes at %u)\n",
+                printf("    %s:%s -> %s (+%" PRIu64 " bytes at %" PRIu64 ")\n",
                        obj->filename, sect->name, linked->name,
                        sect->size, offsets[offset_count-1].offset);
             }
@@ -281,7 +536,7 @@ static int linker_dependency_index(const char* name) {
     return -1;
 }
 
-static void add_symbol(Linker* ld, const char* name, uint32_t value, uint32_t size,
+static void add_symbol(Linker* ld, const char* name, uint64_t value, uint64_t size,
                        SymbolType type, SymbolBinding binding, int section,
                        const char* source, bool resolved) {
     GlobalSymbol* sym = rcc_alloc(sizeof(GlobalSymbol));
@@ -305,6 +560,39 @@ static void add_symbol(Linker* ld, const char* name, uint32_t value, uint32_t si
     ld->symbol_count++;
 }
 
+static void linker_import_slot_name(int import_index, char* name,
+                                    size_t name_size) {
+    int length = snprintf(name, name_size, "__rld_import_slot_%08x",
+                          (unsigned int)import_index);
+    if (length < 0 || (size_t)length >= name_size) {
+        rcc_fatal("generated import slot name is too long");
+    }
+}
+
+static void linker_add_pending_relocation(Linker* ld, int section,
+                                          uint64_t offset,
+                                          const char* symbol,
+                                          RelocType type, int64_t addend,
+                                          const char* source) {
+    PendingReloc* relocation = rcc_alloc(sizeof(PendingReloc));
+    PendingReloc* last;
+    relocation->offset = offset;
+    relocation->symbol = rcc_strdup(symbol);
+    relocation->type = type;
+    relocation->addend = addend;
+    relocation->section = section;
+    relocation->source = source;
+    relocation->next = NULL;
+    if (!ld->relocs) {
+        ld->relocs = relocation;
+    } else {
+        last = ld->relocs;
+        while (last->next) last = last->next;
+        last->next = relocation;
+    }
+    ld->reloc_count++;
+}
+
 bool linker_collect_symbols(Linker* ld) {
     if (g_linker_opts.verbose) {
         printf("Collecting symbols...\n");
@@ -312,15 +600,16 @@ bool linker_collect_symbols(Linker* ld) {
 
     /* Track section offsets per object */
     /* For now, we need to recalculate these */
-    uint32_t** sect_offsets = rcc_alloc(sizeof(uint32_t*) * ld->object_count);
+    uint64_t** sect_offsets = rcc_alloc(sizeof(uint64_t*) * ld->object_count);
 
     /* Calculate section offsets */
     for (int obj_idx = 0; obj_idx < ld->object_count; obj_idx++) {
         ObjectFile* obj = ld->objects[obj_idx];
-        sect_offsets[obj_idx] = rcc_alloc(sizeof(uint32_t) * obj->section_count);
+        sect_offsets[obj_idx] = rcc_alloc(sizeof(uint64_t) * obj->section_count);
 
         int sect_idx = 0;
         for (ObjSection* sect = obj->sections; sect; sect = sect->next, sect_idx++) {
+            if (!linker_section_selected(sect)) continue;
             /* Find this section's offset in the linked output */
             LinkedSection* linked = NULL;
 
@@ -332,17 +621,18 @@ bool linker_collect_symbols(Linker* ld) {
             }
 
             if (linked) {
-                uint32_t offset = 0;
+                uint64_t offset = 0;
                 for (int i = 0; i <= obj_idx; i++) {
                     ObjectFile* prev = ld->objects[i];
                     for (ObjSection* ps = prev->sections; ps; ps = ps->next) {
-                        if (strcmp(ps->name, sect->name) == 0) {
-                            uint32_t mask = ps->align - 1u;
+                        if (linker_section_selected(ps) &&
+                            strcmp(ps->name, sect->name) == 0) {
+                            uint64_t mask = ps->align - 1u;
                             offset = (offset + mask) & ~mask;
                             if (i == obj_idx && ps == sect) {
                                 sect_offsets[obj_idx][sect_idx] = offset;
                             }
-                            offset += ps->size;
+                            offset += ps->memory_size;
                         }
                     }
                 }
@@ -355,47 +645,29 @@ bool linker_collect_symbols(Linker* ld) {
         ObjectFile* obj = ld->objects[obj_idx];
 
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
+            uint64_t value;
+            int linked_sect = -1;
+            ObjSection* owner = NULL;
+
             /* Skip undefined symbols on first pass */
             if (sym->type == SYM_UNDEF) continue;
 
-            /* Check for duplicate global symbols */
-            GlobalSymbol* existing = find_symbol(ld, sym->name);
-            if (existing) {
-                if (existing->type == SYM_GLOBAL && sym->type == SYM_GLOBAL) {
-                    fprintf(stderr, "rld: multiple definition of '%s'\n", sym->name);
-                    fprintf(stderr, "     first defined in %s\n", existing->source);
-                    fprintf(stderr, "     also defined in %s\n", obj->filename);
-                    return false;
+            if (sym->section >= 0) {
+                owner = object_section_at(obj, sym->section);
+                if (!owner || !linker_section_selected(owner)) {
+                    continue;
                 }
-                /* Weak symbols can be overridden */
-                if (existing->type == SYM_WEAK && sym->type == SYM_GLOBAL) {
-                    existing->value = sect_offsets[obj_idx][sym->section] + sym->value;
-                    existing->source = obj->filename;
-                    existing->type = SYM_GLOBAL;
-                }
-                continue;
             }
 
-            /* Add new symbol */
-            uint32_t value = sym->value;
+            value = sym->value;
             if (sym->section >= 0) {
-                value = sect_offsets[obj_idx][sym->section] + sym->value;
-            }
-
-            /* Find linked section index */
-            int linked_sect = -1;
-            if (sym->section >= 0) {
-                const char* sect_name = NULL;
+                const char* sect_name = owner->name;
                 int idx = 0;
-                for (ObjSection* s = obj->sections; s; s = s->next, idx++) {
-                    if (idx == sym->section) {
-                        sect_name = s->name;
-                        break;
-                    }
-                }
+                value = sect_offsets[obj_idx][sym->section] + sym->value;
                 if (sect_name) {
                     idx = 0;
-                    for (LinkedSection* ls = ld->sections; ls; ls = ls->next, idx++) {
+                    for (LinkedSection* ls = ld->sections; ls;
+                         ls = ls->next, idx++) {
                         if (strcmp(ls->name, sect_name) == 0) {
                             linked_sect = idx;
                             break;
@@ -404,11 +676,37 @@ bool linker_collect_symbols(Linker* ld) {
                 }
             }
 
+            /* Check for duplicate global symbols */
+            GlobalSymbol* existing = find_symbol(ld, sym->name);
+            if (existing) {
+                if (existing->type == SYM_GLOBAL && sym->type == SYM_GLOBAL) {
+                    fprintf(stderr, "rld: multiple definition of '%s'\n", sym->name);
+                    fprintf(stderr, "     first defined in %s\n", existing->source);
+                    fprintf(stderr, "     also defined in %s\n", obj->filename);
+                    for (int i = 0; i < ld->object_count; i++) {
+                        rcc_free(sect_offsets[i]);
+                    }
+                    rcc_free(sect_offsets);
+                    return false;
+                }
+                /* Weak symbols can be overridden */
+                if (existing->type == SYM_WEAK && sym->type == SYM_GLOBAL) {
+                    existing->value = value;
+                    existing->size = sym->size;
+                    existing->binding = sym->binding;
+                    existing->section = linked_sect;
+                    existing->source = obj->filename;
+                    existing->type = SYM_GLOBAL;
+                    existing->resolved = true;
+                }
+                continue;
+            }
+
             add_symbol(ld, sym->name, value, sym->size, sym->type, sym->binding,
                       linked_sect, obj->filename, true);
 
             if (g_linker_opts.verbose) {
-                printf("    %s: %s = 0x%x (sect %d)\n",
+                printf("    %s: %s = 0x%" PRIx64 " (sect %d)\n",
                        obj->filename, sym->name, value, linked_sect);
             }
         }
@@ -429,23 +727,37 @@ bool linker_collect_symbols(Linker* ld) {
 
 static bool linker_materialize_import_slots(Linker* ld) {
     LinkedSection* data;
+    LinkedSection* text = NULL;
     int data_section = 0;
+    int text_section = -1;
     int import_index;
     if (g_linker_opts.import_count == 0) return true;
-    if (!g_linker_opts.shared) {
-        fprintf(stderr, "rld: imports are supported only for shared .rll output\n");
-        return false;
-    }
     data = find_or_create_section(ld, ".data", SECT_DATA,
                                   SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
+    if (!data) return false;
+    for (import_index = 0; import_index < g_linker_opts.import_count;
+         import_index++) {
+        if (g_linker_opts.imports[import_index].kind == RIN_SYMBOL_FUNCTION) {
+            text = find_or_create_section(ld, ".text", SECT_CODE,
+                                          SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
+            if (!text) return false;
+            break;
+        }
+    }
     for (LinkedSection* section = ld->sections; section && section != data;
          section = section->next) data_section++;
+    if (text) {
+        text_section = 0;
+        for (LinkedSection* section = ld->sections; section && section != text;
+             section = section->next) text_section++;
+    }
 
     for (import_index = 0; import_index < g_linker_opts.import_count;
          import_index++) {
         LinkImportSpec* import = &g_linker_opts.imports[import_index];
+        char slot_name[64];
         uint64_t zero = 0u;
-        uint32_t slot;
+        uint64_t slot;
         int previous;
         if (linker_dependency_index(import->dependency) < 0) {
             fprintf(stderr, "rld: import %s references undeclared dependency %s\n",
@@ -464,11 +776,32 @@ static bool linker_materialize_import_slots(Linker* ld) {
                     import->symbol);
             return false;
         }
+        linker_import_slot_name(import_index, slot_name, sizeof(slot_name));
+        if (find_symbol(ld, slot_name)) {
+            fprintf(stderr, "rld: generated import slot %s conflicts with a linked definition\n",
+                    slot_name);
+            return false;
+        }
         linked_section_align(data, 8u);
         slot = linked_section_add_data(data, &zero, sizeof(zero));
-        add_symbol(ld, import->symbol, slot, sizeof(zero), SYM_LOCAL,
-                   import->kind == RIN_SYMBOL_FUNCTION ? BIND_CODE : BIND_DATA,
-                   data_section, "<import-slot>", true);
+        if (import->kind == RIN_SYMBOL_FUNCTION) {
+            static const uint8_t thunk[] = {0xffu, 0x25u, 0u, 0u, 0u, 0u};
+            uint64_t thunk_offset;
+            add_symbol(ld, slot_name, slot, sizeof(zero), SYM_LOCAL,
+                       BIND_DATA, data_section, "<import-slot>", true);
+            linked_section_align(text, 16u);
+            thunk_offset = linked_section_add_data(text, thunk, sizeof(thunk));
+            add_symbol(ld, import->symbol, thunk_offset, sizeof(thunk),
+                       SYM_LOCAL, BIND_CODE, text_section,
+                       "<import-thunk>", true);
+            linker_add_pending_relocation(
+                ld, text_section, thunk_offset + 2u, slot_name,
+                g_linker_opts.arch == ARCH_X86 ? RELOC_ABS32U : RELOC_REL32,
+                0, "<import-thunk>");
+        } else {
+            add_symbol(ld, import->symbol, slot, sizeof(zero), SYM_LOCAL,
+                       BIND_DATA, data_section, "<import-slot>", true);
+        }
     }
     return true;
 }
@@ -485,7 +818,24 @@ bool linker_resolve_symbols(Linker* ld) {
         ObjectFile* obj = ld->objects[obj_idx];
 
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
+            bool referenced = false;
+            bool retained_reference = false;
             if (sym->type != SYM_UNDEF) continue;
+
+            for (ObjSection* section = obj->sections; section;
+                 section = section->next) {
+                for (ObjReloc* relocation = section->relocs; relocation;
+                     relocation = relocation->next) {
+                    if (strcmp(relocation->symbol_name, sym->name) != 0) {
+                        continue;
+                    }
+                    referenced = true;
+                    if (linker_section_selected(section)) {
+                        retained_reference = true;
+                    }
+                }
+            }
+            if (referenced && !retained_reference) continue;
 
             /* Look for definition */
             GlobalSymbol* def = find_symbol(ld, sym->name);
@@ -509,30 +859,72 @@ bool linker_resolve_symbols(Linker* ld) {
  * Memory Layout
  * ═══════════════════════════════════════ */
 
-bool linker_layout(Linker* ld, uint32_t base_addr) {
+static bool linker_align_address(uint64_t value, uint32_t alignment,
+                                 uint64_t* result) {
+    uint64_t mask = (uint64_t)alignment - 1u;
+    if (!alignment || (alignment & (alignment - 1u)) != 0u ||
+        value > UINT64_MAX - mask) return false;
+    *result = (value + mask) & ~mask;
+    return true;
+}
+
+bool linker_layout(Linker* ld, uint64_t base_addr) {
     if (g_linker_opts.verbose) {
-        printf("Layout at base 0x%x...\n", base_addr);
+        printf("Layout at base 0x%" PRIx64 "...\n", base_addr);
     }
 
     ld->base_addr = base_addr;
-    uint32_t addr = base_addr;
+    uint64_t addr = base_addr;
 
-    /* Standard section order: .text, .rodata, .data, .bss */
-    const char* order[] = {".text", ".rodata", ".data", ".bss", NULL};
+    /* Keep permission-compatible ranges adjacent.  In particular every
+     * initialized writable section precedes the TLS template so the final
+     * image can describe them with one DATA owner and a nested TLS alias. */
+    const SectionType order[] = {
+        SECT_CODE, SECT_RODATA, SECT_UNWIND, SECT_INIT_ARRAY,
+        SECT_FINI_ARRAY, SECT_DATA, SECT_TLS, SECT_BSS
+    };
+    bool has_initialized_writable = false;
+    bool has_bss = false;
 
-    for (int i = 0; order[i]; i++) {
+    for (LinkedSection* s = ld->sections; s; s = s->next) {
+        if (s->memory_size == 0u) continue;
+        if (s->type == SECT_DATA || s->type == SECT_TLS) {
+            has_initialized_writable = true;
+        } else if (s->type == SECT_BSS) {
+            has_bss = true;
+        }
+    }
+
+    for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); i++) {
+        if (order[i] == SECT_DATA && has_initialized_writable) {
+            if (!linker_align_address(addr, 4096u, &addr)) {
+                fprintf(stderr, "rld: section layout overflow\n");
+                return false;
+            }
+        } else if (order[i] == SECT_BSS && has_bss) {
+            if (!linker_align_address(addr, 4096u, &addr)) {
+                fprintf(stderr, "rld: section layout overflow\n");
+                return false;
+            }
+        }
         for (LinkedSection* s = ld->sections; s; s = s->next) {
-            if (strcmp(s->name, order[i]) != 0) continue;
+            if (s->type != order[i]) continue;
 
             /* Align to section alignment */
-            while (addr % s->align != 0) addr++;
+            if (!linker_align_address(addr, s->align, &addr) ||
+                s->memory_size > UINT64_MAX - addr) {
+                fprintf(stderr, "rld: section layout overflow\n");
+                return false;
+            }
 
             s->vaddr = addr;
-            addr += s->size;
+            addr += s->memory_size;
 
             if (g_linker_opts.verbose) {
-                printf("    %s: 0x%x - 0x%x (%u bytes)\n",
-                       s->name, s->vaddr, s->vaddr + s->size, s->size);
+                printf("    %s: 0x%" PRIx64 " - 0x%" PRIx64
+                       " (%" PRIu64 " bytes)\n",
+                       s->name, s->vaddr, s->vaddr + s->memory_size,
+                       s->memory_size);
             }
         }
     }
@@ -541,14 +933,25 @@ bool linker_layout(Linker* ld, uint32_t base_addr) {
     for (LinkedSection* s = ld->sections; s; s = s->next) {
         if (s->vaddr != 0) continue;  /* Already placed */
 
-        while (addr % s->align != 0) addr++;
+        if (!linker_align_address(addr, s->align, &addr) ||
+            s->memory_size > UINT64_MAX - addr) {
+            fprintf(stderr, "rld: section layout overflow\n");
+            return false;
+        }
         s->vaddr = addr;
-        addr += s->size;
+        addr += s->memory_size;
 
         if (g_linker_opts.verbose) {
-            printf("    %s: 0x%x - 0x%x (%u bytes)\n",
-                   s->name, s->vaddr, s->vaddr + s->size, s->size);
+            printf("    %s: 0x%" PRIx64 " - 0x%" PRIx64
+                   " (%" PRIu64 " bytes)\n",
+                   s->name, s->vaddr, s->vaddr + s->memory_size,
+                   s->memory_size);
         }
+    }
+
+    if (g_linker_opts.arch == ARCH_X86 && addr >= UINT64_C(0xC0000000)) {
+        fprintf(stderr, "rld: x86 image layout must remain below 3 GiB\n");
+        return false;
     }
 
     /* Update symbol values with final addresses */
@@ -571,7 +974,8 @@ bool linker_layout(Linker* ld, uint32_t base_addr) {
     if (entry) {
         ld->entry_addr = entry->value;
         if (g_linker_opts.verbose) {
-            printf("  Entry point: %s = 0x%x\n", entry_name, ld->entry_addr);
+            printf("  Entry point: %s = 0x%" PRIx64 "\n",
+                   entry_name, ld->entry_addr);
         }
     } else if (!g_linker_opts.shared) {
         fprintf(stderr, "rld: warning: entry point '%s' not found\n", entry_name);
@@ -616,35 +1020,154 @@ bool linker_apply_relocations(Linker* ld) {
             return false;
         }
 
-        uint8_t* patch = sect->data + r->offset;
-        uint32_t target = sym->value + r->addend;
+        uint8_t* patch = sect->data + (size_t)r->offset;
+        uint64_t target;
+        if (r->type == RELOC_TLSOFF32S) {
+            LinkedSection* tls = NULL;
+            uint64_t local_offset;
+            idx = 0;
+            for (LinkedSection* candidate = ld->sections; candidate;
+                 candidate = candidate->next, idx++) {
+                if (idx == sym->section) {
+                    tls = candidate;
+                    break;
+                }
+            }
+            if (sym->binding != BIND_TLS || !tls || tls->type != SECT_TLS ||
+                sym->value < tls->vaddr) {
+                fprintf(stderr,
+                        "rld: TLSOFF32S requires a TLS symbol: '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            local_offset = sym->value - tls->vaddr;
+            if (r->addend >= 0) {
+                if ((uint64_t)r->addend > UINT64_MAX - local_offset) {
+                    fprintf(stderr, "rld: TLS offset overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                local_offset += (uint64_t)r->addend;
+            } else {
+                uint64_t magnitude = UINT64_C(0) - (uint64_t)r->addend;
+                if (magnitude > local_offset) {
+                    fprintf(stderr, "rld: TLS offset underflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                local_offset -= magnitude;
+            }
+            if (local_offset >= tls->memory_size || local_offset > UINT32_MAX) {
+                fprintf(stderr, "rld: TLS offset outside template for '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            {
+                uint32_t value = (uint32_t)local_offset;
+                memcpy(patch, &value, sizeof(value));
+            }
+            continue;
+        }
+        if (r->addend >= 0) {
+            if ((uint64_t)r->addend > UINT64_MAX - sym->value) {
+                fprintf(stderr, "rld: relocation target overflow for '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            target = sym->value + (uint64_t)r->addend;
+        } else {
+            uint64_t magnitude = UINT64_C(0) - (uint64_t)r->addend;
+            if (magnitude > sym->value) {
+                fprintf(stderr, "rld: relocation target underflow for '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            target = sym->value - magnitude;
+        }
 
         switch (r->type) {
             case RELOC_ABS32: {
-                /* 32-bit absolute address */
-                *(uint32_t*)patch = target;
+                uint32_t value;
+                if (target > INT32_MAX) {
+                    fprintf(stderr,
+                            "rld: legacy ABS32 relocation is ambiguous for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                value = (uint32_t)target;
+                memcpy(patch, &value, sizeof(value));
+                break;
+            }
+            case RELOC_ABS32U: {
+                uint32_t value;
+                if (target > UINT32_MAX) {
+                    fprintf(stderr, "rld: ABS32U relocation overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                value = (uint32_t)target;
+                memcpy(patch, &value, sizeof(value));
+                break;
+            }
+            case RELOC_ABS32S: {
+                int32_t value;
+                if (target > INT32_MAX) {
+                    fprintf(stderr, "rld: ABS32S relocation overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                value = (int32_t)target;
+                memcpy(patch, &value, sizeof(value));
                 break;
             }
             case RELOC_ABS64: {
-                *(uint64_t*)patch = (uint64_t)target;
+                memcpy(patch, &target, sizeof(target));
                 break;
             }
             case RELOC_REL32: {
                 /* 32-bit PC-relative (relative to next instruction) */
-                uint32_t pc = sect->vaddr + r->offset + 4;
-                *(int32_t*)patch = (int32_t)(target - pc);
+                uint64_t pc = sect->vaddr + r->offset + 4u;
+                int32_t delta;
+                if (target >= pc) {
+                    uint64_t distance = target - pc;
+                    if (distance > INT32_MAX) goto rel32_overflow;
+                    delta = (int32_t)distance;
+                } else {
+                    uint64_t distance = pc - target;
+                    if (distance > UINT64_C(2147483648)) goto rel32_overflow;
+                    delta = distance == UINT64_C(2147483648)
+                        ? INT32_MIN : -(int32_t)distance;
+                }
+                memcpy(patch, &delta, sizeof(delta));
                 break;
+rel32_overflow:
+                fprintf(stderr, "rld: REL32 relocation overflow for '%s'\n",
+                        r->symbol);
+                return false;
             }
             case RELOC_REL8: {
                 /* 8-bit PC-relative */
-                uint32_t pc = sect->vaddr + r->offset + 1;
-                int32_t delta = (int32_t)(target - pc);
-                if (delta < -128 || delta > 127) {
+                uint64_t pc = sect->vaddr + r->offset + 1u;
+                int64_t delta;
+                if (target >= pc) {
+                    uint64_t distance = target - pc;
+                    if (distance > INT8_MAX) goto rel8_overflow;
+                    delta = (int64_t)distance;
+                } else {
+                    uint64_t distance = pc - target;
+                    if (distance > UINT64_C(128)) goto rel8_overflow;
+                    delta = -(int64_t)distance;
+                }
+                {
+                    int8_t value = (int8_t)delta;
+                    memcpy(patch, &value, sizeof(value));
+                }
+                break;
+rel8_overflow:
+                {
                     fprintf(stderr, "rld: 8-bit relocation overflow for '%s'\n", r->symbol);
                     return false;
                 }
-                *(int8_t*)patch = (int8_t)delta;
-                break;
             }
             default:
                 fprintf(stderr, "rld: unsupported relocation type %d\n", r->type);
@@ -652,7 +1175,7 @@ bool linker_apply_relocations(Linker* ld) {
         }
 
         if (g_linker_opts.verbose) {
-            printf("    %s+0x%x -> %s = 0x%x\n",
+            printf("    %s+0x%" PRIx64 " -> %s = 0x%" PRIx64 "\n",
                    sect->name, r->offset, r->symbol, target);
         }
     }
@@ -679,6 +1202,39 @@ static int linker_power_of_two(uint32_t value) {
     return value && (value & (value - 1u)) == 0u;
 }
 
+static bool linker_image_section_type(SectionType type) {
+    return type >= SECT_CODE && type <= SECT_FINI_ARRAY;
+}
+
+static bool linker_code_owner_section_type(SectionType type) {
+    return type == SECT_CODE || type == SECT_RODATA ||
+           type == SECT_UNWIND || type == SECT_INIT_ARRAY ||
+           type == SECT_FINI_ARRAY;
+}
+
+static bool linker_readonly_alias_section_type(SectionType type) {
+    return type == SECT_UNWIND || type == SECT_INIT_ARRAY ||
+           type == SECT_FINI_ARRAY;
+}
+
+static bool linker_data_owner_section_type(SectionType type) {
+    return type == SECT_DATA || type == SECT_TLS;
+}
+
+static uint16_t linker_rin_section_type(SectionType type) {
+    switch (type) {
+    case SECT_CODE: return RIN_IMAGE_SECTION_CODE;
+    case SECT_RODATA: return RIN_IMAGE_SECTION_RODATA;
+    case SECT_DATA: return RIN_IMAGE_SECTION_DATA;
+    case SECT_BSS: return RIN_IMAGE_SECTION_BSS;
+    case SECT_TLS: return RIN_IMAGE_SECTION_TLS;
+    case SECT_UNWIND: return RIN_IMAGE_SECTION_UNWIND;
+    case SECT_INIT_ARRAY: return RIN_IMAGE_SECTION_INIT_ARRAY;
+    case SECT_FINI_ARRAY: return RIN_IMAGE_SECTION_FINI_ARRAY;
+    default: return RIN_IMAGE_SECTION_INVALID;
+    }
+}
+
 static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library) {
     RinHeaderV3 header;
     RinSectionV3* sections;
@@ -686,6 +1242,9 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     RinRelocationV3* relocations = NULL;
     RinImportV3* imports = NULL;
     RinExportV3* exports = NULL;
+    RinSectionV3* code_owner_section = NULL;
+    RinSectionV3* data_owner_section = NULL;
+    RinSectionV3* bss_owner_section = NULL;
     uint32_t load_section_count = 0u;
     uint32_t absolute_relocation_count = 0u;
     uint32_t export_count = 0u;
@@ -697,6 +1256,20 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     uint32_t export_index = 0u;
     uint32_t import_index = 0u;
     uint32_t code_count = 0u;
+    bool uses_tls = false;
+    bool has_code_owner = false;
+    bool has_data_owner = false;
+    bool has_bss_owner = false;
+    uint32_t tls_section_count = 0u;
+    uint32_t unwind_section_count = 0u;
+    uint32_t init_array_section_count = 0u;
+    uint32_t fini_array_section_count = 0u;
+    uint64_t code_owner_start = UINT64_MAX;
+    uint64_t code_owner_end = 0u;
+    uint64_t data_owner_start = UINT64_MAX;
+    uint64_t data_owner_end = 0u;
+    uint64_t bss_owner_start = UINT64_MAX;
+    uint64_t bss_owner_end = 0u;
     uint64_t image_size = 0u;
     uint64_t section_table_offset = sizeof(RinHeaderV3);
     uint64_t dependency_table_offset;
@@ -713,13 +1286,86 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     GlobalSymbol* symbol;
 
     for (linked = ld->sections; linked; linked = linked->next) {
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) {
+        uint64_t end;
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) continue;
+        if (linked->vaddr > UINT64_MAX - linked->memory_size) {
+            fprintf(stderr, "rld: loadable section range overflows\n");
+            return false;
+        }
+        end = linked->vaddr + linked->memory_size;
+        if (linker_code_owner_section_type(linked->type)) {
+            if (!has_code_owner || linked->vaddr < code_owner_start) {
+                code_owner_start = linked->vaddr;
+            }
+            if (end > code_owner_end) code_owner_end = end;
+            has_code_owner = true;
+            if (linked->type == SECT_CODE) ++code_count;
+            if (linked->type == SECT_UNWIND) ++unwind_section_count;
+            if (linked->type == SECT_INIT_ARRAY) ++init_array_section_count;
+            if (linked->type == SECT_FINI_ARRAY) ++fini_array_section_count;
+        } else if (linker_data_owner_section_type(linked->type)) {
+            if (!has_data_owner || linked->vaddr < data_owner_start) {
+                data_owner_start = linked->vaddr;
+            }
+            if (end > data_owner_end) data_owner_end = end;
+            has_data_owner = true;
+            if (linked->type == SECT_TLS) ++tls_section_count;
+        } else if (linked->type == SECT_BSS) {
+            if (!has_bss_owner || linked->vaddr < bss_owner_start) {
+                bss_owner_start = linked->vaddr;
+            }
+            if (end > bss_owner_end) bss_owner_end = end;
+            has_bss_owner = true;
+        }
+    }
+    if (!has_code_owner || code_owner_start != ld->base_addr ||
+        code_count != 1u || tls_section_count > 1u ||
+        unwind_section_count > 1u || init_array_section_count > 1u ||
+        fini_array_section_count > 1u) {
+        fprintf(stderr,
+                "rld: canonical RIN v3 requires one code owner and unique runtime aliases\n");
+        return false;
+    }
+    if (has_data_owner) {
+        if (data_owner_start < code_owner_end) {
+            fprintf(stderr, "rld: initialized data overlaps read-only image\n");
+            return false;
+        }
+        code_owner_end = data_owner_start;
+    } else if (has_bss_owner) {
+        if (bss_owner_start < code_owner_end) {
+            fprintf(stderr, "rld: BSS overlaps read-only image\n");
+            return false;
+        }
+        code_owner_end = bss_owner_start;
+    }
+    if (has_data_owner && has_bss_owner) {
+        if (bss_owner_start < data_owner_end) {
+            fprintf(stderr, "rld: BSS overlaps initialized data\n");
+            return false;
+        }
+        data_owner_end = bss_owner_start;
+    }
+
+    load_section_count = 1u + (has_data_owner ? 1u : 0u) +
+                         (has_bss_owner ? 1u : 0u) + tls_section_count +
+                         unwind_section_count + init_array_section_count +
+                         fini_array_section_count;
+    string_capacity += sizeof(".code");
+    if (has_data_owner) string_capacity += sizeof(".data");
+    if (has_bss_owner) string_capacity += sizeof(".bss");
+    for (linked = ld->sections; linked; linked = linked->next) {
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) {
             continue;
         }
-        ++load_section_count;
-        if (linked->type == SECT_CODE) ++code_count;
-        string_capacity += strlen(linked->name) + 1u;
+        if (linked->type == SECT_TLS ||
+            linker_readonly_alias_section_type(linked->type)) {
+            string_capacity += strlen(linked->name) + 1u;
+        }
     }
+    uses_tls = tls_section_count != 0u;
     for (int index = 0; index < g_linker_opts.dependency_count; index++) {
         int prior;
         string_capacity += strlen(g_linker_opts.dependencies[index]) + 1u;
@@ -736,7 +1382,11 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         string_capacity += strlen(g_linker_opts.imports[index].symbol) + 1u;
     }
     for (pending = ld->relocs; pending; pending = pending->next) {
-        if (pending->type == RELOC_ABS32 || pending->type == RELOC_ABS64) {
+        if (pending->type == RELOC_ABS32 ||
+            pending->type == RELOC_ABS32U ||
+            pending->type == RELOC_ABS32S ||
+            pending->type == RELOC_ABS64 ||
+            pending->type == RELOC_TLSOFF32S) {
             ++absolute_relocation_count;
         }
     }
@@ -779,38 +1429,66 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         string_size += (uint32_t)name_length;
     }
 
+    {
+        size_t code_name_length = sizeof(".code");
+        code_owner_section = &sections[section_index++];
+        code_owner_section->type = RIN_IMAGE_SECTION_CODE;
+        code_owner_section->flags = RIN_IMAGE_SECTION_READ |
+                                    RIN_IMAGE_SECTION_EXECUTE;
+        code_owner_section->alignment = 4096u;
+        code_owner_section->memory_size = code_owner_end - code_owner_start;
+        code_owner_section->name_offset = string_size;
+        memcpy(strings + string_size, ".code", code_name_length);
+        string_size += (uint32_t)code_name_length;
+        image_size = code_owner_end - ld->base_addr;
+    }
+    if (has_data_owner) {
+        size_t data_name_length = sizeof(".data");
+        data_owner_section = &sections[section_index++];
+        data_owner_section->type = RIN_IMAGE_SECTION_DATA;
+        data_owner_section->flags = RIN_IMAGE_SECTION_READ |
+                                    RIN_IMAGE_SECTION_WRITE;
+        data_owner_section->alignment = 4096u;
+        data_owner_section->virtual_address = data_owner_start - ld->base_addr;
+        data_owner_section->memory_size = data_owner_end - data_owner_start;
+        data_owner_section->name_offset = string_size;
+        memcpy(strings + string_size, ".data", data_name_length);
+        string_size += (uint32_t)data_name_length;
+        image_size = data_owner_end - ld->base_addr;
+    }
+    if (has_bss_owner) {
+        size_t bss_name_length = sizeof(".bss");
+        bss_owner_section = &sections[section_index++];
+        bss_owner_section->type = RIN_IMAGE_SECTION_BSS;
+        bss_owner_section->flags = RIN_IMAGE_SECTION_READ |
+                                   RIN_IMAGE_SECTION_WRITE;
+        bss_owner_section->alignment = 4096u;
+        bss_owner_section->virtual_address = bss_owner_start - ld->base_addr;
+        bss_owner_section->memory_size = bss_owner_end - bss_owner_start;
+        bss_owner_section->name_offset = string_size;
+        memcpy(strings + string_size, ".bss", bss_name_length);
+        string_size += (uint32_t)bss_name_length;
+        image_size = bss_owner_end - ld->base_addr;
+    }
     for (linked = ld->sections; linked; linked = linked->next) {
-        RinSectionV3* section;
-        uint64_t rva;
-        size_t name_length;
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) {
+        RinSectionV3* alias;
+        size_t alias_name_length;
+        if (linked->memory_size == 0u ||
+            (linked->type != SECT_TLS &&
+             !linker_readonly_alias_section_type(linked->type))) {
             continue;
         }
-        if (linked->vaddr < ld->base_addr) {
-            fprintf(stderr, "rld: section %s precedes the preferred base\n", linked->name);
-            rcc_free(dependencies);
-            rcc_free(sections);
-            rcc_free(strings);
-            return false;
-        }
-        rva = linked->vaddr - ld->base_addr;
-        section = &sections[section_index++];
-        section->type = linked->type == SECT_CODE ? RIN_IMAGE_SECTION_CODE :
-                        linked->type == SECT_RODATA ? RIN_IMAGE_SECTION_RODATA :
-                        linked->type == SECT_DATA ? RIN_IMAGE_SECTION_DATA :
-                                                   RIN_IMAGE_SECTION_BSS;
-        section->flags = linked->type == SECT_CODE
-            ? RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE
-            : linked->type == SECT_RODATA ? RIN_IMAGE_SECTION_READ
-            : RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-        section->alignment = linker_power_of_two(linked->align) ? linked->align : 1u;
-        section->virtual_address = rva;
-        section->memory_size = linked->size;
-        name_length = strlen(linked->name) + 1u;
-        section->name_offset = string_size;
-        memcpy(strings + string_size, linked->name, name_length);
-        string_size += (uint32_t)name_length;
-        if (rva + linked->size > image_size) image_size = rva + linked->size;
+        alias = &sections[section_index++];
+        alias->type = linker_rin_section_type(linked->type);
+        alias->flags = RIN_IMAGE_SECTION_READ;
+        alias->alignment = linker_power_of_two(linked->align)
+            ? linked->align : 1u;
+        alias->virtual_address = linked->vaddr - ld->base_addr;
+        alias->memory_size = linked->memory_size;
+        alias->name_offset = string_size;
+        alias_name_length = strlen(linked->name) + 1u;
+        memcpy(strings + string_size, linked->name, alias_name_length);
+        string_size += (uint32_t)alias_name_length;
     }
     if (absolute_relocation_count) {
         RinSectionV3* section = &sections[section_index++];
@@ -828,7 +1506,11 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             LinkedSection* target_section;
             int index = 0;
             uint64_t width;
-            if (pending->type != RELOC_ABS32 && pending->type != RELOC_ABS64) continue;
+            if (pending->type != RELOC_ABS32 &&
+                pending->type != RELOC_ABS32U &&
+                pending->type != RELOC_ABS32S &&
+                pending->type != RELOC_ABS64 &&
+                pending->type != RELOC_TLSOFF32S) continue;
             target_section = ld->sections;
             while (target_section && index++ < pending->section) target_section = target_section->next;
             width = pending->type == RELOC_ABS64 ? 8u : 4u;
@@ -845,8 +1527,13 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             }
             relocations[relocation_index].virtual_address =
                 target_section->vaddr - ld->base_addr + pending->offset;
-            relocations[relocation_index].type = width == 8u
-                ? RIN_IMAGE_RELOCATION_ABS64 : RIN_IMAGE_RELOCATION_ABS32U;
+            relocations[relocation_index].type =
+                pending->type == RELOC_TLSOFF32S
+                ? RIN_IMAGE_RELOCATION_TLSOFF32S
+                : width == 8u ? RIN_IMAGE_RELOCATION_ABS64
+                : pending->type == RELOC_ABS32U
+                    ? RIN_IMAGE_RELOCATION_ABS32U
+                    : RIN_IMAGE_RELOCATION_ABS32S;
             ++relocation_index;
         }
         qsort(relocations, absolute_relocation_count, sizeof(RinRelocationV3),
@@ -879,9 +1566,17 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         imports = rcc_alloc((size_t)section->file_size);
         for (import_index = 0u; import_index < import_count; import_index++) {
             const LinkImportSpec* spec = &g_linker_opts.imports[import_index];
-            GlobalSymbol* slot = find_symbol(ld, spec->symbol);
+            char slot_name[64];
+            GlobalSymbol* slot;
             int dependency_index = linker_dependency_index(spec->dependency);
             size_t symbol_length = strlen(spec->symbol) + 1u;
+            if (spec->kind == RIN_SYMBOL_FUNCTION) {
+                linker_import_slot_name((int)import_index, slot_name,
+                                        sizeof(slot_name));
+                slot = find_symbol(ld, slot_name);
+            } else {
+                slot = find_symbol(ld, spec->symbol);
+            }
             if (!slot || !slot->resolved || dependency_index < 0 ||
                 image_size < 8u || slot->value < ld->base_addr ||
                 (uint64_t)slot->value - ld->base_addr > image_size - 8u) {
@@ -939,17 +1634,42 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     string_table_offset = dependency_table_offset +
         (uint64_t)dependency_count * sizeof(RinDependencyV3);
     cursor = linker_align_u64(string_table_offset + string_size, 16u);
-    section_index = 0u;
-    for (linked = ld->sections; linked; linked = linked->next) {
-        RinSectionV3* section;
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) continue;
-        section = &sections[section_index++];
-        if (linked->type == SECT_BSS) continue;
-        cursor = linker_align_u64(cursor, section->alignment);
-        section->file_offset = cursor;
-        section->file_size = linked->size;
-        cursor += linked->size;
+    code_owner_section->file_offset = cursor;
+    code_owner_section->file_size = code_owner_section->memory_size;
+    cursor += code_owner_section->file_size;
+    if (data_owner_section) {
+        data_owner_section->file_offset = cursor;
+        data_owner_section->file_size = data_owner_section->memory_size;
+        cursor += data_owner_section->file_size;
     }
+    for (linked = ld->sections; linked; linked = linked->next) {
+        RinSectionV3* alias = NULL;
+        RinSectionV3* owner;
+        if (linked->memory_size == 0u ||
+            (linked->type != SECT_TLS &&
+             !linker_readonly_alias_section_type(linked->type))) continue;
+        for (uint32_t alias_index = 0u; alias_index < load_section_count;
+             ++alias_index) {
+            if (sections[alias_index].type ==
+                linker_rin_section_type(linked->type)) {
+                alias = &sections[alias_index];
+                break;
+            }
+        }
+        owner = linked->type == SECT_TLS
+            ? data_owner_section : code_owner_section;
+        if (!alias || !owner) {
+            fprintf(stderr, "rld: missing canonical alias owner\n");
+            rcc_free(dependencies); rcc_free(relocations);
+            rcc_free(sections); rcc_free(strings);
+            return false;
+        }
+        alias->file_offset = owner->file_offset +
+            (linked->vaddr - (linked->type == SECT_TLS
+                ? data_owner_start : code_owner_start));
+        alias->file_size = linked->size;
+    }
+    section_index = load_section_count;
     if (absolute_relocation_count) {
         RinSectionV3* section = &sections[section_index++];
         cursor = linker_align_u64(cursor, section->alignment);
@@ -969,7 +1689,6 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         cursor += section->file_size;
     }
     unsigned_size = cursor;
-    image_size = linker_align_u64(image_size, 4096u);
     if (unsigned_size > SIZE_MAX || image_size == 0u ||
         (g_linker_opts.arch == ARCH_X86 &&
          ((uint64_t)ld->base_addr + image_size >= UINT64_C(0xC0000000)))) {
@@ -988,7 +1707,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     header.abi_major = RIN_IMAGE_ABI_MAJOR;
     header.abi_minor = RIN_IMAGE_ABI_MINOR;
     header.flags = (library ? RIN_IMAGE_LIBRARY : RIN_IMAGE_EXECUTABLE | RIN_IMAGE_GUI) |
-                   RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR;
+                   RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR |
+                   (uses_tls ? RIN_IMAGE_USES_TLS : 0u);
     header.section_count = section_count;
     header.dependency_count = dependency_count;
     header.entry_rva = library ? 0u : ld->entry_addr - ld->base_addr;
@@ -1000,6 +1720,7 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     header.string_table_size = string_size;
 
     output = rcc_alloc((size_t)unsigned_size);
+    memset(output, 0, (size_t)unsigned_size);
     memcpy(output, &header, sizeof(header));
     memcpy(output + section_table_offset, sections,
            (size_t)section_count * sizeof(RinSectionV3));
@@ -1008,13 +1729,33 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
                (size_t)dependency_count * sizeof(RinDependencyV3));
     }
     memcpy(output + string_table_offset, strings, string_size);
-    section_index = 0u;
     for (linked = ld->sections; linked; linked = linked->next) {
-        RinSectionV3* section;
-        if (linked->type < SECT_CODE || linked->type > SECT_BSS || linked->size == 0u) continue;
-        section = &sections[section_index++];
-        if (linked->type != SECT_BSS) memcpy(output + section->file_offset, linked->data, linked->size);
+        if (!linker_image_section_type(linked->type) ||
+            linked->memory_size == 0u) continue;
+        if (linker_code_owner_section_type(linked->type)) {
+            if (linked->size != 0u) {
+                memcpy(output + code_owner_section->file_offset +
+                           (linked->vaddr - code_owner_start),
+                       linked->data, linked->size);
+            }
+            continue;
+        }
+        if (linker_data_owner_section_type(linked->type)) {
+            if (!data_owner_section) {
+                rcc_free(output); rcc_free(exports); rcc_free(imports);
+                rcc_free(dependencies); rcc_free(relocations);
+                rcc_free(sections); rcc_free(strings);
+                return false;
+            }
+            if (linked->size != 0u) {
+                memcpy(output + data_owner_section->file_offset +
+                           (linked->vaddr - data_owner_start),
+                       linked->data, linked->size);
+            }
+            continue;
+        }
     }
+    section_index = load_section_count;
     if (absolute_relocation_count) {
         memcpy(output + sections[section_index++].file_offset, relocations,
                (size_t)absolute_relocation_count * sizeof(RinRelocationV3));

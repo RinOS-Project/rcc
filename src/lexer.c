@@ -6,6 +6,7 @@
 #include "rcc.h"
 #include "token.h"
 #include <ctype.h>
+#include <errno.h>
 
 /* Lexer state */
 typedef struct {
@@ -61,6 +62,8 @@ static struct {
     {"_Alignas", TOK__ALIGNAS},
     {"_Static_assert", TOK_STATIC_ASSERT},
     {"static_assert", TOK_STATIC_ASSERT},
+    {"_Generic", TOK_GENERIC},
+    {"_Thread_local", TOK_THREAD_LOCAL},
     /* GNU Extensions */
     {"asm", TOK_ASM},
     {"__asm", TOK_ASM},
@@ -98,6 +101,7 @@ static struct {
     {"explicit", TOK_EXPLICIT},
     {"mutable", TOK_MUTABLE},
     {"constexpr", TOK_CONSTEXPR},
+    {"thread_local", TOK_THREAD_LOCAL},
     {"noexcept", TOK_NOEXCEPT},
     {"static_cast", TOK_STATIC_CAST},
     {"dynamic_cast", TOK_DYNAMIC_CAST},
@@ -159,6 +163,7 @@ const char* token_type_str(TokenType type) {
         case TOK_QUESTION: return "?";
         case TOK_COLON: return ":";
         case TOK_ELLIPSIS: return "...";
+        case TOK_PRAGMA_PACK: return "#pragma pack";
         default:
             for (int i = 0; keywords[i].name; i++) {
                 if (keywords[i].type == type) {
@@ -176,6 +181,10 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->loc = loc;
     tok->next = NULL;
     memset(&tok->value, 0, sizeof(tok->value));
+    tok->int_base = 0u;
+    tok->int_long_suffix = 0u;
+    tok->int_unsigned_suffix = false;
+    tok->int_overflow = false;
     return tok;
 }
 
@@ -318,6 +327,7 @@ static Token* lex_number(Lexer* lex) {
     const char* start = lex->pos;
     bool is_float = false;
     int base = 10;
+    const char* suffix_start;
 
     /* Check for hex/octal/binary prefix */
     if (peek(lex) == '0') {
@@ -370,14 +380,17 @@ static Token* lex_number(Lexer* lex) {
         }
     }
 
-    /* Check for suffix */
-    while (peek(lex) == 'u' || peek(lex) == 'U' ||
-           peek(lex) == 'l' || peek(lex) == 'L' ||
-           peek(lex) == 'f' || peek(lex) == 'F') {
-        if (peek(lex) == 'f' || peek(lex) == 'F') {
-            is_float = true;
+    suffix_start = lex->pos;
+    if (is_float) {
+        if (peek(lex) == 'f' || peek(lex) == 'F' ||
+            peek(lex) == 'l' || peek(lex) == 'L') {
+            advance(lex);
         }
-        advance(lex);
+    } else {
+        while (peek(lex) == 'u' || peek(lex) == 'U' ||
+               peek(lex) == 'l' || peek(lex) == 'L') {
+            advance(lex);
+        }
     }
 
     size_t len = lex->pos - start;
@@ -390,8 +403,50 @@ static Token* lex_number(Lexer* lex) {
         tok = token_new(TOK_FLOAT_LIT, loc);
         tok->value.float_val = strtod(str, NULL);
     } else {
+        const char* suffix = suffix_start;
+        bool suffix_valid = true;
+        bool saw_unsigned = false;
+        unsigned long_suffix = 0u;
+        uint64_t value;
+
+        while (suffix < lex->pos) {
+            if (*suffix == 'u' || *suffix == 'U') {
+                if (saw_unsigned) {
+                    suffix_valid = false;
+                    break;
+                }
+                saw_unsigned = true;
+                ++suffix;
+            } else if (*suffix == 'l' || *suffix == 'L') {
+                char long_case = *suffix++;
+                if (long_suffix != 0u) {
+                    suffix_valid = false;
+                    break;
+                }
+                long_suffix = 1u;
+                if (suffix < lex->pos && *suffix == long_case) {
+                    long_suffix = 2u;
+                    ++suffix;
+                }
+            } else {
+                suffix_valid = false;
+                break;
+            }
+        }
+        if (!suffix_valid) {
+            rcc_error(loc, "invalid integer literal suffix");
+        }
+        errno = 0;
+        value = strtoull(str, NULL, base);
         tok = token_new(TOK_INT_LIT, loc);
-        tok->value.int_val = strtoll(str, NULL, base);
+        tok->value.int_val = (int64_t)value;
+        tok->int_base = (uint8_t)base;
+        tok->int_long_suffix = (uint8_t)long_suffix;
+        tok->int_unsigned_suffix = saw_unsigned;
+        tok->int_overflow = errno == ERANGE;
+        if (tok->int_overflow) {
+            rcc_error(loc, "integer literal is too large for 64-bit C types");
+        }
     }
 
     rcc_free(str);
@@ -663,6 +718,63 @@ static void handle_line_directive(Lexer* lex) {
     }
 }
 
+/* Preserve the ordering of #pragma pack directives in the token stream.
+ * Token values use -1 for pop, 0 for reset, 1..16 for set, and 256+n for
+ * push (n == 0 keeps the current alignment). */
+static Token* handle_pragma_directive(Lexer* lex) {
+    SourceLoc loc = make_loc(lex);
+    const char* p = lex->pos + 7; /* strlen("#pragma") */
+    int value = 0;
+    bool recognized = false;
+
+    while (*p == ' ' || *p == '\t') p++;
+    if (strncmp(p, "pack", 4) == 0 &&
+        !(isalnum((unsigned char)p[4]) || p[4] == '_')) {
+        p += 4;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '(') {
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == ')') {
+                recognized = true; /* reset */
+            } else if (strncmp(p, "pop", 3) == 0 &&
+                       !(isalnum((unsigned char)p[3]) || p[3] == '_')) {
+                value = -1;
+                recognized = true;
+            } else if (strncmp(p, "push", 4) == 0 &&
+                       !(isalnum((unsigned char)p[4]) || p[4] == '_')) {
+                int alignment = 0;
+                p += 4;
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p == ',') {
+                    p++;
+                    while (*p == ' ' || *p == '\t') p++;
+                    while (isdigit((unsigned char)*p)) {
+                        alignment = alignment * 10 + (*p - '0');
+                        p++;
+                    }
+                }
+                value = 256 + alignment;
+                recognized = true;
+            } else if (isdigit((unsigned char)*p)) {
+                while (isdigit((unsigned char)*p)) {
+                    value = value * 10 + (*p - '0');
+                    p++;
+                }
+                recognized = true;
+            }
+        }
+    }
+
+    while (*lex->pos && *lex->pos != '\n') advance(lex);
+    if (*lex->pos == '\n') advance(lex);
+    if (!recognized) return NULL;
+
+    Token* token = token_new(TOK_PRAGMA_PACK, loc);
+    token->value.int_val = value;
+    return token;
+}
+
 /* Lex from string */
 TokenList* rcc_lex_string(const char* src, const char* filename) {
     /* Initialize lexer */
@@ -684,8 +796,26 @@ TokenList* rcc_lex_string(const char* src, const char* filename) {
             handle_line_directive(&lex);
             continue;
         }
+        if (*lex.pos == '#' && strncmp(lex.pos, "#pragma", 7) == 0) {
+            Token* pragma = handle_pragma_directive(&lex);
+            if (pragma) tokenlist_append(list, pragma);
+            continue;
+        }
 
         Token* tok = lex_token(&lex);
+        if (tok->type == TOK_STRING_LIT && list->tail &&
+            list->tail->type == TOK_STRING_LIT) {
+            size_t left_length = strlen(list->tail->value.str_val);
+            size_t right_length = strlen(tok->value.str_val);
+            char* joined = rcc_alloc(left_length + right_length + 1u);
+            memcpy(joined, list->tail->value.str_val, left_length);
+            memcpy(joined + left_length, tok->value.str_val,
+                   right_length + 1u);
+            list->tail->value.str_val = rcc_intern(joined);
+            rcc_free(joined);
+            token_free(tok);
+            continue;
+        }
         tokenlist_append(list, tok);
         if (tok->type == TOK_EOF) break;
     }

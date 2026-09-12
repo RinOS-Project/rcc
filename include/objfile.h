@@ -28,6 +28,7 @@ typedef enum {
     BIND_DATA = 1,      /* Symbol is in data section */
     BIND_BSS = 2,       /* Symbol is in BSS section */
     BIND_ABS = 3,       /* Absolute value (not relocated) */
+    BIND_TLS = 4,       /* Symbol is in the TLS template */
 } SymbolBinding;
 
 /* Relocation types */
@@ -38,6 +39,9 @@ typedef enum {
     RELOC_REL8 = 3,     /* 8-bit PC-relative */
     RELOC_GOT32 = 4,    /* 32-bit GOT offset (for shared libs) */
     RELOC_PLT32 = 5,    /* 32-bit PLT offset (for shared libs) */
+    RELOC_ABS32U = 6,   /* Unsigned 32-bit absolute address */
+    RELOC_ABS32S = 7,   /* Signed 32-bit absolute address */
+    RELOC_TLSOFF32S = 8,/* Signed local-exec offset from thread pointer */
 } RelocType;
 
 /* Section types */
@@ -47,6 +51,10 @@ typedef enum {
     SECT_DATA = 2,      /* Initialized data (.data) */
     SECT_RODATA = 3,    /* Read-only data (.rodata) */
     SECT_BSS = 4,       /* Uninitialized data (.bss) */
+    SECT_TLS = 5,       /* Thread-local storage template */
+    SECT_UNWIND = 6,    /* DWARF unwind records */
+    SECT_INIT_ARRAY = 7,/* Process/library initializers */
+    SECT_FINI_ARRAY = 8,/* Process/library finalizers */
 } SectionType;
 
 /* ═══════════════════════════════════════
@@ -80,14 +88,18 @@ typedef struct {
     uint64_t memory_size;   /* Runtime size */
     uint64_t reloc_off;     /* Offset to relocation entries */
     uint32_t reloc_count;   /* Number of relocation entries */
-    uint32_t reserved0;
-    uint64_t reserved1;
+    uint32_t reserved0;     /* COMDAT selection, otherwise zero */
+    uint64_t reserved1;     /* COMDAT key string offset, otherwise zero */
 } RoSection;
 
 /* Section flags */
 #define SECT_FLAG_WRITE     0x01    /* Writable */
 #define SECT_FLAG_EXEC      0x02    /* Executable */
 #define SECT_FLAG_ALLOC     0x04    /* Occupies memory at runtime */
+#define SECT_FLAG_COMDAT    0x08    /* Link-time COMDAT group member */
+
+/* RoSection.reserved0 selection values when SECT_FLAG_COMDAT is set. */
+#define RO_COMDAT_SELECT_ANY 1u
 
 /* ═══════════════════════════════════════
  * Symbol Entry (20 bytes)
@@ -134,8 +146,8 @@ _Static_assert(sizeof(RoReloc) == 32, "RoReloc v2 ABI drift");
 /* Symbol table entry (in-memory) */
 typedef struct ObjSymbol {
     const char* name;
-    uint32_t value;
-    uint32_t size;
+    uint64_t value;
+    uint64_t size;
     SymbolType type;
     SymbolBinding binding;
     int section;            /* -1 for undefined */
@@ -144,11 +156,11 @@ typedef struct ObjSymbol {
 
 /* Relocation entry (in-memory) */
 typedef struct ObjReloc {
-    uint32_t offset;
+    uint64_t offset;
     const char* symbol_name;
     int symbol_idx;
     RelocType type;
-    int32_t addend;
+    int64_t addend;
     int section;            /* Which section this reloc is in */
     struct ObjReloc* next;
 } ObjReloc;
@@ -158,9 +170,13 @@ typedef struct ObjSection {
     const char* name;
     SectionType type;
     uint32_t flags;
+    uint32_t comdat_selection;
+    const char* comdat_key;
+    bool comdat_selected;    /* Transient linker decision, not serialized */
     uint8_t* data;
-    uint32_t size;
-    uint32_t capacity;
+    uint64_t size;           /* Bytes stored in the object */
+    uint64_t memory_size;    /* Bytes occupied after zero-fill */
+    uint64_t capacity;
     uint32_t align;
     ObjReloc* relocs;
     struct ObjSection* next;
@@ -196,19 +212,23 @@ void objfile_free(ObjectFile* obj);
 /* Section operations */
 ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType type, uint32_t flags);
 ObjSection* objfile_get_section(ObjectFile* obj, const char* name);
-uint32_t section_add_data(ObjSection* sect, const void* data, uint32_t size);
-uint32_t section_add_byte(ObjSection* sect, uint8_t byte);
-uint32_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint32_t count);
+bool objfile_set_comdat(ObjSection* sect, const char* key,
+                        uint32_t selection);
+uint64_t section_add_data(ObjSection* sect, const void* data, uint64_t size);
+uint64_t section_add_byte(ObjSection* sect, uint8_t byte);
+uint64_t section_add_bytes(ObjSection* sect, const uint8_t* bytes, uint64_t count);
 void section_align(ObjSection* sect, uint32_t align);
+void section_set_memory_size(ObjSection* sect, uint64_t memory_size);
 
 /* Symbol operations */
 ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type,
-                              SymbolBinding binding, int section, uint32_t value, uint32_t size);
+                              SymbolBinding binding, int section, uint64_t value,
+                              uint64_t size);
 ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name);
 
 /* Relocation operations */
-void objfile_add_reloc(ObjectFile* obj, int section, uint32_t offset,
-                       const char* symbol, RelocType type, int32_t addend);
+void objfile_add_reloc(ObjectFile* obj, int section, uint64_t offset,
+                       const char* symbol, RelocType type, int64_t addend);
 
 /* String table */
 uint32_t objfile_add_string(ObjectFile* obj, const char* str);
@@ -216,5 +236,7 @@ uint32_t objfile_add_string(ObjectFile* obj, const char* str);
 /* File I/O */
 bool objfile_write(ObjectFile* obj, const char* filename);
 ObjectFile* objfile_read(const char* filename);
+ObjectFile* objfile_read_memory(const void* data, uint64_t size,
+                                const char* display_name);
 
 #endif /* OBJFILE_H */

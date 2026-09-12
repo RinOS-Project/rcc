@@ -6,6 +6,85 @@
 #include "rcc.h"
 #include "ast.h"
 
+#define AST_ARENA_BLOCK_SIZE (64u * 1024u)
+
+typedef struct AstArenaBlock {
+    struct AstArenaBlock* next;
+    size_t used;
+    size_t capacity;
+    max_align_t alignment;
+    unsigned char data[];
+} AstArenaBlock;
+
+static AstArenaBlock* ast_arena_blocks;
+static bool ast_arena_exit_registered;
+
+static void ast_arena_reset(void) {
+    AstArenaBlock* block = ast_arena_blocks;
+    while (block) {
+        AstArenaBlock* next = block->next;
+        rcc_free(block);
+        block = next;
+    }
+    ast_arena_blocks = NULL;
+}
+
+static void ast_arena_reset_at_exit(void) {
+    ast_arena_reset();
+}
+
+void* ast_arena_alloc(size_t size) {
+    const size_t alignment = _Alignof(max_align_t);
+    AstArenaBlock* block = ast_arena_blocks;
+    size_t aligned_used;
+    size_t capacity;
+    if (size == 0u) size = 1u;
+    if (size > SIZE_MAX - alignment) rcc_fatal("AST allocation is too large");
+    aligned_used = block ? (block->used + alignment - 1u) & ~(alignment - 1u)
+                         : 0u;
+    if (!block || aligned_used > block->capacity ||
+        size > block->capacity - aligned_used) {
+        capacity = size > AST_ARENA_BLOCK_SIZE ? size : AST_ARENA_BLOCK_SIZE;
+        if (capacity > SIZE_MAX - sizeof(*block)) {
+            rcc_fatal("AST arena block is too large");
+        }
+        block = rcc_alloc(sizeof(*block) + capacity);
+        block->next = ast_arena_blocks;
+        block->capacity = capacity;
+        ast_arena_blocks = block;
+        aligned_used = 0u;
+        if (!ast_arena_exit_registered) {
+            if (atexit(ast_arena_reset_at_exit) != 0) {
+                rcc_fatal("cannot register AST arena cleanup");
+            }
+            ast_arena_exit_registered = true;
+        }
+    }
+    block->used = aligned_used + size;
+    return block->data + aligned_used;
+}
+
+void* ast_arena_grow(void* pointer, size_t old_size, size_t new_size) {
+    void* replacement = ast_arena_alloc(new_size);
+    if (pointer && old_size != 0u) {
+        memcpy(replacement, pointer, old_size < new_size ? old_size : new_size);
+    }
+    return replacement;
+}
+
+char* ast_arena_strdup(const char* text) {
+    size_t length;
+    char* copy;
+    if (!text) return NULL;
+    length = strlen(text) + 1u;
+    copy = ast_arena_alloc(length);
+    memcpy(copy, text, length);
+    return copy;
+}
+
+/* Every allocation below belongs to the current translation unit. */
+#define rcc_alloc ast_arena_alloc
+
 /* ═══════════════════════════════════════
  * Built-in Types
  * ═══════════════════════════════════════ */
@@ -29,6 +108,7 @@ static Type builtin_ulong  = BUILTIN_TYPE(TYPE_LONG,   4, 4, true);
 static Type builtin_ullong = BUILTIN_TYPE(TYPE_LLONG,  8, 8, true);
 static Type builtin_float  = BUILTIN_TYPE(TYPE_FLOAT,  4, 4, false);
 static Type builtin_double = BUILTIN_TYPE(TYPE_DOUBLE, 8, 8, false);
+static Type builtin_nullptr = BUILTIN_TYPE(TYPE_NULLPTR, 4, 4, false);
 
 #undef BUILTIN_TYPE
 
@@ -46,6 +126,7 @@ Type* type_ulong  = &builtin_ulong;
 Type* type_ullong = &builtin_ullong;
 Type* type_float  = &builtin_float;
 Type* type_double = &builtin_double;
+Type* type_nullptr = &builtin_nullptr;
 
 void type_configure_target(TargetArch architecture) {
     int long_size = architecture == ARCH_X64 ? 8 : 4;
@@ -53,6 +134,8 @@ void type_configure_target(TargetArch architecture) {
     builtin_long.align = long_size;
     builtin_ulong.size = long_size;
     builtin_ulong.align = long_size;
+    builtin_nullptr.size = long_size;
+    builtin_nullptr.align = long_size;
 }
 
 /* ═══════════════════════════════════════
@@ -86,6 +169,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->ret_type = ret;
     t->params = params;
     t->variadic = variadic;
+    t->has_prototype = true;
     return t;
 }
 
@@ -137,7 +221,8 @@ bool type_is_arithmetic(Type* t) {
 }
 
 bool type_is_scalar(Type* t) {
-    return type_is_arithmetic(t) || t->kind == TYPE_PTR;
+    return type_is_arithmetic(t) || t->kind == TYPE_PTR ||
+           t->kind == TYPE_NULLPTR;
 }
 
 bool type_is_pointer(Type* t) {
@@ -160,17 +245,71 @@ bool type_is_complete(Type* t) {
 }
 
 bool type_is_compatible(Type* a, Type* b) {
+    TypeParam* ap;
+    TypeParam* bp;
+    if (!a || !b) return false;
+    if (a == b) return true;
     if (a->kind != b->kind) return false;
+    if (a->is_reference != b->is_reference ||
+        a->is_rvalue_reference != b->is_rvalue_reference) {
+        return false;
+    }
+    if (type_is_integer(a) && a->is_unsigned != b->is_unsigned) return false;
     if (a->kind == TYPE_PTR) {
         return type_is_compatible(a->base, b->base);
     }
     if (a->kind == TYPE_ARRAY) {
-        return type_is_compatible(a->base, b->base);
+        return (a->array_len < 0 || b->array_len < 0 ||
+                a->array_len == b->array_len) &&
+               type_is_compatible(a->base, b->base);
+    }
+    if (a->kind == TYPE_FUNC) {
+        if (!type_is_compatible(a->ret_type, b->ret_type)) return false;
+        if (!a->has_prototype || !b->has_prototype) {
+            Type* prototype = a->has_prototype ? a : b;
+            if (prototype->variadic) return false;
+            for (TypeParam* parameter = prototype->params; parameter;
+                 parameter = parameter->next) {
+                Type* promoted = parameter->type;
+                if (promoted->kind == TYPE_FLOAT) promoted = type_double;
+                if (promoted->kind == TYPE_ENUM || promoted->kind < TYPE_INT) {
+                    promoted = type_int;
+                }
+                if (!type_is_compatible(promoted, parameter->type)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (a->variadic != b->variadic) return false;
+        ap = a->params;
+        bp = b->params;
+        while (ap && bp) {
+            if (!type_is_compatible(ap->type, bp->type)) return false;
+            ap = ap->next;
+            bp = bp->next;
+        }
+        return ap == NULL && bp == NULL;
+    }
+    if (a->kind == TYPE_STRUCT || a->kind == TYPE_UNION) {
+        if (a->tag || b->tag) {
+            return a->tag && b->tag && strcmp(a->tag, b->tag) == 0;
+        }
+        /* A qualified copy of an anonymous aggregate retains the same field
+         * graph even though it has no tag to compare. */
+        return a->fields == b->fields;
+    }
+    if (a->kind == TYPE_ENUM) {
+        return a->enum_tag && b->enum_tag &&
+               strcmp(a->enum_tag, b->enum_tag) == 0;
     }
     return true;
 }
 
 Type* type_common(Type* a, Type* b) {
+    Type* signed_type;
+    Type* unsigned_type;
+
     /* Usual arithmetic conversions */
     if (a->kind == TYPE_DOUBLE || b->kind == TYPE_DOUBLE) return type_double;
     if (a->kind == TYPE_FLOAT || b->kind == TYPE_FLOAT) return type_float;
@@ -182,13 +321,21 @@ Type* type_common(Type* a, Type* b) {
     /* Same type */
     if (a->kind == b->kind && a->is_unsigned == b->is_unsigned) return a;
 
-    /* Unsigned has priority if same rank */
-    if (a->kind == b->kind) {
-        return a->is_unsigned ? a : b;
+    if (a->is_unsigned == b->is_unsigned) {
+        return a->kind > b->kind ? a : b;
     }
 
-    /* Higher rank wins */
-    return a->kind > b->kind ? a : b;
+    unsigned_type = a->is_unsigned ? a : b;
+    signed_type = a->is_unsigned ? b : a;
+    if (unsigned_type->kind >= signed_type->kind) return unsigned_type;
+    if (signed_type->size > unsigned_type->size) return signed_type;
+
+    switch (signed_type->kind) {
+        case TYPE_INT: return type_uint;
+        case TYPE_LONG: return type_ulong;
+        case TYPE_LLONG: return type_ullong;
+        default: return unsigned_type;
+    }
 }
 
 /* ═══════════════════════════════════════
@@ -202,6 +349,77 @@ Expr* expr_int(int64_t val, SourceLoc loc) {
     e->int_val = val;
     e->type = type_int;
     return e;
+}
+
+static bool integer_literal_fits(Type* type, uint64_t value) {
+    unsigned bits;
+    uint64_t maximum;
+    if (!type || !type_is_integer(type) || type->size <= 0) return false;
+    bits = (unsigned)type->size * 8u;
+    if (bits > 64u) return false;
+    if (type->is_unsigned) {
+        maximum = bits == 64u ? UINT64_MAX : (UINT64_C(1) << bits) - 1u;
+    } else {
+        maximum = bits == 64u ? (uint64_t)INT64_MAX
+                              : (UINT64_C(1) << (bits - 1u)) - 1u;
+    }
+    return value <= maximum;
+}
+
+Expr* expr_integer_literal(uint64_t val, unsigned base,
+                           bool unsigned_suffix, unsigned long_suffix,
+                           SourceLoc loc) {
+    Type* candidates[6];
+    size_t count = 0u;
+    bool decimal = base == 10u;
+    Type* selected = NULL;
+
+#define ADD_LITERAL_CANDIDATE(candidate) candidates[count++] = (candidate)
+    if (unsigned_suffix) {
+        if (long_suffix == 0u) {
+            ADD_LITERAL_CANDIDATE(type_uint);
+            ADD_LITERAL_CANDIDATE(type_ulong);
+            ADD_LITERAL_CANDIDATE(type_ullong);
+        } else if (long_suffix == 1u) {
+            ADD_LITERAL_CANDIDATE(type_ulong);
+            ADD_LITERAL_CANDIDATE(type_ullong);
+        } else {
+            ADD_LITERAL_CANDIDATE(type_ullong);
+        }
+    } else if (long_suffix == 0u) {
+        ADD_LITERAL_CANDIDATE(type_int);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_uint);
+        ADD_LITERAL_CANDIDATE(type_long);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ulong);
+        ADD_LITERAL_CANDIDATE(type_llong);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ullong);
+    } else if (long_suffix == 1u) {
+        ADD_LITERAL_CANDIDATE(type_long);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ulong);
+        ADD_LITERAL_CANDIDATE(type_llong);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ullong);
+    } else {
+        ADD_LITERAL_CANDIDATE(type_llong);
+        if (!decimal) ADD_LITERAL_CANDIDATE(type_ullong);
+    }
+#undef ADD_LITERAL_CANDIDATE
+
+    for (size_t i = 0u; i < count; ++i) {
+        if (integer_literal_fits(candidates[i], val)) {
+            selected = candidates[i];
+            break;
+        }
+    }
+    if (!selected) {
+        rcc_error(loc, "integer literal has no representable C17 type");
+        selected = type_ullong;
+    }
+
+    {
+        Expr* expression = expr_int((int64_t)val, loc);
+        expression->type = selected;
+        return expression;
+    }
 }
 
 Expr* expr_float(double val, SourceLoc loc) {
@@ -227,7 +445,7 @@ Expr* expr_string(const char* val, SourceLoc loc) {
     e->kind = EXPR_STRING_LIT;
     e->loc = loc;
     e->str_val = val;
-    e->type = type_ptr(type_char);
+    e->type = type_array(type_char, (int)strlen(val) + 1);
     return e;
 }
 
@@ -277,6 +495,8 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->loc = loc;
     e->call_func = func;
     e->call_args = args;
+    e->call_result_offset = 0;
+    e->call_method = NULL;
     e->type = NULL;
     return e;
 }
@@ -329,6 +549,61 @@ Expr* expr_sizeof_type(Type* type, SourceLoc loc) {
     e->unary_operand = NULL;
     e->sizeof_type = type;
     e->type = type_uint;
+    return e;
+}
+
+Expr* expr_alignof_type(Type* type, SourceLoc loc) {
+    Expr* expression = rcc_alloc(sizeof(*expression));
+    expression->kind = EXPR_ALIGNOF;
+    expression->loc = loc;
+    expression->unary_operand = NULL;
+    expression->sizeof_type = type;
+    expression->type = type_uint;
+    return expression;
+}
+
+Expr* expr_generic(Expr* control, GenericAssociation* associations,
+                   SourceLoc loc) {
+    Expr* expression = rcc_alloc(sizeof(*expression));
+    expression->kind = EXPR_GENERIC;
+    expression->loc = loc;
+    expression->generic_control = control;
+    expression->generic_associations = associations;
+    return expression;
+}
+
+Expr* expr_vararg(ExprKind kind, Expr* list, Expr* second, Type* type,
+                  SourceLoc loc) {
+    Expr* expression = rcc_alloc(sizeof(*expression));
+    expression->kind = kind;
+    expression->loc = loc;
+    expression->va_list_operand = list;
+    expression->va_second_operand = second;
+    expression->va_arg_type = type;
+    expression->type = kind == EXPR_VA_ARG ? type : type_void;
+    return expression;
+}
+
+void generic_association_append(GenericAssociation** list, Type* type,
+                                Expr* expression, SourceLoc loc) {
+    GenericAssociation* association = rcc_alloc(sizeof(*association));
+    GenericAssociation** tail = list;
+    association->type = type;
+    association->expr = expression;
+    association->loc = loc;
+    while (*tail) tail = &(*tail)->next;
+    *tail = association;
+}
+
+Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
+    Expr* e = rcc_alloc(sizeof(Expr));
+    e->kind = EXPR_COMPOUND;
+    e->loc = loc;
+    e->compound_type = NULL;
+    e->compound_init = items;
+    e->compound_offset = 0;
+    e->compound_value_init = false;
+    e->type = NULL;
     return e;
 }
 
@@ -507,11 +782,16 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_VAR;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->param_default = NULL;
     d->var_init = init;
     d->var_offset = 0;
     d->var_is_global = false;
+    d->var_is_thread_local = false;
+    d->var_is_auto = false;
+    d->var_cleanup = NULL;
     return d;
 }
 
@@ -519,12 +799,16 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_FUNC;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->param_default = NULL;
     d->func_params = params;
     d->func_body = body;
     d->func_is_inline = false;
     d->func_is_defined = (body != NULL);
+    d->func_has_cxx_linkage = false;
+    d->func_overload_next = NULL;
     return d;
 }
 
@@ -532,8 +816,10 @@ Decl* decl_param(const char* name, Type* type, int index, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_PARAM;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->param_default = NULL;
     d->param_index = index;
     return d;
 }
@@ -542,8 +828,10 @@ Decl* decl_typedef(const char* name, Type* type, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_TYPEDEF;
     d->name = name;
+    d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->param_default = NULL;
     d->typedef_type = type;
     return d;
 }
@@ -552,7 +840,9 @@ Decl* decl_struct(const char* name, DeclList* fields, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_STRUCT;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
+    d->param_default = NULL;
     d->struct_fields = fields;
     return d;
 }
@@ -561,7 +851,9 @@ Decl* decl_union(const char* name, DeclList* fields, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_UNION;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
+    d->param_default = NULL;
     d->struct_fields = fields;
     return d;
 }
@@ -570,7 +862,9 @@ Decl* decl_enum(const char* name, DeclList* consts, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_ENUM;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
+    d->param_default = NULL;
     d->enum_consts = consts;
     return d;
 }
@@ -579,10 +873,17 @@ Decl* decl_enum_const(const char* name, int64_t val, SourceLoc loc) {
     Decl* d = rcc_alloc(sizeof(Decl));
     d->kind = DECL_ENUM_CONST;
     d->name = name;
+    d->link_name = name;
     d->loc = loc;
     d->type = type_int;
+    d->param_default = NULL;
     d->enum_val = val;
     return d;
+}
+
+const char* decl_link_name(const Decl* decl) {
+    if (!decl) return NULL;
+    return decl->link_name ? decl->link_name : decl->name;
 }
 
 /* ═══════════════════════════════════════
@@ -618,6 +919,22 @@ void exprlist_append(ExprList** list, Expr* expr) {
         ExprList* p = *list;
         while (p->next) p = p->next;
         p->next = node;
+    }
+}
+
+void exprlist_append_designated(ExprList** list, Expr* expr,
+                                InitDesignatorKind kind, int64_t index,
+                                const char* field) {
+    ExprList* node = exprlist_new(expr);
+    node->designator_kind = kind;
+    node->designator_index = index;
+    node->designator_field = field;
+    if (!*list) {
+        *list = node;
+    } else {
+        ExprList* item = *list;
+        while (item->next) item = item->next;
+        item->next = node;
     }
 }
 

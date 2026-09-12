@@ -32,6 +32,24 @@ jobs:
           make test
           make test-cxx
           make test-cxx-cli
+          make test-cxx-language-linkage
+          make test-cxx-member-specifiers
+          make test-cxx-function-templates
+          make test-cxx-qualified-namespaces
+          make test-cxx-overloads
+          make test-cxx-parser-recovery
+          make test-tool-relative-includes
+          make test-preprocessor-continuation
+          make test-atomic-builtins
+          make test-inline-asm-execute
           make test-static-assert
           make test-link
           make test-archive
+          make test-archive-link
+          make test-manifest
+          make test-driver-policy
+          make test-weak-link
+          make test-object-width
+          make test-special-sections
+          make test-tls
+          make test-direct-relocation

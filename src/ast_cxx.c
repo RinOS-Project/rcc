@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <string.h>
 
+/* C++ semantic objects share the translation-unit arena with the C AST. */
+#define rcc_alloc ast_arena_alloc
+#define rcc_strdup ast_arena_strdup
+
 /* Global namespace */
 CxxNamespace* g_global_namespace = NULL;
 
@@ -31,9 +35,13 @@ char* cxx_mangle_type(Type* type) {
         return buf;
     }
 
-    /* Handle pointers */
+    /* Handle pointers and the Itanium ABI reference constructors. */
     while (type->kind == TYPE_PTR) {
-        buf[pos++] = 'P';
+        if (type->is_reference) {
+            buf[pos++] = type->is_rvalue_reference ? 'O' : 'R';
+        } else {
+            buf[pos++] = 'P';
+        }
         type = type->base;
     }
 
@@ -78,6 +86,10 @@ char* cxx_mangle_type(Type* type) {
             break;
         case TYPE_FLOAT:  buf[pos++] = 'f'; break;
         case TYPE_DOUBLE: buf[pos++] = 'd'; break;
+        case TYPE_NULLPTR:
+            buf[pos++] = 'D';
+            buf[pos++] = 'n';
+            break;
         case TYPE_STRUCT:
         case TYPE_UNION:
             /* Named type */
@@ -169,6 +181,11 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     CxxClass* cls = rcc_alloc(sizeof(CxxClass));
     cls->name = name ? rcc_strdup(name) : NULL;
     cls->is_struct = is_struct;
+    cls->has_user_constructor = false;
+    cls->has_nonpublic_field = false;
+    cls->has_static_field = false;
+    cls->has_field_initializer = false;
+    cls->constructors = NULL;
     cls->bases = NULL;
     cls->base_count = 0;
     cls->members = NULL;
@@ -186,8 +203,9 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
 }
 
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual) {
-    cls->bases = rcc_realloc(cls->bases,
-        sizeof(cls->bases[0]) * (cls->base_count + 1));
+    cls->bases = ast_arena_grow(
+        cls->bases, sizeof(cls->bases[0]) * (size_t)cls->base_count,
+        sizeof(cls->bases[0]) * (size_t)(cls->base_count + 1));
     cls->bases[cls->base_count].base = base;
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = is_virtual;
@@ -198,6 +216,7 @@ void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_
     struct CxxMember* member = rcc_alloc(sizeof(struct CxxMember));
     member->access = access;
     member->decl = decl;
+    member->method = NULL;
     member->is_static = is_static;
     member->is_virtual = false;
     member->is_pure_virtual = false;
@@ -218,6 +237,11 @@ void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_
 void cxx_class_compute_layout(CxxClass* cls) {
     int offset = 0;
     int max_align = 1;
+    bool layout_complete = true;
+    TypeField** field_tail;
+
+    cls->type->fields = NULL;
+    field_tail = &cls->type->fields;
 
     /* Space for vptr if class has virtual functions */
     bool has_virtual = false;
@@ -229,8 +253,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
     }
 
     if (has_virtual) {
-        offset = sizeof(void*);  /* vptr */
-        max_align = sizeof(void*);
+        int pointer_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+        offset = pointer_size;  /* vptr */
+        max_align = pointer_size;
     }
 
     /* Base class subobjects */
@@ -243,17 +268,36 @@ void cxx_class_compute_layout(CxxClass* cls) {
             /* Base subobject */
             offset += base->size;
             if (align > max_align) max_align = align;
+        } else {
+            layout_complete = false;
         }
     }
 
     /* Fields from fields list */
     for (TypeParam* f = cls->fields; f; f = f->next) {
         Type* type = f->type;
-        int align = type->align;
-        int size = type->size;
+        int align;
+        int size;
+        TypeField* field;
+
+        if (!type || !type_is_complete(type) || type->kind == TYPE_FUNC ||
+            type->kind == TYPE_VOID) {
+            layout_complete = false;
+            continue;
+        }
+        align = type->align;
+        size = type->size;
 
         /* Align */
         offset = (offset + align - 1) & ~(align - 1);
+        field = ast_arena_alloc(sizeof(*field));
+        field->name = f->name;
+        field->type = type;
+        field->offset = offset;
+        field->cxx_access = f->cxx_access;
+        field->next = NULL;
+        *field_tail = field;
+        field_tail = &field->next;
         offset += size;
 
         if (align > max_align) max_align = align;
@@ -279,6 +323,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
     cls->size = (offset + max_align - 1) & ~(max_align - 1);
     if (cls->size == 0) cls->size = 1;  /* Empty class has size 1 */
     cls->align = max_align;
+    cls->type->size = cls->size;
+    cls->type->align = cls->align;
+    cls->type->is_complete = layout_complete;
 }
 
 void cxx_class_build_vtable(CxxClass* cls) {
@@ -331,6 +378,8 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     ns->decls = NULL;
     ns->classes = NULL;
     ns->class_count = 0;
+    ns->templates = NULL;
+    ns->template_count = 0;
     ns->children = NULL;
     ns->next = NULL;
 
@@ -361,6 +410,14 @@ void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
     ns->decls = node;
 }
 
+void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
+    if (!ns || !tmpl) return;
+    ns->templates = ast_arena_grow(
+        ns->templates, sizeof(CxxTemplate*) * (size_t)ns->template_count,
+        sizeof(CxxTemplate*) * (size_t)(ns->template_count + 1));
+    ns->templates[ns->template_count++] = tmpl;
+}
+
 /* ═══════════════════════════════════════
  * Template Operations (Core API)
  * ═══════════════════════════════════════ */
@@ -377,6 +434,10 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->param_count = count;
     tmpl->kind = TMPL_CLASS;
     tmpl->class_def = NULL;
+    tmpl->is_constexpr = false;
+    tmpl->is_noexcept = false;
+    tmpl->function_lowering = TMPL_FUNCTION_NONE;
+    tmpl->function_constant = 0;
     tmpl->templated_class = NULL;
     tmpl->instances = NULL;
     tmpl->instance_count = 0;
@@ -429,8 +490,9 @@ CxxClass* cxx_class_new(const char* name, SourceLoc loc) {
 
 /* Add base class by name (deferred resolution) */
 void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access) {
-    cls->bases = rcc_realloc(cls->bases,
-        sizeof(cls->bases[0]) * (cls->base_count + 1));
+    cls->bases = ast_arena_grow(
+        cls->bases, sizeof(cls->bases[0]) * (size_t)cls->base_count,
+        sizeof(cls->bases[0]) * (size_t)(cls->base_count + 1));
     cls->bases[cls->base_count].base = NULL;  /* Will be resolved later */
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = false;
@@ -444,8 +506,8 @@ void cxx_class_add_field(CxxClass* cls, const char* name, Type* type, AccessSpec
     TypeParam* field = rcc_alloc(sizeof(TypeParam));
     field->name = name ? rcc_strdup(name) : NULL;
     field->type = type;
+    field->cxx_access = (unsigned char)access;
     field->next = NULL;
-    (void)access;
 
     /* Append to fields list */
     if (!cls->fields) {
@@ -463,6 +525,7 @@ void cxx_class_add_method(CxxClass* cls, CxxMethod* method) {
     struct CxxMember* member = rcc_alloc(sizeof(struct CxxMember));
     member->access = method->access;
     member->decl = method->decl;
+    member->method = method;
     member->is_static = method->is_static;
     member->is_virtual = method->is_virtual;
     member->is_pure_virtual = method->is_pure_virtual;
@@ -486,12 +549,15 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
 
     /* Build function type */
     TypeParam* tparams = NULL;
+    TypeParam** parameter_tail = &tparams;
     for (DeclList* p = params; p; p = p->next) {
         TypeParam* tp = rcc_alloc(sizeof(TypeParam));
         tp->name = p->decl->name;
         tp->type = p->decl->type;
-        tp->next = tparams;
-        tparams = tp;
+        tp->cxx_access = ACCESS_PUBLIC;
+        tp->next = NULL;
+        *parameter_tail = tp;
+        parameter_tail = &tp->next;
     }
     Type* func_type = type_func(return_type, tparams, false);
 
@@ -505,6 +571,11 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->is_override = false;
     method->is_final = false;
     method->is_const = false;
+    method->is_constexpr = false;
+    method->is_explicit = false;
+    method->is_noexcept = false;
+    method->is_deleted = false;
+    method->is_defaulted = false;
     method->is_constructor = false;
     method->is_destructor = false;
     method->vtable_index = -1;
@@ -521,8 +592,9 @@ CxxNamespace* cxx_namespace_new(const char* name, SourceLoc loc) {
 /* Add class to namespace */
 void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
     cls->ns = ns;
-    ns->classes = rcc_realloc(ns->classes,
-        sizeof(CxxClass*) * (ns->class_count + 1));
+    ns->classes = ast_arena_grow(
+        ns->classes, sizeof(CxxClass*) * (size_t)ns->class_count,
+        sizeof(CxxClass*) * (size_t)(ns->class_count + 1));
     ns->classes[ns->class_count++] = cls;
 }
 
@@ -541,8 +613,9 @@ CxxTemplate* cxx_template_new(SourceLoc loc) {
 
 /* Add type parameter to template */
 void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
-    tmpl->params = rcc_realloc(tmpl->params,
-        sizeof(TemplateParam) * (tmpl->param_count + 1));
+    tmpl->params = ast_arena_grow(
+        tmpl->params, sizeof(TemplateParam) * (size_t)tmpl->param_count,
+        sizeof(TemplateParam) * (size_t)(tmpl->param_count + 1));
     tmpl->params[tmpl->param_count].kind = TPARAM_TYPE;
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = NULL;
@@ -552,8 +625,9 @@ void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
 
 /* Add value parameter to template */
 void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* type) {
-    tmpl->params = rcc_realloc(tmpl->params,
-        sizeof(TemplateParam) * (tmpl->param_count + 1));
+    tmpl->params = ast_arena_grow(
+        tmpl->params, sizeof(TemplateParam) * (size_t)tmpl->param_count,
+        sizeof(TemplateParam) * (size_t)(tmpl->param_count + 1));
     tmpl->params[tmpl->param_count].kind = TPARAM_NONTYPE;
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = type;

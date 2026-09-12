@@ -23,13 +23,28 @@ typedef struct {
     size_t capacity;
 } DataSection;
 
+typedef struct {
+    size_t size;
+    uint32_t align;
+} BssSection;
+
 /* .rin relocation entry types (must match kernel/make_rin.py) */
 #define RIN_RELOC_ABS32 1
 #define RIN_RELOC_ABS64 2
+#define RIN_RELOC_TLSOFF32S 5
+
+typedef enum ModuleSymbolSection {
+    MODULE_SYMBOL_CODE,
+    MODULE_SYMBOL_RODATA,
+    MODULE_SYMBOL_DATA,
+    MODULE_SYMBOL_BSS,
+    MODULE_SYMBOL_TLS,
+} ModuleSymbolSection;
 
 /* Relocation entry */
 typedef struct Reloc {
-    uint32_t offset;        /* Offset in code section */
+    ModuleSymbolSection source_section;
+    uint32_t offset;        /* Offset in source section */
     uint32_t type;          /* Relocation type */
     const char* symbol;     /* Symbol name (for imports) */
     struct Reloc* next;
@@ -38,7 +53,7 @@ typedef struct Reloc {
 /* String literal entry */
 typedef struct StringLit {
     const char* value;
-    uint32_t offset;        /* Offset in data section */
+    uint32_t offset;        /* Offset in read-only data section */
     struct StringLit* next;
 } StringLit;
 
@@ -48,23 +63,30 @@ typedef struct ModuleSymbol {
     uint32_t offset;
     uint32_t size;
     bool is_defined;
-    bool is_code;
+    ModuleSymbolSection section;
     bool is_global;
+    bool is_weak;
 } ModuleSymbol;
 
 /* Module relocation entry (for object files) */
 typedef struct ModuleReloc {
+    ModuleSymbolSection source_section;
     uint32_t offset;
     uint32_t target;
     bool is_relative;
     bool is_64bit;
+    bool is_tls;
     const char* symbol_name;
 } ModuleReloc;
 
 /* Compiled module */
 typedef struct Module {
     CodeSection code;
+    DataSection rodata;
     DataSection data;
+    BssSection bss;
+    DataSection tls;
+    uint32_t tls_align;
     Reloc* relocs;
     StringLit* strings;
     uint32_t entry_point;
@@ -96,7 +118,8 @@ uint32_t emit_string(Module* mod, const char* str);
 uint32_t emit_data(Module* mod, const void* data, size_t len);
 
 /* Relocations */
-void add_reloc(Module* mod, uint32_t offset, uint32_t type);
+void add_reloc(Module* mod, ModuleSymbolSection source_section,
+               uint32_t offset, uint32_t type);
 
 /* Current code offset */
 uint32_t code_offset(Module* mod);
@@ -106,11 +129,30 @@ Module* rcc_codegen64(AST* ast);
 
 /* Symbol table functions */
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
-                       bool is_defined, bool is_code, bool is_global);
-void module_add_relocation(Module* mod, uint32_t offset, uint32_t target,
+                       bool is_defined, ModuleSymbolSection section,
+                       bool is_global);
+void module_mark_symbol_weak(Module* mod, const char* name);
+void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
+                          uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,
                           const char* symbol_name);
+void module_add_tls_relocation(Module* mod,
+                               ModuleSymbolSection source_section,
+                               uint32_t offset, const char* symbol_name);
+bool module_resolve_image_relocation(const Module* mod,
+                                     ModuleSymbolSection source_section,
+                                     uint32_t offset,
+                                     bool is_64bit, uint64_t rodata_rva,
+                                     uint64_t data_rva, uint64_t bss_rva,
+                                     uint64_t* value);
+bool module_resolve_tls_relocation(const Module* mod,
+                                   ModuleSymbolSection source_section,
+                                   uint32_t offset, uint32_t* value);
+void module_ensure_rodata_base_symbol(Module* mod);
 void codegen_emit_global_data(Module* mod, AST* ast);
+int codegen_required_local_bytes(Stmt* statement);
+int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
+                                    int stack_alignment);
 
 /* Object file output */
 struct ObjectFile;

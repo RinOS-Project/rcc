@@ -13,6 +13,8 @@ typedef struct CxxClass CxxClass;
 typedef struct CxxNamespace CxxNamespace;
 typedef struct CxxTemplate CxxTemplate;
 typedef struct CxxMethod CxxMethod;
+typedef struct CxxConstructorInfo CxxConstructorInfo;
+typedef struct CxxConstructorInitializer CxxConstructorInitializer;
 
 /* Access specifier */
 typedef enum {
@@ -21,10 +23,37 @@ typedef enum {
     ACCESS_PRIVATE
 } AccessSpec;
 
+/* Constructor facts retained until all class fields are known.  Only the
+ * deliberately small, ABI-transparent subset accepted by parser_cxx.c is
+ * lowered through the common aggregate backend. */
+struct CxxConstructorInitializer {
+    const char* field;
+    Expr* value;
+    CxxConstructorInitializer* next;
+};
+
+struct CxxConstructorInfo {
+    int parameter_count;
+    TypeParam* parameters;
+    CxxConstructorInitializer* initializers;
+    int initializer_count;
+    bool initializers_are_supported;
+    bool body_is_empty;
+    bool is_deleted;
+    bool is_defaulted;
+    AccessSpec access;
+    CxxConstructorInfo* next;
+};
+
 /* C++ Class/Struct */
 struct CxxClass {
     const char* name;
     bool is_struct;          /* struct vs class (default access) */
+    bool has_user_constructor;
+    bool has_nonpublic_field;
+    bool has_static_field;
+    bool has_field_initializer;
+    CxxConstructorInfo* constructors;
 
     /* Base classes */
     struct {
@@ -38,6 +67,7 @@ struct CxxClass {
     struct CxxMember {
         AccessSpec access;
         Decl* decl;          /* Can be DECL_VAR or DECL_FUNC */
+        CxxMethod* method;    /* Non-NULL for parsed C++ methods. */
         bool is_static;
         bool is_virtual;
         bool is_pure_virtual;
@@ -83,6 +113,10 @@ struct CxxNamespace {
     CxxClass** classes;
     int class_count;
 
+    /* Templates declared directly in this namespace. */
+    CxxTemplate** templates;
+    int template_count;
+
     /* Nested namespaces */
     CxxNamespace* children;
     CxxNamespace* next;      /* sibling */
@@ -120,6 +154,14 @@ struct CxxTemplate {
         Decl* func_def;
     };
 
+    bool is_constexpr;
+    bool is_noexcept;
+    enum {
+        TMPL_FUNCTION_NONE,
+        TMPL_FUNCTION_VERSIONED_STRUCT,
+    } function_lowering;
+    int64_t function_constant;
+
     /* Alternate storage for parsed class (used by parser_cxx.c) */
     CxxClass* templated_class;
 
@@ -143,6 +185,11 @@ struct CxxMethod {
     bool is_override;
     bool is_final;
     bool is_const;           /* const member function */
+    bool is_constexpr;
+    bool is_explicit;
+    bool is_noexcept;
+    bool is_deleted;
+    bool is_defaulted;
     bool is_constructor;
     bool is_destructor;
     int vtable_index;        /* -1 if not virtual */
@@ -164,6 +211,7 @@ void cxx_class_build_vtable(CxxClass* cls);
 CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent);
 CxxNamespace* cxx_namespace_lookup(CxxNamespace* root, const char* name);
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl);
+void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl);
 
 /* Template operations (core API) */
 CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int count);
@@ -215,5 +263,13 @@ void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* typ
 /* C++ Parser entry point */
 struct TokenList;
 AST* rcc_parse_cxx(struct TokenList* tokens);
+
+/* Common-expression parser hook for a known class-template specialization
+ * followed by direct-list initialization.  Returns NULL without consuming
+ * tokens when the current spelling is not such a type. */
+Type* rcc_parse_cxx_direct_list_type(void);
+Type* rcc_parse_cxx_type_name(void);
+Expr* rcc_parse_cxx_template_call(void);
+Stmt* rcc_parse_cxx_auto_local_declaration(void);
 
 #endif /* AST_CXX_H */
