@@ -47,6 +47,8 @@
   - [x] `volatile` object/pointerの未使用readに対するDCE抑止
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
+  - [x] scalar-only brace省略列を型のsubobject順にnested initializerへ正規化し、
+        i686/AMD64のstatic/automatic storageへlowering
   - [x] compatible aggregateのlocal copy初期化と匿名struct/union member
   - [x] struct/unionの通常・連鎖代入と端数byteを含む両arch copy codegen
   - [x] automatic storageのscalar/array/aggregate compound literal

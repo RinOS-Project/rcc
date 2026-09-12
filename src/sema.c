@@ -2197,9 +2197,132 @@ static bool initializer_is_aggregate_zero(Type* type, Expr* initializer) {
            expr_eval_integer_constant(item->expr, &value) && value == 0;
 }
 
+/* Return the number of scalar subobjects reached by C's brace-elision walk.
+ * This is intentionally bounded by the already-laid-out type graph; a
+ * flexible or incomplete aggregate is left to the ordinary diagnostic path. */
+static int initializer_scalar_capacity(Type* type) {
+    int64_t capacity = 0;
+    if (!type) return 0;
+    if (type->kind == TYPE_ARRAY) {
+        if (type->array_len < 0 || !type->base) return 0;
+        capacity = (int64_t)type->array_len *
+                   initializer_scalar_capacity(type->base);
+    } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        TypeField* field = type->fields;
+        if (type->kind == TYPE_UNION && field) {
+            capacity = initializer_scalar_capacity(field->type);
+        } else {
+            for (; field; field = field->next) {
+                capacity += initializer_scalar_capacity(field->type);
+                if (capacity > INT_MAX) break;
+            }
+        }
+    } else {
+        return 1;
+    }
+    if (capacity <= 0 || capacity > INT_MAX) return 0;
+    return (int)capacity;
+}
+
+static void normalize_brace_elided_initializer(Type* type,
+                                                Expr* initializer) {
+    ExprList* source;
+    ExprList* normalized = NULL;
+    bool scalar_sequence = true;
+
+    if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+         type->kind != TYPE_UNION)) {
+        return;
+    }
+    for (source = initializer->compound_init; source; source = source->next) {
+        if (source->designator_kind != INIT_DESIGNATOR_NONE || !source->expr ||
+            source->expr->kind == EXPR_COMPOUND) {
+            scalar_sequence = false;
+            break;
+        }
+    }
+    if (!scalar_sequence) return;
+
+    source = initializer->compound_init;
+    if (type->kind == TYPE_ARRAY) {
+        for (int index = 0; index < type->array_len && source; ++index) {
+            Type* element_type = type->base;
+            if (element_type &&
+                (element_type->kind == TYPE_ARRAY ||
+                 element_type->kind == TYPE_STRUCT ||
+                 element_type->kind == TYPE_UNION)) {
+                int capacity = initializer_scalar_capacity(element_type);
+                ExprList* nested_items = NULL;
+                int consumed = 0;
+                if (capacity <= 0) return;
+                while (source && consumed < capacity) {
+                    exprlist_append_designated(
+                        &nested_items, source->expr, INIT_DESIGNATOR_NONE,
+                        0, NULL);
+                    source = source->next;
+                    ++consumed;
+                }
+                Expr* nested = expr_initializer_list(nested_items,
+                                                     initializer->loc);
+                nested->compound_type = element_type;
+                nested->type = element_type;
+                normalize_brace_elided_initializer(element_type, nested);
+                exprlist_append_designated(&normalized, nested,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+            } else {
+                exprlist_append_designated(&normalized, source->expr,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+                source = source->next;
+            }
+        }
+    } else {
+        TypeField* field = type->fields;
+        while (field && source) {
+            Type* field_type = field->type;
+            if (field_type &&
+                (field_type->kind == TYPE_ARRAY ||
+                 field_type->kind == TYPE_STRUCT ||
+                 field_type->kind == TYPE_UNION)) {
+                int capacity = initializer_scalar_capacity(field_type);
+                ExprList* nested_items = NULL;
+                int consumed = 0;
+                if (capacity <= 0) return;
+                while (source && consumed < capacity) {
+                    exprlist_append_designated(
+                        &nested_items, source->expr, INIT_DESIGNATOR_NONE,
+                        0, NULL);
+                    source = source->next;
+                    ++consumed;
+                }
+                Expr* nested = expr_initializer_list(nested_items,
+                                                     initializer->loc);
+                nested->compound_type = field_type;
+                nested->type = field_type;
+                normalize_brace_elided_initializer(field_type, nested);
+                exprlist_append_designated(&normalized, nested,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+            } else {
+                exprlist_append_designated(&normalized, source->expr,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+                source = source->next;
+            }
+            field = type->kind == TYPE_UNION ? NULL : field->next;
+        }
+    }
+    /* Preserve excess clauses so sema reports the normal too-many diagnostic. */
+    while (source) {
+        exprlist_append_designated(&normalized, source->expr,
+                                   INIT_DESIGNATOR_NONE, 0, NULL);
+        source = source->next;
+    }
+    initializer->compound_init = normalized;
+}
+
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     if (!type || !initializer) return;
+    normalize_brace_elided_initializer(type, initializer);
     string = initializer_character_string(type, initializer);
     if (string) {
         sema_expr(string);
