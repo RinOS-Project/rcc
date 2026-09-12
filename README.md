@@ -71,7 +71,7 @@ rcc --target x86_64-unknown-rinos -S -o app.s app.c
 rar r libsample.ra sample.ro
 rld --target x86_64-unknown-rinos --shared \
   --dep rinbase.rll --import rin_log_write=rinbase.rll@function \
-  --sign-profile debug --rinsign ../scripts/rinsign.py --sign-key debug.pem \
+  --sign-profile debug --rinsign ../rinsign/rinsign --sign-key debug.pem \
   --public-key debug-public.der -o sample.rll sample.ro
 aqc --dump-ir -o sample.rsh sample.aq
 ```

@@ -23,6 +23,7 @@
 #define RIN_ICON_RESOURCE_VERSION_1 UINT16_C(0x0001)
 #define RIN_ICON_IMAGE_MAX_DIMENSION UINT16_C(0x0400)
 #define RIN_ICON_IMAGE_MAX_BYTES UINT32_C(0x00400000)
+#define RIN_EXPORT_VERSIONED UINT16_C(0x0001) /* RinExportV3.reserved contains the exact version string offset */
 
 typedef enum RinImageArchitecture {
     RIN_ARCH_UNKNOWN = 0,

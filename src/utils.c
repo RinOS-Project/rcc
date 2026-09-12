@@ -162,11 +162,16 @@ bool rcc_create_signing_temp(const char* output_path, const char* stage,
 }
 
 static bool invoke_rinsign(const char* unsigned_path, const char* signed_path) {
-    const char* python = g_opts.python_path ? g_opts.python_path : "python3";
-    const char* const arguments[] = {
-        python, g_opts.rinsign_path, unsigned_path, "-o", signed_path,
+    const char* executable;
+    const char* const direct_arguments[] = {
+        g_opts.rinsign_path, unsigned_path, "-o", signed_path,
         "--key", g_opts.sign_key, "--public-key", g_opts.public_key, NULL
     };
+    const char* const python_arguments[] = {
+        g_opts.python_path, g_opts.rinsign_path, unsigned_path, "-o", signed_path,
+        "--key", g_opts.sign_key, "--public-key", g_opts.public_key, NULL
+    };
+    const char* const* arguments;
     int status;
 
     if (!string_present(unsigned_path) || !string_present(signed_path) ||
@@ -176,8 +181,12 @@ static bool invoke_rinsign(const char* unsigned_path, const char* signed_path) {
         fprintf(stderr, "rcc: final v3 output requires --rinsign, --sign-key and --public-key\n");
         return false;
     }
+    /* --python remains an explicit compatibility mode for old test signers;
+     * normal builds execute the native rinsign binary directly. */
+    executable = g_opts.python_path ? g_opts.python_path : g_opts.rinsign_path;
+    arguments = g_opts.python_path ? python_arguments : direct_arguments;
 #if defined(_WIN32)
-    status = (int)_spawnvp(_P_WAIT, python, arguments);
+    status = (int)_spawnvp(_P_WAIT, executable, arguments);
     if (status == -1) {
         perror("rcc: cannot start rinsign");
         return false;
@@ -190,7 +199,7 @@ static bool invoke_rinsign(const char* unsigned_path, const char* signed_path) {
         return false;
     }
     if (pid == 0) {
-        execvp(python, (char* const*)arguments);
+        execvp(executable, (char* const*)arguments);
         perror("rcc: cannot start rinsign");
         _exit(127);
     }
@@ -239,6 +248,7 @@ static bool validate_signed_staging(const char* path) {
     uint32_t signature_size;
     uint16_t signature_algorithm;
     uint16_t hash_algorithm;
+    uint16_t envelope_signature_size;
     const uint8_t* content_hash;
     uint32_t signed_flag;
     uint32_t flags;
@@ -308,10 +318,11 @@ static bool validate_signed_staging(const char* path) {
            read_le16(envelope + 4) == 1u &&
            read_le16(envelope + 6) == sizeof(envelope) &&
            read_le16(envelope + 8) == signature_algorithm &&
-           read_le16(envelope + 10) >= 256u &&
-           read_le16(envelope + 10) <= 512u &&
+           (envelope_signature_size = read_le16(envelope + 10)) != 0u &&
+           envelope_signature_size == signature_size - sizeof(envelope) &&
            signer_identity_present &&
-           signature_size == sizeof(envelope) + read_le16(envelope + 10) &&
+           signature_size >= sizeof(envelope) + 256u &&
+           signature_size <= sizeof(envelope) + 512u &&
            read_le32(envelope + 44) == 0u;
 }
 
