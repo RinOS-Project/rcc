@@ -4978,6 +4978,25 @@ int codegen_required_local_bytes(Stmt* statement) {
     }
 }
 
+static bool codegen_stmt_owns_vla(Stmt* statement) {
+    if (!statement) return false;
+    if (statement->kind == STMT_BLOCK) {
+        for (StmtList* item = statement->block_stmts; item;
+             item = item->next) {
+            if (item->stmt && item->stmt->kind == STMT_DECL &&
+                item->stmt->decl && item->stmt->decl->kind == DECL_VAR &&
+                item->stmt->decl->var_is_vla) {
+                return true;
+            }
+        }
+    } else if (statement->kind == STMT_FOR) {
+        Stmt* init = statement->for_init;
+        return init && init->kind == STMT_DECL && init->decl &&
+               init->decl->kind == DECL_VAR && init->decl->var_is_vla;
+    }
+    return false;
+}
+
 static int codegen_align_frame_bytes(int bytes, int alignment) {
     int64_t value;
     if (alignment <= 1) return bytes;
@@ -5153,8 +5172,26 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                                          stack_alignment);
             break;
         case STMT_BLOCK:
+            if (codegen_stmt_owns_vla(statement) &&
+                statement->vla_stack_offset == 0) {
+                int64_t extent = (int64_t)*bytes + stack_alignment;
+                if (extent > INT_MAX) {
+                    *bytes = INT_MAX;
+                } else {
+                    *bytes = codegen_align_frame_bytes((int)extent,
+                                                       stack_alignment);
+                    statement->vla_stack_offset = -*bytes;
+                }
+            }
             for (StmtList* item = statement->block_stmts; item;
                  item = item->next) {
+                if (item->stmt && item->stmt->kind == STMT_DECL &&
+                    item->stmt->decl &&
+                    item->stmt->decl->kind == DECL_VAR &&
+                    item->stmt->decl->var_is_vla) {
+                    item->stmt->decl->var_vla_scope_offset =
+                        statement->vla_stack_offset;
+                }
                 codegen_assign_compound_stmt(item->stmt, bytes,
                                              stack_alignment);
             }
@@ -5175,6 +5212,25 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                                          stack_alignment);
             break;
         case STMT_FOR:
+            if (codegen_stmt_owns_vla(statement) &&
+                statement->vla_stack_offset == 0) {
+                int64_t extent = (int64_t)*bytes + stack_alignment;
+                if (extent > INT_MAX) {
+                    *bytes = INT_MAX;
+                } else {
+                    *bytes = codegen_align_frame_bytes((int)extent,
+                                                       stack_alignment);
+                    statement->vla_stack_offset = -*bytes;
+                }
+            }
+            if (statement->for_init &&
+                statement->for_init->kind == STMT_DECL &&
+                statement->for_init->decl &&
+                statement->for_init->decl->kind == DECL_VAR &&
+                statement->for_init->decl->var_is_vla) {
+                statement->for_init->decl->var_vla_scope_offset =
+                    statement->vla_stack_offset;
+            }
             codegen_assign_compound_stmt(statement->for_init, bytes,
                                          stack_alignment);
             codegen_assign_compound_expr(statement->for_cond, bytes,
@@ -5474,9 +5530,17 @@ typedef struct CleanupCodegen {
     struct CleanupCodegen* previous;
 } CleanupCodegen;
 
+typedef struct VLAScopeCodegen {
+    int stack_offset;
+    struct VLAScopeCodegen* previous;
+} VLAScopeCodegen;
+
 static CleanupCodegen* active_cleanups = NULL;
 static CleanupCodegen* break_cleanup_marker = NULL;
 static CleanupCodegen* continue_cleanup_marker = NULL;
+static VLAScopeCodegen* active_vla_scopes = NULL;
+static VLAScopeCodegen* break_vla_marker = NULL;
+static VLAScopeCodegen* continue_vla_marker = NULL;
 
 static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
     for (CleanupCodegen* item = active_cleanups; item && item != marker;
@@ -5501,6 +5565,38 @@ static void discard_cleanups_until(CleanupCodegen* marker) {
         rcc_free(active_cleanups);
         active_cleanups = previous;
     }
+}
+
+static void gen_vla_scopes_until(Module* mod, VLAScopeCodegen* marker) {
+    for (VLAScopeCodegen* item = active_vla_scopes;
+         item && item != marker; item = item->previous) {
+        emit_mov_reg_mem(mod, ESP, EBP, item->stack_offset);
+    }
+}
+
+static bool gen_vla_count(Module* mod, unsigned count) {
+    VLAScopeCodegen* item = active_vla_scopes;
+    while (item && count > 0u) {
+        emit_mov_reg_mem(mod, ESP, EBP, item->stack_offset);
+        item = item->previous;
+        --count;
+    }
+    return count == 0u;
+}
+
+static void discard_vla_scopes_until(VLAScopeCodegen* marker) {
+    while (active_vla_scopes && active_vla_scopes != marker) {
+        VLAScopeCodegen* previous = active_vla_scopes->previous;
+        rcc_free(active_vla_scopes);
+        active_vla_scopes = previous;
+    }
+}
+
+static void record_vla_scope(Decl* declaration) {
+    VLAScopeCodegen* scope = rcc_alloc(sizeof(*scope));
+    scope->stack_offset = declaration->var_vla_scope_offset;
+    scope->previous = active_vla_scopes;
+    active_vla_scopes = scope;
 }
 
 static void gen_scoped_stmt(Module* mod, Stmt* statement) {
@@ -5604,11 +5700,20 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_BLOCK: {
             CleanupCodegen* marker = active_cleanups;
+            VLAScopeCodegen* vla_marker = active_vla_scopes;
+            if (stmt->vla_stack_offset < 0) {
+                emit_mov_mem_reg(mod, EBP, stmt->vla_stack_offset, ESP);
+            }
             for (StmtList* s = stmt->block_stmts; s; s = s->next) {
                 gen_stmt(mod, s->stmt);
             }
             gen_cleanups_until(mod, marker);
             discard_cleanups_until(marker);
+            gen_vla_scopes_until(mod, vla_marker);
+            discard_vla_scopes_until(vla_marker);
+            if (stmt->vla_stack_offset < 0) {
+                emit_mov_reg_mem(mod, ESP, EBP, stmt->vla_stack_offset);
+            }
             break;
         }
 
@@ -5637,8 +5742,11 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_WHILE: {
             CleanupCodegen* loop_marker = active_cleanups;
+            VLAScopeCodegen* vla_loop_marker = active_vla_scopes;
             CleanupCodegen* old_break_cleanup = break_cleanup_marker;
             CleanupCodegen* old_continue_cleanup = continue_cleanup_marker;
+            VLAScopeCodegen* old_break_vla = break_vla_marker;
+            VLAScopeCodegen* old_continue_vla = continue_vla_marker;
             int start_label = new_label();
             int end_label = new_label();
             int old_break = break_label;
@@ -5647,6 +5755,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             continue_label = start_label;
             break_cleanup_marker = loop_marker;
             continue_cleanup_marker = loop_marker;
+            break_vla_marker = vla_loop_marker;
+            continue_vla_marker = vla_loop_marker;
 
             emit_label(mod, start_label);
             gen_expr(mod, stmt->while_cond);
@@ -5662,13 +5772,18 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             continue_label = old_continue;
             break_cleanup_marker = old_break_cleanup;
             continue_cleanup_marker = old_continue_cleanup;
+            break_vla_marker = old_break_vla;
+            continue_vla_marker = old_continue_vla;
             break;
         }
 
         case STMT_DO: {
             CleanupCodegen* loop_marker = active_cleanups;
+            VLAScopeCodegen* vla_loop_marker = active_vla_scopes;
             CleanupCodegen* old_break_cleanup = break_cleanup_marker;
             CleanupCodegen* old_continue_cleanup = continue_cleanup_marker;
+            VLAScopeCodegen* old_break_vla = break_vla_marker;
+            VLAScopeCodegen* old_continue_vla = continue_vla_marker;
             int start_label = new_label();
             int end_label = new_label();
             int cond_label = new_label();
@@ -5678,6 +5793,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             continue_label = cond_label;
             break_cleanup_marker = loop_marker;
             continue_cleanup_marker = loop_marker;
+            break_vla_marker = vla_loop_marker;
+            continue_vla_marker = vla_loop_marker;
 
             emit_label(mod, start_label);
             gen_scoped_stmt(mod, stmt->while_body);
@@ -5693,13 +5810,18 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             continue_label = old_continue;
             break_cleanup_marker = old_break_cleanup;
             continue_cleanup_marker = old_continue_cleanup;
+            break_vla_marker = old_break_vla;
+            continue_vla_marker = old_continue_vla;
             break;
         }
 
         case STMT_FOR: {
             CleanupCodegen* marker = active_cleanups;
+            VLAScopeCodegen* vla_marker = active_vla_scopes;
             CleanupCodegen* old_break_cleanup = break_cleanup_marker;
             CleanupCodegen* old_continue_cleanup = continue_cleanup_marker;
+            VLAScopeCodegen* old_break_vla = break_vla_marker;
+            VLAScopeCodegen* old_continue_vla = continue_vla_marker;
             int start_label = new_label();
             int end_label = new_label();
             int inc_label = new_label();
@@ -5708,11 +5830,16 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             break_label = end_label;
             continue_label = inc_label;
 
+            if (stmt->vla_stack_offset < 0) {
+                emit_mov_mem_reg(mod, EBP, stmt->vla_stack_offset, ESP);
+            }
             if (stmt->for_init) {
                 gen_stmt(mod, stmt->for_init);
             }
             break_cleanup_marker = active_cleanups;
             continue_cleanup_marker = active_cleanups;
+            break_vla_marker = vla_marker;
+            continue_vla_marker = active_vla_scopes;
 
             emit_label(mod, start_label);
 
@@ -5733,11 +5860,18 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             emit_label(mod, end_label);
             gen_cleanups_until(mod, marker);
             discard_cleanups_until(marker);
+            gen_vla_scopes_until(mod, vla_marker);
+            discard_vla_scopes_until(vla_marker);
+            if (stmt->vla_stack_offset < 0) {
+                emit_mov_reg_mem(mod, ESP, EBP, stmt->vla_stack_offset);
+            }
 
             break_label = old_break;
             continue_label = old_continue;
             break_cleanup_marker = old_break_cleanup;
             continue_cleanup_marker = old_continue_cleanup;
+            break_vla_marker = old_break_vla;
+            continue_vla_marker = old_continue_vla;
             break;
         }
 
@@ -5745,7 +5879,9 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             SwitchCodegenContext context = {0};
             SwitchCodegenContext* old_switch = current_switch_codegen;
             CleanupCodegen* switch_marker = active_cleanups;
+            VLAScopeCodegen* vla_switch_marker = active_vla_scopes;
             CleanupCodegen* old_break_cleanup = break_cleanup_marker;
+            VLAScopeCodegen* old_break_vla = break_vla_marker;
             int old_break = break_label;
             int end_label = new_label();
             context.control_type = codegen_switch_control_type(
@@ -5779,11 +5915,13 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             break_label = end_label;
             break_cleanup_marker = switch_marker;
+            break_vla_marker = vla_switch_marker;
             current_switch_codegen = &context;
             gen_stmt(mod, stmt->switch_body);
             current_switch_codegen = old_switch;
             break_label = old_break;
             break_cleanup_marker = old_break_cleanup;
+            break_vla_marker = old_break_vla;
             emit_label(mod, end_label);
             codegen_release_switch_cases(context.cases);
             break;
@@ -5808,6 +5946,10 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         case STMT_GOTO:
             if (!gen_cleanup_count(mod, stmt->goto_cleanup_count)) {
                 rcc_error(stmt->loc, "invalid C++ goto cleanup path");
+                break;
+            }
+            if (!gen_vla_count(mod, stmt->goto_vla_count)) {
+                rcc_error(stmt->loc, "invalid VLA goto path");
                 break;
             }
             emit_jmp_label(mod, codegen_named_label(stmt->goto_label));
@@ -5874,6 +6016,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     emit_pop_reg(mod, EAX);
                 }
             }
+            gen_vla_scopes_until(mod, NULL);
             if (stmt->return_val &&
                 gen_is_floating(current_function_return_type)) {
                 emit_x87_double_value_from_raw(
@@ -5886,6 +6029,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         case STMT_BREAK:
             if (break_label >= 0) {
                 gen_cleanups_until(mod, break_cleanup_marker);
+                gen_vla_scopes_until(mod, break_vla_marker);
                 emit_jmp_label(mod, break_label);
             }
             break;
@@ -5893,6 +6037,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         case STMT_CONTINUE:
             if (continue_label >= 0) {
                 gen_cleanups_until(mod, continue_cleanup_marker);
+                gen_vla_scopes_until(mod, continue_vla_marker);
                 emit_jmp_label(mod, continue_label);
             }
             break;
@@ -5901,6 +6046,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen_vla_alloc(mod, d);
+                record_vla_scope(d);
             } else if (d->kind == DECL_VAR && d->var_init) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
@@ -5943,6 +6089,9 @@ static void gen_function(Module* mod, Decl* decl) {
     int stack_size;
     Type* old_return_type;
     CleanupCodegen* old_cleanups;
+    VLAScopeCodegen* old_vla_scopes;
+    VLAScopeCodegen* old_break_vla;
+    VLAScopeCodegen* old_continue_vla;
     if (!decl->func_body) return;
 
     stack_size = codegen_required_local_bytes(decl->func_body);
@@ -5967,11 +6116,21 @@ static void gen_function(Module* mod, Decl* decl) {
                                    decl->type->kind == TYPE_FUNC
         ? decl->type->ret_type : NULL;
     old_cleanups = active_cleanups;
+    old_vla_scopes = active_vla_scopes;
+    old_break_vla = break_vla_marker;
+    old_continue_vla = continue_vla_marker;
     active_cleanups = NULL;
+    active_vla_scopes = NULL;
+    break_vla_marker = NULL;
+    continue_vla_marker = NULL;
     named_codegen_labels = NULL;
     gen_stmt(mod, decl->func_body);
     discard_cleanups_until(NULL);
+    discard_vla_scopes_until(NULL);
     active_cleanups = old_cleanups;
+    active_vla_scopes = old_vla_scopes;
+    break_vla_marker = old_break_vla;
+    continue_vla_marker = old_continue_vla;
     codegen_release_named_labels();
     current_function_return_type = old_return_type;
 

@@ -53,7 +53,11 @@
   - [x] `volatile` object/pointerの未使用readに対するDCE抑止
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
 - [x] block-scope VLAの非定数境界、実体ポインタ・byte extent保存、添字、
-      `sizeof`、i686/AMD64 dynamic stack allocation
+      `sizeof`、i686/AMD64 dynamic stack allocation、通常のscope exitと
+      `break`／`continue`／`return`／有効な`goto`でのstack reclamation
+- [x] VLAスコープへ入る`goto`を診断し、VLA領域を跨ぐ有効な`goto`で
+      必要なstack extentだけを復元
+  - [ ] VLA parameter adjustmentと、parameter boundを含む宣言形式
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] scalar-only brace省略列を型のsubobject順にnested initializerへ正規化し、
         i686/AMD64のstatic/automatic storageへlowering

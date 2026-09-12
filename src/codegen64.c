@@ -3025,9 +3025,17 @@ typedef struct CleanupCodegen64 {
     struct CleanupCodegen64* previous;
 } CleanupCodegen64;
 
+typedef struct VLAScopeCodegen64 {
+    int stack_offset;
+    struct VLAScopeCodegen64* previous;
+} VLAScopeCodegen64;
+
 static CleanupCodegen64* active_cleanups64 = NULL;
 static CleanupCodegen64* break_cleanup_marker64 = NULL;
 static CleanupCodegen64* continue_cleanup_marker64 = NULL;
+static VLAScopeCodegen64* active_vla_scopes64 = NULL;
+static VLAScopeCodegen64* break_vla_marker64 = NULL;
+static VLAScopeCodegen64* continue_vla_marker64 = NULL;
 
 static void gen64_cleanups_until(Module* mod, CleanupCodegen64* marker) {
     for (CleanupCodegen64* item = active_cleanups64;
@@ -3052,6 +3060,39 @@ static void discard64_cleanups_until(CleanupCodegen64* marker) {
         rcc_free(active_cleanups64);
         active_cleanups64 = previous;
     }
+}
+
+static void gen64_vla_scopes_until(Module* mod,
+                                   VLAScopeCodegen64* marker) {
+    for (VLAScopeCodegen64* item = active_vla_scopes64;
+         item && item != marker; item = item->previous) {
+        emit64_mov_reg_mem(mod, RSP, RBP, item->stack_offset);
+    }
+}
+
+static bool gen64_vla_count(Module* mod, unsigned count) {
+    VLAScopeCodegen64* item = active_vla_scopes64;
+    while (item && count > 0u) {
+        emit64_mov_reg_mem(mod, RSP, RBP, item->stack_offset);
+        item = item->previous;
+        --count;
+    }
+    return count == 0u;
+}
+
+static void discard64_vla_scopes_until(VLAScopeCodegen64* marker) {
+    while (active_vla_scopes64 && active_vla_scopes64 != marker) {
+        VLAScopeCodegen64* previous = active_vla_scopes64->previous;
+        rcc_free(active_vla_scopes64);
+        active_vla_scopes64 = previous;
+    }
+}
+
+static void record64_vla_scope(Decl* declaration) {
+    VLAScopeCodegen64* scope = rcc_alloc(sizeof(*scope));
+    scope->stack_offset = declaration->var_vla_scope_offset;
+    scope->previous = active_vla_scopes64;
+    active_vla_scopes64 = scope;
 }
 
 static void gen64_scoped_stmt(Module* mod, Stmt* statement) {
@@ -3327,11 +3368,20 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_BLOCK: {
             CleanupCodegen64* marker = active_cleanups64;
+            VLAScopeCodegen64* vla_marker = active_vla_scopes64;
+            if (stmt->vla_stack_offset < 0) {
+                emit64_mov_mem_reg(mod, RBP, stmt->vla_stack_offset, RSP);
+            }
             for (StmtList* s = stmt->block_stmts; s; s = s->next) {
                 gen64_stmt(mod, s->stmt);
             }
             gen64_cleanups_until(mod, marker);
             discard64_cleanups_until(marker);
+            gen64_vla_scopes_until(mod, vla_marker);
+            discard64_vla_scopes_until(vla_marker);
+            if (stmt->vla_stack_offset < 0) {
+                emit64_mov_reg_mem(mod, RSP, RBP, stmt->vla_stack_offset);
+            }
             break;
         }
 
@@ -3360,9 +3410,12 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_WHILE: {
             CleanupCodegen64* loop_marker = active_cleanups64;
+            VLAScopeCodegen64* vla_loop_marker = active_vla_scopes64;
             CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
             CleanupCodegen64* old_continue_cleanup =
                 continue_cleanup_marker64;
+            VLAScopeCodegen64* old_break_vla = break_vla_marker64;
+            VLAScopeCodegen64* old_continue_vla = continue_vla_marker64;
             int start_label = new_label64();
             int end_label = new_label64();
             int old_break = break_label64;
@@ -3371,6 +3424,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             continue_label64 = start_label;
             break_cleanup_marker64 = loop_marker;
             continue_cleanup_marker64 = loop_marker;
+            break_vla_marker64 = vla_loop_marker;
+            continue_vla_marker64 = vla_loop_marker;
 
             emit64_label(mod, start_label);
             gen64_expr(mod, stmt->while_cond);
@@ -3386,14 +3441,19 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             continue_label64 = old_continue;
             break_cleanup_marker64 = old_break_cleanup;
             continue_cleanup_marker64 = old_continue_cleanup;
+            break_vla_marker64 = old_break_vla;
+            continue_vla_marker64 = old_continue_vla;
             break;
         }
 
         case STMT_DO: {
             CleanupCodegen64* loop_marker = active_cleanups64;
+            VLAScopeCodegen64* vla_loop_marker = active_vla_scopes64;
             CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
             CleanupCodegen64* old_continue_cleanup =
                 continue_cleanup_marker64;
+            VLAScopeCodegen64* old_break_vla = break_vla_marker64;
+            VLAScopeCodegen64* old_continue_vla = continue_vla_marker64;
             int start_label = new_label64();
             int end_label = new_label64();
             int cond_label = new_label64();
@@ -3403,6 +3463,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             continue_label64 = cond_label;
             break_cleanup_marker64 = loop_marker;
             continue_cleanup_marker64 = loop_marker;
+            break_vla_marker64 = vla_loop_marker;
+            continue_vla_marker64 = vla_loop_marker;
 
             emit64_label(mod, start_label);
             gen64_scoped_stmt(mod, stmt->while_body);
@@ -3418,14 +3480,19 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             continue_label64 = old_continue;
             break_cleanup_marker64 = old_break_cleanup;
             continue_cleanup_marker64 = old_continue_cleanup;
+            break_vla_marker64 = old_break_vla;
+            continue_vla_marker64 = old_continue_vla;
             break;
         }
 
         case STMT_FOR: {
             CleanupCodegen64* marker = active_cleanups64;
+            VLAScopeCodegen64* vla_marker = active_vla_scopes64;
             CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
             CleanupCodegen64* old_continue_cleanup =
                 continue_cleanup_marker64;
+            VLAScopeCodegen64* old_break_vla = break_vla_marker64;
+            VLAScopeCodegen64* old_continue_vla = continue_vla_marker64;
             int start_label = new_label64();
             int end_label = new_label64();
             int inc_label = new_label64();
@@ -3434,11 +3501,16 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             break_label64 = end_label;
             continue_label64 = inc_label;
 
+            if (stmt->vla_stack_offset < 0) {
+                emit64_mov_mem_reg(mod, RBP, stmt->vla_stack_offset, RSP);
+            }
             if (stmt->for_init) {
                 gen64_stmt(mod, stmt->for_init);
             }
             break_cleanup_marker64 = active_cleanups64;
             continue_cleanup_marker64 = active_cleanups64;
+            break_vla_marker64 = vla_marker;
+            continue_vla_marker64 = active_vla_scopes64;
 
             emit64_label(mod, start_label);
 
@@ -3459,11 +3531,18 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             emit64_label(mod, end_label);
             gen64_cleanups_until(mod, marker);
             discard64_cleanups_until(marker);
+            gen64_vla_scopes_until(mod, vla_marker);
+            discard64_vla_scopes_until(vla_marker);
+            if (stmt->vla_stack_offset < 0) {
+                emit64_mov_reg_mem(mod, RSP, RBP, stmt->vla_stack_offset);
+            }
 
             break_label64 = old_break;
             continue_label64 = old_continue;
             break_cleanup_marker64 = old_break_cleanup;
             continue_cleanup_marker64 = old_continue_cleanup;
+            break_vla_marker64 = old_break_vla;
+            continue_vla_marker64 = old_continue_vla;
             break;
         }
 
@@ -3471,7 +3550,9 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             SwitchCodegenContext64 context = {0};
             SwitchCodegenContext64* old_switch = current_switch_codegen64;
             CleanupCodegen64* switch_marker = active_cleanups64;
+            VLAScopeCodegen64* vla_switch_marker = active_vla_scopes64;
             CleanupCodegen64* old_break_cleanup = break_cleanup_marker64;
+            VLAScopeCodegen64* old_break_vla = break_vla_marker64;
             int old_break = break_label64;
             int end_label = new_label64();
             context.control_type = codegen64_switch_control_type(
@@ -3497,11 +3578,13 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
             break_label64 = end_label;
             break_cleanup_marker64 = switch_marker;
+            break_vla_marker64 = vla_switch_marker;
             current_switch_codegen64 = &context;
             gen64_stmt(mod, stmt->switch_body);
             current_switch_codegen64 = old_switch;
             break_label64 = old_break;
             break_cleanup_marker64 = old_break_cleanup;
+            break_vla_marker64 = old_break_vla;
             emit64_label(mod, end_label);
             codegen64_release_switch_cases(context.cases);
             break;
@@ -3526,6 +3609,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_GOTO:
             if (!gen64_cleanup_count(mod, stmt->goto_cleanup_count)) {
                 rcc_error(stmt->loc, "invalid C++ goto cleanup path");
+                break;
+            }
+            if (!gen64_vla_count(mod, stmt->goto_vla_count)) {
+                rcc_error(stmt->loc, "invalid VLA goto path");
                 break;
             }
             emit64_jmp_label(mod, codegen64_named_label(stmt->goto_label));
@@ -3606,6 +3693,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     emit64_pop_reg(mod, RAX);
                 }
             }
+            gen64_vla_scopes_until(mod, NULL);
             if (stmt->return_val &&
                 gen64_is_floating(current_function_return_type64)) {
                 emit64_mov_xmm_from_gpr(
@@ -3619,6 +3707,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_BREAK:
             if (break_label64 >= 0) {
                 gen64_cleanups_until(mod, break_cleanup_marker64);
+                gen64_vla_scopes_until(mod, break_vla_marker64);
                 emit64_jmp_label(mod, break_label64);
             }
             break;
@@ -3626,6 +3715,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_CONTINUE:
             if (continue_label64 >= 0) {
                 gen64_cleanups_until(mod, continue_cleanup_marker64);
+                gen64_vla_scopes_until(mod, continue_vla_marker64);
                 emit64_jmp_label(mod, continue_label64);
             }
             break;
@@ -3634,6 +3724,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen64_vla_alloc(mod, d);
+                record64_vla_scope(d);
             } else if (d->kind == DECL_VAR && d->var_init) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
@@ -3740,6 +3831,9 @@ static void gen64_function(Module* mod, Decl* decl) {
     int stack_size;
     Type* old_return_type;
     CleanupCodegen64* old_cleanups;
+    VLAScopeCodegen64* old_vla_scopes;
+    VLAScopeCodegen64* old_break_vla;
+    VLAScopeCodegen64* old_continue_vla;
     int old_sret_offset;
     bool old_variadic;
     int old_va_gp_offset;
@@ -3922,11 +4016,21 @@ static void gen64_function(Module* mod, Decl* decl) {
     current_function_va_overflow_offset64 = stack_cursor;
     current_function_va_reg_save_offset64 = va_reg_save_offset;
     old_cleanups = active_cleanups64;
+    old_vla_scopes = active_vla_scopes64;
+    old_break_vla = break_vla_marker64;
+    old_continue_vla = continue_vla_marker64;
     active_cleanups64 = NULL;
+    active_vla_scopes64 = NULL;
+    break_vla_marker64 = NULL;
+    continue_vla_marker64 = NULL;
     named_codegen_labels64 = NULL;
     gen64_stmt(mod, decl->func_body);
     discard64_cleanups_until(NULL);
+    discard64_vla_scopes_until(NULL);
     active_cleanups64 = old_cleanups;
+    active_vla_scopes64 = old_vla_scopes;
+    break_vla_marker64 = old_break_vla;
+    continue_vla_marker64 = old_continue_vla;
     codegen64_release_named_labels();
     current_function_return_type64 = old_return_type;
     current_function_sret_offset64 = old_sret_offset;

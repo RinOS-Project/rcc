@@ -2752,6 +2752,156 @@ static void sema_validate_cleanup_gotos(Stmt* statement) {
     }
 }
 
+typedef struct SemaVlaPath {
+    struct SemaVlaPath* previous;
+    struct SemaVlaPath* allocation_next;
+} SemaVlaPath;
+
+typedef struct SemaVlaLabel {
+    const char* name;
+    SemaVlaPath* path;
+    struct SemaVlaLabel* next;
+} SemaVlaLabel;
+
+typedef struct SemaVlaGoto {
+    Stmt* statement;
+    SemaVlaPath* path;
+    struct SemaVlaGoto* next;
+} SemaVlaGoto;
+
+typedef struct SemaVlaGotoContext {
+    SemaVlaPath* allocations;
+    SemaVlaLabel* labels;
+    SemaVlaGoto* gotos;
+} SemaVlaGotoContext;
+
+static SemaVlaLabel* sema_find_vla_label(SemaVlaGotoContext* context,
+                                         const char* name) {
+    SemaVlaLabel* label = context->labels;
+    while (label && strcmp(label->name, name) != 0) label = label->next;
+    return label;
+}
+
+static void sema_record_vla_label(SemaVlaGotoContext* context,
+                                  const char* name, SemaVlaPath* path) {
+    SemaVlaLabel* label = sema_find_vla_label(context, name);
+    if (label) return;
+    label = rcc_alloc(sizeof(*label));
+    label->name = name;
+    label->path = path;
+    label->next = context->labels;
+    context->labels = label;
+}
+
+static void sema_collect_vla_gotos(Stmt* statement, SemaVlaPath** active,
+                                   SemaVlaGotoContext* context) {
+    SemaVlaPath* marker;
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            marker = *active;
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                sema_collect_vla_gotos(item->stmt, active, context);
+            }
+            *active = marker;
+            break;
+        case STMT_IF:
+            marker = *active;
+            sema_collect_vla_gotos(statement->if_then, active, context);
+            *active = marker;
+            sema_collect_vla_gotos(statement->if_else, active, context);
+            *active = marker;
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            marker = *active;
+            sema_collect_vla_gotos(statement->while_body, active, context);
+            *active = marker;
+            break;
+        case STMT_FOR:
+            marker = *active;
+            sema_collect_vla_gotos(statement->for_init, active, context);
+            sema_collect_vla_gotos(statement->for_body, active, context);
+            *active = marker;
+            break;
+        case STMT_SWITCH:
+            marker = *active;
+            sema_collect_vla_gotos(statement->switch_body, active, context);
+            *active = marker;
+            break;
+        case STMT_CASE:
+            sema_collect_vla_gotos(statement->case_stmt, active, context);
+            break;
+        case STMT_DEFAULT:
+            sema_collect_vla_gotos(statement->default_stmt, active, context);
+            break;
+        case STMT_LABEL:
+            sema_record_vla_label(context, statement->label_name, *active);
+            sema_collect_vla_gotos(statement->label_stmt, active, context);
+            break;
+        case STMT_GOTO: {
+            SemaVlaGoto* item = rcc_alloc(sizeof(*item));
+            item->statement = statement;
+            item->path = *active;
+            item->next = context->gotos;
+            context->gotos = item;
+            break;
+        }
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR &&
+                statement->decl->var_is_vla) {
+                SemaVlaPath* path = rcc_alloc(sizeof(*path));
+                path->previous = *active;
+                path->allocation_next = context->allocations;
+                context->allocations = path;
+                *active = path;
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void sema_validate_vla_gotos(Stmt* statement) {
+    SemaVlaGotoContext context = {0};
+    SemaVlaPath* active = NULL;
+    SemaVlaGoto* item;
+    sema_collect_vla_gotos(statement, &active, &context);
+    for (item = context.gotos; item; item = item->next) {
+        SemaVlaLabel* label = sema_find_vla_label(
+            &context, item->statement->goto_label);
+        SemaVlaPath* path = item->path;
+        unsigned count = 0;
+        if (!label) continue;
+        while (path && path != label->path) {
+            path = path->previous;
+            ++count;
+        }
+        if (path != label->path) {
+            rcc_error(item->statement->loc,
+                      "goto enters a variable-length array scope");
+        } else {
+            item->statement->goto_vla_count = count;
+        }
+    }
+    while (context.gotos) {
+        SemaVlaGoto* next = context.gotos->next;
+        rcc_free(context.gotos);
+        context.gotos = next;
+    }
+    while (context.labels) {
+        SemaVlaLabel* next = context.labels->next;
+        rcc_free(context.labels);
+        context.labels = next;
+    }
+    while (context.allocations) {
+        SemaVlaPath* next = context.allocations->allocation_next;
+        rcc_free(context.allocations);
+        context.allocations = next;
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
@@ -2933,6 +3083,7 @@ static void sema_decl(Decl* decl) {
                 current_switch = NULL;
                 sema_stmt(decl->func_body);
                 sema_validate_cleanup_gotos(decl->func_body);
+                sema_validate_vla_gotos(decl->func_body);
 
                 /* Check for undefined labels */
                 for (Symbol* label = g_symtab->labels; label; label = label->next) {

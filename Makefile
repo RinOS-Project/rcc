@@ -106,7 +106,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -409,6 +409,14 @@ test-vla-runtime: $(RCC_TARGET)
 	$(TEST_OUT)/vla-runtime/x64
 	@echo "C17 VLA runtime tests completed"
 endif
+
+test-vla-semantics: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/vla-semantics)
+	powershell -NoProfile -Command "& './rcc.exe' --target i686-unknown-rinos -c -o '$(TEST_OUT)/vla-semantics/invalid-x86.ro' tests/invalid_vla_goto.c *> '$(TEST_OUT)/vla-semantics/invalid-x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -c -o '$(TEST_OUT)/vla-semantics/invalid-x64.ro' tests/invalid_vla_goto.c *> '$(TEST_OUT)/vla-semantics/invalid-x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'goto enters a variable-length array scope' -Path '$(TEST_OUT)/vla-semantics/invalid-x86.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'goto enters a variable-length array scope' -Path '$(TEST_OUT)/vla-semantics/invalid-x64.log')) { exit 1 }"
+	@echo "Dual-architecture VLA goto semantic tests completed"
 
 test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-qualified-namespaces

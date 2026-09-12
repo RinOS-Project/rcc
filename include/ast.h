@@ -478,6 +478,8 @@ typedef struct StmtList {
 struct Stmt {
     StmtKind kind;
     SourceLoc loc;
+    /* Fixed-frame slot used to restore RSP when a VLA-owning scope ends. */
+    int vla_stack_offset;
 
     union {
         /* STMT_EXPR */
@@ -529,6 +531,7 @@ struct Stmt {
         struct {
             const char* goto_label;
             unsigned goto_cleanup_count;
+            unsigned goto_vla_count;
         };
 
         /* STMT_LABEL */
@@ -625,6 +628,7 @@ struct Decl {
             Expr* var_init;
             int var_offset;         /* Stack offset (set during codegen) */
             int var_vla_size_offset; /* Saved runtime VLA byte size */
+            int var_vla_scope_offset; /* Owning scope's saved stack slot */
             bool var_is_global;
             bool var_is_thread_local;
             bool var_is_vla;
