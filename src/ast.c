@@ -150,6 +150,10 @@ Type* type_ptr(Type* base) {
     t->align = t->size;
     t->base = base;
     t->array_bound = NULL;
+    t->array_parameter_static = false;
+    t->array_parameter_const = false;
+    t->array_parameter_volatile = false;
+    t->array_parameter_restrict = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     return t;
@@ -163,6 +167,10 @@ Type* type_array(Type* base, int len) {
     t->base = base;
     t->array_len = len;
     t->array_bound = NULL;
+    t->array_parameter_static = false;
+    t->array_parameter_const = false;
+    t->array_parameter_volatile = false;
+    t->array_parameter_restrict = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     return t;

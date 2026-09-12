@@ -1563,6 +1563,21 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     *tail = field;
 }
 
+static bool parser_type_has_array_parameter_spec(Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_parameter_static ||
+               type->array_parameter_const ||
+               type->array_parameter_volatile ||
+               type->array_parameter_restrict ||
+               parser_type_has_array_parameter_spec(type->base);
+    }
+    if (type->kind == TYPE_PTR) {
+        return parser_type_has_array_parameter_spec(type->base);
+    }
+    return false;
+}
+
 static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
     TypeField** tail = &aggregate->fields;
     int alignment = anonymous && anonymous->align > 0 ? anonymous->align : 1;
@@ -1623,6 +1638,10 @@ static void parse_aggregate_body(Type* aggregate) {
         do {
             const char* field_name = NULL;
             Type* field_type = parse_declarator(field_base, &field_name, NULL);
+            if (parser_type_has_array_parameter_spec(field_type)) {
+                rcc_error(previous()->loc,
+                          "array parameter qualifiers are only valid in function parameter declarations");
+            }
             if (!field_name) {
                 if ((field_type->kind == TYPE_STRUCT ||
                      field_type->kind == TYPE_UNION) &&
@@ -1811,7 +1830,18 @@ static DeclList* parse_parameter_list(bool* variadic) {
         parameter_type = parse_declarator(parameter_base, &parameter_name, NULL);
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_array_type = parameter_type;
-            parameter_type = type_ptr(parameter_type->base);
+            {
+                Type* adjusted = type_ptr(parameter_type->base);
+                adjusted->is_const = parameter_type->is_const;
+                adjusted->is_volatile = parameter_type->is_volatile;
+                adjusted->is_const = adjusted->is_const ||
+                    parameter_type->array_parameter_const;
+                adjusted->is_volatile = adjusted->is_volatile ||
+                    parameter_type->array_parameter_volatile;
+                adjusted->is_restrict =
+                    parameter_type->array_parameter_restrict;
+                parameter_type = adjusted;
+            }
         } else if (parameter_type->kind == TYPE_FUNC) {
             parameter_type = type_ptr(parameter_type);
         }
@@ -1836,6 +1866,7 @@ static DeclList* parse_parameter_list(bool* variadic) {
 typedef struct ParsedPointerLevel {
     bool is_const;
     bool is_volatile;
+    bool is_restrict;
     struct ParsedPointerLevel* next;
 } ParsedPointerLevel;
 
@@ -1848,7 +1879,7 @@ static ParsedPointerLevel* parse_pointer_levels(void) {
                check(TOK_RESTRICT)) {
             if (match(TOK_CONST)) level->is_const = true;
             else if (match(TOK_VOLATILE)) level->is_volatile = true;
-            else advance();
+            else if (match(TOK_RESTRICT)) level->is_restrict = true;
         }
         *tail = level;
         tail = &level->next;
@@ -1862,6 +1893,7 @@ static Type* apply_pointer_levels(Type* type,
         type = type_ptr(type);
         type->is_const = level->is_const;
         type->is_volatile = level->is_volatile;
+        type->is_restrict = level->is_restrict;
     }
     return type;
 }
@@ -1873,6 +1905,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
     int array_lengths[32];
     Expr* array_bounds[32];
     SourceLoc array_locs[32];
+    bool array_statics[32];
+    bool array_consts[32];
+    bool array_volatiles[32];
+    bool array_restricts[32];
     int array_count = 0;
     if (name) *name = NULL;
     if (parameters) *parameters = NULL;
@@ -1916,6 +1952,16 @@ static Type* parse_declarator(Type* base_type, const char** name,
         if (match(TOK_LBRACKET)) {
             int length = -1;
             Expr* bound_expression = NULL;
+            bool parameter_static = match(TOK_STATIC);
+            bool parameter_const = false;
+            bool parameter_volatile = false;
+            bool parameter_restrict = false;
+            while (check(TOK_CONST) || check(TOK_VOLATILE) ||
+                   check(TOK_RESTRICT)) {
+                if (match(TOK_CONST)) parameter_const = true;
+                else if (match(TOK_VOLATILE)) parameter_volatile = true;
+                else if (match(TOK_RESTRICT)) parameter_restrict = true;
+            }
             if (!check(TOK_RBRACKET)) {
                 Expr* bound = parse_assignment();
                 int64_t constant = 0;
@@ -1942,6 +1988,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 array_lengths[array_count] = length;
                 array_bounds[array_count] = bound_expression;
                 array_locs[array_count] = previous()->loc;
+                array_statics[array_count] = parameter_static;
+                array_consts[array_count] = parameter_const;
+                array_volatiles[array_count] = parameter_volatile;
+                array_restricts[array_count] = parameter_restrict;
                 ++array_count;
             }
         } else if (match(TOK_LPAREN)) {
@@ -1971,6 +2021,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
         }
         type = type_array(type, length);
         type->array_bound = array_bounds[array_count];
+        type->array_parameter_static = array_statics[array_count];
+        type->array_parameter_const = array_consts[array_count];
+        type->array_parameter_volatile = array_volatiles[array_count];
+        type->array_parameter_restrict = array_restricts[array_count];
     }
     return type;
 }

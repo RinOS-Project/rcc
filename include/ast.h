@@ -86,6 +86,7 @@ struct Type {
     bool is_unsigned;
     bool is_const;
     bool is_volatile;
+    bool is_restrict;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;
     bool cxx_is_class;
@@ -108,6 +109,10 @@ struct Type {
             Type* base;
             int array_len;      /* -1 for flexible array */
             Expr* array_bound;  /* non-NULL for a runtime VLA bound */
+            bool array_parameter_static;
+            bool array_parameter_const;
+            bool array_parameter_volatile;
+            bool array_parameter_restrict;
         };
         /* TYPE_FUNC */
         struct {

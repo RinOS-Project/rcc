@@ -34,6 +34,8 @@ static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 static bool sema_atomic_builtin_call(Expr* expr);
+static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
+                                               bool is_parameter);
 
 /* C++ new/delete are language expressions, so they do not require a source
  * declaration for the RinOS allocation ABI.  Materialize the two C-linkage
@@ -1076,6 +1078,8 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_SIZEOF: {
             if (expr->sizeof_type) {
+                sema_validate_array_parameter_type(expr->sizeof_type,
+                                                   expr->loc, false);
                 expr->type = type_uint;
             } else {
                 sema_expr(expr->unary_operand);
@@ -1086,6 +1090,8 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_CAST: {
             sema_expr(expr->cast_expr);
+            sema_validate_array_parameter_type(expr->cast_type,
+                                               expr->loc, false);
             expr->type = expr->cast_type;
             break;
         }
@@ -1956,6 +1962,29 @@ static void sema_vla_bounds(Type* type, SourceLoc loc) {
                   "variable-length array bound requires an integer type");
     }
     (void)loc;
+}
+
+static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
+                                               bool is_parameter) {
+    if (!type) return;
+    if (type->kind == TYPE_ARRAY) {
+        bool has_spec = type->array_parameter_static ||
+            type->array_parameter_const ||
+            type->array_parameter_volatile ||
+            type->array_parameter_restrict;
+        if (has_spec && !is_parameter) {
+            rcc_error(loc,
+                      "array parameter qualifiers are only valid in function parameter declarations");
+        }
+        if (is_parameter && type->array_parameter_static &&
+            type->array_len <= 0 && !type->array_bound) {
+            rcc_error(loc,
+                      "static array parameter requires a bound expression");
+        }
+        sema_validate_array_parameter_type(type->base, loc, is_parameter);
+    } else if (type->kind == TYPE_PTR) {
+        sema_validate_array_parameter_type(type->base, loc, is_parameter);
+    }
 }
 
 static Expr* initializer_character_string(Type* type, Expr* initializer) {
@@ -2921,6 +2950,7 @@ static void sema_decl(Decl* decl) {
                 rcc_error(decl->loc,
                           "thread-local variable cannot use auto or register storage");
             }
+            sema_validate_array_parameter_type(decl->type, decl->loc, false);
             if (sema_type_has_vla(decl->type)) {
                 sema_vla_bounds(decl->type, decl->loc);
                 if (is_global) {
@@ -3079,6 +3109,8 @@ static void sema_decl(Decl* decl) {
                 }
                 for (DeclList* p = decl->func_params; p; p = p->next) {
                     if (p->decl && p->decl->param_array_type) {
+                        sema_validate_array_parameter_type(
+                            p->decl->param_array_type, p->decl->loc, true);
                         sema_vla_bounds(p->decl->param_array_type,
                                         p->decl->loc);
                     }
@@ -3111,6 +3143,8 @@ static void sema_decl(Decl* decl) {
             break;
 
         case DECL_TYPEDEF: {
+            sema_validate_array_parameter_type(decl->typedef_type,
+                                               decl->loc, false);
             symtab_define(g_symtab, decl->name, SYM_TYPE, decl->typedef_type, decl->loc);
             break;
         }

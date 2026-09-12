@@ -59,7 +59,9 @@
       必要なstack extentだけを復元
   - [x] Cの配列parameterをpointerへadjustし、variably modifiedな内側配列の
         bound検査と多次元index stride計算を保持
-  - [ ] parameter boundの一回評価、`static`／qualifier指定、全宣言形式
+  - [ ] parameter boundの一回評価、全宣言形式
+  - [x] 配列parameterの`static`／`const`／`volatile`／`restrict`指定を保持し、
+        調整後pointerへ反映。parameter以外の誤用とboundなし`static`を診断
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] scalar-only brace省略列を型のsubobject順にnested initializerへ正規化し、
         i686/AMD64のstatic/automatic storageへlowering
