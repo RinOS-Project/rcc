@@ -1790,6 +1790,7 @@ static DeclList* parse_parameter_list(bool* variadic) {
     while (!check(TOK_RPAREN) && !at_end()) {
         Type* parameter_base;
         Type* parameter_type;
+        Type* parameter_array_type = NULL;
         const char* parameter_name = NULL;
         Expr* parameter_default = NULL;
         Decl* parameter;
@@ -1809,6 +1810,7 @@ static DeclList* parse_parameter_list(bool* variadic) {
         }
         parameter_type = parse_declarator(parameter_base, &parameter_name, NULL);
         if (parameter_type->kind == TYPE_ARRAY) {
+            parameter_array_type = parameter_type;
             parameter_type = type_ptr(parameter_type->base);
         } else if (parameter_type->kind == TYPE_FUNC) {
             parameter_type = type_ptr(parameter_type);
@@ -1818,6 +1820,7 @@ static DeclList* parse_parameter_list(bool* variadic) {
         }
         parameter = decl_param(parameter_name, parameter_type,
                                parameter_index++, peek()->loc);
+        parameter->param_array_type = parameter_array_type;
         parameter->param_default = parameter_default;
         decllist_append(&parameters, parameter);
         if (!match(TOK_COMMA)) break;

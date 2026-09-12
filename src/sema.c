@@ -3077,6 +3077,12 @@ static void sema_decl(Decl* decl) {
                         param_offset += (parameter_size + 3) & ~3;
                     }
                 }
+                for (DeclList* p = decl->func_params; p; p = p->next) {
+                    if (p->decl && p->decl->param_array_type) {
+                        sema_vla_bounds(p->decl->param_array_type,
+                                        p->decl->loc);
+                    }
+                }
 
                 /* Analyze body */
                 loop_depth = 0;

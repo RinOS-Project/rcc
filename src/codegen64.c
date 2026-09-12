@@ -1746,7 +1746,13 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             gen64_expr(mod, expr->index_base);
             emit64_push_reg(mod, RAX);
             gen64_expr(mod, expr->index_expr);
-            if (expr->type && expr->type->size > 1) {
+            if (gen64_type_has_vla(expr->type)) {
+                emit64_push_reg(mod, RAX);
+                gen64_vla_extent(mod, expr->type);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_pop_reg(mod, RAX);
+                emit64_imul_reg_reg(mod, RAX, RCX);
+            } else if (expr->type && expr->type->size > 1) {
                 emit64_mov_reg_imm32(mod, RCX, expr->type->size);
                 emit64_imul_reg_reg(mod, RAX, RCX);
             }

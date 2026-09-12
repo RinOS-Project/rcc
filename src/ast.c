@@ -839,6 +839,7 @@ Decl* decl_param(const char* name, Type* type, int index, SourceLoc loc) {
     d->loc = loc;
     d->param_default = NULL;
     d->param_index = index;
+    d->param_array_type = NULL;
     return d;
 }
 

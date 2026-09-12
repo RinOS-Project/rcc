@@ -2625,7 +2625,13 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->index_expr);
             /* Multiply by element size */
-            if (expr->type && expr->type->size > 1) {
+            if (codegen_type_has_vla(expr->type)) {
+                emit_push_reg(mod, EAX);
+                gen_vla_extent(mod, expr->type);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EAX);
+                emit_imul_reg_reg(mod, EAX, ECX);
+            } else if (expr->type && expr->type->size > 1) {
                 emit_byte(mod, 0x6B);  /* IMUL EAX, EAX, imm8 */
                 emit_byte(mod, modrm(3, EAX, EAX));
                 emit_byte(mod, (uint8_t)expr->type->size);

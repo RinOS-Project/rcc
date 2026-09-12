@@ -621,6 +621,8 @@ struct Decl {
      * function types.  This remains outside the declaration union because
      * parameters reuse variable-layout fields for stack code generation. */
     Expr* param_default;
+    /* Original array declarator before C parameter adjustment. */
+    Type* param_array_type;
 
     union {
         /* DECL_VAR */
