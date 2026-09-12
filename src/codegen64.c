@@ -671,6 +671,149 @@ static bool gen64_is_floating(const Type* type) {
     return type && (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
 }
 
+static void emit64_jmp_label(Module* mod, int label);
+
+typedef enum {
+    GEN64_CLASS_NONE,
+    GEN64_CLASS_INTEGER,
+    GEN64_CLASS_SSE,
+    GEN64_CLASS_MEMORY
+} Gen64Class;
+
+typedef struct {
+    Gen64Class classes[2];
+    int count;
+    bool memory;
+} Gen64AggregateClass;
+
+typedef struct {
+    Gen64AggregateClass aggregate;
+    bool is_aggregate;
+    bool memory;
+    int storage;
+    int temp_offset;
+    int stack_offset;
+    int gp_start;
+    int fp_start;
+} Gen64CallArg;
+
+static Gen64Class gen64_merge_class(Gen64Class left, Gen64Class right) {
+    if (left == GEN64_CLASS_MEMORY || right == GEN64_CLASS_MEMORY) {
+        return GEN64_CLASS_MEMORY;
+    }
+    if (left == GEN64_CLASS_NONE) return right;
+    if (right == GEN64_CLASS_NONE || left == right) return left;
+    /* INTEGER dominates SSE for a mixed eightbyte. */
+    return GEN64_CLASS_INTEGER;
+}
+
+static bool gen64_classify_type_at(const Type* type, int base_offset,
+                                   Gen64AggregateClass* result) {
+    if (!type || !result || base_offset < 0 || type->size <= 0 ||
+        base_offset > 16 - type->size) {
+        return false;
+    }
+    if (type->align > 1 && base_offset % type->align != 0) return false;
+    if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
+        int index = base_offset / 8;
+        result->classes[index] = gen64_merge_class(
+            result->classes[index], GEN64_CLASS_SSE);
+        return true;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (type->array_len <= 0 || !type->base) return false;
+        for (int index = 0; index < type->array_len; ++index) {
+            int64_t offset = (int64_t)base_offset +
+                             (int64_t)index * type->base->size;
+            if (offset > INT_MAX ||
+                !gen64_classify_type_at(type->base, (int)offset, result)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        if (!type->is_complete || !type->fields || type->cxx_nontrivial) {
+            return false;
+        }
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            if (field->offset < 0 || field->offset > type->size ||
+                !gen64_classify_type_at(field->type,
+                                        base_offset + field->offset,
+                                        result)) {
+                return false;
+            }
+            if (type->kind == TYPE_UNION) break;
+        }
+        return true;
+    }
+    if (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
+        type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) {
+        int first = base_offset / 8;
+        int last = (base_offset + type->size - 1) / 8;
+        for (int index = first; index <= last && index < 2; ++index) {
+            result->classes[index] = gen64_merge_class(
+                result->classes[index], GEN64_CLASS_INTEGER);
+        }
+        return last < 2;
+    }
+    return false;
+}
+
+static Gen64AggregateClass gen64_classify_aggregate(const Type* type) {
+    Gen64AggregateClass result = {{GEN64_CLASS_NONE, GEN64_CLASS_NONE}, 0,
+                                  false};
+    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        type->size <= 0 || type->size > 16 ||
+        !gen64_classify_type_at(type, 0, &result)) {
+        result.memory = true;
+        result.count = type && type->size > 0
+            ? (type->size + 7) / 8 : 0;
+        return result;
+    }
+    result.count = (type->size + 7) / 8;
+    for (int index = 0; index < result.count; ++index) {
+        if (result.classes[index] == GEN64_CLASS_NONE) {
+            result.classes[index] = GEN64_CLASS_INTEGER;
+        }
+        if (result.classes[index] == GEN64_CLASS_MEMORY) {
+            result.memory = true;
+        }
+    }
+    return result;
+}
+
+static bool gen64_is_aggregate(const Type* type) {
+    return type && (type->kind == TYPE_STRUCT ||
+                    type->kind == TYPE_UNION);
+}
+
+static int gen64_aggregate_storage(const Type* type) {
+    int size = type ? type->size : 0;
+    if (size <= 0) size = 1;
+    return (size + 7) & ~7;
+}
+
+static void gen64_copy_memory(Module* mod, int destination_base,
+                              int32_t destination_offset, int source_base,
+                              int32_t source_offset, int size) {
+    int offset = 0;
+    while (offset + 8 <= size) {
+        emit64_mov_reg_mem(mod, RAX, source_base, source_offset + offset);
+        emit64_mov_mem_reg(mod, destination_base,
+                           destination_offset + offset, RAX);
+        offset += 8;
+    }
+    while (offset < size) {
+        emit64_load_typed(mod, RAX, source_base, source_offset + offset,
+                          type_uchar);
+        emit64_store_typed(mod, destination_base,
+                           destination_offset + offset, RAX, type_uchar);
+        ++offset;
+    }
+}
+
 static int gen64_float_width(const Type* type) {
     return type && type->kind == TYPE_FLOAT ? 4 : 8;
 }
@@ -735,6 +878,40 @@ static void gen64_float_cast(Module* mod, Expr* expression) {
     /* Integer casts retain the existing raw integer representation. */
 }
 
+/* Convert the raw value in RAX to the floating representation requested by
+ * the usual arithmetic conversions.  Binary expressions keep their original
+ * operand nodes, so code generation must perform this conversion explicitly
+ * when one operand is an integer and the other is floating. */
+static void gen64_convert_to_float(Module* mod, Type* source_type,
+                                   Type* destination_type) {
+    int source_width;
+    int destination_width;
+    bool converted = false;
+    if (!source_type || !destination_type ||
+        !gen64_is_floating(destination_type)) {
+        return;
+    }
+    destination_width = gen64_float_width(destination_type);
+    if (gen64_is_floating(source_type)) {
+        source_width = gen64_float_width(source_type);
+        if (source_width != destination_width) {
+            emit64_mov_xmm_from_gpr(mod, 0, RAX, source_width);
+            emit64_sse_convert(mod, 0x5A, 0, 0, source_width);
+            converted = true;
+        }
+    } else if (type_is_integer(source_type) ||
+               source_type->kind == TYPE_ENUM) {
+        source_width = source_type->size >= 8 ? 8 : 4;
+        emit64_int_to_sse(mod, 0, RAX, source_width, destination_width);
+        converted = true;
+    } else {
+        return;
+    }
+    if (converted) {
+        emit64_mov_gpr_from_xmm(mod, RAX, 0, destination_width);
+    }
+}
+
 static void gen64_float_truth(Module* mod, Expr* expression) {
     int width = gen64_float_width(expression ? expression->type : NULL);
     gen64_expr(mod, expression);
@@ -749,13 +926,19 @@ static void gen64_float_truth(Module* mod, Expr* expression) {
 }
 
 static void gen64_float_compare(Module* mod, Expr* expression) {
-    int width = gen64_float_width(expression->binary_lhs->type);
+    Type* comparison_type = type_common(expression->binary_lhs->type,
+                                        expression->binary_rhs->type);
+    int width = gen64_float_width(comparison_type);
     int first_cc;
     int second_cc = CC64_NP;
     bool disjunction = false;
     gen64_expr(mod, expression->binary_lhs);
+    gen64_convert_to_float(mod, expression->binary_lhs->type,
+                           comparison_type);
     emit64_push_reg(mod, RAX);
     gen64_expr(mod, expression->binary_rhs);
+    gen64_convert_to_float(mod, expression->binary_rhs->type,
+                           comparison_type);
     emit64_mov_reg_reg(mod, RCX, RAX);
     emit64_pop_reg(mod, RAX);
     emit64_mov_xmm_from_gpr(mod, 0, RAX, width);
@@ -815,6 +998,77 @@ static int current_function_va_gp_offset64 = 0;
 static int current_function_va_fp_offset64 = 48;
 static int current_function_va_overflow_offset64 = 0;
 static int current_function_va_reg_save_offset64 = 0;
+
+static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
+    Gen64AggregateClass classification = gen64_classify_aggregate(
+        expression ? expression->va_arg_type : NULL);
+    Type* type = expression ? expression->va_arg_type : NULL;
+    int overflow_label = new_label64();
+    int done_label = new_label64();
+    int gp_count = 0;
+    int fp_count = 0;
+    int rounded_size = gen64_aggregate_storage(type);
+
+    if (!type || expression->va_arg_result_offset >= 0) {
+        rcc_error(expression ? expression->loc : (SourceLoc){0},
+                  "aggregate va_arg has no automatic result slot");
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    if (!classification.memory) {
+        for (int index = 0; index < classification.count; ++index) {
+            if (classification.classes[index] == GEN64_CLASS_INTEGER) {
+                ++gp_count;
+            } else if (classification.classes[index] == GEN64_CLASS_SSE) {
+                ++fp_count;
+            }
+        }
+    }
+
+    gen64_lvalue(mod, expression->va_list_operand);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_lea(mod, R11, RBP, expression->va_arg_result_offset);
+    if (classification.memory) {
+        emit64_jmp_label(mod, overflow_label);
+    } else {
+        /* gp_offset and fp_offset are 32-bit fields in the SysV va_list. */
+        emit64_load_typed(mod, R8, RCX, 0, type_uint);
+        emit64_cmp_reg_imm(mod, R8, 48 - gp_count * 8);
+        emit64_jcc_label(mod, CC64_A, overflow_label);
+        emit64_load_typed(mod, R9, RCX, 4, type_uint);
+        emit64_cmp_reg_imm(mod, R9, 176 - fp_count * 16);
+        emit64_jcc_label(mod, CC64_A, overflow_label);
+        emit64_mov_reg_mem(mod, R10, RCX, 16);
+        {
+            for (int index = 0; index < classification.count; ++index) {
+                if (classification.classes[index] == GEN64_CLASS_INTEGER) {
+                    emit64_mov_reg_reg(mod, RAX, R8);
+                    emit64_add_reg_reg(mod, RAX, R10);
+                    emit64_mov_reg_mem(mod, RAX, RAX, 0);
+                    emit64_mov_mem_reg(mod, R11, index * 8, RAX);
+                    emit64_add_reg_imm(mod, R8, 8);
+                } else {
+                    emit64_mov_reg_reg(mod, RAX, R9);
+                    emit64_add_reg_reg(mod, RAX, R10);
+                    emit64_mov_xmm_from_memory(mod, 0, RAX, 0, 8);
+                    emit64_mov_gpr_from_xmm(mod, RAX, 0, 8);
+                    emit64_mov_mem_reg(mod, R11, index * 8, RAX);
+                    emit64_add_reg_imm(mod, R9, 16);
+                }
+            }
+        }
+        emit64_mov_mem_reg(mod, RCX, 0, R8);
+        emit64_mov_mem_reg(mod, RCX, 4, R9);
+        emit64_jmp_label(mod, done_label);
+    }
+    emit64_label(mod, overflow_label);
+    emit64_mov_reg_mem(mod, RDX, RCX, 8);
+    emit64_lea(mod, RAX, RDX, rounded_size);
+    emit64_mov_mem_reg(mod, RCX, 8, RAX);
+    gen64_copy_memory(mod, R11, 0, RDX, 0, type->size);
+    emit64_label(mod, done_label);
+    emit64_mov_reg_reg(mod, RAX, R11);
+}
 
 static Type* codegen64_comparison_type(Expr* expr) {
     Type* left = expr && expr->binary_lhs ? expr->binary_lhs->type : NULL;
@@ -1304,7 +1558,11 @@ static bool gen64_local_initializer(Module* mod, Type* type,
     if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->type && type_is_compatible(type, initializer->type)) {
         int offset = 0;
-        gen64_lvalue(mod, initializer);
+        if (initializer->kind == EXPR_VA_ARG) {
+            gen64_expr(mod, initializer);
+        } else {
+            gen64_lvalue(mod, initializer);
+        }
         emit64_mov_reg_reg(mod, RCX, RAX);
         while (offset + 8 <= type->size) {
             emit64_mov_reg_mem(mod, RAX, RCX, offset);
@@ -1546,6 +1804,16 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             }
             gen64_expr(mod, expr);
             emit64_lea(mod, RAX, RBP, expr->call_result_offset);
+            break;
+
+        case EXPR_VA_ARG:
+            if (!gen64_is_aggregate(expr ? expr->va_arg_type : NULL)) {
+                rcc_error(expr->loc,
+                          "va_arg aggregate address requested for scalar");
+                emit64_mov_reg_imm32(mod, RAX, 0u);
+            } else {
+                gen64_expr(mod, expr);
+            }
             break;
 
         case EXPR_ASSIGN:
@@ -1840,8 +2108,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_ADD:
             if (gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
+                gen64_convert_to_float(mod, expr->binary_lhs->type,
+                                       expr->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
+                gen64_convert_to_float(mod, expr->binary_rhs->type,
+                                       expr->type);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x58,
@@ -1871,8 +2143,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_SUB:
             if (gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
+                gen64_convert_to_float(mod, expr->binary_lhs->type,
+                                       expr->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
+                gen64_convert_to_float(mod, expr->binary_rhs->type,
+                                       expr->type);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x5C,
@@ -1906,8 +2182,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_MUL:
             if (gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
+                gen64_convert_to_float(mod, expr->binary_lhs->type,
+                                       expr->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
+                gen64_convert_to_float(mod, expr->binary_rhs->type,
+                                       expr->type);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x59,
@@ -1926,8 +2206,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_MOD:
             if (expr->kind == EXPR_DIV && gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
+                gen64_convert_to_float(mod, expr->binary_lhs->type,
+                                       expr->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
+                gen64_convert_to_float(mod, expr->binary_rhs->type,
+                                       expr->type);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x5E,
@@ -2087,7 +2371,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 (expr->binary_lhs->type->kind == TYPE_STRUCT ||
                  expr->binary_lhs->type->kind == TYPE_UNION)) {
                 int offset = 0;
-                if (expr->binary_rhs->kind == EXPR_ASSIGN) {
+                if (expr->binary_rhs->kind == EXPR_ASSIGN ||
+                    expr->binary_rhs->kind == EXPR_VA_ARG) {
                     gen64_expr(mod, expr->binary_rhs);
                 } else {
                     gen64_lvalue(mod, expr->binary_rhs);
@@ -2133,6 +2418,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                   expr->binary_lhs->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
+                gen64_convert_to_float(mod, expr->binary_rhs->type,
+                                       expr->binary_lhs->type);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(
@@ -2187,6 +2474,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                   expr->binary_lhs->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
+                gen64_convert_to_float(mod, expr->binary_rhs->type,
+                                       expr->binary_lhs->type);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(
@@ -2265,21 +2554,22 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             /* x86-64 System V ABI: RDI, RSI, RDX, RCX, R8, R9 */
             int arg_regs[] = {RDI, RSI, RDX, RCX, R8, R9};
             int argc = exprlist_len(expr->call_args);
-            int abi_argc = 0;
-            int integer_argc = 0;
-            int float_argc = 0;
-            int stack_argc;
+            int gp_cursor;
+            int fp_cursor;
+            int temp_bytes = 0;
+            int stack_bytes = 0;
             int stack_padding;
             bool aggregate_result = expr->type &&
                 (expr->type->kind == TYPE_STRUCT ||
                  expr->type->kind == TYPE_UNION);
-            bool memory_result = aggregate_result && expr->type->size > 16;
+            Gen64AggregateClass result_class = aggregate_result
+                ? gen64_classify_aggregate(expr->type)
+                : (Gen64AggregateClass){{GEN64_CLASS_NONE,
+                                         GEN64_CLASS_NONE}, 0, false};
+            bool memory_result = aggregate_result && result_class.memory;
             int register_base = memory_result ? 1 : 0;
-            int register_capacity = 6 - register_base;
-            int integer_register_cursor = register_base;
-            int float_register_cursor_call = 0;
-            bool register_only_call;
-            bool floating_stack_only_call;
+            Gen64CallArg* call_arguments = rcc_alloc(
+                (size_t)argc * sizeof(*call_arguments));
             Type* function_type;
             TypeParam* parameter;
 
@@ -2304,105 +2594,152 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                            a->expr->type->kind == TYPE_FLOAT
                             ? type_double : a->expr->type));
                 if (parameter) parameter = parameter->next;
-                if (argument_types[i - 1] &&
-                    argument_types[i - 1]->is_reference) {
-                    ++integer_argc;
-                    ++abi_argc;
-                } else if (a->expr->type &&
-                    (a->expr->type->kind == TYPE_STRUCT ||
-                     a->expr->type->kind == TYPE_UNION)) {
-                    int units = (a->expr->type->size + 7) / 8;
-                    integer_argc += units;
-                    abi_argc += units;
-                } else if (gen64_is_floating(argument_types[i - 1])) {
-                    ++float_argc;
-                    ++abi_argc;
+                call_arguments[i - 1].is_aggregate = gen64_is_aggregate(
+                    argument_types[i - 1]);
+                call_arguments[i - 1].aggregate =
+                    call_arguments[i - 1].is_aggregate
+                    ? gen64_classify_aggregate(argument_types[i - 1])
+                    : (Gen64AggregateClass){{GEN64_CLASS_NONE,
+                                             GEN64_CLASS_NONE}, 0, false};
+                call_arguments[i - 1].memory = false;
+                call_arguments[i - 1].storage = call_arguments[i - 1].is_aggregate
+                    ? gen64_aggregate_storage(argument_types[i - 1]) : 8;
+            }
+            gp_cursor = register_base;
+            fp_cursor = 0;
+            for (i = 0; i < argc; ++i) {
+                Gen64CallArg* argument = &call_arguments[i];
+                Type* type = argument_types[i];
+                if (argument->is_aggregate) {
+                    int gp_count = 0;
+                    int fp_count = 0;
+                    if (!argument->aggregate.memory) {
+                        for (int index = 0;
+                             index < argument->aggregate.count; ++index) {
+                            if (argument->aggregate.classes[index] ==
+                                GEN64_CLASS_INTEGER) {
+                                ++gp_count;
+                            } else if (argument->aggregate.classes[index] ==
+                                       GEN64_CLASS_SSE) {
+                                ++fp_count;
+                            }
+                        }
+                    }
+                    if (argument->aggregate.memory ||
+                        gp_cursor + gp_count > 6 || fp_cursor + fp_count > 8) {
+                        argument->memory = true;
+                    } else {
+                        argument->gp_start = gp_cursor;
+                        argument->fp_start = fp_cursor;
+                        gp_cursor += gp_count;
+                        fp_cursor += fp_count;
+                    }
+                } else if (type && type->is_reference) {
+                    if (gp_cursor < 6) {
+                        argument->gp_start = gp_cursor++;
+                    } else {
+                        argument->memory = true;
+                    }
+                } else if (gen64_is_floating(type)) {
+                    if (fp_cursor < 8) {
+                        argument->fp_start = fp_cursor++;
+                    } else {
+                        argument->memory = true;
+                    }
+                } else if (gp_cursor < 6) {
+                    argument->gp_start = gp_cursor++;
                 } else {
-                    ++integer_argc;
-                    ++abi_argc;
+                    argument->memory = true;
                 }
+                if (argument->memory) {
+                    argument->stack_offset = stack_bytes;
+                    stack_bytes += argument->storage;
+                }
+                call_arguments[i].temp_offset = temp_bytes;
+                temp_bytes += argument->storage;
             }
-            register_only_call = integer_argc <= register_capacity &&
-                                 float_argc <= 8;
-            floating_stack_only_call = integer_argc == 0 &&
-                                       float_argc > 8;
-            if (register_only_call) {
-                stack_argc = 0;
-            } else if (floating_stack_only_call) {
-                stack_argc = float_argc - 8;
-            } else {
-                stack_argc = abi_argc > register_capacity
-                    ? abi_argc - register_capacity : 0;
-            }
-            stack_padding = (stack_argc & 1) ? 8 : 0;
-            if (!register_only_call && !floating_stack_only_call &&
-                float_argc != 0) {
-                rcc_error(expr->loc,
-                          "floating call has no supported stack argument lowering");
-            }
+            stack_padding = (8 - ((temp_bytes + stack_bytes) & 15)) & 15;
 
-            /* Keep the call boundary 16-byte aligned. Evaluate every scalar
-             * argument to the temporary stack first; loading a later
-             * argument is then unable to clobber an earlier argument register. */
-            if (stack_padding) emit64_sub_reg_imm(mod, RSP, stack_padding);
+            /* Evaluate arguments into a private, contiguous temporary area.
+             * This keeps source evaluation independent of register assignment
+             * and lets mixed INTEGER/SSE aggregates be copied losslessly. */
+            if (temp_bytes) emit64_sub_reg_imm(mod, RSP, temp_bytes);
+            emit64_mov_reg_reg(mod, R10, RSP);
             for (i = argc - 1; i >= 0; i--) {
                 Expr* argument = args[i]->expr;
                 Type* passed_type = argument_types[i];
-                if (passed_type && passed_type->is_reference) {
-                    gen64_lvalue(mod, argument);
-                    emit64_push_reg(mod, RAX);
-                } else if (argument->type &&
-                    (argument->type->kind == TYPE_STRUCT ||
-                     argument->type->kind == TYPE_UNION)) {
-                    int units = (argument->type->size + 7) / 8;
-                    gen64_lvalue(mod, argument);
-                    emit64_mov_reg_reg(mod, R11, RAX);
-                    for (int unit = units - 1; unit >= 0; --unit) {
-                        emit64_mov_reg_mem(mod, RAX, R11, unit * 8);
-                        emit64_push_reg(mod, RAX);
+                Gen64CallArg* layout = &call_arguments[i];
+                if (layout->is_aggregate) {
+                    if (argument->kind == EXPR_VA_ARG) {
+                        gen64_expr(mod, argument);
+                    } else {
+                        gen64_lvalue(mod, argument);
                     }
+                    emit64_mov_reg_reg(mod, R11, RAX);
+                    gen64_copy_memory(mod, RSP, layout->temp_offset,
+                                      R11, 0, passed_type->size);
+                } else if (passed_type && passed_type->is_reference) {
+                    gen64_lvalue(mod, argument);
+                    emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                 } else {
                     gen64_expr(mod, argument);
-                    if (type_is_integer(argument_types[i]) ||
-                        (argument_types[i] &&
-                         argument_types[i]->kind == TYPE_ENUM)) {
+                    if (type_is_integer(passed_type) ||
+                        (passed_type && passed_type->kind == TYPE_ENUM)) {
                         emit64_normalize_atomic_value(mod, RAX,
-                                                       argument_types[i]);
+                                                       passed_type);
                     }
-                    emit64_push_reg(mod, RAX);
+                    emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                 }
             }
-            if (register_only_call) {
+
+            if (stack_bytes + stack_padding) {
+                emit64_sub_reg_imm(mod, RSP, stack_bytes + stack_padding);
+                emit64_mov_reg_reg(mod, RAX, RSP);
+                emit64_mov_reg_imm32(mod, RDX, 0u);
+                for (i = 0; i < stack_bytes; i += 8) {
+                    emit64_mov_mem_reg(mod, RSP, i, RDX);
+                }
+                emit64_mov_reg_reg(mod, R10, RSP);
+                emit64_add_reg_imm(mod, R10, stack_bytes + stack_padding);
                 for (i = 0; i < argc; ++i) {
-                    Expr* argument = args[i]->expr;
-                    Type* passed_type = argument_types[i];
-                    if (gen64_is_floating(passed_type)) {
-                        emit64_mov_xmm_from_memory(
-                            mod, float_register_cursor_call, RSP, 0,
-                            gen64_float_width(passed_type));
-                        ++float_register_cursor_call;
-                        emit64_add_reg_imm(mod, RSP, 8);
-                    } else if (argument->type &&
-                               (argument->type->kind == TYPE_STRUCT ||
-                                argument->type->kind == TYPE_UNION)) {
-                        int units = (argument->type->size + 7) / 8;
-                        for (int unit = 0; unit < units; ++unit) {
-                            emit64_pop_reg(
-                                mod, arg_regs[integer_register_cursor++]);
-                        }
-                    } else {
-                        emit64_pop_reg(mod, arg_regs[integer_register_cursor++]);
+                    Gen64CallArg* layout = &call_arguments[i];
+                    if (layout->memory) {
+                        gen64_copy_memory(mod, RSP, layout->stack_offset,
+                                          R10, layout->temp_offset,
+                                          layout->storage);
                     }
                 }
-            } else if (floating_stack_only_call) {
-                for (i = 0; i < 8; ++i) {
-                    emit64_mov_xmm_from_memory(
-                        mod, i, RSP, 0, gen64_float_width(argument_types[i]));
-                    emit64_add_reg_imm(mod, RSP, 8);
-                }
-            } else {
-                for (i = 0; i < abi_argc && i < register_capacity; ++i) {
-                    emit64_pop_reg(mod, arg_regs[register_base + i]);
+            }
+            gp_cursor = register_base;
+            fp_cursor = 0;
+            for (i = 0; i < argc; ++i) {
+                Type* passed_type = argument_types[i];
+                Gen64CallArg* layout = &call_arguments[i];
+                if (layout->memory) continue;
+                if (layout->is_aggregate) {
+                    for (int index = 0; index < layout->aggregate.count;
+                         ++index) {
+                        if (layout->aggregate.classes[index] ==
+                            GEN64_CLASS_INTEGER) {
+                            emit64_mov_reg_mem(
+                                mod, arg_regs[gp_cursor++],
+                                R10, layout->temp_offset + index * 8);
+                        } else {
+                            emit64_mov_xmm_from_memory(
+                                mod, fp_cursor++, R10,
+                                layout->temp_offset + index * 8, 8);
+                        }
+                    }
+                } else if (passed_type && passed_type->is_reference) {
+                    emit64_mov_reg_mem(mod, arg_regs[gp_cursor++], R10,
+                                       layout->temp_offset);
+                } else if (gen64_is_floating(passed_type)) {
+                    emit64_mov_xmm_from_memory(mod, fp_cursor++, R10,
+                                               layout->temp_offset,
+                                               gen64_float_width(passed_type));
+                } else {
+                    emit64_mov_reg_mem(mod, arg_regs[gp_cursor++], R10,
+                                       layout->temp_offset);
                 }
             }
             rcc_free(argument_types);
@@ -2416,13 +2753,6 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_lea(mod, RDI, RBP, expr->call_result_offset);
             }
 
-            if (function_type && function_type->kind == TYPE_FUNC &&
-                function_type->variadic &&
-                expr->call_func->kind == EXPR_IDENT) {
-                /* The current backend emits no vector arguments. */
-                emit64_mov_reg_imm32(mod, RAX, 0u);
-            }
-
             /* Direct calls use rel32 and produce a .ro relocation only when
              * the definition is external to this translation unit. */
             if (expr->call_func->kind == EXPR_IDENT &&
@@ -2430,6 +2760,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 expr->call_func->ident_decl->kind == DECL_FUNC) {
                 Decl* function = expr->call_func->ident_decl;
                 uint32_t call_offset;
+                if (function_type && function_type->kind == TYPE_FUNC &&
+                    function_type->variadic) {
+                    emit64_mov_reg_imm32(mod, RAX, (uint32_t)fp_cursor);
+                }
                 emit_byte(mod, 0xE8);
                 call_offset = code_offset(mod);
                 emit_dword(mod, 0u);
@@ -2442,7 +2776,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_mov_reg_reg(mod, R11, RAX);
                 if (function_type && function_type->kind == TYPE_FUNC &&
                     function_type->variadic) {
-                    emit64_mov_reg_imm32(mod, RAX, 0u);
+                    emit64_mov_reg_imm32(mod, RAX, (uint32_t)fp_cursor);
                 }
                 emit_byte(mod, 0xFF);  /* CALL R11 */
                 emit_byte(mod, modrm64(3, 2, R11));
@@ -2454,18 +2788,28 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
 
             if (aggregate_result && !memory_result) {
-                emit64_mov_mem_reg(mod, RBP, expr->call_result_offset, RAX);
-                if (expr->type->size > 8) {
-                    emit64_mov_mem_reg(mod, RBP,
-                                       expr->call_result_offset + 8, RDX);
+                int gp_return = 0;
+                int fp_return = 0;
+                for (int index = 0; index < result_class.count; ++index) {
+                    if (result_class.classes[index] == GEN64_CLASS_INTEGER) {
+                        emit64_mov_mem_reg(
+                            mod, RBP, expr->call_result_offset + index * 8,
+                            gp_return++ == 0 ? RAX : RDX);
+                    } else {
+                        emit64_mov_gpr_from_xmm(mod, RAX, fp_return++, 8);
+                        emit64_mov_mem_reg(
+                            mod, RBP, expr->call_result_offset + index * 8,
+                            RAX);
+                    }
                 }
             }
 
             /* Clean up stack arguments */
-            if (stack_argc || stack_padding) {
+            if (temp_bytes + stack_bytes + stack_padding) {
                 emit64_add_reg_imm(mod, RSP,
-                                   stack_argc * 8 + stack_padding);
+                                   temp_bytes + stack_bytes + stack_padding);
             }
+            rcc_free(call_arguments);
             break;
         }
 
@@ -2506,6 +2850,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_VA_ARG: {
+            if (gen64_is_aggregate(expr->va_arg_type)) {
+                gen64_va_arg_aggregate(mod, expr);
+                break;
+            }
             int overflow_label = new_label64();
             int load_label = new_label64();
             gen64_expr(mod, expr->va_list_operand);
@@ -3194,14 +3542,16 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     (current_function_return_type64->kind == TYPE_STRUCT ||
                      current_function_return_type64->kind == TYPE_UNION)) {
                     int size = current_function_return_type64->size;
-                    gen64_lvalue(mod, stmt->return_val);
-                    emit64_mov_reg_reg(mod, RCX, RAX);
-                    if (size <= 16) {
-                        emit64_mov_reg_mem(mod, RAX, RCX, 0);
-                        if (size > 8) {
-                            emit64_mov_reg_mem(mod, RDX, RCX, 8);
-                        }
+                    Gen64AggregateClass return_class =
+                        gen64_classify_aggregate(
+                            current_function_return_type64);
+                    if (stmt->return_val->kind == EXPR_VA_ARG) {
+                        gen64_expr(mod, stmt->return_val);
                     } else {
+                        gen64_lvalue(mod, stmt->return_val);
+                    }
+                    emit64_mov_reg_reg(mod, RCX, RAX);
+                    if (return_class.memory) {
                         int offset = 0;
                         emit64_mov_reg_mem(mod, R11, RBP,
                                            current_function_sret_offset64);
@@ -3218,6 +3568,22 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                             ++offset;
                         }
                         emit64_mov_reg_reg(mod, RAX, R11);
+                    } else {
+                        int gp_return = 0;
+                        int fp_return = 0;
+                        for (int index = 0; index < return_class.count;
+                             ++index) {
+                            if (return_class.classes[index] ==
+                                GEN64_CLASS_INTEGER) {
+                                emit64_mov_reg_mem(
+                                    mod,
+                                    gp_return++ == 0 ? RAX : RDX,
+                                    RCX, index * 8);
+                            } else {
+                                emit64_mov_xmm_from_memory(
+                                    mod, fp_return++, RCX, index * 8, 8);
+                            }
+                        }
                     }
                 } else {
                     gen64_expr(mod, stmt->return_val);
@@ -3357,9 +3723,12 @@ static void gen64_function(Module* mod, Decl* decl) {
     int64_t original_parameter_size = 0;
     Type* return_type = decl->type && decl->type->kind == TYPE_FUNC
         ? decl->type->ret_type : NULL;
-    bool memory_result = return_type &&
-        (return_type->kind == TYPE_STRUCT ||
-         return_type->kind == TYPE_UNION) && return_type->size > 16;
+    bool aggregate_return = return_type && gen64_is_aggregate(return_type);
+    Gen64AggregateClass return_class = aggregate_return
+        ? gen64_classify_aggregate(return_type)
+        : (Gen64AggregateClass){{GEN64_CLASS_NONE, GEN64_CLASS_NONE}, 0,
+                                false};
+    bool memory_result = aggregate_return && return_class.memory;
     bool variadic = decl->type && decl->type->kind == TYPE_FUNC &&
                     decl->type->variadic;
     int64_t parameter_frame_size = (memory_result ? 8 : 0) +
@@ -3448,61 +3817,86 @@ static void gen64_function(Module* mod, Decl* decl) {
     }
 
     /* Sema reserves parameter storage as part of the function frame. Rebuild
-     * those offsets and spill the SysV register arguments before the body so
-     * ordinary identifier/member code remains independent of caller-saved
-     * registers. Integer-only aggregates up to 16 bytes use one or two
-     * eightbyte classes, which covers the stable SDK's slice/string values. */
+     * the full SysV classification and spill every incoming argument before
+     * the body so ordinary identifier/member code remains independent of
+     * caller-saved registers. */
+    register_cursor = memory_result ? 1 : 0;
+    float_register_cursor = 0;
+    stack_cursor = 16;
     for (DeclList* parameter = decl->func_params; parameter;
          parameter = parameter->next) {
         Decl* value = parameter->decl;
         int size = value->type && value->type->size > 0
             ? value->type->size : 8;
-        int aggregate = value->type &&
-            (value->type->kind == TYPE_STRUCT ||
-             value->type->kind == TYPE_UNION ||
-             value->type->kind == TYPE_ARRAY);
-        int units = aggregate ? (size + 7) / 8 : 1;
-        if (value->type && gen64_is_floating(value->type)) {
-            int width = gen64_float_width(value->type);
-            if (float_register_cursor < 8) {
-                emit64_mov_memory_from_xmm(
-                    mod, RBP, value->var_offset,
-                    float_register_cursor++, width);
-            } else {
-                emit64_mov_xmm_from_memory(
-                    mod, 0, RBP, stack_cursor, width);
-                emit64_mov_memory_from_xmm(
-                    mod, RBP, value->var_offset, 0, width);
-                stack_cursor += (size + 7) & ~7;
+        bool aggregate = gen64_is_aggregate(value->type);
+        Gen64AggregateClass classification = aggregate
+            ? gen64_classify_aggregate(value->type)
+            : (Gen64AggregateClass){{GEN64_CLASS_NONE, GEN64_CLASS_NONE},
+                                    0, false};
+        int gp_count = 0;
+        int fp_count = 0;
+        bool memory_argument = false;
+        if (aggregate && !classification.memory) {
+            for (int index = 0; index < classification.count; ++index) {
+                if (classification.classes[index] == GEN64_CLASS_INTEGER) {
+                    ++gp_count;
+                } else if (classification.classes[index] ==
+                           GEN64_CLASS_SSE) {
+                    ++fp_count;
+                }
             }
+            memory_argument = register_cursor + gp_count > 6 ||
+                              float_register_cursor + fp_count > 8;
+        } else if (aggregate) {
+            memory_argument = true;
+        } else if (value->type && gen64_is_floating(value->type)) {
+            memory_argument = float_register_cursor >= 8;
+        } else {
+            memory_argument = register_cursor >= 6;
+        }
+        if (!memory_argument && value->type && gen64_is_floating(value->type)) {
+            int width = gen64_float_width(value->type);
+            emit64_mov_memory_from_xmm(
+                mod, RBP, value->var_offset,
+                float_register_cursor++, width);
             continue;
         }
-        if (units <= 2 && units <= 6 - register_cursor) {
-            if (aggregate) {
-                for (int unit = 0; unit < units; ++unit) {
-                    emit64_mov_mem_reg(mod, RBP,
-                        value->var_offset + unit * 8,
+        if (!memory_argument && aggregate) {
+            for (int index = 0; index < classification.count; ++index) {
+                if (classification.classes[index] == GEN64_CLASS_INTEGER) {
+                    emit64_mov_mem_reg(
+                        mod, RBP, value->var_offset + index * 8,
                         argument_registers[register_cursor++]);
+                } else {
+                    emit64_mov_gpr_from_xmm(
+                        mod, RAX, float_register_cursor++, 8);
+                    emit64_mov_mem_reg(
+                        mod, RBP, value->var_offset + index * 8, RAX);
                 }
-            } else {
-                emit64_store_typed(mod, RBP, value->var_offset,
-                                   argument_registers[register_cursor++],
-                                   value->type);
             }
+        } else if (!memory_argument) {
+            emit64_store_typed(mod, RBP, value->var_offset,
+                               argument_registers[register_cursor++],
+                               value->type);
         } else {
+            int storage = aggregate ? gen64_aggregate_storage(value->type)
+                                     : (size + 7) & ~7;
             if (aggregate) {
-                for (int unit = 0; unit < units; ++unit) {
-                    emit64_mov_reg_mem(mod, RAX, RBP,
-                                       stack_cursor + unit * 8);
-                    emit64_mov_mem_reg(mod, RBP,
-                                       value->var_offset + unit * 8, RAX);
-                }
+                gen64_copy_memory(mod, RBP, value->var_offset,
+                                  RBP, stack_cursor, size);
+            } else if (value->type && gen64_is_floating(value->type)) {
+                emit64_mov_xmm_from_memory(
+                    mod, 0, RBP, stack_cursor,
+                    gen64_float_width(value->type));
+                emit64_mov_memory_from_xmm(
+                    mod, RBP, value->var_offset, 0,
+                    gen64_float_width(value->type));
             } else {
                 emit64_load_typed(mod, RAX, RBP, stack_cursor, value->type);
                 emit64_store_typed(mod, RBP, value->var_offset, RAX,
                                    value->type);
             }
-            stack_cursor += (size + 7) & ~7;
+            stack_cursor += storage;
         }
     }
 

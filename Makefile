@@ -915,7 +915,7 @@ test-varargs: $(RCC_TARGET)
 	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_copy requires two va_list objects' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
 	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_end requires a va_list object' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
 	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_arg requires a va_list object' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_arg currently supports integer, pointer, and floating scalars up to 64 bits' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_arg requires a complete fixed scalar or aggregate object type' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
 	@echo "Dual-architecture C17 scalar varargs tests completed"
 else
 test-varargs: $(RCC_TARGET)
@@ -950,7 +950,7 @@ test-varargs: $(RCC_TARGET)
 		$(TEST_OUT)/varargs/invalid.log
 	grep -q "va_arg requires a va_list object" \
 		$(TEST_OUT)/varargs/invalid.log
-	grep -q "va_arg currently supports integer, pointer, and floating scalars up to 64 bits" \
+	grep -q "va_arg requires a complete fixed scalar or aggregate object type" \
 		$(TEST_OUT)/varargs/invalid.log
 	@echo "Dual-architecture C17 scalar varargs tests completed"
 endif

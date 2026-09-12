@@ -1,5 +1,15 @@
 #include <stdarg.h>
 
+struct Pair {
+    int first;
+    int second;
+};
+
+struct Mixed {
+    int first;
+    double second;
+};
+
 int sum_values(int count, ...)
 {
     va_list arguments;
@@ -91,6 +101,28 @@ int pointer_value(int ignored, ...)
     return *value;
 }
 
+int sum_pair(int ignored, ...)
+{
+    va_list arguments;
+    struct Pair value;
+    (void)ignored;
+    va_start(arguments, ignored);
+    value = va_arg(arguments, struct Pair);
+    va_end(arguments);
+    return value.first + value.second;
+}
+
+double sum_mixed(int ignored, ...)
+{
+    va_list arguments;
+    struct Mixed value;
+    (void)ignored;
+    va_start(arguments, ignored);
+    value = va_arg(arguments, struct Mixed);
+    va_end(arguments);
+    return value.first + value.second;
+}
+
 int generated_register_varargs(void)
 {
     return sum_values(5, 1, 2, 3, 4, 5);
@@ -131,4 +163,16 @@ int generated_pointer_varargs(void)
 {
     int value = 73;
     return pointer_value(0, &value);
+}
+
+int generated_pair_varargs(void)
+{
+    struct Pair value = {17, 25};
+    return sum_pair(0, value);
+}
+
+double generated_mixed_varargs(void)
+{
+    struct Mixed value = {3, 4.5};
+    return sum_mixed(0, value);
 }

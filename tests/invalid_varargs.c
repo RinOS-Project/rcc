@@ -1,10 +1,5 @@
 #include <stdarg.h>
 
-struct Pair {
-    int first;
-    int second;
-};
-
 int invalid_start(int value)
 {
     va_list arguments;
@@ -32,12 +27,11 @@ int invalid_list(int marker, ...)
     return va_arg(value, int);
 }
 
-int invalid_aggregate(int marker, ...)
+int invalid_void(int marker, ...)
 {
     va_list arguments;
-    struct Pair value;
     va_start(arguments, marker);
-    value = va_arg(arguments, struct Pair);
+    va_arg(arguments, void);
     va_end(arguments);
-    return value.first;
+    return marker;
 }

@@ -813,6 +813,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 value_args, value_present);
             copy->va_arg_type = template_substitute_type(
                 tmpl, expression->va_arg_type, args, arg_count);
+            copy->va_arg_result_offset = expression->va_arg_result_offset;
             break;
         default:
             break;

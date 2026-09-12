@@ -1243,20 +1243,25 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_VA_ARG: {
             Type* list_type = sema_expr(expr->va_list_operand);
+            Type* argument_type = expr->va_arg_type;
             if (!list_type || (list_type->kind != TYPE_ARRAY &&
                                list_type->kind != TYPE_PTR)) {
                 rcc_error(expr->loc, "va_arg requires a va_list object");
             }
-            if (!expr->va_arg_type ||
-                !(type_is_integer(expr->va_arg_type) ||
-                  expr->va_arg_type->kind == TYPE_ENUM ||
-                  expr->va_arg_type->kind == TYPE_PTR ||
-                  expr->va_arg_type->kind == TYPE_FLOAT ||
-                  expr->va_arg_type->kind == TYPE_DOUBLE) ||
-                expr->va_arg_type->size <= 0 ||
-                expr->va_arg_type->size > 8) {
+            if (!argument_type || !type_is_complete(argument_type) ||
+                argument_type->size <= 0 ||
+                (argument_type->kind != TYPE_STRUCT &&
+                 argument_type->kind != TYPE_UNION &&
+                 !(type_is_integer(argument_type) ||
+                   argument_type->kind == TYPE_ENUM ||
+                   argument_type->kind == TYPE_PTR ||
+                   argument_type->kind == TYPE_FLOAT ||
+                   argument_type->kind == TYPE_DOUBLE)) ||
+                ((argument_type->kind != TYPE_STRUCT &&
+                  argument_type->kind != TYPE_UNION) &&
+                 argument_type->size > 8)) {
                 rcc_error(expr->loc,
-                          "va_arg currently supports integer, pointer, and floating scalars up to 64 bits");
+                          "va_arg requires a complete fixed scalar or aggregate object type");
                 expr->va_arg_type = type_int;
             }
             expr->type = expr->va_arg_type;

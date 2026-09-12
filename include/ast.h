@@ -400,6 +400,7 @@ struct Expr {
             Expr* va_list_operand;
             Expr* va_second_operand;
             Type* va_arg_type;
+            int va_arg_result_offset; /* Aggregate va_arg spill slot. */
         };
     };
 };

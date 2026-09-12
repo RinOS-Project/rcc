@@ -2690,6 +2690,23 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             emit_dword(mod, (uint32_t)expr->call_result_offset);
             break;
 
+        case EXPR_VA_ARG:
+            if (!expr->va_arg_type ||
+                (expr->va_arg_type->kind != TYPE_STRUCT &&
+                 expr->va_arg_type->kind != TYPE_UNION)) {
+                rcc_error(expr->loc, "va_arg aggregate address requested for scalar");
+                emit_mov_reg_imm(mod, EAX, 0u);
+                break;
+            }
+            if (expr->va_arg_result_offset >= 0) {
+                rcc_error(expr->loc,
+                          "aggregate va_arg has no automatic result slot");
+                emit_mov_reg_imm(mod, EAX, 0u);
+                break;
+            }
+            gen_expr(mod, expr);
+            break;
+
         case EXPR_ASSIGN:
             if (expr->type &&
                 (expr->type->kind == TYPE_STRUCT ||
@@ -3197,6 +3214,28 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             break;
 
         case EXPR_VA_ARG: {
+            if (expr->va_arg_type &&
+                (expr->va_arg_type->kind == TYPE_STRUCT ||
+                 expr->va_arg_type->kind == TYPE_UNION)) {
+                int size = expr->va_arg_type->size;
+                int step = (size + 3) & ~3;
+                gen_lvalue(mod, expr->va_list_operand);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_mov_reg_mem(mod, EAX, ECX, 0);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_add_reg_imm(mod, EAX, step);
+                emit_mov_mem_reg(mod, ECX, 0, EAX);
+                emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                emit_byte(mod, modrm(2, EAX, EBP));
+                emit_dword(mod, (uint32_t)expr->va_arg_result_offset);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                for (int offset = 0; offset < size; ++offset) {
+                    emit_load_typed32(mod, EAX, EDX, offset, type_uchar);
+                    emit_store_typed32(mod, ECX, offset, EAX, type_uchar);
+                }
+                emit_mov_reg_reg(mod, EAX, ECX);
+                break;
+            }
             int step = (expr->va_arg_type->size + 3) & ~3;
             gen_lvalue(mod, expr->va_list_operand);
             emit_mov_reg_reg(mod, ECX, EAX);
@@ -3544,7 +3583,11 @@ static void gen_call(Module* mod, Expr* expr) {
         if (passed_type && (passed_type->kind == TYPE_STRUCT ||
                             passed_type->kind == TYPE_UNION)) {
             int units = (passed_type->size + 3) / 4;
-            gen_lvalue(mod, argument);
+            if (argument->kind == EXPR_VA_ARG) {
+                gen_expr(mod, argument);
+            } else {
+                gen_lvalue(mod, argument);
+            }
             emit_mov_reg_reg(mod, ECX, EAX);
             for (int unit = units - 1; unit >= 0; --unit) {
                 emit_mov_reg_mem(mod, EAX, ECX, unit * 4);
@@ -4164,7 +4207,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 (expr->binary_lhs->type->kind == TYPE_STRUCT ||
                  expr->binary_lhs->type->kind == TYPE_UNION)) {
                 int offset = 0;
-                if (expr->binary_rhs->kind == EXPR_ASSIGN) {
+                if (expr->binary_rhs->kind == EXPR_ASSIGN ||
+                    expr->binary_rhs->kind == EXPR_VA_ARG) {
                     gen_expr(mod, expr->binary_rhs);
                 } else {
                     gen_lvalue(mod, expr->binary_rhs);
@@ -4372,6 +4416,28 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_VA_ARG: {
+            if (expr->va_arg_type &&
+                (expr->va_arg_type->kind == TYPE_STRUCT ||
+                 expr->va_arg_type->kind == TYPE_UNION)) {
+                int size = expr->va_arg_type->size;
+                int step = (size + 3) & ~3;
+                gen_lvalue(mod, expr->va_list_operand);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_mov_reg_mem(mod, EAX, ECX, 0);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_add_reg_imm(mod, EAX, step);
+                emit_mov_mem_reg(mod, ECX, 0, EAX);
+                emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                emit_byte(mod, modrm(2, EAX, EBP));
+                emit_dword(mod, (uint32_t)expr->va_arg_result_offset);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                for (int offset = 0; offset < size; ++offset) {
+                    emit_load_typed32(mod, EAX, EDX, offset, type_uchar);
+                    emit_store_typed32(mod, ECX, offset, EAX, type_uchar);
+                }
+                emit_mov_reg_reg(mod, EAX, ECX);
+                break;
+            }
             int step = (expr->va_arg_type->size + 3) & ~3;
             gen_lvalue(mod, expr->va_list_operand);
             emit_mov_reg_reg(mod, ECX, EAX);
@@ -4953,6 +5019,22 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             expression->call_result_offset = -*bytes;
         }
     }
+    if (expression->kind == EXPR_VA_ARG && expression->va_arg_type &&
+        (expression->va_arg_type->kind == TYPE_STRUCT ||
+         expression->va_arg_type->kind == TYPE_UNION)) {
+        int size = expression->va_arg_type->size;
+        int alignment = expression->va_arg_type->align;
+        int64_t extent;
+        if (alignment < stack_alignment) alignment = stack_alignment;
+        if (size <= 0) size = 1;
+        extent = (int64_t)*bytes + size;
+        if (extent > INT_MAX) {
+            *bytes = INT_MAX;
+        } else {
+            *bytes = codegen_align_frame_bytes((int)extent, alignment);
+            expression->va_arg_result_offset = -*bytes;
+        }
+    }
 
     switch (expression->kind) {
         case EXPR_NEG:
@@ -5270,7 +5352,11 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
     if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->type && type_is_compatible(type, initializer->type)) {
         int offset = 0;
-        gen_lvalue(mod, initializer);
+        if (initializer->kind == EXPR_VA_ARG) {
+            gen_expr(mod, initializer);
+        } else {
+            gen_lvalue(mod, initializer);
+        }
         emit_mov_reg_reg(mod, ECX, EAX);
         while (offset + 4 <= type->size) {
             emit_mov_reg_mem(mod, EAX, ECX, offset);
@@ -5741,7 +5827,11 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     (current_function_return_type->kind == TYPE_STRUCT ||
                      current_function_return_type->kind == TYPE_UNION)) {
                     int offset = 0;
-                    gen_lvalue(mod, stmt->return_val);
+                    if (stmt->return_val->kind == EXPR_VA_ARG) {
+                        gen_expr(mod, stmt->return_val);
+                    } else {
+                        gen_lvalue(mod, stmt->return_val);
+                    }
                     emit_mov_reg_reg(mod, ECX, EAX);
                     emit_mov_reg_mem(mod, EDX, EBP, 8);
                     while (offset + 4 <= current_function_return_type->size) {

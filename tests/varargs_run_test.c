@@ -45,6 +45,8 @@ int main(int argc, char** argv)
     nullary_double_function generated_stack_floating;
     nullary_int_function generated_copy_varargs;
     nullary_int_function generated_pointer_varargs;
+    nullary_int_function generated_pair_varargs;
+    nullary_double_function generated_mixed_varargs;
     variadic_int_function sum_values;
     variadic_wide_function select_wide_value;
     variadic_int_function copy_values;
@@ -85,6 +87,10 @@ int main(int argc, char** argv)
                   "generated_copy_varargs");
     LOAD_FUNCTION(generated_pointer_varargs, object, mapping,
                   "generated_pointer_varargs");
+    LOAD_FUNCTION(generated_pair_varargs, object, mapping,
+                  "generated_pair_varargs");
+    LOAD_FUNCTION(generated_mixed_varargs, object, mapping,
+                  "generated_mixed_varargs");
     LOAD_FUNCTION(sum_values, object, mapping, "sum_values");
     LOAD_FUNCTION(select_wide_value, object, mapping, "select_wide_value");
     LOAD_FUNCTION(copy_values, object, mapping, "copy_values");
@@ -101,6 +107,9 @@ int main(int argc, char** argv)
            generated_stack_floating() < 45.0001);
     assert(generated_copy_varargs() == 447);
     assert(generated_pointer_varargs() == 73);
+    assert(generated_pair_varargs() == 42);
+    assert(generated_mixed_varargs() > 7.4999 &&
+           generated_mixed_varargs() < 7.5001);
     assert(sum_values(8, 1, 2, 3, 4, 5, 6, 7, 8) == 36);
     assert(select_wide_value(0, 0x1020304050607080LL) ==
            0x1020304050607080LL);

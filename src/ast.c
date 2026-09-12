@@ -596,6 +596,7 @@ Expr* expr_vararg(ExprKind kind, Expr* list, Expr* second, Type* type,
     expression->va_list_operand = list;
     expression->va_second_operand = second;
     expression->va_arg_type = type;
+    expression->va_arg_result_offset = 0;
     expression->type = kind == EXPR_VA_ARG ? type : type_void;
     return expression;
 }
