@@ -947,7 +947,9 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_FLOAT_LIT:
-            expr->type = type_double;
+            if (!expr->type || !type_is_floating(expr->type)) {
+                expr->type = type_double;
+            }
             break;
 
         case EXPR_CHAR_LIT:

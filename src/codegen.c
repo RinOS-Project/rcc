@@ -440,6 +440,62 @@ static bool codegen_static_integer(Expr* expression, int64_t* value) {
     }
 }
 
+/* Evaluate the floating subset permitted in a static initializer.  Keeping
+ * this separate from the integer evaluator avoids converting through a
+ * machine integer and preserves the IEEE bit pattern that the data emitter
+ * must publish. */
+static bool codegen_static_floating(Expr* expression, double* value) {
+    double left;
+    double right;
+    int64_t integer;
+    if (!expression || !value) return false;
+    if (expression->kind == EXPR_FLOAT_LIT) {
+        *value = expression->float_val;
+        return true;
+    }
+    if (expression->kind == EXPR_INT_LIT ||
+        expression->kind == EXPR_CHAR_LIT) {
+        if (!codegen_static_integer(expression, &integer)) return false;
+        *value = (double)integer;
+        return true;
+    }
+    if (expression->kind == EXPR_CAST) {
+        return codegen_static_floating(expression->cast_expr, value);
+    }
+    if (expression->kind == EXPR_NEG) {
+        if (!codegen_static_floating(expression->unary_operand, &left)) {
+            return false;
+        }
+        *value = -left;
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+            if (!codegen_static_floating(expression->binary_lhs, &left) ||
+                !codegen_static_floating(expression->binary_rhs, &right)) {
+                return false;
+            }
+            if (expression->kind == EXPR_DIV && right == 0.0) return false;
+            if (expression->kind == EXPR_ADD) *value = left + right;
+            else if (expression->kind == EXPR_SUB) *value = left - right;
+            else if (expression->kind == EXPR_MUL) *value = left * right;
+            else *value = left / right;
+            return true;
+        case EXPR_COND:
+            if (!codegen_static_integer(expression->cond_test, &integer)) {
+                return false;
+            }
+            return codegen_static_floating(
+                integer ? expression->cond_then : expression->cond_else,
+                value);
+        default:
+            return false;
+    }
+}
+
 static uint32_t codegen_pointer_element_size(const Type* type) {
     if (type && (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
         type->base && type->base->size > 0) {
@@ -702,6 +758,27 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
         return initializer->type &&
                initializer->type->kind == TYPE_NULLPTR;
     }
+    if (type_is_floating(type)) {
+        double value;
+        if (!codegen_static_floating(initializer, &value)) return false;
+        if (type->kind == TYPE_FLOAT) {
+            float narrowed = (float)value;
+            uint32_t bits;
+            memcpy(&bits, &narrowed, sizeof(bits));
+            for (uint32_t byte = 0u; byte < sizeof(bits); ++byte) {
+                mod->data.data[offset + byte] =
+                    (uint8_t)(bits >> (byte * 8u));
+            }
+        } else {
+            uint64_t bits;
+            memcpy(&bits, &value, sizeof(bits));
+            for (uint32_t byte = 0u; byte < sizeof(bits); ++byte) {
+                mod->data.data[offset + byte] =
+                    (uint8_t)(bits >> (byte * 8u));
+            }
+        }
+        return true;
+    }
     if (type_is_integer(type) || type->kind == TYPE_ENUM) {
         int64_t constant;
         uint32_t width = (uint32_t)type->size;
@@ -802,6 +879,17 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     if (type->kind == TYPE_NULLPTR) {
         return initializer->type &&
                initializer->type->kind == TYPE_NULLPTR;
+    }
+    if (type_is_floating(type)) {
+        double value;
+        if (!codegen_static_floating(initializer, &value)) return false;
+        if (type->kind == TYPE_FLOAT) {
+            float narrowed = (float)value;
+            memcpy(mod->tls.data + offset, &narrowed, sizeof(narrowed));
+        } else {
+            memcpy(mod->tls.data + offset, &value, sizeof(value));
+        }
+        return true;
     }
     if (type_is_integer(type) || type->kind == TYPE_ENUM) {
         int64_t constant;

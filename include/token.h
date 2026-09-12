@@ -192,6 +192,10 @@ typedef struct Token {
     uint8_t int_long_suffix;
     bool int_unsigned_suffix;
     bool int_overflow;
+    /* TOK_FLOAT_LIT metadata.  C distinguishes unsuffixed/double and
+     * `f`-suffixed/float literals; retaining the spelling keeps semantic
+     * analysis and object emission from silently widening every literal. */
+    bool float_suffix;
     SourceLoc loc;
     struct Token* next;
 } Token;

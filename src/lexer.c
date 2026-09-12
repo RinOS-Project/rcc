@@ -402,6 +402,9 @@ static Token* lex_number(Lexer* lex) {
     if (is_float) {
         tok = token_new(TOK_FLOAT_LIT, loc);
         tok->value.float_val = strtod(str, NULL);
+        tok->float_suffix = suffix_start < lex->pos &&
+                            (*suffix_start == 'f' ||
+                             *suffix_start == 'F');
     } else {
         const char* suffix = suffix_start;
         bool suffix_valid = true;

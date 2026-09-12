@@ -899,7 +899,10 @@ static Expr* parse_primary(void) {
                                     literal->int_long_suffix, loc);
     }
     if (match(TOK_FLOAT_LIT)) {
-        return expr_float(previous()->value.float_val, loc);
+        Token* literal = previous();
+        Expr* expression = expr_float(literal->value.float_val, loc);
+        if (literal->float_suffix) expression->type = type_float;
+        return expression;
     }
     if (match(TOK_CHAR_LIT)) {
         return expr_char(previous()->value.char_val, loc);
