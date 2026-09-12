@@ -2628,6 +2628,119 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
     return true;
 }
 
+static bool eval_template_integer_expression(Expr* expression,
+                                              CxxTemplate* tmpl,
+                                              const int64_t* values,
+                                              const bool* value_present,
+                                              int64_t* result) {
+    int64_t left;
+    int64_t right;
+    if (!expression || !result) return false;
+    if (expr_eval_integer_constant(expression, result)) return true;
+    if (expression->kind == EXPR_IDENT && tmpl && values && value_present) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                value_present[index] &&
+                strcmp(parameter->name, expression->ident_name) == 0) {
+                *result = values[index];
+                return true;
+            }
+        }
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+            if (!eval_template_integer_expression(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left)) return false;
+            *result = -left;
+            return true;
+        case EXPR_NOT:
+            if (!eval_template_integer_expression(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left)) return false;
+            *result = !left;
+            return true;
+        case EXPR_BITNOT:
+            if (!eval_template_integer_expression(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left)) return false;
+            *result = ~left;
+            return true;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            if (!eval_template_integer_expression(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left) ||
+                !eval_template_integer_expression(
+                    expression->binary_rhs, tmpl, values, value_present,
+                    &right)) return false;
+            switch (expression->kind) {
+                case EXPR_ADD: *result = left + right; break;
+                case EXPR_SUB: *result = left - right; break;
+                case EXPR_MUL: *result = left * right; break;
+                case EXPR_DIV:
+                    if (right == 0) return false;
+                    *result = left / right;
+                    break;
+                case EXPR_MOD:
+                    if (right == 0) return false;
+                    *result = left % right;
+                    break;
+                case EXPR_BITAND: *result = left & right; break;
+                case EXPR_BITOR: *result = left | right; break;
+                case EXPR_BITXOR: *result = left ^ right; break;
+                case EXPR_LSHIFT:
+                    if (right < 0 || right >= 64) return false;
+                    *result = (int64_t)((uint64_t)left << (unsigned)right);
+                    break;
+                case EXPR_RSHIFT:
+                    if (right < 0 || right >= 64) return false;
+                    *result = (int64_t)((uint64_t)left >> (unsigned)right);
+                    break;
+                case EXPR_EQ: *result = left == right; break;
+                case EXPR_NE: *result = left != right; break;
+                case EXPR_LT: *result = left < right; break;
+                case EXPR_GT: *result = left > right; break;
+                case EXPR_LE: *result = left <= right; break;
+                case EXPR_GE: *result = left >= right; break;
+                case EXPR_AND: *result = left && right; break;
+                case EXPR_OR: *result = left || right; break;
+                default: return false;
+            }
+            return true;
+        case EXPR_COND:
+            if (!eval_template_integer_expression(
+                    expression->cond_test, tmpl, values, value_present,
+                    &left)) return false;
+            return eval_template_integer_expression(
+                left ? expression->cond_then : expression->cond_else,
+                tmpl, values, value_present, result);
+        case EXPR_CAST:
+            return eval_template_integer_expression(
+                expression->cast_expr, tmpl, values, value_present, result);
+        default:
+            return false;
+    }
+}
+
 Type* rcc_parse_cxx_direct_list_type(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
@@ -2762,8 +2875,9 @@ Expr* rcc_parse_cxx_template_call(void) {
             } else if (parameter->kind == TPARAM_NONTYPE &&
                        parameter->default_value) {
                 int64_t value;
-                if (!expr_eval_integer_constant(parameter->default_value,
-                                                &value)) {
+                if (!eval_template_integer_expression(
+                        parameter->default_value, tmpl, template_values,
+                        template_value_present, &value)) {
                     rcc_error(loc,
                               "function template non-type default must be "
                               "an integer constant expression");

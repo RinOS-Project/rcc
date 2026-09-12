@@ -83,6 +83,7 @@
 - [ ] templates、concepts、constexpr/consteval、lambda
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化
+  - [x] 先行非型引数を参照する整数constant-expression defaultの評価
 - [ ] modules、coroutines、atomics、TLS
 - [ ] Itanium ABI mangling、exceptions、RTTI、static initialization
 - [ ] cross-library exceptionとthread-local destructor

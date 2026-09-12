@@ -278,6 +278,8 @@ test-cxx-non-type-templates: $(RCXX_TARGET)
 		findstr /x /c:"_ZN12add_constantEILi-2EEi" >nul
 	strings $(TEST_OUT)/cxx-non-type-templates/x64.ro | \
 		findstr /x /c:"_ZN20add_default_constantEILi4EEi" >nul
+	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
+		findstr /x /c:"_ZN22add_default_from_valueEILi3ELi4EEi" >nul
 	@echo "RCC++ non-type integer template tests completed"
 
 test-initializer-brace-elision: $(RCC_TARGET)
