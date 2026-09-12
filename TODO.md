@@ -64,6 +64,8 @@
   - [ ] 全宣言形式
   - [x] function prototype scopeの`[*]`を未指定VLAとして保持し、
         definition／local／typedef／type-nameでの誤用を診断
+  - [x] type-nameの`sizeof(int[count])`でVLA boundを意味解析し、
+        実行時byte extentを計算
   - [x] 配列parameterの`static`／`const`／`volatile`／`restrict`指定を保持し、
         調整後pointerへ反映。parameter以外の誤用とboundなし`static`を診断
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き

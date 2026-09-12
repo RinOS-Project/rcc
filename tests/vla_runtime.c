@@ -8,6 +8,7 @@ int vla_parameter(int cols, int values[][cols]);
 int vla_star_prototype(int values[*]);
 int vla_snapshot(int rows, int cols);
 int vla_parameter_snapshot(int cols, int values[][cols]);
+int vla_sizeof_type(int count);
 int vla_parameter_qualifiers(int values[static const 3],
                              int other[volatile restrict 3]);
 
@@ -27,6 +28,7 @@ int main(void)
     input[1][0] = 5;
     if (vla_parameter_qualifiers(input[0], input[1]) != 9) return 19;
     if (vla_star_prototype(input[0]) != 4) return 20;
+    if (vla_sizeof_type(7) != 28) return 21;
     return 0;
 }
 
@@ -130,6 +132,11 @@ int vla_parameter_snapshot(int cols, int values[][cols])
 int vla_star_prototype(int values[3])
 {
     return values[0];
+}
+
+int vla_sizeof_type(int count)
+{
+    return sizeof(int[count]);
 }
 
 int vla_parameter_qualifiers(int values[static const 3],

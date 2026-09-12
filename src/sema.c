@@ -34,6 +34,7 @@ static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 static bool sema_atomic_builtin_call(Expr* expr);
+static void sema_vla_bounds(Type* type, SourceLoc loc);
 static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
                                                bool is_parameter);
 
@@ -1080,6 +1081,7 @@ static Type* sema_expr(Expr* expr) {
             if (expr->sizeof_type) {
                 sema_validate_array_parameter_type(expr->sizeof_type,
                                                    expr->loc, false);
+                sema_vla_bounds(expr->sizeof_type, expr->loc);
                 expr->type = type_uint;
             } else {
                 sema_expr(expr->unary_operand);
