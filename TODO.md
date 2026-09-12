@@ -155,6 +155,8 @@
   - [x] 前置/後置increment/decrementと全integer compound assignment
 - [x] i686/AMD64 SysV integer・pointer scalar variadic ABI
 - [ ] SysV aggregate分類、floating-point/aggregate variadic ABI
+- [x] i686 cdeclとAMD64 SysVのfloating scalar variadic引数について、既定昇格、
+      XMM register-save領域、`va_arg`のregister/overflow経路を実装
 - [ ] PIC/PIE、GOT/PLT、TLS relocation
 - [ ] DWARF debug/unwind
 - [ ] inline asm constraintの完全検証

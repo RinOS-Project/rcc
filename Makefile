@@ -15,6 +15,11 @@ TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
 BOOTSTRAP_ROOT = build/bootstrap
+ifeq ($(OS),Windows_NT)
+# Override this when the checkout is mounted at a different WSL path.
+WSL_RINCOMPILER_ROOT ?= /mnt/e/RinOS/RinCompiler
+WINDOWS_TEST_OUT = $(subst /,\,$(TEST_OUT))
+endif
 
 ifeq ($(OS),Windows_NT)
 MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
@@ -859,8 +864,27 @@ test-inline-asm-execute: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm/invalid.log
 	@echo "Dual-architecture fixed-register inline asm tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-varargs: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/varargs
+	$(call MKDIR_P,$(TEST_OUT)/varargs)
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/varargs/x86.ro \
+		tests/varargs.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/varargs/x64.ro \
+		tests/varargs.c
+	wsl -d Ubuntu-24.04 bash -lc "gcc -m32 $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -o $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x86 $(WSL_RINCOMPILER_ROOT)/tests/varargs_run_test.c $(WSL_RINCOMPILER_ROOT)/src/emit_ro.c $(WSL_RINCOMPILER_ROOT)/src/utils.c; gcc $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -o $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x64 $(WSL_RINCOMPILER_ROOT)/tests/varargs_run_test.c $(WSL_RINCOMPILER_ROOT)/src/emit_ro.c $(WSL_RINCOMPILER_ROOT)/src/utils.c; $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x86 $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/x86.ro; $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x64 $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/x64.ro"
+	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -c -o '$(TEST_OUT)/varargs/invalid.ro' tests/invalid_varargs.c *> '$(TEST_OUT)/varargs/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_start is only valid in a variadic function' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_start requires the final named parameter' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_copy requires two va_list objects' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_end requires a va_list object' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_arg requires a va_list object' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_arg currently supports integer, pointer, and floating scalars up to 64 bits' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	@echo "Dual-architecture C17 scalar varargs tests completed"
+else
+test-varargs: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/varargs)
 	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc \
 		-Ibootstrap/include -c -o $(TEST_OUT)/varargs/x86.ro \
 		tests/varargs.c
@@ -891,9 +915,10 @@ test-varargs: $(RCC_TARGET)
 		$(TEST_OUT)/varargs/invalid.log
 	grep -q "va_arg requires a va_list object" \
 		$(TEST_OUT)/varargs/invalid.log
-	grep -q "va_arg currently supports integer and pointer scalars up to 64 bits" \
+	grep -q "va_arg currently supports integer, pointer, and floating scalars up to 64 bits" \
 		$(TEST_OUT)/varargs/invalid.log
 	@echo "Dual-architecture C17 scalar varargs tests completed"
+endif
 
 test-scalar-comparisons: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/scalar-comparisons

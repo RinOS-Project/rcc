@@ -1250,11 +1250,13 @@ static Type* sema_expr(Expr* expr) {
             if (!expr->va_arg_type ||
                 !(type_is_integer(expr->va_arg_type) ||
                   expr->va_arg_type->kind == TYPE_ENUM ||
-                  expr->va_arg_type->kind == TYPE_PTR) ||
+                  expr->va_arg_type->kind == TYPE_PTR ||
+                  expr->va_arg_type->kind == TYPE_FLOAT ||
+                  expr->va_arg_type->kind == TYPE_DOUBLE) ||
                 expr->va_arg_type->size <= 0 ||
                 expr->va_arg_type->size > 8) {
                 rcc_error(expr->loc,
-                          "va_arg currently supports integer and pointer scalars up to 64 bits");
+                          "va_arg currently supports integer, pointer, and floating scalars up to 64 bits");
                 expr->va_arg_type = type_int;
             }
             expr->type = expr->va_arg_type;

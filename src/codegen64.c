@@ -775,6 +775,7 @@ static Type* current_function_return_type64 = NULL;
 static int current_function_sret_offset64 = 0;
 static bool current_function_variadic64 = false;
 static int current_function_va_gp_offset64 = 0;
+static int current_function_va_fp_offset64 = 48;
 static int current_function_va_overflow_offset64 = 0;
 static int current_function_va_reg_save_offset64 = 0;
 
@@ -2239,6 +2240,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             int integer_register_cursor = register_base;
             int float_register_cursor_call = 0;
             bool register_only_call;
+            bool floating_stack_only_call;
             Type* function_type;
             TypeParam* parameter;
 
@@ -2283,11 +2285,19 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             register_only_call = integer_argc <= register_capacity &&
                                  float_argc <= 8;
-            stack_argc = register_only_call ? 0 :
-                (abi_argc > register_capacity
-                     ? abi_argc - register_capacity : 0);
+            floating_stack_only_call = integer_argc == 0 &&
+                                       float_argc > 8;
+            if (register_only_call) {
+                stack_argc = 0;
+            } else if (floating_stack_only_call) {
+                stack_argc = float_argc - 8;
+            } else {
+                stack_argc = abi_argc > register_capacity
+                    ? abi_argc - register_capacity : 0;
+            }
             stack_padding = (stack_argc & 1) ? 8 : 0;
-            if (!register_only_call && float_argc != 0) {
+            if (!register_only_call && !floating_stack_only_call &&
+                float_argc != 0) {
                 rcc_error(expr->loc,
                           "floating call has no supported stack argument lowering");
             }
@@ -2344,6 +2354,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     } else {
                         emit64_pop_reg(mod, arg_regs[integer_register_cursor++]);
                     }
+                }
+            } else if (floating_stack_only_call) {
+                for (i = 0; i < 8; ++i) {
+                    emit64_mov_xmm_from_memory(
+                        mod, i, RSP, 0, gen64_float_width(argument_types[i]));
+                    emit64_add_reg_imm(mod, RSP, 8);
                 }
             } else {
                 for (i = 0; i < abi_argc && i < register_capacity; ++i) {
@@ -2420,7 +2436,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             emit64_mov_reg_imm32(
                 mod, RAX, (uint32_t)current_function_va_gp_offset64);
             emit64_store_typed(mod, RCX, 0, RAX, type_uint);
-            emit64_mov_reg_imm32(mod, RAX, 48u);
+            emit64_mov_reg_imm32(
+                mod, RAX, (uint32_t)current_function_va_fp_offset64);
             emit64_store_typed(mod, RCX, 4, RAX, type_uint);
             emit64_lea(mod, RAX, RBP,
                        current_function_va_overflow_offset64);
@@ -2454,13 +2471,27 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             int load_label = new_label64();
             gen64_expr(mod, expr->va_list_operand);
             emit64_mov_reg_reg(mod, RCX, RAX);
-            emit64_load_typed(mod, RAX, RCX, 0, type_uint);
-            emit64_cmp_reg_imm(mod, RAX, 40);
-            emit64_jcc_label(mod, CC64_A, overflow_label);
-            emit64_mov_reg_mem(mod, RDX, RCX, 16);
-            emit64_add_reg_reg(mod, RDX, RAX);
-            emit64_add_reg_imm(mod, RAX, 8);
-            emit64_store_typed(mod, RCX, 0, RAX, type_uint);
+            if (gen64_is_floating(expr->va_arg_type)) {
+                emit64_load_typed(mod, RAX, RCX, 4, type_uint);
+                emit64_cmp_reg_imm(mod, RAX, 160);
+                emit64_jcc_label(mod, CC64_A, overflow_label);
+                emit64_mov_reg_mem(mod, RDX, RCX, 16);
+                emit64_add_reg_reg(mod, RDX, RAX);
+                emit64_add_reg_imm(mod, RAX, 16);
+                emit64_store_typed(mod, RCX, 4, RAX, type_uint);
+                emit64_mov_xmm_from_memory(
+                    mod, 0, RDX, 0, gen64_float_width(expr->va_arg_type));
+                emit64_mov_gpr_from_xmm(
+                    mod, RAX, 0, gen64_float_width(expr->va_arg_type));
+            } else {
+                emit64_load_typed(mod, RAX, RCX, 0, type_uint);
+                emit64_cmp_reg_imm(mod, RAX, 40);
+                emit64_jcc_label(mod, CC64_A, overflow_label);
+                emit64_mov_reg_mem(mod, RDX, RCX, 16);
+                emit64_add_reg_reg(mod, RDX, RAX);
+                emit64_add_reg_imm(mod, RAX, 8);
+                emit64_store_typed(mod, RCX, 0, RAX, type_uint);
+            }
             emit64_jmp_label(mod, load_label);
             emit64_label(mod, overflow_label);
             emit64_mov_reg_mem(mod, RDX, RCX, 8);
@@ -3282,7 +3313,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     bool variadic = decl->type && decl->type->kind == TYPE_FUNC &&
                     decl->type->variadic;
     int64_t parameter_frame_size = (memory_result ? 8 : 0) +
-                                   (variadic ? 48 : 0);
+                                   (variadic ? 176 : 0);
     int va_reg_save_offset = variadic ? -(int)parameter_frame_size : 0;
     int register_cursor = memory_result ? 1 : 0;
     int float_register_cursor = 0;
@@ -3293,6 +3324,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     int old_sret_offset;
     bool old_variadic;
     int old_va_gp_offset;
+    int old_va_fp_offset;
     int old_va_overflow_offset;
     int old_va_reg_save_offset;
     if (!decl->func_body) return;
@@ -3354,6 +3386,14 @@ static void gen64_function(Module* mod, Decl* decl) {
         for (int index = 0; index < 6; ++index) {
             emit64_mov_mem_reg(mod, RBP, va_reg_save_offset + index * 8,
                                argument_registers[index]);
+        }
+        for (int index = 0; index < 8; ++index) {
+            /* Scalar C variadic arguments use only the low 32/64 bits of
+             * each XMM register. Keep the ABI-mandated 16-byte slot spacing
+             * so va_arg can advance fp_offset independently of width. */
+            emit64_mov_memory_from_xmm(
+                mod, RBP, va_reg_save_offset + 48 + index * 16,
+                index, 8);
         }
     }
 
@@ -3421,6 +3461,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     old_sret_offset = current_function_sret_offset64;
     old_variadic = current_function_variadic64;
     old_va_gp_offset = current_function_va_gp_offset64;
+    old_va_fp_offset = current_function_va_fp_offset64;
     old_va_overflow_offset = current_function_va_overflow_offset64;
     old_va_reg_save_offset = current_function_va_reg_save_offset64;
     current_function_sret_offset64 = memory_result ? -8 : 0;
@@ -3429,6 +3470,10 @@ static void gen64_function(Module* mod, Decl* decl) {
     current_function_va_gp_offset64 = register_cursor * 8;
     if (current_function_va_gp_offset64 > 48) {
         current_function_va_gp_offset64 = 48;
+    }
+    current_function_va_fp_offset64 = 48 + float_register_cursor * 16;
+    if (current_function_va_fp_offset64 > 176) {
+        current_function_va_fp_offset64 = 176;
     }
     current_function_va_overflow_offset64 = stack_cursor;
     current_function_va_reg_save_offset64 = va_reg_save_offset;
@@ -3443,6 +3488,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     current_function_sret_offset64 = old_sret_offset;
     current_function_variadic64 = old_variadic;
     current_function_va_gp_offset64 = old_va_gp_offset;
+    current_function_va_fp_offset64 = old_va_fp_offset;
     current_function_va_overflow_offset64 = old_va_overflow_offset;
     current_function_va_reg_save_offset64 = old_va_reg_save_offset;
 

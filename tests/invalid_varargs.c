@@ -32,16 +32,6 @@ int invalid_list(int marker, ...)
     return va_arg(value, int);
 }
 
-int invalid_float(int marker, ...)
-{
-    va_list arguments;
-    double value;
-    va_start(arguments, marker);
-    value = va_arg(arguments, double);
-    va_end(arguments);
-    return (int)value;
-}
-
 int invalid_aggregate(int marker, ...)
 {
     va_list arguments;

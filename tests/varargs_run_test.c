@@ -9,6 +9,7 @@
 
 typedef int (*nullary_int_function)(void);
 typedef long long (*nullary_wide_function)(void);
+typedef double (*nullary_double_function)(void);
 typedef int (*variadic_int_function)(int, ...);
 typedef long long (*variadic_wide_function)(int, ...);
 
@@ -39,6 +40,9 @@ int main(int argc, char** argv)
     nullary_int_function generated_register_varargs;
     nullary_int_function generated_stack_varargs;
     nullary_wide_function generated_wide_varargs;
+    nullary_double_function generated_floating_varargs;
+    nullary_double_function generated_named_floating;
+    nullary_double_function generated_stack_floating;
     nullary_int_function generated_copy_varargs;
     nullary_int_function generated_pointer_varargs;
     variadic_int_function sum_values;
@@ -71,6 +75,12 @@ int main(int argc, char** argv)
                   "generated_stack_varargs");
     LOAD_FUNCTION(generated_wide_varargs, object, mapping,
                   "generated_wide_varargs");
+    LOAD_FUNCTION(generated_floating_varargs, object, mapping,
+                  "generated_floating_varargs");
+    LOAD_FUNCTION(generated_named_floating, object, mapping,
+                  "generated_named_floating");
+    LOAD_FUNCTION(generated_stack_floating, object, mapping,
+                  "generated_stack_floating");
     LOAD_FUNCTION(generated_copy_varargs, object, mapping,
                   "generated_copy_varargs");
     LOAD_FUNCTION(generated_pointer_varargs, object, mapping,
@@ -83,6 +93,12 @@ int main(int argc, char** argv)
     assert(generated_register_varargs() == 15);
     assert(generated_stack_varargs() == 36);
     assert(generated_wide_varargs() == 0x1122334455667788LL);
+    assert(generated_floating_varargs() > 7.4999 &&
+           generated_floating_varargs() < 7.5001);
+    assert(generated_named_floating() > 6.9999 &&
+           generated_named_floating() < 7.0001);
+    assert(generated_stack_floating() > 44.9999 &&
+           generated_stack_floating() < 45.0001);
     assert(generated_copy_varargs() == 447);
     assert(generated_pointer_varargs() == 73);
     assert(sum_values(8, 1, 2, 3, 4, 5, 6, 7, 8) == 36);
@@ -96,6 +112,6 @@ int main(int argc, char** argv)
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);
-    puts("C17 integer/pointer varargs ABI test passed");
+    puts("C17 integer/pointer/floating varargs ABI test passed");
     return 0;
 }
