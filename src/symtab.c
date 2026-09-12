@@ -14,6 +14,11 @@ static bool symtab_is_vla(Type* type) {
            (type->array_bound != NULL || symtab_is_vla(type->base));
 }
 
+static int symtab_vla_dimension_count(Type* type) {
+    if (!type || type->kind != TYPE_ARRAY) return 0;
+    return 1 + symtab_vla_dimension_count(type->base);
+}
+
 /* Hash function for symbol lookup */
 static unsigned int hash_name(const char* name) {
     unsigned int h = 0;
@@ -153,8 +158,10 @@ Symbol* symtab_define(SymTab* st, const char* name, SymKind kind, Type* type, So
             int storage = type->size;
             if (symtab_is_vla(type)) {
                 /* A VLA identifier names runtime storage, so keep a pointer
-                 * and its saved byte extent in the fixed stack frame. */
-                storage = g_opts.target_arch == ARCH_X64 ? 16 : 8;
+                 * and its saved byte extent plus one byte extent for every
+                 * array dimension in the fixed stack frame. */
+                int word_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+                storage = (2 + symtab_vla_dimension_count(type)) * word_size;
             }
             st->current->local_offset += storage;
             /* Align to 4 bytes */

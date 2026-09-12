@@ -5,6 +5,8 @@ int vla_break_reclaim(int count, int rounds);
 int vla_goto(int count);
 int vla_matrix(int rows, int cols);
 int vla_parameter(int cols, int values[][cols]);
+int vla_snapshot(int rows, int cols);
+int vla_parameter_snapshot(int cols, int values[][cols]);
 int vla_parameter_qualifiers(int values[static const 3],
                              int other[volatile restrict 3]);
 
@@ -18,9 +20,11 @@ int main(void)
     if (vla_goto(5) != 3) return 14;
     if (vla_matrix(2, 3) != 7) return 15;
     if (vla_parameter(3, input) != 9) return 16;
+    if (vla_snapshot(2, 3) != 7) return 17;
+    if (vla_parameter_snapshot(3, input) != 11) return 18;
     input[0][0] = 4;
     input[1][0] = 5;
-    if (vla_parameter_qualifiers(input[0], input[1]) != 9) return 17;
+    if (vla_parameter_qualifiers(input[0], input[1]) != 9) return 19;
     return 0;
 }
 
@@ -102,6 +106,22 @@ int vla_matrix(int rows, int cols)
 int vla_parameter(int cols, int values[][cols])
 {
     values[1][2] = 9;
+    return values[1][2];
+}
+
+int vla_snapshot(int rows, int cols)
+{
+    int values[rows][cols];
+    values[1][2] = 7;
+    cols = 1;
+    if (sizeof(values) != rows * 3 * sizeof(int)) return -1;
+    return values[1][2];
+}
+
+int vla_parameter_snapshot(int cols, int values[][cols])
+{
+    cols = 1;
+    values[1][2] = 11;
     return values[1][2];
 }
 

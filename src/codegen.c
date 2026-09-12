@@ -1567,12 +1567,140 @@ static void gen_vla_extent(Module* mod, Type* type) {
     emit_imul_reg_reg(mod, EAX, ECX);
 }
 
+static int codegen_vla_dimension_count(const Type* type) {
+    if (!type || type->kind != TYPE_ARRAY) return 0;
+    return 1 + codegen_vla_dimension_count(type->base);
+}
+
+static int codegen_vla_extent_index(const Type* owner, const Type* target) {
+    const Type* cursor = owner;
+    int below;
+    if (cursor && cursor->kind == TYPE_PTR) cursor = cursor->base;
+    for (; cursor && cursor->kind == TYPE_ARRAY; cursor = cursor->base) {
+        if (cursor == target) {
+            below = 0;
+            for (cursor = target->base;
+                 cursor && cursor->kind == TYPE_ARRAY;
+                 cursor = cursor->base) {
+                ++below;
+            }
+            return below;
+        }
+    }
+    return -1;
+}
+
+static Decl* codegen_vla_owner(Expr* expression) {
+    while (expression && expression->kind == EXPR_INDEX) {
+        expression = expression->index_base;
+    }
+    if (expression && expression->kind == EXPR_IDENT &&
+        expression->ident_decl &&
+        (expression->ident_decl->kind == DECL_VAR ||
+         expression->ident_decl->kind == DECL_PARAM)) {
+        return expression->ident_decl;
+    }
+    return NULL;
+}
+
+static void gen_vla_extents(Module* mod, Type* type, Decl* declaration,
+                            int* slot_index) {
+    if (!type || type->kind != TYPE_ARRAY) {
+        emit_mov_reg_imm(mod, EAX, type && type->size > 0
+            ? (uint32_t)type->size : 0u);
+        return;
+    }
+    if (type->base && type->base->kind == TYPE_ARRAY) {
+        gen_vla_extents(mod, type->base, declaration, slot_index);
+    } else {
+        emit_mov_reg_imm(mod, EAX, type->base && type->base->size > 0
+            ? (uint32_t)type->base->size : 0u);
+    }
+    emit_push_reg(mod, EAX);
+    if (type->array_bound) {
+        gen_expr(mod, type->array_bound);
+    } else {
+        emit_mov_reg_imm(mod, EAX, type->array_len > 0
+            ? (uint32_t)type->array_len : 0u);
+    }
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_pop_reg(mod, EAX);
+    emit_imul_reg_reg(mod, EAX, ECX);
+    if (declaration && declaration->var_vla_extent_count > 0 &&
+        slot_index && *slot_index < declaration->var_vla_extent_count) {
+        emit_mov_mem_reg(mod, EBP,
+                         declaration->var_vla_extent_offset +
+                             *slot_index * 4,
+                         EAX);
+    }
+    if (slot_index) ++*slot_index;
+}
+
+static bool gen_saved_vla_extent(Module* mod, Type* type, Expr* expression) {
+    Decl* owner = codegen_vla_owner(expression);
+    Type* owner_type;
+    int index;
+    if (!owner || owner->var_vla_extent_count <= 0) return false;
+    owner_type = owner->param_array_type ? owner->param_array_type : owner->type;
+    index = codegen_vla_extent_index(owner_type, type);
+    if (index < 0 || index >= owner->var_vla_extent_count) return false;
+    emit_mov_reg_mem(mod, EAX, EBP,
+                     owner->var_vla_extent_offset + index * 4);
+    return true;
+}
+
+static void gen_vla_extent_for_expr(Module* mod, Type* type,
+                                    Expr* expression) {
+    if (!gen_saved_vla_extent(mod, type, expression)) {
+        gen_vla_extent(mod, type);
+    }
+}
+
 static void gen_vla_alloc(Module* mod, Decl* decl) {
-    gen_vla_extent(mod, decl->type);
+    int slot_index = 0;
+    gen_vla_extents(mod, decl->type, decl, &slot_index);
     emit_sub_reg_reg(mod, ESP, EAX);
     emit_mov_mem_reg(mod, EBP, decl->var_vla_size_offset, EAX);
     emit_mov_reg_reg(mod, EAX, ESP);
     emit_mov_mem_reg(mod, EBP, decl->var_offset, EAX);
+}
+
+static void codegen_assign_vla_parameter_slots(Decl* decl, int* stack_size) {
+    if (!decl || !stack_size) return;
+    for (DeclList* parameter = decl->func_params; parameter;
+         parameter = parameter->next) {
+        Decl* value = parameter->decl;
+        int dimensions;
+        int64_t bytes;
+        if (!value || !value->param_array_type ||
+            !codegen_type_has_vla(value->param_array_type)) {
+            continue;
+        }
+        dimensions = codegen_vla_dimension_count(value->param_array_type);
+        bytes = (int64_t)dimensions * 4;
+        if (dimensions <= 0 || bytes > INT_MAX - *stack_size) {
+            rcc_error(value->loc,
+                      "function stack frame exceeds compiler limits");
+            continue;
+        }
+        *stack_size += (int)bytes;
+        value->var_vla_extent_offset = -*stack_size;
+        value->var_vla_extent_count = dimensions;
+    }
+}
+
+static void gen_vla_parameter_extents(Module* mod, Decl* decl) {
+    if (!decl) return;
+    for (DeclList* parameter = decl->func_params; parameter;
+         parameter = parameter->next) {
+        Decl* value = parameter->decl;
+        int slot_index = 0;
+        if (!value || value->var_vla_extent_count <= 0 ||
+            !value->param_array_type) {
+            continue;
+        }
+        gen_vla_extents(mod, value->param_array_type, value, &slot_index);
+    }
 }
 
 static bool gen_is_integer64(const Type* type) {
@@ -2627,7 +2755,8 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             /* Multiply by element size */
             if (codegen_type_has_vla(expr->type)) {
                 emit_push_reg(mod, EAX);
-                gen_vla_extent(mod, expr->type);
+                gen_vla_extent_for_expr(mod, expr->type,
+                                        expr->index_base);
                 emit_mov_reg_reg(mod, ECX, EAX);
                 emit_pop_reg(mod, EAX);
                 emit_imul_reg_reg(mod, EAX, ECX);
@@ -4521,6 +4650,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                        expr->unary_operand->ident_decl->var_is_vla) {
                 emit_mov_reg_mem(mod, EAX, EBP,
                                  expr->unary_operand->ident_decl->var_vla_size_offset);
+            } else if (expr->unary_operand &&
+                       codegen_type_has_vla(expr->unary_operand->type)) {
+                gen_vla_extent_for_expr(mod, expr->unary_operand->type,
+                                        expr->unary_operand);
             } else if (expr->sizeof_type) {
                 emit_mov_reg_imm(mod, EAX, expr->sizeof_type->size);
             } else if (expr->unary_operand && expr->unary_operand->type) {
@@ -6103,6 +6236,7 @@ static void gen_function(Module* mod, Decl* decl) {
     stack_size = codegen_required_local_bytes(decl->func_body);
     stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
                                                  4);
+    codegen_assign_vla_parameter_slots(decl, &stack_size);
     if (stack_size > INT_MAX - 15) {
         rcc_error(decl->loc, "function stack frame exceeds compiler limits");
         return;
@@ -6115,6 +6249,8 @@ static void gen_function(Module* mod, Decl* decl) {
     if (stack_size > 0) {
         emit_sub_reg_imm(mod, ESP, stack_size);
     }
+
+    gen_vla_parameter_extents(mod, decl);
 
     /* Generate body */
     old_return_type = current_function_return_type;

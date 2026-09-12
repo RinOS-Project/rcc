@@ -635,6 +635,8 @@ struct Decl {
             Expr* var_init;
             int var_offset;         /* Stack offset (set during codegen) */
             int var_vla_size_offset; /* Saved runtime VLA byte size */
+            int var_vla_extent_offset; /* First saved VLA dimension extent */
+            int var_vla_extent_count;  /* Number of saved VLA dimensions */
             int var_vla_scope_offset; /* Owning scope's saved stack slot */
             bool var_is_global;
             bool var_is_thread_local;

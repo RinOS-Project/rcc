@@ -1951,6 +1951,11 @@ static bool sema_type_has_vla(Type* type) {
            (type->array_bound != NULL || sema_type_has_vla(type->base));
 }
 
+static int sema_vla_dimension_count(Type* type) {
+    if (!type || type->kind != TYPE_ARRAY) return 0;
+    return 1 + sema_vla_dimension_count(type->base);
+}
+
 static void sema_vla_bounds(Type* type, SourceLoc loc) {
     Type* bound_type;
     if (!type || type->kind != TYPE_ARRAY) return;
@@ -2998,8 +3003,12 @@ static void sema_decl(Decl* decl) {
             decl->var_offset = sym->offset;
             decl->var_is_global = sym->is_global;
             if (decl->var_is_vla) {
-                decl->var_vla_size_offset = decl->var_offset +
-                    (g_opts.target_arch == ARCH_X64 ? 8 : 4);
+                int word_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+                decl->var_vla_size_offset = decl->var_offset + word_size;
+                decl->var_vla_extent_offset = decl->var_offset +
+                    2 * word_size;
+                decl->var_vla_extent_count =
+                    sema_vla_dimension_count(decl->type);
             }
 
             if (decl->var_init) {

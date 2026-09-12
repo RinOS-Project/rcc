@@ -659,12 +659,117 @@ static void gen64_vla_extent(Module* mod, Type* type) {
     emit64_imul_reg_reg(mod, RAX, RCX);
 }
 
+static int gen64_vla_dimension_count(const Type* type) {
+    if (!type || type->kind != TYPE_ARRAY) return 0;
+    return 1 + gen64_vla_dimension_count(type->base);
+}
+
+static int gen64_vla_extent_index(const Type* owner, const Type* target) {
+    const Type* cursor = owner;
+    int below;
+    if (cursor && cursor->kind == TYPE_PTR) cursor = cursor->base;
+    for (; cursor && cursor->kind == TYPE_ARRAY; cursor = cursor->base) {
+        if (cursor == target) {
+            below = 0;
+            for (cursor = target->base;
+                 cursor && cursor->kind == TYPE_ARRAY;
+                 cursor = cursor->base) {
+                ++below;
+            }
+            return below;
+        }
+    }
+    return -1;
+}
+
+static Decl* gen64_vla_owner(Expr* expression) {
+    while (expression && expression->kind == EXPR_INDEX) {
+        expression = expression->index_base;
+    }
+    if (expression && expression->kind == EXPR_IDENT &&
+        expression->ident_decl &&
+        (expression->ident_decl->kind == DECL_VAR ||
+         expression->ident_decl->kind == DECL_PARAM)) {
+        return expression->ident_decl;
+    }
+    return NULL;
+}
+
+static void gen64_vla_extents(Module* mod, Type* type, Decl* declaration,
+                              int* slot_index) {
+    if (!type || type->kind != TYPE_ARRAY) {
+        emit64_mov_reg_imm32(mod, RAX, type && type->size > 0
+            ? (uint32_t)type->size : 0u);
+        return;
+    }
+    if (type->base && type->base->kind == TYPE_ARRAY) {
+        gen64_vla_extents(mod, type->base, declaration, slot_index);
+    } else {
+        emit64_mov_reg_imm32(mod, RAX, type->base && type->base->size > 0
+            ? (uint32_t)type->base->size : 0u);
+    }
+    emit64_push_reg(mod, RAX);
+    if (type->array_bound) {
+        gen64_expr(mod, type->array_bound);
+    } else {
+        emit64_mov_reg_imm32(mod, RAX, type->array_len > 0
+            ? (uint32_t)type->array_len : 0u);
+    }
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_pop_reg(mod, RAX);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+    if (declaration && declaration->var_vla_extent_count > 0 &&
+        slot_index && *slot_index < declaration->var_vla_extent_count) {
+        emit64_mov_mem_reg(mod, RBP,
+                           declaration->var_vla_extent_offset +
+                               *slot_index * 8,
+                           RAX);
+    }
+    if (slot_index) ++*slot_index;
+}
+
+static bool gen64_saved_vla_extent(Module* mod, Type* type,
+                                   Expr* expression) {
+    Decl* owner = gen64_vla_owner(expression);
+    Type* owner_type;
+    int index;
+    if (!owner || owner->var_vla_extent_count <= 0) return false;
+    owner_type = owner->param_array_type ? owner->param_array_type : owner->type;
+    index = gen64_vla_extent_index(owner_type, type);
+    if (index < 0 || index >= owner->var_vla_extent_count) return false;
+    emit64_mov_reg_mem(mod, RAX, RBP,
+                       owner->var_vla_extent_offset + index * 8);
+    return true;
+}
+
+static void gen64_vla_extent_for_expr(Module* mod, Type* type,
+                                      Expr* expression) {
+    if (!gen64_saved_vla_extent(mod, type, expression)) {
+        gen64_vla_extent(mod, type);
+    }
+}
+
 static void gen64_vla_alloc(Module* mod, Decl* decl) {
-    gen64_vla_extent(mod, decl->type);
+    int slot_index = 0;
+    gen64_vla_extents(mod, decl->type, decl, &slot_index);
     emit64_sub_reg_reg(mod, RSP, RAX);
     emit64_mov_mem_reg(mod, RBP, decl->var_vla_size_offset, RAX);
     emit64_mov_reg_reg(mod, RAX, RSP);
     emit64_mov_mem_reg(mod, RBP, decl->var_offset, RAX);
+}
+
+static void gen64_vla_parameter_extents(Module* mod, Decl* decl) {
+    if (!decl) return;
+    for (DeclList* parameter = decl->func_params; parameter;
+         parameter = parameter->next) {
+        Decl* value = parameter->decl;
+        int slot_index = 0;
+        if (!value || value->var_vla_extent_count <= 0 ||
+            !value->param_array_type) {
+            continue;
+        }
+        gen64_vla_extents(mod, value->param_array_type, value, &slot_index);
+    }
 }
 
 static bool gen64_is_floating(const Type* type) {
@@ -1748,7 +1853,8 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             gen64_expr(mod, expr->index_expr);
             if (gen64_type_has_vla(expr->type)) {
                 emit64_push_reg(mod, RAX);
-                gen64_vla_extent(mod, expr->type);
+                gen64_vla_extent_for_expr(mod, expr->type,
+                                          expr->index_base);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 emit64_imul_reg_reg(mod, RAX, RCX);
@@ -2938,6 +3044,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_mov_reg_mem(
                     mod, RAX, RBP,
                     expr->unary_operand->ident_decl->var_vla_size_offset);
+            } else if (expr->unary_operand &&
+                       gen64_type_has_vla(expr->unary_operand->type)) {
+                gen64_vla_extent_for_expr(mod, expr->unary_operand->type,
+                                          expr->unary_operand);
             } else if (expr->sizeof_type) {
                 emit64_mov_reg_imm32(mod, RAX, expr->sizeof_type->size);
             } else if (expr->unary_operand && expr->unary_operand->type) {
@@ -3851,6 +3961,9 @@ static void gen64_function(Module* mod, Decl* decl) {
     for (DeclList* parameter = decl->func_params; parameter;
          parameter = parameter->next) {
         Decl* value = parameter->decl;
+        int vla_dimensions = value->param_array_type &&
+            gen64_type_has_vla(value->param_array_type)
+            ? gen64_vla_dimension_count(value->param_array_type) : 0;
         int size = value->type && value->type->size > 0
             ? value->type->size : 8;
         int aggregate = value->type &&
@@ -3863,12 +3976,19 @@ static void gen64_function(Module* mod, Decl* decl) {
         original_parameter_size += size;
         original_parameter_size = (original_parameter_size + 3) &
                                   ~INT64_C(3);
+        if (vla_dimensions > 0) {
+            storage += (int64_t)vla_dimensions * 8;
+        }
         parameter_frame_size += storage;
         if (parameter_frame_size > INT_MAX) {
             rcc_error(decl->loc, "function stack frame exceeds compiler limits");
             return;
         }
         value->var_offset = -(int)parameter_frame_size;
+        if (vla_dimensions > 0) {
+            value->var_vla_extent_offset = value->var_offset + 8;
+            value->var_vla_extent_count = vla_dimensions;
+        }
     }
     if (parameter_frame_size > original_parameter_size &&
         !gen64_shift_local_offsets(
@@ -3999,6 +4119,8 @@ static void gen64_function(Module* mod, Decl* decl) {
             stack_cursor += storage;
         }
     }
+
+    gen64_vla_parameter_extents(mod, decl);
 
     /* Generate body */
     old_return_type = current_function_return_type64;
