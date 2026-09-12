@@ -43,6 +43,8 @@
       float/doubleのstatic/TLS IEEE scalar初期化
 - [x] x86-64 runtimeのfloat/double算術・比較・cast・代入と、
       register-only SysV XMM scalar引数/戻り値lowering
+- [x] i686 runtimeのfloat/double x87算術・比較・cast・代入・前後置更新と、
+      cdecl stack引数/スカラー戻り値lowering
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen

@@ -1449,6 +1449,7 @@ static void add_func_call_ref(const char* name, uint32_t call_offset) {
 
 static void resolve_func_calls(Module* mod) {
     for (FuncCallRef* ref = func_call_refs; ref; ref = ref->next) {
+        bool resolved = false;
         /* Find function definition */
         for (FuncDef* def = func_defs; def; def = def->next) {
             if (strcmp(def->name, ref->func_name) == 0) {
@@ -1459,8 +1460,14 @@ static void resolve_func_calls(Module* mod) {
                 mod->code.data[ref->call_offset + 1] = (rel >> 8) & 0xFF;
                 mod->code.data[ref->call_offset + 2] = (rel >> 16) & 0xFF;
                 mod->code.data[ref->call_offset + 3] = (rel >> 24) & 0xFF;
+                resolved = true;
                 break;
             }
+        }
+        if (!resolved) {
+            module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                                  ref->call_offset, 0, true, false,
+                                  ref->func_name);
         }
     }
 }
@@ -1521,6 +1528,7 @@ static void gen_expr(Module* mod, Expr* expr);
 static void gen_expr_raw(Module* mod, Expr* expr);
 static void gen_expr64_pair(Module* mod, Expr* expr);
 static void gen_expr_as_integer64(Module* mod, Expr* expr);
+static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
 static void gen_call(Module* mod, Expr* expr);
 static void emit_convert_integer_value(Module* mod, int reg,
                                        const Type* source_type,
@@ -1529,6 +1537,386 @@ static void emit_convert_integer_value(Module* mod, int reg,
 static bool gen_is_integer64(const Type* type) {
     return type && type->size == 8 &&
            type_is_integer((Type*)type);
+}
+
+static bool gen_is_floating(const Type* type) {
+    return type && (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
+}
+
+static int gen_float_width(const Type* type) {
+    return type && type->kind == TYPE_FLOAT ? 4 : 8;
+}
+
+static void emit_test_reg_imm(Module* mod, int reg, uint32_t imm);
+
+/* x87 memory encodings used by the i686 scalar floating path.  The ordinary
+ * expression representation stays in integer registers so that existing
+ * lvalue, call, and control-flow lowering remains composable. */
+static void emit_x87_memory(Module* mod, int opcode, int group, int base,
+                            int32_t displacement) {
+    emit_byte(mod, (uint8_t)opcode);
+    emit_memory_operand32(mod, group, base, displacement);
+}
+
+static void emit_x87_load_memory(Module* mod, int width, int base,
+                                 int32_t displacement) {
+    emit_x87_memory(mod, width == 4 ? 0xD9 : 0xDD, 0, base, displacement);
+}
+
+static void emit_x87_store_pop_memory(Module* mod, int width, int base,
+                                      int32_t displacement) {
+    emit_x87_memory(mod, width == 4 ? 0xD9 : 0xDD, 3, base, displacement);
+}
+
+static void emit_x87_load_integer_memory(Module* mod, int width, int base,
+                                         int32_t displacement) {
+    if (width >= 8) {
+        emit_x87_memory(mod, 0xDF, 5, base, displacement); /* FILD m64 */
+    } else {
+        emit_x87_memory(mod, 0xDB, 0, base, displacement); /* FILD m32 */
+    }
+}
+
+static void emit_x87_store_integer_pop_memory(Module* mod, int width,
+                                              int base, int32_t displacement) {
+    if (width >= 8) {
+        emit_x87_memory(mod, 0xDF, 7, base, displacement); /* FISTP m64 */
+    } else {
+        emit_x87_memory(mod, 0xDB, 3, base, displacement); /* FISTP m32 */
+    }
+}
+
+static void emit_x87_fld_one(Module* mod) {
+    emit_byte(mod, 0xD9);
+    emit_byte(mod, 0xE8); /* FLD1 */
+}
+
+static void emit_x87_fld_zero(Module* mod) {
+    emit_byte(mod, 0xD9);
+    emit_byte(mod, 0xEE); /* FLDZ */
+}
+
+static void emit_x87_faddp_st1(Module* mod) {
+    emit_byte(mod, 0xDE);
+    emit_byte(mod, 0xC1); /* FADDP ST(1), ST(0) */
+}
+
+static void emit_x87_fsubp_st1(Module* mod) {
+    emit_byte(mod, 0xDE);
+    emit_byte(mod, 0xE9); /* FSUBP ST(1), ST(0) */
+}
+
+static void emit_x87_fucomip_st1(Module* mod) {
+    emit_byte(mod, 0xDF);
+    emit_byte(mod, 0xE9); /* FUCOMIP ST(0), ST(1) */
+}
+
+static void emit_x87_fstp_st0(Module* mod) {
+    emit_byte(mod, 0xDD);
+    emit_byte(mod, 0xD8); /* FSTP ST(0) */
+}
+
+static void emit_x87_double_value_from_raw(Module* mod, const Type* type) {
+    if (gen_float_width(type) == 4) {
+        emit_push_reg(mod, EAX);
+        emit_x87_load_memory(mod, 4, ESP, 0);
+        emit_add_reg_imm(mod, ESP, 4);
+    } else {
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        emit_x87_load_memory(mod, 8, ESP, 0);
+        emit_add_reg_imm(mod, ESP, 8);
+    }
+}
+
+static void emit_raw_from_x87_value(Module* mod, const Type* type) {
+    int width = gen_float_width(type);
+    emit_sub_reg_imm(mod, ESP, width == 4 ? 4 : 8);
+    emit_x87_store_pop_memory(mod, width, ESP, 0);
+    if (width == 4) {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_add_reg_imm(mod, ESP, 4);
+    } else {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_reg_mem(mod, EDX, ESP, 4);
+        emit_add_reg_imm(mod, ESP, 8);
+    }
+}
+
+static void emit_load_floating_raw(Module* mod, const Type* type, int base,
+                                   int32_t displacement) {
+    if (gen_float_width(type) == 8) {
+        if (base == EAX) {
+            emit_mov_reg_mem(mod, EDX, base, displacement + 4);
+            emit_mov_reg_mem(mod, EAX, base, displacement);
+        } else {
+            emit_mov_reg_mem(mod, EAX, base, displacement);
+            emit_mov_reg_mem(mod, EDX, base, displacement + 4);
+        }
+    } else {
+        emit_mov_reg_mem(mod, EAX, base, displacement);
+    }
+}
+
+static void emit_store_floating_raw(Module* mod, const Type* type, int base,
+                                    int32_t displacement) {
+    emit_mov_mem_reg(mod, base, displacement, EAX);
+    if (gen_float_width(type) == 8) {
+        emit_mov_mem_reg(mod, base, displacement + 4, EDX);
+    }
+}
+
+static void emit_x87_compare_result(Module* mod, int expression_kind);
+
+static void emit_x87_binary_memory(Module* mod, int operation, int width,
+                                    int base, int32_t displacement) {
+    int opcode = width == 4 ? 0xD8 : 0xDC;
+    int group;
+    switch (operation) {
+        case EXPR_ADD: group = 0; break;
+        case EXPR_SUB: group = 4; break;
+        case EXPR_MUL: group = 1; break;
+        case EXPR_DIV: group = 6; break;
+        default: group = 0; break;
+    }
+    emit_x87_memory(mod, opcode, group, base, displacement);
+}
+
+static void emit_x87_binary_stack(Module* mod, const Type* type,
+                                   int operation) {
+    int width = gen_float_width(type);
+    if (width == 4) {
+        emit_x87_load_memory(mod, 4, ESP, 4); /* lhs */
+        emit_x87_binary_memory(mod, operation, 4, ESP, 0); /* rhs */
+        emit_x87_store_pop_memory(mod, 4, ESP, 4);
+        emit_add_reg_imm(mod, ESP, 4);
+        emit_pop_reg(mod, EAX);
+    } else {
+        emit_x87_load_memory(mod, 8, ESP, 8); /* lhs */
+        emit_x87_binary_memory(mod, operation, 8, ESP, 0); /* rhs */
+        emit_x87_store_pop_memory(mod, 8, ESP, 8);
+        emit_add_reg_imm(mod, ESP, 8);
+        emit_pop_reg(mod, EAX);
+        emit_pop_reg(mod, EDX);
+    }
+}
+
+static void emit_x87_compare_stack(Module* mod, const Type* type,
+                                   int expression_kind) {
+    int width = gen_float_width(type);
+    int lhs_offset = width == 4 ? 4 : 8;
+    /* DF E9 compares ST(0) with ST(1) and pops ST(0).  Load rhs first and
+     * lhs second so the flags represent lhs versus rhs in source order. */
+    emit_x87_load_memory(mod, width, ESP, 0);
+    emit_x87_load_memory(mod, width, ESP, lhs_offset);
+    emit_x87_fucomip_st1(mod);
+    emit_x87_fstp_st0(mod);
+    emit_add_reg_imm(mod, ESP, width == 4 ? 8 : 16);
+    emit_x87_compare_result(mod, expression_kind);
+}
+
+static void emit_x87_power_of_two(Module* mod, int exponent) {
+    int count;
+    emit_x87_fld_one(mod);
+    for (count = 0; count < exponent; ++count) {
+        emit_byte(mod, 0xD8);
+        emit_byte(mod, 0xC0); /* FADD ST(0), ST(0) */
+    }
+}
+
+static void emit_x87_convert_integer_to_float(Module* mod,
+                                               const Type* source_type,
+                                               const Type* destination_type) {
+    int source_width = source_type && source_type->size >= 8 ? 8 : 4;
+    int exponent = source_width == 8 ? 64 : 32;
+    int unsigned_high_label = new_label();
+    int converted_label = new_label();
+
+    emit_sub_reg_imm(mod, ESP, 8);
+    emit_mov_mem_reg(mod, ESP, 0, EAX);
+    if (source_width == 8) {
+        emit_mov_mem_reg(mod, ESP, 4, EDX);
+    } else {
+        emit_mov_mem_reg(mod, ESP, 4, EDX);
+    }
+
+    if (source_type && source_type->is_unsigned && source_width == 4) {
+        emit_test_reg_imm(mod, EAX, UINT32_C(0x80000000));
+        emit_jcc_label(mod, CC_S, unsigned_high_label);
+    } else if (source_type && source_type->is_unsigned && source_width == 8) {
+        emit_test_reg_imm(mod, EDX, UINT32_C(0x80000000));
+        emit_jcc_label(mod, CC_S, unsigned_high_label);
+    }
+
+    emit_x87_load_integer_memory(mod, source_width, ESP, 0);
+    emit_jmp_label(mod, converted_label);
+
+    if (source_type && source_type->is_unsigned) {
+        emit_label(mod, unsigned_high_label);
+        /* FILD is signed.  For the high unsigned half, add 2^32/2^64
+         * exactly, built with x87 doubling so no data relocation is needed. */
+        emit_x87_load_integer_memory(mod, source_width, ESP, 0);
+        emit_x87_power_of_two(mod, exponent);
+        emit_x87_faddp_st1(mod);
+    }
+    emit_label(mod, converted_label);
+    emit_x87_store_pop_memory(mod, gen_float_width(destination_type), ESP, 0);
+    if (gen_float_width(destination_type) == 4) {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+    } else {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_reg_mem(mod, EDX, ESP, 4);
+    }
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
+static void emit_x87_convert_float_to_float(Module* mod,
+                                             const Type* source_type,
+                                             const Type* destination_type) {
+    int source_width = gen_float_width(source_type);
+    int destination_width = gen_float_width(destination_type);
+    if (source_width == destination_width) return;
+    emit_sub_reg_imm(mod, ESP, 8);
+    if (source_width == 4) {
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        emit_x87_load_memory(mod, 4, ESP, 0);
+    } else {
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        emit_mov_mem_reg(mod, ESP, 4, EDX);
+        emit_x87_load_memory(mod, 8, ESP, 0);
+    }
+    emit_x87_store_pop_memory(mod, destination_width, ESP, 0);
+    if (destination_width == 4) {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+    } else {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_reg_mem(mod, EDX, ESP, 4);
+    }
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
+static void emit_x87_convert_float_to_integer(Module* mod,
+                                               const Type* source_type,
+                                               const Type* destination_type) {
+    /* Save and restore the x87 control word so C casts truncate toward zero
+     * without changing the caller's floating-point environment.  A 64-bit
+     * temporary also covers every 32-bit signed/unsigned result range. */
+    int source_width = gen_float_width(source_type);
+    emit_sub_reg_imm(mod, ESP, 16);
+    /* Preserve the raw source before FNSTCW uses EAX as a scratch register. */
+    emit_mov_mem_reg(mod, ESP, 4, EAX);
+    if (source_width == 8) {
+        emit_mov_mem_reg(mod, ESP, 8, EDX);
+    }
+    emit_x87_memory(mod, 0xD9, 7, ESP, 0); /* FNSTCW */
+    emit_load_typed32(mod, EAX, ESP, 0, type_ushort);
+    emit_mov_reg_imm(mod, ECX, UINT32_C(0x0C00));
+    emit_or_reg_reg(mod, EAX, ECX);
+    emit_store_typed32(mod, ESP, 2, EAX, type_ushort);
+    emit_x87_memory(mod, 0xD9, 5, ESP, 2); /* FLDCW */
+    emit_x87_load_memory(mod, source_width, ESP, 4);
+    emit_x87_store_integer_pop_memory(mod, 8, ESP, 8);
+    emit_x87_memory(mod, 0xD9, 5, ESP, 0); /* FLDCW */
+    emit_mov_reg_mem(mod, EAX, ESP, 8);
+    if (destination_type && destination_type->size >= 8) {
+        emit_mov_reg_mem(mod, EDX, ESP, 12);
+    }
+    emit_add_reg_imm(mod, ESP, 16);
+}
+
+static void emit_x87_floating_truth(Module* mod, const Type* type) {
+    int width = gen_float_width(type);
+    if (width == 4) {
+        emit_push_reg(mod, EAX);
+    } else {
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+    }
+    emit_x87_fld_zero(mod);
+    emit_x87_load_memory(mod, width, ESP, 0);
+    emit_x87_fucomip_st1(mod);
+    emit_x87_fstp_st0(mod);
+    emit_add_reg_imm(mod, ESP, width == 4 ? 4 : 8);
+    emit_setcc(mod, CC_NE, EAX);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB6);
+    emit_byte(mod, modrm(3, EAX, EAX));
+    emit_setcc(mod, CC_P, ECX);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB6);
+    emit_byte(mod, modrm(3, ECX, ECX));
+    emit_or_reg_reg(mod, EAX, ECX);
+}
+
+static void emit_x87_compare_result(Module* mod, int expression_kind) {
+    int first_cc;
+    int second_cc = CC_NP;
+    bool disjunction = false;
+    switch (expression_kind) {
+        case EXPR_EQ: first_cc = CC_E; break;
+        case EXPR_NE: first_cc = CC_NE; second_cc = CC_P;
+                      disjunction = true; break;
+        case EXPR_LT: first_cc = CC_B; break;
+        case EXPR_GT: first_cc = CC_A; break;
+        case EXPR_LE: first_cc = CC_BE; break;
+        case EXPR_GE: first_cc = CC_AE; break;
+        default: first_cc = CC_E; break;
+    }
+    emit_setcc(mod, first_cc, EAX);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB6);
+    emit_byte(mod, modrm(3, EAX, EAX));
+    emit_setcc(mod, second_cc, ECX);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB6);
+    emit_byte(mod, modrm(3, ECX, ECX));
+    if (disjunction) emit_or_reg_reg(mod, EAX, ECX);
+    else emit_and_reg_reg(mod, EAX, ECX);
+}
+
+static void emit_x87_add_one_raw(Module* mod, const Type* type,
+                                 bool subtract) {
+    int width = gen_float_width(type);
+    emit_sub_reg_imm(mod, ESP, width == 4 ? 4 : 8);
+    if (width == 4) {
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+    } else {
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        emit_mov_mem_reg(mod, ESP, 4, EDX);
+    }
+    emit_x87_load_memory(mod, width, ESP, 0);
+    emit_x87_fld_one(mod);
+    if (subtract) emit_x87_fsubp_st1(mod);
+    else emit_x87_faddp_st1(mod);
+    emit_x87_store_pop_memory(mod, width, ESP, 0);
+    if (width == 4) emit_mov_reg_mem(mod, EAX, ESP, 0);
+    else {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_reg_mem(mod, EDX, ESP, 4);
+    }
+    emit_add_reg_imm(mod, ESP, width == 4 ? 4 : 8);
+}
+
+static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type) {
+    Type* source_type = expr ? expr->type : NULL;
+    if (!expr || !target_type) {
+        gen_expr(mod, expr);
+        return;
+    }
+    gen_expr(mod, expr);
+    if (gen_is_floating(target_type)) {
+        if (gen_is_floating(source_type)) {
+            emit_x87_convert_float_to_float(mod, source_type, target_type);
+        } else if (type_is_integer(source_type)) {
+            emit_x87_convert_integer_to_float(mod, source_type, target_type);
+        }
+    } else if (gen_is_floating(source_type)) {
+        if (target_type->kind == TYPE_BOOL) {
+            emit_x87_floating_truth(mod, source_type);
+        } else if (type_is_integer(target_type)) {
+            emit_x87_convert_float_to_integer(mod, source_type, target_type);
+        }
+    }
 }
 
 static void emit_test_reg_imm(Module* mod, int reg, uint32_t imm) {
@@ -2422,6 +2810,10 @@ static Type* codegen_comparison_type(Expr* expr) {
 }
 
 static void emit_test_scalar_value(Module* mod, const Type* type) {
+    if (gen_is_floating(type)) {
+        emit_x87_floating_truth(mod, type);
+        return;
+    }
     if (gen_is_integer64(type)) emit_or_reg_reg(mod, EAX, EDX);
     emit_test_reg_reg(mod, EAX, EAX);
 }
@@ -2722,6 +3114,8 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_CAST:
             if (gen_is_integer64(expr->cast_expr->type)) {
                 gen_expr64_pair(mod, expr->cast_expr);
+            } else if (gen_is_floating(expr->cast_expr->type)) {
+                gen_expr_as_type(mod, expr->cast_expr, expr->type);
             } else {
                 gen_expr(mod, expr->cast_expr);
                 emit_extend_eax_to_integer64(mod,
@@ -2733,7 +3127,9 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             int else_label = new_label();
             int end_label = new_label();
             gen_expr(mod, expr->cond_test);
-            if (gen_is_integer64(expr->cond_test->type)) {
+            if (gen_is_floating(expr->cond_test->type)) {
+                emit_x87_floating_truth(mod, expr->cond_test->type);
+            } else if (gen_is_integer64(expr->cond_test->type)) {
                 emit_or_reg_reg(mod, EAX, EDX);
             }
             emit_test_reg_reg(mod, EAX, EAX);
@@ -3114,6 +3510,18 @@ static void gen_call(Module* mod, Expr* expr) {
             argument_bytes += units * 4;
             continue;
         }
+        if (gen_is_floating(passed_type)) {
+            gen_expr_as_type(mod, argument, passed_type);
+            if (gen_float_width(passed_type) == 4) {
+                emit_push_reg(mod, EAX);
+                argument_bytes += 4;
+            } else {
+                emit_push_reg(mod, EDX);
+                emit_push_reg(mod, EAX);
+                argument_bytes += 8;
+            }
+            continue;
+        }
         gen_expr(mod, argument);
         if (gen_is_integer64(passed_type)) {
             if (!gen_is_integer64(argument->type)) {
@@ -3156,25 +3564,49 @@ static void gen_call(Module* mod, Expr* expr) {
         emit_byte(mod, 0xE8);
         call_offset = code_offset(mod);
         emit_dword(mod, 0);
-        if (func_decl->func_body) {
-            add_func_call_ref(decl_link_name(func_decl), call_offset);
-        } else {
-            /* All external direct calls use the same rel32 contract.  RLD
-             * resolves linked definitions directly and materializes a code
-             * thunk when the symbol is a dynamic function import. */
-            module_add_relocation(mod, MODULE_SYMBOL_CODE,
-                                  call_offset, 0, true, false,
-                                  decl_link_name(func_decl));
-        }
+        /* Resolve after all definitions are emitted.  This also handles a
+         * prototype-before-definition without trusting the stale Decl body
+         * pointer; unresolved names become normal external REL32 relocations
+         * in resolve_func_calls(). */
+        add_func_call_ref(decl_link_name(func_decl), call_offset);
     } else {
         gen_expr(mod, func_expr);
         emit_byte(mod, 0xFF);
         emit_byte(mod, modrm(3, 2, EAX));
     }
 
+    if (gen_is_floating(expr->type)) {
+        emit_raw_from_x87_value(mod, expr->type);
+    }
+
     if (argument_bytes > 0) {
         emit_add_reg_imm(mod, ESP, argument_bytes);
     }
+}
+
+static void gen_floating_compound_assignment(Module* mod, Expr* expr,
+                                             int operation) {
+    Type* type = expr->binary_lhs->type;
+    int width = gen_float_width(type);
+
+    gen_lvalue(mod, expr->binary_lhs);
+    emit_push_reg(mod, EAX); /* keep the destination address below operands */
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    emit_load_floating_raw(mod, type, ECX, 0);
+    if (width == 4) emit_push_reg(mod, EAX);
+    else {
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+    }
+    gen_expr_as_type(mod, expr->binary_rhs, type);
+    if (width == 4) emit_push_reg(mod, EAX);
+    else {
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+    }
+    emit_x87_binary_stack(mod, type, operation);
+    emit_pop_reg(mod, ECX);
+    emit_store_floating_raw(mod, type, ECX, 0);
 }
 
 static void gen_expr_raw(Module* mod, Expr* expr) {
@@ -3188,6 +3620,22 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_CHAR_LIT:
             emit_mov_reg_imm(mod, EAX, (uint32_t)(uint8_t)expr->char_val);
             break;
+
+        case EXPR_FLOAT_LIT: {
+            uint64_t bits = 0u;
+            if (expr->type && expr->type->kind == TYPE_FLOAT) {
+                float value = (float)expr->float_val;
+                memcpy(&bits, &value, sizeof(value));
+            } else {
+                double value = expr->float_val;
+                memcpy(&bits, &value, sizeof(value));
+            }
+            emit_mov_reg_imm(mod, EAX, (uint32_t)bits);
+            if (gen_float_width(expr->type) == 8) {
+                emit_mov_reg_imm(mod, EDX, (uint32_t)(bits >> 32));
+            }
+            break;
+        }
 
         case EXPR_STRING_LIT: {
             uint32_t offset = emit_string(mod, expr->str_val);
@@ -3209,26 +3657,50 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 if (expr->type && expr->type->kind != TYPE_ARRAY &&
                     expr->type->kind != TYPE_STRUCT &&
                     expr->type->kind != TYPE_UNION) {
-                    emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                    if (gen_is_floating(expr->type)) {
+                        emit_load_floating_raw(mod, expr->type, EAX, 0);
+                    } else {
+                        emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                    }
                 }
             } else if (decl->var_is_thread_local) {
                 gen_lvalue(mod, expr);
-                emit_load_typed32(mod, EAX, EAX, 0, decl->type);
+                if (gen_is_floating(decl->type)) {
+                    emit_load_floating_raw(mod, decl->type, EAX, 0);
+                } else {
+                    emit_load_typed32(mod, EAX, EAX, 0, decl->type);
+                }
             } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
                 gen_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
-                emit_load_typed32(mod, EAX, EAX, 0, decl->type);
+                if (gen_is_floating(decl->type)) {
+                    emit_load_floating_raw(mod, decl->type, EAX, 0);
+                } else {
+                    emit_load_typed32(mod, EAX, EAX, 0, decl->type);
+                }
             } else {
-                emit_load_typed32(mod, EAX, EBP, decl->var_offset,
-                                  decl->type);
+                if (gen_is_floating(decl->type)) {
+                    emit_load_floating_raw(mod, decl->type, EBP,
+                                           decl->var_offset);
+                } else {
+                    emit_load_typed32(mod, EAX, EBP, decl->var_offset,
+                                      decl->type);
+                }
             }
             break;
         }
 
         case EXPR_NEG:
             gen_expr(mod, expr->unary_operand);
-            emit_neg_reg(mod, EAX);
+            if (gen_is_floating(expr->type)) {
+                emit_x87_double_value_from_raw(mod, expr->type);
+                emit_byte(mod, 0xD9);
+                emit_byte(mod, 0xE0); /* FCHS */
+                emit_raw_from_x87_value(mod, expr->type);
+            } else {
+                emit_neg_reg(mod, EAX);
+            }
             break;
 
         case EXPR_BITNOT:
@@ -3239,10 +3711,14 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_NOT:
             gen_expr(mod, expr->unary_operand);
             emit_test_scalar_value(mod, expr->unary_operand->type);
-            emit_setcc(mod, CC_E, EAX);
-            emit_byte(mod, 0x0F);  /* MOVZX EAX, AL */
-            emit_byte(mod, 0xB6);
-            emit_byte(mod, modrm(3, EAX, EAX));
+            if (gen_is_floating(expr->unary_operand->type)) {
+                emit_xor_reg_imm8(mod, EAX, 1u);
+            } else {
+                emit_setcc(mod, CC_E, EAX);
+                emit_byte(mod, 0x0F);  /* MOVZX EAX, AL */
+                emit_byte(mod, 0xB6);
+                emit_byte(mod, modrm(3, EAX, EAX));
+            }
             break;
 
         case EXPR_ADDR:
@@ -3251,11 +3727,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_DEREF:
             gen_expr(mod, expr->unary_operand);
-            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+            if (gen_is_floating(expr->type)) {
+                emit_load_floating_raw(mod, expr->type, EAX, 0);
+            } else {
+                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+            }
             break;
 
         case EXPR_PREINC:
         case EXPR_PREDEC:
+            if (gen_is_floating(expr->type)) {
+                gen_lvalue(mod, expr->unary_operand);
+                emit_push_reg(mod, EAX); /* address */
+                emit_load_floating_raw(mod, expr->type, EAX, EAX);
+                emit_x87_add_one_raw(mod, expr->type,
+                                     expr->kind == EXPR_PREDEC);
+                emit_pop_reg(mod, ECX);
+                emit_store_floating_raw(mod, expr->type, ECX, 0);
+                break;
+            }
             gen_lvalue(mod, expr->unary_operand);
             emit_push_reg(mod, EAX);
             emit_load_typed32(mod, EAX, EAX, 0, expr->type);
@@ -3272,6 +3762,31 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+            if (gen_is_floating(expr->type)) {
+                gen_lvalue(mod, expr->unary_operand);
+                emit_push_reg(mod, EAX); /* address */
+                emit_load_floating_raw(mod, expr->type, EAX, EAX);
+                if (gen_float_width(expr->type) == 4) {
+                    emit_push_reg(mod, EAX); /* old value */
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                emit_x87_add_one_raw(mod, expr->type,
+                                     expr->kind == EXPR_POSTDEC);
+                emit_mov_reg_mem(mod, ECX, ESP,
+                                 gen_float_width(expr->type) == 4 ? 4 : 8);
+                emit_store_floating_raw(mod, expr->type, ECX, 0);
+                if (gen_float_width(expr->type) == 4) {
+                    emit_pop_reg(mod, EAX);
+                    emit_add_reg_imm(mod, ESP, 4);
+                } else {
+                    emit_pop_reg(mod, EAX);
+                    emit_pop_reg(mod, EDX);
+                    emit_add_reg_imm(mod, ESP, 4);
+                }
+                break;
+            }
             gen_lvalue(mod, expr->unary_operand);
             emit_push_reg(mod, EAX);
             emit_load_typed32(mod, EAX, EAX, 0, expr->type);
@@ -3288,6 +3803,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_ADD:
+            if (gen_is_floating(expr->type)) {
+                Type* arithmetic_type = expr->type;
+                gen_expr_as_type(mod, expr->binary_lhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                gen_expr_as_type(mod, expr->binary_rhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                emit_x87_binary_stack(mod, arithmetic_type, EXPR_ADD);
+                break;
+            }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
@@ -3309,6 +3843,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_SUB:
+            if (gen_is_floating(expr->type)) {
+                Type* arithmetic_type = expr->type;
+                gen_expr_as_type(mod, expr->binary_lhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                gen_expr_as_type(mod, expr->binary_rhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                emit_x87_binary_stack(mod, arithmetic_type, EXPR_SUB);
+                break;
+            }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
@@ -3334,6 +3887,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_MUL:
+            if (gen_is_floating(expr->type)) {
+                Type* arithmetic_type = expr->type;
+                gen_expr_as_type(mod, expr->binary_lhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                gen_expr_as_type(mod, expr->binary_rhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                emit_x87_binary_stack(mod, arithmetic_type, EXPR_MUL);
+                break;
+            }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
@@ -3344,6 +3916,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_DIV:
         case EXPR_MOD:
+            if (expr->kind == EXPR_DIV && gen_is_floating(expr->type)) {
+                Type* arithmetic_type = expr->type;
+                gen_expr_as_type(mod, expr->binary_lhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                gen_expr_as_type(mod, expr->binary_rhs, arithmetic_type);
+                if (gen_float_width(arithmetic_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                emit_x87_binary_stack(mod, arithmetic_type, EXPR_DIV);
+                break;
+            }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
@@ -3416,6 +4007,27 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE: {
+            if (gen_is_floating(expr->binary_lhs->type) ||
+                gen_is_floating(expr->binary_rhs->type)) {
+                Type* comparison_type = type_common(
+                    expr->binary_lhs->type, expr->binary_rhs->type);
+                gen_expr_as_type(mod, expr->binary_lhs, comparison_type);
+                if (gen_float_width(comparison_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                gen_expr_as_type(mod, expr->binary_rhs, comparison_type);
+                if (gen_float_width(comparison_type) == 4) {
+                    emit_push_reg(mod, EAX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                }
+                emit_x87_compare_stack(mod, comparison_type, expr->kind);
+                break;
+            }
             if (gen_is_integer64(expr->binary_lhs->type) ||
                 gen_is_integer64(expr->binary_rhs->type)) {
                 gen_compare_integer64(mod, expr);
@@ -3485,6 +4097,26 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_ASSIGN:
             if (gen_cxx_move_assignment(mod, expr)) break;
+            if (gen_is_floating(expr->binary_lhs->type)) {
+                Type* type = expr->binary_lhs->type;
+                gen_expr_as_type(mod, expr->binary_rhs, type);
+                if (gen_float_width(type) == 4) {
+                    emit_push_reg(mod, EAX);
+                    gen_lvalue(mod, expr->binary_lhs);
+                    emit_pop_reg(mod, ECX);
+                    emit_mov_mem_reg(mod, EAX, 0, ECX);
+                    emit_mov_reg_reg(mod, EAX, ECX);
+                } else {
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                    gen_lvalue(mod, expr->binary_lhs);
+                    emit_mov_reg_reg(mod, ECX, EAX);
+                    emit_pop_reg(mod, EAX);
+                    emit_pop_reg(mod, EDX);
+                    emit_store_floating_raw(mod, type, ECX, 0);
+                }
+                break;
+            }
             if (expr->binary_lhs->type &&
                 (expr->binary_lhs->type->kind == TYPE_STRUCT ||
                  expr->binary_lhs->type->kind == TYPE_UNION)) {
@@ -3533,6 +4165,12 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: {
+            if (gen_is_floating(expr->binary_lhs->type)) {
+                gen_floating_compound_assignment(
+                    mod, expr,
+                    expr->kind == EXPR_ADD_ASSIGN ? EXPR_ADD : EXPR_SUB);
+                break;
+            }
             uint32_t scale = codegen_pointer_element_size(
                 expr->binary_lhs->type);
             gen_lvalue(mod, expr->binary_lhs);
@@ -3567,6 +4205,18 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_RSHIFT_ASSIGN: {
             Type* operation_type = type_common(expr->binary_lhs->type,
                                                expr->binary_rhs->type);
+            if (gen_is_floating(expr->binary_lhs->type)) {
+                if (expr->kind == EXPR_MUL_ASSIGN ||
+                    expr->kind == EXPR_DIV_ASSIGN) {
+                    gen_floating_compound_assignment(
+                        mod, expr,
+                        expr->kind == EXPR_MUL_ASSIGN ? EXPR_MUL : EXPR_DIV);
+                } else {
+                    rcc_error(expr->loc,
+                              "invalid floating compound assignment");
+                }
+                break;
+            }
             if ((expr->kind == EXPR_DIV_ASSIGN ||
                  expr->kind == EXPR_MOD_ASSIGN) &&
                 gen_is_integer64(operation_type)) {
@@ -3686,14 +4336,22 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             emit_mov_reg_reg(mod, EDX, EAX);
             emit_add_reg_imm(mod, EAX, step);
             emit_mov_mem_reg(mod, ECX, 0, EAX);
-            emit_load_typed32(mod, EAX, EDX, 0, expr->va_arg_type);
+            if (gen_is_floating(expr->va_arg_type)) {
+                emit_load_floating_raw(mod, expr->va_arg_type, EDX, 0);
+            } else {
+                emit_load_typed32(mod, EAX, EDX, 0, expr->va_arg_type);
+            }
             break;
         }
 
         case EXPR_INDEX:
             gen_lvalue(mod, expr);
             if (!expr->type || expr->type->kind != TYPE_ARRAY) {
-                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                if (gen_is_floating(expr->type)) {
+                    emit_load_floating_raw(mod, expr->type, EAX, 0);
+                } else {
+                    emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                }
             }
             break;
 
@@ -3701,7 +4359,11 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_PTR_MEMBER:
             gen_lvalue(mod, expr);
             if (!expr->type || expr->type->kind != TYPE_ARRAY) {
-                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                if (gen_is_floating(expr->type)) {
+                    emit_load_floating_raw(mod, expr->type, EAX, 0);
+                } else {
+                    emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                }
             }
             break;
 
@@ -3710,14 +4372,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
                                 expr->type->kind != TYPE_STRUCT &&
                                 expr->type->kind != TYPE_UNION)) {
-                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                if (gen_is_floating(expr->type)) {
+                    emit_load_floating_raw(mod, expr->type, EAX, 0);
+                } else {
+                    emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                }
             }
             break;
 
         case EXPR_CAST:
-            gen_expr(mod, expr->cast_expr);
-            if (type_is_integer(expr->type) ||
-                expr->type->kind == TYPE_ENUM) {
+            if (gen_is_floating(expr->type) ||
+                gen_is_floating(expr->cast_expr->type)) {
+                gen_expr_as_type(mod, expr->cast_expr, expr->type);
+            } else {
+                gen_expr(mod, expr->cast_expr);
+            }
+            if (!gen_is_floating(expr->type) &&
+                (type_is_integer(expr->type) ||
+                 expr->type->kind == TYPE_ENUM) &&
+                !gen_is_floating(expr->cast_expr->type)) {
                 emit_convert_integer_value(mod, EAX,
                                            expr->cast_expr->type,
                                            expr->type);
@@ -4561,6 +5234,11 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         }
         return true;
     }
+    if (type_is_floating(type)) {
+        gen_expr_as_type(mod, initializer, type);
+        emit_store_floating_raw(mod, type, EBP, displacement);
+        return true;
+    }
     if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
         type->kind != TYPE_PTR && type->kind != TYPE_NULLPTR) {
         return false;
@@ -5005,7 +5683,10 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->return_val) {
-                if (current_function_return_type &&
+                if (gen_is_floating(current_function_return_type)) {
+                    gen_expr_as_type(mod, stmt->return_val,
+                                     current_function_return_type);
+                } else if (current_function_return_type &&
                     (current_function_return_type->kind == TYPE_STRUCT ||
                      current_function_return_type->kind == TYPE_UNION)) {
                     int offset = 0;
@@ -5031,6 +5712,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     emit_extend_eax_to_integer64(
                         mod, stmt->return_val->type);
                 } else if (!gen_is_integer64(current_function_return_type) &&
+                           !gen_is_floating(current_function_return_type) &&
                            (type_is_integer(current_function_return_type) ||
                             (current_function_return_type &&
                              current_function_return_type->kind ==
@@ -5050,6 +5732,11 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     emit_pop_reg(mod, EDX);
                     emit_pop_reg(mod, EAX);
                 }
+            }
+            if (stmt->return_val &&
+                gen_is_floating(current_function_return_type)) {
+                emit_x87_double_value_from_raw(
+                    mod, current_function_return_type);
             }
             emit_leave(mod);
             emit_ret(mod);
@@ -5146,9 +5833,14 @@ static void gen_function(Module* mod, Decl* decl) {
     current_function_return_type = old_return_type;
 
     /* Function epilogue (fallthrough return) */
-    emit_mov_reg_imm(mod, EAX, 0);
-    if (gen_is_integer64(decl->type && decl->type->kind == TYPE_FUNC
-                         ? decl->type->ret_type : NULL)) {
+    Type* return_type = decl->type && decl->type->kind == TYPE_FUNC
+        ? decl->type->ret_type : NULL;
+    if (gen_is_floating(return_type)) {
+        emit_x87_fld_zero(mod);
+    } else {
+        emit_mov_reg_imm(mod, EAX, 0);
+    }
+    if (gen_is_integer64(return_type)) {
         emit_mov_reg_imm(mod, EDX, 0);
     }
     emit_leave(mod);

@@ -101,7 +101,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-floating-static-initializers test-floating-runtime-x64 test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -343,6 +343,32 @@ test-floating-runtime-x64: $(RCC_TARGET)
 		$(TEST_OUT)/floating-runtime-x64/double-abi.o
 	$(TEST_OUT)/floating-runtime-x64/double-abi.exe
 	@echo "RCC x86-64 floating runtime and scalar ABI tests completed"
+
+ifeq ($(OS),Windows_NT)
+test-floating-runtime-i686: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/floating-runtime-i686)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/floating-runtime-i686/runtime.s \
+		tests/floating_runtime_i686.c
+	wsl -d Ubuntu-24.04 bash -lc "gcc -m32 -c -o /mnt/e/RinOS/RinCompiler/build/tests/floating-runtime-i686/runtime.o /mnt/e/RinOS/RinCompiler/build/tests/floating-runtime-i686/runtime.s; gcc -m32 -c -o /mnt/e/RinOS/RinCompiler/build/tests/floating-runtime-i686/start.o /mnt/e/RinOS/RinCompiler/tests/floating_runtime_i686_start.s; gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start -o /mnt/e/RinOS/RinCompiler/build/tests/floating-runtime-i686/runtime /mnt/e/RinOS/RinCompiler/build/tests/floating-runtime-i686/start.o /mnt/e/RinOS/RinCompiler/build/tests/floating-runtime-i686/runtime.o; /mnt/e/RinOS/RinCompiler/build/tests/floating-runtime-i686/runtime"
+	@echo "RCC i686 floating runtime and scalar ABI tests completed"
+else
+test-floating-runtime-i686: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/floating-runtime-i686)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/floating-runtime-i686/runtime.s \
+		tests/floating_runtime_i686.c
+	$(CC) -m32 -c -o $(TEST_OUT)/floating-runtime-i686/runtime.o \
+		$(TEST_OUT)/floating-runtime-i686/runtime.s
+	$(CC) -m32 -c -o $(TEST_OUT)/floating-runtime-i686/start.o \
+		tests/floating_runtime_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/floating-runtime-i686/runtime.exe \
+		$(TEST_OUT)/floating-runtime-i686/start.o \
+		$(TEST_OUT)/floating-runtime-i686/runtime.o
+	$(TEST_OUT)/floating-runtime-i686/runtime.exe
+	@echo "RCC i686 floating runtime and scalar ABI tests completed"
+endif
 
 test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-qualified-namespaces
