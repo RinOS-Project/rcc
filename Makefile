@@ -101,7 +101,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-floating-static-initializers test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-floating-static-initializers test-floating-runtime-x64 test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -306,6 +306,43 @@ test-floating-static-initializers: $(RCC_TARGET)
 	strings $(TEST_OUT)/floating-static-initializers/x64.s | findstr /c:"0x00, 0x00, 0xe0, 0x3f" >nul
 	strings $(TEST_OUT)/floating-static-initializers/x64.s | findstr /c:"0x00, 0x00, 0xf8, 0xbf" >nul
 	@echo "RCC C17 floating static/TLS initializer tests completed"
+
+test-floating-runtime-x64: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/floating-runtime-x64)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/floating-runtime-x64/runtime.s \
+		tests/floating_runtime_x64.c
+	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/runtime.o \
+		$(TEST_OUT)/floating-runtime-x64/runtime.s
+	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/runtime-host.o \
+		tests/floating_runtime_host.c
+	$(CC) -no-pie -o $(TEST_OUT)/floating-runtime-x64/runtime.exe \
+		$(TEST_OUT)/floating-runtime-x64/runtime-host.o \
+		$(TEST_OUT)/floating-runtime-x64/runtime.o
+	$(TEST_OUT)/floating-runtime-x64/runtime.exe
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/floating-runtime-x64/float-abi.s \
+		tests/floating_abi_x64.c
+	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/float-abi.o \
+		$(TEST_OUT)/floating-runtime-x64/float-abi.s
+	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/float-abi-host.o \
+		tests/floating_abi_host.c
+	$(CC) -no-pie -o $(TEST_OUT)/floating-runtime-x64/float-abi.exe \
+		$(TEST_OUT)/floating-runtime-x64/float-abi-host.o \
+		$(TEST_OUT)/floating-runtime-x64/float-abi.o
+	$(TEST_OUT)/floating-runtime-x64/float-abi.exe
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/floating-runtime-x64/double-abi.s \
+		tests/floating_abi_double_x64.c
+	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/double-abi.o \
+		$(TEST_OUT)/floating-runtime-x64/double-abi.s
+	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/double-abi-host.o \
+		tests/floating_abi_double_host.c
+	$(CC) -no-pie -o $(TEST_OUT)/floating-runtime-x64/double-abi.exe \
+		$(TEST_OUT)/floating-runtime-x64/double-abi-host.o \
+		$(TEST_OUT)/floating-runtime-x64/double-abi.o
+	$(TEST_OUT)/floating-runtime-x64/double-abi.exe
+	@echo "RCC x86-64 floating runtime and scalar ABI tests completed"
 
 test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-qualified-namespaces
