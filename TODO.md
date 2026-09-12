@@ -81,6 +81,8 @@
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完
 - [ ] templates、concepts、constexpr/consteval、lambda
+  - [x] parser-known型によるdirect/pointer function-template deductionと
+        trailing type defaultの実体化
 - [ ] modules、coroutines、atomics、TLS
 - [ ] Itanium ABI mangling、exceptions、RTTI、static initialization
 - [ ] cross-library exceptionとthread-local destructor

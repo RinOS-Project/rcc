@@ -31,6 +31,9 @@ extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
+    RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_end_function_parameters(void) RCC_OPTIONAL_CXX;
 
 typedef struct ParserTypeName {
     const char* name;
@@ -2334,7 +2337,13 @@ Stmt* parse_declaration(void) {
             rcc_error(loc, "thread-local storage is not valid on a function");
         }
         if (match(TOK_LBRACE)) {
+            if (parser_cxx_mode && rcc_parser_cxx_begin_function_parameters) {
+                rcc_parser_cxx_begin_function_parameters(parameters);
+            }
             body = parse_block();
+            if (parser_cxx_mode && rcc_parser_cxx_end_function_parameters) {
+                rcc_parser_cxx_end_function_parameters();
+            }
         } else {
             expect(TOK_SEMICOLON, ";");
         }

@@ -247,13 +247,21 @@ test-cxx-member-specifiers: $(RCXX_TARGET)
 	@echo "RCC++ class member specifier tests completed"
 
 test-cxx-function-templates: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-function-templates
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-templates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-templates/x86.ro \
 		tests/cxx_function_templates.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-templates/x64.ro \
 		tests/cxx_function_templates.cpp
+	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
+		findstr /x /c:"_ZN8identityEi" >nul
+	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
+		findstr /x /c:"_ZN8identityEl" >nul
+	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
+		findstr /x /c:"_ZN6detail16pointer_identityEPi" >nul
+	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
+		findstr /x /c:"_ZN6detail15default_deducedEi" >nul
 	@echo "RCC++ function template syntax tests completed"
 
 test-cxx-non-type-templates: $(RCXX_TARGET)
