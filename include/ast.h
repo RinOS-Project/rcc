@@ -109,6 +109,7 @@ struct Type {
             Type* base;
             int array_len;      /* -1 for flexible array */
             Expr* array_bound;  /* non-NULL for a runtime VLA bound */
+            bool array_unspecified_bound; /* C prototype-scope `[*]` */
             bool array_parameter_static;
             bool array_parameter_const;
             bool array_parameter_volatile;

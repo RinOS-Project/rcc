@@ -150,6 +150,7 @@ Type* type_ptr(Type* base) {
     t->align = t->size;
     t->base = base;
     t->array_bound = NULL;
+    t->array_unspecified_bound = false;
     t->array_parameter_static = false;
     t->array_parameter_const = false;
     t->array_parameter_volatile = false;
@@ -167,6 +168,7 @@ Type* type_array(Type* base, int len) {
     t->base = base;
     t->array_len = len;
     t->array_bound = NULL;
+    t->array_unspecified_bound = false;
     t->array_parameter_static = false;
     t->array_parameter_const = false;
     t->array_parameter_volatile = false;
@@ -262,7 +264,7 @@ bool type_is_function(Type* t) {
 
 bool type_is_complete(Type* t) {
     if (t->kind == TYPE_VOID) return false;
-    if (t->kind == TYPE_ARRAY && t->array_len == -1 &&
+    if (t->kind == TYPE_ARRAY && t->array_len < 0 &&
         !t->array_bound) return false;
     if ((t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) && !t->is_complete) return false;
     return true;

@@ -62,6 +62,8 @@
   - [x] parameter boundをfunction entry／VLA宣言時に一度だけ評価し、
         多次元strideと`sizeof`で保存extentを再利用
   - [ ] 全宣言形式
+  - [x] function prototype scopeの`[*]`を未指定VLAとして保持し、
+        definition／local／typedef／type-nameでの誤用を診断
   - [x] 配列parameterの`static`／`const`／`volatile`／`restrict`指定を保持し、
         調整後pointerへ反映。parameter以外の誤用とboundなし`static`を診断
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き

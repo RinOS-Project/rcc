@@ -1567,6 +1567,7 @@ static bool parser_type_has_array_parameter_spec(Type* type) {
     if (!type) return false;
     if (type->kind == TYPE_ARRAY) {
         return type->array_parameter_static ||
+               type->array_unspecified_bound ||
                type->array_parameter_const ||
                type->array_parameter_volatile ||
                type->array_parameter_restrict ||
@@ -1905,6 +1906,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
     int array_lengths[32];
     Expr* array_bounds[32];
     SourceLoc array_locs[32];
+    bool array_unspecified[32];
     bool array_statics[32];
     bool array_consts[32];
     bool array_volatiles[32];
@@ -1952,6 +1954,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
         if (match(TOK_LBRACKET)) {
             int length = -1;
             Expr* bound_expression = NULL;
+            bool unspecified_bound = false;
             bool parameter_static = match(TOK_STATIC);
             bool parameter_const = false;
             bool parameter_volatile = false;
@@ -1962,7 +1965,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 else if (match(TOK_VOLATILE)) parameter_volatile = true;
                 else if (match(TOK_RESTRICT)) parameter_restrict = true;
             }
-            if (!check(TOK_RBRACKET)) {
+            if (match(TOK_STAR)) {
+                length = -2;
+                unspecified_bound = true;
+            } else if (!check(TOK_RBRACKET)) {
                 Expr* bound = parse_assignment();
                 int64_t constant = 0;
                 if (eval_integer_constant(bound, &constant)) {
@@ -1988,6 +1994,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 array_lengths[array_count] = length;
                 array_bounds[array_count] = bound_expression;
                 array_locs[array_count] = previous()->loc;
+                array_unspecified[array_count] = unspecified_bound;
                 array_statics[array_count] = parameter_static;
                 array_consts[array_count] = parameter_const;
                 array_volatiles[array_count] = parameter_volatile;
@@ -2021,6 +2028,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
         }
         type = type_array(type, length);
         type->array_bound = array_bounds[array_count];
+        type->array_unspecified_bound = array_unspecified[array_count];
         type->array_parameter_static = array_statics[array_count];
         type->array_parameter_const = array_consts[array_count];
         type->array_parameter_volatile = array_volatiles[array_count];

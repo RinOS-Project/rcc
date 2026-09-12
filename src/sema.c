@@ -1948,7 +1948,8 @@ static void sema_stmt(Stmt* stmt) {
 
 static bool sema_type_has_vla(Type* type) {
     return type && type->kind == TYPE_ARRAY &&
-           (type->array_bound != NULL || sema_type_has_vla(type->base));
+           (type->array_bound != NULL || type->array_unspecified_bound ||
+            sema_type_has_vla(type->base));
 }
 
 static int sema_vla_dimension_count(Type* type) {
@@ -1974,12 +1975,17 @@ static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
     if (!type) return;
     if (type->kind == TYPE_ARRAY) {
         bool has_spec = type->array_parameter_static ||
+            type->array_unspecified_bound ||
             type->array_parameter_const ||
             type->array_parameter_volatile ||
             type->array_parameter_restrict;
         if (has_spec && !is_parameter) {
             rcc_error(loc,
                       "array parameter qualifiers are only valid in function parameter declarations");
+        }
+        if (is_parameter && type->array_unspecified_bound) {
+            rcc_error(loc,
+                      "unspecified variable-length array is only valid in a function prototype");
         }
         if (is_parameter && type->array_parameter_static &&
             type->array_len <= 0 && !type->array_bound) {

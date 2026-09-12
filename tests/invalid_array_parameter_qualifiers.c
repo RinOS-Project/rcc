@@ -8,3 +8,8 @@ int invalid_missing_static_array_bound(int values[static])
 {
     return values[0];
 }
+
+int invalid_unspecified_array_definition(int values[*])
+{
+    return values[0];
+}

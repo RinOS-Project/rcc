@@ -422,6 +422,8 @@ test-vla-semantics: $(RCC_TARGET)
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'array parameter qualifiers are only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x64.log')) { exit 1 }"
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'static array parameter requires a bound expression' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x86.log')) { exit 1 }"
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'static array parameter requires a bound expression' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x64.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'unspecified variable-length array is only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x86.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'unspecified variable-length array is only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x64.log')) { exit 1 }"
 	@echo "Dual-architecture VLA goto semantic tests completed"
 
 test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
