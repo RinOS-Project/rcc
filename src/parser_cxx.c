@@ -15,11 +15,14 @@ typedef struct {
 } Parser;
 
 extern Parser parser;
+extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
 
 /* The current template is only needed while parsing dependent declarations;
  * instantiated types are resolved by the later template semantic phase. */
 static CxxTemplate* active_template;
 static CxxNamespace* active_namespace;
+static CxxClass* active_class;
+static AST* active_ast;
 
 /* Parser utilities from parser.c */
 static Token* peek(void) { return parser.cur; }
@@ -53,9 +56,13 @@ static Token* expect(TokenType type, const char* msg) {
 
 /* Forward declarations */
 static Expr* parse_cxx_expression(void);
+extern Expr* parse_expression(void);
 extern Expr* parse_assignment_expression(void);
 static Stmt* parse_cxx_statement(void);
 static Type* parse_cxx_type_spec(void);
+static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
+static CxxClass* find_class(const char* qualified_name);
+static bool is_active_template_type(const char* name);
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept);
@@ -1549,6 +1556,8 @@ CxxClass* parse_cxx_class(void) {
 
     /* Class body */
     if (match(TOK_LBRACE)) {
+        CxxClass* enclosing_class = active_class;
+        active_class = cls;
         has_definition = true;
         AccessSpec current_access = is_struct
             ? ACCESS_PUBLIC : ACCESS_PRIVATE;
@@ -1568,6 +1577,7 @@ CxxClass* parse_cxx_class(void) {
         }
 
         expect(TOK_RBRACE, "}");
+        active_class = enclosing_class;
     }
 
     /* Optional semicolon */
@@ -1576,6 +1586,7 @@ CxxClass* parse_cxx_class(void) {
     /* A forward declaration has no layout yet. */
     if (!has_definition) return cls;
 
+    resolve_class_bases(cls, loc);
     cxx_class_compute_layout(cls);
     register_inline_class_accessors(cls);
     register_inline_class_bool_delegates(cls);
@@ -1587,19 +1598,17 @@ CxxClass* parse_cxx_class(void) {
     register_inline_class_move_assignment(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
-     * reuse the common initializer/codegen backend. */
+     * reuse the common initializer/codegen backend.  Every complete class
+     * still has to enter the parser's type-name table: later declarations
+     * may use a non-aggregate class through a pointer or reference even when
+     * its constructors, private members, or virtual members are not lowered
+     * by the common backend. */
     if (!active_template && cls->type->is_complete) {
         uint32_t constructor_mask = lowerable_constructor_arity_mask(cls);
         if (constructor_mask != 0u) {
             rcc_parser_define_cxx_constructor_type(
                 cls->name, cls->type, constructor_mask);
-        } else if (!cls->has_user_constructor &&
-                   !class_has_destructor(cls) &&
-                   !cls->has_nonpublic_field &&
-                   !cls->has_static_field &&
-                   !cls->has_field_initializer &&
-                   cls->base_count == 0 &&
-                   !class_has_virtual_member(cls)) {
+        } else {
             rcc_parser_define_type(cls->name, cls->type);
         }
     }
@@ -1995,8 +2004,10 @@ CxxTemplate* parse_cxx_template(void) {
     /* Parse template parameters */
     if (!check(TOK_GT)) {
         do {
+            bool type_parameter = false;
             if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
                 /* Type parameter */
+                type_parameter = true;
                 const char* param_name = NULL;
                 if (check(TOK_IDENT)) {
                     param_name = advance()->value.str_val;
@@ -2014,17 +2025,18 @@ CxxTemplate* parse_cxx_template(void) {
 
             /* Default value? */
             if (match(TOK_ASSIGN)) {
-                if (tmpl->param_count > 0) {
-                    tmpl->params[tmpl->param_count - 1].has_default = true;
-                }
-                /* Skip default for now */
-                int depth = 0;
-                while (!at_end()) {
-                    if (check(TOK_COMMA) && depth == 0) break;
-                    if (check(TOK_GT) && depth == 0) break;
-                    if (match(TOK_LT)) depth++;
-                    else if (match(TOK_GT)) depth--;
-                    else advance();
+                int parameter_index = tmpl->param_count - 1;
+                if (parameter_index >= 0) {
+                    tmpl->params[parameter_index].has_default = true;
+                    if (type_parameter) {
+                        tmpl->params[parameter_index].default_type =
+                            parse_cxx_type_spec();
+                    } else {
+                        rcc_parser_set_cxx_template_default_mode(true);
+                        tmpl->params[parameter_index].default_value =
+                            parse_assignment_expression();
+                        rcc_parser_set_cxx_template_default_mode(false);
+                    }
                 }
             }
         } while (match(TOK_COMMA));
@@ -2119,6 +2131,96 @@ static CxxTemplate* find_class_template(const char* qualified_name) {
 
 static CxxTemplate* find_function_template(const char* qualified_name) {
     return find_template(qualified_name, TMPL_FUNCTION);
+}
+
+static CxxClass* namespace_class(CxxNamespace* ns, const char* name) {
+    if (!ns || !name) return NULL;
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* candidate = ns->classes[index];
+        if (candidate && candidate->name &&
+            strcmp(candidate->name, name) == 0) {
+            return candidate;
+        }
+    }
+    return NULL;
+}
+
+static CxxClass* find_class(const char* qualified_name) {
+    char buffer[512];
+    char* component;
+    char* next;
+    CxxNamespace* ns;
+    const char* name = qualified_name;
+
+    if (!name) return NULL;
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    if (!strstr(name, "::")) {
+        for (ns = active_namespace; ns; ns = ns->parent) {
+            CxxClass* result = namespace_class(ns, name);
+            if (result) return result;
+        }
+        return namespace_class(g_global_namespace, name);
+    }
+    if (strlen(name) >= sizeof(buffer)) return NULL;
+    strcpy(buffer, name);
+    ns = g_global_namespace;
+    component = buffer;
+    for (;;) {
+        next = strstr(component, "::");
+        if (!next) break;
+        *next = '\0';
+        ns = cxx_namespace_lookup(ns, component);
+        if (!ns) return NULL;
+        component = next + 2;
+    }
+    return namespace_class(ns, component);
+}
+
+static void resolve_class_bases(CxxClass* cls, SourceLoc loc) {
+    if (!cls) return;
+    for (int index = 0; index < cls->base_count; ++index) {
+        const char* base_name = cls->bases[index].base_name;
+        CxxClass* base;
+        if (cls->bases[index].base || !base_name) continue;
+        base = find_class(base_name);
+        if (!base) {
+            rcc_error(loc, "unknown base class '%s'", base_name);
+            continue;
+        }
+        if (base == cls) {
+            rcc_error(loc, "a class cannot derive from itself");
+            continue;
+        }
+        cls->bases[index].base = base;
+    }
+}
+
+/* Tell the shared C declaration parser when an identifier begins a C++ type
+ * declaration.  This is deliberately a query: parsing an expression such as
+ * `value < limit` must not consume tokens merely to decide whether it is a
+ * declaration. */
+bool rcc_parse_cxx_type_start(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    const char* name;
+    bool result = false;
+
+    if (check(TOK_CLASS) || check(TOK_STRUCT)) {
+        Token* next = parser.cur->next;
+        result = next && next->type == TOK_IDENT;
+        return result;
+    }
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;
+
+    name = parse_qualified_name();
+    result = is_active_template_type(name) || find_class(name) != NULL ||
+             (strstr(name, "::") == NULL &&
+              rcc_parser_lookup_type(name) != NULL);
+    if (check(TOK_LT) && find_class_template(name)) result = true;
+
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return result;
 }
 
 static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
@@ -2347,6 +2449,31 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     return instance->type;
 }
 
+CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
+                                              Type** arguments,
+                                              int argument_count,
+                                              SourceLoc loc) {
+    Type* type = instantiate_class_template(tmpl, arguments,
+                                             argument_count, loc);
+    if (!type || !tmpl) return NULL;
+    for (int index = 0; index < tmpl->instance_count; ++index) {
+        if (tmpl->instances[index].arg_count != argument_count) continue;
+        bool matches = true;
+        for (int argument_index = 0; argument_index < argument_count;
+             ++argument_index) {
+            if (!type_is_compatible(tmpl->instances[index].args[argument_index],
+                                    arguments[argument_index])) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) {
+            return (CxxClass*)tmpl->instances[index].instantiated;
+        }
+    }
+    return NULL;
+}
+
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc) {
     Type* arguments[32];
@@ -2361,6 +2488,14 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
             }
             arguments[argument_count++] = parse_cxx_type_spec();
         } while (match(TOK_COMMA));
+    }
+    while (argument_count < tmpl->param_count &&
+           tmpl->params[argument_count].kind == TPARAM_TYPE &&
+           tmpl->params[argument_count].has_default &&
+           tmpl->params[argument_count].default_type) {
+        arguments[argument_count] =
+            tmpl->params[argument_count].default_type;
+        ++argument_count;
     }
     expect(TOK_GT, ">");
     return instantiate_class_template(tmpl, arguments, argument_count, loc);
@@ -2430,12 +2565,81 @@ Expr* rcc_parse_cxx_template_call(void) {
         return NULL;
     }
     if (tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT) {
-        rcc_error(loc, "function template '%s' is not safely lowerable", name);
-        skip_cxx_template_arguments();
-        if (check(TOK_LPAREN)) {
-            skip_balanced(TOK_LPAREN, TOK_RPAREN);
+        Type* template_arguments[32];
+        int argument_count = 0;
+        Decl* instance;
+        ExprList* call_arguments = NULL;
+        Expr* function;
+
+        expect(TOK_LT, "<");
+        if (!check(TOK_GT)) {
+            do {
+                if (argument_count >=
+                    (int)(sizeof(template_arguments) /
+                          sizeof(template_arguments[0]))) {
+                    rcc_error(loc, "function template argument limit exceeded");
+                    while (!check(TOK_GT) && !at_end()) advance();
+                    break;
+                }
+                if (tmpl->param_count > argument_count &&
+                    tmpl->params[argument_count].kind == TPARAM_TYPE) {
+                    template_arguments[argument_count++] =
+                        parse_cxx_type_spec();
+                } else {
+                    rcc_error(peek()->loc,
+                              "non-type function template arguments are not implemented");
+                    while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
+                        advance();
+                    }
+                    template_arguments[argument_count++] = type_int;
+                }
+            } while (match(TOK_COMMA));
         }
-        return expr_int(0, loc);
+        while (argument_count < tmpl->param_count &&
+               tmpl->params[argument_count].kind == TPARAM_TYPE &&
+               tmpl->params[argument_count].has_default &&
+               tmpl->params[argument_count].default_type) {
+            template_arguments[argument_count] =
+                tmpl->params[argument_count].default_type;
+            ++argument_count;
+        }
+        expect(TOK_GT, ">");
+        if (!match(TOK_LPAREN)) {
+            rcc_error(loc, "function template specialization must be called");
+            return expr_int(0, loc);
+        }
+        if (!check(TOK_RPAREN)) {
+            do {
+                exprlist_append(&call_arguments, parse_assignment_expression());
+            } while (match(TOK_COMMA));
+        }
+        expect(TOK_RPAREN, ")");
+
+        if (argument_count != tmpl->param_count) {
+            rcc_error(loc, "function template '%s' requires %d template arguments",
+                      name, tmpl->param_count);
+            return expr_int(0, loc);
+        }
+        instance = (Decl*)cxx_template_instantiate(
+            tmpl, template_arguments, argument_count);
+        if (!instance || instance->kind != DECL_FUNC) {
+            rcc_error(loc, "could not instantiate function template '%s'", name);
+            return expr_int(0, loc);
+        }
+        if (active_ast) {
+            bool present = false;
+            for (DeclList* item = active_ast->decls; item; item = item->next) {
+                if (item->decl == instance) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) ast_add_decl(active_ast, instance);
+        }
+        function = expr_ident(instance->name, loc);
+        function->ident_decl = instance;
+        function->type = instance->type;
+        return expr_call(function, call_arguments, loc);
     }
 
     expect(TOK_LT, "<");
@@ -2487,16 +2691,24 @@ static Type* parse_cxx_type_spec(void) {
     Type* t = NULL;
     bool is_unsigned = false;
     bool is_const = false;
-    bool is_long = false;
+    bool is_volatile = false;
+    bool saw_sign = false;
+    int long_count = 0;
     bool is_short = false;
 
     /* Qualifiers */
     while (1) {
         if (match(TOK_CONST)) is_const = true;
-        else if (match(TOK_VOLATILE)) { /* ignore */ }
-        else if (match(TOK_UNSIGNED)) is_unsigned = true;
-        else if (match(TOK_SIGNED)) is_unsigned = false;
-        else if (match(TOK_LONG)) is_long = true;
+        else if (match(TOK_VOLATILE)) is_volatile = true;
+        else if (match(TOK_UNSIGNED)) {
+            is_unsigned = true;
+            saw_sign = true;
+        } else if (match(TOK_SIGNED)) {
+            is_unsigned = false;
+            saw_sign = true;
+        } else if (match(TOK_LONG)) {
+            ++long_count;
+        }
         else if (match(TOK_SHORT)) is_short = true;
         else break;
     }
@@ -2508,10 +2720,12 @@ static Type* parse_cxx_type_spec(void) {
         t = type_bool;
     } else if (match(TOK_CHAR)) {
         t = is_unsigned ? type_uchar : type_char;
-    } else if (match(TOK_INT) || is_long || is_short) {
+    } else if (match(TOK_INT) || long_count > 0 || is_short) {
         if (is_short) {
             t = is_unsigned ? type_ushort : type_short;
-        } else if (is_long) {
+        } else if (long_count > 1) {
+            t = is_unsigned ? type_ullong : type_llong;
+        } else if (long_count == 1) {
             t = is_unsigned ? type_ulong : type_long;
         } else {
             t = is_unsigned ? type_uint : type_int;
@@ -2520,30 +2734,66 @@ static Type* parse_cxx_type_spec(void) {
         t = type_float;
     } else if (match(TOK_DOUBLE)) {
         t = type_double;
+    } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+        const char* name = parse_qualified_name();
+        CxxClass* known_class = find_class(name);
+        if (!known_class && active_class && active_class->name &&
+            strcmp(name, active_class->name) == 0) {
+            known_class = active_class;
+        }
+        t = known_class ? known_class->type : NULL;
+        if (!t) {
+            rcc_error(loc, "unknown C++ class type '%s'", name);
+            t = type_int;
+        }
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
         /* Class or namespace qualified type */
         const char* name = parse_qualified_name();
         CxxTemplate* tmpl = check(TOK_LT)
             ? find_class_template(name) : NULL;
+        CxxClass* known_class = find_class(name);
+        if (!known_class && active_class && active_class->name &&
+            strcmp(name, active_class->name) == 0) {
+            known_class = active_class;
+        }
         Type* known_type = strstr(name, "::") == NULL
             ? rcc_parser_lookup_type(name) : NULL;
         if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);
+        } else if (known_class) {
+            t = known_class->type;
+        } else if (known_type) {
+            t = known_type;
+        } else if (is_active_template_type(name)) {
+            /* A dependent type remains an incomplete placeholder until
+             * template substitution. */
+            t = type_struct(name);
         } else {
-            if (check(TOK_LT)) skip_cxx_template_arguments();
-            t = known_type ? known_type : type_struct(name);
+            if (check(TOK_LT)) {
+                rcc_error(loc, "unknown C++ class template '%s'", name);
+                skip_cxx_template_arguments();
+            } else {
+                rcc_error(loc, "unknown C++ type name '%s'", name);
+            }
+            t = type_int;
         }
     } else {
-        /* Default to int */
+        rcc_error(loc, "expected C++ type specifier, got '%s'",
+                  token_type_str(peek()->type));
+        t = is_unsigned ? type_uint : type_int;
+    }
+
+    if (!t && (saw_sign || long_count > 0 || is_short)) {
         t = is_unsigned ? type_uint : type_int;
     }
 
     /* Prefix cv-qualifiers apply to the base type, before pointer and
      * reference declarators are layered on top. */
-    if (is_const && t) {
+    if ((is_const || is_volatile) && t) {
         Type* ct = ast_arena_alloc(sizeof(Type));
         *ct = *t;
-        ct->is_const = true;
+        ct->is_const = ct->is_const || is_const;
+        ct->is_volatile = ct->is_volatile || is_volatile;
         t = ct;
     }
 
@@ -2567,6 +2817,76 @@ static Type* parse_cxx_type_spec(void) {
     return t;
 }
 
+Expr* rcc_parse_cxx_special_expression(void) {
+    SourceLoc loc = peek()->loc;
+
+    if (match(TOK_NEW)) {
+        Type* object_type = parse_cxx_type_spec();
+        Expr* count = NULL;
+        Expr* bytes;
+        Expr* allocation;
+        ExprList* arguments = NULL;
+        bool is_array = false;
+
+        if (match(TOK_LBRACKET)) {
+            is_array = true;
+            if (check(TOK_RBRACKET)) {
+                rcc_error(loc, "array new requires an element count");
+            } else {
+                count = parse_expression();
+            }
+            expect(TOK_RBRACKET, "]");
+        }
+        if (match(TOK_LPAREN)) {
+            rcc_error(loc,
+                      "RCC++ supports allocation-only new expressions; "
+                      "constructor initialization is not implemented");
+            while (!check(TOK_RPAREN) && !at_end()) advance();
+            expect(TOK_RPAREN, ")");
+        } else if (match(TOK_LBRACE)) {
+            rcc_error(loc,
+                      "RCC++ supports allocation-only new expressions; "
+                      "constructor initialization is not implemented");
+            while (!check(TOK_RBRACE) && !at_end()) advance();
+            expect(TOK_RBRACE, "}");
+        }
+        if (!object_type || object_type == type_void ||
+            object_type->kind == TYPE_FUNC ||
+            !type_is_complete(object_type)) {
+            rcc_error(loc, "new requires a complete object type");
+        } else if (object_type->cxx_nontrivial) {
+            rcc_error(loc,
+                      "new for a non-trivial C++ object requires constructor and destructor lowering");
+        }
+        bytes = expr_sizeof_type(object_type, loc);
+        if (is_array && count) {
+            bytes = expr_binary(EXPR_MUL, bytes, count, loc);
+        }
+        exprlist_append(&arguments, bytes);
+        allocation = expr_call(expr_ident("rin_malloc", loc), arguments, loc);
+        return expr_cast(type_ptr(object_type), allocation, loc);
+    }
+
+    if (match(TOK_DELETE)) {
+        Expr* operand;
+        ExprList* arguments = NULL;
+        bool is_array = match(TOK_LBRACKET);
+        if (is_array) expect(TOK_RBRACKET, "]");
+        operand = parse_expression();
+        if (!operand) return expr_call(
+            expr_ident("rin_free", loc), NULL, loc);
+        exprlist_append(&arguments, operand);
+        /* Both scalar and array allocation use the RinOS allocator.  Class
+         * destruction is still a separate language/ABI feature and is never
+         * silently skipped here: only trivially destructible objects can
+         * currently reach this allocation-only path. */
+        return expr_call(expr_ident("rin_free", loc), arguments, loc);
+    }
+
+    rcc_error(loc, "internal C++ special-expression parser entry");
+    return expr_int(0, loc);
+}
+
 Type* rcc_parse_cxx_type_name(void) {
     return parse_cxx_type_spec();
 }
@@ -2574,9 +2894,6 @@ Type* rcc_parse_cxx_type_name(void) {
 /* ═══════════════════════════════════════
  * C++ Expression Parsing (simplified)
  * ═══════════════════════════════════════ */
-
-/* Forward declaration */
-extern Expr* parse_expression(void);
 
 static Expr* parse_cxx_primary(void) {
     SourceLoc loc = peek()->loc;
@@ -2603,21 +2920,8 @@ static Expr* parse_cxx_primary(void) {
         return expr_int(0, loc);
     }
 
-    /* new expression */
-    if (match(TOK_NEW)) {
-        Type* t = parse_cxx_type_spec();
-        /* TODO: implement new properly */
-        return expr_int(0, loc);  /* Placeholder */
-        (void)t;
-    }
-
-    /* delete expression */
-    if (match(TOK_DELETE)) {
-        bool is_array = match(TOK_LBRACKET);
-        if (is_array) expect(TOK_RBRACKET, "]");
-        Expr* e = parse_cxx_expression();
-        /* TODO: implement delete properly */
-        return e;
+    if (check(TOK_NEW) || check(TOK_DELETE)) {
+        return rcc_parse_cxx_special_expression();
     }
 
     /* Fall back to C expression parsing */
@@ -2667,7 +2971,9 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
                 SourceLoc initializer_loc = peek()->loc;
                 advance();
                 advance();
-                initializer = expr_initializer_list(NULL, initializer_loc);
+                initializer = expr_initializer_list(
+                    exprlist_new(expr_int(0, initializer_loc)),
+                    initializer_loc);
                 initializer->compound_type = type;
                 initializer->type = type;
                 initializer->compound_value_init = true;
@@ -2682,7 +2988,9 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
             SourceLoc initializer_loc = peek()->loc;
             advance();
             advance();
-            initializer = expr_initializer_list(NULL, initializer_loc);
+            initializer = expr_initializer_list(
+                exprlist_new(expr_int(0, initializer_loc)),
+                initializer_loc);
             initializer->compound_type = type;
             initializer->type = type;
             initializer->compound_value_init = true;
@@ -2806,6 +3114,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     parser.prev = NULL;
 
     AST* ast = ast_new();
+    active_ast = ast;
 
     while (!at_end()) {
         Token* declaration_start = parser.cur;
@@ -2866,5 +3175,6 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         if (parser.cur == declaration_start && !at_end()) advance();
     }
 
+    active_ast = NULL;
     return ast;
 }

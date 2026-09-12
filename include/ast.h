@@ -88,6 +88,8 @@ struct Type {
     bool is_volatile;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;
+    bool cxx_is_class;
+    bool cxx_nontrivial;
     /* Structurally validated C++ scope cleanup.  NULL for ordinary types. */
     const char* cleanup_function;
     TypeField* cleanup_field;
@@ -148,6 +150,8 @@ extern Type* type_nullptr;
 /* Configure target-dependent fundamental widths after option parsing and
  * before lexing/parsing a translation unit. */
 void type_configure_target(TargetArch architecture);
+void rcc_parser_set_cxx_mode(bool enabled);
+bool rcc_parser_is_cxx_mode(void);
 Type* rcc_parser_lookup_type(const char* name);
 void rcc_parser_define_type(const char* name, Type* type);
 void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,
@@ -157,8 +161,10 @@ void rcc_parser_validate_cxx_constructor_initializer(Type* type,
                                                      Expr* initializer);
 Type* rcc_parse_cxx_direct_list_type(void);
 Type* rcc_parse_cxx_type_name(void);
+bool rcc_parse_cxx_type_start(void);
 Expr* rcc_parse_cxx_template_call(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
+Expr* rcc_parse_cxx_special_expression(void);
 
 /* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
  * process exit by the single-shot host compiler. */

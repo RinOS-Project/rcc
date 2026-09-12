@@ -35,6 +35,53 @@ static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 static bool sema_atomic_builtin_call(Expr* expr);
 
+/* C++ new/delete are language expressions, so they do not require a source
+ * declaration for the RinOS allocation ABI.  Materialize the two C-linkage
+ * declarations lazily in the semantic symbol table, while respecting a real
+ * declaration if the translation unit or SDK headers provided one. */
+static Symbol* sema_cxx_runtime_function(const char* name, SourceLoc loc) {
+    Type* return_type;
+    Type* parameter_type;
+    TypeParam* type_parameter;
+    Decl* parameter;
+    DeclList* parameters;
+    Type* function_type;
+    Decl* declaration;
+    Symbol* symbol;
+
+    if (!rcc_parser_is_cxx_mode() ||
+        !name || (strcmp(name, "rin_malloc") != 0 &&
+                  strcmp(name, "rin_free") != 0)) {
+        return NULL;
+    }
+    symbol = symtab_lookup(g_symtab, name);
+    if (symbol) return symbol;
+
+    return_type = strcmp(name, "rin_free") == 0
+        ? type_void : type_ptr(type_void);
+    parameter_type = strcmp(name, "rin_free") == 0
+        ? type_ptr(type_void)
+        : (g_opts.target_arch == ARCH_X64 ? type_ulong : type_uint);
+    type_parameter = ast_arena_alloc(sizeof(*type_parameter));
+    type_parameter->name = "value";
+    type_parameter->type = parameter_type;
+    type_parameter->cxx_access = 0u; /* ACCESS_PUBLIC without C++ header. */
+    type_parameter->next = NULL;
+    parameter = decl_param("value", parameter_type, 0, loc);
+    parameters = ast_arena_alloc(sizeof(*parameters));
+    parameters->decl = parameter;
+    parameters->next = NULL;
+    function_type = type_func(return_type, type_parameter, false);
+    function_type->has_prototype = true;
+    declaration = decl_func(name, function_type, parameters, NULL, loc);
+    declaration->storage = STORAGE_EXTERN;
+    declaration->func_has_cxx_linkage = false;
+    declaration->link_name = rcc_intern(name);
+    symbol = symtab_define(g_symtab, name, SYM_FUNC, function_type, loc);
+    symbol->decl = declaration;
+    return symbol;
+}
+
 static bool sema_statement_has_current_switch_label(Stmt* statement) {
     if (!statement) return false;
     switch (statement->kind) {
@@ -913,7 +960,24 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_IDENT: {
+            if (expr->ident_decl && expr->ident_decl->kind == DECL_FUNC) {
+                expr->type = expr->ident_decl->type;
+                break;
+            }
+            if (expr->ident_decl &&
+                (expr->ident_decl->kind == DECL_VAR ||
+                 expr->ident_decl->kind == DECL_PARAM)) {
+                expr->type = expr->ident_decl->type &&
+                    expr->ident_decl->type->is_reference
+                    ? expr->ident_decl->type->base
+                    : expr->ident_decl->type;
+                break;
+            }
             Symbol* sym = symtab_lookup(g_symtab, expr->ident_name);
+            if (!sym) {
+                sym = sema_cxx_runtime_function(expr->ident_name,
+                                                 expr->loc);
+            }
             if (!sym) {
                 rcc_error(expr->loc, "undefined identifier '%s'", expr->ident_name);
                 expr->type = type_int;
@@ -1452,6 +1516,16 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
+                strcmp(expr->call_func->ident_name, "rin_free") == 0 &&
+                expr->call_args && expr->call_args->expr) {
+                Type* freed_type = sema_expr(expr->call_args->expr);
+                if (freed_type && freed_type->kind == TYPE_PTR &&
+                    freed_type->base && freed_type->base->cxx_nontrivial) {
+                    rcc_error(expr->loc,
+                              "delete requires C++ destructor lowering for a non-trivial object");
+                }
+            }
             if (expr->call_func &&
                 (expr->call_func->kind == EXPR_MEMBER ||
                  expr->call_func->kind == EXPR_PTR_MEMBER)) {

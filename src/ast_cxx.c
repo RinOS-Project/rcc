@@ -207,6 +207,7 @@ void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bo
         cls->bases, sizeof(cls->bases[0]) * (size_t)cls->base_count,
         sizeof(cls->bases[0]) * (size_t)(cls->base_count + 1));
     cls->bases[cls->base_count].base = base;
+    cls->bases[cls->base_count].base_name = NULL;
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = is_virtual;
     cls->base_count++;
@@ -239,17 +240,21 @@ void cxx_class_compute_layout(CxxClass* cls) {
     int max_align = 1;
     bool layout_complete = true;
     TypeField** field_tail;
+    int* base_offsets = NULL;
+    bool nontrivial = cls->has_user_constructor || cls->has_field_initializer ||
+                      cls->base_count > 0;
 
     cls->type->fields = NULL;
     field_tail = &cls->type->fields;
 
     /* Space for vptr if class has virtual functions */
     bool has_virtual = false;
+    bool has_destructor = false;
     for (struct CxxMember* m = cls->members; m; m = m->next) {
         if (m->is_virtual) {
             has_virtual = true;
-            break;
         }
+        if (m->method && m->method->is_destructor) has_destructor = true;
     }
 
     if (has_virtual) {
@@ -258,17 +263,26 @@ void cxx_class_compute_layout(CxxClass* cls) {
         max_align = pointer_size;
     }
 
-    /* Base class subobjects */
+    if (cls->base_count > 0) {
+        base_offsets = ast_arena_alloc(
+            sizeof(*base_offsets) * (size_t)cls->base_count);
+    }
+
+    /* Base class subobjects.  Keep the offset separately so inherited fields
+     * can be appended after the derived fields; this preserves C++ name
+     * hiding when a derived class declares a member with the same name. */
     for (int i = 0; i < cls->base_count; i++) {
         CxxClass* base = cls->bases[i].base;
         if (base && !cls->bases[i].is_virtual) {
             /* Align for base */
             int align = base->align;
             offset = (offset + align - 1) & ~(align - 1);
+            base_offsets[i] = offset;
             /* Base subobject */
             offset += base->size;
             if (align > max_align) max_align = align;
         } else {
+            base_offsets[i] = -1;
             layout_complete = false;
         }
     }
@@ -285,6 +299,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
             layout_complete = false;
             continue;
         }
+        if (type->cxx_nontrivial) nontrivial = true;
         align = type->align;
         size = type->size;
 
@@ -301,6 +316,33 @@ void cxx_class_compute_layout(CxxClass* cls) {
         offset += size;
 
         if (align > max_align) max_align = align;
+    }
+
+    /* Expose inherited data members through the derived TypeField list.  The
+     * actual storage remains in the base subobject at base_offsets[i]. */
+    for (int i = 0; i < cls->base_count; i++) {
+        CxxClass* base = cls->bases[i].base;
+        if (!base || cls->bases[i].is_virtual || base_offsets[i] < 0) {
+            continue;
+        }
+        for (TypeField* base_field = base->type->fields;
+             base_field; base_field = base_field->next) {
+            TypeField* field = ast_arena_alloc(sizeof(*field));
+            unsigned char access = base_field->cxx_access;
+            if (cls->bases[i].access == ACCESS_PRIVATE) {
+                access = ACCESS_PRIVATE;
+            } else if (cls->bases[i].access == ACCESS_PROTECTED &&
+                       access == ACCESS_PUBLIC) {
+                access = ACCESS_PROTECTED;
+            }
+            field->name = base_field->name;
+            field->type = base_field->type;
+            field->offset = base_offsets[i] + base_field->offset;
+            field->cxx_access = access;
+            field->next = NULL;
+            *field_tail = field;
+            field_tail = &field->next;
+        }
     }
 
     /* Non-static data members */
@@ -326,6 +368,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
     cls->type->size = cls->size;
     cls->type->align = cls->align;
     cls->type->is_complete = layout_complete;
+    cls->type->cxx_is_class = true;
+    cls->type->cxx_nontrivial = nontrivial || has_virtual || has_destructor;
 }
 
 void cxx_class_build_vtable(CxxClass* cls) {
@@ -412,6 +456,7 @@ void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
 
 void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     if (!ns || !tmpl) return;
+    tmpl->ns = ns;
     ns->templates = ast_arena_grow(
         ns->templates, sizeof(CxxTemplate*) * (size_t)ns->template_count,
         sizeof(CxxTemplate*) * (size_t)(ns->template_count + 1));
@@ -425,6 +470,7 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
 CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int count) {
     CxxTemplate* tmpl = rcc_alloc(sizeof(CxxTemplate));
     tmpl->name = name ? rcc_strdup(name) : NULL;
+    tmpl->ns = NULL;
     if (count > 0 && params) {
         tmpl->params = rcc_alloc(sizeof(TemplateParam) * count);
         memcpy(tmpl->params, params, sizeof(TemplateParam) * count);
@@ -444,15 +490,363 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     return tmpl;
 }
 
+static int template_type_parameter_index(CxxTemplate* tmpl, Type* type) {
+    if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag) {
+        return -1;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].kind == TPARAM_TYPE &&
+            tmpl->params[index].name &&
+            strcmp(tmpl->params[index].name, type->tag) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
+                                      Type** args, int arg_count) {
+    Type* replacement;
+    int index;
+
+    if (!type) return NULL;
+    index = template_type_parameter_index(tmpl, type);
+    if (index >= 0 && index < arg_count && args[index]) {
+        replacement = args[index];
+        if ((type->is_const && !replacement->is_const) ||
+            (type->is_volatile && !replacement->is_volatile)) {
+            Type* qualified = ast_arena_alloc(sizeof(*qualified));
+            *qualified = *replacement;
+            qualified->is_const = qualified->is_const || type->is_const;
+            qualified->is_volatile = qualified->is_volatile ||
+                                     type->is_volatile;
+            replacement = qualified;
+        }
+        return replacement;
+    }
+
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        Type* base = template_substitute_type(
+            tmpl, type->base, args, arg_count);
+        if (base != type->base) {
+            Type* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *type;
+            copy->base = base;
+            if (copy->kind == TYPE_ARRAY && copy->array_len > 0) {
+                copy->size = base->size * copy->array_len;
+                copy->align = base->align;
+            }
+            return copy;
+        }
+    } else if (type->kind == TYPE_FUNC) {
+        Type* return_type = template_substitute_type(
+            tmpl, type->ret_type, args, arg_count);
+        TypeParam* params = NULL;
+        TypeParam** tail = &params;
+        bool changed = return_type != type->ret_type;
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            TypeParam* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *parameter;
+            copy->type = template_substitute_type(
+                tmpl, parameter->type, args, arg_count);
+            copy->next = NULL;
+            changed = changed || copy->type != parameter->type;
+            *tail = copy;
+            tail = &copy->next;
+        }
+        if (changed) {
+            Type* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *type;
+            copy->ret_type = return_type;
+            copy->params = params;
+            return copy;
+        }
+    }
+    return type;
+}
+
+static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
+                                 Type** args, int arg_count);
+
+static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
+                                           Type** args, int arg_count) {
+    ExprList* result = NULL;
+    ExprList** tail = &result;
+    for (; list; list = list->next) {
+        ExprList* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *list;
+        copy->expr = template_clone_expr(tmpl, list->expr, args, arg_count);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return result;
+}
+
+static GenericAssociation* template_clone_associations(
+    CxxTemplate* tmpl, GenericAssociation* list, Type** args,
+    int arg_count) {
+    GenericAssociation* result = NULL;
+    GenericAssociation** tail = &result;
+    for (; list; list = list->next) {
+        GenericAssociation* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *list;
+        copy->type = template_substitute_type(
+            tmpl, list->type, args, arg_count);
+        copy->expr = template_clone_expr(tmpl, list->expr, args, arg_count);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return result;
+}
+
+static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
+                                 Type** args, int arg_count) {
+    Expr* copy;
+    if (!expression) return NULL;
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *expression;
+    copy->type = template_substitute_type(
+        tmpl, expression->type, args, arg_count);
+    copy->cxx_move_assignment = NULL;
+    copy->cxx_close_call = NULL;
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            copy->unary_operand = template_clone_expr(
+                tmpl, expression->unary_operand, args, arg_count);
+            copy->sizeof_type = template_substitute_type(
+                tmpl, expression->sizeof_type, args, arg_count);
+            break;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            copy->binary_lhs = template_clone_expr(
+                tmpl, expression->binary_lhs, args, arg_count);
+            copy->binary_rhs = template_clone_expr(
+                tmpl, expression->binary_rhs, args, arg_count);
+            break;
+        case EXPR_COND:
+            copy->cond_test = template_clone_expr(
+                tmpl, expression->cond_test, args, arg_count);
+            copy->cond_then = template_clone_expr(
+                tmpl, expression->cond_then, args, arg_count);
+            copy->cond_else = template_clone_expr(
+                tmpl, expression->cond_else, args, arg_count);
+            break;
+        case EXPR_CALL:
+            copy->call_func = template_clone_expr(
+                tmpl, expression->call_func, args, arg_count);
+            copy->call_args = template_clone_expr_list(
+                tmpl, expression->call_args, args, arg_count);
+            copy->call_method = NULL;
+            break;
+        case EXPR_INDEX:
+            copy->index_base = template_clone_expr(
+                tmpl, expression->index_base, args, arg_count);
+            copy->index_expr = template_clone_expr(
+                tmpl, expression->index_expr, args, arg_count);
+            break;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            copy->member_base = template_clone_expr(
+                tmpl, expression->member_base, args, arg_count);
+            copy->member_field = NULL;
+            break;
+        case EXPR_CAST:
+            copy->cast_expr = template_clone_expr(
+                tmpl, expression->cast_expr, args, arg_count);
+            copy->cast_type = template_substitute_type(
+                tmpl, expression->cast_type, args, arg_count);
+            break;
+        case EXPR_COMPOUND:
+            copy->compound_type = template_substitute_type(
+                tmpl, expression->compound_type, args, arg_count);
+            copy->compound_init = template_clone_expr_list(
+                tmpl, expression->compound_init, args, arg_count);
+            break;
+        case EXPR_GENERIC:
+            copy->generic_control = template_clone_expr(
+                tmpl, expression->generic_control, args, arg_count);
+            copy->generic_associations = template_clone_associations(
+                tmpl, expression->generic_associations, args, arg_count);
+            break;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            copy->va_list_operand = template_clone_expr(
+                tmpl, expression->va_list_operand, args, arg_count);
+            copy->va_second_operand = template_clone_expr(
+                tmpl, expression->va_second_operand, args, arg_count);
+            copy->va_arg_type = template_substitute_type(
+                tmpl, expression->va_arg_type, args, arg_count);
+            break;
+        default:
+            break;
+    }
+    return copy;
+}
+
+static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
+                                 Type** args, int arg_count) {
+    Decl* copy;
+    if (!declaration) return NULL;
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *declaration;
+    copy->type = template_substitute_type(
+        tmpl, declaration->type, args, arg_count);
+    copy->param_default = template_clone_expr(
+        tmpl, declaration->param_default, args, arg_count);
+    if (declaration->kind == DECL_VAR) {
+        copy->var_init = template_clone_expr(
+            tmpl, declaration->var_init, args, arg_count);
+        copy->var_cleanup = NULL;
+    }
+    return copy;
+}
+
+static Stmt* template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
+                                 Type** args, int arg_count);
+
+static StmtList* template_clone_stmt_list(CxxTemplate* tmpl, StmtList* list,
+                                           Type** args, int arg_count) {
+    StmtList* result = NULL;
+    StmtList** tail = &result;
+    for (; list; list = list->next) {
+        StmtList* copy = ast_arena_alloc(sizeof(*copy));
+        copy->stmt = template_clone_stmt(tmpl, list->stmt, args, arg_count);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return result;
+}
+
+static Stmt* template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
+                                 Type** args, int arg_count) {
+    Stmt* copy;
+    if (!statement) return NULL;
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *statement;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            copy->expr = template_clone_expr(
+                tmpl, statement->expr, args, arg_count);
+            break;
+        case STMT_BLOCK:
+            copy->block_stmts = template_clone_stmt_list(
+                tmpl, statement->block_stmts, args, arg_count);
+            break;
+        case STMT_IF:
+            copy->if_cond = template_clone_expr(
+                tmpl, statement->if_cond, args, arg_count);
+            copy->if_then = template_clone_stmt(
+                tmpl, statement->if_then, args, arg_count);
+            copy->if_else = template_clone_stmt(
+                tmpl, statement->if_else, args, arg_count);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            copy->while_cond = template_clone_expr(
+                tmpl, statement->while_cond, args, arg_count);
+            copy->while_body = template_clone_stmt(
+                tmpl, statement->while_body, args, arg_count);
+            break;
+        case STMT_FOR:
+            copy->for_init = template_clone_stmt(
+                tmpl, statement->for_init, args, arg_count);
+            copy->for_cond = template_clone_expr(
+                tmpl, statement->for_cond, args, arg_count);
+            copy->for_inc = template_clone_expr(
+                tmpl, statement->for_inc, args, arg_count);
+            copy->for_body = template_clone_stmt(
+                tmpl, statement->for_body, args, arg_count);
+            break;
+        case STMT_SWITCH:
+            copy->switch_expr = template_clone_expr(
+                tmpl, statement->switch_expr, args, arg_count);
+            copy->switch_body = template_clone_stmt(
+                tmpl, statement->switch_body, args, arg_count);
+            break;
+        case STMT_CASE:
+            copy->case_val = template_clone_expr(
+                tmpl, statement->case_val, args, arg_count);
+            copy->case_stmt = template_clone_stmt(
+                tmpl, statement->case_stmt, args, arg_count);
+            break;
+        case STMT_DEFAULT:
+            copy->default_stmt = template_clone_stmt(
+                tmpl, statement->default_stmt, args, arg_count);
+            break;
+        case STMT_RETURN:
+            copy->return_val = template_clone_expr(
+                tmpl, statement->return_val, args, arg_count);
+            break;
+        case STMT_LABEL:
+            copy->label_stmt = template_clone_stmt(
+                tmpl, statement->label_stmt, args, arg_count);
+            break;
+        case STMT_DECL:
+            copy->decl = template_clone_decl(
+                tmpl, statement->decl, args, arg_count);
+            break;
+        default:
+            break;
+    }
+    return copy;
+}
+
 void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count) {
+    if (!tmpl || arg_count < 0 || (arg_count > 0 && !args)) {
+        return NULL;
+    }
+
     /* Check if already instantiated */
     for (int i = 0; i < tmpl->instance_count; i++) {
         bool match = true;
         if (tmpl->instances[i].arg_count != arg_count) continue;
 
         for (int j = 0; j < arg_count; j++) {
-            /* Simple type comparison */
-            if (tmpl->instances[i].args[j] != args[j]) {
+            if (!type_is_compatible(tmpl->instances[i].args[j], args[j])) {
                 match = false;
                 break;
             }
@@ -462,8 +856,78 @@ void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count) {
         }
     }
 
-    /* TODO: Actually instantiate template */
-    /* This would involve substituting template parameters in the AST */
+    if (tmpl->kind == TMPL_CLASS) {
+        return rcc_cxx_instantiate_class_template(
+            tmpl, args, arg_count, (SourceLoc){"<template>", 0, 0});
+    }
+
+    /* Function templates use the same parameter substitution model as class
+     * templates.  Their body is deliberately retained: semantic analysis of
+     * the cloned declaration rebinds identifiers to the cloned parameters. */
+    if (tmpl->kind == TMPL_FUNCTION && tmpl->func_def &&
+        arg_count == tmpl->param_count) {
+        Decl* definition = tmpl->func_def;
+        DeclList* parameters = NULL;
+        TypeParam* type_parameters = NULL;
+        TypeParam** type_tail = &type_parameters;
+        Type* function_type;
+        Decl* instance;
+
+        for (int i = 0; i < arg_count; ++i) {
+            if (tmpl->params[i].kind != TPARAM_TYPE || !args[i]) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "function template requires type arguments");
+                return NULL;
+            }
+        }
+
+        for (DeclList* item = definition->func_params; item;
+             item = item->next) {
+            Type* parameter_type = template_substitute_type(
+                tmpl, item->decl->type, args, arg_count);
+            Decl* parameter = decl_param(item->decl->name, parameter_type,
+                                         item->decl->param_index,
+                                         item->decl->loc);
+            parameter->param_default = item->decl->param_default;
+            decllist_append(&parameters, parameter);
+            TypeParam* type_parameter = ast_arena_alloc(sizeof(*type_parameter));
+            type_parameter->name = parameter->name;
+            type_parameter->type = parameter_type;
+            type_parameter->cxx_access = ACCESS_PUBLIC;
+            type_parameter->next = NULL;
+            *type_tail = type_parameter;
+            type_tail = &type_parameter->next;
+        }
+
+        Type* return_type = template_substitute_type(
+            tmpl, definition->type ? definition->type->ret_type : NULL,
+            args, arg_count);
+        function_type = type_func(return_type, type_parameters,
+                                  definition->type && definition->type->variadic);
+        function_type->has_prototype = definition->type
+            ? definition->type->has_prototype : true;
+        instance = decl_func(definition->name, function_type, parameters,
+                             template_clone_stmt(tmpl, definition->func_body,
+                                                 args, arg_count),
+                             definition->loc);
+        instance->func_is_inline = definition->func_is_inline;
+        instance->func_has_cxx_linkage = true;
+        instance->link_name = rcc_intern(cxx_mangle_function(
+            instance, tmpl->ns, NULL));
+
+        tmpl->instances = ast_arena_grow(
+            tmpl->instances,
+            sizeof(tmpl->instances[0]) * (size_t)tmpl->instance_count,
+            sizeof(tmpl->instances[0]) * (size_t)(tmpl->instance_count + 1));
+        tmpl->instances[tmpl->instance_count].args = ast_arena_alloc(
+            sizeof(Type*) * (size_t)arg_count);
+        memcpy(tmpl->instances[tmpl->instance_count].args, args,
+               sizeof(Type*) * (size_t)arg_count);
+        tmpl->instances[tmpl->instance_count].arg_count = arg_count;
+        tmpl->instances[tmpl->instance_count].instantiated = instance;
+        ++tmpl->instance_count;
+        return instance;
+    }
 
     return NULL;
 }
@@ -494,10 +958,11 @@ void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access)
         cls->bases, sizeof(cls->bases[0]) * (size_t)cls->base_count,
         sizeof(cls->bases[0]) * (size_t)(cls->base_count + 1));
     cls->bases[cls->base_count].base = NULL;  /* Will be resolved later */
+    cls->bases[cls->base_count].base_name =
+        base_name ? rcc_intern(base_name) : NULL;
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = false;
     cls->base_count++;
-    (void)base_name;  /* TODO: Store name for later resolution */
 }
 
 /* Add field to class */
@@ -620,6 +1085,7 @@ void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = NULL;
     tmpl->params[tmpl->param_count].has_default = false;
+    tmpl->params[tmpl->param_count].default_type = NULL;
     tmpl->param_count++;
 }
 
@@ -632,5 +1098,6 @@ void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* typ
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = type;
     tmpl->params[tmpl->param_count].has_default = false;
+    tmpl->params[tmpl->param_count].default_value = NULL;
     tmpl->param_count++;
 }

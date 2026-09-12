@@ -92,7 +92,8 @@ char* ast_arena_strdup(const char* text) {
 #define BUILTIN_TYPE(type_kind, type_size, type_align, unsigned_type) \
     { .kind = (type_kind), .size = (type_size), .align = (type_align), \
       .is_unsigned = (unsigned_type), .is_const = false, \
-      .is_volatile = false }
+      .is_volatile = false, .cxx_is_class = false, \
+      .cxx_nontrivial = false }
 
 static Type builtin_void   = BUILTIN_TYPE(TYPE_VOID,   0, 1, false);
 static Type builtin_bool   = BUILTIN_TYPE(TYPE_BOOL,   1, 1, true);
@@ -148,6 +149,8 @@ Type* type_ptr(Type* base) {
     t->size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
     t->align = t->size;
     t->base = base;
+    t->cxx_is_class = false;
+    t->cxx_nontrivial = false;
     return t;
 }
 
@@ -158,6 +161,8 @@ Type* type_array(Type* base, int len) {
     t->align = base->align;
     t->base = base;
     t->array_len = len;
+    t->cxx_is_class = false;
+    t->cxx_nontrivial = false;
     return t;
 }
 
@@ -170,6 +175,8 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->params = params;
     t->variadic = variadic;
     t->has_prototype = true;
+    t->cxx_is_class = false;
+    t->cxx_nontrivial = false;
     return t;
 }
 
@@ -181,6 +188,8 @@ Type* type_struct(const char* tag) {
     t->tag = tag;
     t->fields = NULL;
     t->is_complete = false;
+    t->cxx_is_class = false;
+    t->cxx_nontrivial = false;
     return t;
 }
 
@@ -192,6 +201,8 @@ Type* type_union(const char* tag) {
     t->tag = tag;
     t->fields = NULL;
     t->is_complete = false;
+    t->cxx_is_class = false;
+    t->cxx_nontrivial = false;
     return t;
 }
 
@@ -201,6 +212,8 @@ Type* type_enum(const char* tag) {
     t->size = 4;
     t->align = 4;
     t->enum_tag = tag;
+    t->cxx_is_class = false;
+    t->cxx_nontrivial = false;
     return t;
 }
 

@@ -44,9 +44,18 @@ static int parser_pack_alignment;
 static int parser_pack_stack[32];
 static int parser_pack_depth;
 static bool parser_cxx_mode;
+static bool parser_cxx_template_default_mode;
 
 void rcc_parser_set_cxx_mode(bool enabled) {
     parser_cxx_mode = enabled;
+}
+
+bool rcc_parser_is_cxx_mode(void) {
+    return parser_cxx_mode;
+}
+
+void rcc_parser_set_cxx_template_default_mode(bool enabled) {
+    parser_cxx_template_default_mode = enabled;
 }
 
 static bool parser_pack_value_valid(int alignment) {
@@ -847,6 +856,9 @@ static const char* parse_expression_qualified_name(SourceLoc loc) {
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (parser_cxx_mode && (check(TOK_NEW) || check(TOK_DELETE))) {
+        return rcc_parse_cxx_special_expression();
+    }
     if (parser_cxx_mode && match(TOK_THIS)) {
         return expr_ident("this", loc);
     }
@@ -1175,6 +1187,9 @@ static Expr* parse_relational(void) {
 
     while (1) {
         SourceLoc loc = peek()->loc;
+        /* In a non-type template default, the closing `>` terminates the
+         * default expression rather than acting as a relational operator. */
+        if (parser_cxx_template_default_mode && check(TOK_GT)) break;
         if (match(TOK_LT)) {
             e = expr_binary(EXPR_LT, e, parse_shift(), loc);
         } else if (match(TOK_GT)) {
@@ -1335,6 +1350,7 @@ Expr* parse_expression(void) {
  * ═══════════════════════════════════════ */
 
 static bool is_type_start(void) {
+    if (parser_cxx_mode && rcc_parse_cxx_type_start()) return true;
     switch (peek()->type) {
         case TOK_TYPEDEF:
         case TOK_VOID:
@@ -1685,9 +1701,18 @@ static Type* parse_type_spec(void) {
         }
         t = parser_tag_type(TYPE_ENUM, tag ? tag->value.str_val : NULL);
         if (match(TOK_LBRACE)) parse_enum_body();
+    } else if (parser_cxx_mode && rcc_parse_cxx_type_start()) {
+        t = rcc_parse_cxx_type_name();
     } else if (check(TOK_IDENT)) {
-        t = parser_lookup_type(peek()->value.str_val);
-        if (t) advance();
+        const char* name = peek()->value.str_val;
+        t = parser_lookup_type(name);
+        if (t) {
+            advance();
+        } else if (parser_cxx_mode) {
+            rcc_error(peek()->loc, "unknown C++ type name '%s'", name);
+            advance();
+            t = type_int;
+        }
     } else {
         /* Default to int */
         t = is_unsigned ? type_uint : type_int;
@@ -2225,6 +2250,25 @@ Stmt* parse_declaration(void) {
     if (match(TOK_SEMICOLON)) return stmt_null(loc);
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
+    if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&
+        match(TOK_NOEXCEPT)) {
+        if (match(TOK_LPAREN)) {
+            int depth = 1;
+            while (!at_end() && depth > 0) {
+                if (match(TOK_LPAREN)) {
+                    ++depth;
+                } else if (match(TOK_RPAREN)) {
+                    --depth;
+                } else {
+                    advance();
+                }
+            }
+            if (depth != 0) {
+                rcc_error(peek()->loc,
+                          "unterminated C++ noexcept specification");
+            }
+        }
+    }
     skip_attributes();
     if (!declaration_name) {
         rcc_error(loc, "expected identifier");

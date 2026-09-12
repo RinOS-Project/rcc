@@ -58,6 +58,7 @@ struct CxxClass {
     /* Base classes */
     struct {
         CxxClass* base;
+        const char* base_name; /* Deferred source spelling, if unresolved. */
         AccessSpec access;
         bool is_virtual;
     } *bases;
@@ -141,6 +142,7 @@ typedef struct {
 /* C++ Template */
 struct CxxTemplate {
     const char* name;
+    CxxNamespace* ns;
     TemplateParam* params;
     int param_count;
 
@@ -217,6 +219,12 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl);
 CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int count);
 void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count);
 
+/* Parser-owned class-template substitution used by the public template API.
+ * The returned class is the cached specialization, not merely its Type. */
+CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
+                                              Type** args, int arg_count,
+                                              SourceLoc loc);
+
 /* Global C++ state */
 extern CxxNamespace* g_global_namespace;
 
@@ -269,7 +277,9 @@ AST* rcc_parse_cxx(struct TokenList* tokens);
  * tokens when the current spelling is not such a type. */
 Type* rcc_parse_cxx_direct_list_type(void);
 Type* rcc_parse_cxx_type_name(void);
+bool rcc_parse_cxx_type_start(void);
 Expr* rcc_parse_cxx_template_call(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
+Expr* rcc_parse_cxx_special_expression(void);
 
 #endif /* AST_CXX_H */
