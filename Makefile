@@ -24,7 +24,6 @@ endif
 
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
-                      src/parser_cxx_stub.c \
                       src/ir.c src/ir_pass.c src/mir.c src/mir_alloc.c \
                       src/mir_phi.c src/x86_abi.c src/x86_select.c \
                       src/x86_legalize.c src/x86_encode.c \
@@ -44,8 +43,7 @@ BOOTSTRAP_RCC_OBJECTS = utils lexer parser ast symtab sema codegen codegen64 \
                         x86_pipeline verified_codegen \
                         ir_lower optimize \
                         emit_rin emit_rll emit_drv emit_ro \
-                        emit_asm build_manifest driver_policy parser_cxx_stub \
-                        main
+                        emit_asm build_manifest driver_policy main
 BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
                               close execvp exit fclose feof ferror fgets fopen \
                               fork fprintf fputc fputs fread free fseek ftell \
@@ -74,7 +72,7 @@ COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/a
 COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 # RCC (C compiler)
-RCC_SRCS = $(SRCDIR)/main.c $(SRCDIR)/parser_cxx_stub.c
+RCC_SRCS = $(SRCDIR)/main.c
 RCC_OBJS = $(RCC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RCC_TARGET = $(BINDIR)/rcc
 

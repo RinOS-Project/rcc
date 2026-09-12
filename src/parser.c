@@ -16,6 +16,22 @@ typedef struct {
 
 Parser parser;  /* Non-static for C++ parser access */
 
+/* The C frontend and C++ frontend share this parser translation unit.  Keep
+ * the C-only executable independent of parser_cxx.c without providing fake
+ * language implementations: an absent C++ hook is a missing extension and
+ * the caller's ordinary diagnostic path remains responsible for the token. */
+#if defined(__GNUC__)
+#define RCC_OPTIONAL_CXX __attribute__((weak))
+#else
+#define RCC_OPTIONAL_CXX
+#endif
+extern Type* rcc_parse_cxx_direct_list_type(void) RCC_OPTIONAL_CXX;
+extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
+extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
+
 typedef struct ParserTypeName {
     const char* name;
     Type* type;
@@ -856,7 +872,8 @@ static const char* parse_expression_qualified_name(SourceLoc loc) {
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
 
-    if (parser_cxx_mode && (check(TOK_NEW) || check(TOK_DELETE))) {
+    if (parser_cxx_mode && rcc_parse_cxx_special_expression &&
+        (check(TOK_NEW) || check(TOK_DELETE))) {
         return rcc_parse_cxx_special_expression();
     }
     if (parser_cxx_mode && match(TOK_THIS)) {
@@ -900,7 +917,7 @@ static Expr* parse_primary(void) {
     /* A small, structurally validated set of C++ function templates can be
      * expanded directly to the common expression AST.  The hook restores the
      * token cursor when the current spelling is not one of those templates. */
-    if (parser_cxx_mode &&
+    if (parser_cxx_mode && rcc_parse_cxx_template_call &&
         (check(TOK_IDENT) || check(TOK_SCOPE))) {
         Expr* template_call = rcc_parse_cxx_template_call();
         if (template_call) return template_call;
@@ -909,7 +926,7 @@ static Expr* parse_primary(void) {
      * initializer semantics as the compound-literal node already used by
      * the C backend.  Restrict this lowering to registered, complete C ABI
      * types; class construction remains with the C++ frontend. */
-    if (parser_cxx_mode &&
+    if (parser_cxx_mode && rcc_parse_cxx_direct_list_type &&
         (check(TOK_IDENT) || check(TOK_SCOPE))) {
         Type* direct_type = rcc_parse_cxx_direct_list_type();
         if (direct_type) {
@@ -1046,7 +1063,7 @@ static Expr* parse_unary(void) {
     /* The SDK's fixed-width wrappers only need value-preserving static and
      * reinterpret casts.  Lower both named forms to the existing typed cast
      * node so the 32/64-bit semantic and code-generation paths stay shared. */
-    if (parser_cxx_mode &&
+    if (parser_cxx_mode && rcc_parse_cxx_type_name &&
         (check(TOK_STATIC_CAST) || check(TOK_REINTERPRET_CAST))) {
         advance();
         expect(TOK_LT, "<");
@@ -1350,7 +1367,8 @@ Expr* parse_expression(void) {
  * ═══════════════════════════════════════ */
 
 static bool is_type_start(void) {
-    if (parser_cxx_mode && rcc_parse_cxx_type_start()) return true;
+    if (parser_cxx_mode && rcc_parse_cxx_type_start &&
+        rcc_parse_cxx_type_start()) return true;
     switch (peek()->type) {
         case TOK_TYPEDEF:
         case TOK_VOID:
@@ -1701,7 +1719,8 @@ static Type* parse_type_spec(void) {
         }
         t = parser_tag_type(TYPE_ENUM, tag ? tag->value.str_val : NULL);
         if (match(TOK_LBRACE)) parse_enum_body();
-    } else if (parser_cxx_mode && rcc_parse_cxx_type_start()) {
+    } else if (parser_cxx_mode && rcc_parse_cxx_type_start &&
+               rcc_parse_cxx_type_start() && rcc_parse_cxx_type_name) {
         t = rcc_parse_cxx_type_name();
     } else if (check(TOK_IDENT)) {
         const char* name = peek()->value.str_val;
@@ -2189,7 +2208,8 @@ Stmt* parse_declaration(void) {
     Type* type;
     Decl* declaration;
 
-    if (parser_cxx_mode && check(TOK_AUTO)) {
+    if (parser_cxx_mode && rcc_parse_cxx_auto_local_declaration &&
+        check(TOK_AUTO)) {
         Stmt* auto_declaration = rcc_parse_cxx_auto_local_declaration();
         if (auto_declaration) return auto_declaration;
     }
