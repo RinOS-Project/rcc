@@ -15,6 +15,13 @@ TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
 BOOTSTRAP_ROOT = build/bootstrap
+
+ifeq ($(OS),Windows_NT)
+MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
+else
+MKDIR_P = mkdir -p $(1)
+endif
+
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
                       src/parser_cxx_stub.c \
@@ -111,10 +118,10 @@ build-rar: $(OBJDIR) $(RAR_TARGET)
 build-aqc: $(OBJDIR) $(AQC_TARGET)
 
 $(OBJDIR):
-	mkdir -p $(OBJDIR)
+	$(call MKDIR_P,$(OBJDIR))
 
 $(BINDIR):
-	mkdir -p $(BINDIR)
+	$(call MKDIR_P,$(BINDIR))
 
 $(RCC_TARGET): $(COMMON_OBJS) $(RCC_OBJS) | $(BINDIR)
 	$(CC) $(LDFLAGS) -o $@ $^
@@ -142,7 +149,7 @@ clean:
 
 # Test
 test: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello.rin tests/hello.c
 	@echo "RCC test completed"
 
