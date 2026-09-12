@@ -1868,6 +1868,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
     Type* type = base_type;
     ParsedPointerLevel* leading_pointers;
     int array_lengths[32];
+    Expr* array_bounds[32];
     SourceLoc array_locs[32];
     int array_count = 0;
     if (name) *name = NULL;
@@ -1911,15 +1912,23 @@ static Type* parse_declarator(Type* base_type, const char** name,
     for (;;) {
         if (match(TOK_LBRACKET)) {
             int length = -1;
+            Expr* bound_expression = NULL;
             if (!check(TOK_RBRACKET)) {
                 Expr* bound = parse_assignment();
                 int64_t constant = 0;
-                if (!eval_integer_constant(bound, &constant) || constant <= 0 ||
-                    constant > INT_MAX) {
-                    rcc_error(bound->loc,
-                              "array bound is not a positive representable integer constant");
+                if (eval_integer_constant(bound, &constant)) {
+                    if (constant <= 0 || constant > INT_MAX) {
+                        rcc_error(bound->loc,
+                                  "array bound is not a positive representable integer constant");
+                    } else {
+                        length = (int)constant;
+                    }
                 } else {
-                    length = (int)constant;
+                    /* A non-constant bound is a C17 variable-length array
+                     * dimension. Its semantic type and runtime extent are
+                     * checked after parameter/local scopes are available. */
+                    length = -2;
+                    bound_expression = bound;
                 }
             }
             expect(TOK_RBRACKET, "]");
@@ -1928,6 +1937,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 rcc_error(previous()->loc, "array declarator is too deep");
             } else {
                 array_lengths[array_count] = length;
+                array_bounds[array_count] = bound_expression;
                 array_locs[array_count] = previous()->loc;
                 ++array_count;
             }
@@ -1957,6 +1967,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
             length = -1;
         }
         type = type_array(type, length);
+        type->array_bound = array_bounds[array_count];
     }
     return type;
 }

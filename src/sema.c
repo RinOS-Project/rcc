@@ -1935,6 +1935,24 @@ static void sema_stmt(Stmt* stmt) {
  * Declaration Semantic Analysis
  * ═══════════════════════════════════════ */
 
+static bool sema_type_has_vla(Type* type) {
+    return type && type->kind == TYPE_ARRAY &&
+           (type->array_bound != NULL || sema_type_has_vla(type->base));
+}
+
+static void sema_vla_bounds(Type* type, SourceLoc loc) {
+    Type* bound_type;
+    if (!type || type->kind != TYPE_ARRAY) return;
+    sema_vla_bounds(type->base, loc);
+    if (!type->array_bound) return;
+    bound_type = sema_expr(type->array_bound);
+    if (!bound_type || !type_is_integer(bound_type)) {
+        rcc_error(type->array_bound->loc,
+                  "variable-length array bound requires an integer type");
+    }
+    (void)loc;
+}
+
 static Expr* initializer_character_string(Type* type, Expr* initializer) {
     if (!type || type->kind != TYPE_ARRAY || !type->base ||
         type->base->kind != TYPE_CHAR || !initializer) {
@@ -2134,6 +2152,7 @@ static void sema_infer_initializer_type(Type* type, Expr* initializer) {
     int64_t cursor = 0;
     int64_t maximum = -1;
     if (!type || !initializer) return;
+    if (sema_type_has_vla(type)) return;
     string = initializer_character_string(type, initializer);
     if (string) {
         size_t characters = strlen(string->str_val);
@@ -2747,9 +2766,22 @@ static void sema_decl(Decl* decl) {
                 rcc_error(decl->loc,
                           "thread-local variable cannot use auto or register storage");
             }
+            if (sema_type_has_vla(decl->type)) {
+                sema_vla_bounds(decl->type, decl->loc);
+                if (is_global) {
+                    rcc_error(decl->loc,
+                              "variable-length array is only valid at block scope");
+                }
+                if (decl->var_init) {
+                    rcc_error(decl->loc,
+                              "variable-length array cannot have an initializer");
+                }
+                decl->var_is_vla = !is_global;
+            }
             sema_infer_initializer_type(decl->type, decl->var_init);
             if (decl->type && decl->type->kind == TYPE_ARRAY &&
-                       decl->type->array_len < 0 &&
+                       decl->type->array_len == -1 &&
+                       !decl->type->array_bound &&
                        !(decl->storage == STORAGE_EXTERN && !decl->var_init)) {
                 rcc_error(decl->loc,
                           "incomplete array requires an initializer with known size");
@@ -2780,6 +2812,10 @@ static void sema_decl(Decl* decl) {
             if (!is_global || decl->var_init) sym->is_defined = true;
             decl->var_offset = sym->offset;
             decl->var_is_global = sym->is_global;
+            if (decl->var_is_vla) {
+                decl->var_vla_size_offset = decl->var_offset +
+                    (g_opts.target_arch == ARCH_X64 ? 8 : 4);
+            }
 
             if (decl->var_init) {
                 sema_initializer(decl->type, decl->var_init);

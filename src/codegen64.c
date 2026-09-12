@@ -630,6 +630,43 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
 
+static bool gen64_type_has_vla(const Type* type) {
+    return type && type->kind == TYPE_ARRAY &&
+           (type->array_bound != NULL || gen64_type_has_vla(type->base));
+}
+
+static void gen64_vla_extent(Module* mod, Type* type) {
+    if (!type || type->kind != TYPE_ARRAY) {
+        emit64_mov_reg_imm32(mod, RAX, type && type->size > 0
+            ? (uint32_t)type->size : 0u);
+        return;
+    }
+    if (type->base && type->base->kind == TYPE_ARRAY) {
+        gen64_vla_extent(mod, type->base);
+    } else {
+        emit64_mov_reg_imm32(mod, RAX, type->base && type->base->size > 0
+            ? (uint32_t)type->base->size : 0u);
+    }
+    emit64_push_reg(mod, RAX);
+    if (type->array_bound) {
+        gen64_expr(mod, type->array_bound);
+    } else {
+        emit64_mov_reg_imm32(mod, RAX, type->array_len > 0
+            ? (uint32_t)type->array_len : 0u);
+    }
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_pop_reg(mod, RAX);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+}
+
+static void gen64_vla_alloc(Module* mod, Decl* decl) {
+    gen64_vla_extent(mod, decl->type);
+    emit64_sub_reg_reg(mod, RSP, RAX);
+    emit64_mov_mem_reg(mod, RBP, decl->var_vla_size_offset, RAX);
+    emit64_mov_reg_reg(mod, RAX, RSP);
+    emit64_mov_mem_reg(mod, RBP, decl->var_offset, RAX);
+}
+
 static bool gen64_is_floating(const Type* type) {
     return type && (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
 }
@@ -1426,6 +1463,8 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 }
             } else if (decl->kind == DECL_FUNC) {
                 gen64_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->var_is_vla) {
+                emit64_mov_reg_mem(mod, RAX, RBP, decl->var_offset);
             } else if (decl->type && decl->type->is_reference) {
                 if (decl->var_is_global) {
                     gen64_symbol_address(mod, decl_link_name(decl), 0u);
@@ -2536,7 +2575,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_SIZEOF:
-            if (expr->sizeof_type) {
+            if (expr->sizeof_type && gen64_type_has_vla(expr->sizeof_type)) {
+                gen64_vla_extent(mod, expr->sizeof_type);
+            } else if (expr->unary_operand &&
+                       expr->unary_operand->kind == EXPR_IDENT &&
+                       expr->unary_operand->ident_decl &&
+                       expr->unary_operand->ident_decl->var_is_vla) {
+                emit64_mov_reg_mem(
+                    mod, RAX, RBP,
+                    expr->unary_operand->ident_decl->var_vla_size_offset);
+            } else if (expr->sizeof_type) {
                 emit64_mov_reg_imm32(mod, RAX, expr->sizeof_type->size);
             } else if (expr->unary_operand && expr->unary_operand->type) {
                 emit64_mov_reg_imm32(mod, RAX, expr->unary_operand->type->size);
@@ -3218,7 +3266,9 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_init) {
+            if (d->kind == DECL_VAR && d->var_is_vla) {
+                gen64_vla_alloc(mod, d);
+            } else if (d->kind == DECL_VAR && d->var_init) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION)) {

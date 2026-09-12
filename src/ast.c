@@ -149,6 +149,7 @@ Type* type_ptr(Type* base) {
     t->size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
     t->align = t->size;
     t->base = base;
+    t->array_bound = NULL;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     return t;
@@ -161,6 +162,7 @@ Type* type_array(Type* base, int len) {
     t->align = base->align;
     t->base = base;
     t->array_len = len;
+    t->array_bound = NULL;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     return t;
@@ -252,7 +254,8 @@ bool type_is_function(Type* t) {
 
 bool type_is_complete(Type* t) {
     if (t->kind == TYPE_VOID) return false;
-    if (t->kind == TYPE_ARRAY && t->array_len < 0) return false;
+    if (t->kind == TYPE_ARRAY && t->array_len == -1 &&
+        !t->array_bound) return false;
     if ((t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) && !t->is_complete) return false;
     return true;
 }

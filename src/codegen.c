@@ -1534,6 +1534,47 @@ static void emit_convert_integer_value(Module* mod, int reg,
                                        const Type* source_type,
                                        const Type* target_type);
 
+static bool codegen_type_has_vla(const Type* type) {
+    return type && type->kind == TYPE_ARRAY &&
+           (type->array_bound != NULL || codegen_type_has_vla(type->base));
+}
+
+/* Leave the runtime byte extent of an array type in EAX.  VLA dimensions are
+ * evaluated at the point where the expression is emitted; local declarations
+ * save the resulting extent so later sizeof expressions observe the declared
+ * object rather than a subsequently changed bound variable. */
+static void gen_vla_extent(Module* mod, Type* type) {
+    if (!type || type->kind != TYPE_ARRAY) {
+        emit_mov_reg_imm(mod, EAX, type && type->size > 0
+            ? (uint32_t)type->size : 0u);
+        return;
+    }
+    if (type->base && type->base->kind == TYPE_ARRAY) {
+        gen_vla_extent(mod, type->base);
+    } else {
+        emit_mov_reg_imm(mod, EAX, type->base && type->base->size > 0
+            ? (uint32_t)type->base->size : 0u);
+    }
+    emit_push_reg(mod, EAX);
+    if (type->array_bound) {
+        gen_expr(mod, type->array_bound);
+    } else {
+        emit_mov_reg_imm(mod, EAX, type->array_len > 0
+            ? (uint32_t)type->array_len : 0u);
+    }
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_pop_reg(mod, EAX);
+    emit_imul_reg_reg(mod, EAX, ECX);
+}
+
+static void gen_vla_alloc(Module* mod, Decl* decl) {
+    gen_vla_extent(mod, decl->type);
+    emit_sub_reg_reg(mod, ESP, EAX);
+    emit_mov_mem_reg(mod, EBP, decl->var_vla_size_offset, EAX);
+    emit_mov_reg_reg(mod, EAX, ESP);
+    emit_mov_mem_reg(mod, EBP, decl->var_offset, EAX);
+}
+
 static bool gen_is_integer64(const Type* type) {
     return type && type->size == 8 &&
            type_is_integer((Type*)type);
@@ -2555,6 +2596,8 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 }
             } else if (decl->kind == DECL_FUNC) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->var_is_vla) {
+                emit_mov_reg_mem(mod, EAX, EBP, decl->var_offset);
             } else if (decl->type && decl->type->is_reference) {
                 if (decl->var_is_global) {
                     gen_symbol_address(mod, decl_link_name(decl), 0u);
@@ -4398,7 +4441,15 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_SIZEOF:
-            if (expr->sizeof_type) {
+            if (expr->sizeof_type && codegen_type_has_vla(expr->sizeof_type)) {
+                gen_vla_extent(mod, expr->sizeof_type);
+            } else if (expr->unary_operand &&
+                       expr->unary_operand->kind == EXPR_IDENT &&
+                       expr->unary_operand->ident_decl &&
+                       expr->unary_operand->ident_decl->var_is_vla) {
+                emit_mov_reg_mem(mod, EAX, EBP,
+                                 expr->unary_operand->ident_decl->var_vla_size_offset);
+            } else if (expr->sizeof_type) {
                 emit_mov_reg_imm(mod, EAX, expr->sizeof_type->size);
             } else if (expr->unary_operand && expr->unary_operand->type) {
                 emit_mov_reg_imm(mod, EAX, expr->unary_operand->type->size);
@@ -5758,7 +5809,9 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_init) {
+            if (d->kind == DECL_VAR && d->var_is_vla) {
+                gen_vla_alloc(mod, d);
+            } else if (d->kind == DECL_VAR && d->var_init) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION)) {

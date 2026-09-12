@@ -52,6 +52,8 @@
   - [x] 前置・後置cv指定、pointer level cv、modifiable lvalue検査
   - [x] `volatile` object/pointerの未使用readに対するDCE抑止
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
+- [x] block-scope VLAの非定数境界、実体ポインタ・byte extent保存、添字、
+      `sizeof`、i686/AMD64 dynamic stack allocation
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
   - [x] scalar-only brace省略列を型のsubobject順にnested initializerへ正規化し、
         i686/AMD64のstatic/automatic storageへlowering

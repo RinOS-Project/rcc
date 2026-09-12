@@ -107,6 +107,7 @@ struct Type {
         struct {
             Type* base;
             int array_len;      /* -1 for flexible array */
+            Expr* array_bound;  /* non-NULL for a runtime VLA bound */
         };
         /* TYPE_FUNC */
         struct {
@@ -622,8 +623,10 @@ struct Decl {
         struct {
             Expr* var_init;
             int var_offset;         /* Stack offset (set during codegen) */
+            int var_vla_size_offset; /* Saved runtime VLA byte size */
             bool var_is_global;
             bool var_is_thread_local;
+            bool var_is_vla;
             bool var_is_auto;       /* C++ placeholder type, deduced in sema. */
             Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
         };

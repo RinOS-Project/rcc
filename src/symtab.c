@@ -9,6 +9,11 @@
 /* Global symbol table */
 SymTab* g_symtab = NULL;
 
+static bool symtab_is_vla(Type* type) {
+    return type && type->kind == TYPE_ARRAY &&
+           (type->array_bound != NULL || symtab_is_vla(type->base));
+}
+
 /* Hash function for symbol lookup */
 static unsigned int hash_name(const char* name) {
     unsigned int h = 0;
@@ -144,8 +149,14 @@ Symbol* symtab_define(SymTab* st, const char* name, SymKind kind, Type* type, So
 
     /* Allocate stack space for local variables */
     if (!sym->is_global && (kind == SYM_VAR || kind == SYM_PARAM)) {
-        if (type && type->size > 0) {
-            st->current->local_offset += type->size;
+        if (type && (type->size > 0 || symtab_is_vla(type))) {
+            int storage = type->size;
+            if (symtab_is_vla(type)) {
+                /* A VLA identifier names runtime storage, so keep a pointer
+                 * and its saved byte extent in the fixed stack frame. */
+                storage = g_opts.target_arch == ARCH_X64 ? 16 : 8;
+            }
+            st->current->local_offset += storage;
             /* Align to 4 bytes */
             st->current->local_offset = (st->current->local_offset + 3) & ~3;
             sym->offset = -st->current->local_offset;
