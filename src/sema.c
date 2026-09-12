@@ -2122,6 +2122,9 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     return true;
 }
 
+static int initializer_scalar_capacity(Type* type);
+static bool initializer_is_scalar_sequence(Expr* initializer);
+
 static void sema_infer_initializer_type(Type* type, Expr* initializer) {
     Expr* string;
     int64_t cursor = 0;
@@ -2148,6 +2151,27 @@ static void sema_infer_initializer_type(Type* type, Expr* initializer) {
     }
     if (type->kind != TYPE_ARRAY || initializer->kind != EXPR_COMPOUND) {
         return;
+    }
+    if (type->array_len < 0 && type->base &&
+        (type->base->kind == TYPE_ARRAY ||
+         type->base->kind == TYPE_STRUCT ||
+         type->base->kind == TYPE_UNION) &&
+        initializer_is_scalar_sequence(initializer)) {
+        int capacity = initializer_scalar_capacity(type->base);
+        int64_t count = 0;
+        if (capacity > 0) {
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                if (count < INT64_MAX) ++count;
+            }
+            count = (count + capacity - 1) / capacity;
+            if (count > 0 && count <= INT_MAX &&
+                count <= INT_MAX / type->base->size) {
+                type->array_len = (int)count;
+                type->size = (int)count * type->base->size;
+                return;
+            }
+        }
     }
     for (ExprList* item = initializer->compound_init; item;
          item = item->next) {
@@ -2224,6 +2248,18 @@ static int initializer_scalar_capacity(Type* type) {
     return (int)capacity;
 }
 
+static bool initializer_is_scalar_sequence(Expr* initializer) {
+    if (!initializer || initializer->kind != EXPR_COMPOUND) return false;
+    for (ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr ||
+            item->expr->kind == EXPR_COMPOUND) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void normalize_brace_elided_initializer(Type* type,
                                                 Expr* initializer) {
     ExprList* source;
@@ -2235,13 +2271,7 @@ static void normalize_brace_elided_initializer(Type* type,
          type->kind != TYPE_UNION)) {
         return;
     }
-    for (source = initializer->compound_init; source; source = source->next) {
-        if (source->designator_kind != INIT_DESIGNATOR_NONE || !source->expr ||
-            source->expr->kind == EXPR_COMPOUND) {
-            scalar_sequence = false;
-            break;
-        }
-    }
+    scalar_sequence = initializer_is_scalar_sequence(initializer);
     if (!scalar_sequence) return;
 
     source = initializer->compound_init;

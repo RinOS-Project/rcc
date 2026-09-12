@@ -1861,6 +1861,9 @@ static Type* parse_declarator(Type* base_type, const char** name,
                               DeclList** parameters) {
     Type* type = base_type;
     ParsedPointerLevel* leading_pointers;
+    int array_lengths[32];
+    SourceLoc array_locs[32];
+    int array_count = 0;
     if (name) *name = NULL;
     if (parameters) *parameters = NULL;
 
@@ -1906,8 +1909,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 Expr* bound = parse_assignment();
                 int64_t constant = 0;
                 if (!eval_integer_constant(bound, &constant) || constant <= 0 ||
-                    constant > INT_MAX ||
-                    (type->size > 0 && constant > INT_MAX / type->size)) {
+                    constant > INT_MAX) {
                     rcc_error(bound->loc,
                               "array bound is not a positive representable integer constant");
                 } else {
@@ -1915,7 +1917,14 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 }
             }
             expect(TOK_RBRACKET, "]");
-            type = type_array(type, length);
+            if (array_count >= (int)(sizeof(array_lengths) /
+                                     sizeof(array_lengths[0]))) {
+                rcc_error(previous()->loc, "array declarator is too deep");
+            } else {
+                array_lengths[array_count] = length;
+                array_locs[array_count] = previous()->loc;
+                ++array_count;
+            }
         } else if (match(TOK_LPAREN)) {
             bool variadic = false;
             bool has_prototype = !check(TOK_RPAREN);
@@ -1929,6 +1938,19 @@ static Type* parse_declarator(Type* base_type, const char** name,
         } else {
             break;
         }
+    }
+    /* Array declarator suffixes bind from the identifier outward.  Applying
+     * them in source order reverses `int a[2][3]` into [3][2]; retain the
+     * parsed suffixes and construct the type from the inside out instead. */
+    while (array_count > 0) {
+        int length = array_lengths[--array_count];
+        if (length > 0 && type->size > 0 &&
+            length > INT_MAX / type->size) {
+            rcc_error(array_locs[array_count],
+                      "array bound is too large for the complete element type");
+            length = -1;
+        }
+        type = type_array(type, length);
     }
     return type;
 }
