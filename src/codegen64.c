@@ -2158,6 +2158,43 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     emit64_pop_reg(mod, RAX);
 }
 
+static void gen64_cxx_delete(Module* mod, Expr* expr) {
+    Decl* cleanup = expr ? expr->call_delete_cleanup : NULL;
+    TypeField* field = expr ? expr->call_delete_cleanup_field : NULL;
+    int skip_cleanup;
+    int done;
+
+    if (!cleanup || !field || !expr->call_args ||
+        !expr->call_args->expr) {
+        return;
+    }
+    skip_cleanup = new_label64();
+    done = new_label64();
+    gen64_expr(mod, expr->call_args->expr);
+    emit64_cmp_reg_imm(mod, RAX, 0);
+    emit64_jcc_label(mod, CC64_E, done);
+    emit64_push_reg(mod, RAX); /* Keep the object address across destructor. */
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    emit64_load_typed(mod, RAX, RCX, field->offset, field->type);
+    emit64_compare_constant(mod, RAX,
+                            expr->call_delete_cleanup_invalid);
+    emit64_jcc_label(mod, CC64_E, skip_cleanup);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    uint32_t call_offset = code_offset(mod);
+    emit_dword(mod, 0);
+    add_func_call_ref64(decl_link_name(cleanup), call_offset);
+    emit64_label(mod, skip_cleanup);
+    emit64_mov_reg_mem(mod, RDI, RSP, 0);
+    emit_byte(mod, 0xE8);
+    uint32_t free_offset = code_offset(mod);
+    emit_dword(mod, 0);
+    add_func_call_ref64("rin_free", free_offset);
+    emit64_add_reg_imm(mod, RSP, 8);
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    emit64_label(mod, done);
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -2740,6 +2777,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_CALL: {
             if (expr->call_is_new) {
                 gen64_cxx_new(mod, expr);
+                break;
+            }
+            if (expr->call_is_delete && expr->call_delete_cleanup) {
+                gen64_cxx_delete(mod, expr);
                 break;
             }
             if (gen64_inline_method_call(mod, expr)) break;

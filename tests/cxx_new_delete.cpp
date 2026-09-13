@@ -23,6 +23,33 @@ int initialize_scalar() {
     return result == 7 ? 0 : 1;
 }
 
+extern "C" void cleanup_pointer(int* value) {
+    if (value) *value = *value + 1;
+}
+
+struct OwnedPointer {
+    int* value;
+
+    OwnedPointer(int* input) : value(input) {}
+
+    ~OwnedPointer() {
+        if (value != 0) (void)cleanup_pointer(value);
+    }
+};
+
+int initialize_and_delete_class() {
+    int value = 9;
+    OwnedPointer* object = new OwnedPointer(&value);
+    delete object;
+    return value == 10 ? 0 : 1;
+}
+
+int delete_null_class() {
+    OwnedPointer* object = nullptr;
+    delete object;
+    return 0;
+}
+
 int initialize_pair() {
     Pair* value = new Pair(11, 31);
     int result = value->left + value->right;
@@ -39,5 +66,6 @@ int value_initialize_scalar() {
 
 int main() {
     return initialize_scalar() + initialize_pair() +
-           value_initialize_scalar();
+           value_initialize_scalar() + initialize_and_delete_class() +
+           delete_null_class();
 }

@@ -838,6 +838,13 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             /* Constructor selection is semantic and must be redone for the
              * substituted class specialization. */
             copy->call_new_constructor = NULL;
+            copy->call_is_delete = expression->call_is_delete;
+            copy->call_delete_is_array = expression->call_delete_is_array;
+            /* Destructor lookup is semantic and must be redone for the
+             * substituted class specialization. */
+            copy->call_delete_cleanup = NULL;
+            copy->call_delete_cleanup_field = NULL;
+            copy->call_delete_cleanup_invalid = 0;
             break;
         case EXPR_INDEX:
             copy->index_base = template_clone_expr(

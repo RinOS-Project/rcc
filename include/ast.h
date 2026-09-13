@@ -398,6 +398,14 @@ struct Expr {
             Expr* call_new_count;
             ExprList* call_new_args;
             struct CxxConstructorInfo* call_new_constructor;
+            /* C++ delete-expression metadata.  The ordinary call fields
+             * retain the RinOS free call; these fields describe a validated
+             * scalar destructor cleanup that must run before freeing. */
+            bool call_is_delete;
+            bool call_delete_is_array;
+            Decl* call_delete_cleanup;
+            TypeField* call_delete_cleanup_field;
+            int64_t call_delete_cleanup_invalid;
         };
 
         /* EXPR_INDEX */

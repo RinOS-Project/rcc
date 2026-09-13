@@ -3509,11 +3509,14 @@ Expr* rcc_parse_cxx_special_expression(void) {
         if (!operand) return expr_call(
             expr_ident("rin_free", loc), NULL, loc);
         exprlist_append(&arguments, operand);
-        /* Both scalar and array allocation use the RinOS allocator.  Class
-         * destruction is still a separate language/ABI feature and is never
-         * silently skipped here: only trivially destructible objects can
-         * currently reach this allocation-only path. */
-        return expr_call(expr_ident("rin_free", loc), arguments, loc);
+        /* Both scalar and array allocation use the RinOS allocator.  Semantic
+         * analysis attaches a destructor only after proving the complete
+         * cleanup shape; unsupported object lifetimes remain diagnostics
+         * instead of silently becoming free-only calls. */
+        Expr* result = expr_call(expr_ident("rin_free", loc), arguments, loc);
+        result->call_is_delete = true;
+        result->call_delete_is_array = is_array;
+        return result;
     }
 
     rcc_error(loc, "internal C++ special-expression parser entry");

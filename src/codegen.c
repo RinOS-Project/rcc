@@ -191,6 +191,22 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                            uint32_t offset, uint32_t target,
                            bool is_relative, bool is_64bit,
                            const char* symbol_name) {
+    bool known_symbol = false;
+    if (symbol_name && symbol_name[0] != '\0') {
+        for (int index = 0; index < mod->symbol_count; ++index) {
+            if (strcmp(mod->symbols[index].name, symbol_name) == 0) {
+                known_symbol = true;
+                break;
+            }
+        }
+        /* Every relocation must have a corresponding object-file symbol.
+         * This also covers compiler-synthesized C++ runtime calls such as
+         * rin_free, which are not source declarations in the AST. */
+        if (!known_symbol) {
+            module_add_symbol(mod, symbol_name, 0u, false,
+                              MODULE_SYMBOL_CODE, true);
+        }
+    }
     /* Expand if needed */
     if (mod->reloc_count >= mod->reloc_capacity) {
         int new_cap = mod->reloc_capacity == 0 ? 16 : mod->reloc_capacity * 2;
@@ -3863,6 +3879,63 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     emit_pop_reg(mod, EAX);
 }
 
+static void gen_cxx_delete32(Module* mod, Expr* expr) {
+    Decl* cleanup = expr ? expr->call_delete_cleanup : NULL;
+    TypeField* field = expr ? expr->call_delete_cleanup_field : NULL;
+    int skip_cleanup;
+    int done;
+
+    if (!cleanup || !field || !expr->call_args ||
+        !expr->call_args->expr) {
+        return;
+    }
+    skip_cleanup = new_label();
+    done = new_label();
+    gen_expr(mod, expr->call_args->expr);
+    emit_cmp_reg_imm(mod, EAX, 0);
+    emit_jcc_label(mod, CC_E, done);
+    emit_push_reg(mod, EAX); /* Keep the object address across destructor. */
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    if (field->type && field->type->size == 8) {
+        uint64_t invalid = (uint64_t)expr->call_delete_cleanup_invalid;
+        emit_mov_reg_mem(mod, EAX, ECX, field->offset);
+        emit_mov_reg_mem(mod, EDX, ECX, field->offset + 4);
+        emit_cmp_reg_imm(mod, EDX, (int32_t)(uint32_t)(invalid >> 32));
+        emit_jcc_label(mod, CC_NE, skip_cleanup);
+        emit_cmp_reg_imm(mod, EAX, (int32_t)(uint32_t)invalid);
+        emit_jcc_label(mod, CC_E, skip_cleanup);
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        emit_byte(mod, 0xE8);
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0);
+        add_func_call_ref(decl_link_name(cleanup), call_offset);
+        emit_add_reg_imm(mod, ESP, 8);
+    } else {
+        emit_load_typed32(mod, EAX, ECX, field->offset, field->type);
+        emit_cmp_reg_imm(mod, EAX,
+                         (int32_t)expr->call_delete_cleanup_invalid);
+        emit_jcc_label(mod, CC_E, skip_cleanup);
+        emit_push_reg(mod, EAX);
+        emit_byte(mod, 0xE8);
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0);
+        add_func_call_ref(decl_link_name(cleanup), call_offset);
+        emit_add_reg_imm(mod, ESP, 4);
+    }
+    emit_label(mod, skip_cleanup);
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    uint32_t free_offset = code_offset(mod);
+    emit_dword(mod, 0);
+    add_func_call_ref("rin_free", free_offset);
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_mov_reg_imm(mod, EAX, 0);
+    emit_label(mod, done);
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int argc;
@@ -3875,6 +3948,10 @@ static void gen_call(Module* mod, Expr* expr) {
 
     if (expr->call_is_new) {
         gen_cxx_new32(mod, expr);
+        return;
+    }
+    if (expr->call_is_delete && expr->call_delete_cleanup) {
+        gen_cxx_delete32(mod, expr);
         return;
     }
     if (gen_inline_method_call(mod, expr)) return;

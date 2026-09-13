@@ -690,6 +690,50 @@ static bool sema_cxx_trivially_destructible(Type* type, int depth) {
     return true;
 }
 
+static Decl* sema_cxx_cleanup_function(Type* object_type, SourceLoc loc) {
+    Symbol* symbol;
+    Decl* function;
+    TypeParam* parameter;
+    Type* return_type;
+
+    if (!object_type || !object_type->cleanup_function ||
+        !object_type->cleanup_field) {
+        return NULL;
+    }
+    symbol = symtab_lookup(g_symtab, object_type->cleanup_function);
+    function = symbol && symbol->kind == SYM_FUNC ? symbol->decl : NULL;
+    if (!function || !function->type || function->type->kind != TYPE_FUNC) {
+        rcc_error(loc,
+                  "C++ cleanup function '%s' is not declared",
+                  object_type->cleanup_function);
+        return NULL;
+    }
+    parameter = function->type->params;
+    if (!parameter || parameter->next ||
+        !type_is_compatible(parameter->type, object_type->cleanup_field->type)) {
+        rcc_error(loc,
+                  "C++ cleanup function '%s' has an incompatible signature",
+                  object_type->cleanup_function);
+        return NULL;
+    }
+    /* The delete lowering intentionally discards the cleanup result.  A
+     * scalar/void result has no hidden sret storage, so the direct call below
+     * remains ABI-complete on both supported targets. */
+    return_type = function->type->ret_type;
+    if (!return_type ||
+        (return_type->kind != TYPE_VOID &&
+         !type_is_integer(return_type) &&
+         return_type->kind != TYPE_ENUM &&
+         return_type->kind != TYPE_PTR &&
+         return_type->kind != TYPE_NULLPTR)) {
+        rcc_error(loc,
+                  "C++ cleanup function '%s' has an unsupported delete result",
+                  object_type->cleanup_function);
+        return NULL;
+    }
+    return function;
+}
+
 static CxxConstructorInfo* sema_select_cxx_new_constructor(
     Type* object_type, ExprList* arguments, SourceLoc loc) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
@@ -1875,6 +1919,58 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            if (expr->call_is_delete) {
+                Type* freed_type;
+                Type* object_type;
+                Decl* cleanup_function;
+
+                sema_expr(expr->call_func);
+                if (!expr->call_args || expr->call_args->next ||
+                    !expr->call_args->expr) {
+                    rcc_error(expr->loc,
+                              "delete expression requires one pointer operand");
+                    expr->type = type_void;
+                    return expr->type;
+                }
+                freed_type = sema_expr(expr->call_args->expr);
+                expr->type = type_void;
+                if (!freed_type || freed_type->kind != TYPE_PTR ||
+                    !freed_type->base) {
+                    rcc_error(expr->loc,
+                              "delete expression operand must be a pointer");
+                    return expr->type;
+                }
+                object_type = freed_type->base;
+                if (!type_is_complete(object_type)) {
+                    rcc_error(expr->loc,
+                              "delete expression requires a complete object type");
+                    return expr->type;
+                }
+                if (object_type->cxx_nontrivial &&
+                    !sema_cxx_trivially_destructible(object_type, 0)) {
+                    if (expr->call_delete_is_array) {
+                        rcc_error(expr->loc,
+                                  "array delete requires element destructor lowering");
+                        return expr->type;
+                    }
+                    if (!object_type->cleanup_function ||
+                        !object_type->cleanup_field) {
+                        rcc_error(expr->loc,
+                                  "delete requires C++ destructor lowering for a non-trivial object");
+                        return expr->type;
+                    }
+                    cleanup_function = sema_cxx_cleanup_function(
+                        object_type, expr->loc);
+                    if (cleanup_function) {
+                        expr->call_delete_cleanup = cleanup_function;
+                        expr->call_delete_cleanup_field =
+                            object_type->cleanup_field;
+                        expr->call_delete_cleanup_invalid =
+                            object_type->cleanup_invalid;
+                    }
+                }
+                return expr->type;
+            }
             if (expr->call_is_new) {
                 Type* object_type = expr->call_new_type;
                 CxxClass* cls = object_type ? object_type->cxx_class : NULL;
