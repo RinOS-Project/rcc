@@ -1412,38 +1412,51 @@ static bool class_declares_method_name(CxxClass* cls, const char* name) {
     return false;
 }
 
-/* Publish non-virtual methods of a public, non-virtual primary base on the
- * derived class.  The layout routine places this base at offset zero, so the
- * alias can carry the real base method declaration without inventing a
- * thunk.  Non-primary and virtual bases are deliberately left out until
- * their complete object-model adjustments exist. */
+/* Publish non-virtual methods of accessible non-virtual bases on the derived
+ * class.  The layout pass records the exact base-subobject offset, so the
+ * alias can carry the real base method declaration and an explicit byte
+ * adjustment without inventing a guessed thunk.  Virtual bases remain out of
+ * scope because their address is not a fixed compile-time offset. */
 static void register_inherited_class_methods(CxxClass* cls,
                                              TypeMethod*** tail) {
-    CxxClass* base;
-    TypeMethod* method;
-    if (!cls || !tail || !*tail || cls->base_count != 1 ||
-        class_has_virtual_member(cls) || cls->bases[0].is_virtual ||
-        cls->bases[0].access != ACCESS_PUBLIC) {
+    if (!cls || !tail || !*tail || !cls->base_offsets) {
         return;
     }
-    base = cls->bases[0].base;
-    if (!base || !base->type || !base->type->is_complete) return;
-    for (method = base->type->methods; method; method = method->next) {
-        TypeMethod* inherited;
-        if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
-            !method->function_decl ||
-            class_declares_method_name(cls, method->name)) {
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        TypeMethod* method;
+        if (cls->bases[base_index].is_virtual ||
+            cls->bases[base_index].access == ACCESS_PRIVATE ||
+            !base || !base->type || !base->type->is_complete ||
+            cls->base_offsets[base_index] < 0) {
             continue;
         }
-        inherited = ast_arena_alloc(sizeof(*inherited));
-        *inherited = *method;
-        inherited->cxx_access = method->cxx_access;
-        inherited->this_owner = method->this_owner
-            ? method->this_owner : base->type;
-        inherited->this_adjustment = 0;
-        inherited->next = NULL;
-        **tail = inherited;
-        *tail = &inherited->next;
+        for (method = base->type->methods; method; method = method->next) {
+            TypeMethod* inherited;
+            if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
+                !method->function_decl ||
+                class_declares_method_name(cls, method->name)) {
+                continue;
+            }
+            inherited = ast_arena_alloc(sizeof(*inherited));
+            *inherited = *method;
+            if (cls->bases[base_index].access == ACCESS_PROTECTED &&
+                inherited->cxx_access == ACCESS_PUBLIC) {
+                inherited->cxx_access = ACCESS_PROTECTED;
+            }
+            if (method->this_owner) {
+                inherited->this_owner = method->this_owner;
+                inherited->this_adjustment =
+                    cls->base_offsets[base_index] +
+                    method->this_adjustment;
+            } else if (method->function_decl->func_this_param) {
+                inherited->this_owner = base->type;
+                inherited->this_adjustment = cls->base_offsets[base_index];
+            }
+            inherited->next = NULL;
+            **tail = inherited;
+            *tail = &inherited->next;
+        }
     }
 }
 

@@ -114,8 +114,9 @@
         呼出しをi686/AMD64で実行検証
   - [x] 同一クラスのnon-static member overloadを引数変換順位とdefault
         argumentで選択し、`obj.method`／`ptr->method`を両archで実行検証
-  - [x] publicな非virtual一次基底のメンバー関数を派生型からlookupし、
-        base `this`型へ変換して`obj.method`／`ptr->method`を両archで実行検証
+  - [x] accessibleな非virtual基底のメンバー関数を派生型からlookupし、
+        記録済みbase subobject offsetで`this`を調整して`obj.method`／
+        `ptr->method`を両archで実行検証
 - [ ] overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完

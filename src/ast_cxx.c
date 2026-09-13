@@ -244,6 +244,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->constructors = NULL;
     cls->bases = NULL;
     cls->base_count = 0;
+    cls->base_offsets = NULL;
     cls->members = NULL;
     cls->vtable = NULL;
     cls->vtable_size = 0;
@@ -323,6 +324,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         base_offsets = ast_arena_alloc(
             sizeof(*base_offsets) * (size_t)cls->base_count);
     }
+    cls->base_offsets = base_offsets;
 
     /* Base class subobjects.  Keep the offset separately so inherited fields
      * can be appended after the derived fields; this preserves C++ name
