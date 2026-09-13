@@ -31,6 +31,7 @@ extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_end_function_parameters(void) RCC_OPTIONAL_CXX;
@@ -2218,6 +2219,15 @@ static Stmt* parse_return_stmt(void) {
 
 static Stmt* parse_statement(void) {
     SourceLoc loc = peek()->loc;
+
+    /* C++ exception statements are parsed by the C++ frontend even inside
+     * free-function bodies, which otherwise use this shared C statement
+     * parser.  The frontend retains the construct for diagnostics instead
+     * of allowing the C expression parser to reinterpret `try`/`throw`. */
+    if (parser_cxx_mode && rcc_parse_cxx_statement &&
+        (check(TOK_TRY) || check(TOK_THROW))) {
+        return rcc_parse_cxx_statement();
+    }
 
     if (match(TOK_LBRACE)) {
         return parse_block();

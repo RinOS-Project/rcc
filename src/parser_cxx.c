@@ -3564,6 +3564,7 @@ static Stmt* parse_cxx_statement(void) {
 
     /* try-catch */
     if (match(TOK_TRY)) {
+        SourceLoc loc = previous()->loc;
         /* Parse try block */
         expect(TOK_LBRACE, "{");
         StmtList* stmts = NULL;
@@ -3591,20 +3592,33 @@ static Stmt* parse_cxx_statement(void) {
             expect(TOK_RBRACE, "}");
         }
 
-        return stmt_block(stmts, previous()->loc);
+        /* There is no exception runtime/ABI in the current RinOS image
+         * contract.  Keep parsing the complete construct for recovery, but
+         * never turn it into a successful try block with silently discarded
+         * handlers. */
+        rcc_error(loc,
+                  "C++ try/catch requires exception tables and runtime ABI");
+        return NULL;
     }
 
     /* throw */
     if (match(TOK_THROW)) {
+        SourceLoc loc = previous()->loc;
         if (!check(TOK_SEMICOLON)) {
             parse_cxx_expression();
         }
         expect(TOK_SEMICOLON, ";");
-        return stmt_null(previous()->loc);  /* Placeholder */
+        rcc_error(loc,
+                  "C++ throw requires exception tables and runtime ABI");
+        return NULL;
     }
 
     /* Fall back to C statement parsing */
     return parse_declaration();
+}
+
+Stmt* rcc_parse_cxx_statement(void) {
+    return parse_cxx_statement();
 }
 
 static void add_cxx_declaration(AST* ast, Stmt* statement,

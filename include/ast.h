@@ -174,6 +174,7 @@ bool rcc_parse_cxx_type_start(void);
 Expr* rcc_parse_cxx_template_call(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
 Expr* rcc_parse_cxx_special_expression(void);
+Stmt* rcc_parse_cxx_statement(void);
 
 /* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
  * process exit by the single-shot host compiler. */
