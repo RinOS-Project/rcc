@@ -849,7 +849,6 @@ static bool gen64_classify_type_at(const Type* type, int base_offset,
                                         result)) {
                 return false;
             }
-            if (type->kind == TYPE_UNION) break;
         }
         return true;
     }

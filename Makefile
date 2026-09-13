@@ -543,7 +543,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-vla-declarations
+.PHONY: test-cxx-static-members test-vla-declarations test-aggregate-union-abi
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -603,6 +603,32 @@ test-vla-declarations: $(RCC_TARGET)
 	grep -q "variably modified type is not allowed for struct/union member" \
 		$(TEST_OUT)/vla-declarations/invalid-member-x64.log
 	@echo "C17 invalid variably modified declaration tests completed"
+
+test-aggregate-union-abi: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/aggregate-union-abi)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-union-abi/x86.s \
+		tests/aggregate_union_abi.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-union-abi/x64.s \
+		tests/aggregate_union_abi.c
+	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-union-abi/x86.o \
+		$(TEST_OUT)/aggregate-union-abi/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-union-abi/host-x86.o \
+		tests/aggregate_union_abi_host.c
+	$(CC) -m32 -o $(TEST_OUT)/aggregate-union-abi/x86 \
+		$(TEST_OUT)/aggregate-union-abi/host-x86.o \
+		$(TEST_OUT)/aggregate-union-abi/x86.o
+	$(TEST_OUT)/aggregate-union-abi/x86
+	$(CC) -c -o $(TEST_OUT)/aggregate-union-abi/x64.o \
+		$(TEST_OUT)/aggregate-union-abi/x64.s
+	$(CC) -c -o $(TEST_OUT)/aggregate-union-abi/host-x64.o \
+		tests/aggregate_union_abi_host.c
+	$(CC) -o $(TEST_OUT)/aggregate-union-abi/x64 \
+		$(TEST_OUT)/aggregate-union-abi/host-x64.o \
+		$(TEST_OUT)/aggregate-union-abi/x64.o
+	$(TEST_OUT)/aggregate-union-abi/x64
+	@echo "SysV union aggregate ABI boundary tests completed"
 
 test-cxx-overloads: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-overloads
