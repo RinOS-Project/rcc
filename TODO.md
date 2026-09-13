@@ -112,6 +112,8 @@
   - [x] staticメンバー関数をqualified source lookup（`Class::func()`）と
         Itanium link nameへ分離し、暗黙`this`なしの直接・object経由・クラス内
         呼出しをi686/AMD64で実行検証
+  - [x] 同一クラスのnon-static member overloadを引数変換順位とdefault
+        argumentで選択し、`obj.method`／`ptr->method`を両archで実行検証
 - [ ] overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完

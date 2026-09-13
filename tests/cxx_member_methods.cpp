@@ -6,6 +6,10 @@ struct Point {
         return x * scale + y;
     }
 
+    long scaled_sum(long scale) {
+        return x * scale + y + 100;
+    }
+
     int x_value() const {
         return x;
     }
@@ -26,7 +30,15 @@ int cxx_pointer_method_probe() {
     return pointer->scaled_sum(2) + pointer->x_value();
 }
 
+int cxx_member_overload_probe() {
+    Point point;
+    point.x = 6;
+    point.y = 5;
+    return point.scaled_sum((long)7) == 147 ? 0 : 1;
+}
+
 int main() {
     return cxx_member_method_probe() == 53 &&
-           cxx_pointer_method_probe() == 27 ? 0 : 1;
+           cxx_pointer_method_probe() == 27 &&
+           cxx_member_overload_probe() == 0 ? 0 : 1;
 }

@@ -775,6 +775,84 @@ static Decl* sema_select_cxx_overload(Expr* call) {
     return best;
 }
 
+/* Member functions are kept on the owning TypeMethod list rather than in the
+ * global symbol table because ordinary members use their ABI spelling as the
+ * declaration key.  Apply the same conversion ranking used by free-function
+ * overloads to the explicit arguments, skipping the implicit this parameter. */
+static TypeMethod* sema_select_cxx_member_method(
+    Expr* call, Type* aggregate, const char* name) {
+    TypeMethod* method;
+    TypeMethod* best = NULL;
+    int best_total = INT_MAX;
+    int best_worst = INT_MAX;
+    bool ambiguous = false;
+
+    if (!call || !aggregate || !name) return NULL;
+    for (method = aggregate->methods; method; method = method->next) {
+        Decl* function;
+        TypeParam* parameter;
+        DeclList* declared_parameter;
+        ExprList* argument;
+        int total = 0;
+        int worst = 0;
+        bool viable = true;
+
+        if (method->kind != TYPE_METHOD_FUNCTION || !method->function_decl ||
+            strcmp(method->name, name) != 0) {
+            continue;
+        }
+        function = method->function_decl;
+        parameter = function->type ? function->type->params : NULL;
+        declared_parameter = function->func_params;
+        if (function->func_this_param && parameter) parameter = parameter->next;
+        argument = call->call_args;
+        while (argument && parameter) {
+            int rank = cxx_conversion_rank(argument->expr, parameter->type);
+            if (rank < 0) {
+                viable = false;
+                break;
+            }
+            total += rank;
+            if (rank > worst) worst = rank;
+            argument = argument->next;
+            parameter = parameter->next;
+            if (declared_parameter) declared_parameter =
+                declared_parameter->next;
+        }
+        if (!viable ||
+            (parameter && !cxx_remaining_parameters_have_defaults(
+                parameter, declared_parameter))) {
+            continue;
+        }
+        if (argument) {
+            if (!function->type->variadic) continue;
+            while (argument) {
+                total += 8;
+                worst = 8;
+                argument = argument->next;
+            }
+        }
+        if (!best || worst < best_worst ||
+            (worst == best_worst && total < best_total)) {
+            best = method;
+            best_total = total;
+            best_worst = worst;
+            ambiguous = false;
+        } else if (worst == best_worst && total == best_total) {
+            ambiguous = true;
+        }
+    }
+    if (!best) {
+        rcc_error(call->loc, "no matching member overload for '%s'", name);
+        return NULL;
+    }
+    if (ambiguous) {
+        rcc_error(call->loc, "ambiguous member overload for '%s'", name);
+        return NULL;
+    }
+    return best;
+}
+
 static Expr* sema_cxx_move_member(Expr* object, TypeField* field) {
     Expr* member = expr_member(object, field->name, object->loc);
     member->member_field = field;
@@ -1650,10 +1728,15 @@ static Type* sema_expr(Expr* expr) {
                         : method->return_type;
                     break;
                 }
-                method = sema_find_function_method(owner,
-                                                    member->member_name);
+                for (argument = expr->call_args; argument;
+                     argument = argument->next) {
+                    sema_expr(argument->expr);
+                }
+                method = sema_select_cxx_member_method(
+                    expr, owner, member->member_name);
                 if (method && method->function_decl) {
                     Expr* function_expression;
+                    arguments_analyzed = true;
                     if (method->cxx_access != 0u) {
                         rcc_error(expr->loc, "method '%s' is not accessible",
                                   member->member_name);
@@ -1677,6 +1760,7 @@ static Type* sema_expr(Expr* expr) {
                         implicit_argument->designator_field = NULL;
                         implicit_argument->next = expr->call_args;
                         expr->call_args = implicit_argument;
+                        sema_expr(this_argument);
                     }
                 }
             }
