@@ -93,7 +93,9 @@ char* ast_arena_strdup(const char* text) {
     { .kind = (type_kind), .size = (type_size), .align = (type_align), \
       .is_unsigned = (unsigned_type), .is_const = false, \
       .is_volatile = false, .cxx_is_class = false, \
-      .cxx_nontrivial = false, .cxx_namespace = NULL }
+      .cxx_nontrivial = false, .cxx_class = NULL, \
+      .cxx_namespace = NULL, .cxx_vtable_size = 0, \
+      .cxx_vtable_symbol = NULL }
 
 static Type builtin_void   = BUILTIN_TYPE(TYPE_VOID,   0, 1, false);
 static Type builtin_bool   = BUILTIN_TYPE(TYPE_BOOL,   1, 1, true);
@@ -157,7 +159,10 @@ Type* type_ptr(Type* base) {
     t->array_parameter_restrict = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_vtable_size = 0;
+    t->cxx_vtable_symbol = NULL;
     return t;
 }
 
@@ -176,7 +181,10 @@ Type* type_array(Type* base, int len) {
     t->array_parameter_restrict = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_vtable_size = 0;
+    t->cxx_vtable_symbol = NULL;
     return t;
 }
 
@@ -191,7 +199,10 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->has_prototype = true;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_vtable_size = 0;
+    t->cxx_vtable_symbol = NULL;
     return t;
 }
 
@@ -205,7 +216,10 @@ Type* type_struct(const char* tag) {
     t->is_complete = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_vtable_size = 0;
+    t->cxx_vtable_symbol = NULL;
     return t;
 }
 
@@ -219,7 +233,10 @@ Type* type_union(const char* tag) {
     t->is_complete = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_vtable_size = 0;
+    t->cxx_vtable_symbol = NULL;
     return t;
 }
 
@@ -231,6 +248,10 @@ Type* type_enum(const char* tag) {
     t->enum_tag = tag;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_class = NULL;
+    t->cxx_namespace = NULL;
+    t->cxx_vtable_size = 0;
+    t->cxx_vtable_symbol = NULL;
     return t;
 }
 
@@ -528,6 +549,9 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_args = args;
     e->call_result_offset = 0;
     e->call_method = NULL;
+    e->call_is_virtual = false;
+    e->call_virtual_index = -1;
+    e->call_virtual_object = NULL;
     e->type = NULL;
     return e;
 }

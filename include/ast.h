@@ -15,6 +15,7 @@ typedef struct Stmt Stmt;
 typedef struct Decl Decl;
 typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
+struct CxxClass;
 
 /* ═══════════════════════════════════════
  * Type System
@@ -84,6 +85,9 @@ struct TypeMethod {
      * methods retain their base owner here. */
     Type* this_owner;
     int this_adjustment;
+    bool is_virtual;
+    int vtable_index;
+    const char* vtable_symbol;
     TypeMethod* next;
 };
 
@@ -99,9 +103,12 @@ struct Type {
     bool is_rvalue_reference;
     bool cxx_is_class;
     bool cxx_nontrivial;
+    struct CxxClass* cxx_class;
     /* Fully qualified namespace owning a C++ class type, or NULL for the
      * global namespace and non-class C types. */
     const char* cxx_namespace;
+    int cxx_vtable_size;
+    const char* cxx_vtable_symbol;
     /* Structurally validated C++ scope cleanup.  NULL for ordinary types. */
     const char* cleanup_function;
     TypeField* cleanup_field;
@@ -378,6 +385,9 @@ struct Expr {
             ExprList* call_args;
             int call_result_offset;  /* Aggregate return spill/sret slot. */
             TypeMethod* call_method; /* Validated inline C++ accessor. */
+            bool call_is_virtual;
+            int call_virtual_index;
+            Expr* call_virtual_object;
         };
 
         /* EXPR_INDEX */

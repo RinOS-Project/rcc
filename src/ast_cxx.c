@@ -249,6 +249,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->vtable = NULL;
     cls->vtable_size = 0;
     cls->type = type_struct(name);
+    cls->type->cxx_class = cls;
     cls->size = 0;
     cls->align = 1;
     cls->fields = NULL;
@@ -304,8 +305,11 @@ void cxx_class_compute_layout(CxxClass* cls) {
     cls->type->fields = NULL;
     field_tail = &cls->type->fields;
 
-    /* Space for vptr if class has virtual functions */
+    /* Space for vptr if class has virtual functions.  A primary virtual base
+     * owns the first vptr slot; derived objects reuse that slot for their
+     * most-derived table. */
     bool has_virtual = false;
+    CxxClass* primary_vtable_base = NULL;
     bool has_destructor = false;
     for (struct CxxMember* m = cls->members; m; m = m->next) {
         if (m->is_virtual) {
@@ -313,8 +317,15 @@ void cxx_class_compute_layout(CxxClass* cls) {
         }
         if (m->method && m->method->is_destructor) has_destructor = true;
     }
+    for (int i = 0; i < cls->base_count; ++i) {
+        CxxClass* base = cls->bases[i].base;
+        if (base && !cls->bases[i].is_virtual && base->vtable_size > 0) {
+            has_virtual = true;
+            if (!primary_vtable_base) primary_vtable_base = base;
+        }
+    }
 
-    if (has_virtual) {
+    if (has_virtual && !primary_vtable_base) {
         int pointer_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
         offset = pointer_size;  /* vptr */
         max_align = pointer_size;
@@ -332,6 +343,12 @@ void cxx_class_compute_layout(CxxClass* cls) {
     for (int i = 0; i < cls->base_count; i++) {
         CxxClass* base = cls->bases[i].base;
         if (base && !cls->bases[i].is_virtual) {
+            if (base == primary_vtable_base) {
+                base_offsets[i] = 0;
+                if (offset < base->size) offset = base->size;
+                if (base->align > max_align) max_align = base->align;
+                continue;
+            }
             /* Align for base */
             int align = base->align;
             offset = (offset + align - 1) & ~(align - 1);
@@ -430,43 +447,82 @@ void cxx_class_compute_layout(CxxClass* cls) {
     cls->type->cxx_nontrivial = nontrivial || has_virtual || has_destructor;
 }
 
-void cxx_class_build_vtable(CxxClass* cls) {
-    int vtable_index = 0;
-
-    /* Inherit base class vtable entries */
-    for (int i = 0; i < cls->base_count; i++) {
+static CxxClass* cxx_primary_vtable_base(CxxClass* cls) {
+    if (!cls) return NULL;
+    for (int i = 0; i < cls->base_count; ++i) {
         CxxClass* base = cls->bases[i].base;
-        if (base && base->vtable_size > vtable_index) {
-            vtable_index = base->vtable_size;
+        if (base && !cls->bases[i].is_virtual && base->vtable_size > 0) {
+            return base;
         }
     }
+    return NULL;
+}
 
-    /* Add/override virtual functions */
-    for (struct CxxMember* m = cls->members; m; m = m->next) {
-        if (m->is_virtual && m->decl->kind == DECL_FUNC) {
-            bool found_override = false;
+static const char* cxx_vtable_name(CxxClass* cls) {
+    char buffer[1024];
+    char* class_name;
+    if (!cls || !cls->name) return NULL;
+    class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
+    if (snprintf(buffer, sizeof(buffer), "__rcc_vtable_%s", class_name) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ vtable symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
 
-            /* Check if overriding a base class function */
-            for (int i = 0; i < cls->base_count && !found_override; i++) {
-                CxxClass* base = cls->bases[i].base;
-                if (!base) continue;
-                for (int j = 0; j < base->vtable_size; j++) {
-                    if (strcmp(base->vtable[j].name, m->decl->name) == 0) {
-                        /* Override existing slot */
-                        found_override = true;
-                        break;
-                    }
-                }
-            }
+void cxx_class_build_vtable(CxxClass* cls) {
+    CxxClass* primary_base;
+    int vtable_size;
+    if (!cls || !cls->type) return;
 
-            if (!found_override) {
-                /* New virtual function - allocate slot */
-                vtable_index++;
-            }
-        }
+    primary_base = cxx_primary_vtable_base(cls);
+    vtable_size = primary_base ? primary_base->vtable_size : 0;
+    cls->vtable = vtable_size > 0
+        ? ast_arena_alloc(sizeof(*cls->vtable) * (size_t)vtable_size) : NULL;
+    for (int index = 0; index < vtable_size; ++index) {
+        cls->vtable[index] = primary_base->vtable[index];
     }
 
-    cls->vtable_size = vtable_index;
+    /* Build one Itanium-style primary table.  The current object model has a
+     * single vptr; secondary and virtual-base tables remain separate work. */
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        int slot = -1;
+        if (!method || !method->decl || method->is_static ||
+            method->is_constructor || method->is_destructor) {
+            continue;
+        }
+        for (int index = 0; index < vtable_size; ++index) {
+            if (cls->vtable[index].name &&
+                strcmp(cls->vtable[index].name, method->decl->name) == 0) {
+                slot = index;
+                break;
+            }
+        }
+        if (slot >= 0) {
+            method->is_virtual = true;
+            member->is_virtual = true;
+        } else if (method->is_virtual) {
+            slot = vtable_size++;
+            cls->vtable = ast_arena_grow(
+                cls->vtable,
+                sizeof(*cls->vtable) * (size_t)(vtable_size - 1),
+                sizeof(*cls->vtable) * (size_t)vtable_size);
+        } else {
+            continue;
+        }
+        method->vtable_index = slot;
+        cls->vtable[slot].name = method->decl->name;
+        cls->vtable[slot].method = method;
+        cls->vtable[slot].offset = slot *
+            (g_opts.target_arch == ARCH_X64 ? 8 : 4);
+    }
+
+    cls->vtable_size = vtable_size;
+    cls->type->cxx_vtable_size = vtable_size;
+    cls->type->cxx_vtable_symbol = vtable_size > 0
+        ? cxx_vtable_name(cls) : NULL;
 }
 
 /* ═══════════════════════════════════════
@@ -765,6 +821,9 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->call_args, args, arg_count,
                 value_args, value_present);
             copy->call_method = NULL;
+            copy->call_is_virtual = false;
+            copy->call_virtual_index = -1;
+            copy->call_virtual_object = NULL;
             break;
         case EXPR_INDEX:
             copy->index_base = template_clone_expr(

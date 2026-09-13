@@ -5,6 +5,7 @@
 
 #include "rcc.h"
 #include "ast.h"
+#include "ast_cxx.h"
 #include "symtab.h"
 #include "codegen.h"
 #include <limits.h>
@@ -906,6 +907,10 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     return false;
 }
 
+static void codegen_add_vtable_pointer(Module* mod,
+                                       ModuleSymbolSection source_section,
+                                       uint32_t offset, Type* type);
+
 void codegen_emit_global_data(Module* mod, AST* ast) {
     for (DeclList* item = ast->decls; item; item = item->next) {
         Decl* declaration = item->decl;
@@ -964,6 +969,28 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                               MODULE_SYMBOL_DATA, true);
             continue;
         }
+        if (!declaration->var_init && declaration->type->cxx_vtable_size > 0) {
+            uint64_t aligned = ((uint64_t)mod->data.size + alignment - 1u) &
+                               ~((uint64_t)alignment - 1u);
+            if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+                rcc_error(declaration->loc, "C++ vtable object exceeds data limits");
+                continue;
+            }
+            offset = (uint32_t)aligned;
+            while (mod->data.size < aligned) emit_data(mod, zero, 1u);
+            while (size > sizeof(zero)) {
+                emit_data(mod, zero, sizeof(zero));
+                size -= sizeof(zero);
+            }
+            if (size) emit_data(mod, zero, size);
+            declaration->var_offset = offset;
+            codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA,
+                                       offset, declaration->type);
+            module_add_symbol(mod, decl_link_name(declaration), offset, true,
+                              MODULE_SYMBOL_DATA,
+                              declaration->storage != STORAGE_STATIC);
+            continue;
+        }
         if (!declaration->var_init) {
             uint64_t aligned = ((uint64_t)mod->bss.size + alignment - 1u) &
                                ~((uint64_t)alignment - 1u);
@@ -996,6 +1023,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                       "unsupported static initializer for '%s'",
                       declaration->name);
         }
+        codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
+                                   declaration->type);
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
                           MODULE_SYMBOL_DATA,
                           declaration->storage != STORAGE_STATIC);
@@ -1469,6 +1498,74 @@ static void resolve_func_calls(Module* mod) {
                                   ref->call_offset, 0, true, false,
                                   ref->func_name);
         }
+    }
+}
+
+static uint32_t emit_rodata(Module* mod, const void* data, size_t len) {
+    uint32_t offset = (uint32_t)mod->rodata.size;
+    ensure_rodata_capacity(mod, len);
+    memcpy(mod->rodata.data + mod->rodata.size, data, len);
+    mod->rodata.size += len;
+    return offset;
+}
+
+static void codegen_add_vtable_pointer(Module* mod,
+                                       ModuleSymbolSection source_section,
+                                       uint32_t offset, Type* type) {
+    uint32_t width;
+    if (!mod || !type || type->cxx_vtable_size <= 0 ||
+        !type->cxx_vtable_symbol) return;
+    width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    module_add_relocation(mod, source_section, offset, 0u, false,
+                          width == 8u, type->cxx_vtable_symbol);
+    add_reloc(mod, source_section, offset,
+              width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+}
+
+static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
+                                                   CxxNamespace* ns) {
+    static const uint8_t zero[16] = {0};
+    uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    if (!mod || !ns) return;
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* cls = ns->classes[index];
+        uint32_t offset;
+        if (!cls || !cls->type || cls->type->cxx_vtable_size <= 0 ||
+            !cls->type->cxx_vtable_symbol || !cls->vtable) continue;
+        while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
+            emit_rodata(mod, zero, 1u);
+        }
+        offset = (uint32_t)mod->rodata.size;
+        for (int slot = 0; slot < cls->vtable_size; ++slot) {
+            emit_rodata(mod, zero, pointer_size);
+        }
+        module_add_symbol(mod, cls->type->cxx_vtable_symbol, offset, true,
+                          MODULE_SYMBOL_RODATA, true);
+        for (int slot = 0; slot < cls->vtable_size; ++slot) {
+            CxxMethod* method = cls->vtable[slot].method;
+            if (!method || !method->decl || !method->decl->link_name) {
+                rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                          "virtual table entry %d of '%s' has no function body",
+                          slot, cls->name ? cls->name : "<anonymous>");
+                continue;
+            }
+            module_add_relocation(
+                mod, MODULE_SYMBOL_RODATA,
+                offset + (uint32_t)slot * pointer_size, 0u, false,
+                pointer_size == 8u, decl_link_name(method->decl));
+            add_reloc(mod, MODULE_SYMBOL_RODATA,
+                      offset + (uint32_t)slot * pointer_size,
+                      pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        codegen_emit_cxx_vtables_in_namespace(mod, child);
+    }
+}
+
+void codegen_emit_cxx_vtables(Module* mod) {
+    if (mod && g_global_namespace) {
+        codegen_emit_cxx_vtables_in_namespace(mod, g_global_namespace);
     }
 }
 
@@ -2690,6 +2787,14 @@ static void gen_symbol_address(Module* mod, const char* symbol,
               RIN_RELOC_ABS32);
 }
 
+static void gen_local_vtable_init(Module* mod, Type* type,
+                                  int32_t displacement) {
+    if (!mod || !type || type->cxx_vtable_size <= 0 ||
+        !type->cxx_vtable_symbol) return;
+    gen_symbol_address(mod, type->cxx_vtable_symbol, 0u);
+    emit_mov_mem_reg(mod, EBP, displacement, EAX);
+}
+
 static void gen_tls_address(Module* mod, const char* symbol) {
     /* Variant II x86 TLS: GS:0 contains the thread pointer. */
     emit_byte(mod, 0x65);
@@ -2799,6 +2904,8 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 rcc_error(expr->loc,
                           "unsupported compound literal initializer");
             }
+            gen_local_vtable_init(mod, expr->compound_type,
+                                  expr->compound_offset);
             emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
             emit_byte(mod, modrm(2, EAX, EBP));
             emit_dword(mod, (uint32_t)expr->compound_offset);
@@ -3777,7 +3884,15 @@ static void gen_call(Module* mod, Expr* expr) {
     rcc_free(args);
 
     func_expr = expr->call_func;
-    if (func_expr->kind == EXPR_IDENT && func_expr->ident_decl &&
+    if (expr->call_is_virtual && expr->call_virtual_index >= 0) {
+        int this_offset = argument_bytes - 4;
+        emit_mov_reg_mem(mod, EAX, ESP, this_offset);
+        emit_mov_reg_mem(mod, EAX, EAX, 0);
+        emit_mov_reg_mem(mod, EAX, EAX,
+                         expr->call_virtual_index * 4);
+        emit_byte(mod, 0xFF);
+        emit_byte(mod, modrm(3, 2, EAX));
+    } else if (func_expr->kind == EXPR_IDENT && func_expr->ident_decl &&
         func_expr->ident_decl->kind == DECL_FUNC) {
         Decl* func_decl = func_expr->ident_decl;
         uint32_t call_offset;
@@ -6186,18 +6301,22 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen_vla_alloc(mod, d);
                 record_vla_scope(d);
-            } else if (d->kind == DECL_VAR && d->var_init) {
+            } else if (d->kind == DECL_VAR &&
+                       (d->var_init ||
+                        (d->type && d->type->cxx_vtable_size > 0))) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION)) {
                     gen_zero_local_storage(mod, d->var_offset,
                                            (size_t)d->type->size);
                 }
-                if (!gen_local_initializer(mod, d->type, d->var_init,
+                if (d->var_init &&
+                    !gen_local_initializer(mod, d->type, d->var_init,
                                            d->var_offset)) {
                     rcc_error(d->loc, "unsupported local initializer for '%s'",
                               d->name);
                 }
+                gen_local_vtable_init(mod, d->type, d->var_offset);
             }
             if (d->kind == DECL_VAR && d->var_cleanup) {
                 CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
@@ -6342,6 +6461,8 @@ Module* rcc_codegen(AST* ast) {
             }
         }
     }
+
+    codegen_emit_cxx_vtables(mod);
 
     /* Resolve internal function calls */
     resolve_func_calls(mod);

@@ -5,6 +5,7 @@
 
 #include "rcc.h"
 #include "ast.h"
+#include "ast_cxx.h"
 #include "symtab.h"
 #include <limits.h>
 
@@ -39,6 +40,47 @@ static bool sema_atomic_builtin_call(Expr* expr);
 static void sema_vla_bounds(Type* type, SourceLoc loc);
 static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
                                                bool is_parameter);
+
+static bool sema_cxx_public_base(Type* derived, Type* target,
+                                  int* adjustment, int depth) {
+    CxxClass* cls;
+    if (!derived || !target || depth > 32) return false;
+    if (derived == target ||
+        (derived->cxx_class && derived->cxx_class == target->cxx_class)) {
+        if (adjustment) *adjustment = 0;
+        return true;
+    }
+    cls = derived->cxx_class;
+    if (!cls || !cls->base_offsets) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        Type* base_type = cls->bases[index].base
+            ? cls->bases[index].base->type : NULL;
+        int nested_adjustment;
+        if (cls->bases[index].is_virtual ||
+            cls->bases[index].access != ACCESS_PUBLIC || !base_type ||
+            cls->base_offsets[index] < 0) {
+            continue;
+        }
+        if (sema_cxx_public_base(base_type, target,
+                                 &nested_adjustment, depth + 1)) {
+            if (adjustment) {
+                *adjustment = cls->base_offsets[index] + nested_adjustment;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_pointer_conversion(Type* source, Type* target,
+                                         int* adjustment) {
+    if (!source || !target || source->kind != TYPE_PTR ||
+        target->kind != TYPE_PTR || !source->base || !target->base) {
+        return false;
+    }
+    return sema_cxx_public_base(source->base, target->base,
+                                adjustment, 0);
+}
 
 /* C++ new/delete are language expressions, so they do not require a source
  * declaration for the RinOS allocation ABI.  Materialize the two C-linkage
@@ -414,6 +456,16 @@ static Type* implicit_cast(Expr* e, Type* target) {
         }
         if (type_is_compatible(e->type->base, target->base)) {
             return target;
+        }
+        {
+            int adjustment;
+            /* A zero-offset public base conversion has the same machine
+             * representation and is safe through the existing pointer ABI.
+             * Non-zero conversions require a dedicated expression lowering. */
+            if (sema_cxx_pointer_conversion(e->type, target, &adjustment) &&
+                adjustment == 0) {
+                return target;
+            }
         }
     }
 
@@ -1705,6 +1757,19 @@ static Type* sema_expr(Expr* expr) {
                         implicit_argument->designator_field = NULL;
                         implicit_argument->next = expr->call_args;
                         expr->call_args = implicit_argument;
+                        if (method->is_virtual) {
+                            if (method->vtable_index < 0 ||
+                                !method->vtable_symbol) {
+                                rcc_error(expr->loc,
+                                          "virtual member '%s' has no vtable entry",
+                                          expr->call_func->ident_name);
+                            } else {
+                                expr->call_is_virtual = true;
+                                expr->call_virtual_index =
+                                    method->vtable_index;
+                                expr->call_virtual_object = this_argument;
+                            }
+                        }
                     }
                 }
             }
@@ -1808,6 +1873,19 @@ static Type* sema_expr(Expr* expr) {
                         implicit_argument->next = expr->call_args;
                         expr->call_args = implicit_argument;
                         sema_expr(this_argument);
+                        if (method->is_virtual) {
+                            if (method->vtable_index < 0 ||
+                                !method->vtable_symbol) {
+                                rcc_error(expr->loc,
+                                          "virtual member '%s' has no vtable entry",
+                                          member->member_name);
+                            } else {
+                                expr->call_is_virtual = true;
+                                expr->call_virtual_index =
+                                    method->vtable_index;
+                                expr->call_virtual_object = this_argument;
+                            }
+                        }
                     }
                 }
             }

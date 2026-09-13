@@ -1463,9 +1463,7 @@ static void register_inherited_class_methods(CxxClass* cls,
 /* Publish ordinary non-virtual member definitions and static member
  * definitions as real functions.  Ordinary members receive the implicit
  * object parameter; static members deliberately do not, and use the normal C
- * call ABI after their qualified source lookup is resolved.  Constructors,
- * destructors, and virtual dispatch still require separate object-model
- * support and are not accepted by this registration path. */
+ * call ABI after their qualified source lookup is resolved. */
 static void register_ordinary_class_methods(CxxClass* cls) {
     struct CxxMember* member;
     TypeMethod** tail;
@@ -1487,7 +1485,6 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         const char* link_name;
 
         if (!method || !method->decl || !method->decl->func_body ||
-            method->is_virtual ||
             method->is_pure_virtual || method->is_deleted ||
             method->is_defaulted || method->is_constructor ||
             method->is_destructor) {
@@ -1548,6 +1545,10 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         lowered->cxx_access = (unsigned char)member->access;
         lowered->this_owner = method->is_static ? NULL : cls->type;
         lowered->this_adjustment = 0;
+        lowered->is_virtual = method->is_virtual;
+        lowered->vtable_index = method->vtable_index;
+        lowered->vtable_symbol = method->is_virtual
+            ? cls->type->cxx_vtable_symbol : NULL;
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;
@@ -1872,7 +1873,11 @@ CxxClass* parse_cxx_class(void) {
     /* A forward declaration has no layout yet. */
     if (!has_definition) return cls;
 
+    /* The namespace owner is normally published immediately after this
+     * routine returns, but vtable names/layout metadata are built here. */
+    cls->ns = active_namespace ? active_namespace : g_global_namespace;
     resolve_class_bases(cls, loc);
+    cxx_class_build_vtable(cls);
     cxx_class_compute_layout(cls);
     register_inline_class_accessors(cls);
     register_inline_class_bool_delegates(cls);
@@ -2673,6 +2678,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
              tmpl->name ? tmpl->name : "template", tmpl->instance_count);
     instance = cxx_class_new(ast_arena_strdup(tag), loc);
     instance->is_struct = definition->is_struct;
+    instance->ns = definition->ns;
     instance->has_user_constructor = definition->has_user_constructor;
     instance->has_nonpublic_field = definition->has_nonpublic_field;
     instance->has_static_field = definition->has_static_field;
@@ -2712,6 +2718,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         *tail = copy;
     }
 
+    cxx_class_build_vtable(instance);
     cxx_class_compute_layout(instance);
     register_inline_class_accessors(instance);
     register_inline_class_bool_delegates(instance);

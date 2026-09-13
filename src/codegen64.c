@@ -1790,6 +1790,14 @@ static void gen64_symbol_address(Module* mod, const char* symbol,
               RIN_RELOC_ABS64);
 }
 
+static void gen64_local_vtable_init(Module* mod, Type* type,
+                                    int32_t displacement) {
+    if (!mod || !type || type->cxx_vtable_size <= 0 ||
+        !type->cxx_vtable_symbol) return;
+    gen64_symbol_address(mod, type->cxx_vtable_symbol, 0u);
+    emit64_mov_mem_reg(mod, RBP, displacement, RAX);
+}
+
 static void gen64_tls_address(Module* mod, const char* symbol) {
     /* Variant II x86_64 TLS: FS:0 contains the thread pointer. */
     static const uint8_t load_thread_pointer[] = {
@@ -1895,6 +1903,8 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 rcc_error(expr->loc,
                           "unsupported compound literal initializer");
             }
+            gen64_local_vtable_init(mod, expr->compound_type,
+                                    expr->compound_offset);
             emit64_lea(mod, RAX, RBP, expr->compound_offset);
             break;
 
@@ -2866,7 +2876,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
             /* Direct calls use rel32 and produce a .ro relocation only when
              * the definition is external to this translation unit. */
-            if (expr->call_func->kind == EXPR_IDENT &&
+            if (expr->call_is_virtual && expr->call_virtual_index >= 0) {
+                /* The implicit this argument is always the first GP
+                 * argument.  Load the most-derived function from its vptr
+                 * after all source arguments have been evaluated. */
+                emit64_mov_reg_mem(mod, RAX, arg_regs[register_base], 0);
+                emit64_mov_reg_mem(mod, RAX, RAX,
+                                   expr->call_virtual_index * 8);
+                emit_byte(mod, 0xFF);  /* CALL RAX */
+                emit_byte(mod, modrm64(3, 2, RAX));
+            } else if (expr->call_func->kind == EXPR_IDENT &&
                 expr->call_func->ident_decl &&
                 expr->call_func->ident_decl->kind == DECL_FUNC) {
                 Decl* function = expr->call_func->ident_decl;
@@ -3840,18 +3859,22 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen64_vla_alloc(mod, d);
                 record64_vla_scope(d);
-            } else if (d->kind == DECL_VAR && d->var_init) {
+            } else if (d->kind == DECL_VAR &&
+                       (d->var_init ||
+                        (d->type && d->type->cxx_vtable_size > 0))) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION)) {
                     gen64_zero_local_storage(mod, d->var_offset,
                                              (size_t)d->type->size);
                 }
-                if (!gen64_local_initializer(mod, d->type, d->var_init,
+                if (d->var_init &&
+                    !gen64_local_initializer(mod, d->type, d->var_init,
                                              d->var_offset)) {
                     rcc_error(d->loc, "unsupported local initializer for '%s'",
                               d->name);
                 }
+                gen64_local_vtable_init(mod, d->type, d->var_offset);
             }
             if (d->kind == DECL_VAR && d->var_cleanup) {
                 CleanupCodegen64* cleanup = rcc_alloc(sizeof(*cleanup));
@@ -4229,6 +4252,8 @@ Module* rcc_codegen64(AST* ast) {
             }
         }
     }
+
+    codegen_emit_cxx_vtables(mod);
 
     resolve_func_calls64(mod);
 

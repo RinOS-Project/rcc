@@ -216,6 +216,30 @@ test-cxx-language-core: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-language-core/adl-x64.o
 	$(TEST_OUT)/cxx-language-core/adl-x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.s \
+		tests/cxx_virtual_dispatch.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.s \
+		tests/cxx_virtual_dispatch.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86 \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x86.o \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o
+	$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86
+	gcc -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64 \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x64.o \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o
+	$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/inheritance-x86.s \
 		tests/cxx_inheritance.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
