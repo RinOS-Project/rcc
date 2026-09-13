@@ -543,6 +543,35 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
+.PHONY: test-cxx-static-members
+test-cxx-static-members: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-members/x86.s \
+		tests/cxx_static_members.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-members/x64.s \
+		tests/cxx_static_members.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-members/x86.o \
+		$(TEST_OUT)/cxx-static-members/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-members/start.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-members/x86 \
+		$(TEST_OUT)/cxx-static-members/start.o \
+		$(TEST_OUT)/cxx-static-members/x86.o
+	$(TEST_OUT)/cxx-static-members/x86
+	$(CC) -c -o $(TEST_OUT)/cxx-static-members/x64.o \
+		$(TEST_OUT)/cxx-static-members/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-static-members/start64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-members/x64 \
+		$(TEST_OUT)/cxx-static-members/start64.o \
+		$(TEST_OUT)/cxx-static-members/x64.o
+	$(TEST_OUT)/cxx-static-members/x64
+	@echo "RCC++ static C++ member method tests completed"
+
 test-cxx-overloads: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-overloads
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \

@@ -1581,24 +1581,27 @@ static Type* sema_expr(Expr* expr) {
             bool reported_too_many = false;
             bool arguments_analyzed = false;
             if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
-                current_cxx_method_owner && current_cxx_this_param) {
+                current_cxx_method_owner) {
                 TypeMethod* method = sema_find_function_method(
                     current_cxx_method_owner, expr->call_func->ident_name);
                 if (method && method->function_decl) {
-                    Expr* this_argument = expr_ident(
-                        "this", expr->call_func->loc);
-                    ExprList* implicit_argument = exprlist_new(this_argument);
-                    this_argument->ident_decl = current_cxx_this_param;
-                    this_argument->type = current_cxx_this_param->type;
-                    implicit_argument->designator_kind =
-                        INIT_DESIGNATOR_NONE;
-                    implicit_argument->designator_index = 0;
-                    implicit_argument->designator_field = NULL;
-                    implicit_argument->next = expr->call_args;
                     expr->call_func->ident_name = method->function_decl->name;
                     expr->call_func->ident_decl = method->function_decl;
                     expr->call_func->type = method->function_decl->type;
-                    expr->call_args = implicit_argument;
+                    if (method->function_decl->func_this_param) {
+                        Expr* this_argument = expr_ident(
+                            "this", expr->call_func->loc);
+                        ExprList* implicit_argument =
+                            exprlist_new(this_argument);
+                        this_argument->ident_decl = current_cxx_this_param;
+                        this_argument->type = current_cxx_this_param->type;
+                        implicit_argument->designator_kind =
+                            INIT_DESIGNATOR_NONE;
+                        implicit_argument->designator_index = 0;
+                        implicit_argument->designator_field = NULL;
+                        implicit_argument->next = expr->call_args;
+                        expr->call_args = implicit_argument;
+                    }
                 }
             }
             if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
@@ -1650,30 +1653,31 @@ static Type* sema_expr(Expr* expr) {
                 method = sema_find_function_method(owner,
                                                     member->member_name);
                 if (method && method->function_decl) {
-                    Expr* this_argument;
                     Expr* function_expression;
-                    ExprList* implicit_argument;
                     if (method->cxx_access != 0u) {
                         rcc_error(expr->loc, "method '%s' is not accessible",
                                   member->member_name);
                     }
-                    this_argument = member->kind == EXPR_PTR_MEMBER
-                        ? member->member_base
-                        : expr_unary(EXPR_ADDR, member->member_base,
-                                     member->loc);
-                    implicit_argument = exprlist_new(this_argument);
-                    implicit_argument->designator_kind =
-                        INIT_DESIGNATOR_NONE;
-                    implicit_argument->designator_index = 0;
-                    implicit_argument->designator_field = NULL;
-                    implicit_argument->next = expr->call_args;
                     function_expression = expr_ident(
                         method->function_decl->name, expr->loc);
                     function_expression->ident_decl =
                         method->function_decl;
                     function_expression->type = method->function_decl->type;
                     expr->call_func = function_expression;
-                    expr->call_args = implicit_argument;
+                    if (method->function_decl->func_this_param) {
+                        Expr* this_argument = member->kind == EXPR_PTR_MEMBER
+                            ? member->member_base
+                            : expr_unary(EXPR_ADDR, member->member_base,
+                                         member->loc);
+                        ExprList* implicit_argument =
+                            exprlist_new(this_argument);
+                        implicit_argument->designator_kind =
+                            INIT_DESIGNATOR_NONE;
+                        implicit_argument->designator_index = 0;
+                        implicit_argument->designator_field = NULL;
+                        implicit_argument->next = expr->call_args;
+                        expr->call_args = implicit_argument;
+                    }
                 }
             }
             if (sema_atomic_builtin_call(expr)) break;

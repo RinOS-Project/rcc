@@ -107,6 +107,9 @@
 - [ ] class、継承、virtual dispatchの完全実装
   - [x] 非static・非virtualメンバー関数の`this`引数、暗黙field参照、
         `obj.method`／`ptr->method`呼び出しと両arch実行
+  - [x] staticメンバー関数をqualified source lookup（`Class::func()`）と
+        Itanium link nameへ分離し、暗黙`this`なしの直接・object経由・クラス内
+        呼出しをi686/AMD64で実行検証
 - [ ] overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完

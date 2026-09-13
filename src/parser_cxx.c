@@ -1338,12 +1338,63 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
     cls->type->move_assignment_method = candidate;
 }
 
-/* Publish ordinary, non-virtual member definitions as real functions.  The
- * common backends already know how to lower expressions and statements; the
- * missing ABI piece was the implicit object parameter and member-call
- * selection.  Constructors, destructors, virtual dispatch, and static
- * qualification have separate object-model requirements and remain outside
- * this registration path until those requirements are implemented. */
+/* Build the source lookup spelling for a class member.  Qualified expressions
+ * are retained as one identifier, so a static member needs a symbol-table key
+ * such as api::Counter::add while its link name remains the Itanium spelling
+ * produced by cxx_mangle_function(). */
+static const char* cxx_class_method_source_name(CxxClass* cls,
+                                                const char* method_name,
+                                                SourceLoc loc) {
+    CxxNamespace* stack[32];
+    int count = 0;
+    size_t length = 0u;
+    char buffer[512] = "";
+
+    if (!cls || !cls->name || !method_name) return rcc_intern("");
+    for (CxxNamespace* ns = active_namespace;
+         ns && ns->name;
+         ns = ns->parent) {
+        if (count == (int)(sizeof(stack) / sizeof(stack[0]))) {
+            rcc_error(loc, "namespace nesting exceeds compiler limit");
+            break;
+        }
+        stack[count++] = ns;
+    }
+    for (int index = count - 1; index >= 0; --index) {
+        size_t part_length = strlen(stack[index]->name);
+        if (part_length > sizeof(buffer) - 1u - length) {
+            rcc_error(loc, "qualified member name exceeds compiler limit");
+            return rcc_intern(buffer);
+        }
+        memcpy(buffer + length, stack[index]->name, part_length);
+        length += part_length;
+        if (length > sizeof(buffer) - 3u) {
+            rcc_error(loc, "qualified member name exceeds compiler limit");
+            return rcc_intern(buffer);
+        }
+        memcpy(buffer + length, "::", 2u);
+        length += 2u;
+    }
+    if (strlen(cls->name) > sizeof(buffer) - 3u - length ||
+        strlen(method_name) > sizeof(buffer) - 1u - length -
+            strlen(cls->name) - 2u) {
+        rcc_error(loc, "qualified member name exceeds compiler limit");
+        return rcc_intern(buffer);
+    }
+    memcpy(buffer + length, cls->name, strlen(cls->name));
+    length += strlen(cls->name);
+    memcpy(buffer + length, "::", 2u);
+    length += 2u;
+    strcpy(buffer + length, method_name);
+    return rcc_intern(buffer);
+}
+
+/* Publish ordinary non-virtual member definitions and static member
+ * definitions as real functions.  Ordinary members receive the implicit
+ * object parameter; static members deliberately do not, and use the normal C
+ * call ABI after their qualified source lookup is resolved.  Constructors,
+ * destructors, and virtual dispatch still require separate object-model
+ * support and are not accepted by this registration path. */
 static void register_ordinary_class_methods(CxxClass* cls) {
     struct CxxMember* member;
     TypeMethod** tail;
@@ -1364,7 +1415,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         const char* link_name;
 
         if (!method || !method->decl || !method->decl->func_body ||
-            method->is_static || method->is_virtual ||
+            method->is_virtual ||
             method->is_pure_virtual || method->is_deleted ||
             method->is_defaulted || method->is_constructor ||
             method->is_destructor) {
@@ -1376,33 +1427,41 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         link_name = rcc_intern(cxx_mangle_function(
             declaration, active_namespace, cls));
 
-        /* C++ member names are not source-visible global symbols.  Using the
-         * ABI spelling as the semantic symbol key also keeps same-named
-         * methods in different classes/namespaces distinct. */
-        declaration->name = link_name;
+        /* Ordinary member names are not source-visible global symbols, so the
+         * ABI spelling is also their semantic key.  Static members are
+         * source-visible through Class::name and use that qualified key. */
+        if (method->is_static) {
+            declaration->name = cxx_class_method_source_name(
+                cls, source_name, declaration->loc);
+        } else {
+            declaration->name = link_name;
+        }
         declaration->link_name = link_name;
         declaration->func_has_cxx_linkage = true;
         declaration->func_is_cxx_method = true;
         declaration->func_method_owner = cls->type;
 
-        if (method->is_const) {
+        this_type = NULL;
+        if (!method->is_static && method->is_const) {
             const_owner = ast_arena_alloc(sizeof(*const_owner));
             *const_owner = *cls->type;
             const_owner->is_const = true;
             this_type = type_ptr(const_owner);
-        } else {
+        } else if (!method->is_static) {
             this_type = type_ptr(cls->type);
         }
-        this_parameter = decl_param("this", this_type, -1,
-                                    declaration->loc);
-        declaration->func_this_param = this_parameter;
+        if (!method->is_static) {
+            this_parameter = decl_param("this", this_type, -1,
+                                        declaration->loc);
+            declaration->func_this_param = this_parameter;
 
-        this_type_parameter = ast_arena_alloc(sizeof(*this_type_parameter));
-        this_type_parameter->name = "this";
-        this_type_parameter->type = this_type;
-        this_type_parameter->cxx_access = ACCESS_PUBLIC;
-        this_type_parameter->next = declaration->type->params;
-        declaration->type->params = this_type_parameter;
+            this_type_parameter = ast_arena_alloc(sizeof(*this_type_parameter));
+            this_type_parameter->name = "this";
+            this_type_parameter->type = this_type;
+            this_type_parameter->cxx_access = ACCESS_PUBLIC;
+            this_type_parameter->next = declaration->type->params;
+            declaration->type->params = this_type_parameter;
+        }
 
         lowered = ast_arena_alloc(sizeof(*lowered));
         lowered->name = source_name;
