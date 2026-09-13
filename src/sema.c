@@ -2288,7 +2288,10 @@ static bool sema_atomic_builtin_call(Expr* expr) {
 }
 
 static int initializer_scalar_capacity(Type* type);
-static bool initializer_is_scalar_sequence(Expr* initializer);
+static bool initializer_is_plain_sequence(Expr* initializer);
+static bool initializer_is_aggregate_type(Type* type);
+static bool initializer_directly_initializes(Type* type, Expr* initializer);
+static void consume_brace_elided_subobject(Type* type, ExprList** source);
 
 static void sema_infer_initializer_type(Type* type, Expr* initializer) {
     Expr* string;
@@ -2319,36 +2322,39 @@ static void sema_infer_initializer_type(Type* type, Expr* initializer) {
         return;
     }
     if (type->array_len < 0 && type->base &&
-        (type->base->kind == TYPE_ARRAY ||
-         type->base->kind == TYPE_STRUCT ||
-         type->base->kind == TYPE_UNION) &&
-        initializer_is_scalar_sequence(initializer)) {
-        int capacity = initializer_scalar_capacity(type->base);
-        int64_t count = 0;
-        if (capacity > 0) {
-            for (ExprList* item = initializer->compound_init; item;
-                 item = item->next) {
-                if (count < INT64_MAX) ++count;
+        initializer_is_plain_sequence(initializer)) {
+        ExprList* source = initializer->compound_init;
+        while (source) {
+            ExprList* item = source;
+            if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                cursor = item->designator_index;
+                source = source->next;
+            } else if (item->designator_kind == INIT_DESIGNATOR_NONE &&
+                       initializer_is_aggregate_type(type->base) &&
+                       !initializer_directly_initializes(type->base,
+                                                         item->expr)) {
+                consume_brace_elided_subobject(type->base, &source);
+            } else {
+                source = source->next;
             }
-            count = (count + capacity - 1) / capacity;
-            if (count > 0 && count <= INT_MAX &&
-                count <= INT_MAX / type->base->size) {
-                type->array_len = (int)count;
-                type->size = (int)count * type->base->size;
-                return;
+            if (item->designator_kind != INIT_DESIGNATOR_FIELD &&
+                cursor > maximum) {
+                maximum = cursor;
             }
+            if (cursor < INT64_MAX) ++cursor;
         }
-    }
-    for (ExprList* item = initializer->compound_init; item;
-         item = item->next) {
-        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
-            cursor = item->designator_index;
+    } else {
+        for (ExprList* item = initializer->compound_init; item;
+             item = item->next) {
+            if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                cursor = item->designator_index;
+            }
+            if (item->designator_kind != INIT_DESIGNATOR_FIELD &&
+                cursor > maximum) {
+                maximum = cursor;
+            }
+            if (cursor < INT64_MAX) ++cursor;
         }
-        if (item->designator_kind != INIT_DESIGNATOR_FIELD &&
-            cursor > maximum) {
-            maximum = cursor;
-        }
-        if (cursor < INT64_MAX) ++cursor;
     }
     if (type->array_len < 0) {
         int64_t length = maximum >= 0 && maximum < INT_MAX
@@ -2414,40 +2420,102 @@ static int initializer_scalar_capacity(Type* type) {
     return (int)capacity;
 }
 
-static bool initializer_is_scalar_sequence(Expr* initializer) {
+static bool initializer_is_plain_sequence(Expr* initializer) {
     if (!initializer || initializer->kind != EXPR_COMPOUND) return false;
     for (ExprList* item = initializer->compound_init; item;
          item = item->next) {
-        if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr ||
-            item->expr->kind == EXPR_COMPOUND) {
+        if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr) {
             return false;
         }
     }
     return true;
 }
 
+static bool initializer_is_aggregate_type(Type* type) {
+    return type && (type->kind == TYPE_ARRAY ||
+                    type->kind == TYPE_STRUCT ||
+                    type->kind == TYPE_UNION);
+}
+
+static bool initializer_directly_initializes(Type* type, Expr* initializer) {
+    if (!initializer_is_aggregate_type(type) || !initializer) return false;
+    if (initializer_character_string(type, initializer)) return true;
+    if (initializer->kind != EXPR_COMPOUND) return false;
+    if (!initializer->compound_type) return true;
+    return type_is_compatible(type, initializer->compound_type);
+}
+
+/* Consume one aggregate subobject from a brace-elided initializer sequence.
+ * A braced subinitializer or character string initializes the current
+ * aggregate as a whole; otherwise scalar clauses continue recursively into
+ * its members. */
+static void consume_brace_elided_subobject(Type* type, ExprList** source) {
+    if (!type || !source || !*source) return;
+    if (!initializer_is_aggregate_type(type)) {
+        *source = (*source)->next;
+        return;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (type->array_len < 0 || !type->base) {
+            *source = (*source)->next;
+            return;
+        }
+        for (int index = 0; index < type->array_len && *source; ++index) {
+            if (initializer_directly_initializes(type->base,
+                                                  (*source)->expr)) {
+                *source = (*source)->next;
+            } else {
+                consume_brace_elided_subobject(type->base, source);
+            }
+        }
+        return;
+    }
+    TypeField* field = type->fields;
+    if (type->kind == TYPE_UNION) {
+        if (field && *source) {
+            if (initializer_directly_initializes(field->type,
+                                                  (*source)->expr)) {
+                *source = (*source)->next;
+            } else {
+                consume_brace_elided_subobject(field->type, source);
+            }
+        }
+        return;
+    }
+    for (; field && *source; field = field->next) {
+        if (initializer_directly_initializes(field->type,
+                                              (*source)->expr)) {
+            *source = (*source)->next;
+        } else {
+            consume_brace_elided_subobject(field->type, source);
+        }
+    }
+}
+
 static void normalize_brace_elided_initializer(Type* type,
                                                 Expr* initializer) {
     ExprList* source;
     ExprList* normalized = NULL;
-    bool scalar_sequence = true;
+    bool plain_sequence = true;
 
     if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
         (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
          type->kind != TYPE_UNION)) {
         return;
     }
-    scalar_sequence = initializer_is_scalar_sequence(initializer);
-    if (!scalar_sequence) return;
+    plain_sequence = initializer_is_plain_sequence(initializer);
+    if (!plain_sequence) return;
 
     source = initializer->compound_init;
     if (type->kind == TYPE_ARRAY) {
         for (int index = 0; index < type->array_len && source; ++index) {
             Type* element_type = type->base;
-            if (element_type &&
-                (element_type->kind == TYPE_ARRAY ||
-                 element_type->kind == TYPE_STRUCT ||
-                 element_type->kind == TYPE_UNION)) {
+            if (initializer_directly_initializes(element_type,
+                                                 source->expr)) {
+                exprlist_append_designated(&normalized, source->expr,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+                source = source->next;
+            } else if (initializer_is_aggregate_type(element_type)) {
                 int capacity = initializer_scalar_capacity(element_type);
                 ExprList* nested_items = NULL;
                 int consumed = 0;
@@ -2476,10 +2544,12 @@ static void normalize_brace_elided_initializer(Type* type,
         TypeField* field = type->fields;
         while (field && source) {
             Type* field_type = field->type;
-            if (field_type &&
-                (field_type->kind == TYPE_ARRAY ||
-                 field_type->kind == TYPE_STRUCT ||
-                 field_type->kind == TYPE_UNION)) {
+            if (initializer_directly_initializes(field_type,
+                                                 source->expr)) {
+                exprlist_append_designated(&normalized, source->expr,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+                source = source->next;
+            } else if (initializer_is_aggregate_type(field_type)) {
                 int capacity = initializer_scalar_capacity(field_type);
                 ExprList* nested_items = NULL;
                 int consumed = 0;
