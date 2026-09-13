@@ -3134,6 +3134,35 @@ static bool lower_parameters(RccIrLowerContext* context,
     const DeclList* parameter = declaration->func_params;
     size_t index = context->aggregate_return_kind ==
                        LOWER_ABI_RETURN_SRET ? 1u : 0u;
+    if (declaration->func_this_param) {
+        const Decl* item = declaration->func_this_param;
+        RccIrType type;
+        RccIrInstruction* allocation;
+        RccIrValue operands[2];
+        if (index >= context->function->parameter_count ||
+            !item->type || !lower_abi_native_scalar_type(item->type, &type)) {
+            context->unsupported = true;
+            return false;
+        }
+        allocation = lower_append(context, RCC_IR_ALLOCA,
+                                  rcc_ir_type_pointer(0u), NULL, 0u,
+                                  NULL, 0u);
+        if (!allocation) return false;
+        rcc_ir_set_immediate(
+            allocation, item->type->size > 0
+                ? (uint64_t)item->type->size : 1u);
+        if (!lower_add_local(context, item, allocation->result, type)) {
+            context->unsupported = true;
+            return false;
+        }
+        operands[0] = context->function->parameters[index];
+        operands[1] = allocation->result;
+        if (!lower_append(context, RCC_IR_STORE, rcc_ir_type_void(),
+                          operands, 2u, NULL, 0u)) {
+            return false;
+        }
+        ++index;
+    }
     while (parameter) {
         const Decl* item = parameter->decl;
         RccIrType type;
@@ -3371,7 +3400,14 @@ bool rcc_ir_verify_ast_subset(const AST* ast, size_t* lowered_functions,
         }
         status = rcc_ir_lower_function(item->decl, &module, error,
                                        error_size);
-        if (status == RCC_IR_LOWER_INVALID) return false;
+        if (status == RCC_IR_LOWER_INVALID) {
+            if (error && error_size != 0u && error[0] == '\0') {
+                snprintf(error, error_size,
+                         "function '%s' failed typed SSA validation",
+                         item->decl->name ? item->decl->name : "<anonymous>");
+            }
+            return false;
+        }
         if (status == RCC_IR_LOWER_OK) {
             ++count;
             rcc_ir_module_destroy(module);
