@@ -517,6 +517,7 @@ static void register_inline_class_accessors(CxxClass* cls) {
         lowered->name = method->decl->name;
         lowered->return_type = method->decl->type->ret_type;
         lowered->field = field;
+        lowered->function_decl = NULL;
         lowered->kind = kind;
         lowered->constant = has_constant ? constant : 0;
         lowered->cxx_access = (unsigned char)member->access;
@@ -694,6 +695,7 @@ static void register_inline_class_releases(CxxClass* cls) {
         lowered->name = method->decl->name;
         lowered->return_type = return_type;
         lowered->field = field;
+        lowered->function_decl = NULL;
         lowered->kind = TYPE_METHOD_FIELD_RELEASE;
         lowered->constant = invalid;
         lowered->cxx_access = (unsigned char)member->access;
@@ -1101,6 +1103,7 @@ static void register_inline_class_closes(CxxClass* cls) {
         lowered->name = method->decl->name;
         lowered->return_type = return_type;
         lowered->field = field;
+        lowered->function_decl = NULL;
         lowered->kind = TYPE_METHOD_FIELD_CLOSE;
         lowered->constant = cls->type->cleanup_invalid;
         lowered->cleanup_function = cls->type->cleanup_function;
@@ -1335,6 +1338,108 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
     cls->type->move_assignment_method = candidate;
 }
 
+/* Publish ordinary, non-virtual member definitions as real functions.  The
+ * common backends already know how to lower expressions and statements; the
+ * missing ABI piece was the implicit object parameter and member-call
+ * selection.  Constructors, destructors, virtual dispatch, and static
+ * qualification have separate object-model requirements and remain outside
+ * this registration path until those requirements are implemented. */
+static void register_ordinary_class_methods(CxxClass* cls) {
+    struct CxxMember* member;
+    TypeMethod** tail;
+    if (!cls || !cls->type || !cls->type->is_complete || !active_ast ||
+        active_template) return;
+
+    tail = &cls->type->methods;
+    while (*tail) tail = &(*tail)->next;
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        Decl* declaration;
+        TypeParam* this_type_parameter;
+        Type* this_type;
+        Type* const_owner;
+        Decl* this_parameter;
+        TypeMethod* lowered;
+        const char* source_name;
+        const char* link_name;
+
+        if (!method || !method->decl || !method->decl->func_body ||
+            method->is_static || method->is_virtual ||
+            method->is_pure_virtual || method->is_deleted ||
+            method->is_defaulted || method->is_constructor ||
+            method->is_destructor) {
+            continue;
+        }
+
+        declaration = method->decl;
+        source_name = declaration->name;
+        link_name = rcc_intern(cxx_mangle_function(
+            declaration, active_namespace, cls));
+
+        /* C++ member names are not source-visible global symbols.  Using the
+         * ABI spelling as the semantic symbol key also keeps same-named
+         * methods in different classes/namespaces distinct. */
+        declaration->name = link_name;
+        declaration->link_name = link_name;
+        declaration->func_has_cxx_linkage = true;
+        declaration->func_is_cxx_method = true;
+        declaration->func_method_owner = cls->type;
+
+        if (method->is_const) {
+            const_owner = ast_arena_alloc(sizeof(*const_owner));
+            *const_owner = *cls->type;
+            const_owner->is_const = true;
+            this_type = type_ptr(const_owner);
+        } else {
+            this_type = type_ptr(cls->type);
+        }
+        this_parameter = decl_param("this", this_type, -1,
+                                    declaration->loc);
+        declaration->func_this_param = this_parameter;
+
+        this_type_parameter = ast_arena_alloc(sizeof(*this_type_parameter));
+        this_type_parameter->name = "this";
+        this_type_parameter->type = this_type;
+        this_type_parameter->cxx_access = ACCESS_PUBLIC;
+        this_type_parameter->next = declaration->type->params;
+        declaration->type->params = this_type_parameter;
+
+        lowered = ast_arena_alloc(sizeof(*lowered));
+        lowered->name = source_name;
+        lowered->return_type = declaration->type->ret_type;
+        lowered->field = NULL;
+        lowered->function_decl = declaration;
+        lowered->kind = TYPE_METHOD_FUNCTION;
+        lowered->constant = 0;
+        lowered->cleanup_function = NULL;
+        lowered->result_field = NULL;
+        lowered->success_constant = 0;
+        lowered->cxx_access = (unsigned char)member->access;
+        lowered->next = NULL;
+        *tail = lowered;
+        tail = &lowered->next;
+
+        ast_add_decl(active_ast, declaration);
+    }
+}
+
+static void diagnose_unlowered_destructors(CxxClass* cls) {
+    struct CxxMember* member;
+    if (!cls || !cls->type || cls->type->cleanup_function || active_template) {
+        return;
+    }
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        if (method && method->is_destructor && method->decl &&
+            method->decl->func_body &&
+            method->decl->func_body->block_stmts) {
+            rcc_error(method->decl->loc,
+                      "non-trivial C++ destructor body cannot be lowered "
+                      "without object-lifetime support");
+        }
+    }
+}
+
 /* Parse class member (field or method) */
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
@@ -1480,6 +1585,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         } else if (match(TOK_LBRACE)) {
             /* Parse method body */
             StmtList* stmts = NULL;
+            rcc_parser_cxx_begin_function_parameters(params);
             while (!check(TOK_RBRACE) && !at_end()) {
                 Token* statement_start = parser.cur;
                 int errors_before = g_error_count;
@@ -1496,6 +1602,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 }
             }
             expect(TOK_RBRACE, "}");
+            rcc_parser_cxx_end_function_parameters();
             body = stmt_block(stmts, loc);
         } else {
             expect(TOK_SEMICOLON, ";");
@@ -1642,6 +1749,8 @@ CxxClass* parse_cxx_class(void) {
     register_inline_class_close_delegates(cls);
     register_inline_class_move_constructor(cls);
     register_inline_class_move_assignment(cls);
+    diagnose_unlowered_destructors(cls);
+    register_ordinary_class_methods(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
      * reuse the common initializer/codegen backend.  Every complete class
@@ -2784,6 +2893,56 @@ static TypeField* versioned_public_integer_field(Type* type,
     return NULL;
 }
 
+/* A function template that constructs a dependent aggregate and then writes
+ * its members needs a dedicated typed lowering.  Do not instantiate such a
+ * body through the scalar function-template path: that would emit a partial
+ * object while silently dropping the remaining member writes. */
+static bool template_has_unsupported_versioned_shape(CxxTemplate* tmpl) {
+    Decl* function;
+    StmtList* statements;
+    const char* variable;
+    bool has_member_assignment = false;
+    if (!tmpl || tmpl->kind != TMPL_FUNCTION || tmpl->param_count != 1 ||
+        tmpl->params[0].kind != TPARAM_TYPE) {
+        return false;
+    }
+    function = tmpl->func_def;
+    if (!function || function->func_params || !function->type ||
+        !template_type_parameter_matches(tmpl, function->type->ret_type, 0) ||
+        !function->func_body || function->func_body->kind != STMT_BLOCK) {
+        return false;
+    }
+    statements = function->func_body->block_stmts;
+    if (!statements || !statements->stmt ||
+        statements->stmt->kind != STMT_DECL || !statements->stmt->decl ||
+        !statements->stmt->decl->name ||
+        !template_type_parameter_matches(tmpl,
+                                          statements->stmt->decl->type, 0) ||
+        !statements->stmt->decl->var_init ||
+        statements->stmt->decl->var_init->kind != EXPR_COMPOUND ||
+        !statements->stmt->decl->var_init->compound_value_init) {
+        return false;
+    }
+    variable = statements->stmt->decl->name;
+    for (statements = statements->next; statements;
+         statements = statements->next) {
+        Stmt* statement = statements->stmt;
+        if (statement && statement->kind == STMT_EXPR && statement->expr &&
+            statement->expr->kind == EXPR_ASSIGN &&
+            statement->expr->binary_lhs &&
+            statement->expr->binary_lhs->kind == EXPR_MEMBER &&
+            expression_is_identifier(
+                statement->expr->binary_lhs->member_base, variable) &&
+            statement->expr->binary_lhs->member_name &&
+            strcmp(statement->expr->binary_lhs->member_name, "struct_size") != 0 &&
+            strcmp(statement->expr->binary_lhs->member_name, "version") != 0) {
+            has_member_assignment = true;
+            break;
+        }
+    }
+    return has_member_assignment;
+}
+
 Expr* rcc_parse_cxx_template_call(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
@@ -2795,6 +2954,7 @@ Expr* rcc_parse_cxx_template_call(void) {
     TypeField* version_field;
     ExprList* items = NULL;
     Expr* initializer;
+    bool unsafe_versioned_shape;
 
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
     name = parse_qualified_name();
@@ -2804,6 +2964,7 @@ Expr* rcc_parse_cxx_template_call(void) {
         parser.prev = saved_prev;
         return NULL;
     }
+    unsafe_versioned_shape = template_has_unsupported_versioned_shape(tmpl);
     if (tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT) {
         Type* template_arguments[32];
         int64_t template_values[32] = { 0 };
@@ -2902,6 +3063,12 @@ Expr* rcc_parse_cxx_template_call(void) {
             } while (match(TOK_COMMA));
         }
         expect(TOK_RPAREN, ")");
+
+        if (unsafe_versioned_shape) {
+            rcc_error(loc, "function template '%s' is not safely lowerable",
+                      name);
+            return expr_int(0, loc);
+        }
 
         if (!explicit_template_arguments) {
             memset(template_arguments, 0, sizeof(template_arguments));

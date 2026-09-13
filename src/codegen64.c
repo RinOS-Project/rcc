@@ -3956,9 +3956,17 @@ static void gen64_function(Module* mod, Decl* decl) {
     int old_va_fp_offset;
     int old_va_overflow_offset;
     int old_va_reg_save_offset;
+    DeclList implicit_this_parameter;
+    DeclList* all_parameters = decl->func_params;
     if (!decl->func_body) return;
 
-    for (DeclList* parameter = decl->func_params; parameter;
+    if (decl->func_this_param) {
+        implicit_this_parameter.decl = decl->func_this_param;
+        implicit_this_parameter.next = decl->func_params;
+        all_parameters = &implicit_this_parameter;
+    }
+
+    for (DeclList* parameter = all_parameters; parameter;
          parameter = parameter->next) {
         Decl* value = parameter->decl;
         int vla_dimensions = value->param_array_type &&
@@ -4043,7 +4051,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     register_cursor = memory_result ? 1 : 0;
     float_register_cursor = 0;
     stack_cursor = 16;
-    for (DeclList* parameter = decl->func_params; parameter;
+    for (DeclList* parameter = all_parameters; parameter;
          parameter = parameter->next) {
         Decl* value = parameter->decl;
         int size = value->type && value->type->size > 0

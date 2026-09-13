@@ -62,6 +62,7 @@ typedef enum {
     TYPE_METHOD_FIELD_NE_CONSTANT,
     TYPE_METHOD_FIELD_RELEASE,
     TYPE_METHOD_FIELD_CLOSE,
+    TYPE_METHOD_FUNCTION,
 } TypeMethodKind;
 
 /* A structurally validated C++ zero-argument method that can be expanded by
@@ -70,6 +71,7 @@ struct TypeMethod {
     const char* name;
     Type* return_type;
     TypeField* field;
+    Decl* function_decl; /* Non-NULL for a lowered ordinary C++ method. */
     TypeMethodKind kind;
     int64_t constant;
     const char* cleanup_function;
@@ -650,10 +652,13 @@ struct Decl {
         struct {
             DeclList* func_params;
             Stmt* func_body;        /* NULL for declaration only */
+            Decl* func_this_param;  /* Implicit object parameter for C++ methods. */
+            Type* func_method_owner; /* Owning class type for C++ methods. */
             bool func_is_inline;
             bool func_is_defined;
             bool func_is_template_instance;
             bool func_has_cxx_linkage;
+            bool func_is_cxx_method;
             Decl* func_overload_next;
         };
 

@@ -106,7 +106,7 @@ RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
 
-.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean test build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -485,6 +485,47 @@ test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/c_scope_operator_rejected.c
 	@echo "RCC++ qualified namespace and C mode-isolation tests completed"
 
+ifeq ($(OS),Windows_NT)
+test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-methods)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-methods/x86.s \
+		tests/cxx_member_methods.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-methods/x64.s \
+		tests/cxx_member_methods.cpp
+	wsl -d Ubuntu-24.04 bash -lc "set -e; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86.s; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start.o $(WSL_RINCOMPILER_ROOT)/tests/cxx_member_methods_i686_start.s; gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86 $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86.o; $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86; gcc -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64.s; gcc -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start64.o $(WSL_RINCOMPILER_ROOT)/tests/cxx_member_methods_x64_start.s; gcc -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64 $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start64.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64.o; $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64"
+	@echo "RCC++ ordinary C++ member method tests completed"
+else
+test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-methods)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-methods/x86.s \
+		tests/cxx_member_methods.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-methods/x64.s \
+		tests/cxx_member_methods.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-methods/x86.o \
+		$(TEST_OUT)/cxx-member-methods/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-methods/start.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-member-methods/x86 \
+		$(TEST_OUT)/cxx-member-methods/start.o \
+		$(TEST_OUT)/cxx-member-methods/x86.o
+	$(TEST_OUT)/cxx-member-methods/x86
+	$(CC) -c -o $(TEST_OUT)/cxx-member-methods/x64.o \
+		$(TEST_OUT)/cxx-member-methods/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-member-methods/start64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-member-methods/x64 \
+		$(TEST_OUT)/cxx-member-methods/start64.o \
+		$(TEST_OUT)/cxx-member-methods/x64.o
+	$(TEST_OUT)/cxx-member-methods/x64
+	@echo "RCC++ ordinary C++ member method tests completed"
+endif
+
 test-cxx-overloads: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-overloads
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -655,15 +696,11 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/cxx_unsafe_destructor_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-destructor.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "expected ;, got '{'" \
+	grep -q "non-trivial C++ destructor body cannot be lowered" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-destructor.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-release.ro \
-		tests/cxx_unsafe_release_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-release.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	grep -q "no member named 'release'" \
-		$(TEST_OUT)/cxx-inline-aggregates/unsafe-release.log
+		tests/cxx_unsafe_release_rejected.cpp
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-bool.ro \
 		tests/cxx_unsafe_bool_rejected.cpp \
@@ -678,13 +715,9 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		status=$$?; set -e; test $$status -ne 0
 	grep -q "condition requires scalar type or validated operator bool" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool-delegate.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.ro \
-		tests/cxx_unsafe_close_delegate_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	grep -q "no member named 'reset'" \
-		$(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.log
+		tests/cxx_unsafe_close_delegate_rejected.cpp
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move.ro \
 		tests/cxx_unsafe_move_rejected.cpp \
@@ -700,8 +733,6 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -q "C++ ownership assignment requires a validated rvalue operator=" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	grep -q "C++ scope-cleanup object assignment requires a validated operator=" \
-		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
-	grep -q "no member named 'close'" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 

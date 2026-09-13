@@ -12,6 +12,8 @@
 static Type* current_func_ret = NULL;
 static bool current_func_variadic = false;
 static Decl* current_func_last_param = NULL;
+static Type* current_cxx_method_owner = NULL;
+static Decl* current_cxx_this_param = NULL;
 
 typedef struct SemaSwitchValue {
     uint64_t bits;
@@ -400,7 +402,24 @@ static TypeMethod* sema_find_inline_method(Type* aggregate,
         return NULL;
     }
     for (method = aggregate->methods; method; method = method->next) {
-        if (method->name && strcmp(method->name, name) == 0) return method;
+        if (method->kind != TYPE_METHOD_FUNCTION && method->name &&
+            strcmp(method->name, name) == 0) return method;
+    }
+    return NULL;
+}
+
+static TypeMethod* sema_find_function_method(Type* aggregate,
+                                              const char* name) {
+    TypeMethod* method;
+    if (!aggregate || !name ||
+        (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    for (method = aggregate->methods; method; method = method->next) {
+        if (method->kind == TYPE_METHOD_FUNCTION && method->name &&
+            method->function_decl && strcmp(method->name, name) == 0) {
+            return method;
+        }
     }
     return NULL;
 }
@@ -979,6 +998,34 @@ static Type* sema_expr(Expr* expr) {
                 break;
             }
             Symbol* sym = symtab_lookup(g_symtab, expr->ident_name);
+            if (!sym && current_cxx_method_owner &&
+                current_cxx_this_param && expr->ident_name) {
+                TypeField* field;
+                for (field = current_cxx_method_owner->fields; field;
+                     field = field->next) {
+                    if (field->name &&
+                        strcmp(field->name, expr->ident_name) == 0) {
+                        Expr* object = expr_ident("this", expr->loc);
+                        Type* field_type = field->type;
+                        object->ident_decl = current_cxx_this_param;
+                        object->type = current_cxx_this_param->type;
+                        expr->kind = EXPR_PTR_MEMBER;
+                        expr->member_base = object;
+                        expr->member_name = expr->ident_name;
+                        expr->member_field = field;
+                        if (current_cxx_method_owner->is_const &&
+                            field_type && !field_type->is_const) {
+                            Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                            *qualified = *field_type;
+                            qualified->is_const = true;
+                            field_type = qualified;
+                        }
+                        expr->type = field_type;
+                        break;
+                    }
+                }
+            }
+            if (expr->kind != EXPR_IDENT) break;
             if (!sym) {
                 sym = sema_cxx_runtime_function(expr->ident_name,
                                                  expr->loc);
@@ -1534,6 +1581,27 @@ static Type* sema_expr(Expr* expr) {
             bool reported_too_many = false;
             bool arguments_analyzed = false;
             if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
+                current_cxx_method_owner && current_cxx_this_param) {
+                TypeMethod* method = sema_find_function_method(
+                    current_cxx_method_owner, expr->call_func->ident_name);
+                if (method && method->function_decl) {
+                    Expr* this_argument = expr_ident(
+                        "this", expr->call_func->loc);
+                    ExprList* implicit_argument = exprlist_new(this_argument);
+                    this_argument->ident_decl = current_cxx_this_param;
+                    this_argument->type = current_cxx_this_param->type;
+                    implicit_argument->designator_kind =
+                        INIT_DESIGNATOR_NONE;
+                    implicit_argument->designator_index = 0;
+                    implicit_argument->designator_field = NULL;
+                    implicit_argument->next = expr->call_args;
+                    expr->call_func->ident_name = method->function_decl->name;
+                    expr->call_func->ident_decl = method->function_decl;
+                    expr->call_func->type = method->function_decl->type;
+                    expr->call_args = implicit_argument;
+                }
+            }
+            if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
                 strcmp(expr->call_func->ident_name, "rin_free") == 0 &&
                 expr->call_args && expr->call_args->expr) {
                 Type* freed_type = sema_expr(expr->call_args->expr);
@@ -1578,6 +1646,34 @@ static Type* sema_expr(Expr* expr) {
                         ? method->return_type->base
                         : method->return_type;
                     break;
+                }
+                method = sema_find_function_method(owner,
+                                                    member->member_name);
+                if (method && method->function_decl) {
+                    Expr* this_argument;
+                    Expr* function_expression;
+                    ExprList* implicit_argument;
+                    if (method->cxx_access != 0u) {
+                        rcc_error(expr->loc, "method '%s' is not accessible",
+                                  member->member_name);
+                    }
+                    this_argument = member->kind == EXPR_PTR_MEMBER
+                        ? member->member_base
+                        : expr_unary(EXPR_ADDR, member->member_base,
+                                     member->loc);
+                    implicit_argument = exprlist_new(this_argument);
+                    implicit_argument->designator_kind =
+                        INIT_DESIGNATOR_NONE;
+                    implicit_argument->designator_index = 0;
+                    implicit_argument->designator_field = NULL;
+                    implicit_argument->next = expr->call_args;
+                    function_expression = expr_ident(
+                        method->function_decl->name, expr->loc);
+                    function_expression->ident_decl =
+                        method->function_decl;
+                    function_expression->type = method->function_decl->type;
+                    expr->call_func = function_expression;
+                    expr->call_args = implicit_argument;
                 }
             }
             if (sema_atomic_builtin_call(expr)) break;
@@ -3040,6 +3136,8 @@ static void sema_decl(Decl* decl) {
             Symbol* sym = symtab_lookup(g_symtab, decl->name);
             bool cxx_overload_set = false;
             bool cxx_defaults_merged = false;
+            Type* previous_method_owner = current_cxx_method_owner;
+            Decl* previous_this_param = current_cxx_this_param;
             sema_analyze_cxx_default_arguments(decl);
             if (sym && sym->kind == SYM_FUNC &&
                 decl->func_has_cxx_linkage) {
@@ -3120,6 +3218,18 @@ static void sema_decl(Decl* decl) {
                      decl->type->ret_type->kind == TYPE_UNION)) {
                     param_offset += 4; /* Hidden aggregate-result pointer. */
                 }
+                if (decl->func_this_param) {
+                    Symbol* this_symbol = symtab_define(
+                        g_symtab, decl->func_this_param->name, SYM_PARAM,
+                        decl->func_this_param->type,
+                        decl->func_this_param->loc);
+                    this_symbol->decl = decl->func_this_param;
+                    this_symbol->offset = param_offset;
+                    decl->func_this_param->var_offset = param_offset;
+                    param_offset += decl->func_this_param->type &&
+                        decl->func_this_param->type->size > 4
+                        ? decl->func_this_param->type->size : 4;
+                }
                 for (DeclList* p = decl->func_params; p; p = p->next) {
                     current_func_last_param = p->decl;
                     Symbol* psym = symtab_define(g_symtab, p->decl->name, SYM_PARAM,
@@ -3144,6 +3254,8 @@ static void sema_decl(Decl* decl) {
                 }
 
                 /* Analyze body */
+                current_cxx_method_owner = decl->func_method_owner;
+                current_cxx_this_param = decl->func_this_param;
                 loop_depth = 0;
                 current_switch = NULL;
                 sema_stmt(decl->func_body);
@@ -3161,6 +3273,8 @@ static void sema_decl(Decl* decl) {
                 current_func_ret = NULL;
                 current_func_variadic = false;
                 current_func_last_param = NULL;
+                current_cxx_method_owner = previous_method_owner;
+                current_cxx_this_param = previous_this_param;
             }
             break;
         }

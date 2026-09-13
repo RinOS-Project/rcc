@@ -101,6 +101,8 @@
 - [x] `rcc++` entrypointとC++20既定mode
 - [x] C frontendと共通のtarget/preprocessor CLI
 - [ ] class、継承、virtual dispatchの完全実装
+  - [x] 非static・非virtualメンバー関数の`this`引数、暗黙field参照、
+        `obj.method`／`ptr->method`呼び出しと両arch実行
 - [ ] overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完
@@ -108,6 +110,7 @@
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化
   - [x] 先行非型引数を参照する整数constant-expression defaultの評価
+  - [x] dependent aggregate templateの未対応partial loweringを診断
 - [ ] modules、coroutines、atomics、TLS
 - [ ] Itanium ABI mangling、exceptions、RTTI、static initialization
 - [ ] cross-library exceptionとthread-local destructor
