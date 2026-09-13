@@ -192,6 +192,30 @@ test-cxx-language-core: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-language-core/new-delete-x64.ro \
 		tests/cxx_new_delete.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/new-delete-x86.s \
+		tests/cxx_new_delete.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/new-delete-x86.o \
+		$(TEST_OUT)/cxx-language-core/new-delete-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/new-delete-start-x86.o \
+		tests/cxx_new_delete_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/new-delete-x86 \
+		$(TEST_OUT)/cxx-language-core/new-delete-start-x86.o \
+		$(TEST_OUT)/cxx-language-core/new-delete-x86.o
+	$(TEST_OUT)/cxx-language-core/new-delete-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/new-delete-x64.s \
+		tests/cxx_new_delete.cpp
+	gcc -c -o $(TEST_OUT)/cxx-language-core/new-delete-x64.o \
+		$(TEST_OUT)/cxx-language-core/new-delete-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-language-core/new-delete-start-x64.o \
+		tests/cxx_new_delete_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/new-delete-x64 \
+		$(TEST_OUT)/cxx-language-core/new-delete-start-x64.o \
+		$(TEST_OUT)/cxx-language-core/new-delete-x64.o
+	$(TEST_OUT)/cxx-language-core/new-delete-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/adl-x86.s \
 		tests/cxx_adl.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \

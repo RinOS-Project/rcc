@@ -33,6 +33,7 @@ struct CxxConstructorInitializer {
 };
 
 struct CxxConstructorInfo {
+    CxxMethod* method;
     int parameter_count;
     TypeParam* parameters;
     CxxConstructorInitializer* initializers;

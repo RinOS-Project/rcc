@@ -5,6 +5,7 @@
 
 #include "rcc.h"
 #include "ast.h"
+#include "ast_cxx.h"
 #include "symtab.h"
 #include "codegen.h"
 #include <limits.h>
@@ -2090,6 +2091,73 @@ static bool gen64_cxx_move_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+static void gen64_cxx_new(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    TypeField* field;
+    ExprList* argument;
+    bool saved_is_new;
+    bool initialize;
+
+    if (!object_type || object_type->size <= 0) {
+        rcc_error(expr ? expr->loc : (SourceLoc){0},
+                  "C++ new expression has no complete storage type");
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    saved_is_new = expr->call_is_new;
+    expr->call_is_new = false;
+    gen64_expr(mod, expr);
+    expr->call_is_new = saved_is_new;
+
+    if (expr->call_new_is_array) {
+        if (expr->call_new_value_init) {
+            rcc_error(expr->loc,
+                      "array new value-initialization is not lowered yet");
+        }
+        return;
+    }
+    argument = expr->call_new_args;
+    initialize = expr->call_new_value_init ||
+                 expr->call_new_constructor != NULL ||
+                 argument != NULL;
+    if (!initialize) return;
+
+    emit64_push_reg(mod, RAX);
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    if (object_type->kind == TYPE_STRUCT ||
+        object_type->kind == TYPE_UNION) {
+        int offset = 0;
+        for (; offset + 8 <= object_type->size; offset += 8) {
+            emit64_mov_mem_reg(mod, RCX, offset, RAX);
+        }
+        if (offset + 4 <= object_type->size) {
+            emit64_store_typed(mod, RCX, offset, RAX, type_uint);
+            offset += 4;
+        }
+        while (offset < object_type->size) {
+            emit64_store_typed(mod, RCX, offset, RAX, type_uchar);
+            ++offset;
+        }
+        field = object_type->fields;
+        while (field && argument) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            gen64_expr(mod, argument->expr);
+            emit64_store_typed(mod, RCX, field->offset, RAX, field->type);
+            field = field->next;
+            argument = argument->next;
+        }
+    } else if (argument) {
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        gen64_expr(mod, argument->expr);
+        emit64_store_typed(mod, RCX, 0, RAX, object_type);
+    } else {
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_store_typed(mod, RCX, 0, RAX, object_type);
+    }
+    emit64_pop_reg(mod, RAX);
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -2670,6 +2738,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_CALL: {
+            if (expr->call_is_new) {
+                gen64_cxx_new(mod, expr);
+                break;
+            }
             if (gen64_inline_method_call(mod, expr)) break;
             if (gen64_atomic_builtin(mod, expr)) break;
             /* x86-64 System V ABI: RDI, RSI, RDX, RCX, R8, R9 */

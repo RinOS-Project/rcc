@@ -1765,6 +1765,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         if (is_constructor) {
             CxxConstructorInfo* info = ast_arena_alloc(sizeof(*info));
             CxxConstructorInfo** tail = &cls->constructors;
+            info->method = method;
             info->parameter_count = param_idx;
             info->parameters = method->decl->type->params;
             info->initializers = constructor_initializer.items;
@@ -3446,8 +3447,10 @@ Expr* rcc_parse_cxx_special_expression(void) {
         Expr* count = NULL;
         Expr* bytes;
         Expr* allocation;
-        ExprList* arguments = NULL;
+        ExprList* new_args = NULL;
+        ExprList* allocation_args = NULL;
         bool is_array = false;
+        bool value_init = false;
 
         if (match(TOK_LBRACKET)) {
             is_array = true;
@@ -3459,33 +3462,42 @@ Expr* rcc_parse_cxx_special_expression(void) {
             expect(TOK_RBRACKET, "]");
         }
         if (match(TOK_LPAREN)) {
-            rcc_error(loc,
-                      "RCC++ supports allocation-only new expressions; "
-                      "constructor initialization is not implemented");
-            while (!check(TOK_RPAREN) && !at_end()) advance();
+            value_init = check(TOK_RPAREN);
+            while (!check(TOK_RPAREN) && !at_end()) {
+                exprlist_append(&new_args, parse_assignment_expression());
+                if (!match(TOK_COMMA)) break;
+            }
             expect(TOK_RPAREN, ")");
         } else if (match(TOK_LBRACE)) {
-            rcc_error(loc,
-                      "RCC++ supports allocation-only new expressions; "
-                      "constructor initialization is not implemented");
-            while (!check(TOK_RBRACE) && !at_end()) advance();
+            value_init = check(TOK_RBRACE);
+            while (!check(TOK_RBRACE) && !at_end()) {
+                exprlist_append(&new_args, parse_assignment_expression());
+                if (!match(TOK_COMMA)) break;
+            }
             expect(TOK_RBRACE, "}");
         }
         if (!object_type || object_type == type_void ||
             object_type->kind == TYPE_FUNC ||
             !type_is_complete(object_type)) {
             rcc_error(loc, "new requires a complete object type");
-        } else if (object_type->cxx_nontrivial) {
-            rcc_error(loc,
-                      "new for a non-trivial C++ object requires constructor and destructor lowering");
         }
         bytes = expr_sizeof_type(object_type, loc);
         if (is_array && count) {
             bytes = expr_binary(EXPR_MUL, bytes, count, loc);
         }
-        exprlist_append(&arguments, bytes);
-        allocation = expr_call(expr_ident("rin_malloc", loc), arguments, loc);
-        return expr_cast(type_ptr(object_type), allocation, loc);
+        exprlist_append(&allocation_args, bytes);
+        allocation = expr_call(expr_ident("rin_malloc", loc),
+                               allocation_args, loc);
+        allocation->call_is_new = true;
+        allocation->call_new_value_init = value_init;
+        allocation->call_new_is_array = is_array;
+        allocation->call_new_type = object_type;
+        allocation->call_new_count = count;
+        /* The allocation size is the ordinary call argument.  Keep the
+         * constructor arguments separate so they are evaluated exactly once
+         * after the allocator returns the object address. */
+        allocation->call_new_args = new_args;
+        return allocation;
     }
 
     if (match(TOK_DELETE)) {

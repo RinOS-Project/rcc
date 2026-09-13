@@ -10,6 +10,15 @@
 #include "codegen.h"
 #include <limits.h>
 
+/* The C-only executable deliberately does not link the C++ frontend.  The
+ * vtable pass is therefore an optional extension boundary, not a second
+ * implementation or a fake namespace. */
+#if defined(__GNUC__)
+extern CxxNamespace* g_global_namespace __attribute__((weak));
+#else
+extern CxxNamespace* g_global_namespace;
+#endif
+
 /* Label management */
 static int label_counter = 0;
 static int current_stack_offset = 0;
@@ -3782,6 +3791,78 @@ static bool gen_cxx_move_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+static void gen_cxx_new32(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    TypeField* field;
+    ExprList* argument;
+    bool saved_is_new;
+    bool initialize;
+
+    if (!object_type || object_type->size <= 0) {
+        rcc_error(expr ? expr->loc : (SourceLoc){0},
+                  "C++ new expression has no complete storage type");
+        emit_mov_reg_imm(mod, EAX, 0u);
+        return;
+    }
+    saved_is_new = expr->call_is_new;
+    expr->call_is_new = false;
+    gen_call(mod, expr);
+    expr->call_is_new = saved_is_new;
+
+    if (expr->call_new_is_array) {
+        if (expr->call_new_value_init) {
+            rcc_error(expr->loc,
+                      "array new value-initialization is not lowered yet");
+        }
+        return;
+    }
+    argument = expr->call_new_args;
+    initialize = expr->call_new_value_init ||
+                 expr->call_new_constructor != NULL ||
+                 argument != NULL;
+    if (!initialize) return;
+
+    emit_push_reg(mod, EAX); /* retain the allocation across initializers */
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    emit_mov_reg_imm(mod, EAX, 0u);
+    if (object_type->kind == TYPE_STRUCT ||
+        object_type->kind == TYPE_UNION) {
+        for (int offset = 0; offset + 4 <= object_type->size; offset += 4) {
+            emit_mov_mem_reg(mod, ECX, offset, EAX);
+        }
+        for (int offset = (object_type->size / 4) * 4;
+             offset < object_type->size; ++offset) {
+            emit_mov_mem_reg8(mod, ECX, offset, EAX);
+        }
+        field = object_type->fields;
+        while (field && argument) {
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            gen_expr(mod, argument->expr);
+            if (type_is_integer(field->type) ||
+                field->type->kind == TYPE_ENUM) {
+                emit_convert_integer_value(mod, EAX, argument->expr->type,
+                                           field->type);
+            }
+            emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
+            field = field->next;
+            argument = argument->next;
+        }
+    } else if (argument) {
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        gen_expr(mod, argument->expr);
+        if (type_is_integer(object_type) ||
+            object_type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(mod, EAX, argument->expr->type,
+                                       object_type);
+        }
+        emit_store_typed32(mod, ECX, 0, EAX, object_type);
+    } else {
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        emit_store_typed32(mod, ECX, 0, EAX, object_type);
+    }
+    emit_pop_reg(mod, EAX);
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int argc;
@@ -3792,6 +3873,10 @@ static void gen_call(Module* mod, Expr* expr) {
     int i;
     Expr* func_expr;
 
+    if (expr->call_is_new) {
+        gen_cxx_new32(mod, expr);
+        return;
+    }
     if (gen_inline_method_call(mod, expr)) return;
     if (gen_atomic_builtin(mod, expr)) return;
 

@@ -552,6 +552,13 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_is_virtual = false;
     e->call_virtual_index = -1;
     e->call_virtual_object = NULL;
+    e->call_is_new = false;
+    e->call_new_value_init = false;
+    e->call_new_is_array = false;
+    e->call_new_type = NULL;
+    e->call_new_count = NULL;
+    e->call_new_args = NULL;
+    e->call_new_constructor = NULL;
     e->type = NULL;
     return e;
 }

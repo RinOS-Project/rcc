@@ -388,6 +388,16 @@ struct Expr {
             bool call_is_virtual;
             int call_virtual_index;
             Expr* call_virtual_object;
+            /* C++ new-expression metadata.  The ordinary call fields retain
+             * the allocation call so existing ABI lowering can be reused;
+             * these fields describe the post-allocation initialization. */
+            bool call_is_new;
+            bool call_new_value_init;
+            bool call_new_is_array;
+            Type* call_new_type;
+            Expr* call_new_count;
+            ExprList* call_new_args;
+            struct CxxConstructorInfo* call_new_constructor;
         };
 
         /* EXPR_INDEX */

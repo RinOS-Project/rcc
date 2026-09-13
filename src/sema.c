@@ -652,6 +652,145 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     return -1;
 }
 
+static int sema_cxx_argument_count(ExprList* arguments) {
+    int count = 0;
+    for (; arguments; arguments = arguments->next) {
+        if (count == INT_MAX) return INT_MAX;
+        ++count;
+    }
+    return count;
+}
+
+static bool sema_cxx_new_storage_type(Type* type) {
+    if (!type) return false;
+    if (type->is_reference) return false;
+    if (g_opts.target_arch == ARCH_X86 && type->size > 4) return false;
+    return type_is_integer(type) || type->kind == TYPE_ENUM ||
+           type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR;
+}
+
+static bool sema_cxx_trivially_destructible(Type* type, int depth) {
+    CxxClass* cls;
+    if (!type || depth > 32) return false;
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    cls = type->cxx_class;
+    if (cls) {
+        for (struct CxxMember* member = cls->members;
+             member; member = member->next) {
+            if (member->method && member->method->is_destructor) {
+                return false;
+            }
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!sema_cxx_trivially_destructible(field->type, depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static CxxConstructorInfo* sema_select_cxx_new_constructor(
+    Type* object_type, ExprList* arguments, SourceLoc loc) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    CxxConstructorInfo* candidate;
+    CxxConstructorInfo* best = NULL;
+    int argument_count = sema_cxx_argument_count(arguments);
+    int best_total = INT_MAX;
+    int best_worst = INT_MAX;
+    bool ambiguous = false;
+    uint32_t mask;
+
+    if (!cls || argument_count < 0 || argument_count >= 32) return NULL;
+    mask = rcc_parser_cxx_constructor_arity_mask(object_type);
+    if ((mask & (UINT32_C(1) << (unsigned)argument_count)) == 0u) {
+        return NULL;
+    }
+    for (candidate = cls->constructors; candidate;
+         candidate = candidate->next) {
+        TypeParam* parameter;
+        ExprList* argument;
+        int total = 0;
+        int worst = 0;
+        bool viable = true;
+        if (!candidate->method || candidate->access != ACCESS_PUBLIC ||
+            candidate->is_deleted || candidate->is_defaulted ||
+            !candidate->initializers_are_supported ||
+            !candidate->body_is_empty ||
+            candidate->parameter_count != argument_count) {
+            continue;
+        }
+        parameter = candidate->parameters;
+        argument = arguments;
+        while (parameter && argument) {
+            int rank = cxx_conversion_rank(argument->expr, parameter->type);
+            if (rank < 0) {
+                viable = false;
+                break;
+            }
+            total += rank;
+            if (rank > worst) worst = rank;
+            parameter = parameter->next;
+            argument = argument->next;
+        }
+        if (!viable || parameter || argument) continue;
+        if (!best || total < best_total ||
+            (total == best_total && worst < best_worst)) {
+            best = candidate;
+            best_total = total;
+            best_worst = worst;
+            ambiguous = false;
+        } else if (total == best_total && worst == best_worst) {
+            ambiguous = true;
+        }
+    }
+    if (ambiguous) {
+        rcc_error(loc, "ambiguous constructor for C++ new expression");
+        return NULL;
+    }
+    return best;
+}
+
+static bool sema_validate_cxx_new_arguments(Type* object_type,
+                                            ExprList* arguments,
+                                            CxxConstructorInfo* constructor) {
+    TypeField* field;
+    TypeParam* parameter;
+    ExprList* argument;
+    int count = sema_cxx_argument_count(arguments);
+    if (!object_type || count < 0) return false;
+    if (constructor) {
+        parameter = constructor->parameters;
+        argument = arguments;
+        while (parameter && argument) {
+            if (!sema_cxx_new_storage_type(parameter->type) ||
+                cxx_conversion_rank(argument->expr, parameter->type) < 0) {
+                return false;
+            }
+            parameter = parameter->next;
+            argument = argument->next;
+        }
+        return parameter == NULL && argument == NULL;
+    }
+    if (object_type->kind != TYPE_STRUCT && object_type->kind != TYPE_UNION) {
+        return count == 0 ||
+               (count == 1 && sema_cxx_new_storage_type(object_type) &&
+                arguments &&
+                cxx_conversion_rank(arguments->expr, object_type) >= 0);
+    }
+    field = object_type->fields;
+    argument = arguments;
+    while (field && argument) {
+        if (!sema_cxx_new_storage_type(field->type) ||
+            cxx_conversion_rank(argument->expr, field->type) < 0) {
+            return false;
+        }
+        field = field->next;
+        argument = argument->next;
+    }
+    return argument == NULL;
+}
+
 static bool cxx_same_function_parameters(Type* left, Type* right) {
     TypeParam* left_parameter;
     TypeParam* right_parameter;
@@ -1736,6 +1875,69 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            if (expr->call_is_new) {
+                Type* object_type = expr->call_new_type;
+                CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+                int argument_count;
+                CxxConstructorInfo* constructor = NULL;
+
+                /* Analyze the allocator size through the normal call path;
+                 * this preserves the declared RinOS allocation ABI and also
+                 * validates dynamic array bounds. */
+                sema_expr(expr->call_func);
+                for (argument = expr->call_args; argument;
+                     argument = argument->next) {
+                    sema_expr(argument->expr);
+                }
+                for (argument = expr->call_new_args; argument;
+                     argument = argument->next) {
+                    sema_expr(argument->expr);
+                }
+                expr->type = object_type ? type_ptr(object_type) : type_int;
+                if (!object_type || object_type == type_void ||
+                    object_type->kind == TYPE_FUNC ||
+                    !type_is_complete(object_type)) {
+                    return expr->type;
+                }
+                argument_count = sema_cxx_argument_count(expr->call_new_args);
+                if (expr->call_new_is_array && expr->call_new_args) {
+                    rcc_error(expr->loc,
+                              "array new does not accept element initializers");
+                }
+                if (object_type->cxx_nontrivial &&
+                    (!cls || !rcc_parser_cxx_constructor_arity_mask(object_type))) {
+                    rcc_error(expr->loc,
+                              "new for this C++ object requires an unsupported constructor or destructor ABI");
+                    return expr->type;
+                }
+                if (cls && cls->constructors && !expr->call_new_is_array) {
+                    constructor = sema_select_cxx_new_constructor(
+                        object_type, expr->call_new_args, expr->loc);
+                    if (argument_count != 0 || expr->call_new_value_init ||
+                        object_type->cxx_nontrivial) {
+                        if (!constructor &&
+                            (argument_count != 0 || object_type->cxx_nontrivial)) {
+                            rcc_error(expr->loc,
+                                      "no safely lowerable constructor accepts the new initializer");
+                        }
+                    }
+                }
+                if (constructor) {
+                    if (!sema_validate_cxx_new_arguments(
+                            object_type, expr->call_new_args, constructor)) {
+                        rcc_error(expr->loc,
+                                  "new constructor arguments require unsupported object storage");
+                    } else {
+                        expr->call_new_constructor = constructor;
+                    }
+                } else if (argument_count != 0 &&
+                           !sema_validate_cxx_new_arguments(
+                               object_type, expr->call_new_args, NULL)) {
+                    rcc_error(expr->loc,
+                              "new initializer is incompatible with the allocated object");
+                }
+                return expr->type;
+            }
             if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
                 current_cxx_method_owner) {
                 TypeMethod* method = sema_find_function_method(
@@ -1778,7 +1980,8 @@ static Type* sema_expr(Expr* expr) {
                 expr->call_args && expr->call_args->expr) {
                 Type* freed_type = sema_expr(expr->call_args->expr);
                 if (freed_type && freed_type->kind == TYPE_PTR &&
-                    freed_type->base && freed_type->base->cxx_nontrivial) {
+                    freed_type->base && freed_type->base->cxx_nontrivial &&
+                    !sema_cxx_trivially_destructible(freed_type->base, 0)) {
                     rcc_error(expr->loc,
                               "delete requires C++ destructor lowering for a non-trivial object");
                 }
