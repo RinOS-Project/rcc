@@ -63,6 +63,8 @@ struct CxxClass {
         bool is_virtual;
     } *bases;
     int base_count;
+    /* Byte offsets of non-virtual base subobjects after layout. */
+    int* base_offsets;
 
     /* Members */
     struct CxxMember {

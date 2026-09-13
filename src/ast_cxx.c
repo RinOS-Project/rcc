@@ -1111,6 +1111,30 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
     return NULL;
 }
 
+static const char* cxx_namespace_qualified_name(CxxNamespace* ns) {
+    CxxNamespace* stack[32];
+    char buffer[512] = "";
+    size_t length = 0u;
+    int count = 0;
+    if (!ns) return NULL;
+    for (; ns && ns->name; ns = ns->parent) {
+        if (count == (int)(sizeof(stack) / sizeof(stack[0]))) return NULL;
+        stack[count++] = ns;
+    }
+    for (int index = count - 1; index >= 0; --index) {
+        size_t part_length = strlen(stack[index]->name);
+        if (part_length > sizeof(buffer) - 1u - length) return NULL;
+        if (length != 0u) {
+            memcpy(buffer + length, "::", 2u);
+            length += 2u;
+        }
+        memcpy(buffer + length, stack[index]->name, part_length);
+        length += part_length;
+    }
+    buffer[length] = '\0';
+    return rcc_intern(buffer);
+}
+
 void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count) {
     return cxx_template_instantiate_with_values(tmpl, args, NULL, NULL,
                                                 arg_count);
@@ -1241,6 +1265,7 @@ CxxNamespace* cxx_namespace_new(const char* name, SourceLoc loc) {
 /* Add class to namespace */
 void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
     cls->ns = ns;
+    cls->type->cxx_namespace = cxx_namespace_qualified_name(ns);
     ns->classes = ast_arena_grow(
         ns->classes, sizeof(CxxClass*) * (size_t)ns->class_count,
         sizeof(CxxClass*) * (size_t)(ns->class_count + 1));

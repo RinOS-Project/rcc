@@ -99,6 +99,9 @@ struct Type {
     bool is_rvalue_reference;
     bool cxx_is_class;
     bool cxx_nontrivial;
+    /* Fully qualified namespace owning a C++ class type, or NULL for the
+     * global namespace and non-class C types. */
+    const char* cxx_namespace;
     /* Structurally validated C++ scope cleanup.  NULL for ordinary types. */
     const char* cleanup_function;
     TypeField* cleanup_field;

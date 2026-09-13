@@ -87,6 +87,32 @@ static Symbol* sema_cxx_runtime_function(const char* name, SourceLoc loc) {
     return symbol;
 }
 
+static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
+    char qualified[512];
+    if (!rcc_parser_is_cxx_mode() || !name) return NULL;
+    for (ExprList* item = arguments; item; item = item->next) {
+        Type* type = item->expr ? item->expr->type : NULL;
+        while (type && type->kind == TYPE_PTR && !type->is_reference) {
+            type = type->base;
+        }
+        if (!type || (type->kind != TYPE_STRUCT &&
+                      type->kind != TYPE_UNION) ||
+            !type->cxx_namespace ||
+            strlen(type->cxx_namespace) + strlen(name) + 3u >=
+                sizeof(qualified)) {
+            continue;
+        }
+        strcpy(qualified, type->cxx_namespace);
+        strcat(qualified, "::");
+        strcat(qualified, name);
+        Symbol* symbol = symtab_lookup(g_symtab, qualified);
+        if (symbol && symbol->kind == SYM_FUNC && symbol->decl) {
+            return symbol;
+        }
+    }
+    return NULL;
+}
+
 static bool sema_statement_has_current_switch_label(Stmt* statement) {
     if (!statement) return false;
     switch (statement->kind) {
@@ -1783,6 +1809,22 @@ static Type* sema_expr(Expr* expr) {
                         expr->call_args = implicit_argument;
                         sema_expr(this_argument);
                     }
+                }
+            }
+            if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
+                !symtab_lookup(g_symtab, expr->call_func->ident_name)) {
+                Symbol* adl_symbol;
+                for (argument = expr->call_args; argument;
+                     argument = argument->next) {
+                    sema_expr(argument->expr);
+                }
+                adl_symbol = sema_cxx_adl_lookup(
+                    expr->call_func->ident_name, expr->call_args);
+                if (adl_symbol) {
+                    expr->call_func->ident_name = adl_symbol->name;
+                    expr->call_func->ident_decl = adl_symbol->decl;
+                    expr->call_func->type = adl_symbol->type;
+                    arguments_analyzed = true;
                 }
             }
             if (sema_atomic_builtin_call(expr)) break;

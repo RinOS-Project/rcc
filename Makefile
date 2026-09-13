@@ -191,12 +191,54 @@ test-cxx-language-core: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/new-delete-x64.ro \
 		tests/cxx_new_delete.cpp
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-language-core/inheritance-x86.ro \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/adl-x86.s \
+		tests/cxx_adl.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/adl-x64.s \
+		tests/cxx_adl.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/adl-x86.o \
+		$(TEST_OUT)/cxx-language-core/adl-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/adl-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/adl-x86 \
+		$(TEST_OUT)/cxx-language-core/adl-start-x86.o \
+		$(TEST_OUT)/cxx-language-core/adl-x86.o
+	$(TEST_OUT)/cxx-language-core/adl-x86
+	gcc -c -o $(TEST_OUT)/cxx-language-core/adl-x64.o \
+		$(TEST_OUT)/cxx-language-core/adl-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-language-core/adl-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/adl-x64 \
+		$(TEST_OUT)/cxx-language-core/adl-start-x64.o \
+		$(TEST_OUT)/cxx-language-core/adl-x64.o
+	$(TEST_OUT)/cxx-language-core/adl-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/inheritance-x86.s \
 		tests/cxx_inheritance.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-language-core/inheritance-x64.ro \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/inheritance-x64.s \
 		tests/cxx_inheritance.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/inheritance-x86.o \
+		$(TEST_OUT)/cxx-language-core/inheritance-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/inheritance-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/inheritance-x86 \
+		$(TEST_OUT)/cxx-language-core/inheritance-start-x86.o \
+		$(TEST_OUT)/cxx-language-core/inheritance-x86.o
+	$(TEST_OUT)/cxx-language-core/inheritance-x86
+	gcc -c -o $(TEST_OUT)/cxx-language-core/inheritance-x64.o \
+		$(TEST_OUT)/cxx-language-core/inheritance-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-language-core/inheritance-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/inheritance-x64 \
+		$(TEST_OUT)/cxx-language-core/inheritance-start-x64.o \
+		$(TEST_OUT)/cxx-language-core/inheritance-x64.o
+	$(TEST_OUT)/cxx-language-core/inheritance-x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/template-call-x86.ro \
 		tests/cxx_template_call.cpp
