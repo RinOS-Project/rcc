@@ -65,6 +65,8 @@
   - [x] parameter boundをfunction entry／VLA宣言時に一度だけ評価し、
         多次元strideと`sizeof`で保存extentを再利用
   - [ ] 全宣言形式
+    - [x] block-scope variably modified typedefをloweringし、linkageを持つ
+          variably modified objectとstruct/union memberを両archで診断
   - [x] function prototype scopeの`[*]`を未指定VLAとして保持し、
         definition／local／typedef／type-nameでの誤用を診断
   - [x] type-nameの`sizeof(int[count])`でVLA boundを意味解析し、

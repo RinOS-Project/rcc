@@ -2054,6 +2054,22 @@ static bool sema_type_has_vla(Type* type) {
             sema_type_has_vla(type->base));
 }
 
+/* A variably modified type may be hidden behind a pointer (or a typedef),
+ * even though only an array object itself needs dynamic storage.  Keep this
+ * predicate separate from sema_type_has_vla so pointer variables are not
+ * mistaken for VLA objects during stack layout. */
+static bool sema_type_is_variably_modified(Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_bound != NULL || type->array_unspecified_bound ||
+               sema_type_is_variably_modified(type->base);
+    }
+    if (type->kind == TYPE_PTR) {
+        return sema_type_is_variably_modified(type->base);
+    }
+    return false;
+}
+
 static int sema_vla_dimension_count(Type* type) {
     if (!type || type->kind != TYPE_ARRAY) return 0;
     return 1 + sema_vla_dimension_count(type->base);
@@ -2061,7 +2077,12 @@ static int sema_vla_dimension_count(Type* type) {
 
 static void sema_vla_bounds(Type* type, SourceLoc loc) {
     Type* bound_type;
-    if (!type || type->kind != TYPE_ARRAY) return;
+    if (!type) return;
+    if (type->kind == TYPE_PTR) {
+        sema_vla_bounds(type->base, loc);
+        return;
+    }
+    if (type->kind != TYPE_ARRAY) return;
     sema_vla_bounds(type->base, loc);
     if (!type->array_bound) return;
     bound_type = sema_expr(type->array_bound);
@@ -3144,17 +3165,22 @@ static void sema_decl(Decl* decl) {
                           "thread-local variable cannot use auto or register storage");
             }
             sema_validate_array_parameter_type(decl->type, decl->loc, false);
-            if (sema_type_has_vla(decl->type)) {
+            if (sema_type_is_variably_modified(decl->type)) {
                 sema_vla_bounds(decl->type, decl->loc);
                 if (is_global) {
                     rcc_error(decl->loc,
                               "variable-length array is only valid at block scope");
                 }
-                if (decl->var_init) {
+                if (decl->storage == STORAGE_STATIC ||
+                    decl->storage == STORAGE_EXTERN) {
+                    rcc_error(decl->loc,
+                              "variably modified object cannot have linkage");
+                }
+                if (sema_type_has_vla(decl->type) && decl->var_init) {
                     rcc_error(decl->loc,
                               "variable-length array cannot have an initializer");
                 }
-                decl->var_is_vla = !is_global;
+                decl->var_is_vla = !is_global && sema_type_has_vla(decl->type);
             }
             sema_infer_initializer_type(decl->type, decl->var_init);
             if (decl->type && decl->type->kind == TYPE_ARRAY &&
@@ -3360,6 +3386,13 @@ static void sema_decl(Decl* decl) {
         case DECL_TYPEDEF: {
             sema_validate_array_parameter_type(decl->typedef_type,
                                                decl->loc, false);
+            if (sema_type_is_variably_modified(decl->typedef_type)) {
+                sema_vla_bounds(decl->typedef_type, decl->loc);
+                if (g_symtab->current == g_symtab->global) {
+                    rcc_error(decl->loc,
+                              "variably modified typedef is only valid at block scope");
+                }
+            }
             symtab_define(g_symtab, decl->name, SYM_TYPE, decl->typedef_type, decl->loc);
             break;
         }

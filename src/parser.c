@@ -1563,6 +1563,22 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     *tail = field;
 }
 
+/* C17 does not permit a variably modified type as a struct or union member.
+ * This includes a pointer whose pointed-to type is a VLA; the member itself
+ * remains a fixed-size pointer, but its declared type is still variably
+ * modified and may not be stored in an aggregate definition. */
+static bool parser_type_is_variably_modified(Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_bound != NULL || type->array_unspecified_bound ||
+               parser_type_is_variably_modified(type->base);
+    }
+    if (type->kind == TYPE_PTR) {
+        return parser_type_is_variably_modified(type->base);
+    }
+    return false;
+}
+
 static bool parser_is_flexible_array(Type* type) {
     return type && type->kind == TYPE_ARRAY && type->array_len == -1 &&
            !type->array_bound && !type->array_unspecified_bound;
@@ -1681,6 +1697,10 @@ static void parse_aggregate_body(Type* aggregate) {
             if (parser_type_has_array_parameter_spec(field_type)) {
                 rcc_error(previous()->loc,
                           "array parameter qualifiers are only valid in function parameter declarations");
+            }
+            if (parser_type_is_variably_modified(field_type)) {
+                rcc_error(previous()->loc,
+                          "variably modified type is not allowed for struct/union member");
             }
             if (!field_name) {
                 if ((field_type->kind == TYPE_STRUCT ||

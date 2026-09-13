@@ -543,7 +543,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members
+.PHONY: test-cxx-static-members test-vla-declarations
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -571,6 +571,38 @@ test-cxx-static-members: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-members/x64.o
 	$(TEST_OUT)/cxx-static-members/x64
 	@echo "RCC++ static C++ member method tests completed"
+
+test-vla-declarations: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/vla-declarations)
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-storage-x86.ro \
+		tests/invalid_vla_storage.c \
+		>$(TEST_OUT)/vla-declarations/invalid-storage-x86.log 2>&1
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-member-x86.ro \
+		tests/invalid_vla_member.c \
+		>$(TEST_OUT)/vla-declarations/invalid-member-x86.log 2>&1
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-storage-x64.ro \
+		tests/invalid_vla_storage.c \
+		>$(TEST_OUT)/vla-declarations/invalid-storage-x64.log 2>&1
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-member-x64.ro \
+		tests/invalid_vla_member.c \
+		>$(TEST_OUT)/vla-declarations/invalid-member-x64.log 2>&1
+	grep -q "variably modified object cannot have linkage" \
+		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
+	grep -q "variably modified typedef is only valid at block scope" \
+		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
+	grep -q "variably modified type is not allowed for struct/union member" \
+		$(TEST_OUT)/vla-declarations/invalid-member-x86.log
+	grep -q "variably modified object cannot have linkage" \
+		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log
+	grep -q "variably modified typedef is only valid at block scope" \
+		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log
+	grep -q "variably modified type is not allowed for struct/union member" \
+		$(TEST_OUT)/vla-declarations/invalid-member-x64.log
+	@echo "C17 invalid variably modified declaration tests completed"
 
 test-cxx-overloads: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-overloads
