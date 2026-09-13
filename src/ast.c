@@ -260,11 +260,11 @@ Type* type_enum(const char* tag) {
  * ═══════════════════════════════════════ */
 
 bool type_is_integer(Type* t) {
-    return t->kind >= TYPE_BOOL && t->kind <= TYPE_LLONG;
+    return t && t->kind >= TYPE_BOOL && t->kind <= TYPE_LLONG;
 }
 
 bool type_is_floating(Type* t) {
-    return t->kind == TYPE_FLOAT || t->kind == TYPE_DOUBLE;
+    return t && (t->kind == TYPE_FLOAT || t->kind == TYPE_DOUBLE);
 }
 
 bool type_is_arithmetic(Type* t) {
@@ -272,23 +272,24 @@ bool type_is_arithmetic(Type* t) {
 }
 
 bool type_is_scalar(Type* t) {
-    return type_is_arithmetic(t) || t->kind == TYPE_PTR ||
-           t->kind == TYPE_NULLPTR;
+    return t && (type_is_arithmetic(t) || t->kind == TYPE_PTR ||
+           t->kind == TYPE_NULLPTR);
 }
 
 bool type_is_pointer(Type* t) {
-    return t->kind == TYPE_PTR;
+    return t && t->kind == TYPE_PTR;
 }
 
 bool type_is_array(Type* t) {
-    return t->kind == TYPE_ARRAY;
+    return t && t->kind == TYPE_ARRAY;
 }
 
 bool type_is_function(Type* t) {
-    return t->kind == TYPE_FUNC;
+    return t && t->kind == TYPE_FUNC;
 }
 
 bool type_is_complete(Type* t) {
+    if (!t) return false;
     if (t->kind == TYPE_VOID) return false;
     if (t->kind == TYPE_ARRAY && t->array_len < 0 &&
         !t->array_bound) return false;
