@@ -52,6 +52,9 @@
   - [x] 前置・後置cv指定、pointer level cv、modifiable lvalue検査
   - [x] `volatile` object/pointerの未使用readに対するDCE抑止
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
+  - [x] brace省略列でbraced／文字列aggregate節を一つのsubobjectとして
+       扱い、その後のscalar節を次のsubobjectへ進める。未指定長の多次元
+       配列bound推論と、static／automaticの両arch実行を検証
 - [x] block-scope VLAの非定数境界、実体ポインタ・byte extent保存、添字、
       `sizeof`、i686/AMD64 dynamic stack allocation、通常のscope exitと
       `break`／`continue`／`return`／有効な`goto`でのstack reclamation
@@ -71,7 +74,8 @@
   - [x] flexible array memberの構造体末尾・要素型・union制約を診断し、
         構造体初期化ではflexible memberを省略して扱う
   - [x] array/struct/unionの同一subobjectに対する後続initializer上書き
-  - [x] scalar-only brace省略列を型のsubobject順にnested initializerへ正規化し、
+  - [x] brace省略列を型のsubobject順にnested initializerへ正規化し、
+        braced／文字列aggregate節とscalar節の混在を含めて
         i686/AMD64のstatic/automatic storageへlowering
   - [x] compatible aggregateのlocal copy初期化と匿名struct/union member
   - [x] struct/unionの通常・連鎖代入と端数byteを含む両arch copy codegen
