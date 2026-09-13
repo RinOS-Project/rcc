@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 #ifndef RIN_COMPILER_AQC_H
 #define RIN_COMPILER_AQC_H
 

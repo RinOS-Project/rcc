@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: Apache-2.0 */
 #ifndef RCC_DRIVER_POLICY_H
 #define RCC_DRIVER_POLICY_H
 

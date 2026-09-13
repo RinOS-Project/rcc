@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """Structural signer double used to test argv handling and atomic publication."""
 
 from __future__ import annotations

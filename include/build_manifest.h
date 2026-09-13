@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: Apache-2.0 */
 #ifndef RCC_BUILD_MANIFEST_H
 #define RCC_BUILD_MANIFEST_H
 

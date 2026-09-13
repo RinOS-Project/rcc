@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: Apache-2.0 */
 #define _GNU_SOURCE
 
 #include "rin_formats_v3.h"
