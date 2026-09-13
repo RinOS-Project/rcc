@@ -260,13 +260,13 @@ test-cxx-function-templates: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-function-templates/x64.ro \
 		tests/cxx_function_templates.cpp
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		findstr /x /c:"_ZN8identityEi" >nul
+		grep -F -x -q '_ZN8identityEi'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		findstr /x /c:"_ZN8identityEl" >nul
+		grep -F -x -q '_ZN8identityEl'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		findstr /x /c:"_ZN6detail16pointer_identityEPi" >nul
+		grep -F -x -q '_ZN6detail16pointer_identityEPi'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		findstr /x /c:"_ZN6detail15default_deducedEi" >nul
+		grep -F -x -q '_ZN6detail15default_deducedEi'
 	@echo "RCC++ function template syntax tests completed"
 
 test-cxx-non-type-templates: $(RCXX_TARGET)
@@ -278,13 +278,13 @@ test-cxx-non-type-templates: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-non-type-templates/x64.ro \
 		tests/cxx_non_type_templates.cpp
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		findstr /x /c:"_ZN12add_constantEILi3EEi" >nul
+		grep -F -x -q '_ZN12add_constantEILi3EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		findstr /x /c:"_ZN12add_constantEILi-2EEi" >nul
+		grep -F -x -q '_ZN12add_constantEILi-2EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x64.ro | \
-		findstr /x /c:"_ZN20add_default_constantEILi4EEi" >nul
+		grep -F -x -q '_ZN20add_default_constantEILi4EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		findstr /x /c:"_ZN22add_default_from_valueEILi3ELi4EEi" >nul
+		grep -F -x -q '_ZN22add_default_from_valueEILi3ELi4EEi'
 	@echo "RCC++ non-type integer template tests completed"
 
 test-initializer-brace-elision: $(RCC_TARGET)
@@ -367,8 +367,8 @@ test-floating-static-initializers: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/floating-static-initializers/x64.s \
 		tests/floating_static_initializers.c
-	strings $(TEST_OUT)/floating-static-initializers/x64.s | findstr /c:"0x00, 0x00, 0xe0, 0x3f" >nul
-	strings $(TEST_OUT)/floating-static-initializers/x64.s | findstr /c:"0x00, 0x00, 0xf8, 0xbf" >nul
+	strings $(TEST_OUT)/floating-static-initializers/x64.s | grep -F -q "0x00, 0x00, 0xe0, 0x3f"
+	strings $(TEST_OUT)/floating-static-initializers/x64.s | grep -F -q "0x00, 0x00, 0xf8, 0xbf"
 	@echo "RCC C17 floating static/TLS initializer tests completed"
 
 test-floating-runtime-x64: $(RCC_TARGET)
