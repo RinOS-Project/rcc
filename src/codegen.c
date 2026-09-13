@@ -25,6 +25,18 @@ static int current_stack_offset = 0;
 
 #define INIT_CAPACITY 4096
 
+static void codegen_expr_loc(SourceLoc* location, const Expr* expression) {
+    if (!location) return;
+    location->filename = NULL;
+    location->line = 0;
+    location->column = 0;
+    if (expression) {
+        location->filename = expression->loc.filename;
+        location->line = expression->loc.line;
+        location->column = expression->loc.column;
+    }
+}
+
 /* ═══════════════════════════════════════
  * Module Management
  * ═══════════════════════════════════════ */
@@ -3821,8 +3833,9 @@ static void gen_cxx_zero_array32(Module* mod, Expr* expr) {
     int done;
 
     if (!object_type || !expr->call_new_count) {
-        rcc_error(expr ? expr->loc : (SourceLoc){0},
-                  "array new value-initialization has no element count");
+        SourceLoc location;
+        codegen_expr_loc(&location, expr);
+        rcc_error(location, "array new value-initialization has no element count");
         emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }
@@ -3875,8 +3888,9 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     bool initialize;
 
     if (!object_type || object_type->size <= 0) {
-        rcc_error(expr ? expr->loc : (SourceLoc){0},
-                  "C++ new expression has no complete storage type");
+        SourceLoc location;
+        codegen_expr_loc(&location, expr);
+        rcc_error(location, "C++ new expression has no complete storage type");
         emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }

@@ -16,6 +16,18 @@
 /* Label management */
 static int label_counter64 = 0;
 
+static void codegen64_expr_loc(SourceLoc* location, const Expr* expression) {
+    if (!location) return;
+    location->filename = NULL;
+    location->line = 0;
+    location->column = 0;
+    if (expression) {
+        location->filename = expression->loc.filename;
+        location->line = expression->loc.line;
+        location->column = expression->loc.column;
+    }
+}
+
 /* ═══════════════════════════════════════
  * x86-64 Registers
  * ═══════════════════════════════════════ */
@@ -792,6 +804,15 @@ typedef struct {
     bool memory;
 } Gen64AggregateClass;
 
+static Gen64AggregateClass gen64_empty_aggregate_class(void) {
+    Gen64AggregateClass result;
+    result.classes[0] = GEN64_CLASS_NONE;
+    result.classes[1] = GEN64_CLASS_NONE;
+    result.count = 0;
+    result.memory = false;
+    return result;
+}
+
 typedef struct {
     Gen64AggregateClass aggregate;
     bool is_aggregate;
@@ -949,8 +970,9 @@ static void gen64_float_cast(Module* mod, Expr* expression) {
     int source_width;
     int destination_width;
     if (!source_type || !destination_type) {
-        rcc_error(expression ? expression->loc : (SourceLoc){0},
-                  "floating cast has no source or destination type");
+        SourceLoc location;
+        codegen64_expr_loc(&location, expression);
+        rcc_error(location, "floating cast has no source or destination type");
         emit64_mov_reg_imm64(mod, RAX, 0u);
         return;
     }
@@ -1115,8 +1137,9 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
     int rounded_size = gen64_aggregate_storage(type);
 
     if (!type || expression->va_arg_result_offset >= 0) {
-        rcc_error(expression ? expression->loc : (SourceLoc){0},
-                  "aggregate va_arg has no automatic result slot");
+        SourceLoc location;
+        codegen64_expr_loc(&location, expression);
+        rcc_error(location, "aggregate va_arg has no automatic result slot");
         emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
@@ -2097,8 +2120,9 @@ static void gen64_cxx_zero_array(Module* mod, Expr* expr) {
     int done;
 
     if (!object_type || !expr->call_new_count) {
-        rcc_error(expr ? expr->loc : (SourceLoc){0},
-                  "array new value-initialization has no element count");
+        SourceLoc location;
+        codegen64_expr_loc(&location, expr);
+        rcc_error(location, "array new value-initialization has no element count");
         emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
@@ -2156,8 +2180,9 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     bool initialize;
 
     if (!object_type || object_type->size <= 0) {
-        rcc_error(expr ? expr->loc : (SourceLoc){0},
-                  "C++ new expression has no complete storage type");
+        SourceLoc location;
+        codegen64_expr_loc(&location, expr);
+        rcc_error(location, "C++ new expression has no complete storage type");
         emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
@@ -2853,10 +2878,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             bool aggregate_result = expr->type &&
                 (expr->type->kind == TYPE_STRUCT ||
                  expr->type->kind == TYPE_UNION);
-            Gen64AggregateClass result_class = aggregate_result
-                ? gen64_classify_aggregate(expr->type)
-                : (Gen64AggregateClass){{GEN64_CLASS_NONE,
-                                         GEN64_CLASS_NONE}, 0, false};
+            Gen64AggregateClass result_class;
+            if (aggregate_result) {
+                result_class = gen64_classify_aggregate(expr->type);
+            } else {
+                result_class = gen64_empty_aggregate_class();
+            }
             bool memory_result = aggregate_result && result_class.memory;
             int register_base = memory_result ? 1 : 0;
             Gen64CallArg* call_arguments = rcc_alloc(
@@ -2887,11 +2914,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 if (parameter) parameter = parameter->next;
                 call_arguments[i - 1].is_aggregate = gen64_is_aggregate(
                     argument_types[i - 1]);
-                call_arguments[i - 1].aggregate =
-                    call_arguments[i - 1].is_aggregate
-                    ? gen64_classify_aggregate(argument_types[i - 1])
-                    : (Gen64AggregateClass){{GEN64_CLASS_NONE,
-                                             GEN64_CLASS_NONE}, 0, false};
+                if (call_arguments[i - 1].is_aggregate) {
+                    call_arguments[i - 1].aggregate =
+                        gen64_classify_aggregate(argument_types[i - 1]);
+                } else {
+                    call_arguments[i - 1].aggregate =
+                        gen64_empty_aggregate_class();
+                }
                 call_arguments[i - 1].memory = false;
                 call_arguments[i - 1].storage = call_arguments[i - 1].is_aggregate
                     ? gen64_aggregate_storage(argument_types[i - 1]) : 8;
@@ -2949,7 +2978,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 call_arguments[i].temp_offset = temp_bytes;
                 temp_bytes += argument->storage;
             }
-            stack_padding = (8 - ((temp_bytes + stack_bytes) & 15)) & 15;
+            /* A generated function keeps RSP 16-byte aligned after its
+             * prologue.  The SysV ABI requires the same alignment immediately
+             * before CALL (the hardware push then gives the callee an RSP
+             * value congruent to 8 modulo 16). */
+            stack_padding = (16 - ((temp_bytes + stack_bytes) & 15)) & 15;
 
             /* Evaluate arguments into a private, contiguous temporary area.
              * This keeps source evaluation independent of register assignment
@@ -3000,6 +3033,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                           layout->storage);
                     }
                 }
+            } else if (temp_bytes) {
+                /* Nested calls may clobber all caller-saved registers while
+                 * evaluating the source arguments.  Re-anchor the temporary
+                 * area before reloading the final argument registers. */
+                emit64_mov_reg_reg(mod, R10, RSP);
             }
             gp_cursor = register_base;
             fp_cursor = 0;
@@ -4123,10 +4161,12 @@ static void gen64_function(Module* mod, Decl* decl) {
     Type* return_type = decl->type && decl->type->kind == TYPE_FUNC
         ? decl->type->ret_type : NULL;
     bool aggregate_return = return_type && gen64_is_aggregate(return_type);
-    Gen64AggregateClass return_class = aggregate_return
-        ? gen64_classify_aggregate(return_type)
-        : (Gen64AggregateClass){{GEN64_CLASS_NONE, GEN64_CLASS_NONE}, 0,
-                                false};
+    Gen64AggregateClass return_class;
+    if (aggregate_return) {
+        return_class = gen64_classify_aggregate(return_type);
+    } else {
+        return_class = gen64_empty_aggregate_class();
+    }
     bool memory_result = aggregate_return && return_class.memory;
     bool variadic = decl->type && decl->type->kind == TYPE_FUNC &&
                     decl->type->variadic;
@@ -4249,10 +4289,12 @@ static void gen64_function(Module* mod, Decl* decl) {
         int size = value->type && value->type->size > 0
             ? value->type->size : 8;
         bool aggregate = gen64_is_aggregate(value->type);
-        Gen64AggregateClass classification = aggregate
-            ? gen64_classify_aggregate(value->type)
-            : (Gen64AggregateClass){{GEN64_CLASS_NONE, GEN64_CLASS_NONE},
-                                    0, false};
+        Gen64AggregateClass classification;
+        if (aggregate) {
+            classification = gen64_classify_aggregate(value->type);
+        } else {
+            classification = gen64_empty_aggregate_class();
+        }
         int gp_count = 0;
         int fp_count = 0;
         bool memory_argument = false;

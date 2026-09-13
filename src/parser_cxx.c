@@ -34,6 +34,23 @@ static CxxParserValueBinding* active_value_bindings;
 static CxxParserValueBinding* saved_value_bindings[32];
 static int saved_value_binding_depth;
 
+static void cxx_parser_expr_loc(SourceLoc* location, const Expr* expression,
+                                const SourceLoc* fallback) {
+    if (!location) return;
+    location->filename = NULL;
+    location->line = 0;
+    location->column = 0;
+    if (expression) {
+        location->filename = expression->loc.filename;
+        location->line = expression->loc.line;
+        location->column = expression->loc.column;
+    } else if (fallback) {
+        location->filename = fallback->filename;
+        location->line = fallback->line;
+        location->column = fallback->column;
+    }
+}
+
 void rcc_parser_cxx_begin_function_parameters(DeclList* parameters) {
     if (saved_value_binding_depth >=
         (int)(sizeof(saved_value_bindings) / sizeof(saved_value_bindings[0]))) {
@@ -2848,7 +2865,10 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             actual = cxx_parser_value_type(argument->expr->ident_name);
         }
         if (!actual) {
-            rcc_error(argument->expr ? argument->expr->loc : tmpl->func_def->loc,
+            SourceLoc location;
+            cxx_parser_expr_loc(&location, argument->expr,
+                                &tmpl->func_def->loc);
+            rcc_error(location,
                       "cannot deduce function template type from an expression "
                       "without a parser-known type");
             return false;
@@ -2864,8 +2884,10 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
         argument = argument->next;
     }
     if (argument) {
-        rcc_error(argument->expr ? argument->expr->loc : tmpl->func_def->loc,
-                  "too many arguments for function template deduction");
+        SourceLoc location;
+        cxx_parser_expr_loc(&location, argument->expr,
+                            &tmpl->func_def->loc);
+        rcc_error(location, "too many arguments for function template deduction");
         return false;
     }
     for (; parameter; parameter = parameter->next) {
@@ -3152,7 +3174,10 @@ Expr* rcc_parse_cxx_template_call(void) {
                         value_expression = parse_assignment_expression();
                         rcc_parser_set_cxx_template_default_mode(false);
                         if (!expr_eval_integer_constant(value_expression, &value)) {
-                            rcc_error(value_expression ? value_expression->loc : loc,
+                            SourceLoc error_location;
+                            cxx_parser_expr_loc(&error_location,
+                                                value_expression, &loc);
+                            rcc_error(error_location,
                                       "function template non-type argument must be "
                                       "an integer constant expression");
                             value = 0;
