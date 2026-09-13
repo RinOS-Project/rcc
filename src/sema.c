@@ -2000,6 +2000,11 @@ static Type* sema_expr(Expr* expr) {
                     rcc_error(expr->loc,
                               "array new does not accept element initializers");
                 }
+                if (expr->call_new_is_array && object_type->cxx_nontrivial) {
+                    rcc_error(expr->loc,
+                              "array new requires element constructor and destructor lowering");
+                    return expr->type;
+                }
                 if (object_type->cxx_nontrivial &&
                     (!cls || !rcc_parser_cxx_constructor_arity_mask(object_type))) {
                     rcc_error(expr->loc,

@@ -305,6 +305,18 @@ test-cxx-language-core: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/function-specifiers-x64.ro \
 		tests/cxx_function_specifiers.cpp
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x86.ro \
+		tests/cxx_new_array_invalid.cpp \
+		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log 2>&1
+	grep -q 'array new requires element constructor and destructor lowering' \
+		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x64.ro \
+		tests/cxx_new_array_invalid.cpp \
+		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log 2>&1
+	grep -q 'array new requires element constructor and destructor lowering' \
+		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	@echo "RCC++ core language tests completed"
 
 test-cxx-language-linkage: $(RCXX_TARGET)
