@@ -2994,7 +2994,16 @@ static bool initializer_is_aggregate_type(Type* type) {
 static bool initializer_directly_initializes(Type* type, Expr* initializer) {
     if (!initializer_is_aggregate_type(type) || !initializer) return false;
     if (initializer_character_string(type, initializer)) return true;
-    if (initializer->kind != EXPR_COMPOUND) return false;
+    if (initializer->kind != EXPR_COMPOUND) {
+        /* An aggregate expression (for example a named struct object) is a
+         * direct initializer.  Treating it as a brace-elided scalar clause
+         * would recursively consume the following clauses and later report
+         * a misleading scalar-initializer diagnostic. */
+        Type* initializer_type = initializer->type
+            ? initializer->type : sema_expr(initializer);
+        return initializer_type &&
+            type_is_compatible(type, initializer_type);
+    }
     if (!initializer->compound_type) return true;
     return type_is_compatible(type, initializer->compound_type);
 }
