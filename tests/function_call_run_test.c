@@ -44,6 +44,7 @@ int main(int argc, char** argv)
     int_u64_function call_variadic;
     void_function call_without_prototype;
     void_function call_promoted_redeclaration;
+    void_function call_nested_argument;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -73,6 +74,8 @@ int main(int argc, char** argv)
                   "call_without_prototype");
     LOAD_FUNCTION(call_promoted_redeclaration, object, mapping,
                   "call_promoted_redeclaration");
+    LOAD_FUNCTION(call_nested_argument, object, mapping,
+                  "call_nested_argument");
 
     assert(call_fixed_u8(UINT32_C(0x1234)) == UINT8_C(0x34));
     assert(call_fixed_s8(255) == -1);
@@ -81,6 +84,7 @@ int main(int argc, char** argv)
     assert(call_variadic(UINT64_C(0x100000000)) == 77);
     assert(call_without_prototype() == 91);
     assert(call_promoted_redeclaration() == 123);
+    assert(call_nested_argument() == 35);
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

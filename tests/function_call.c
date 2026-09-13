@@ -39,3 +39,13 @@ int call_adjusted_callback(int callback(void)) { return callback(); }
 int call_function_parameter(void) {
     return call_adjusted_callback(callback_value);
 }
+
+static int nested_argument_value(void) { return 5; }
+
+static int accept_two_arguments(int first, int second) {
+    return first * 10 + second;
+}
+
+int call_nested_argument(void) {
+    return accept_two_arguments(3, nested_argument_value());
+}
