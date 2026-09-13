@@ -1589,7 +1589,15 @@ static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
 }
 
 void codegen_emit_cxx_vtables(Module* mod) {
+    /* An unresolved weak object symbol is represented by address zero on
+     * ELF.  Reading the object before checking its address would make the
+     * C-only rcc binary dereference address zero merely because the optional
+     * C++ frontend is not linked. */
+#if defined(__GNUC__)
+    if (mod && &g_global_namespace != NULL && g_global_namespace) {
+#else
     if (mod && g_global_namespace) {
+#endif
         codegen_emit_cxx_vtables_in_namespace(mod, g_global_namespace);
     }
 }

@@ -152,7 +152,9 @@ static void verify_image(const char* path, uint16_t architecture, int library)
            relocation_section != NULL);
     assert(rodata_count == 0u && code->virtual_address == 0u &&
            code->file_size == code->memory_size &&
-           data->virtual_address == code->memory_size &&
+           data->virtual_address >=
+               code->virtual_address + code->memory_size &&
+           (data->virtual_address & (data->alignment - 1u)) == 0u &&
            data->file_offset == code->file_offset + code->file_size &&
            data->file_size == data->memory_size &&
            header->image_size == data->virtual_address + data->memory_size);
@@ -161,6 +163,9 @@ static void verify_image(const char* path, uint16_t architecture, int library)
            tls->virtual_address >= data->virtual_address &&
            tls->virtual_address + tls->memory_size <=
                data->virtual_address + data->memory_size &&
+           tls->file_offset >= data->file_offset &&
+           tls->file_offset + tls->file_size <=
+               data->file_offset + data->file_size &&
            tls->file_offset + tls->file_size <= size);
     assert(read_u32(bytes + tls->file_offset) == 7u);
     assert(read_u32(bytes + tls->file_offset + 4u) == 0u);
