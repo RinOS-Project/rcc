@@ -117,6 +117,8 @@
   - [x] accessibleな非virtual基底のメンバー関数を派生型からlookupし、
         記録済みbase subobject offsetで`this`を調整して`obj.method`／
         `ptr->method`を両archで実行検証
+  - [x] primary vptr、class vtable、local/global vptr初期化、virtual
+        callの間接分岐を実装し、overrideを含むi686/AMD64実行を検証
 - [ ] overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完
