@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "rin_shader.h"
+#include <ringpu/rin_shader.h>
 
 #define AQC_MAX_SOURCE_SIZE (1024u * 1024u)
 #define AQC_MAX_IDENTIFIER 63u

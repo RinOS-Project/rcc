@@ -12,6 +12,7 @@ INCDIR = include
 OBJDIR = obj
 BINDIR = .
 RINOS_ROOT ?= ..
+RINGPU_ROOT ?= ../../libs/RinGPU
 TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
@@ -95,10 +96,10 @@ RLD_SRCS = $(SRCDIR)/main_rld.c $(SRCDIR)/linker.c
 RLD_OBJS = $(RLD_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RLD_TARGET = $(BINDIR)/rld
 
-# Aquamarine Shader Language compiler. RSH1 validation is shared with RinGPU
-# from the containing RinOS checkout selected by RINOS_ROOT.
+# Aquamarine Shader Language compiler. RSH1 validation is shared with the
+# public RinGPU checkout selected by RINGPU_ROOT.
 AQC_SRCS = $(SRCDIR)/main_aqc.c $(SRCDIR)/aqc.c
-AQC_OBJS = $(AQC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o) $(OBJDIR)/rin_shader.o
+AQC_OBJS = $(AQC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o) $(OBJDIR)/ringpu_shader.o
 AQC_TARGET = $(BINDIR)/aqc
 
 # RAR (Archiver) - uses minimal common code
@@ -147,11 +148,11 @@ $(RAR_TARGET): $(RAR_COMMON_OBJS) $(RAR_OBJS) | $(BINDIR)
 $(AQC_TARGET): $(AQC_OBJS) | $(BINDIR)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(OBJDIR)/rin_shader.o: $(RINOS_ROOT)/src/subsystems/ringpu/shader.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/src/api -c -o $@ $<
+$(OBJDIR)/ringpu_shader.o: $(RINGPU_ROOT)/src/validation/shader.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -I$(RINGPU_ROOT)/include -c -o $@ $<
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(RINOS_ROOT)/src/api -c -o $@ $<
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(RINGPU_ROOT)/include -c -o $@ $<
 
 clean:
 	rm -rf $(OBJDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
