@@ -1752,6 +1752,27 @@ static Type* sema_expr(Expr* expr) {
                             ? member->member_base
                             : expr_unary(EXPR_ADDR, member->member_base,
                                          member->loc);
+                        Type* expected_this =
+                            method->function_decl->func_this_param->type;
+                        /* Establish the source object's type before deciding
+                         * whether an inherited-base conversion is needed. */
+                        sema_expr(this_argument);
+                        if (method->this_adjustment != 0) {
+                            Expr* byte_pointer = expr_cast(
+                                type_ptr(type_char), this_argument,
+                                member->loc);
+                            Expr* byte_offset = expr_binary(
+                                EXPR_ADD, byte_pointer,
+                                expr_int(method->this_adjustment,
+                                         member->loc), member->loc);
+                            this_argument = expr_cast(
+                                expected_this, byte_offset, member->loc);
+                        } else if (expected_this && this_argument->type &&
+                                   !type_is_compatible(this_argument->type,
+                                                       expected_this)) {
+                            this_argument = expr_cast(
+                                expected_this, this_argument, member->loc);
+                        }
                         ExprList* implicit_argument =
                             exprlist_new(this_argument);
                         implicit_argument->designator_kind =

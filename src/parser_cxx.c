@@ -521,6 +521,8 @@ static void register_inline_class_accessors(CxxClass* cls) {
         lowered->kind = kind;
         lowered->constant = has_constant ? constant : 0;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->this_owner = NULL;
+        lowered->this_adjustment = 0;
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;
@@ -599,6 +601,8 @@ static void register_inline_class_bool_delegates(CxxClass* cls) {
         lowered->name = method->decl->name;
         lowered->return_type = method->decl->type->ret_type;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->this_owner = target->this_owner;
+        lowered->this_adjustment = target->this_adjustment;
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;
@@ -699,6 +703,8 @@ static void register_inline_class_releases(CxxClass* cls) {
         lowered->kind = TYPE_METHOD_FIELD_RELEASE;
         lowered->constant = invalid;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->this_owner = NULL;
+        lowered->this_adjustment = 0;
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;
@@ -1110,6 +1116,8 @@ static void register_inline_class_closes(CxxClass* cls) {
         lowered->result_field = result_field;
         lowered->success_constant = success;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->this_owner = NULL;
+        lowered->this_adjustment = 0;
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;
@@ -1196,6 +1204,8 @@ static void register_inline_class_close_delegates(CxxClass* cls) {
         lowered->name = method->decl->name;
         lowered->return_type = method->decl->type->ret_type;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->this_owner = target->this_owner;
+        lowered->this_adjustment = target->this_adjustment;
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;
@@ -1389,6 +1399,54 @@ static const char* cxx_class_method_source_name(CxxClass* cls,
     return rcc_intern(buffer);
 }
 
+static bool class_declares_method_name(CxxClass* cls, const char* name) {
+    struct CxxMember* member;
+    if (!cls || !name) return false;
+    for (member = cls->members; member; member = member->next) {
+        if (member->method && member->method->decl &&
+            member->method->decl->name &&
+            strcmp(member->method->decl->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Publish non-virtual methods of a public, non-virtual primary base on the
+ * derived class.  The layout routine places this base at offset zero, so the
+ * alias can carry the real base method declaration without inventing a
+ * thunk.  Non-primary and virtual bases are deliberately left out until
+ * their complete object-model adjustments exist. */
+static void register_inherited_class_methods(CxxClass* cls,
+                                             TypeMethod*** tail) {
+    CxxClass* base;
+    TypeMethod* method;
+    if (!cls || !tail || !*tail || cls->base_count != 1 ||
+        class_has_virtual_member(cls) || cls->bases[0].is_virtual ||
+        cls->bases[0].access != ACCESS_PUBLIC) {
+        return;
+    }
+    base = cls->bases[0].base;
+    if (!base || !base->type || !base->type->is_complete) return;
+    for (method = base->type->methods; method; method = method->next) {
+        TypeMethod* inherited;
+        if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
+            !method->function_decl ||
+            class_declares_method_name(cls, method->name)) {
+            continue;
+        }
+        inherited = ast_arena_alloc(sizeof(*inherited));
+        *inherited = *method;
+        inherited->cxx_access = method->cxx_access;
+        inherited->this_owner = method->this_owner
+            ? method->this_owner : base->type;
+        inherited->this_adjustment = 0;
+        inherited->next = NULL;
+        **tail = inherited;
+        *tail = &inherited->next;
+    }
+}
+
 /* Publish ordinary non-virtual member definitions and static member
  * definitions as real functions.  Ordinary members receive the implicit
  * object parameter; static members deliberately do not, and use the normal C
@@ -1403,6 +1461,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
 
     tail = &cls->type->methods;
     while (*tail) tail = &(*tail)->next;
+    register_inherited_class_methods(cls, &tail);
     for (member = cls->members; member; member = member->next) {
         CxxMethod* method = member->method;
         Decl* declaration;
@@ -1474,6 +1533,8 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         lowered->result_field = NULL;
         lowered->success_constant = 0;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->this_owner = method->is_static ? NULL : cls->type;
+        lowered->this_adjustment = 0;
         lowered->next = NULL;
         *tail = lowered;
         tail = &lowered->next;

@@ -78,6 +78,12 @@ struct TypeMethod {
     TypeField* result_field;
     int64_t success_constant;
     unsigned char cxx_access;
+    /* For a lowered member function, identify the object type expected by
+     * the ABI and the byte adjustment needed to reach it from the lookup
+     * object's address.  Ordinary methods use adjustment zero; inherited
+     * methods retain their base owner here. */
+    Type* this_owner;
+    int this_adjustment;
     TypeMethod* next;
 };
 
