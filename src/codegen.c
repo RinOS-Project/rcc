@@ -3815,6 +3815,58 @@ static bool gen_cxx_move_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+static void gen_cxx_zero_array32(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    int loop;
+    int done;
+
+    if (!object_type || !expr->call_new_count) {
+        rcc_error(expr ? expr->loc : (SourceLoc){0},
+                  "array new value-initialization has no element count");
+        emit_mov_reg_imm(mod, EAX, 0u);
+        return;
+    }
+    /* Keep the bound alive across allocation so a runtime bound is evaluated
+     * exactly once.  The allocator receives the same size expression as the
+     * ordinary array-new path, but this path owns the bound evaluation. */
+    gen_expr(mod, expr->call_new_count);
+    emit_push_reg(mod, EAX);
+    emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("rin_malloc", call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_push_reg(mod, EAX);
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    emit_mov_reg_mem(mod, EDX, ESP, 4);
+    loop = new_label();
+    done = new_label();
+    emit_cmp_reg_imm(mod, EDX, 0);
+    emit_jcc_label(mod, CC_E, done);
+    emit_label(mod, loop);
+    emit_mov_reg_imm(mod, EAX, 0u);
+    {
+        int offset = 0;
+        for (; offset + 4 <= object_type->size; offset += 4) {
+            emit_mov_mem_reg(mod, ECX, offset, EAX);
+        }
+        for (; offset < object_type->size; ++offset) {
+            emit_mov_mem_reg8(mod, ECX, offset, EAX);
+        }
+    }
+    emit_add_reg_imm(mod, ECX, object_type->size);
+    emit_sub_reg_imm(mod, EDX, 1);
+    emit_cmp_reg_imm(mod, EDX, 0);
+    emit_jcc_label(mod, CC_NE, loop);
+    emit_label(mod, done);
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
 static void gen_cxx_new32(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
@@ -3828,16 +3880,16 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
         emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }
+    if (expr->call_new_is_array && expr->call_new_value_init) {
+        gen_cxx_zero_array32(mod, expr);
+        return;
+    }
     saved_is_new = expr->call_is_new;
     expr->call_is_new = false;
     gen_call(mod, expr);
     expr->call_is_new = saved_is_new;
 
     if (expr->call_new_is_array) {
-        if (expr->call_new_value_init) {
-            rcc_error(expr->loc,
-                      "array new value-initialization is not lowered yet");
-        }
         return;
     }
     argument = expr->call_new_args;

@@ -16,6 +16,13 @@ struct Pair {
     Pair(int first, int second) : left(first), right(second) {}
 };
 
+int next_array_count = 0;
+
+int array_count() {
+    ++next_array_count;
+    return 3;
+}
+
 int initialize_scalar() {
     int* value = new int(7);
     int result = *value;
@@ -64,8 +71,23 @@ int value_initialize_scalar() {
     return result == 0 ? 0 : 1;
 }
 
+int value_initialize_array() {
+    int* values = new int[3]();
+    int result = values[0] + values[1] + values[2];
+    delete[] values;
+    return result == 0 ? 0 : 1;
+}
+
+int value_initialize_dynamic_array() {
+    int* values = new int[array_count()]();
+    int result = values[0] + values[1] + values[2];
+    delete[] values;
+    return next_array_count == 1 && result == 0 ? 0 : 1;
+}
+
 int main() {
     return initialize_scalar() + initialize_pair() +
-           value_initialize_scalar() + initialize_and_delete_class() +
-           delete_null_class();
+           value_initialize_scalar() + value_initialize_array() +
+           value_initialize_dynamic_array() +
+           initialize_and_delete_class() + delete_null_class();
 }

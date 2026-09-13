@@ -2091,6 +2091,63 @@ static bool gen64_cxx_move_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+static void gen64_cxx_zero_array(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    int loop;
+    int done;
+
+    if (!object_type || !expr->call_new_count) {
+        rcc_error(expr ? expr->loc : (SourceLoc){0},
+                  "array new value-initialization has no element count");
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    /* Store the bound in the private call frame before invoking rin_malloc;
+     * this avoids reevaluating a side-effecting bound during zeroing. */
+    gen64_expr(mod, expr->call_new_count);
+    emit64_sub_reg_imm(mod, RSP, 16);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_malloc", call_offset);
+    }
+    emit64_mov_mem_reg(mod, RSP, 8, RAX);
+    emit64_mov_reg_mem(mod, RDX, RSP, 8);
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    loop = new_label64();
+    done = new_label64();
+    emit64_cmp_reg_imm(mod, RCX, 0);
+    emit64_jcc_label(mod, CC64_E, done);
+    emit64_label(mod, loop);
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    {
+        int offset = 0;
+        for (; offset + 8 <= object_type->size; offset += 8) {
+            emit64_mov_mem_reg(mod, RDX, offset, RAX);
+        }
+        if (offset + 4 <= object_type->size) {
+            emit64_store_typed(mod, RDX, offset, RAX, type_uint);
+            offset += 4;
+        }
+        for (; offset < object_type->size; ++offset) {
+            emit64_store_typed(mod, RDX, offset, RAX, type_uchar);
+        }
+    }
+    emit64_add_reg_imm(mod, RDX, object_type->size);
+    emit64_sub_reg_imm(mod, RCX, 1);
+    emit64_cmp_reg_imm(mod, RCX, 0);
+    emit64_jcc_label(mod, CC64_NE, loop);
+    emit64_label(mod, done);
+    emit64_mov_reg_mem(mod, RAX, RSP, 8);
+    emit64_add_reg_imm(mod, RSP, 16);
+}
+
 static void gen64_cxx_new(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
@@ -2104,16 +2161,16 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
+    if (expr->call_new_is_array && expr->call_new_value_init) {
+        gen64_cxx_zero_array(mod, expr);
+        return;
+    }
     saved_is_new = expr->call_is_new;
     expr->call_is_new = false;
     gen64_expr(mod, expr);
     expr->call_is_new = saved_is_new;
 
     if (expr->call_new_is_array) {
-        if (expr->call_new_value_init) {
-            rcc_error(expr->loc,
-                      "array new value-initialization is not lowered yet");
-        }
         return;
     }
     argument = expr->call_new_args;
