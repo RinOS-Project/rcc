@@ -498,11 +498,21 @@ static void verify_artifact(const char* object_path, const char* image_path,
         assert(image_rodata_rva + object_rodata->size <= code->file_size);
     }
     if (expected_magic == RIN_IMAGE_MAGIC) {
-        assert(rodata == NULL);
+        assert(rodata != NULL);
         assert(code->virtual_address == 0u &&
-               code->file_size == code->memory_size &&
-               data->virtual_address == code->memory_size &&
-               data->file_offset == code->file_offset + code->file_size &&
+               code->file_size == object_code->size &&
+               code->memory_size <= rodata->virtual_address &&
+               (preferred_base == 0u
+                    ? code->memory_size == rodata->virtual_address
+                    : code->memory_size == object_code->size) &&
+               rodata->virtual_address >= code->memory_size &&
+               (rodata->virtual_address & (rodata->alignment - 1u)) == 0u &&
+               rodata->file_offset >= code->file_offset + code->file_size &&
+               (rodata->file_offset & (rodata->alignment - 1u)) == 0u &&
+               data->virtual_address >= rodata->virtual_address +
+                   rodata->memory_size &&
+               (data->virtual_address & (data->alignment - 1u)) == 0u &&
+               data->file_offset >= rodata->file_offset + rodata->file_size &&
                data->file_size == data->memory_size &&
                bss->virtual_address == data->virtual_address +
                    data->memory_size &&
