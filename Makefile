@@ -2,8 +2,9 @@
 # Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g -O2
+CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP
 LDFLAGS =
+OBJCOPY ?= objcopy
 
 # Directories
 SRCDIR = src
@@ -105,6 +106,10 @@ RAR_COMMON_OBJS = $(RAR_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_TARGET = $(BINDIR)/rar
+
+# Keep object/header dependencies in the build tree so a changed public
+# header can never leave incompatible compiler objects mixed together.
+-include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
@@ -482,6 +487,8 @@ test-floating-runtime-x64: $(RCC_TARGET)
 		$(TEST_OUT)/floating-runtime-x64/runtime.s
 	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/runtime-host.o \
 		tests/floating_runtime_host.c
+	$(OBJCOPY) --redefine-sym main=_rcc_generated_main \
+		$(TEST_OUT)/floating-runtime-x64/runtime.o
 	$(CC) -no-pie -o $(TEST_OUT)/floating-runtime-x64/runtime.exe \
 		$(TEST_OUT)/floating-runtime-x64/runtime-host.o \
 		$(TEST_OUT)/floating-runtime-x64/runtime.o
@@ -571,6 +578,7 @@ test-vla-runtime: $(RCC_TARGET)
 	@echo "C17 VLA runtime tests completed"
 endif
 
+ifeq ($(OS),Windows_NT)
 test-vla-semantics: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/vla-semantics)
 	powershell -NoProfile -Command "& './rcc.exe' --target i686-unknown-rinos -c -o '$(TEST_OUT)/vla-semantics/invalid-x86.ro' tests/invalid_vla_goto.c *> '$(TEST_OUT)/vla-semantics/invalid-x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
@@ -586,6 +594,23 @@ test-vla-semantics: $(RCC_TARGET)
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'unspecified variable-length array is only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x86.log')) { exit 1 }"
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'unspecified variable-length array is only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x64.log')) { exit 1 }"
 	@echo "Dual-architecture VLA goto semantic tests completed"
+else
+test-vla-semantics: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/vla-semantics)
+	if $(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-x86.ro tests/invalid_vla_goto.c >$(TEST_OUT)/vla-semantics/invalid-x86.log 2>&1; then exit 1; fi
+	if $(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-x64.ro tests/invalid_vla_goto.c >$(TEST_OUT)/vla-semantics/invalid-x64.log 2>&1; then exit 1; fi
+	grep -q 'goto enters a variable-length array scope' $(TEST_OUT)/vla-semantics/invalid-x86.log
+	grep -q 'goto enters a variable-length array scope' $(TEST_OUT)/vla-semantics/invalid-x64.log
+	if $(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-array-x86.ro tests/invalid_array_parameter_qualifiers.c >$(TEST_OUT)/vla-semantics/invalid-array-x86.log 2>&1; then exit 1; fi
+	if $(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-array-x64.ro tests/invalid_array_parameter_qualifiers.c >$(TEST_OUT)/vla-semantics/invalid-array-x64.log 2>&1; then exit 1; fi
+	grep -q 'array parameter qualifiers are only valid' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	grep -q 'array parameter qualifiers are only valid' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	grep -q 'static array parameter requires a bound expression' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	grep -q 'static array parameter requires a bound expression' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	grep -q 'unspecified variable-length array is only valid' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	grep -q 'unspecified variable-length array is only valid' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	@echo "Dual-architecture VLA goto semantic tests completed"
+endif
 
 test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-qualified-namespaces
