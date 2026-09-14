@@ -14,7 +14,18 @@ public:
     }
 };
 
+template<typename T>
+class Value<T*> {
+public:
+    int marker;
+
+    int kind() {
+        return marker;
+    }
+};
+
 int main() {
     Value<int> value{21};
-    return value.doubled() == 42 ? 0 : 1;
+    Value<int*> pointer_value{9};
+    return value.doubled() == 42 && pointer_value.kind() == 9 ? 0 : 1;
 }
