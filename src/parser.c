@@ -33,6 +33,8 @@ extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_class_local_declaration(
     Type* base_type, int storage, bool is_thread_local,
     SourceLoc loc) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_operator_declaration(
+    Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
@@ -2573,6 +2575,13 @@ Stmt* parse_declaration(void) {
     /* A standalone aggregate declaration has no declarator. Enum constants
      * were registered while parsing its body. */
     if (match(TOK_SEMICOLON)) return stmt_null(loc);
+
+    if (parser_cxx_mode && rcc_parse_cxx_operator_declaration &&
+        check(TOK_OPERATOR)) {
+        Stmt* operator_declaration = rcc_parse_cxx_operator_declaration(
+            base_type, loc);
+        if (operator_declaration) return operator_declaration;
+    }
 
     /* C++ direct initialization uses a different declarator grammar from C:
      * `Pair value(7, 11);` is an object declaration, not a function returning

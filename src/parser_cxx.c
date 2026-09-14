@@ -129,6 +129,7 @@ extern Type* rcc_parser_parse_cxx_declarator(Type* base_type,
                                               const char** name,
                                               DeclList** parameters);
 static Stmt* parse_cxx_statement(void);
+static DeclList* parse_cxx_parameter_declarations(void);
 static Type* parse_cxx_type_spec(void);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
@@ -423,6 +424,62 @@ static const char* parse_operator_name(void) {
             rcc_error(peek()->loc, "expected overloaded operator");
             return NULL;
     }
+}
+
+static Type* cxx_function_type_from_parameters(Type* return_type,
+                                               DeclList* params) {
+    TypeParam* type_params = NULL;
+    TypeParam** tail = &type_params;
+    for (DeclList* item = params; item; item = item->next) {
+        TypeParam* parameter = ast_arena_alloc(sizeof(*parameter));
+        parameter->name = item->decl ? item->decl->name : NULL;
+        parameter->type = item->decl ? item->decl->type : NULL;
+        parameter->initializer = item->decl ? item->decl->param_default : NULL;
+        parameter->cxx_access = ACCESS_PUBLIC;
+        parameter->next = NULL;
+        *tail = parameter;
+        tail = &parameter->next;
+    }
+    return type_func(return_type, type_params, false);
+}
+
+/* Parse a namespace-scope overloaded operator after the common parser has
+ * consumed its return type.  The resulting declaration is an ordinary C++
+ * function, so namespace lookup/ADL and the existing overload resolver remain
+ * the single source of truth for calls. */
+Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
+    const char* name;
+    DeclList* params;
+    StmtList* statements = NULL;
+    Stmt* body = NULL;
+    Decl* declaration;
+
+    if (!return_type || !match(TOK_OPERATOR)) return NULL;
+    name = parse_operator_name();
+    expect(TOK_LPAREN, "(");
+    params = parse_cxx_parameter_declarations();
+    expect(TOK_RPAREN, ")");
+    if (match(TOK_NOEXCEPT) && check(TOK_LPAREN)) {
+        skip_balanced(TOK_LPAREN, TOK_RPAREN);
+    }
+    if (match(TOK_LBRACE)) {
+        rcc_parser_cxx_begin_function_parameters(params);
+        while (!check(TOK_RBRACE) && !at_end()) {
+            Token* start = parser.cur;
+            Stmt* statement = parse_cxx_statement();
+            if (statement) stmtlist_append(&statements, statement);
+            if (parser.cur == start && !at_end()) advance();
+        }
+        expect(TOK_RBRACE, "}");
+        rcc_parser_cxx_end_function_parameters();
+        body = stmt_block(statements, loc);
+    } else {
+        expect(TOK_SEMICOLON, ";");
+    }
+    declaration = decl_func(name, cxx_function_type_from_parameters(
+        return_type, params), params, body, loc);
+    declaration->func_has_cxx_linkage = true;
+    return stmt_decl(declaration, loc);
 }
 
 typedef struct ParsedConstructorInitializer {

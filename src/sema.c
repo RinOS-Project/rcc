@@ -2583,6 +2583,16 @@ static TypeMethod* sema_find_function_method(Type* aggregate,
     return NULL;
 }
 
+static Symbol* sema_cxx_operator_function(const char* name,
+                                          ExprList* arguments) {
+    Symbol* function;
+    if (!name) return NULL;
+    function = sema_cxx_lookup_name(name);
+    if (!function && arguments) function = sema_cxx_adl_lookup(name, arguments);
+    return function && function->kind == SYM_FUNC && function->decl
+        ? function : NULL;
+}
+
 static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
     TypeMethod* method;
     if (!aggregate ||
@@ -3308,22 +3318,42 @@ static const char* sema_cxx_assignment_operator_name(ExprKind kind) {
 static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) {
     const char* name;
     Type* aggregate;
+    Type* right_type;
+    Type* right_aggregate;
     TypeMethod* method;
+    ExprList* arguments = NULL;
+    Symbol* function;
+    Expr* function_expression;
     Expr* member;
     Expr* call;
     if (!expression || !left_type) return false;
     aggregate = generic_selection_type(left_type);
-    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
-                       aggregate->kind != TYPE_UNION)) {
-        return false;
-    }
     name = sema_cxx_binary_operator_name(expression->kind);
     if (!name) return false;
     method = sema_find_function_method(aggregate, name);
-    if (!method || !method->function_decl) return false;
-    member = expr_member(expression->binary_lhs, name, expression->loc);
-    call = expr_call(member, exprlist_new(expression->binary_rhs),
-                     expression->loc);
+    if (aggregate && (aggregate->kind == TYPE_STRUCT ||
+                      aggregate->kind == TYPE_UNION) &&
+        method && method->function_decl) {
+        member = expr_member(expression->binary_lhs, name, expression->loc);
+        call = expr_call(member, exprlist_new(expression->binary_rhs),
+                         expression->loc);
+        *expression = *call;
+        return true;
+    }
+    right_type = sema_expr(expression->binary_rhs);
+    right_aggregate = generic_selection_type(right_type);
+    if ((!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                        aggregate->kind != TYPE_UNION)) &&
+        (!right_aggregate || (right_aggregate->kind != TYPE_STRUCT &&
+                              right_aggregate->kind != TYPE_UNION))) {
+        return false;
+    }
+    exprlist_append(&arguments, expression->binary_lhs);
+    exprlist_append(&arguments, expression->binary_rhs);
+    function = sema_cxx_operator_function(name, arguments);
+    if (!function) return false;
+    function_expression = expr_ident(name, expression->loc);
+    call = expr_call(function_expression, arguments, expression->loc);
     *expression = *call;
     return true;
 }
@@ -3375,6 +3405,8 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
     Type* aggregate;
     TypeMethod* method;
     ExprList* arguments = NULL;
+    Symbol* function;
+    Expr* function_expression;
     Expr* member;
     Expr* call;
     if (!expression || !operand_type) return false;
@@ -3386,13 +3418,26 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
     name = sema_cxx_unary_operator_name(expression->kind);
     if (!name) return false;
     method = sema_find_function_method(aggregate, name);
-    if (!method || !method->function_decl) return false;
+    if (method && method->function_decl) {
+        if (expression->kind == EXPR_POSTINC ||
+            expression->kind == EXPR_POSTDEC) {
+            arguments = exprlist_new(expr_int(0, expression->loc));
+        }
+        member = expr_member(expression->unary_operand, name,
+                             expression->loc);
+        call = expr_call(member, arguments, expression->loc);
+        *expression = *call;
+        return true;
+    }
+    exprlist_append(&arguments, expression->unary_operand);
     if (expression->kind == EXPR_POSTINC ||
         expression->kind == EXPR_POSTDEC) {
-        arguments = exprlist_new(expr_int(0, expression->loc));
+        exprlist_append(&arguments, expr_int(0, expression->loc));
     }
-    member = expr_member(expression->unary_operand, name, expression->loc);
-    call = expr_call(member, arguments, expression->loc);
+    function = sema_cxx_operator_function(name, arguments);
+    if (!function) return false;
+    function_expression = expr_ident(name, expression->loc);
+    call = expr_call(function_expression, arguments, expression->loc);
     *expression = *call;
     return true;
 }
@@ -3401,6 +3446,9 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
                                                 Type* object_type) {
     Type* aggregate;
     TypeMethod* method;
+    ExprList* arguments = NULL;
+    Symbol* function;
+    Expr* function_expression;
     Expr* member;
     Expr* call;
     if (!expression || !object_type || expression->kind != EXPR_INDEX) {
@@ -3412,10 +3460,21 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
         return false;
     }
     method = sema_find_function_method(aggregate, "operator[]");
-    if (!method || !method->function_decl) return false;
-    member = expr_member(expression->index_base, "operator[]", expression->loc);
-    call = expr_call(member, exprlist_new(expression->index_expr),
-                     expression->loc);
+    if (method && method->function_decl) {
+        member = expr_member(expression->index_base, "operator[]",
+                             expression->loc);
+        call = expr_call(member, exprlist_new(expression->index_expr),
+                         expression->loc);
+        *expression = *call;
+        return true;
+    }
+    sema_expr(expression->index_expr);
+    exprlist_append(&arguments, expression->index_base);
+    exprlist_append(&arguments, expression->index_expr);
+    function = sema_cxx_operator_function("operator[]", arguments);
+    if (!function) return false;
+    function_expression = expr_ident("operator[]", expression->loc);
+    call = expr_call(function_expression, arguments, expression->loc);
     *expression = *call;
     return true;
 }
