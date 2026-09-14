@@ -34,6 +34,7 @@ extern Stmt* rcc_parse_cxx_class_local_declaration(
     Type* base_type, int storage, bool is_thread_local,
     SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
@@ -890,6 +891,9 @@ static Expr* parse_primary(void) {
     if (parser_cxx_mode && rcc_parse_cxx_special_expression &&
         (check(TOK_NEW) || check(TOK_DELETE))) {
         return rcc_parse_cxx_special_expression();
+    }
+    if (parser_cxx_mode && rcc_parse_cxx_lambda && check(TOK_LBRACKET)) {
+        return rcc_parse_cxx_lambda();
     }
     if (parser_cxx_mode && match(TOK_THIS)) {
         return expr_ident("this", loc);

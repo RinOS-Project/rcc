@@ -8,6 +8,7 @@
 #include "ast.h"
 #include "ast_cxx.h"
 #include <limits.h>
+#include <stdio.h>
 
 /* External parser state (from parser.c) */
 typedef struct {
@@ -34,6 +35,7 @@ typedef struct CxxParserValueBinding {
 static CxxParserValueBinding* active_value_bindings;
 static CxxParserValueBinding* saved_value_bindings[32];
 static int saved_value_binding_depth;
+static unsigned cxx_lambda_counter;
 
 static void cxx_parser_expr_loc(SourceLoc* location, const Expr* expression,
                                 const SourceLoc* fallback) {
@@ -2485,6 +2487,113 @@ static DeclList* parse_cxx_parameter_declarations(void) {
         if (!match(TOK_COMMA)) break;
     }
     return params;
+}
+
+static Type* cxx_lambda_function_type(Type* return_type, DeclList* params) {
+    TypeParam* type_params = NULL;
+    TypeParam** tail = &type_params;
+    for (DeclList* item = params; item; item = item->next) {
+        TypeParam* parameter = ast_arena_alloc(sizeof(*parameter));
+        parameter->name = item->decl ? item->decl->name : NULL;
+        parameter->type = item->decl ? item->decl->type : NULL;
+        parameter->initializer = item->decl ? item->decl->param_default : NULL;
+        parameter->next = NULL;
+        *tail = parameter;
+        tail = &parameter->next;
+    }
+    return type_func(return_type, type_params, false);
+}
+
+static bool cxx_lambda_has_return(Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_RETURN:
+            return statement->return_val != NULL;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (cxx_lambda_has_return(item->stmt)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return cxx_lambda_has_return(statement->if_then) ||
+                   cxx_lambda_has_return(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return cxx_lambda_has_return(statement->while_body);
+        case STMT_FOR:
+            return cxx_lambda_has_return(statement->for_body);
+        default:
+            return false;
+    }
+}
+
+/* Lower a non-capturing lambda to a real internal function declaration.  A
+ * lambda with captures needs a closure object and an environment ABI, so it
+ * is diagnosed at the grammar boundary rather than being converted to a
+ * function with silently missing state. */
+Expr* rcc_parse_cxx_lambda(void) {
+    SourceLoc loc = peek()->loc;
+    DeclList* params = NULL;
+    StmtList* statements = NULL;
+    Type* return_type = NULL;
+    Stmt* body;
+    Decl* function;
+    char name[64];
+    int written;
+
+    expect(TOK_LBRACKET, "[");
+    if (!match(TOK_RBRACKET)) {
+        while (!check(TOK_RBRACKET) && !at_end()) advance();
+        expect(TOK_RBRACKET, "]");
+        rcc_error(loc,
+                  "capturing lambda requires a closure environment ABI");
+        return expr_int(0, loc);
+    }
+    if (match(TOK_LPAREN)) {
+        params = parse_cxx_parameter_declarations();
+        expect(TOK_RPAREN, ")");
+    }
+    (void)match(TOK_MUTABLE);
+    if (match(TOK_NOEXCEPT)) {
+        if (check(TOK_LPAREN)) skip_balanced(TOK_LPAREN, TOK_RPAREN);
+    }
+    if (match(TOK_ARROW)) {
+        return_type = parse_cxx_type_spec();
+        return_type = rcc_parser_parse_cxx_declarator(
+            return_type, NULL, NULL);
+    }
+    expect(TOK_LBRACE, "{");
+    rcc_parser_cxx_begin_function_parameters(params);
+    while (!check(TOK_RBRACE) && !at_end()) {
+        Token* start = parser.cur;
+        Stmt* statement = parse_cxx_statement();
+        if (statement) stmtlist_append(&statements, statement);
+        if (parser.cur == start && !at_end()) advance();
+    }
+    expect(TOK_RBRACE, "}");
+    rcc_parser_cxx_end_function_parameters();
+    body = stmt_block(statements, loc);
+    if (!return_type) return_type = cxx_lambda_has_return(body)
+        ? type_int : type_void;
+    written = snprintf(name, sizeof(name), "__rcc_lambda_%u",
+                       ++cxx_lambda_counter);
+    if (written < 0 || (size_t)written >= sizeof(name)) {
+        rcc_fatal("C++ lambda symbol name exceeds compiler limits");
+    }
+    function = decl_func(rcc_intern(name),
+                         cxx_lambda_function_type(return_type, params),
+                         params, body, loc);
+    function->storage = STORAGE_STATIC;
+    function->func_is_inline = true;
+    function->link_name = function->name;
+    if (active_ast) ast_add_decl(active_ast, function);
+    {
+        Expr* result = expr_ident(function->name, loc);
+        result->ident_decl = function;
+        result->type = function->type;
+        return result;
+    }
 }
 
 /* Header-only SDK functions are emitted eagerly today.  Parse only bodies

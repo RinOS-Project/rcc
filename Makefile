@@ -950,6 +950,30 @@ test-cxx-assignment-operator: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-assignment-operator/x64
 	@echo "RCC++ assignment operator tests completed"
 
+test-cxx-lambda: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-lambda/x86.s tests/cxx_lambda.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-lambda/x86.o \
+		$(TEST_OUT)/cxx-lambda/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-lambda/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-lambda/x86 \
+		$(TEST_OUT)/cxx-lambda/start-x86.o $(TEST_OUT)/cxx-lambda/x86.o
+	$(TEST_OUT)/cxx-lambda/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-lambda/x64.s tests/cxx_lambda.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-lambda/x64.o \
+		$(TEST_OUT)/cxx-lambda/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-lambda/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-lambda/x64 \
+		$(TEST_OUT)/cxx-lambda/start-x64.o $(TEST_OUT)/cxx-lambda/x64.o
+	$(TEST_OUT)/cxx-lambda/x64
+	@echo "RCC++ non-capturing lambda tests completed"
+
 test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-templates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -1304,6 +1328,7 @@ endif
 .PHONY: test-cxx-operator-overload
 .PHONY: test-cxx-member-operator-forms
 .PHONY: test-cxx-assignment-operator
+.PHONY: test-cxx-lambda
 .PHONY: test-cxx-non-type-template-deduction
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
