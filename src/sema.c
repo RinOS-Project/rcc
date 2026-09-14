@@ -754,7 +754,7 @@ static bool sema_constexpr_mul(int64_t left, int64_t right, int64_t* result) {
 }
 
 static bool sema_eval_constexpr_expr(
-    Expr* expression, const SemaConstexprBinding* bindings,
+    Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, int64_t* value) {
     int64_t left;
     int64_t right;
@@ -975,6 +975,84 @@ static bool sema_eval_constexpr_expr(
     }
 }
 
+typedef enum {
+    SEMA_CONSTEXPR_STMT_FALLTHROUGH = 0,
+    SEMA_CONSTEXPR_STMT_RETURNED = 1
+} SemaConstexprStatementResult;
+
+static bool sema_eval_constexpr_statement(
+    Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
+    int64_t* value, SemaConstexprStatementResult* result) {
+    int saved_binding_count;
+
+    if (!statement || !bindings || !binding_count || !value || !result) {
+        return false;
+    }
+    *result = SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+    switch (statement->kind) {
+        case STMT_NULL:
+            return true;
+        case STMT_RETURN:
+            if (!statement->return_val ||
+                !sema_eval_constexpr_expr(statement->return_val, bindings,
+                                           *binding_count, value)) {
+                return false;
+            }
+            *result = SEMA_CONSTEXPR_STMT_RETURNED;
+            return true;
+        case STMT_DECL: {
+            int64_t initializer;
+            Decl* declaration = statement->decl;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                !declaration->name || !sema_constexpr_integer_type(
+                    declaration->type) || !declaration->var_init ||
+                *binding_count >= 64 ||
+                !sema_eval_constexpr_expr(declaration->var_init, bindings,
+                                           *binding_count, &initializer)) {
+                return false;
+            }
+            bindings[*binding_count].declaration = declaration;
+            bindings[*binding_count].value = initializer;
+            ++*binding_count;
+            return true;
+        }
+        case STMT_BLOCK:
+            saved_binding_count = *binding_count;
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                SemaConstexprStatementResult nested_result;
+                if (!sema_eval_constexpr_statement(
+                        item->stmt, bindings, binding_count, value,
+                        &nested_result)) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = nested_result;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+            }
+            *binding_count = saved_binding_count;
+            return true;
+        case STMT_IF: {
+            int64_t condition;
+            Stmt* selected;
+            if (!statement->if_cond ||
+                !sema_eval_constexpr_expr(statement->if_cond, bindings,
+                                           *binding_count, &condition)) {
+                return false;
+            }
+            selected = condition ? statement->if_then : statement->if_else;
+            if (!selected) return true;
+            return sema_eval_constexpr_statement(
+                selected, bindings, binding_count, value, result);
+        }
+        default:
+            return false;
+    }
+}
+
 static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
                                           int64_t* value) {
     SemaConstexprBinding bindings[64];
@@ -982,6 +1060,7 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
     ExprList* argument;
     Stmt* body;
     int count = 0;
+    SemaConstexprStatementResult statement_result;
     int64_t argument_value;
     bool result;
 
@@ -992,11 +1071,7 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
         !declaration->func_body->block_stmts || constexpr_eval_depth >= 64) {
         return false;
     }
-    body = declaration->func_body->block_stmts->stmt;
-    if (declaration->func_body->block_stmts->next || !body ||
-        body->kind != STMT_RETURN || !body->return_val) {
-        return false;
-    }
+    body = declaration->func_body;
     parameter = declaration->func_params;
     argument = args;
     while (parameter && argument) {
@@ -1015,10 +1090,12 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
     }
     if (parameter || argument) return false;
     ++constexpr_eval_depth;
-    result = sema_eval_constexpr_expr(body->return_val, bindings, count,
-                                       value);
+    result = sema_eval_constexpr_statement(
+        body, bindings, &count, value, &statement_result);
     --constexpr_eval_depth;
-    if (!result) return false;
+    if (!result || statement_result != SEMA_CONSTEXPR_STMT_RETURNED) {
+        return false;
+    }
     return sema_constexpr_convert(*value, declaration->type->ret_type, value);
 }
 
