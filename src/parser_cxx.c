@@ -3069,8 +3069,41 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     }
 
     definition = tmpl->templated_class;
-    snprintf(tag, sizeof(tag), "%s.__instance%d",
-             tmpl->name ? tmpl->name : "template", tmpl->instance_count);
+    if (tmpl->specialization_arg_count > 0) {
+        char specialization_suffix[256] = "";
+        size_t suffix_length = 0;
+        for (int argument_index = 0;
+             argument_index < tmpl->specialization_arg_count;
+             ++argument_index) {
+            const char* mangled = cxx_mangle_type(
+                tmpl->specialization_args[argument_index]);
+            int written = snprintf(
+                specialization_suffix + suffix_length,
+                sizeof(specialization_suffix) - suffix_length,
+                "%s%s", argument_index == 0 ? "" : ",",
+                mangled ? mangled : "?");
+            if (written < 0 || (size_t)written >=
+                                   sizeof(specialization_suffix) -
+                                       suffix_length) {
+                rcc_error(loc,
+                          "class template specialization pattern is too long");
+                return NULL;
+            }
+            suffix_length += (size_t)written;
+        }
+        if (snprintf(tag, sizeof(tag), "%s.__instance%d.%s",
+                     tmpl->name ? tmpl->name : "template",
+                     tmpl->instance_count, specialization_suffix) >=
+            (int)sizeof(tag)) {
+            rcc_error(loc, "class template specialization name is too long");
+            return NULL;
+        }
+    } else if (snprintf(tag, sizeof(tag), "%s.__instance%d",
+                        tmpl->name ? tmpl->name : "template",
+                        tmpl->instance_count) >= (int)sizeof(tag)) {
+        rcc_error(loc, "class template specialization name is too long");
+        return NULL;
+    }
     instance = cxx_class_new(ast_arena_strdup(tag), loc);
     instance->is_struct = definition->is_struct;
     instance->ns = definition->ns;

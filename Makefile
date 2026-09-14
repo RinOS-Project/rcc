@@ -816,7 +816,27 @@ test-cxx-class-template-specialization: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-specialization/start-x64.o \
 		$(TEST_OUT)/cxx-class-template-specialization/x64.o
 	$(TEST_OUT)/cxx-class-template-specialization/x64
-	@echo "RCC++ explicit class-template specialization test completed"
+	@echo "RCC++ ordered class-template specialization test completed"
+
+test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-ambiguous)
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.ro \
+		tests/cxx_class_template_specialization_ambiguous.cpp \
+		>$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.log 2>&1; then \
+		echo "ambiguous class template specialization unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "ambiguous class template partial specialization" \
+		$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.ro \
+		tests/cxx_class_template_specialization_ambiguous.cpp \
+		>$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log 2>&1; then \
+		echo "ambiguous class template specialization unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "ambiguous class template partial specialization" \
+		$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log
+	@echo "RCC++ ambiguous class-template specialization diagnostic completed"
 
 test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-templates)
@@ -1167,6 +1187,7 @@ endif
 .PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
+.PHONY: test-cxx-class-template-specialization-ambiguous
 .PHONY: test-cxx-non-type-template-deduction
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)

@@ -4,6 +4,7 @@
  */
 
 #include "ast_cxx.h"
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -700,9 +701,31 @@ static int template_type_parameter_index(CxxTemplate* tmpl, Type* type) {
     return -1;
 }
 
+static int template_value_parameter_index(CxxTemplate* tmpl,
+                                           Expr* bound_expression) {
+    if (!tmpl || !bound_expression || bound_expression->kind != EXPR_IDENT ||
+        !bound_expression->ident_name) {
+        return -1;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].kind == TPARAM_NONTYPE &&
+            tmpl->params[index].name &&
+            strcmp(tmpl->params[index].name,
+                   bound_expression->ident_name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
-                                      Type** args, int arg_count) {
+                                      Type** args, int arg_count,
+                                      const int64_t* value_args,
+                                      const bool* value_present) {
     Type* replacement;
+    Type* base;
+    int array_len;
+    Expr* array_bound;
     int index;
 
     if (!type) return NULL;
@@ -722,12 +745,34 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     }
 
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
-        Type* base = template_substitute_type(
-            tmpl, type->base, args, arg_count);
-        if (base != type->base) {
+        base = template_substitute_type(
+            tmpl, type->base, args, arg_count, value_args, value_present);
+        array_len = type->array_len;
+        array_bound = type->array_bound;
+        if (type->kind == TYPE_ARRAY && value_args && value_present &&
+            type->array_bound) {
+            int value_index = template_value_parameter_index(
+                tmpl, type->array_bound);
+            if (value_index >= 0 && value_present[value_index]) {
+                int64_t value = value_args[value_index];
+                if (value <= 0 || value > INT_MAX) {
+                    rcc_error(type->array_bound->loc,
+                              "non-type template array bound is out of range");
+                    return NULL;
+                }
+                array_len = (int)value;
+                array_bound = NULL;
+            }
+        }
+        if (base != type->base || array_len != type->array_len ||
+            array_bound != type->array_bound) {
             Type* copy = ast_arena_alloc(sizeof(*copy));
             *copy = *type;
             copy->base = base;
+            if (copy->kind == TYPE_ARRAY) {
+                copy->array_len = array_len;
+                copy->array_bound = array_bound;
+            }
             if (copy->kind == TYPE_ARRAY && copy->array_len > 0) {
                 copy->size = base->size * copy->array_len;
                 copy->align = base->align;
@@ -736,7 +781,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         }
     } else if (type->kind == TYPE_FUNC) {
         Type* return_type = template_substitute_type(
-            tmpl, type->ret_type, args, arg_count);
+            tmpl, type->ret_type, args, arg_count, value_args,
+            value_present);
         TypeParam* params = NULL;
         TypeParam** tail = &params;
         bool changed = return_type != type->ret_type;
@@ -745,7 +791,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             TypeParam* copy = ast_arena_alloc(sizeof(*copy));
             *copy = *parameter;
             copy->type = template_substitute_type(
-                tmpl, parameter->type, args, arg_count);
+                tmpl, parameter->type, args, arg_count, value_args,
+                value_present);
             copy->next = NULL;
             changed = changed || copy->type != parameter->type;
             *tail = copy;
@@ -786,7 +833,7 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
 }
 
 static GenericAssociation* template_clone_associations(
-    CxxTemplate* tmpl, GenericAssociation* list, Type** args,
+        CxxTemplate* tmpl, GenericAssociation* list, Type** args,
     int arg_count, const int64_t* value_args, const bool* value_present) {
     GenericAssociation* result = NULL;
     GenericAssociation** tail = &result;
@@ -794,7 +841,7 @@ static GenericAssociation* template_clone_associations(
         GenericAssociation* copy = ast_arena_alloc(sizeof(*copy));
         *copy = *list;
         copy->type = template_substitute_type(
-            tmpl, list->type, args, arg_count);
+            tmpl, list->type, args, arg_count, value_args, value_present);
         copy->expr = template_clone_expr(tmpl, list->expr, args, arg_count,
                                           value_args, value_present);
         copy->next = NULL;
@@ -826,7 +873,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
     copy = ast_arena_alloc(sizeof(*copy));
     *copy = *expression;
     copy->type = template_substitute_type(
-        tmpl, expression->type, args, arg_count);
+        tmpl, expression->type, args, arg_count, value_args, value_present);
     copy->cxx_move_assignment = NULL;
     copy->cxx_close_call = NULL;
     switch (expression->kind) {
@@ -845,7 +892,8 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->unary_operand, args, arg_count,
                 value_args, value_present);
             copy->sizeof_type = template_substitute_type(
-                tmpl, expression->sizeof_type, args, arg_count);
+                tmpl, expression->sizeof_type, args, arg_count,
+                value_args, value_present);
             break;
         case EXPR_ADD:
         case EXPR_SUB:
@@ -910,7 +958,8 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_new_value_init = expression->call_new_value_init;
             copy->call_new_is_array = expression->call_new_is_array;
             copy->call_new_type = template_substitute_type(
-                tmpl, expression->call_new_type, args, arg_count);
+                tmpl, expression->call_new_type, args, arg_count,
+                value_args, value_present);
             copy->call_new_count = template_clone_expr(
                 tmpl, expression->call_new_count, args, arg_count,
                 value_args, value_present);
@@ -948,11 +997,13 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->cast_expr, args, arg_count,
                 value_args, value_present);
             copy->cast_type = template_substitute_type(
-                tmpl, expression->cast_type, args, arg_count);
+                tmpl, expression->cast_type, args, arg_count,
+                value_args, value_present);
             break;
         case EXPR_COMPOUND:
             copy->compound_type = template_substitute_type(
-                tmpl, expression->compound_type, args, arg_count);
+                tmpl, expression->compound_type, args, arg_count,
+                value_args, value_present);
             copy->compound_init = template_clone_expr_list(
                 tmpl, expression->compound_init, args, arg_count,
                 value_args, value_present);
@@ -977,7 +1028,8 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->va_second_operand, args, arg_count,
                 value_args, value_present);
             copy->va_arg_type = template_substitute_type(
-                tmpl, expression->va_arg_type, args, arg_count);
+                tmpl, expression->va_arg_type, args, arg_count,
+                value_args, value_present);
             copy->va_arg_result_offset = expression->va_arg_result_offset;
             break;
         default:
@@ -995,7 +1047,7 @@ static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
     copy = ast_arena_alloc(sizeof(*copy));
     *copy = *declaration;
     copy->type = template_substitute_type(
-        tmpl, declaration->type, args, arg_count);
+        tmpl, declaration->type, args, arg_count, value_args, value_present);
     copy->param_default = template_clone_expr(
         tmpl, declaration->param_default, args, arg_count,
         value_args, value_present);
@@ -1222,7 +1274,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         for (DeclList* item = definition->func_params; item;
              item = item->next) {
             Type* parameter_type = template_substitute_type(
-                tmpl, item->decl->type, args, arg_count);
+                tmpl, item->decl->type, args, arg_count, value_args,
+                value_present);
             Decl* parameter = decl_param(item->decl->name, parameter_type,
                                          item->decl->param_index,
                                          item->decl->loc);
@@ -1239,7 +1292,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
 
         Type* return_type = template_substitute_type(
             tmpl, definition->type ? definition->type->ret_type : NULL,
-            args, arg_count);
+            args, arg_count, value_args, value_present);
         function_type = type_func(return_type, type_parameters,
                                   definition->type && definition->type->variadic);
         function_type->has_prototype = definition->type
