@@ -3213,6 +3213,23 @@ static const char* sema_cxx_binary_operator_name(ExprKind kind) {
     }
 }
 
+static const char* sema_cxx_assignment_operator_name(ExprKind kind) {
+    switch (kind) {
+        case EXPR_ASSIGN: return "operator=";
+        case EXPR_ADD_ASSIGN: return "operator+=";
+        case EXPR_SUB_ASSIGN: return "operator-=";
+        case EXPR_MUL_ASSIGN: return "operator*=";
+        case EXPR_DIV_ASSIGN: return "operator/=";
+        case EXPR_MOD_ASSIGN: return "operator%=";
+        case EXPR_AND_ASSIGN: return "operator&=";
+        case EXPR_OR_ASSIGN: return "operator|=";
+        case EXPR_XOR_ASSIGN: return "operator^=";
+        case EXPR_LSHIFT_ASSIGN: return "operator<<=";
+        case EXPR_RSHIFT_ASSIGN: return "operator>>=";
+        default: return NULL;
+    }
+}
+
 /* Rewrite a binary expression to an ordinary member call only after a real
  * operator member exists.  This keeps the built-in arithmetic path intact
  * for scalar operands and ensures an overloaded operation uses the same
@@ -3230,6 +3247,30 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
         return false;
     }
     name = sema_cxx_binary_operator_name(expression->kind);
+    if (!name) return false;
+    method = sema_find_function_method(aggregate, name);
+    if (!method || !method->function_decl) return false;
+    member = expr_member(expression->binary_lhs, name, expression->loc);
+    call = expr_call(member, exprlist_new(expression->binary_rhs),
+                     expression->loc);
+    *expression = *call;
+    return true;
+}
+
+static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
+                                                 Type* left_type) {
+    const char* name;
+    Type* aggregate;
+    TypeMethod* method;
+    Expr* member;
+    Expr* call;
+    if (!expression || !left_type || !expression->binary_rhs) return false;
+    aggregate = generic_selection_type(left_type);
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION)) {
+        return false;
+    }
+    name = sema_cxx_assignment_operator_name(expression->kind);
     if (!name) return false;
     method = sema_find_function_method(aggregate, name);
     if (!method || !method->function_decl) return false;
@@ -3564,6 +3605,14 @@ static Type* sema_expr(Expr* expr) {
             object_type = sema_expr(expr->call_func);
         }
         if (sema_rewrite_cxx_call_operator(expr, object_type)) {
+            return sema_expr(expr);
+        }
+    }
+
+    if (expr->kind >= EXPR_ASSIGN && expr->kind <= EXPR_RSHIFT_ASSIGN &&
+        expr->binary_lhs && expr->binary_rhs) {
+        Type* left_type = sema_expr(expr->binary_lhs);
+        if (sema_rewrite_cxx_assignment_operator(expr, left_type)) {
             return sema_expr(expr);
         }
     }
