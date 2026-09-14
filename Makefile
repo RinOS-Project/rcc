@@ -215,6 +215,12 @@ test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)
 	! $(RCC_TARGET) -O4 -c -o $(TEST_OUT)/invalid-o-c.ro tests/hello.c \
 		>$(TEST_OUT)/invalid-o-c.log 2>&1
 	grep -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-c.log
+	! $(RCC_TARGET) -Wunknown -c -o $(TEST_OUT)/invalid-w-c.ro tests/hello.c \
+		>$(TEST_OUT)/invalid-w-c.log 2>&1
+	grep -q 'unsupported warning option' $(TEST_OUT)/invalid-w-c.log
+	! $(RCC_TARGET) -funknown -c -o $(TEST_OUT)/invalid-f-c.ro tests/hello.c \
+		>$(TEST_OUT)/invalid-f-c.log 2>&1
+	grep -q 'unsupported code-generation option' $(TEST_OUT)/invalid-f-c.log
 	! $(RCXX_TARGET) -Ofoo -c -o $(TEST_OUT)/invalid-o-cxx.ro \
 		tests/cxx_cli_options.cpp >$(TEST_OUT)/invalid-o-cxx.log 2>&1
 	grep -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-cxx.log

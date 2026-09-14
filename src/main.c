@@ -321,10 +321,9 @@ static int parse_args(int argc, char** argv) {
                     arg);
             return -1;
         } else if (strncmp(arg, "-W", 2) == 0) {
-            /* Ignore unknown -W options */
-            if (g_opts.verbose) {
-                fprintf(stderr, "rcc: warning: ignoring unknown option: %s\n", arg);
-            }
+            fprintf(stderr, "rcc: error: unsupported warning option: %s\n",
+                    arg);
+            return -1;
         } else {
             fprintf(stderr, "rcc: error: unknown option: %s\n", arg);
             return -1;
