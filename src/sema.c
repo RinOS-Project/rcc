@@ -1092,7 +1092,9 @@ static bool sema_eval_constexpr_expr(
 
 typedef enum {
     SEMA_CONSTEXPR_STMT_FALLTHROUGH = 0,
-    SEMA_CONSTEXPR_STMT_RETURNED = 1
+    SEMA_CONSTEXPR_STMT_RETURNED = 1,
+    SEMA_CONSTEXPR_STMT_BREAK = 2,
+    SEMA_CONSTEXPR_STMT_CONTINUE = 3
 } SemaConstexprStatementResult;
 
 static bool sema_eval_constexpr_statement(
@@ -1151,6 +1153,12 @@ static bool sema_eval_constexpr_statement(
                     *binding_count = saved_binding_count;
                     return true;
                 }
+                if (nested_result == SEMA_CONSTEXPR_STMT_BREAK ||
+                    nested_result == SEMA_CONSTEXPR_STMT_CONTINUE) {
+                    *result = nested_result;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
             }
             *binding_count = saved_binding_count;
             return true;
@@ -1166,6 +1174,104 @@ static bool sema_eval_constexpr_statement(
             if (!selected) return true;
             return sema_eval_constexpr_statement(
                 selected, bindings, binding_count, value, result);
+        }
+        case STMT_BREAK:
+            *result = SEMA_CONSTEXPR_STMT_BREAK;
+            return true;
+        case STMT_CONTINUE:
+            *result = SEMA_CONSTEXPR_STMT_CONTINUE;
+            return true;
+        case STMT_FOR: {
+            int64_t condition;
+            int saved_count = *binding_count;
+            unsigned iteration;
+            if (statement->for_init) {
+                SemaConstexprStatementResult init_result;
+                if (!sema_eval_constexpr_statement(
+                        statement->for_init, bindings, binding_count, value,
+                        &init_result) ||
+                    init_result != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+            }
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprStatementResult body_result;
+                if (statement->for_cond &&
+                    !sema_eval_constexpr_expr(
+                        statement->for_cond, bindings, *binding_count,
+                        &condition)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+                if (statement->for_cond && !condition) break;
+                body_result = SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (statement->for_body &&
+                    !sema_eval_constexpr_statement(
+                        statement->for_body, bindings, binding_count, value,
+                        &body_result)) {
+                    *binding_count = saved_count;
+                    return false;
+                } else {
+                    if (body_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                        *result = body_result;
+                        *binding_count = saved_count;
+                        return true;
+                    }
+                    if (body_result == SEMA_CONSTEXPR_STMT_BREAK) break;
+                }
+                if (statement->for_inc &&
+                    !sema_eval_constexpr_expr(
+                        statement->for_inc, bindings, *binding_count,
+                        value)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+            }
+            if (iteration == 1000000u) {
+                *binding_count = saved_count;
+                return false;
+            }
+            *binding_count = saved_count;
+            return true;
+        }
+        case STMT_WHILE:
+        case STMT_DO: {
+            int64_t condition;
+            unsigned iteration;
+            bool do_body = statement->kind == STMT_DO;
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprStatementResult body_result =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (!do_body) {
+                    if (!sema_eval_constexpr_expr(
+                            statement->while_cond, bindings, *binding_count,
+                            &condition)) {
+                        return false;
+                    }
+                    if (!condition) return true;
+                }
+                if (statement->while_body &&
+                    !sema_eval_constexpr_statement(
+                        statement->while_body, bindings, binding_count, value,
+                        &body_result)) {
+                    return false;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = body_result;
+                    return true;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_BREAK) return true;
+                if (statement->kind == STMT_WHILE) continue;
+                if (!sema_eval_constexpr_expr(
+                        statement->while_cond, bindings, *binding_count,
+                        &condition)) {
+                    return false;
+                }
+                if (!condition) return true;
+                do_body = false;
+            }
+            return false;
         }
         default:
             return false;
