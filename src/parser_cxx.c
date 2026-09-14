@@ -1864,6 +1864,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_virtual = is_virtual;
         method->is_static = is_static;
         method->is_constexpr = is_constexpr;
+        method->decl->func_is_constexpr = is_constexpr;
         method->is_explicit = is_explicit;
         method->is_const = is_const;
         method->is_override = is_override;
@@ -2241,7 +2242,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
             bool is_constexpr = false;
             bool is_noexcept = false;
             Decl* declaration = parse_cxx_function_declaration(
-                false, &is_constexpr, &is_noexcept);
+                true, &is_constexpr, &is_noexcept);
             add_namespace_declaration(ast, ns, declaration);
         } else {
             Stmt* statement = parse_cxx_statement();
@@ -2380,6 +2381,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     CxxMethod* function = cxx_method_new(name->value.str_val, return_type,
                                          params, body, loc);
     function->decl->func_is_inline = is_inline;
+    function->decl->func_is_constexpr = *is_constexpr;
     return function->decl;
 }
 
@@ -4029,9 +4031,10 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             bool is_constexpr = false;
             bool is_noexcept = false;
             Decl* declaration = parse_cxx_function_declaration(
-                false, &is_constexpr, &is_noexcept);
+                true, &is_constexpr, &is_noexcept);
             if (g_global_namespace && declaration) {
-                cxx_namespace_add_decl(g_global_namespace, declaration);
+                add_namespace_declaration(ast, g_global_namespace,
+                                           declaration);
             }
         } else if (match(TOK_USING)) {
             parse_cxx_using(g_global_namespace);

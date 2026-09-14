@@ -709,6 +709,7 @@ struct Decl {
             bool func_is_template_instance;
             bool func_has_cxx_linkage;
             bool func_is_cxx_method;
+            bool func_is_constexpr;
             Decl* func_overload_next;
         };
 

@@ -673,6 +673,342 @@ static void sema_validate_static_integer_expression(Expr* expression) {
     }
 }
 
+/* A constexpr binding is deliberately local to one evaluation.  It avoids
+ * using the compiler's semantic symbol table as an evaluator environment and
+ * therefore keeps constant folding independent from stack offsets and target
+ * ABI details. */
+typedef struct SemaConstexprBinding {
+    Decl* declaration;
+    int64_t value;
+} SemaConstexprBinding;
+
+static int constexpr_eval_depth;
+
+static bool sema_constexpr_integer_type(Type* type) {
+    return type && (type_is_integer(type) || type->kind == TYPE_ENUM);
+}
+
+static bool sema_constexpr_convert(int64_t input, Type* type,
+                                   int64_t* output) {
+    unsigned bits;
+    uint64_t mask;
+    uint64_t converted;
+
+    if (!output || !sema_constexpr_integer_type(type) || type->size <= 0) {
+        return false;
+    }
+    if (type->kind == TYPE_BOOL) {
+        *output = input != 0;
+        return true;
+    }
+    bits = (unsigned)type->size * 8u;
+    if (bits == 0u || bits > 64u) return false;
+    converted = (uint64_t)input;
+    if (bits < 64u) {
+        mask = (UINT64_C(1) << bits) - 1u;
+        converted &= mask;
+        if (!type->is_unsigned &&
+            (converted & (UINT64_C(1) << (bits - 1u)))) {
+            converted |= ~mask;
+        }
+    }
+    *output = (int64_t)converted;
+    return true;
+}
+
+static bool sema_constexpr_add(int64_t left, int64_t right, int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_add_overflow(left, right, result);
+#else
+    if ((right > 0 && left > INT64_MAX - right) ||
+        (right < 0 && left < INT64_MIN - right)) return false;
+    *result = left + right;
+    return true;
+#endif
+}
+
+static bool sema_constexpr_sub(int64_t left, int64_t right, int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_sub_overflow(left, right, result);
+#else
+    if ((right < 0 && left > INT64_MAX + right) ||
+        (right > 0 && left < INT64_MIN + right)) return false;
+    *result = left - right;
+    return true;
+#endif
+}
+
+static bool sema_constexpr_mul(int64_t left, int64_t right, int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_mul_overflow(left, right, result);
+#else
+    if (left != 0 && right != 0 &&
+        ((left == INT64_MIN && right != 1) ||
+         (right == INT64_MIN && left != 1) ||
+         left > INT64_MAX / right || left < INT64_MIN / right)) {
+        return false;
+    }
+    *result = left * right;
+    return true;
+#endif
+}
+
+static bool sema_eval_constexpr_expr(
+    Expr* expression, const SemaConstexprBinding* bindings,
+    int binding_count, int64_t* value) {
+    int64_t left;
+    int64_t right;
+    int64_t condition;
+    Type* measured;
+
+    if (!expression || !value) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+            *value = expression->int_val;
+            return true;
+        case EXPR_CHAR_LIT:
+            *value = (unsigned char)expression->char_val;
+            return true;
+        case EXPR_IDENT:
+            for (int index = 0; index < binding_count; ++index) {
+                if ((expression->ident_decl &&
+                     expression->ident_decl == bindings[index].declaration) ||
+                    (!expression->ident_decl &&
+                     expression->ident_name &&
+                     bindings[index].declaration &&
+                     bindings[index].declaration->name &&
+                     strcmp(expression->ident_name,
+                            bindings[index].declaration->name) == 0)) {
+                    *value = bindings[index].value;
+                    return true;
+                }
+            }
+            if (expression->ident_decl &&
+                expression->ident_decl->kind == DECL_ENUM_CONST) {
+                *value = expression->ident_decl->enum_val;
+                return true;
+            }
+            return false;
+        case EXPR_NEG:
+            if (!sema_eval_constexpr_expr(expression->unary_operand,
+                                           bindings, binding_count, &left)) {
+                return false;
+            }
+            if (left == INT64_MIN) return false;
+            *value = -left;
+            return true;
+        case EXPR_NOT:
+            if (!sema_eval_constexpr_expr(expression->unary_operand,
+                                           bindings, binding_count, &left)) {
+                return false;
+            }
+            *value = !left;
+            return true;
+        case EXPR_BITNOT:
+            if (!sema_eval_constexpr_expr(expression->unary_operand,
+                                           bindings, binding_count, &left)) {
+                return false;
+            }
+            *value = ~left;
+            return true;
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            measured = expression->sizeof_type
+                ? expression->sizeof_type
+                : (expression->unary_operand
+                    ? expression->unary_operand->type : NULL);
+            if (!measured || (expression->kind == EXPR_SIZEOF
+                                  ? measured->size <= 0 : measured->align <= 0)) {
+                return false;
+            }
+            *value = expression->kind == EXPR_SIZEOF
+                ? measured->size : measured->align;
+            return true;
+        case EXPR_CAST:
+            if (!sema_eval_constexpr_expr(expression->cast_expr, bindings,
+                                           binding_count, &left)) {
+                return false;
+            }
+            return sema_constexpr_convert(left, expression->cast_type, value);
+        case EXPR_COND:
+            if (!sema_eval_constexpr_expr(expression->cond_test, bindings,
+                                           binding_count, &condition)) {
+                return false;
+            }
+            return sema_eval_constexpr_expr(
+                condition ? expression->cond_then : expression->cond_else,
+                bindings, binding_count, value);
+        case EXPR_COMMA:
+            if (!sema_eval_constexpr_expr(expression->binary_lhs, bindings,
+                                           binding_count, &left)) {
+                return false;
+            }
+            return sema_eval_constexpr_expr(expression->binary_rhs, bindings,
+                                            binding_count, value);
+        case EXPR_AND:
+            if (!sema_eval_constexpr_expr(expression->binary_lhs, bindings,
+                                           binding_count, &left)) {
+                return false;
+            }
+            if (!left) {
+                *value = 0;
+                return true;
+            }
+            if (!sema_eval_constexpr_expr(expression->binary_rhs, bindings,
+                                           binding_count, &right)) {
+                return false;
+            }
+            *value = right != 0;
+            return true;
+        case EXPR_OR:
+            if (!sema_eval_constexpr_expr(expression->binary_lhs, bindings,
+                                           binding_count, &left)) {
+                return false;
+            }
+            if (left) {
+                *value = 1;
+                return true;
+            }
+            if (!sema_eval_constexpr_expr(expression->binary_rhs, bindings,
+                                           binding_count, &right)) {
+                return false;
+            }
+            *value = right != 0;
+            return true;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            if (!sema_eval_constexpr_expr(expression->binary_lhs, bindings,
+                                           binding_count, &left) ||
+                !sema_eval_constexpr_expr(expression->binary_rhs, bindings,
+                                           binding_count, &right)) {
+                return false;
+            }
+            switch (expression->kind) {
+                case EXPR_ADD:
+                    return sema_constexpr_add(left, right, value);
+                case EXPR_SUB:
+                    return sema_constexpr_sub(left, right, value);
+                case EXPR_MUL:
+                    return sema_constexpr_mul(left, right, value);
+                case EXPR_DIV:
+                    if (right == 0 || (left == INT64_MIN && right == -1)) {
+                        return false;
+                    }
+                    *value = left / right;
+                    return true;
+                case EXPR_MOD:
+                    if (right == 0 || (left == INT64_MIN && right == -1)) {
+                        return false;
+                    }
+                    *value = left % right;
+                    return true;
+                case EXPR_BITAND:
+                    *value = left & right;
+                    return true;
+                case EXPR_BITOR:
+                    *value = left | right;
+                    return true;
+                case EXPR_BITXOR:
+                    *value = left ^ right;
+                    return true;
+                case EXPR_LSHIFT:
+                    if (right < 0 || right >= 64 || left < 0 ||
+                        (right == 63 && left != 0) ||
+                        (right < 63 && left > (INT64_MAX >> right))) {
+                        return false;
+                    }
+                    *value = left << right;
+                    return true;
+                case EXPR_RSHIFT:
+                    if (right < 0 || right >= 64) return false;
+                    *value = left >> right;
+                    return true;
+                case EXPR_EQ:
+                    *value = left == right;
+                    return true;
+                case EXPR_NE:
+                    *value = left != right;
+                    return true;
+                case EXPR_LT:
+                    *value = left < right;
+                    return true;
+                case EXPR_GT:
+                    *value = left > right;
+                    return true;
+                case EXPR_LE:
+                    *value = left <= right;
+                    return true;
+                case EXPR_GE:
+                    *value = left >= right;
+                    return true;
+                default:
+                    return false;
+            }
+        default:
+            return false;
+    }
+}
+
+static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
+                                          int64_t* value) {
+    SemaConstexprBinding bindings[64];
+    DeclList* parameter;
+    ExprList* argument;
+    Stmt* body;
+    int count = 0;
+    int64_t argument_value;
+    bool result;
+
+    if (!declaration || !value || !declaration->func_is_constexpr ||
+        declaration->func_this_param || !declaration->type ||
+        declaration->type->variadic || !declaration->func_body ||
+        declaration->func_body->kind != STMT_BLOCK ||
+        !declaration->func_body->block_stmts || constexpr_eval_depth >= 64) {
+        return false;
+    }
+    body = declaration->func_body->block_stmts->stmt;
+    if (declaration->func_body->block_stmts->next || !body ||
+        body->kind != STMT_RETURN || !body->return_val) {
+        return false;
+    }
+    parameter = declaration->func_params;
+    argument = args;
+    while (parameter && argument) {
+        if (count == (int)(sizeof(bindings) / sizeof(bindings[0])) ||
+            !parameter->decl || !parameter->decl->name ||
+            !sema_constexpr_integer_type(parameter->decl->type) ||
+            !expr_eval_integer_constant(argument->expr, &argument_value)) {
+            return false;
+        }
+        bindings[count].declaration = parameter->decl;
+        bindings[count].value = argument_value;
+        ++count;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    if (parameter || argument) return false;
+    ++constexpr_eval_depth;
+    result = sema_eval_constexpr_expr(body->return_val, bindings, count,
+                                       value);
+    --constexpr_eval_depth;
+    if (!result) return false;
+    return sema_constexpr_convert(*value, declaration->type->ret_type, value);
+}
+
 static TypeMethod* sema_find_function_method(Type* aggregate,
                                               const char* name) {
     TypeMethod* method;
@@ -2575,6 +2911,19 @@ static Type* sema_expr(Expr* expr) {
             }
 
             expr->type = ft->ret_type;
+            if (call_declaration && call_declaration->func_is_constexpr &&
+                sema_constexpr_integer_type(expr->type)) {
+                int64_t constexpr_value;
+                if (sema_eval_constexpr_function(call_declaration,
+                                                  expr->call_args,
+                                                  &constexpr_value)) {
+                    expr->kind = EXPR_INT_LIT;
+                    expr->int_val = constexpr_value;
+                    expr->is_cxx_nullptr = false;
+                    expr->cxx_move_assignment = NULL;
+                    expr->cxx_close_call = NULL;
+                }
+            }
             break;
         }
 
