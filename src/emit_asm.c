@@ -92,6 +92,14 @@ static bool emit_asm_reloc_bytes(FILE* file, const Module* mod,
                 next = (size_t)(candidate->offset - base_offset);
             }
         }
+        for (int index = 0; index < mod->symbol_count; ++index) {
+            const ModuleSymbol* candidate = &mod->symbols[index];
+            if (candidate->is_defined && candidate->section == section &&
+                candidate->offset > absolute &&
+                candidate->offset < (uint64_t)base_offset + next) {
+                next = (size_t)(candidate->offset - base_offset);
+            }
+        }
         if (!emit_asm_bytes(file, data + offset, next - offset)) return false;
         offset = next;
     }
@@ -186,10 +194,55 @@ bool rcc_emit_asm(Module* mod, const char* outfile) {
              emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_RODATA,
                                   mod->rodata.data, mod->rodata.size, 0u);
     }
+    if (ok && mod->init_array.size > 0u) {
+        unsigned alignment = g_opts.target_arch == ARCH_X64 ? 3u : 2u;
+        ok = fprintf(file, ".section .init_array\n.p2align %u\n",
+                     alignment) >= 0 &&
+             emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_INIT_ARRAY,
+                                  mod->init_array.data, mod->init_array.size,
+                                  0u);
+    }
     if (ok && mod->data.size > 0u) {
         ok = fprintf(file, ".section .data\n.p2align 4\n") >= 0 &&
              emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_DATA,
                                   mod->data.data, mod->data.size, 0u);
+    }
+    if (ok && mod->bss.size > 0u) {
+        unsigned alignment = 0u;
+        uint32_t value = mod->bss.align;
+        while (value > 1u) {
+            if ((value & 1u) != 0u) {
+                alignment = 0u;
+                break;
+            }
+            value >>= 1;
+            ++alignment;
+        }
+        ok = fprintf(file, ".section .bss\n.p2align %u\n", alignment) >= 0;
+        if (ok) {
+            uint32_t offset = 0u;
+            while (offset < mod->bss.size) {
+                uint32_t next = (uint32_t)mod->bss.size;
+                for (int index = 0; index < mod->symbol_count; ++index) {
+                    ModuleSymbol* symbol = &mod->symbols[index];
+                    if (symbol->is_defined &&
+                        symbol->section == MODULE_SYMBOL_BSS &&
+                        symbol->offset > offset && symbol->offset < next) {
+                        next = symbol->offset;
+                    }
+                }
+                if (!emit_asm_symbols(file, mod, MODULE_SYMBOL_BSS, offset)) {
+                    ok = false;
+                    break;
+                }
+                if (next == offset) ++next;
+                if (fprintf(file, ".zero %u\n", (unsigned)(next - offset)) < 0) {
+                    ok = false;
+                    break;
+                }
+                offset = next;
+            }
+        }
     }
     if (fclose(file) != 0) ok = false;
     if (!ok) rcc_error((SourceLoc){outfile, 0, 0}, "cannot write assembly output");

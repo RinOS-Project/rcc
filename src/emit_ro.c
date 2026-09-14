@@ -770,6 +770,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjectFile* obj = objfile_new(filename, g_opts.target_arch);
     int next_section = 1;
     int rodata_section = -1;
+    int init_array_section = -1;
     int data_section = -1;
     int bss_section = -1;
     int tls_section = -1;
@@ -778,6 +779,15 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjSection* text = objfile_add_section(obj, ".text", SECT_CODE,
                                            SECT_FLAG_EXEC | SECT_FLAG_ALLOC);
     section_add_data(text, mod->code.data, mod->code.size);
+
+    if (mod->init_array.size > 0u) {
+        ObjSection* init_array = objfile_add_section(
+            obj, ".init_array", SECT_INIT_ARRAY, SECT_FLAG_ALLOC);
+        section_add_data(init_array, mod->init_array.data,
+                         mod->init_array.size);
+        init_array->align = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        init_array_section = next_section++;
+    }
 
     if (mod->rodata.size > 0u) {
         ObjSection* rodata = objfile_add_section(
@@ -868,6 +878,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         ModuleReloc* mr = &mod->relocs_arr[i];
         int source_section = mr->source_section == MODULE_SYMBOL_CODE ? 0
             : mr->source_section == MODULE_SYMBOL_RODATA ? rodata_section
+            : mr->source_section == MODULE_SYMBOL_INIT_ARRAY
+                ? init_array_section
             : mr->source_section == MODULE_SYMBOL_DATA ? data_section
             : mr->source_section == MODULE_SYMBOL_TLS ? tls_section
             : -1;
@@ -875,6 +887,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
             ? mod->code.size
             : mr->source_section == MODULE_SYMBOL_RODATA
                 ? mod->rodata.size
+                : mr->source_section == MODULE_SYMBOL_INIT_ARRAY
+                    ? mod->init_array.size
                 : mr->source_section == MODULE_SYMBOL_DATA
                     ? mod->data.size
                     : mr->source_section == MODULE_SYMBOL_TLS

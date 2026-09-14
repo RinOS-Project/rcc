@@ -39,6 +39,7 @@ typedef enum ModuleSymbolSection {
     MODULE_SYMBOL_DATA,
     MODULE_SYMBOL_BSS,
     MODULE_SYMBOL_TLS,
+    MODULE_SYMBOL_INIT_ARRAY,
 } ModuleSymbolSection;
 
 /* Relocation entry */
@@ -79,10 +80,19 @@ typedef struct ModuleReloc {
     const char* symbol_name;
 } ModuleReloc;
 
+/* A scalar global initializer which cannot be represented in the image's
+ * static data payload.  The frontend has already type-checked the expression;
+ * code generation emits it into the translation unit's init function. */
+typedef struct GlobalInitializer {
+    Decl* declaration;
+    struct GlobalInitializer* next;
+} GlobalInitializer;
+
 /* Compiled module */
 typedef struct Module {
     CodeSection code;
     DataSection rodata;
+    DataSection init_array;
     DataSection data;
     BssSection bss;
     DataSection tls;
@@ -101,6 +111,9 @@ typedef struct Module {
     ModuleReloc* relocs_arr;
     int reloc_count;
     int reloc_capacity;
+
+    GlobalInitializer* global_initializers;
+    int global_initializer_count;
 } Module;
 
 /* Code generation functions */
@@ -149,6 +162,7 @@ bool module_resolve_tls_relocation(const Module* mod,
                                    ModuleSymbolSection source_section,
                                    uint32_t offset, uint32_t* value);
 void module_ensure_rodata_base_symbol(Module* mod);
+void codegen_add_init_array_entry(Module* mod, const char* symbol);
 void codegen_emit_global_data(Module* mod, AST* ast);
 void codegen_emit_cxx_vtables(Module* mod);
 int codegen_required_local_bytes(Stmt* statement);

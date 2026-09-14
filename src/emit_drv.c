@@ -20,8 +20,10 @@ static int drv_relocation_compare(const void* left, const void* right) {
 static bool drv_relocation_source(const Module* mod,
                                   ModuleSymbolSection source_section,
                                   uint64_t rodata_rva, uint64_t data_rva,
+                                  uint64_t init_array_rva,
                                   uint64_t code_file_offset,
                                   uint64_t rodata_file_offset,
+                                  uint64_t init_array_file_offset,
                                   uint64_t data_file_offset,
                                   uint64_t* source_rva,
                                   uint64_t* source_file_offset,
@@ -36,6 +38,11 @@ static bool drv_relocation_source(const Module* mod,
             *source_rva = rodata_rva;
             *source_file_offset = rodata_file_offset;
             *source_size = mod->rodata.size;
+            return true;
+        case MODULE_SYMBOL_INIT_ARRAY:
+            *source_rva = init_array_rva;
+            *source_file_offset = init_array_file_offset;
+            *source_size = mod->init_array.size;
             return true;
         case MODULE_SYMBOL_DATA:
             *source_rva = data_rva;
@@ -64,7 +71,7 @@ static void driver_name(const char* path, char* output, size_t capacity) {
 
 bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     RinDriverHeaderV3 header;
-    RinSectionV3 sections[5];
+    RinSectionV3 sections[6];
     RinDriverMatchV3 match;
     RinRelocationV3* relocations = NULL;
     Reloc* source_relocation;
@@ -76,6 +83,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     char name[48];
     uint32_t strings_size = 1u;
     uint32_t text_name;
+    uint32_t init_array_name = 0u;
     uint32_t rodata_name = 0u;
     uint32_t data_name = 0u;
     uint32_t bss_name = 0u;
@@ -86,9 +94,11 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     uint64_t string_table_offset;
     uint64_t code_file_offset;
     uint64_t rodata_file_offset = 0u;
+    uint64_t init_array_file_offset = 0u;
     uint64_t data_file_offset = 0u;
     uint64_t relocation_file_offset = 0u;
     uint64_t rodata_rva = 0u;
+    uint64_t init_array_rva = 0u;
     uint64_t data_rva = 0u;
     uint64_t bss_rva = 0u;
     uint64_t unsigned_size;
@@ -111,6 +121,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     for (source_relocation = mod->relocs; source_relocation;
          source_relocation = source_relocation->next) ++relocation_count;
     if (mod->rodata.size > 0u) ++section_count;
+    if (mod->init_array.size > 0u) ++section_count;
     if (mod->data.size > 0u) ++section_count;
     if (mod->bss.size > 0u) ++section_count;
     if (relocation_count > 0u) ++section_count;
@@ -126,6 +137,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     strings_size += (uint32_t)_length; \
 } while (0)
     ADD_STRING(".text", text_name);
+    if (mod->init_array.size > 0u) ADD_STRING(".init_array", init_array_name);
     if (mod->rodata.size > 0u) ADD_STRING(".rodata", rodata_name);
     if (mod->data.size > 0u) ADD_STRING(".data", data_name);
     if (mod->bss.size > 0u) ADD_STRING(".bss", bss_name);
@@ -141,6 +153,13 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     code_file_offset = drv_align(string_table_offset + strings_size, 16u);
     payload_file_end = code_file_offset + mod->code.size;
     mapped_end = mod->code.size;
+    if (mod->init_array.size > 0u) {
+        uint64_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        init_array_rva = drv_align(mapped_end, pointer_size);
+        init_array_file_offset = code_file_offset + init_array_rva;
+        payload_file_end = init_array_file_offset + mod->init_array.size;
+        mapped_end = init_array_rva + mod->init_array.size;
+    }
     if (mod->rodata.size > 0u) {
         rodata_file_offset = drv_align(payload_file_end, 16u);
         payload_file_end = rodata_file_offset + mod->rodata.size;
@@ -196,9 +215,21 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     sections[0].flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE;
     sections[0].alignment = 16u;
     sections[0].file_offset = code_file_offset;
-    sections[0].file_size = mod->code.size;
-    sections[0].memory_size = mod->code.size;
+    sections[0].file_size = mod->init_array.size > 0u
+        ? init_array_rva + mod->init_array.size : mod->code.size;
+    sections[0].memory_size = sections[0].file_size;
     sections[0].name_offset = text_name;
+    if (mod->init_array.size > 0u) {
+        RinSectionV3* section = &sections[next_section++];
+        section->type = RIN_IMAGE_SECTION_INIT_ARRAY;
+        section->flags = RIN_IMAGE_SECTION_READ;
+        section->alignment = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        section->file_offset = init_array_file_offset;
+        section->file_size = mod->init_array.size;
+        section->virtual_address = init_array_rva;
+        section->memory_size = mod->init_array.size;
+        section->name_offset = init_array_name;
+    }
     if (mod->rodata.size > 0u) {
         RinSectionV3* section = &sections[next_section++];
         section->type = RIN_IMAGE_SECTION_RODATA;
@@ -247,9 +278,10 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
             uint64_t source_file_offset;
             uint64_t source_size;
             if (!drv_relocation_source(mod, source_relocation->source_section,
-                                       rodata_rva, data_rva,
+                                       rodata_rva, data_rva, init_array_rva,
                                        code_file_offset, rodata_file_offset,
-                                       data_file_offset, &source_rva,
+                                       init_array_file_offset, data_file_offset,
+                                       &source_rva,
                                        &source_file_offset, &source_size) ||
                 source_relocation->offset > source_size ||
                 width > source_size - source_relocation->offset ||
@@ -287,12 +319,17 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     match.name_offset = driver_name_offset;
 
     output = rcc_alloc((size_t)unsigned_size);
+    memset(output, 0, (size_t)unsigned_size);
     memcpy(output, &header, sizeof(header));
     memcpy(output + section_table_offset, sections,
            (size_t)section_count * sizeof(RinSectionV3));
     memcpy(output + match_table_offset, &match, sizeof(match));
     memcpy(output + string_table_offset, strings, strings_size);
     memcpy(output + code_file_offset, mod->code.data, mod->code.size);
+    if (mod->init_array.size > 0u) {
+        memcpy(output + init_array_file_offset, mod->init_array.data,
+               mod->init_array.size);
+    }
     if (mod->rodata.size > 0u) {
         memcpy(output + rodata_file_offset, mod->rodata.data,
                mod->rodata.size);
@@ -306,8 +343,9 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         uint64_t source_size;
         bool is_64bit = source_relocation->type == RIN_RELOC_ABS64;
         if (!drv_relocation_source(mod, source_relocation->source_section,
-                                   rodata_rva, data_rva, code_file_offset,
-                                   rodata_file_offset, data_file_offset,
+                                   rodata_rva, data_rva, init_array_rva,
+                                   code_file_offset, rodata_file_offset,
+                                   init_array_file_offset, data_file_offset,
                                    &source_rva, &source_file_offset,
                                    &source_size) ||
             !module_resolve_image_relocation(mod,

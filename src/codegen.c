@@ -61,6 +61,10 @@ Module* codegen_new(void) {
     mod->rodata.size = 0;
     mod->rodata.capacity = INIT_CAPACITY;
 
+    mod->init_array.data = rcc_alloc(INIT_CAPACITY);
+    mod->init_array.size = 0;
+    mod->init_array.capacity = INIT_CAPACITY;
+
     mod->data.data = rcc_alloc(INIT_CAPACITY);
     mod->data.size = 0;
     mod->data.capacity = INIT_CAPACITY;
@@ -85,6 +89,8 @@ Module* codegen_new(void) {
     mod->relocs_arr = NULL;
     mod->reloc_count = 0;
     mod->reloc_capacity = 0;
+    mod->global_initializers = NULL;
+    mod->global_initializer_count = 0;
 
     return mod;
 }
@@ -98,6 +104,11 @@ void codegen_free(Module* mod) {
     }
     for (int index = 0; index < mod->reloc_count; ++index) {
         rcc_free((void*)mod->relocs_arr[index].symbol_name);
+    }
+    while (mod->global_initializers) {
+        GlobalInitializer* next = mod->global_initializers->next;
+        rcc_free(mod->global_initializers);
+        mod->global_initializers = next;
     }
     relocation = mod->relocs;
     while (relocation) {
@@ -113,6 +124,7 @@ void codegen_free(Module* mod) {
     }
     rcc_free(mod->code.data);
     rcc_free(mod->rodata.data);
+    rcc_free(mod->init_array.data);
     rcc_free(mod->data.data);
     rcc_free(mod->tls.data);
     rcc_free(mod->symbols);
@@ -485,6 +497,28 @@ static bool codegen_static_integer(Expr* expression, int64_t* value) {
         case EXPR_GE: *value = left >= right; return true;
         default: return false;
     }
+}
+
+static bool codegen_runtime_global_scalar(const Type* type) {
+    if (!type || type->size <= 0) return false;
+    if (type->kind == TYPE_ARRAY || type->kind == TYPE_STRUCT ||
+        type->kind == TYPE_UNION || type->kind == TYPE_FUNC) return false;
+    return type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
+           type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
+           type_is_floating((Type*)type);
+}
+
+static void codegen_defer_global_initializer(Module* mod, Decl* declaration) {
+    GlobalInitializer* initializer;
+    GlobalInitializer** tail;
+    if (!mod || !declaration) return;
+    initializer = rcc_alloc(sizeof(*initializer));
+    initializer->declaration = declaration;
+    initializer->next = NULL;
+    tail = &mod->global_initializers;
+    while (*tail) tail = &(*tail)->next;
+    *tail = initializer;
+    ++mod->global_initializer_count;
 }
 
 /* Evaluate the floating subset permitted in a static initializer.  Keeping
@@ -1065,9 +1099,13 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         declaration->var_offset = offset;
         if (!codegen_emit_static_initializer(
                 mod, declaration->type, declaration->var_init, offset)) {
-            rcc_error(declaration->loc,
-                      "unsupported static initializer for '%s'",
-                      declaration->name);
+            if (codegen_runtime_global_scalar(declaration->type)) {
+                codegen_defer_global_initializer(mod, declaration);
+            } else {
+                rcc_error(declaration->loc,
+                          "unsupported static initializer for '%s'",
+                          declaration->name);
+            }
         }
         codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
                                    declaration->type);
@@ -1545,6 +1583,34 @@ static void resolve_func_calls(Module* mod) {
                                   ref->func_name);
         }
     }
+}
+
+static void ensure_init_array_capacity(Module* mod, size_t needed) {
+    if (mod->init_array.size + needed > mod->init_array.capacity) {
+        while (mod->init_array.size + needed > mod->init_array.capacity) {
+            mod->init_array.capacity *= 2;
+        }
+        mod->init_array.data = rcc_realloc(mod->init_array.data,
+                                           mod->init_array.capacity);
+    }
+}
+
+void codegen_add_init_array_entry(Module* mod, const char* symbol) {
+    uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    uint32_t offset;
+    if (!mod || !symbol) return;
+    while ((mod->init_array.size & (pointer_size - 1u)) != 0u) {
+        ensure_init_array_capacity(mod, 1u);
+        mod->init_array.data[mod->init_array.size++] = 0u;
+    }
+    offset = (uint32_t)mod->init_array.size;
+    ensure_init_array_capacity(mod, pointer_size);
+    memset(mod->init_array.data + mod->init_array.size, 0, pointer_size);
+    mod->init_array.size += pointer_size;
+    module_add_relocation(mod, MODULE_SYMBOL_INIT_ARRAY, offset, 0u,
+                          false, pointer_size == 8u, symbol);
+    add_reloc(mod, MODULE_SYMBOL_INIT_ARRAY, offset,
+              pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
 }
 
 static uint32_t emit_rodata(Module* mod, const void* data, size_t len) {
@@ -6356,6 +6422,98 @@ static void gen_scoped_stmt(Module* mod, Stmt* statement) {
     discard_cleanups_until(marker);
 }
 
+static bool gen_global_initializer32(Module* mod, Decl* declaration) {
+    Type* type = declaration ? declaration->type : NULL;
+    Expr* initializer = declaration ? declaration->var_init : NULL;
+    if (!mod || !declaration || !type || !initializer) return false;
+    if (gen_is_floating(type)) {
+        gen_expr_as_type(mod, initializer, type);
+        if (gen_float_width(type) == 4) {
+            emit_push_reg(mod, EAX);
+            gen_symbol_address(mod, decl_link_name(declaration), 0u);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_pop_reg(mod, EAX);
+        } else {
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            gen_symbol_address(mod, decl_link_name(declaration), 0u);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_pop_reg(mod, EAX);
+            emit_pop_reg(mod, EDX);
+        }
+        emit_store_floating_raw(mod, type, ECX, 0);
+        return true;
+    }
+    if (gen_is_integer64(type)) {
+        gen_expr_as_integer64(mod, initializer);
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        gen_symbol_address(mod, decl_link_name(declaration), 0u);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_pop_reg(mod, EAX);
+        emit_pop_reg(mod, EDX);
+        emit_mov_mem_reg(mod, ECX, 0, EAX);
+        emit_mov_mem_reg(mod, ECX, 4, EDX);
+        return true;
+    }
+    gen_expr(mod, initializer);
+    if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+        emit_convert_integer_value(mod, EAX, initializer->type, type);
+        emit_normalize_atomic_value(mod, EAX, type);
+    }
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(mod, decl_link_name(declaration), 0u);
+    emit_mov_reg_reg(mod, EDX, EAX);
+    emit_pop_reg(mod, ECX);
+    emit_store_typed32(mod, EDX, 0, ECX, type);
+    return true;
+}
+
+static void codegen_emit_global_init32(Module* mod) {
+    const char* name = "__rcc_global_init";
+    GlobalInitializer* initializer;
+    Type* old_return_type;
+    CleanupCodegen* old_cleanups;
+    VLAScopeCodegen* old_vla_scopes;
+    VLAScopeCodegen* old_break_vla;
+    VLAScopeCodegen* old_continue_vla;
+    uint32_t start;
+    if (!mod || !mod->global_initializers) return;
+    start = code_offset(mod);
+    add_func_def(name, start);
+    emit_push_reg(mod, EBP);
+    emit_mov_reg_reg(mod, EBP, ESP);
+    old_return_type = current_function_return_type;
+    current_function_return_type = NULL;
+    old_cleanups = active_cleanups;
+    old_vla_scopes = active_vla_scopes;
+    old_break_vla = break_vla_marker;
+    old_continue_vla = continue_vla_marker;
+    active_cleanups = NULL;
+    active_vla_scopes = NULL;
+    break_vla_marker = NULL;
+    continue_vla_marker = NULL;
+    for (initializer = mod->global_initializers; initializer;
+         initializer = initializer->next) {
+        if (!gen_global_initializer32(mod, initializer->declaration)) {
+            rcc_error((SourceLoc){"<global-init>", 0, 0},
+                      "cannot lower deferred global initializer");
+        }
+    }
+    discard_cleanups_until(NULL);
+    discard_vla_scopes_until(NULL);
+    active_cleanups = old_cleanups;
+    active_vla_scopes = old_vla_scopes;
+    break_vla_marker = old_break_vla;
+    continue_vla_marker = old_continue_vla;
+    current_function_return_type = old_return_type;
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_leave(mod);
+    emit_ret(mod);
+    module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
+    codegen_add_init_array_entry(mod, name);
+}
+
 static Type* codegen_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -6957,6 +7115,8 @@ Module* rcc_codegen(AST* ast) {
             }
         }
     }
+
+    codegen_emit_global_init32(mod);
 
     codegen_emit_cxx_vtables(mod);
 
