@@ -329,6 +329,18 @@ const char* module_get_got_entry(Module* mod, const char* target_symbol) {
     return entry->slot_symbol;
 }
 
+const ModuleSymbol* module_lookup_symbol(const Module* mod,
+                                         const char* symbol_name) {
+    if (!mod || !symbol_name) return NULL;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        if (mod->symbols[index].name &&
+            strcmp(mod->symbols[index].name, symbol_name) == 0) {
+            return &mod->symbols[index];
+        }
+    }
+    return NULL;
+}
+
 bool module_resolve_image_relocation(const Module* mod,
                                      ModuleSymbolSection source_section,
                                      uint32_t offset,

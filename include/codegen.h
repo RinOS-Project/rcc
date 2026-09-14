@@ -182,6 +182,8 @@ void module_add_tls_relocation(Module* mod,
                                ModuleSymbolSection source_section,
                                uint32_t offset, const char* symbol_name);
 const char* module_get_got_entry(Module* mod, const char* target_symbol);
+const ModuleSymbol* module_lookup_symbol(const Module* mod,
+                                         const char* symbol_name);
 bool module_resolve_image_relocation(const Module* mod,
                                      ModuleSymbolSection source_section,
                                      uint32_t offset,

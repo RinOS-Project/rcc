@@ -62,6 +62,125 @@ static bool drv_relocation_source(const Module* mod,
     }
 }
 
+static bool drv_add_got_slot_relocations(Module* mod, const char* outfile) {
+    uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    uint32_t relocation_type = pointer_size == 8u
+        ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32;
+
+    for (ModuleGotEntry* entry = mod ? mod->got_entries : NULL;
+         entry; entry = entry->next) {
+        bool present = false;
+        if (entry->offset > mod->data.size ||
+            pointer_size > mod->data.size - entry->offset) {
+            rcc_error((SourceLoc){outfile, 0, 0},
+                      "PIC GOT slot exceeds NDRV data section");
+            return false;
+        }
+        for (Reloc* relocation = mod->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->source_section == MODULE_SYMBOL_DATA &&
+                relocation->offset == entry->offset &&
+                relocation->type == relocation_type) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) {
+            add_reloc(mod, MODULE_SYMBOL_DATA, entry->offset,
+                      relocation_type);
+        }
+    }
+    return true;
+}
+
+static bool drv_patch_relative_relocations(
+    Module* mod, uint8_t* output, const char* outfile,
+    uint64_t rodata_rva, uint64_t init_array_rva, uint64_t fini_array_rva,
+    uint64_t data_rva, uint64_t bss_rva, uint64_t code_file_offset,
+    uint64_t rodata_file_offset, uint64_t init_array_file_offset,
+    uint64_t fini_array_file_offset, uint64_t data_file_offset) {
+    for (int index = 0; index < mod->reloc_count; ++index) {
+        const ModuleReloc* relocation = &mod->relocs_arr[index];
+        const ModuleSymbol* target;
+        uint64_t source_rva;
+        uint64_t source_file_offset;
+        uint64_t source_size;
+        uint64_t target_rva;
+        uint64_t place;
+        int64_t displacement;
+        uint32_t encoded;
+
+        if (!relocation->is_relative) continue;
+        if (!drv_relocation_source(
+                mod, relocation->source_section, rodata_rva, data_rva,
+                init_array_rva, fini_array_rva, code_file_offset,
+                rodata_file_offset, init_array_file_offset,
+                fini_array_file_offset, data_file_offset, &source_rva,
+                &source_file_offset, &source_size) || relocation->offset > source_size ||
+            4u > source_size - relocation->offset ||
+            !relocation->symbol_name) {
+            rcc_error((SourceLoc){outfile, 0, 0},
+                      "invalid relative relocation in direct NDRV v3 output");
+            return false;
+        }
+        target = module_lookup_symbol(mod, relocation->symbol_name);
+        if (!target || !target->is_defined) {
+            rcc_error((SourceLoc){outfile, 0, 0},
+                      "direct NDRV v3 output cannot contain unresolved relative relocation '%s'; emit .ro and link with rld",
+                      relocation->symbol_name);
+            return false;
+        }
+        switch (target->section) {
+            case MODULE_SYMBOL_CODE: target_rva = target->offset; break;
+            case MODULE_SYMBOL_RODATA: target_rva = rodata_rva + target->offset; break;
+            case MODULE_SYMBOL_DATA: target_rva = data_rva + target->offset; break;
+            case MODULE_SYMBOL_BSS: target_rva = bss_rva + target->offset; break;
+            case MODULE_SYMBOL_INIT_ARRAY:
+                target_rva = init_array_rva + target->offset;
+                break;
+            case MODULE_SYMBOL_FINI_ARRAY:
+                target_rva = fini_array_rva + target->offset;
+                break;
+            default:
+                rcc_error((SourceLoc){outfile, 0, 0},
+                          "relative relocation target '%s' is not loadable",
+                          relocation->symbol_name);
+                return false;
+        }
+        if (target_rva > UINT64_MAX - relocation->target ||
+            source_rva > UINT64_MAX - relocation->offset - 4u) {
+            rcc_error((SourceLoc){outfile, 0, 0},
+                      "relative relocation address overflow");
+            return false;
+        }
+        target_rva += relocation->target;
+        place = source_rva + relocation->offset + 4u;
+        if (target_rva >= place) {
+            uint64_t distance = target_rva - place;
+            if (distance > (uint64_t)INT32_MAX) {
+                rcc_error((SourceLoc){outfile, 0, 0},
+                          "relative relocation overflow for '%s'",
+                          relocation->symbol_name);
+                return false;
+            }
+            displacement = (int64_t)distance;
+        } else {
+            uint64_t distance = place - target_rva;
+            if (distance > (uint64_t)INT32_MAX + 1u) {
+                rcc_error((SourceLoc){outfile, 0, 0},
+                          "relative relocation underflow for '%s'",
+                          relocation->symbol_name);
+                return false;
+            }
+            displacement = -(int64_t)distance;
+        }
+        encoded = (uint32_t)(int32_t)displacement;
+        memcpy(output + source_file_offset + relocation->offset,
+               &encoded, sizeof(encoded));
+    }
+    return true;
+}
+
 static void driver_name(const char* path, char* output, size_t capacity) {
     const char* base = path;
     const char* cursor;
@@ -128,6 +247,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for NDRV v3 output");
         return false;
     }
+    if (!drv_add_got_slot_relocations(mod, outfile)) return false;
     for (source_relocation = mod->relocs; source_relocation;
          source_relocation = source_relocation->next) ++relocation_count;
     if (mod->rodata.size > 0u) ++section_count;
@@ -373,6 +493,14 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
                mod->rodata.size);
     }
     if (mod->data.size > 0u) memcpy(output + data_file_offset, mod->data.data, mod->data.size);
+    if (!drv_patch_relative_relocations(
+            mod, output, outfile, rodata_rva, init_array_rva, fini_array_rva,
+            data_rva, bss_rva, code_file_offset, rodata_file_offset,
+            init_array_file_offset, fini_array_file_offset, data_file_offset)) {
+        rcc_free(relocations);
+        rcc_free(output);
+        return false;
+    }
     for (source_relocation = mod->relocs; source_relocation;
          source_relocation = source_relocation->next) {
         uint64_t resolved;

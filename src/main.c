@@ -56,8 +56,8 @@ static void print_usage(void) {
     printf("\n");
     printf("Code generation:\n");
     printf("  -ffreestanding  Freestanding environment\n");
-    printf("  -fPIC/-fpic     Position-independent object calls (with -c)\n");
-    printf("  -fPIE/-fpie     Position-independent executable object calls (with -c)\n");
+    printf("  -fPIC/-fpic     Position-independent code and data references\n");
+    printf("  -fPIE/-fpie     Position-independent executable code and data references\n");
     printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("\n");
     printf("Other:\n");
@@ -359,15 +359,6 @@ static int parse_args(int argc, char** argv) {
                 "rcc: error: -fverified-backend currently requires -c\n");
         return -1;
     }
-    if ((g_opts.pic || g_opts.pie) && !g_opts.preprocess_only &&
-        g_opts.output_format != OUTPUT_OBJ &&
-        g_opts.output_format != OUTPUT_ASM) {
-        fprintf(stderr,
-                "rcc: error: -fPIC/-fPIE final images require the pending "
-                "RIN v3 GOT/PLT ABI; use -c for PIC objects\n");
-        return -1;
-    }
-
     /* Default output file */
     if (g_opts.output_file[0] == '\0') {
         const char* ext;
