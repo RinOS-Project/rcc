@@ -309,15 +309,78 @@ static const char* parse_operator_name(void) {
         case TOK_ASSIGN:
             advance();
             return rcc_intern("operator=");
-        case TOK_PLUS: case TOK_MINUS: case TOK_STAR: case TOK_SLASH:
-        case TOK_PERCENT: case TOK_INC: case TOK_DEC:
-        case TOK_EQ: case TOK_NE: case TOK_LT: case TOK_LE:
-        case TOK_GT: case TOK_GE: case TOK_AMP: case TOK_PIPE:
-        case TOK_CARET: case TOK_TILDE: case TOK_NOT:
-        case TOK_AND: case TOK_OR: case TOK_LSHIFT: case TOK_RSHIFT:
-        case TOK_COMMA: case TOK_ARROW:
+        case TOK_PLUS:
             advance();
-            return rcc_intern("operator");
+            return rcc_intern("operator+");
+        case TOK_MINUS:
+            advance();
+            return rcc_intern("operator-");
+        case TOK_STAR:
+            advance();
+            return rcc_intern("operator*");
+        case TOK_SLASH:
+            advance();
+            return rcc_intern("operator/");
+        case TOK_PERCENT:
+            advance();
+            return rcc_intern("operator%");
+        case TOK_INC:
+            advance();
+            return rcc_intern("operator++");
+        case TOK_DEC:
+            advance();
+            return rcc_intern("operator--");
+        case TOK_EQ:
+            advance();
+            return rcc_intern("operator==");
+        case TOK_NE:
+            advance();
+            return rcc_intern("operator!=");
+        case TOK_LT:
+            advance();
+            return rcc_intern("operator<");
+        case TOK_LE:
+            advance();
+            return rcc_intern("operator<=");
+        case TOK_GT:
+            advance();
+            return rcc_intern("operator>");
+        case TOK_GE:
+            advance();
+            return rcc_intern("operator>=");
+        case TOK_AMP:
+            advance();
+            return rcc_intern("operator&");
+        case TOK_PIPE:
+            advance();
+            return rcc_intern("operator|");
+        case TOK_CARET:
+            advance();
+            return rcc_intern("operator^");
+        case TOK_TILDE:
+            advance();
+            return rcc_intern("operator~");
+        case TOK_NOT:
+            advance();
+            return rcc_intern("operator!");
+        case TOK_AND:
+            advance();
+            return rcc_intern("operator&&");
+        case TOK_OR:
+            advance();
+            return rcc_intern("operator||");
+        case TOK_LSHIFT:
+            advance();
+            return rcc_intern("operator<<");
+        case TOK_RSHIFT:
+            advance();
+            return rcc_intern("operator>>");
+        case TOK_COMMA:
+            advance();
+            return rcc_intern("operator,");
+        case TOK_ARROW:
+            advance();
+            return rcc_intern("operator->");
         default:
             rcc_error(peek()->loc, "expected overloaded operator");
             return NULL;

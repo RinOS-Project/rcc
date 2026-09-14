@@ -3189,6 +3189,57 @@ static TypeMethod* sema_select_cxx_member_method(
     return best;
 }
 
+static const char* sema_cxx_binary_operator_name(ExprKind kind) {
+    switch (kind) {
+        case EXPR_ADD: return "operator+";
+        case EXPR_SUB: return "operator-";
+        case EXPR_MUL: return "operator*";
+        case EXPR_DIV: return "operator/";
+        case EXPR_MOD: return "operator%";
+        case EXPR_BITAND: return "operator&";
+        case EXPR_BITOR: return "operator|";
+        case EXPR_BITXOR: return "operator^";
+        case EXPR_LSHIFT: return "operator<<";
+        case EXPR_RSHIFT: return "operator>>";
+        case EXPR_EQ: return "operator==";
+        case EXPR_NE: return "operator!=";
+        case EXPR_LT: return "operator<";
+        case EXPR_GT: return "operator>";
+        case EXPR_LE: return "operator<=";
+        case EXPR_GE: return "operator>=";
+        case EXPR_AND: return "operator&&";
+        case EXPR_OR: return "operator||";
+        default: return NULL;
+    }
+}
+
+/* Rewrite a binary expression to an ordinary member call only after a real
+ * operator member exists.  This keeps the built-in arithmetic path intact
+ * for scalar operands and ensures an overloaded operation uses the same
+ * access, conversion, this-adjustment, and ABI machinery as obj.method(). */
+static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) {
+    const char* name;
+    Type* aggregate;
+    TypeMethod* method;
+    Expr* member;
+    Expr* call;
+    if (!expression || !left_type) return false;
+    aggregate = generic_selection_type(left_type);
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION)) {
+        return false;
+    }
+    name = sema_cxx_binary_operator_name(expression->kind);
+    if (!name) return false;
+    method = sema_find_function_method(aggregate, name);
+    if (!method || !method->function_decl) return false;
+    member = expr_member(expression->binary_lhs, name, expression->loc);
+    call = expr_call(member, exprlist_new(expression->binary_rhs),
+                     expression->loc);
+    *expression = *call;
+    return true;
+}
+
 static Expr* sema_cxx_move_member(Expr* object, TypeField* field) {
     Expr* member = expr_member(object, field->name, object->loc);
     member->member_field = field;
@@ -3376,6 +3427,14 @@ static bool sema_prepare_cxx_close_call(Expr* expression,
 
 static Type* sema_expr(Expr* expr) {
     if (!expr) return NULL;
+
+    if (expr->kind >= EXPR_ADD && expr->kind <= EXPR_OR &&
+        expr->binary_lhs && expr->binary_rhs) {
+        Type* left_type = sema_expr(expr->binary_lhs);
+        if (sema_rewrite_cxx_binary_operator(expr, left_type)) {
+            return sema_expr(expr);
+        }
+    }
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
