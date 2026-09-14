@@ -3598,9 +3598,50 @@ static int codegen64_asm_register(const char* constraint)
     }
 }
 
+static bool codegen64_asm_no_operands(const char* text, size_t length,
+                                       const char* mnemonic)
+{
+    size_t mnemonic_length = strlen(mnemonic);
+    return length == mnemonic_length &&
+           strncmp(text, mnemonic, mnemonic_length) == 0;
+}
+
+static bool codegen64_asm_parse_int(const char* text, size_t length,
+                                    uint8_t* immediate_out)
+{
+    char operand[64];
+    char* end;
+    long long parsed;
+    size_t cursor = 3u;
+    size_t operand_length;
+
+    if (length < 4u || strncmp(text, "int", 3u) != 0 ||
+        (text[3] != ' ' && text[3] != '\t')) return false;
+    while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
+        ++cursor;
+    }
+    operand_length = length - cursor;
+    while (operand_length > 0u &&
+           (text[cursor + operand_length - 1u] == ' ' ||
+            text[cursor + operand_length - 1u] == '\t')) {
+        --operand_length;
+    }
+    if (operand_length < 2u || operand_length >= sizeof(operand)) return false;
+    memcpy(operand, text + cursor, operand_length);
+    operand[operand_length] = '\0';
+    if (operand[0] != '$' || !operand[1]) return false;
+    parsed = strtoll(operand + 1, &end, 0);
+    if (end == operand + 1 || *end != '\0' || parsed < -128 ||
+        parsed > 255) return false;
+    *immediate_out = (uint8_t)parsed;
+    return true;
+}
+
 static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
                                            size_t length)
 {
+    uint8_t immediate;
+
     while (length > 0u && (*text == ' ' || *text == '\t' ||
                            *text == '\r')) {
         ++text;
@@ -3612,32 +3653,83 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         --length;
     }
     if (length == 0u) return true;
-    if (length == 7u && strncmp(text, "syscall", length) == 0) {
+    if (codegen64_asm_no_operands(text, length, "syscall")) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x05);
         return true;
     }
-    if (length == 3u && strncmp(text, "nop", length) == 0) {
+    if (codegen64_asm_parse_int(text, length, &immediate)) {
+        emit_byte(mod, 0xCD);
+        emit_byte(mod, immediate);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "nop")) {
         emit_byte(mod, 0x90);
         return true;
     }
-    if (length == 5u && strncmp(text, "pause", length) == 0) {
+    if (codegen64_asm_no_operands(text, length, "pause")) {
         emit_byte(mod, 0xF3);
         emit_byte(mod, 0x90);
         return true;
     }
-    if (length == 5u && strncmp(text, "cpuid", length) == 0) {
+    if (codegen64_asm_no_operands(text, length, "cpuid")) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xA2);
         return true;
     }
-    if (length == 5u && strncmp(text, "rdtsc", length) == 0) {
+    if (codegen64_asm_no_operands(text, length, "rdtsc")) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x31);
         return true;
     }
-    if (length == 4u && strncmp(text, "int3", length) == 0) {
+    if (codegen64_asm_no_operands(text, length, "int3")) {
         emit_byte(mod, 0xCC);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "cli")) {
+        emit_byte(mod, 0xFA);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "sti")) {
+        emit_byte(mod, 0xFB);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "cld")) {
+        emit_byte(mod, 0xFC);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "std")) {
+        emit_byte(mod, 0xFD);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "hlt")) {
+        emit_byte(mod, 0xF4);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "ret")) {
+        emit_byte(mod, 0xC3);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "leave")) {
+        emit_byte(mod, 0xC9);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "mfence")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xAE);
+        emit_byte(mod, 0xF0);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "lfence")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xAE);
+        emit_byte(mod, 0xE8);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "sfence")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xAE);
+        emit_byte(mod, 0xF8);
         return true;
     }
     return false;

@@ -5080,166 +5080,170 @@ static int constraint_to_reg(const char* constraint) {
     }
 }
 
-static uint8_t asm_immediate8(const char* text) {
-    if (text && text[0] == '$') ++text;
-    return (uint8_t)strtoull(text ? text : "0", NULL, 0);
+static bool asm_parse_immediate8(const char* text, uint8_t* value) {
+    char* end;
+    long long parsed;
+
+    if (!text || text[0] != '$' || !text[1] || !value) return false;
+    parsed = strtoll(text + 1, &end, 0);
+    if (end == text + 1 || *end != '\0' || parsed < -128 || parsed > 255) {
+        return false;
+    }
+    *value = (uint8_t)parsed;
+    return true;
+}
+
+static bool asm_no_operands(const char* op1, const char* op2) {
+    return !op1 && !op2;
 }
 
 /* Encode a single x86 instruction from mnemonic and operands */
-static void emit_asm_instruction(Module* mod, const char* mnemonic,
+static bool emit_asm_instruction(Module* mod, const char* mnemonic,
                                   const char* op1, const char* op2) {
+    uint8_t immediate;
+
     /* Common instructions used in syscall/interrupt context */
     if (strcmp(mnemonic, "int") == 0) {
+        if (op2 || !asm_parse_immediate8(op1, &immediate)) return false;
         emit_byte(mod, 0xCD);
-        emit_byte(mod, asm_immediate8(op1));
+        emit_byte(mod, immediate);
+        return true;
     }
     else if (strcmp(mnemonic, "int3") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xCC);
+        return true;
     }
     else if (strcmp(mnemonic, "syscall") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x05);
+        return true;
     }
     else if (strcmp(mnemonic, "sysenter") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x34);
+        return true;
     }
     else if (strcmp(mnemonic, "nop") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x90);
+        return true;
     }
     else if (strcmp(mnemonic, "hlt") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xF4);
+        return true;
     }
     else if (strcmp(mnemonic, "cli") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xFA);
+        return true;
     }
     else if (strcmp(mnemonic, "sti") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xFB);
+        return true;
     }
     else if (strcmp(mnemonic, "cld") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xFC);
+        return true;
     }
     else if (strcmp(mnemonic, "std") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xFD);
+        return true;
     }
     else if (strcmp(mnemonic, "pushf") == 0 || strcmp(mnemonic, "pushfl") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x9C);
+        return true;
     }
     else if (strcmp(mnemonic, "popf") == 0 || strcmp(mnemonic, "popfl") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x9D);
+        return true;
     }
     else if (strcmp(mnemonic, "ret") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xC3);
+        return true;
     }
     else if (strcmp(mnemonic, "leave") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xC9);
+        return true;
     }
     else if (strcmp(mnemonic, "cpuid") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xA2);
+        return true;
     }
     else if (strcmp(mnemonic, "rdtsc") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x31);
+        return true;
     }
     else if (strcmp(mnemonic, "rdmsr") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x32);
+        return true;
     }
     else if (strcmp(mnemonic, "wrmsr") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x30);
+        return true;
     }
     else if (strcmp(mnemonic, "invlpg") == 0) {
-        /* invlpg [eax] - assume address in EAX */
+        if (op2 || !op1 ||
+            (strcmp(op1, "(%eax)") != 0 && strcmp(op1, "[eax]") != 0)) {
+            return false;
+        }
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x01);
-        emit_byte(mod, 0x38);  /* /7 [EAX] */
+        emit_byte(mod, 0x38);
+        return true;
     }
     else if (strcmp(mnemonic, "wbinvd") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x09);
+        return true;
     }
     else if (strcmp(mnemonic, "pause") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xF3);
         emit_byte(mod, 0x90);
+        return true;
     }
     else if (strcmp(mnemonic, "mfence") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xAE);
         emit_byte(mod, 0xF0);
+        return true;
     }
     else if (strcmp(mnemonic, "lfence") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xAE);
         emit_byte(mod, 0xE8);
+        return true;
     }
     else if (strcmp(mnemonic, "sfence") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0xAE);
         emit_byte(mod, 0xF8);
+        return true;
     }
-    else if (strcmp(mnemonic, "xchg") == 0) {
-        /* xchg eax, eax is nop */
-        emit_byte(mod, 0x90);
-    }
-    /* Memory barrier represented as lock prefix with nop-like op */
-    else if (strcmp(mnemonic, "lock") == 0) {
-        emit_byte(mod, 0xF0);  /* LOCK prefix */
-    }
-    /* I/O instructions */
-    else if (strcmp(mnemonic, "inb") == 0) {
-        if (op2 && strcmp(op2, "%dx") == 0) {
-            emit_byte(mod, 0xEC);  /* in al, dx */
-        } else {
-            emit_byte(mod, 0xE4);  /* in al, imm8 */
-            emit_byte(mod, asm_immediate8(op2));
-        }
-    }
-    else if (strcmp(mnemonic, "inw") == 0) {
-        emit_byte(mod, 0x66);
-        if (op2 && strcmp(op2, "%dx") == 0) {
-            emit_byte(mod, 0xED);
-        } else {
-            emit_byte(mod, 0xE5);
-            emit_byte(mod, asm_immediate8(op2));
-        }
-    }
-    else if (strcmp(mnemonic, "inl") == 0) {
-        if (op2 && strcmp(op2, "%dx") == 0) {
-            emit_byte(mod, 0xED);
-        } else {
-            emit_byte(mod, 0xE5);
-            emit_byte(mod, asm_immediate8(op2));
-        }
-    }
-    else if (strcmp(mnemonic, "outb") == 0) {
-        if (op1 && strcmp(op1, "%dx") == 0) {
-            emit_byte(mod, 0xEE);  /* out dx, al */
-        } else {
-            emit_byte(mod, 0xE6);  /* out imm8, al */
-            emit_byte(mod, asm_immediate8(op1));
-        }
-    }
-    else if (strcmp(mnemonic, "outw") == 0) {
-        emit_byte(mod, 0x66);
-        if (op1 && strcmp(op1, "%dx") == 0) {
-            emit_byte(mod, 0xEF);
-        } else {
-            emit_byte(mod, 0xE7);
-            emit_byte(mod, asm_immediate8(op1));
-        }
-    }
-    else if (strcmp(mnemonic, "outl") == 0) {
-        if (op1 && strcmp(op1, "%dx") == 0) {
-            emit_byte(mod, 0xEF);
-        } else {
-            emit_byte(mod, 0xE7);
-            emit_byte(mod, asm_immediate8(op1));
-        }
-    }
-    /* Default: skip unknown instructions with a warning */
-    /* In a real compiler, we'd report an error */
+    return false;
 }
 
 /* Parse and emit inline assembly */
@@ -5405,9 +5409,13 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
             }
 
             /* Emit the instruction */
-            emit_asm_instruction(mod, mnemonic,
-                                 op1[0] ? op1 : NULL,
-                                 op2[0] ? op2 : NULL);
+            if (!emit_asm_instruction(mod, mnemonic,
+                                       op1[0] ? op1 : NULL,
+                                       op2[0] ? op2 : NULL)) {
+                rcc_error(stmt->loc,
+                          "unsupported i686 inline asm instruction '%s'",
+                          mnemonic);
+            }
         }
 
         if (saved) {

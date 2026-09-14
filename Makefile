@@ -134,7 +134,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1284,7 +1284,7 @@ test-function-calls: $(RCC_TARGET)
 	@echo "Dual-architecture C17 function call contract tests completed"
 
 test-inline-asm-execute: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/inline-asm
+	$(call MKDIR_P,$(TEST_OUT)/inline-asm)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/inline-asm/x86.ro tests/inline_asm_execution.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -1305,7 +1305,23 @@ test-inline-asm-execute: $(RCC_TARGET)
 	fi
 	grep -q "unsupported AMD64 inline asm instruction" \
 		$(TEST_OUT)/inline-asm/invalid.log
+	@if $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/inline-asm/invalid-x86.ro \
+		tests/invalid_inline_asm_instruction.c \
+		>$(TEST_OUT)/inline-asm/invalid-x86.log 2>&1; then \
+		echo "unsupported i686 inline asm unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "unsupported i686 inline asm instruction" \
+		$(TEST_OUT)/inline-asm/invalid-x86.log
 	@echo "Dual-architecture fixed-register inline asm tests completed"
+
+test-inline-asm: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/inline-asm-compile)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/inline-asm-compile/x86.ro tests/asm_test.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/inline-asm-compile/x64.ro tests/asm_test.c
+	@echo "Dual-architecture inline asm instruction tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-varargs: $(RCC_TARGET)
