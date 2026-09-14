@@ -847,6 +847,14 @@ test-vla-declarations: $(RCC_TARGET)
 		-o $(TEST_OUT)/vla-declarations/invalid-member-x64.ro \
 		tests/invalid_vla_member.c \
 		>$(TEST_OUT)/vla-declarations/invalid-member-x64.log 2>&1
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-initializer-x86.ro \
+		tests/invalid_vla_initializer.c \
+		>$(TEST_OUT)/vla-declarations/invalid-initializer-x86.log 2>&1
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-initializer-x64.ro \
+		tests/invalid_vla_initializer.c \
+		>$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log 2>&1
 	grep -q "variably modified object cannot have linkage" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
 	grep -q "variably modified typedef is only valid at block scope" \
@@ -859,6 +867,10 @@ test-vla-declarations: $(RCC_TARGET)
 		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log
 	grep -q "variably modified type is not allowed for struct/union member" \
 		$(TEST_OUT)/vla-declarations/invalid-member-x64.log
+	grep -q "variable-length array cannot have an initializer" \
+		$(TEST_OUT)/vla-declarations/invalid-initializer-x86.log
+	grep -q "variable-length array cannot have an initializer" \
+		$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log
 	@echo "C17 invalid variably modified declaration tests completed"
 
 ifeq ($(OS),Windows_NT)
