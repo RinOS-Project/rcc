@@ -556,6 +556,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_is_new = false;
     e->call_new_value_init = false;
     e->call_new_is_array = false;
+    e->call_new_brace_init = false;
     e->call_new_type = NULL;
     e->call_new_count = NULL;
     e->call_new_args = NULL;

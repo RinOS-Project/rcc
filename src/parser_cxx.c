@@ -3577,6 +3577,7 @@ Expr* rcc_parse_cxx_special_expression(void) {
         ExprList* allocation_args = NULL;
         bool is_array = false;
         bool value_init = false;
+        bool brace_init = false;
 
         if (match(TOK_LBRACKET)) {
             is_array = true;
@@ -3595,6 +3596,7 @@ Expr* rcc_parse_cxx_special_expression(void) {
             }
             expect(TOK_RPAREN, ")");
         } else if (match(TOK_LBRACE)) {
+            brace_init = true;
             value_init = check(TOK_RBRACE);
             while (!check(TOK_RBRACE) && !at_end()) {
                 exprlist_append(&new_args, parse_assignment_expression());
@@ -3617,6 +3619,7 @@ Expr* rcc_parse_cxx_special_expression(void) {
         allocation->call_is_new = true;
         allocation->call_new_value_init = value_init;
         allocation->call_new_is_array = is_array;
+        allocation->call_new_brace_init = brace_init;
         allocation->call_new_type = object_type;
         allocation->call_new_count = count;
         /* The allocation size is the ordinary call argument.  Keep the

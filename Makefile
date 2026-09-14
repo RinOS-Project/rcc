@@ -134,7 +134,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -370,6 +370,27 @@ test-cxx-language-core: $(RCXX_TARGET)
 	grep -q 'array new requires element constructor and destructor lowering' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	@echo "RCC++ core language tests completed"
+
+test-cxx-new-array: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-new-array)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-new-array/x86.ro tests/cxx_new_array.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-new-array/x64.ro tests/cxx_new_array.cpp
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-new-array/invalid.ro' tests/cxx_new_array_parenthesized_rejected.cpp *> '$(TEST_OUT)/cxx-new-array/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'array new element initializers require braces' '$(TEST_OUT)/cxx-new-array/invalid.log')) { exit 1 }"
+else
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-new-array/invalid.ro \
+		tests/cxx_new_array_parenthesized_rejected.cpp \
+		>$(TEST_OUT)/cxx-new-array/invalid.log 2>&1; then \
+		echo "parenthesized array-new initializer unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "array new element initializers require braces" \
+		$(TEST_OUT)/cxx-new-array/invalid.log
+endif
+	@echo "RCC++ scalar array-new initializer tests completed"
 
 test-cxx-language-linkage: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-language-linkage

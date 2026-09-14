@@ -2092,12 +2092,42 @@ static Type* sema_expr(Expr* expr) {
                 }
                 argument_count = sema_cxx_argument_count(expr->call_new_args);
                 if (expr->call_new_is_array && expr->call_new_args) {
-                    rcc_error(expr->loc,
-                              "array new does not accept element initializers");
+                    int64_t element_count;
+                    if (!expr->call_new_brace_init) {
+                        rcc_error(expr->loc,
+                                  "array new element initializers require braces");
+                    } else if (object_type->cxx_nontrivial) {
+                        rcc_error(expr->loc,
+                                  "array new requires element constructor and destructor lowering");
+                    } else if (object_type->kind == TYPE_STRUCT ||
+                               object_type->kind == TYPE_UNION ||
+                               object_type->kind == TYPE_ARRAY) {
+                        rcc_error(expr->loc,
+                                  "array new currently requires scalar elements");
+                    } else if (!expr->call_new_count ||
+                               !expr_eval_integer_constant(
+                                   expr->call_new_count, &element_count) ||
+                               element_count < 0) {
+                        rcc_error(expr->loc,
+                                  "array new element initializers require a non-negative constant count");
+                    } else if (element_count < argument_count) {
+                        rcc_error(expr->loc,
+                                  "array new has more initializers than elements");
+                    } else {
+                        for (argument = expr->call_new_args; argument;
+                             argument = argument->next) {
+                            if (cxx_conversion_rank(argument->expr,
+                                                    object_type) < 0) {
+                                rcc_error(argument->expr->loc,
+                                          "array new initializer is incompatible with the element type");
+                            }
+                        }
+                    }
                 }
                 if (expr->call_new_is_array && object_type->cxx_nontrivial) {
-                    rcc_error(expr->loc,
-                              "array new requires element constructor and destructor lowering");
+                    return expr->type;
+                }
+                if (expr->call_new_is_array) {
                     return expr->type;
                 }
                 if (object_type->cxx_nontrivial &&

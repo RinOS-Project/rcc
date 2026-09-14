@@ -2197,6 +2197,50 @@ static void gen64_cxx_zero_array(Module* mod, Expr* expr) {
     emit64_add_reg_imm(mod, RSP, 16);
 }
 
+static void gen64_cxx_init_array(Module* mod, Expr* expr) {
+    Type* element_type = expr ? expr->call_new_type : NULL;
+    ExprList* argument;
+    int offset = 0;
+
+    if (!element_type || element_type->size <= 0 ||
+        !expr || !expr->call_new_count || !expr->call_new_args) {
+        SourceLoc location;
+        codegen64_expr_loc(&location, expr);
+        rcc_error(location, "array new initializer has invalid element storage");
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    /* Keep the element count in the allocation expression only; the
+     * semantic pass has already proved that this constant count covers every
+     * initializer, so no second evaluation or unchecked runtime bound is
+     * needed here. */
+    gen64_expr(mod, expr->call_new_count);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_mov_reg_imm32(mod, RAX, (uint32_t)element_type->size);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_malloc", call_offset);
+    }
+    emit64_push_reg(mod, RAX);
+    for (argument = expr->call_new_args; argument;
+         argument = argument->next, offset += element_type->size) {
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        gen64_expr(mod, argument->expr);
+        if (gen64_is_floating(element_type)) {
+            gen64_convert_to_float(mod, argument->expr->type, element_type);
+        } else if (type_is_integer(element_type) ||
+                   element_type->kind == TYPE_ENUM) {
+            emit64_normalize_atomic_value(mod, RAX, element_type);
+        }
+        emit64_store_typed(mod, RCX, offset, RAX, element_type);
+    }
+    emit64_pop_reg(mod, RAX);
+}
+
 static void gen64_cxx_new(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
@@ -2213,6 +2257,10 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     }
     if (expr->call_new_is_array && expr->call_new_value_init) {
         gen64_cxx_zero_array(mod, expr);
+        return;
+    }
+    if (expr->call_new_is_array && expr->call_new_args) {
+        gen64_cxx_init_array(mod, expr);
         return;
     }
     saved_is_new = expr->call_is_new;

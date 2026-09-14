@@ -398,6 +398,7 @@ struct Expr {
             bool call_is_new;
             bool call_new_value_init;
             bool call_new_is_array;
+            bool call_new_brace_init;
             Type* call_new_type;
             Expr* call_new_count;
             ExprList* call_new_args;

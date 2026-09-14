@@ -3906,6 +3906,47 @@ static void gen_cxx_zero_array32(Module* mod, Expr* expr) {
     emit_add_reg_imm(mod, ESP, 8);
 }
 
+static void gen_cxx_init_array32(Module* mod, Expr* expr) {
+    Type* element_type = expr ? expr->call_new_type : NULL;
+    ExprList* argument;
+    int offset = 0;
+
+    if (!element_type || element_type->size <= 0 ||
+        !expr || !expr->call_new_count || !expr->call_args) {
+        SourceLoc location;
+        codegen_expr_loc(&location, expr);
+        rcc_error(location, "array new initializer has invalid element storage");
+        emit_mov_reg_imm(mod, EAX, 0u);
+        return;
+    }
+    /* Evaluate a constant element count once and retain the allocation across
+     * each initializer expression.  The semantic pass limits this path to
+     * scalar elements and proves that the initializer list fits. */
+    gen_expr(mod, expr->call_new_count);
+    emit_scale_reg(mod, EAX, (uint32_t)element_type->size);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("rin_malloc", call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_push_reg(mod, EAX);
+    for (argument = expr->call_new_args; argument;
+         argument = argument->next, offset += element_type->size) {
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        gen_expr_as_type(mod, argument->expr, element_type);
+        if (type_is_integer(element_type) ||
+            element_type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(mod, EAX, argument->expr->type,
+                                       element_type);
+        }
+        emit_store_typed32(mod, ECX, offset, EAX, element_type);
+    }
+    emit_pop_reg(mod, EAX);
+}
+
 static void gen_cxx_new32(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
@@ -3922,6 +3963,10 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     }
     if (expr->call_new_is_array && expr->call_new_value_init) {
         gen_cxx_zero_array32(mod, expr);
+        return;
+    }
+    if (expr->call_new_is_array && expr->call_new_args) {
+        gen_cxx_init_array32(mod, expr);
         return;
     }
     saved_is_new = expr->call_is_new;
