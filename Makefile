@@ -784,7 +784,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-vla-declarations test-aggregate-union-abi
+.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-aggregate-union-abi
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -812,6 +812,22 @@ test-cxx-static-members: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-members/x64.o
 	$(TEST_OUT)/cxx-static-members/x64
 	@echo "RCC++ static C++ member method tests completed"
+
+test-cxx-static-locals: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-locals)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-locals/x86.s \
+		tests/cxx_static_locals.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-locals/x64.s \
+		tests/cxx_static_locals.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/cxx-static-locals/x86.rin \
+		tests/cxx_static_locals.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/cxx-static-locals/x64.rin \
+		tests/cxx_static_locals.cpp
+	@echo "Dual-architecture C++ static local generation tests completed"
 
 test-vla-declarations: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/vla-declarations)
