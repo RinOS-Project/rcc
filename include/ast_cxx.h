@@ -253,14 +253,22 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                            int arg_count);
 Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                               Type** args, int arg_count);
+Expr* cxx_template_clone_expr_with_values(
+    CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
+    const int64_t* value_args, const bool* value_present);
 Stmt* cxx_template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
                               Type** args, int arg_count);
+Stmt* cxx_template_clone_stmt_with_values(
+    CxxTemplate* tmpl, Stmt* statement, Type** args, int arg_count,
+    const int64_t* value_args, const bool* value_present);
 
 /* Parser-owned class-template substitution used by the public template API.
  * The returned class is the cached specialization, not merely its Type. */
 CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
-                                              Type** args, int arg_count,
-                                              SourceLoc loc);
+                                              Type** args,
+                                              const int64_t* value_args,
+                                              const bool* value_present,
+                                              int arg_count, SourceLoc loc);
 
 /* Global C++ state */
 extern CxxNamespace* g_global_namespace;

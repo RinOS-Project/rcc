@@ -1179,12 +1179,28 @@ static Stmt* template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
 
 Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                               Type** args, int arg_count) {
-    return template_clone_expr(tmpl, expression, args, arg_count, NULL, NULL);
+    return cxx_template_clone_expr_with_values(
+        tmpl, expression, args, arg_count, NULL, NULL);
+}
+
+Expr* cxx_template_clone_expr_with_values(
+    CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
+    const int64_t* value_args, const bool* value_present) {
+    return template_clone_expr(tmpl, expression, args, arg_count,
+                               value_args, value_present);
 }
 
 Stmt* cxx_template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
-                              Type** args, int arg_count) {
-    return template_clone_stmt(tmpl, statement, args, arg_count, NULL, NULL);
+                               Type** args, int arg_count) {
+    return cxx_template_clone_stmt_with_values(
+        tmpl, statement, args, arg_count, NULL, NULL);
+}
+
+Stmt* cxx_template_clone_stmt_with_values(
+    CxxTemplate* tmpl, Stmt* statement, Type** args, int arg_count,
+    const int64_t* value_args, const bool* value_present) {
+    return template_clone_stmt(tmpl, statement, args, arg_count,
+                               value_args, value_present);
 }
 
 static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
@@ -1257,7 +1273,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
 
     if (tmpl->kind == TMPL_CLASS) {
         return rcc_cxx_instantiate_class_template(
-            tmpl, args, arg_count, template_loc);
+            tmpl, args, value_args, value_present, arg_count, template_loc);
     }
 
     /* Function templates use the same parameter substitution model as class

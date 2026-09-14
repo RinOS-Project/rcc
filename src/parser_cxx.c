@@ -7,6 +7,7 @@
 #include "token.h"
 #include "ast.h"
 #include "ast_cxx.h"
+#include <limits.h>
 
 /* External parser state (from parser.c) */
 typedef struct {
@@ -2915,9 +2916,31 @@ static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
     return -1;
 }
 
+static int template_value_parameter_index(CxxTemplate* tmpl,
+                                           Expr* bound_expression) {
+    if (!tmpl || !bound_expression || bound_expression->kind != EXPR_IDENT ||
+        !bound_expression->ident_name) {
+        return -1;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].kind == TPARAM_NONTYPE &&
+            tmpl->params[index].name &&
+            strcmp(tmpl->params[index].name,
+                   bound_expression->ident_name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
-                                      Type** arguments, int argument_count) {
+                                      Type** arguments, int argument_count,
+                                      const int64_t* value_args,
+                                      const bool* value_present) {
     Type* substituted;
+    Type* base;
+    int array_len;
+    Expr* array_bound;
     int parameter_index;
     if (!type) return NULL;
     parameter_index = template_parameter_index(tmpl, type);
@@ -2935,13 +2958,34 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         return substituted;
     }
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
-        Type* base = substitute_template_type(
-            tmpl, type->base, arguments, argument_count);
-        if (base != type->base) {
+        base = substitute_template_type(
+            tmpl, type->base, arguments, argument_count,
+            value_args, value_present);
+        array_len = type->array_len;
+        array_bound = type->array_bound;
+        if (type->kind == TYPE_ARRAY && value_args && value_present &&
+            type->array_bound) {
+            int value_index = template_value_parameter_index(
+                tmpl, type->array_bound);
+            if (value_index >= 0 && value_present[value_index]) {
+                int64_t value = value_args[value_index];
+                if (value <= 0 || value > INT_MAX) {
+                    rcc_error(type->array_bound->loc,
+                              "non-type template array bound is out of range");
+                    return NULL;
+                }
+                array_len = (int)value;
+                array_bound = NULL;
+            }
+        }
+        if (base != type->base || array_len != type->array_len ||
+            array_bound != type->array_bound) {
             substituted = ast_arena_alloc(sizeof(*substituted));
             *substituted = *type;
             substituted->base = base;
             if (substituted->kind == TYPE_ARRAY) {
+                substituted->array_len = array_len;
+                substituted->array_bound = array_bound;
                 substituted->size = substituted->array_len > 0
                     ? base->size * substituted->array_len : 0;
                 substituted->align = base->align;
@@ -2955,14 +2999,17 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
 static TypeParam* substitute_template_parameters(CxxTemplate* tmpl,
                                                   TypeParam* parameters,
                                                   Type** arguments,
-                                                  int argument_count) {
+                                                  int argument_count,
+                                                  const int64_t* value_args,
+                                                  const bool* value_present) {
     TypeParam* result = NULL;
     TypeParam** tail = &result;
     for (; parameters; parameters = parameters->next) {
         TypeParam* copy = ast_arena_alloc(sizeof(*copy));
         *copy = *parameters;
         copy->type = substitute_template_type(
-            tmpl, parameters->type, arguments, argument_count);
+            tmpl, parameters->type, arguments, argument_count,
+            value_args, value_present);
         copy->next = NULL;
         *tail = copy;
         tail = &copy->next;
@@ -2972,7 +3019,8 @@ static TypeParam* substitute_template_parameters(CxxTemplate* tmpl,
 
 static DeclList* substitute_template_decl_parameters(
     CxxTemplate* tmpl, DeclList* parameters, Type** arguments,
-    int argument_count) {
+    int argument_count, const int64_t* value_args,
+    const bool* value_present) {
     DeclList* result = NULL;
     for (; parameters; parameters = parameters->next) {
         Decl* parameter = parameters->decl;
@@ -2980,7 +3028,7 @@ static DeclList* substitute_template_decl_parameters(
         copy = decl_param(parameter->name,
                           substitute_template_type(
                               tmpl, parameter->type, arguments,
-                              argument_count),
+                              argument_count, value_args, value_present),
                           parameter->param_index, parameter->loc);
         copy->param_default = parameter->param_default;
         decllist_append(
@@ -2990,17 +3038,21 @@ static DeclList* substitute_template_decl_parameters(
 }
 
 static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
-                                              CxxMethod* method,
-                                              Type** arguments,
-                                              int argument_count) {
+                                             CxxMethod* method,
+                                             Type** arguments,
+                                             int argument_count,
+                                             const int64_t* value_args,
+                                             const bool* value_present) {
     CxxMethod* copy;
     DeclList* parameters;
     Type* return_type;
     if (!method || !method->decl || !method->decl->type) return NULL;
     parameters = substitute_template_decl_parameters(
-        tmpl, method->decl->func_params, arguments, argument_count);
+        tmpl, method->decl->func_params, arguments, argument_count,
+        value_args, value_present);
     return_type = substitute_template_type(
-        tmpl, method->decl->type->ret_type, arguments, argument_count);
+        tmpl, method->decl->type->ret_type, arguments, argument_count,
+        value_args, value_present);
     copy = cxx_method_new(method->decl->name, return_type, parameters,
                           method->decl->func_body, method->decl->loc);
     copy->access = method->access;
@@ -3018,8 +3070,9 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_constructor = method->is_constructor;
     copy->is_destructor = method->is_destructor;
     copy->vtable_index = method->vtable_index;
-    copy->decl->func_body = cxx_template_clone_stmt(
-        tmpl, method->decl->func_body, arguments, argument_count);
+    copy->decl->func_body = cxx_template_clone_stmt_with_values(
+        tmpl, method->decl->func_body, arguments, argument_count,
+        value_args, value_present);
     return copy;
 }
 
@@ -3035,6 +3088,8 @@ static CxxMethod* instantiated_constructor_method(CxxClass* instance,
 }
 
 static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
+                                        const int64_t* value_args,
+                                        const bool* value_present,
                                         int argument_count, SourceLoc loc) {
     CxxClass* definition;
     CxxClass* instance;
@@ -3048,10 +3103,25 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         return type_struct(tmpl && tmpl->name ? tmpl->name : "template");
     }
     for (index = 0; index < argument_count; ++index) {
-        if (tmpl->params[index].kind != TPARAM_TYPE || !arguments[index]) {
+        if (tmpl->params[index].kind == TPARAM_TYPE &&
+            (!arguments || !arguments[index])) {
             rcc_error(loc,
-                      "only type parameters are supported in class template instantiation");
-            return type_struct(tmpl->name);
+                      "class template type argument %d is missing", index + 1);
+            return NULL;
+        }
+        if (tmpl->params[index].kind == TPARAM_NONTYPE &&
+            (!value_args || !value_present || !value_present[index] ||
+             !tmpl->params[index].type ||
+             !type_is_integer(tmpl->params[index].type))) {
+            rcc_error(loc,
+                      "class template non-type argument %d requires an "
+                      "integer constant", index + 1);
+            return NULL;
+        }
+        if (tmpl->params[index].kind == TPARAM_TEMPLATE) {
+            rcc_error(loc,
+                      "class template template parameters are not supported");
+            return NULL;
         }
     }
     for (index = 0; index < tmpl->instance_count; ++index) {
@@ -3059,9 +3129,18 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         bool matches = tmpl->instances[index].arg_count == argument_count;
         for (argument_index = 0; matches &&
              argument_index < argument_count; ++argument_index) {
-            matches = type_is_compatible(
-                tmpl->instances[index].args[argument_index],
-                arguments[argument_index]);
+            if (tmpl->params[argument_index].kind == TPARAM_NONTYPE) {
+                matches = tmpl->instances[index].value_present &&
+                    tmpl->instances[index].value_present[argument_index] &&
+                    value_present[argument_index] &&
+                    tmpl->instances[index].value_args[argument_index] ==
+                        value_args[argument_index];
+            } else {
+                matches = tmpl->instances[index].args && arguments &&
+                    type_is_compatible(
+                        tmpl->instances[index].args[argument_index],
+                        arguments[argument_index]);
+            }
         }
         if (matches) {
             return ((CxxClass*)tmpl->instances[index].instantiated)->type;
@@ -3113,7 +3192,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     instance->has_field_initializer = definition->has_field_initializer;
     instance->templ = tmpl;
     instance->template_arg_count = argument_count;
-    instance->template_args = ast_arena_alloc(
+            instance->template_args = ast_arena_alloc(
         sizeof(Type*) * (size_t)argument_count);
     memcpy(instance->template_args, arguments,
            sizeof(Type*) * (size_t)argument_count);
@@ -3122,15 +3201,18 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         cxx_class_add_field_initializer(
             instance, field->name,
             substitute_template_type(
-                tmpl, field->type, arguments, argument_count),
+                tmpl, field->type, arguments, argument_count,
+                value_args, value_present),
             (AccessSpec)field->cxx_access,
-            cxx_template_clone_expr(tmpl, field->initializer, arguments,
-                                    argument_count));
+            cxx_template_clone_expr_with_values(
+                tmpl, field->initializer, arguments, argument_count,
+                value_args, value_present));
     }
     for (struct CxxMember* member = definition->members; member;
          member = member->next) {
         CxxMethod* method = substitute_template_method(
-            tmpl, member->method, arguments, argument_count);
+            tmpl, member->method, arguments, argument_count,
+            value_args, value_present);
         if (method) {
             method->owner = instance;
             cxx_class_add_method(instance, method);
@@ -3147,7 +3229,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         copy->method = instantiated_constructor_method(instance,
                                                        constructor_ordinal++);
         copy->parameters = substitute_template_parameters(
-            tmpl, constructor->parameters, arguments, argument_count);
+            tmpl, constructor->parameters, arguments, argument_count,
+            value_args, value_present);
         copy->initializers = NULL;
         initializer_tail = &copy->initializers;
         for (CxxConstructorInitializer* initializer = constructor->initializers;
@@ -3155,8 +3238,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             CxxConstructorInitializer* initializer_copy =
                 ast_arena_alloc(sizeof(*initializer_copy));
             *initializer_copy = *initializer;
-            initializer_copy->value = cxx_template_clone_expr(
-                tmpl, initializer->value, arguments, argument_count);
+            initializer_copy->value = cxx_template_clone_expr_with_values(
+                tmpl, initializer->value, arguments, argument_count,
+                value_args, value_present);
             initializer_copy->next = NULL;
             *initializer_tail = initializer_copy;
             initializer_tail = &initializer_copy->next;
@@ -3191,6 +3275,18 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         sizeof(tmpl->instances[0]) * (size_t)tmpl->instance_count,
         sizeof(tmpl->instances[0]) * (size_t)(tmpl->instance_count + 1));
     tmpl->instances[tmpl->instance_count].args = instance->template_args;
+    tmpl->instances[tmpl->instance_count].value_args = NULL;
+    tmpl->instances[tmpl->instance_count].value_present = NULL;
+    if (argument_count > 0) {
+        tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
+            sizeof(int64_t) * (size_t)argument_count);
+        tmpl->instances[tmpl->instance_count].value_present = ast_arena_alloc(
+            sizeof(bool) * (size_t)argument_count);
+        memcpy(tmpl->instances[tmpl->instance_count].value_args, value_args,
+               sizeof(int64_t) * (size_t)argument_count);
+        memcpy(tmpl->instances[tmpl->instance_count].value_present,
+               value_present, sizeof(bool) * (size_t)argument_count);
+    }
     tmpl->instances[tmpl->instance_count].arg_count = argument_count;
     tmpl->instances[tmpl->instance_count].instantiated = instance;
     ++tmpl->instance_count;
@@ -3239,18 +3335,32 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
 
 CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
                                               Type** arguments,
+                                              const int64_t* value_args,
+                                              const bool* value_present,
                                               int argument_count,
                                               SourceLoc loc) {
-    Type* type = instantiate_class_template(tmpl, arguments,
-                                             argument_count, loc);
+    Type* type = instantiate_class_template(tmpl, arguments, value_args,
+                                             value_present, argument_count,
+                                             loc);
     if (!type || !tmpl) return NULL;
     for (int index = 0; index < tmpl->instance_count; ++index) {
         if (tmpl->instances[index].arg_count != argument_count) continue;
         bool matches = true;
         for (int argument_index = 0; argument_index < argument_count;
              ++argument_index) {
-            if (!type_is_compatible(tmpl->instances[index].args[argument_index],
-                                    arguments[argument_index])) {
+            if (tmpl->params[argument_index].kind == TPARAM_NONTYPE) {
+                if (!tmpl->instances[index].value_present ||
+                    !value_present ||
+                    !tmpl->instances[index].value_present[argument_index] ||
+                    !value_present[argument_index] ||
+                    tmpl->instances[index].value_args[argument_index] !=
+                        value_args[argument_index]) {
+                    matches = false;
+                    break;
+                }
+            } else if (!type_is_compatible(
+                           tmpl->instances[index].args[argument_index],
+                           arguments[argument_index])) {
                 matches = false;
                 break;
             }
