@@ -899,6 +899,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->compound_init = template_clone_expr_list(
                 tmpl, expression->compound_init, args, arg_count,
                 value_args, value_present);
+            copy->compound_static_symbol = NULL;
             break;
         case EXPR_GENERIC:
             copy->generic_control = template_clone_expr(

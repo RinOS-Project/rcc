@@ -126,6 +126,7 @@ typedef struct Module {
     int global_initializer_count;
     GlobalFinalizer* global_finalizers;
     int global_finalizer_count;
+    uint32_t compound_literal_count;
 } Module;
 
 /* Code generation functions */

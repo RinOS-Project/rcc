@@ -438,6 +438,7 @@ struct Expr {
             ExprList* compound_init;
             int compound_offset;     /* Assigned automatic-storage slot. */
             bool compound_value_init; /* Spelled as an empty C++ {} list. */
+            const char* compound_static_symbol;
         };
 
         /* EXPR_GENERIC */

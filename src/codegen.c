@@ -97,6 +97,7 @@ Module* codegen_new(void) {
     mod->global_initializer_count = 0;
     mod->global_finalizers = NULL;
     mod->global_finalizer_count = 0;
+    mod->compound_literal_count = 0u;
 
     return mod;
 }
@@ -612,6 +613,9 @@ static uint32_t codegen_increment_size(const Type* type) {
     return size == 0u ? 1u : size;
 }
 
+static bool codegen_materialize_static_compound(Module* mod,
+                                                Expr* expression);
+
 static bool codegen_add_static_offset(uint32_t* addend, int64_t index,
                                       uint32_t element_size) {
     int64_t delta;
@@ -640,6 +644,15 @@ static bool codegen_static_address(Module* mod, Expr* expression,
     }
     if (!expression || !symbol_name || !addend) return false;
 
+    if (expression->kind == EXPR_COMPOUND) {
+        if (!expression->compound_static_symbol &&
+            !codegen_materialize_static_compound(mod, expression)) {
+            return false;
+        }
+        *symbol_name = expression->compound_static_symbol;
+        return true;
+    }
+
     if (expression->kind == EXPR_STRING_LIT) {
         *addend = emit_string(mod, expression->str_val);
         module_ensure_rodata_base_symbol(mod);
@@ -649,6 +662,13 @@ static bool codegen_static_address(Module* mod, Expr* expression,
     if (expression->kind == EXPR_ADDR && expression->unary_operand) {
         Expr* addressed = expression->unary_operand;
         Decl* target = NULL;
+        if (addressed->kind == EXPR_COMPOUND) {
+            if (!codegen_materialize_static_compound(mod, addressed)) {
+                return false;
+            }
+            *symbol_name = addressed->compound_static_symbol;
+            return true;
+        }
         if (addressed->kind == EXPR_IDENT) {
             target = addressed->ident_decl;
         } else if (addressed->kind == EXPR_INDEX &&
@@ -1608,6 +1628,55 @@ static void resolve_func_calls(Module* mod) {
                                   ref->func_name);
         }
     }
+}
+
+static bool codegen_materialize_static_compound(Module* mod,
+                                                Expr* expression) {
+    Type* type;
+    size_t alignment;
+    size_t aligned;
+    size_t size;
+    char symbol[64];
+
+    if (!mod || !expression || expression->kind != EXPR_COMPOUND ||
+        !expression->compound_type) {
+        return false;
+    }
+    type = expression->compound_type;
+    if (!type_is_complete(type) || type->size <= 0 || type->align <= 0 ||
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+         type->kind != TYPE_UNION)) {
+        rcc_error(expression->loc,
+                  "static compound literal requires a complete aggregate type");
+        return false;
+    }
+    if (expression->compound_static_symbol) return true;
+    alignment = (size_t)type->align;
+    aligned = (mod->data.size + alignment - 1u) & ~(alignment - 1u);
+    size = (size_t)type->size;
+    if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+        rcc_error(expression->loc,
+                  "static compound literal exceeds data limits");
+        return false;
+    }
+    ensure_data_capacity(mod, aligned - mod->data.size + size);
+    while (mod->data.size < aligned) {
+        mod->data.data[mod->data.size++] = 0u;
+    }
+    memset(mod->data.data + mod->data.size, 0, size);
+    mod->data.size += size;
+    snprintf(symbol, sizeof(symbol), "__rcc_compound_%u",
+             mod->compound_literal_count++);
+    expression->compound_static_symbol = rcc_intern(symbol);
+    module_add_symbol(mod, expression->compound_static_symbol,
+                      (uint32_t)aligned, true, MODULE_SYMBOL_DATA, false);
+    if (!codegen_emit_static_initializer(mod, type, expression,
+                                         (uint32_t)aligned)) {
+        rcc_error(expression->loc,
+                  "unsupported static compound literal initializer");
+        return false;
+    }
+    return true;
 }
 
 static void ensure_init_array_capacity(Module* mod, size_t needed) {
