@@ -1994,12 +1994,22 @@ CxxClass* parse_cxx_class(void) {
     if (match(TOK_COLON)) {
         do {
             AccessSpec inherit_access = ACCESS_PRIVATE;
+            bool is_virtual = false;
+            if (match(TOK_VIRTUAL)) is_virtual = true;
             if (match(TOK_PUBLIC)) inherit_access = ACCESS_PUBLIC;
             else if (match(TOK_PROTECTED)) inherit_access = ACCESS_PROTECTED;
             else if (match(TOK_PRIVATE)) inherit_access = ACCESS_PRIVATE;
+            if (match(TOK_VIRTUAL)) is_virtual = true;
 
             const char* base_name = parse_qualified_name();
             cxx_class_add_base(cls, base_name, inherit_access);
+            if (is_virtual) {
+                cls->bases[cls->base_count - 1].is_virtual = true;
+                rcc_error(loc,
+                          "C++ virtual base '%s' requires virtual-base layout "
+                          "and ABI support",
+                          base_name ? base_name : "<anonymous>");
+            }
         } while (match(TOK_COMMA));
     }
 
