@@ -12,9 +12,18 @@ constexpr int local_value(int value) {
     return adjusted;
 }
 
+constexpr int mutate_value(int value) {
+    int result = value;
+    result += 2;
+    ++result;
+    return result;
+}
+
 constexpr int constexpr_global = select_value(base_value);
 constexpr int constexpr_local = local_value(base_value);
+constexpr int constexpr_mutated = mutate_value(base_value);
 
 int main(void) {
-    return constexpr_global == 27 && constexpr_local == 27 ? 0 : 1;
+    return constexpr_global == 27 && constexpr_local == 27 &&
+                   constexpr_mutated == 15 ? 0 : 1;
 }

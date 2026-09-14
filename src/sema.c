@@ -753,6 +753,23 @@ static bool sema_constexpr_mul(int64_t left, int64_t right, int64_t* result) {
 #endif
 }
 
+static int sema_constexpr_binding_index(
+    Expr* expression, SemaConstexprBinding* bindings, int binding_count) {
+    if (!expression || expression->kind != EXPR_IDENT || !bindings) return -1;
+    for (int index = 0; index < binding_count; ++index) {
+        if ((expression->ident_decl &&
+             expression->ident_decl == bindings[index].declaration) ||
+            (!expression->ident_decl && expression->ident_name &&
+             bindings[index].declaration &&
+             bindings[index].declaration->name &&
+             strcmp(expression->ident_name,
+                    bindings[index].declaration->name) == 0)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static bool sema_eval_constexpr_expr(
     Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, int64_t* value) {
@@ -801,6 +818,104 @@ static bool sema_eval_constexpr_expr(
                 return result;
             }
             return false;
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN: {
+            int binding_index = sema_constexpr_binding_index(
+                expression->binary_lhs, bindings, binding_count);
+            int64_t assigned;
+            if (binding_index < 0 ||
+                !sema_eval_constexpr_expr(expression->binary_rhs, bindings,
+                                           binding_count, &right)) {
+                return false;
+            }
+            if (expression->kind == EXPR_ASSIGN) {
+                assigned = right;
+            } else {
+                left = bindings[binding_index].value;
+                switch (expression->kind) {
+                    case EXPR_ADD_ASSIGN:
+                        if (!sema_constexpr_add(left, right, &assigned)) {
+                            return false;
+                        }
+                        break;
+                    case EXPR_SUB_ASSIGN:
+                        if (!sema_constexpr_sub(left, right, &assigned)) {
+                            return false;
+                        }
+                        break;
+                    case EXPR_MUL_ASSIGN:
+                        if (!sema_constexpr_mul(left, right, &assigned)) {
+                            return false;
+                        }
+                        break;
+                    case EXPR_DIV_ASSIGN:
+                        if (right == 0 ||
+                            (left == INT64_MIN && right == -1)) return false;
+                        assigned = left / right;
+                        break;
+                    case EXPR_MOD_ASSIGN:
+                        if (right == 0 ||
+                            (left == INT64_MIN && right == -1)) return false;
+                        assigned = left % right;
+                        break;
+                    case EXPR_AND_ASSIGN: assigned = left & right; break;
+                    case EXPR_OR_ASSIGN: assigned = left | right; break;
+                    case EXPR_XOR_ASSIGN: assigned = left ^ right; break;
+                    case EXPR_LSHIFT_ASSIGN:
+                        if (right < 0 || right >= 64) return false;
+                        assigned = left << right;
+                        break;
+                    case EXPR_RSHIFT_ASSIGN:
+                        if (right < 0 || right >= 64) return false;
+                        assigned = left >> right;
+                        break;
+                    default:
+                        return false;
+                }
+            }
+            if (!sema_constexpr_convert(
+                    assigned, bindings[binding_index].declaration->type,
+                    &assigned)) {
+                return false;
+            }
+            bindings[binding_index].value = assigned;
+            *value = assigned;
+            return true;
+        }
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC: {
+            int binding_index = sema_constexpr_binding_index(
+                expression->unary_operand, bindings, binding_count);
+            int64_t old_value;
+            if (binding_index < 0) return false;
+            old_value = bindings[binding_index].value;
+            if (expression->kind == EXPR_PREINC ||
+                expression->kind == EXPR_POSTINC) {
+                if (!sema_constexpr_add(old_value, 1, &right)) return false;
+            } else if (!sema_constexpr_sub(old_value, 1, &right)) {
+                return false;
+            }
+            if (!sema_constexpr_convert(
+                    right, bindings[binding_index].declaration->type,
+                    &right)) {
+                return false;
+            }
+            bindings[binding_index].value = right;
+            *value = expression->kind == EXPR_PREINC ||
+                     expression->kind == EXPR_PREDEC ? right : old_value;
+            return true;
+        }
         case EXPR_NEG:
             if (!sema_eval_constexpr_expr(expression->unary_operand,
                                            bindings, binding_count, &left)) {
@@ -992,6 +1107,10 @@ static bool sema_eval_constexpr_statement(
     switch (statement->kind) {
         case STMT_NULL:
             return true;
+        case STMT_EXPR:
+            return !statement->expr ||
+                sema_eval_constexpr_expr(statement->expr, bindings,
+                                         *binding_count, value);
         case STMT_RETURN:
             if (!statement->return_val ||
                 !sema_eval_constexpr_expr(statement->return_val, bindings,
