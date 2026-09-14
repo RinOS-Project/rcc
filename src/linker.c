@@ -1460,11 +1460,22 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     {
         size_t code_name_length = sizeof(".code");
         code_owner_section = &sections[section_index++];
+        uint64_t code_memory_size = code_owner_end - code_owner_start;
+        /* A writable owner is page-aligned.  When no independent RODATA
+         * owner separates it from CODE, represent the alignment gap as part
+         * of the zero-filled CODE payload so the canonical image has adjacent
+         * file and virtual ranges.  Never span RODATA with the executable
+         * owner: that would create overlapping permission ranges. */
+        if (has_data_owner && !has_rodata_owner &&
+            data_owner_start >= code_owner_start &&
+            data_owner_start - code_owner_start > code_memory_size) {
+            code_memory_size = data_owner_start - code_owner_start;
+        }
         code_owner_section->type = RIN_IMAGE_SECTION_CODE;
         code_owner_section->flags = RIN_IMAGE_SECTION_READ |
                                     RIN_IMAGE_SECTION_EXECUTE;
         code_owner_section->alignment = 4096u;
-        code_owner_section->memory_size = code_owner_end - code_owner_start;
+        code_owner_section->memory_size = code_memory_size;
         code_owner_section->name_offset = string_size;
         memcpy(strings + string_size, ".code", code_name_length);
         string_size += (uint32_t)code_name_length;
