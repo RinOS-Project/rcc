@@ -36,6 +36,8 @@ int main(void)
     return next_value() == 4 && next_value() == 5 &&
                    static_storage() == 5 && static_storage() == 10 &&
                    branch_storage() == 11 && branch_storage() == 12 &&
-                   loop_storage() == 42 && loop_storage() == 46
+                   /* The static is initialized once, then incremented for
+                    * both loop iterations on each call. */
+                   loop_storage() == 43 && loop_storage() == 47
                ? 0 : 1;
 }
