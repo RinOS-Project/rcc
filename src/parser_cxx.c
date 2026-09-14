@@ -1868,14 +1868,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Method body or declaration */
         Stmt* body = NULL;
-        if (active_template && check(TOK_LBRACE) &&
-            !is_constructor && !is_destructor &&
-            param_idx != 0 && strcmp(name, "operator=") != 0) {
-            /* Retain constructor/destructor and zero-argument method bodies.
-             * The ownership assignment body is also retained, but only its
-             * exact SDK pattern is lowered after template substitution. */
-            skip_balanced(TOK_LBRACE, TOK_RBRACE);
-        } else if (match(TOK_LBRACE)) {
+        if (match(TOK_LBRACE)) {
             /* Parse method body */
             StmtList* stmts = NULL;
             rcc_parser_cxx_begin_function_parameters(params);
