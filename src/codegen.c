@@ -516,8 +516,12 @@ static bool codegen_runtime_global_scalar(const Type* type) {
     if (!type || type->size <= 0) return false;
     if (type->kind == TYPE_ARRAY || type->kind == TYPE_STRUCT ||
         type->kind == TYPE_UNION || type->kind == TYPE_FUNC) return false;
+    /* A static-storage pointer must be an address constant (or a null
+     * pointer constant).  Treating an unsupported integer-to-pointer
+     * initializer as a runtime scalar would publish a non-conforming image
+     * instead of reporting the invalid initializer. */
+    if (type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) return false;
     return type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
-           type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
            type_is_floating((Type*)type);
 }
 

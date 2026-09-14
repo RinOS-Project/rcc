@@ -59,6 +59,8 @@ static void sema_stmt(Stmt* stmt);
 static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
+
+static void sema_validate_static_integer_expression(Expr* expression);
 static bool sema_atomic_builtin_call(Expr* expr);
 static void sema_vla_bounds(Type* type, SourceLoc loc);
 static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
@@ -580,6 +582,95 @@ static TypeMethod* sema_find_inline_method(Type* aggregate,
             strcmp(method->name, name) == 0) return method;
     }
     return NULL;
+}
+
+/* Static-storage integer initializers must be integer constant expressions.
+ * Keep this validation separate from the runtime-initializer extension used
+ * for otherwise non-constant globals: an expression such as 1 / 0 is not a
+ * runtime initializer and must never be lowered into an executing divide. */
+static void sema_validate_static_integer_expression(Expr* expression) {
+    int64_t value;
+    if (!expression) return;
+    switch (expression->kind) {
+        case EXPR_COMPOUND:
+            for (ExprList* item = expression->compound_init; item;
+                 item = item->next) {
+                sema_validate_static_integer_expression(item->expr);
+            }
+            return;
+        case EXPR_DIV:
+        case EXPR_MOD:
+            if (expression->binary_rhs &&
+                expr_eval_integer_constant(expression->binary_rhs, &value) &&
+                value == 0) {
+                rcc_error(expression->binary_rhs->loc,
+                          "static integer initializer has a zero divisor");
+            }
+            sema_validate_static_integer_expression(expression->binary_lhs);
+            sema_validate_static_integer_expression(expression->binary_rhs);
+            return;
+        case EXPR_COND:
+            if (expression->cond_test &&
+                expr_eval_integer_constant(expression->cond_test, &value)) {
+                sema_validate_static_integer_expression(expression->cond_test);
+                sema_validate_static_integer_expression(
+                    value ? expression->cond_then : expression->cond_else);
+            } else {
+                sema_validate_static_integer_expression(expression->cond_test);
+                sema_validate_static_integer_expression(expression->cond_then);
+                sema_validate_static_integer_expression(expression->cond_else);
+            }
+            return;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            sema_validate_static_integer_expression(expression->unary_operand);
+            return;
+        case EXPR_CAST:
+            sema_validate_static_integer_expression(expression->cast_expr);
+            return;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            sema_validate_static_integer_expression(expression->binary_lhs);
+            sema_validate_static_integer_expression(expression->binary_rhs);
+            return;
+        default:
+            return;
+    }
 }
 
 static TypeMethod* sema_find_function_method(Type* aggregate,
@@ -4115,6 +4206,11 @@ static void sema_decl(Decl* decl) {
 
             if (decl->var_init) {
                 sema_initializer(decl->type, decl->var_init);
+                if ((is_global || decl->storage == STORAGE_STATIC) &&
+                    decl->type && (type_is_integer(decl->type) ||
+                                   decl->type->kind == TYPE_ENUM)) {
+                    sema_validate_static_integer_expression(decl->var_init);
+                }
             }
             sema_prepare_variable_cleanup(decl, is_global);
             current_cxx_namespace = saved_cxx_namespace;
