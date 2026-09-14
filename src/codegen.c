@@ -669,6 +669,35 @@ static bool codegen_static_address(Module* mod, Expr* expression,
             *symbol_name = addressed->compound_static_symbol;
             return true;
         }
+        if (addressed->kind == EXPR_INDEX && addressed->index_base &&
+            addressed->index_expr &&
+            addressed->index_base->kind == EXPR_COMPOUND) {
+            int64_t index;
+            if (!codegen_materialize_static_compound(
+                    mod, addressed->index_base) ||
+                !codegen_static_integer(addressed->index_expr, &index) ||
+                !codegen_add_static_offset(
+                    addend, index,
+                    codegen_pointer_element_size(
+                        addressed->index_base->compound_type))) {
+                return false;
+            }
+            *symbol_name = addressed->index_base->compound_static_symbol;
+            return true;
+        }
+        if (addressed->kind == EXPR_MEMBER && addressed->member_base &&
+            addressed->member_base->kind == EXPR_COMPOUND &&
+            addressed->member_field && addressed->member_field->offset >= 0) {
+            if (!codegen_materialize_static_compound(
+                    mod, addressed->member_base) ||
+                (uint64_t)addressed->member_field->offset >
+                    UINT32_MAX - *addend) {
+                return false;
+            }
+            *addend += (uint32_t)addressed->member_field->offset;
+            *symbol_name = addressed->member_base->compound_static_symbol;
+            return true;
+        }
         if (addressed->kind == EXPR_IDENT) {
             target = addressed->ident_decl;
         } else if (addressed->kind == EXPR_INDEX &&
