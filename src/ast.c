@@ -966,6 +966,20 @@ Decl* decl_enum_const(const char* name, int64_t val, SourceLoc loc) {
     return d;
 }
 
+Decl* decl_static_assert(Expr* expression, const char* message,
+                         SourceLoc loc) {
+    Decl* d = rcc_alloc(sizeof(Decl));
+    d->kind = DECL_STATIC_ASSERT;
+    d->name = NULL;
+    d->link_name = NULL;
+    d->type = type_int;
+    d->loc = loc;
+    d->param_default = NULL;
+    d->static_assert_expr = expression;
+    d->static_assert_message = message;
+    return d;
+}
+
 const char* decl_link_name(const Decl* decl) {
     if (!decl) return NULL;
     return decl->link_name ? decl->link_name : decl->name;

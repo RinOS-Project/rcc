@@ -5974,6 +5974,27 @@ static void sema_decl(Decl* decl) {
     if (!decl) return;
 
     switch (decl->kind) {
+        case DECL_STATIC_ASSERT: {
+            Type* condition_type = sema_expr(decl->static_assert_expr);
+            SemaConstexprScalar condition;
+            if (!condition_type ||
+                (!sema_constexpr_integer_type(condition_type) &&
+                 condition_type->kind != TYPE_ENUM)) {
+                rcc_error(decl->loc,
+                          "static assertion is not an integer constant expression");
+            } else if (!sema_eval_constexpr_scalar_expr(
+                           decl->static_assert_expr, NULL, 0, &condition) ||
+                       condition.is_floating) {
+                rcc_error(decl->loc,
+                          "static assertion is not an integer constant expression");
+            } else if (condition.integer_value == 0) {
+                rcc_error(decl->loc, "static assertion failed%s%s",
+                          decl->static_assert_message ? ": " : "",
+                          decl->static_assert_message
+                              ? decl->static_assert_message : "");
+            }
+            break;
+        }
         case DECL_VAR: {
             bool is_global = g_symtab->current == g_symtab->global;
             CxxNamespace* saved_cxx_namespace = current_cxx_namespace;

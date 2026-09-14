@@ -18,6 +18,11 @@ constexpr int nested_value = nested.pair.second + nested.tail;
 constexpr int array_values[3] = {8, 9, 10};
 constexpr int array_value = array_values[1] + array_values[2];
 
+static_assert(pair.first == 3);
+static_assert(nested.pair.second + nested.tail == 13);
+static_assert(array_values[0] + array_values[1] == 17,
+              "aggregate constexpr subscript evaluation");
+
 int main(void) {
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19

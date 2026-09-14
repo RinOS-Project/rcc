@@ -2149,6 +2149,21 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
     ast_add_decl(ast, declaration);
 }
 
+static void add_namespace_statement(AST* ast, CxxNamespace* ns,
+                                     Stmt* statement) {
+    if (!statement || statement->kind != STMT_DECL || !statement->decl) {
+        return;
+    }
+    if (statement->decl->kind == DECL_STATIC_ASSERT) {
+        /* Assertions have no namespace-owned symbol.  Keep them in the
+         * translation-unit stream so sema evaluates them at their source
+         * position without attempting to qualify a NULL declaration name. */
+        ast_add_decl(ast, statement->decl);
+        return;
+    }
+    add_namespace_declaration(ast, ns, statement->decl);
+}
+
 static const char* cxx_using_qualified_name(const char* name,
                                             SourceLoc loc) {
     char buffer[512];
@@ -2279,9 +2294,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
         } else if ((check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL)) &&
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
-            if (statement && statement->kind == STMT_DECL) {
-                add_namespace_declaration(ast, ns, statement->decl);
-            }
+            add_namespace_statement(ast, ns, statement);
         } else if (check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL) ||
                    check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
@@ -2293,9 +2306,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
             add_namespace_declaration(ast, ns, declaration);
         } else {
             Stmt* statement = parse_cxx_statement();
-            if (statement && statement->kind == STMT_DECL) {
-                add_namespace_declaration(ast, ns, statement->decl);
-            }
+            add_namespace_statement(ast, ns, statement);
         }
         if (g_error_count > errors_before) {
             while (!at_end() && !check(TOK_SEMICOLON) &&

@@ -653,6 +653,7 @@ typedef enum {
     DECL_UNION,         /* Union definition */
     DECL_ENUM,          /* Enum definition */
     DECL_ENUM_CONST,    /* Enum constant */
+    DECL_STATIC_ASSERT, /* Translation-unit static assertion */
 } DeclKind;
 
 typedef enum {
@@ -745,6 +746,12 @@ struct Decl {
         struct {
             int64_t enum_val;
         };
+
+        /* DECL_STATIC_ASSERT */
+        struct {
+            Expr* static_assert_expr;
+            const char* static_assert_message;
+        };
     };
 };
 
@@ -757,6 +764,8 @@ Decl* decl_struct(const char* name, DeclList* fields, SourceLoc loc);
 Decl* decl_union(const char* name, DeclList* fields, SourceLoc loc);
 Decl* decl_enum(const char* name, DeclList* consts, SourceLoc loc);
 Decl* decl_enum_const(const char* name, int64_t val, SourceLoc loc);
+Decl* decl_static_assert(Expr* expression, const char* message,
+                         SourceLoc loc);
 const char* decl_link_name(const Decl* decl);
 
 /* ═══════════════════════════════════════

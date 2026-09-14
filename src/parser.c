@@ -2457,7 +2457,6 @@ Stmt* parse_declaration(void) {
         SourceLoc assertion_loc = advance()->loc;
         Expr* condition;
         Token* message = NULL;
-        int64_t condition_value = 0;
 
         expect(TOK_LPAREN, "(");
         condition = parse_assignment();
@@ -2466,15 +2465,9 @@ Stmt* parse_declaration(void) {
         }
         expect(TOK_RPAREN, ")");
         expect(TOK_SEMICOLON, ";");
-        if (!eval_integer_constant(condition, &condition_value)) {
-            rcc_error(assertion_loc,
-                      "static assertion is not an integer constant expression");
-        } else if (condition_value == 0) {
-            rcc_error(assertion_loc, "static assertion failed%s%s",
-                      message ? ": " : "",
-                      message ? message->value.str_val : "");
-        }
-        return stmt_null(assertion_loc);
+        return stmt_decl(decl_static_assert(
+            condition, message ? message->value.str_val : NULL,
+            assertion_loc), assertion_loc);
     }
 
     skip_attributes();

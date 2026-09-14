@@ -434,6 +434,7 @@ static bool driver_validate_decl(Decl* declaration)
             return driver_validate_decl_list(declaration->enum_consts);
         case DECL_PARAM:
         case DECL_ENUM_CONST:
+        case DECL_STATIC_ASSERT:
             return true;
     }
     return true;
