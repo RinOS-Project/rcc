@@ -232,7 +232,8 @@ static Symbol* sema_cxx_lookup_name(const char* name) {
 
 static CxxNamespace* sema_decl_namespace(Decl* decl) {
     if (!g_global_namespace || !decl) return g_global_namespace;
-    if (decl->func_method_owner && decl->func_method_owner->cxx_namespace) {
+    if (decl->kind == DECL_FUNC && decl->func_method_owner &&
+        decl->func_method_owner->cxx_namespace) {
         CxxNamespace* owner_namespace = cxx_namespace_find(
             g_global_namespace, decl->func_method_owner->cxx_namespace);
         if (owner_namespace) return owner_namespace;
