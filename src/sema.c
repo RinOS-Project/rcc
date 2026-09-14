@@ -3474,17 +3474,18 @@ static Type* sema_expr(Expr* expr) {
             if (!sym && current_cxx_method_owner &&
                 current_cxx_this_param && expr->ident_name) {
                 TypeField* field;
+                const char* field_name = expr->ident_name;
                 for (field = current_cxx_method_owner->fields; field;
                      field = field->next) {
                     if (field->name &&
-                        strcmp(field->name, expr->ident_name) == 0) {
+                        strcmp(field->name, field_name) == 0) {
                         Expr* object = expr_ident("this", expr->loc);
                         Type* field_type = field->type;
                         object->ident_decl = current_cxx_this_param;
                         object->type = current_cxx_this_param->type;
                         expr->kind = EXPR_PTR_MEMBER;
                         expr->member_base = object;
-                        expr->member_name = expr->ident_name;
+                        expr->member_name = field_name;
                         expr->member_field = field;
                         if (current_cxx_method_owner->is_const &&
                             field_type && !field_type->is_const) {
@@ -4621,7 +4622,12 @@ static Type* sema_expr(Expr* expr) {
                                                  bt->is_volatile;
                         expr->type = qualified;
                     }
-                    if (field->cxx_access != 0u) {
+                    if (field->cxx_access != 0u &&
+                        (!current_cxx_method_owner ||
+                         !current_cxx_method_owner->cxx_class ||
+                         !bt->cxx_class ||
+                         current_cxx_method_owner->cxx_class !=
+                             bt->cxx_class)) {
                         rcc_error(expr->loc, "member '%s' is not accessible",
                                   expr->member_name);
                     }

@@ -19,10 +19,69 @@ CxxNamespace* g_global_namespace = NULL;
  * Name Mangling (Itanium C++ ABI style)
  * ═══════════════════════════════════════ */
 
-/* Mangle a length-prefixed name */
+static const char* cxx_operator_abi_code(const char* name) {
+    if (!name) return NULL;
+    if (strcmp(name, "operator new") == 0) return "nw";
+    if (strcmp(name, "operator delete") == 0) return "dl";
+    if (strcmp(name, "operator new[]") == 0) return "na";
+    if (strcmp(name, "operator delete[]") == 0) return "da";
+    if (strcmp(name, "operator=") == 0) return "aS";
+    if (strcmp(name, "operator+") == 0) return "pl";
+    if (strcmp(name, "operator-") == 0) return "mi";
+    if (strcmp(name, "operator*") == 0) return "ml";
+    if (strcmp(name, "operator/") == 0) return "dv";
+    if (strcmp(name, "operator%") == 0) return "rm";
+    if (strcmp(name, "operator++") == 0) return "pp";
+    if (strcmp(name, "operator--") == 0) return "mm";
+    if (strcmp(name, "operator&") == 0) return "an";
+    if (strcmp(name, "operator|") == 0) return "or";
+    if (strcmp(name, "operator^") == 0) return "eo";
+    if (strcmp(name, "operator~") == 0) return "co";
+    if (strcmp(name, "operator!") == 0) return "nt";
+    if (strcmp(name, "operator==") == 0) return "eq";
+    if (strcmp(name, "operator!=") == 0) return "ne";
+    if (strcmp(name, "operator<") == 0) return "lt";
+    if (strcmp(name, "operator>") == 0) return "gt";
+    if (strcmp(name, "operator<=") == 0) return "le";
+    if (strcmp(name, "operator>=") == 0) return "ge";
+    if (strcmp(name, "operator&&") == 0) return "aa";
+    if (strcmp(name, "operator||") == 0) return "oo";
+    if (strcmp(name, "operator<<") == 0) return "ls";
+    if (strcmp(name, "operator>>") == 0) return "rs";
+    if (strcmp(name, "operator+=") == 0) return "pL";
+    if (strcmp(name, "operator-=") == 0) return "mI";
+    if (strcmp(name, "operator*=") == 0) return "mL";
+    if (strcmp(name, "operator/=") == 0) return "dV";
+    if (strcmp(name, "operator%=") == 0) return "rM";
+    if (strcmp(name, "operator&=") == 0) return "aN";
+    if (strcmp(name, "operator|=") == 0) return "oR";
+    if (strcmp(name, "operator^=") == 0) return "eO";
+    if (strcmp(name, "operator<<=") == 0) return "lS";
+    if (strcmp(name, "operator>>=") == 0) return "rS";
+    if (strcmp(name, "operator,") == 0) return "cm";
+    if (strcmp(name, "operator->*") == 0) return "pm";
+    if (strcmp(name, "operator->") == 0) return "pt";
+    if (strcmp(name, "operator()") == 0) return "cl";
+    if (strcmp(name, "operator[]") == 0) return "ix";
+    if (strcmp(name, "operator co_await") == 0) return "aw";
+    return NULL;
+}
+
+/* Mangle a length-prefixed name or a standard C++ operator name. */
 static void mangle_name(char* buf, size_t* pos, const char* name) {
-    size_t len = strlen(name);
-    *pos += snprintf(buf + *pos, 256 - *pos, "%lu%s", (unsigned long)len, name);
+    const char* operator_code = cxx_operator_abi_code(name);
+    size_t len;
+    if (operator_code) {
+        len = strlen(operator_code);
+        if (*pos + len >= 256u) rcc_fatal("C++ mangled name is too long");
+        memcpy(buf + *pos, operator_code, len);
+        *pos += len;
+        return;
+    }
+    len = strlen(name);
+    if (*pos + 32u + len >= 256u) rcc_fatal("C++ mangled name is too long");
+    *pos += (size_t)snprintf(buf + *pos, 256u - *pos, "%lu%s",
+                             (unsigned long)len, name);
 }
 
 /* Mangle a type */
