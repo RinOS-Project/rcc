@@ -246,6 +246,7 @@ Type* type_enum(const char* tag) {
     t->size = 4;
     t->align = 4;
     t->enum_tag = tag;
+    t->enum_is_scoped = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     t->cxx_class = NULL;

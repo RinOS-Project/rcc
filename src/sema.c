@@ -466,12 +466,17 @@ static bool sema_is_integer_type(Type* type) {
     return type && (type_is_integer(type) || type->kind == TYPE_ENUM);
 }
 
+static bool sema_is_scoped_enum(Type* type) {
+    return type && type->kind == TYPE_ENUM && type->enum_is_scoped;
+}
+
 static bool sema_is_cxx_nullptr_expr(const Expr* expression) {
     return expression && (expression->is_cxx_nullptr ||
         (expression->type && expression->type->kind == TYPE_NULLPTR));
 }
 
 static Type* sema_integer_promotion(Type* type) {
+    if (sema_is_scoped_enum(type)) return type;
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
     }
@@ -504,6 +509,13 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* Same type */
     if (e->type == target) return target;
+
+    /* A scoped enum is a distinct C++ type.  It deliberately does not
+     * participate in the C integer-enum conversions; accepting those here
+     * would make `enum class` silently behave like an unscoped C enum. */
+    if (sema_is_scoped_enum(e->type) || sema_is_scoped_enum(target)) {
+        return type_is_compatible(e->type, target) ? target : NULL;
+    }
 
     if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
         type_is_compatible(e->type, target)) {
@@ -2545,6 +2557,11 @@ static Expr* sema_contextual_bool(Expr* expression) {
     if (!expression) return expression;
     type = sema_expr(expression);
     value_type = generic_selection_type(type);
+    if (sema_is_scoped_enum(value_type)) {
+        rcc_error(expression->loc,
+                  "scoped enum is not implicitly convertible to bool");
+        return expression;
+    }
     if (value_type &&
         (type_is_scalar(value_type) || value_type->kind == TYPE_ENUM)) {
         return expression;
@@ -2609,6 +2626,9 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         }
         if (cxx_same_parameter_type(source, target_base, false)) return 0;
         return type_is_compatible(source, target_base) ? 1 : -1;
+    }
+    if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
+        return type_is_compatible(source, target) ? 0 : -1;
     }
     if (cxx_same_parameter_type(source, target, true)) return 0;
 
@@ -3446,7 +3466,8 @@ static Type* sema_expr(Expr* expr) {
             if (sema_is_cxx_nullptr_expr(expr->unary_operand)) {
                 rcc_error(expr->loc,
                           "nullptr does not support arithmetic operators");
-            } else if (!type_is_arithmetic(t) && t->kind != TYPE_ENUM) {
+            } else if ((!type_is_arithmetic(t) && t->kind != TYPE_ENUM) ||
+                       sema_is_scoped_enum(t)) {
                 rcc_error(expr->loc, "invalid operand type for unary operator");
             }
             expr->type = sema_is_integer_type(t)
@@ -3459,7 +3480,7 @@ static Type* sema_expr(Expr* expr) {
             if (sema_is_cxx_nullptr_expr(expr->unary_operand)) {
                 rcc_error(expr->loc,
                           "nullptr does not support integer operators");
-            } else if (!sema_is_integer_type(t)) {
+            } else if (!sema_is_integer_type(t) || sema_is_scoped_enum(t)) {
                 rcc_error(expr->loc,
                           "bitwise complement requires integer operand");
             }
@@ -3751,7 +3772,9 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "nullptr does not support integer operators");
             } else if (!sema_is_integer_type(lt) ||
-                       !sema_is_integer_type(rt)) {
+                       !sema_is_integer_type(rt) ||
+                       sema_is_scoped_enum(lt) ||
+                       sema_is_scoped_enum(rt)) {
                 rcc_error(expr->loc, "remainder operator requires integer operands");
             }
             expr->type = type_common(sema_integer_promotion(lt),
@@ -3769,7 +3792,9 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "nullptr does not support integer operators");
             } else if (!sema_is_integer_type(lt) ||
-                       !sema_is_integer_type(rt)) {
+                       !sema_is_integer_type(rt) ||
+                       sema_is_scoped_enum(lt) ||
+                       sema_is_scoped_enum(rt)) {
                 rcc_error(expr->loc, "bitwise operator requires integer operands");
             }
             expr->type = type_common(sema_integer_promotion(lt),
@@ -3786,7 +3811,9 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "nullptr does not support integer operators");
             } else if (!sema_is_integer_type(lt) ||
-                       !sema_is_integer_type(rt)) {
+                       !sema_is_integer_type(rt) ||
+                       sema_is_scoped_enum(lt) ||
+                       sema_is_scoped_enum(rt)) {
                 rcc_error(expr->loc, "shift operator requires integer operands");
             }
             /* C17 6.5.7 promotes each operand independently; unlike most
@@ -3811,11 +3838,18 @@ static Type* sema_expr(Expr* expr) {
                 sema_is_cxx_nullptr_expr(expr->binary_lhs);
             bool right_nullptr =
                 sema_is_cxx_nullptr_expr(expr->binary_rhs);
+            bool scoped_enum = sema_is_scoped_enum(left_value) ||
+                               sema_is_scoped_enum(right_value);
             bool arithmetic = !left_nullptr && !right_nullptr &&
-                              (type_is_arithmetic(left_value) ||
-                               left_value->kind == TYPE_ENUM) &&
-                              (type_is_arithmetic(right_value) ||
-                               right_value->kind == TYPE_ENUM);
+                              ((scoped_enum &&
+                                sema_is_scoped_enum(left_value) &&
+                                sema_is_scoped_enum(right_value) &&
+                                type_is_compatible(left_value, right_value)) ||
+                               (!scoped_enum &&
+                                (type_is_arithmetic(left_value) ||
+                                 left_value->kind == TYPE_ENUM) &&
+                                (type_is_arithmetic(right_value) ||
+                                 right_value->kind == TYPE_ENUM)));
             bool pointers = type_is_pointer(left_value) &&
                             type_is_pointer(right_value);
             int64_t left_constant = 1;
@@ -3934,7 +3968,7 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
-            sema_expr(expr->binary_rhs);
+            Type* rt = sema_expr(expr->binary_rhs);
             if (!is_modifiable_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
@@ -3943,6 +3977,11 @@ static Type* sema_expr(Expr* expr) {
                 !type_is_pointer(lt) && lt->kind != TYPE_NULLPTR) {
                 rcc_error(expr->loc,
                           "nullptr can only be assigned to a pointer");
+            }
+            if ((sema_is_scoped_enum(lt) || sema_is_scoped_enum(rt)) &&
+                !implicit_cast(expr->binary_rhs, lt)) {
+                rcc_error(expr->loc,
+                          "incompatible scoped enum assignment");
             }
             sema_prepare_cxx_move_assignment(expr, lt);
             expr->type = lt;
@@ -3965,6 +4004,13 @@ static Type* sema_expr(Expr* expr) {
                 expr->type = ev;
             } else if (else_nullptr && type_is_pointer(tv)) {
                 expr->type = tv;
+            } else if ((sema_is_scoped_enum(tv) || sema_is_scoped_enum(ev)) &&
+                       !(sema_is_scoped_enum(tv) &&
+                         sema_is_scoped_enum(ev) &&
+                         type_is_compatible(tv, ev))) {
+                rcc_error(expr->loc,
+                          "conditional operands have incompatible scoped enum types");
+                expr->type = type_int;
             } else {
                 expr->type = type_common(tt, et);
             }
@@ -4686,7 +4732,13 @@ static void sema_stmt(Stmt* stmt) {
                 }
                 if (current_func_ret && current_func_ret != type_void) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {
-                        rcc_warning(stmt->loc, "incompatible return type");
+                        if (sema_is_scoped_enum(stmt->return_val->type) ||
+                            sema_is_scoped_enum(current_func_ret)) {
+                            rcc_error(stmt->loc,
+                                      "cannot implicitly convert scoped enum in return");
+                        } else {
+                            rcc_warning(stmt->loc, "incompatible return type");
+                        }
                     }
                 }
             }
@@ -5349,8 +5401,14 @@ static void sema_initializer(Type* type, Expr* initializer) {
             return;
         }
         if (!implicit_cast(initializer, type)) {
-            rcc_warning(initializer->loc,
-                        "incompatible types in initialization");
+            if (sema_is_scoped_enum(initializer->type) ||
+                sema_is_scoped_enum(type)) {
+                rcc_error(initializer->loc,
+                          "cannot implicitly convert scoped enum in initialization");
+            } else {
+                rcc_warning(initializer->loc,
+                            "incompatible types in initialization");
+            }
         }
         return;
     }

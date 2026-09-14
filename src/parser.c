@@ -56,6 +56,7 @@ typedef struct ParserTagName {
 typedef struct ParserEnumConstant {
     const char* name;
     int64_t value;
+    Type* type;
     struct ParserEnumConstant* next;
 } ParserEnumConstant;
 
@@ -159,19 +160,23 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
     return type;
 }
 
-static void parser_define_enum_constant(const char* name, int64_t value) {
+static void parser_define_enum_constant(const char* name, int64_t value,
+                                        Type* type) {
     ParserEnumConstant* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->value = value;
+    entry->type = type;
     entry->next = parser_enum_constants;
     parser_enum_constants = entry;
 }
 
-static bool parser_lookup_enum_constant(const char* name, int64_t* value) {
+static bool parser_lookup_enum_constant(const char* name, int64_t* value,
+                                        Type** type) {
     ParserEnumConstant* entry;
     for (entry = parser_enum_constants; entry; entry = entry->next) {
         if (strcmp(entry->name, name) == 0) {
             if (value) *value = entry->value;
+            if (type) *type = entry->type;
             return true;
         }
     }
@@ -974,12 +979,21 @@ static Expr* parse_primary(void) {
         (check(TOK_SCOPE) ||
          (check(TOK_IDENT) && parser.cur->next &&
           parser.cur->next->type == TOK_SCOPE))) {
-        return expr_ident(parse_expression_qualified_name(loc), loc);
+        const char* qualified_name = parse_expression_qualified_name(loc);
+        int64_t enum_value;
+        Type* enum_type = NULL;
+        if (parser_lookup_enum_constant(qualified_name, &enum_value,
+                                        &enum_type)) {
+            Expr* value = expr_int(enum_value, loc);
+            value->type = enum_type ? enum_type : type_int;
+            return value;
+        }
+        return expr_ident(qualified_name, loc);
     }
     if (match(TOK_IDENT)) {
         int64_t enum_value;
         if (parser_lookup_enum_constant(previous()->value.str_val,
-                                        &enum_value)) {
+                                        &enum_value, NULL)) {
             return expr_int(enum_value, loc);
         }
         return expr_ident(previous()->value.str_val, loc);
@@ -1533,7 +1547,8 @@ static int64_t parse_enum_value(int64_t fallback) {
     if (match(TOK_INT_LIT)) {
         value = previous()->value.int_val;
     } else if (match(TOK_IDENT)) {
-        if (!parser_lookup_enum_constant(previous()->value.str_val, &value)) {
+        if (!parser_lookup_enum_constant(previous()->value.str_val,
+                                         &value, NULL)) {
             rcc_error(previous()->loc, "unknown enum constant '%s'",
                       previous()->value.str_val);
         }
@@ -1543,13 +1558,28 @@ static int64_t parse_enum_value(int64_t fallback) {
     return negative ? -value : value;
 }
 
-static void parse_enum_body(void) {
+static void parse_enum_body(Type* enum_type, bool scoped,
+                            const char* enum_tag) {
     int64_t next_value = 0;
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* name = expect(TOK_IDENT, "enumerator name");
         int64_t value = next_value;
         if (match(TOK_ASSIGN)) value = parse_enum_value(next_value);
-        if (name) parser_define_enum_constant(name->value.str_val, value);
+        if (name) {
+            char qualified[512];
+            const char* spelling = name->value.str_val;
+            if (scoped && enum_tag) {
+                int written = snprintf(qualified, sizeof(qualified),
+                                       "%s::%s", enum_tag, spelling);
+                if (written < 0 || (size_t)written >= sizeof(qualified)) {
+                    rcc_error(name->loc,
+                              "scoped enum constant name exceeds compiler limit");
+                } else {
+                    spelling = rcc_intern(qualified);
+                }
+            }
+            parser_define_enum_constant(spelling, value, enum_type);
+        }
         next_value = value + 1;
         if (!match(TOK_COMMA)) break;
     }
@@ -1816,12 +1846,33 @@ static Type* parse_type_spec(void) {
         t = parser_tag_type(TYPE_UNION, tag ? tag->value.str_val : NULL);
         if (match(TOK_LBRACE)) parse_aggregate_body(t);
     } else if (match(TOK_ENUM)) {
+        bool scoped = false;
         Token* tag = NULL;
+        if (parser_cxx_mode && (match(TOK_CLASS) || match(TOK_STRUCT))) {
+            scoped = true;
+        }
         if (check(TOK_IDENT)) {
             tag = advance();
         }
         t = parser_tag_type(TYPE_ENUM, tag ? tag->value.str_val : NULL);
-        if (match(TOK_LBRACE)) parse_enum_body();
+        t->enum_is_scoped = scoped;
+        if (parser_cxx_mode && match(TOK_COLON)) {
+            Type* underlying = parse_type_spec();
+            if (!underlying || !type_is_integer(underlying)) {
+                rcc_error(previous()->loc,
+                          "C++ enum underlying type must be an integer type");
+            } else {
+                t->size = underlying->size;
+                t->align = underlying->align;
+                t->is_unsigned = underlying->is_unsigned;
+            }
+        }
+        if (match(TOK_LBRACE)) {
+            parse_enum_body(t, scoped, tag ? tag->value.str_val : NULL);
+        }
+        if (parser_cxx_mode && tag) {
+            parser_define_type(tag->value.str_val, t);
+        }
     } else if (parser_cxx_mode && rcc_parse_cxx_type_start &&
                rcc_parse_cxx_type_start() && rcc_parse_cxx_type_name) {
         t = rcc_parse_cxx_type_name();

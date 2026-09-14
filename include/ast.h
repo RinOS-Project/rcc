@@ -154,6 +154,7 @@ struct Type {
         /* TYPE_ENUM */
         struct {
             const char* enum_tag;
+            bool enum_is_scoped;  /* C++ enum class/enum struct. */
             /* Enum values stored in symbol table */
         };
     };
