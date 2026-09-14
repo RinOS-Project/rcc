@@ -1098,6 +1098,16 @@ static Stmt* template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
     return copy;
 }
 
+Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
+                              Type** args, int arg_count) {
+    return template_clone_expr(tmpl, expression, args, arg_count, NULL, NULL);
+}
+
+Stmt* cxx_template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
+                              Type** args, int arg_count) {
+    return template_clone_stmt(tmpl, statement, args, arg_count, NULL, NULL);
+}
+
 static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                                       Type** args,
                                       const int64_t* value_args,

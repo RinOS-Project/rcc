@@ -762,6 +762,34 @@ test-cxx-constraints: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constraints/invalid-x64.log
 	@echo "RCC++ integral template constraint tests completed"
 
+test-cxx-class-template-methods: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-methods/x86.s \
+		tests/cxx_class_template_methods.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-methods/x86.o \
+		$(TEST_OUT)/cxx-class-template-methods/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-methods/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-methods/x86 \
+		$(TEST_OUT)/cxx-class-template-methods/start-x86.o \
+		$(TEST_OUT)/cxx-class-template-methods/x86.o
+	$(TEST_OUT)/cxx-class-template-methods/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-methods/x64.s \
+		tests/cxx_class_template_methods.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-methods/x64.o \
+		$(TEST_OUT)/cxx-class-template-methods/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-methods/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-methods/x64 \
+		$(TEST_OUT)/cxx-class-template-methods/start-x64.o \
+		$(TEST_OUT)/cxx-class-template-methods/x64.o
+	$(TEST_OUT)/cxx-class-template-methods/x64
+	@echo "RCC++ substituted class-template member test completed"
+
 test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-templates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -1080,7 +1108,8 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi
+.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi
+.PHONY: test-cxx-class-template-methods
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -1290,6 +1319,32 @@ test-aggregate-flexible-abi: $(RCC_TARGET)
 		$(TEST_OUT)/aggregate-flexible-abi/x64.o
 	$(TEST_OUT)/aggregate-flexible-abi/x64
 	@echo "SysV flexible-array aggregate ABI tests completed"
+
+test-aggregate-sse-abi: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/aggregate-sse-abi)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-sse-abi/x86.s \
+		tests/aggregate_sse_abi.c
+	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-sse-abi/x86.o \
+		$(TEST_OUT)/aggregate-sse-abi/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-sse-abi/host-x86.o \
+		tests/aggregate_sse_abi_host.c
+	$(CC) -m32 -o $(TEST_OUT)/aggregate-sse-abi/x86 \
+		$(TEST_OUT)/aggregate-sse-abi/host-x86.o \
+		$(TEST_OUT)/aggregate-sse-abi/x86.o
+	$(TEST_OUT)/aggregate-sse-abi/x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-sse-abi/x64.s \
+		tests/aggregate_sse_abi.c
+	$(CC) -c -o $(TEST_OUT)/aggregate-sse-abi/x64.o \
+		$(TEST_OUT)/aggregate-sse-abi/x64.s
+	$(CC) -c -o $(TEST_OUT)/aggregate-sse-abi/host-x64.o \
+		tests/aggregate_sse_abi_host.c
+	$(CC) -o $(TEST_OUT)/aggregate-sse-abi/x64 \
+		$(TEST_OUT)/aggregate-sse-abi/host-x64.o \
+		$(TEST_OUT)/aggregate-sse-abi/x64.o
+	$(TEST_OUT)/aggregate-sse-abi/x64
+	@echo "SysV SSE aggregate and variadic ABI tests completed"
 
 test-cxx-overloads: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-overloads

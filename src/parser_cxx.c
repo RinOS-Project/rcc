@@ -2953,6 +2953,8 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_constructor = method->is_constructor;
     copy->is_destructor = method->is_destructor;
     copy->vtable_index = method->vtable_index;
+    copy->decl->func_body = cxx_template_clone_stmt(
+        tmpl, method->decl->func_body, arguments, argument_count);
     return copy;
 }
 
@@ -3012,7 +3014,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             instance, field->name,
             substitute_template_type(
                 tmpl, field->type, arguments, argument_count),
-            (AccessSpec)field->cxx_access, field->initializer);
+            (AccessSpec)field->cxx_access,
+            cxx_template_clone_expr(tmpl, field->initializer, arguments,
+                                    argument_count));
     }
     for (struct CxxMember* member = definition->members; member;
          member = member->next) {
@@ -3037,6 +3041,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
 
     cxx_class_build_vtable(instance);
     cxx_class_compute_layout(instance);
+    diagnose_unlowered_destructors(instance);
+    register_ordinary_class_methods(instance);
     register_inline_class_accessors(instance);
     register_inline_class_bool_delegates(instance);
     register_inline_class_cleanup(instance);

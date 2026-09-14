@@ -242,9 +242,13 @@ void cxx_namespace_add_using_decl(CxxNamespace* ns, const char* qualified_name);
 CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int count);
 void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count);
 void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
-                                            const int64_t* value_args,
-                                            const bool* value_present,
-                                            int arg_count);
+                                           const int64_t* value_args,
+                                           const bool* value_present,
+                                           int arg_count);
+Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
+                              Type** args, int arg_count);
+Stmt* cxx_template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
+                              Type** args, int arg_count);
 
 /* Parser-owned class-template substitution used by the public template API.
  * The returned class is the cached specialization, not merely its Type. */
