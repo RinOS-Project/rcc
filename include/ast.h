@@ -344,6 +344,12 @@ struct Expr {
     /* Marks the literal spelling of C++ nullptr so it remains excluded from
      * integer constant expressions.  Its semantic type is TYPE_NULLPTR. */
     bool is_cxx_nullptr;
+    /* C++ public non-virtual derived-to-base pointer conversion.  The
+     * semantic pass records the fixed subobject displacement on the source
+     * expression so both initializer and call lowering use the adjusted
+     * pointer value. */
+    bool cxx_pointer_adjustment_valid;
+    int32_t cxx_pointer_adjustment;
     /* Non-NULL only for a semantically validated C++ ownership transfer. */
     CxxMoveAssignment* cxx_move_assignment;
     /* Non-NULL only for the structurally validated SDK close operation. */

@@ -1878,10 +1878,34 @@ static void gen64_symbol_address(Module* mod, const char* symbol,
 
 static void gen64_local_vtable_init(Module* mod, Type* type,
                                     int32_t displacement) {
+    CxxClass* cls;
     if (!mod || !type || type->cxx_vtable_size <= 0 ||
         !type->cxx_vtable_symbol) return;
     gen64_symbol_address(mod, type->cxx_vtable_symbol, 0u);
     emit64_mov_mem_reg(mod, RBP, displacement, RAX);
+
+    cls = type->cxx_class;
+    if (!cls || !cls->base_offsets) return;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        int64_t base_displacement;
+        if (cls->bases[index].is_virtual || !base ||
+            base->vtable_size <= 0 || !base->type ||
+            !base->type->cxx_vtable_symbol ||
+            cls->base_offsets[index] <= 0) {
+            continue;
+        }
+        base_displacement = (int64_t)displacement +
+                            cls->base_offsets[index];
+        if (base_displacement < INT32_MIN ||
+            base_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "secondary vtable pointer exceeds stack limits");
+            continue;
+        }
+        gen64_symbol_address(mod, base->type->cxx_vtable_symbol, 0u);
+        emit64_mov_mem_reg(mod, RBP, (int32_t)base_displacement, RAX);
+    }
 }
 
 static void gen64_tls_address(Module* mod, const char* symbol) {
@@ -3657,6 +3681,10 @@ static void codegen64_release_named_labels(void) {
 static void gen64_expr(Module* mod, Expr* expr) {
     if (!expr) return;
     gen64_expr_raw(mod, expr);
+    if (expr->cxx_pointer_adjustment_valid &&
+        expr->cxx_pointer_adjustment != 0) {
+        emit64_add_reg_imm(mod, RAX, expr->cxx_pointer_adjustment);
+    }
     if (type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) {
         emit64_normalize_atomic_value(mod, RAX, expr->type);
     }

@@ -1983,6 +1983,7 @@ static uint32_t emit_rodata(Module* mod, const void* data, size_t len) {
 static void codegen_add_vtable_pointer(Module* mod,
                                        ModuleSymbolSection source_section,
                                        uint32_t offset, Type* type) {
+    CxxClass* cls;
     uint32_t width;
     if (!mod || !type || type->cxx_vtable_size <= 0 ||
         !type->cxx_vtable_symbol) return;
@@ -1991,6 +1992,36 @@ static void codegen_add_vtable_pointer(Module* mod,
                           width == 8u, type->cxx_vtable_symbol);
     add_reloc(mod, source_section, offset,
               width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+
+    /* Each non-virtual polymorphic base is a distinct subobject and owns a
+     * vptr.  The primary base reuses the object's first word; secondary
+     * bases retain their own base vtable until a thunk-capable override
+     * model is available.  Never leave those words zero-initialized: a call
+     * through a secondary base must observe a real, ABI-compatible table. */
+    cls = type->cxx_class;
+    if (!cls || !cls->base_offsets) return;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        uint64_t base_offset;
+        if (cls->bases[index].is_virtual || !base ||
+            base->vtable_size <= 0 || !base->type ||
+            !base->type->cxx_vtable_symbol ||
+            cls->base_offsets[index] <= 0) {
+            continue;
+        }
+        base_offset = (uint64_t)offset +
+                      (uint32_t)cls->base_offsets[index];
+        if (base_offset > UINT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "secondary vtable pointer exceeds data limits");
+            continue;
+        }
+        module_add_relocation(mod, source_section, (uint32_t)base_offset,
+                              0u, false, width == 8u,
+                              base->type->cxx_vtable_symbol);
+        add_reloc(mod, source_section, (uint32_t)base_offset,
+                  width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    }
 }
 
 static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
@@ -3302,10 +3333,34 @@ static void gen_symbol_address(Module* mod, const char* symbol,
 
 static void gen_local_vtable_init(Module* mod, Type* type,
                                   int32_t displacement) {
+    CxxClass* cls;
     if (!mod || !type || type->cxx_vtable_size <= 0 ||
         !type->cxx_vtable_symbol) return;
     gen_symbol_address(mod, type->cxx_vtable_symbol, 0u);
     emit_mov_mem_reg(mod, EBP, displacement, EAX);
+
+    cls = type->cxx_class;
+    if (!cls || !cls->base_offsets) return;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        int64_t base_displacement;
+        if (cls->bases[index].is_virtual || !base ||
+            base->vtable_size <= 0 || !base->type ||
+            !base->type->cxx_vtable_symbol ||
+            cls->base_offsets[index] <= 0) {
+            continue;
+        }
+        base_displacement = (int64_t)displacement +
+                            cls->base_offsets[index];
+        if (base_displacement < INT32_MIN ||
+            base_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "secondary vtable pointer exceeds stack limits");
+            continue;
+        }
+        gen_symbol_address(mod, base->type->cxx_vtable_symbol, 0u);
+        emit_mov_mem_reg(mod, EBP, (int32_t)base_displacement, EAX);
+    }
 }
 
 static void gen_tls_address(Module* mod, const char* symbol) {
@@ -6721,6 +6776,10 @@ static void gen_expr(Module* mod, Expr* expr) {
         return;
     }
     gen_expr_raw(mod, expr);
+    if (expr->cxx_pointer_adjustment_valid &&
+        expr->cxx_pointer_adjustment != 0) {
+        emit_add_reg_imm(mod, EAX, expr->cxx_pointer_adjustment);
+    }
     if (type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) {
         emit_normalize_atomic_value(mod, EAX, expr->type);
     }

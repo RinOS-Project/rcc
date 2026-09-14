@@ -559,11 +559,9 @@ static Type* implicit_cast(Expr* e, Type* target) {
         }
         {
             int adjustment;
-            /* A zero-offset public base conversion has the same machine
-             * representation and is safe through the existing pointer ABI.
-             * Non-zero conversions require a dedicated expression lowering. */
-            if (sema_cxx_pointer_conversion(e->type, target, &adjustment) &&
-                adjustment == 0) {
+            if (sema_cxx_pointer_conversion(e->type, target, &adjustment)) {
+                e->cxx_pointer_adjustment_valid = adjustment != 0;
+                e->cxx_pointer_adjustment = adjustment;
                 return target;
             }
         }
@@ -2298,6 +2296,7 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         if (source_base->kind == TYPE_VOID || target_base->kind == TYPE_VOID) {
             return 2;
         }
+        if (sema_cxx_pointer_conversion(source, target, NULL)) return 2;
         return -1;
     }
 
@@ -3187,10 +3186,22 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_CAST: {
-            sema_expr(expr->cast_expr);
+            Type* source = sema_expr(expr->cast_expr);
             sema_validate_array_parameter_type(expr->cast_type,
                                                expr->loc, false);
             expr->type = expr->cast_type;
+            expr->cxx_pointer_adjustment_valid = false;
+            if (source && expr->cast_type &&
+                source->kind == TYPE_PTR &&
+                expr->cast_type->kind == TYPE_PTR &&
+                !type_is_compatible(source, expr->cast_type)) {
+                int adjustment;
+                if (sema_cxx_pointer_conversion(source, expr->cast_type,
+                                                 &adjustment)) {
+                    expr->cxx_pointer_adjustment_valid = adjustment != 0;
+                    expr->cxx_pointer_adjustment = adjustment;
+                }
+            }
             break;
         }
 
