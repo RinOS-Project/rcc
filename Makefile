@@ -116,7 +116,7 @@ RAR_TARGET = $(BINDIR)/rar
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -657,6 +657,30 @@ test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-qualified-namespaces/c-mode.ro \
 		tests/c_scope_operator_rejected.c
 	@echo "RCC++ qualified namespace and C mode-isolation tests completed"
+
+test-cxx-using: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-using)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-using/x86.s tests/cxx_using.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-using/x64.s tests/cxx_using.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-using/x86.o \
+		$(TEST_OUT)/cxx-using/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-using/start.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-using/x86 \
+		$(TEST_OUT)/cxx-using/start.o $(TEST_OUT)/cxx-using/x86.o
+	$(TEST_OUT)/cxx-using/x86
+	$(CC) -c -o $(TEST_OUT)/cxx-using/x64.o \
+		$(TEST_OUT)/cxx-using/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-using/start64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-using/x64 \
+		$(TEST_OUT)/cxx-using/start64.o $(TEST_OUT)/cxx-using/x64.o
+	$(TEST_OUT)/cxx-using/x64
+	@echo "RCC++ using-directive, using-declaration, and alias tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)

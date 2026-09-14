@@ -542,6 +542,10 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     ns->template_count = 0;
     ns->children = NULL;
     ns->next = NULL;
+    ns->using_namespaces = NULL;
+    ns->using_namespace_count = 0;
+    ns->using_declarations = NULL;
+    ns->using_declaration_count = 0;
 
     /* Link to parent */
     if (parent) {
@@ -577,6 +581,25 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         ns->templates, sizeof(CxxTemplate*) * (size_t)ns->template_count,
         sizeof(CxxTemplate*) * (size_t)(ns->template_count + 1));
     ns->templates[ns->template_count++] = tmpl;
+}
+
+void cxx_namespace_add_using_namespace(CxxNamespace* ns, CxxNamespace* target) {
+    if (!ns || !target) return;
+    ns->using_namespaces = ast_arena_grow(
+        ns->using_namespaces,
+        sizeof(CxxNamespace*) * (size_t)ns->using_namespace_count,
+        sizeof(CxxNamespace*) * (size_t)(ns->using_namespace_count + 1));
+    ns->using_namespaces[ns->using_namespace_count++] = target;
+}
+
+void cxx_namespace_add_using_decl(CxxNamespace* ns, const char* qualified_name) {
+    if (!ns || !qualified_name || !*qualified_name) return;
+    ns->using_declarations = ast_arena_grow(
+        ns->using_declarations,
+        sizeof(const char*) * (size_t)ns->using_declaration_count,
+        sizeof(const char*) * (size_t)(ns->using_declaration_count + 1));
+    ns->using_declarations[ns->using_declaration_count++] =
+        rcc_intern(qualified_name);
 }
 
 /* ═══════════════════════════════════════
@@ -1193,7 +1216,68 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
     return NULL;
 }
 
-static const char* cxx_namespace_qualified_name(CxxNamespace* ns) {
+/* Find a namespace from a source spelling such as `api::detail`.  Leading
+ * global-scope qualification is accepted, while an empty spelling denotes
+ * the supplied root. */
+CxxNamespace* cxx_namespace_find(CxxNamespace* root, const char* qualified_name) {
+    char buffer[512];
+    char* component;
+    char* next;
+    CxxNamespace* current = root;
+
+    if (!root || !qualified_name) return NULL;
+    while (qualified_name[0] == ':' && qualified_name[1] == ':') {
+        qualified_name += 2;
+    }
+    if (*qualified_name == '\0') return root;
+    if (strlen(qualified_name) >= sizeof(buffer)) return NULL;
+    strcpy(buffer, qualified_name);
+    component = buffer;
+    for (;;) {
+        next = strstr(component, "::");
+        if (next) *next = '\0';
+        if (*component == '\0') return NULL;
+        current = cxx_namespace_lookup(current, component);
+        if (!current) return NULL;
+        if (!next) return current;
+        component = next + 2;
+    }
+}
+
+/* Return the longest namespace prefix of a qualified declaration.  This also
+ * handles class members (`api::Widget::run`), whose final components are not
+ * namespaces. */
+CxxNamespace* cxx_namespace_for_decl_name(CxxNamespace* root,
+                                           const char* qualified_name) {
+    char buffer[512];
+    char* component;
+    char* next;
+    CxxNamespace* current;
+    CxxNamespace* last;
+
+    if (!root || !qualified_name) return root;
+    while (qualified_name[0] == ':' && qualified_name[1] == ':') {
+        qualified_name += 2;
+    }
+    if (strlen(qualified_name) >= sizeof(buffer)) return root;
+    strcpy(buffer, qualified_name);
+    current = root;
+    last = root;
+    component = buffer;
+    for (;;) {
+        next = strstr(component, "::");
+        if (!next) break;
+        *next = '\0';
+        if (*component == '\0') break;
+        current = cxx_namespace_lookup(current, component);
+        if (!current) break;
+        last = current;
+        component = next + 2;
+    }
+    return last;
+}
+
+const char* cxx_namespace_qualified_name(CxxNamespace* ns) {
     CxxNamespace* stack[32];
     char buffer[512] = "";
     size_t length = 0u;

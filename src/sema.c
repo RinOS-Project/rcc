@@ -9,12 +9,26 @@
 #include "symtab.h"
 #include <limits.h>
 
+/* The C compiler intentionally omits the C++ AST object.  Keep the namespace
+ * lookup extension optional at this boundary so the C frontend remains a
+ * standalone executable while rcc++ supplies the real implementation. */
+#if defined(__GNUC__) || defined(__clang__)
+extern CxxNamespace* g_global_namespace __attribute__((weak));
+extern CxxNamespace* cxx_namespace_find(
+    CxxNamespace*, const char*) __attribute__((weak));
+extern CxxNamespace* cxx_namespace_for_decl_name(
+    CxxNamespace*, const char*) __attribute__((weak));
+extern const char* cxx_namespace_qualified_name(
+    CxxNamespace*) __attribute__((weak));
+#endif
+
 /* Current function return type */
 static Type* current_func_ret = NULL;
 static bool current_func_variadic = false;
 static Decl* current_func_last_param = NULL;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
+static CxxNamespace* current_cxx_namespace = NULL;
 
 typedef struct SemaSwitchValue {
     uint64_t bits;
@@ -153,6 +167,77 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
         }
     }
     return NULL;
+}
+
+static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
+                                          const char* name,
+                                          CxxNamespace** visited,
+                                          int visited_count) {
+    char qualified[512];
+    Symbol* result = NULL;
+    const char* namespace_name;
+
+    if (!ns || !name || !*name || visited_count >= 32) return NULL;
+    for (int index = 0; index < visited_count; ++index) {
+        if (visited[index] == ns) return NULL;
+    }
+    visited[visited_count++] = ns;
+    namespace_name = cxx_namespace_qualified_name(ns);
+    if (namespace_name && *namespace_name) {
+        if (strlen(namespace_name) + 2u + strlen(name) < sizeof(qualified)) {
+            strcpy(qualified, namespace_name);
+            strcat(qualified, "::");
+            strcat(qualified, name);
+            result = symtab_lookup(g_symtab, qualified);
+        }
+    } else {
+        result = symtab_lookup(g_symtab, name);
+    }
+    if (result) return result;
+
+    for (int index = 0; index < ns->using_declaration_count; ++index) {
+        const char* target = ns->using_declarations[index];
+        const char* final_component = strrchr(target, ':');
+        final_component = final_component ? final_component + 1 : target;
+        if (strcmp(final_component, name) != 0) continue;
+        result = symtab_lookup(g_symtab, target);
+        if (result) return result;
+    }
+    for (int index = 0; index < ns->using_namespace_count; ++index) {
+        result = sema_cxx_lookup_namespace(ns->using_namespaces[index], name,
+                                           visited, visited_count);
+        if (result) return result;
+    }
+    return NULL;
+}
+
+static Symbol* sema_cxx_lookup_name(const char* name) {
+    Symbol* symbol;
+    CxxNamespace* visited[32] = { 0 };
+    CxxNamespace* ns;
+
+    if (!name) return NULL;
+    symbol = symtab_lookup(g_symtab, name);
+    if (symbol || !rcc_parser_is_cxx_mode() || strchr(name, ':')) {
+        return symbol;
+    }
+    for (ns = current_cxx_namespace ? current_cxx_namespace
+                                    : g_global_namespace;
+         ns; ns = ns->parent) {
+        symbol = sema_cxx_lookup_namespace(ns, name, visited, 0);
+        if (symbol) return symbol;
+    }
+    return NULL;
+}
+
+static CxxNamespace* sema_decl_namespace(Decl* decl) {
+    if (!g_global_namespace || !decl) return g_global_namespace;
+    if (decl->func_method_owner && decl->func_method_owner->cxx_namespace) {
+        CxxNamespace* owner_namespace = cxx_namespace_find(
+            g_global_namespace, decl->func_method_owner->cxx_namespace);
+        if (owner_namespace) return owner_namespace;
+    }
+    return cxx_namespace_for_decl_name(g_global_namespace, decl->name);
 }
 
 static bool sema_statement_has_current_switch_label(Stmt* statement) {
@@ -1336,7 +1421,7 @@ static Type* sema_expr(Expr* expr) {
                     : expr->ident_decl->type;
                 break;
             }
-            Symbol* sym = symtab_lookup(g_symtab, expr->ident_name);
+            Symbol* sym = sema_cxx_lookup_name(expr->ident_name);
             if (!sym && current_cxx_method_owner &&
                 current_cxx_this_param && expr->ident_name) {
                 TypeField* field;
@@ -2194,7 +2279,7 @@ static Type* sema_expr(Expr* expr) {
                 }
             }
             if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
-                !symtab_lookup(g_symtab, expr->call_func->ident_name)) {
+                !sema_cxx_lookup_name(expr->call_func->ident_name)) {
                 Symbol* adl_symbol;
                 for (argument = expr->call_args; argument;
                      argument = argument->next) {
@@ -2211,8 +2296,8 @@ static Type* sema_expr(Expr* expr) {
             }
             if (sema_atomic_builtin_call(expr)) break;
             if (expr->call_func->kind == EXPR_IDENT) {
-                Symbol* overload = symtab_lookup(
-                    g_symtab, expr->call_func->ident_name);
+                Symbol* overload = sema_cxx_lookup_name(
+                    expr->call_func->ident_name);
                 if (overload && overload->kind == SYM_FUNC &&
                     overload->decl && overload->decl->func_has_cxx_linkage &&
                     overload->decl->func_overload_next &&
@@ -3801,6 +3886,10 @@ static void sema_decl(Decl* decl) {
     switch (decl->kind) {
         case DECL_VAR: {
             bool is_global = g_symtab->current == g_symtab->global;
+            CxxNamespace* saved_cxx_namespace = current_cxx_namespace;
+            if (is_global && rcc_parser_is_cxx_mode()) {
+                current_cxx_namespace = sema_decl_namespace(decl);
+            }
             if (decl->var_is_auto) {
                 decl->type = sema_deduce_auto_type(decl);
             }
@@ -3884,10 +3973,15 @@ static void sema_decl(Decl* decl) {
                 sema_initializer(decl->type, decl->var_init);
             }
             sema_prepare_variable_cleanup(decl, is_global);
+            current_cxx_namespace = saved_cxx_namespace;
             break;
         }
 
         case DECL_FUNC: {
+            CxxNamespace* saved_cxx_namespace = current_cxx_namespace;
+            if (rcc_parser_is_cxx_mode()) {
+                current_cxx_namespace = sema_decl_namespace(decl);
+            }
             Symbol* sym = symtab_lookup(g_symtab, decl->name);
             bool cxx_overload_set = false;
             bool cxx_defaults_merged = false;
@@ -4031,6 +4125,7 @@ static void sema_decl(Decl* decl) {
                 current_cxx_method_owner = previous_method_owner;
                 current_cxx_this_param = previous_this_param;
             }
+            current_cxx_namespace = saved_cxx_namespace;
             break;
         }
 
@@ -4084,6 +4179,7 @@ bool rcc_sema(AST* ast) {
     bool valid;
     /* Create symbol table */
     g_symtab = symtab_new();
+    current_cxx_namespace = NULL;
 
     /* Process all top-level declarations */
     for (DeclList* d = ast->decls; d; d = d->next) {
@@ -4093,5 +4189,6 @@ bool rcc_sema(AST* ast) {
     valid = g_error_count == 0;
     symtab_free(g_symtab);
     g_symtab = NULL;
+    current_cxx_namespace = NULL;
     return valid;
 }

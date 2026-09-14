@@ -2008,6 +2008,102 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
     ast_add_decl(ast, declaration);
 }
 
+static const char* cxx_using_qualified_name(const char* name,
+                                            SourceLoc loc) {
+    char buffer[512];
+    const char* namespace_name;
+    size_t namespace_length;
+    CxxNamespace* ns;
+
+    if (!name) return rcc_intern("");
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    if (active_namespace && active_namespace->name) {
+        namespace_name = cxx_namespace_qualified_name(active_namespace);
+        namespace_length = namespace_name ? strlen(namespace_name) : 0u;
+        if (namespace_length != 0u &&
+            namespace_length + 2u + strlen(name) < sizeof(buffer)) {
+            memcpy(buffer, namespace_name, namespace_length);
+            memcpy(buffer + namespace_length, "::", 2u);
+            strcpy(buffer + namespace_length + 2u, name);
+            /* Prefer the innermost namespace spelling when it names a real
+             * declaration owner; this gives `using detail::f` inside `api`
+             * the expected `api::detail::f` target. */
+            {
+                char* separator = strrchr(buffer, ':');
+                if (separator && separator > buffer && separator[-1] == ':') {
+                    separator[-1] = '\0';
+                    ns = cxx_namespace_find(g_global_namespace, buffer);
+                    separator[-1] = ':';
+                    if (ns) return rcc_intern(buffer);
+                }
+            }
+        }
+    }
+    (void)loc;
+    return rcc_intern(name);
+}
+
+static void parse_cxx_using(CxxNamespace* ns) {
+    SourceLoc loc = previous()->loc;
+    const char* name;
+    Token* local_name;
+
+    if (match(TOK_NAMESPACE)) {
+        name = parse_qualified_name();
+        CxxNamespace* target = cxx_namespace_find(g_global_namespace, name);
+        if (!target) {
+            rcc_error(loc, "unknown namespace in using-directive '%s'", name);
+        } else {
+            cxx_namespace_add_using_namespace(ns, target);
+        }
+        expect(TOK_SEMICOLON, ";");
+        return;
+    }
+
+    local_name = expect(TOK_IDENT, "name in using-declaration");
+    if (!local_name) {
+        while (!at_end() && !match(TOK_SEMICOLON)) advance();
+        return;
+    }
+    if (match(TOK_ASSIGN)) {
+        Type* alias_type = parse_cxx_type_spec();
+        if (!alias_type) {
+            rcc_error(loc, "using-alias requires a type");
+        } else {
+            rcc_parser_define_type(local_name->value.str_val, alias_type);
+        }
+    } else {
+        char target[512];
+        const char* suffix = NULL;
+        /* The first identifier was consumed as the local spelling.  A using
+         * declaration has no separate local identifier, so it is the first
+         * component of the target and the remaining `::` chain follows. */
+        if (strlen(local_name->value.str_val) >= sizeof(target)) {
+            rcc_error(loc, "using-declaration name is too long");
+            target[0] = '\0';
+        } else {
+            strcpy(target, local_name->value.str_val);
+        }
+        while (match(TOK_SCOPE)) {
+            if (!check(TOK_IDENT)) {
+                rcc_error(peek()->loc, "expected identifier after ::");
+                break;
+            }
+            if (strlen(target) + 2u +
+                    strlen(peek()->value.str_val) >= sizeof(target)) {
+                rcc_error(loc, "using-declaration name is too long");
+                break;
+            }
+            strcat(target, "::");
+            suffix = advance()->value.str_val;
+            strcat(target, suffix);
+        }
+        cxx_namespace_add_using_decl(
+            ns, cxx_using_qualified_name(target, loc));
+    }
+    expect(TOK_SEMICOLON, ";");
+}
+
 static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
     SourceLoc loc = previous()->loc;
     CxxNamespace* outer_namespace = active_namespace;
@@ -2037,6 +2133,8 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
             cxx_namespace_add_template(ns, tmpl);
         } else if (match(TOK_NAMESPACE)) {
             (void)parse_cxx_namespace(ast, ns);
+        } else if (match(TOK_USING)) {
+            parse_cxx_using(ns);
         } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
             bool is_constexpr = false;
@@ -2392,7 +2490,7 @@ CxxTemplate* parse_cxx_template(void) {
  * ═══════════════════════════════════════ */
 
 static CxxTemplate* namespace_template(CxxNamespace* ns,
-                                       const char* name) {
+                                        const char* name) {
     int index;
     if (!ns || !name) return NULL;
     for (index = 0; index < ns->template_count; ++index) {
@@ -3792,20 +3890,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 cxx_namespace_add_decl(g_global_namespace, declaration);
             }
         } else if (match(TOK_USING)) {
-            /* using declaration or directive */
-            if (match(TOK_NAMESPACE)) {
-                /* using namespace ns; */
-                parse_qualified_name();
-            } else {
-                /* using alias = type; or using ns::name; */
-                if (check(TOK_IDENT)) {
-                    advance();
-                    if (match(TOK_ASSIGN)) {
-                        parse_cxx_type_spec();
-                    }
-                }
-            }
-            expect(TOK_SEMICOLON, ";");
+            parse_cxx_using(g_global_namespace);
         } else {
             /* Regular C declaration */
             Stmt* s = parse_cxx_statement();

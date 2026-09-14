@@ -124,6 +124,13 @@ struct CxxNamespace {
     /* Nested namespaces */
     CxxNamespace* children;
     CxxNamespace* next;      /* sibling */
+
+    /* Names introduced by using-directives/declarations.  Semantic analysis
+     * consults this metadata instead of manufacturing duplicate symbols. */
+    CxxNamespace** using_namespaces;
+    int using_namespace_count;
+    const char** using_declarations;
+    int using_declaration_count;
 };
 
 /* Template parameter */
@@ -217,8 +224,14 @@ void cxx_class_build_vtable(CxxClass* cls);
 /* Namespace operations (core API) */
 CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent);
 CxxNamespace* cxx_namespace_lookup(CxxNamespace* root, const char* name);
+CxxNamespace* cxx_namespace_find(CxxNamespace* root, const char* qualified_name);
+CxxNamespace* cxx_namespace_for_decl_name(CxxNamespace* root,
+                                           const char* qualified_name);
+const char* cxx_namespace_qualified_name(CxxNamespace* ns);
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl);
 void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl);
+void cxx_namespace_add_using_namespace(CxxNamespace* ns, CxxNamespace* target);
+void cxx_namespace_add_using_decl(CxxNamespace* ns, const char* qualified_name);
 
 /* Template operations (core API) */
 CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int count);
