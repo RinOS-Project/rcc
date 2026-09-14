@@ -3999,9 +3999,11 @@ static void sema_decl(Decl* decl) {
                     sema_cxx_default_member_initializer(decl);
                 if (default_initializer) decl->var_init = default_initializer;
             }
-            if (decl->var_is_thread_local && !is_global) {
+            if (decl->var_is_thread_local && !is_global &&
+                decl->storage != STORAGE_STATIC &&
+                decl->storage != STORAGE_EXTERN) {
                 rcc_error(decl->loc,
-                          "block-scope thread-local variables are not supported yet");
+                          "block-scope thread-local variable requires static or extern storage");
             }
             if (decl->var_is_thread_local &&
                 (decl->storage == STORAGE_AUTO ||

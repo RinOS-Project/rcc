@@ -1075,6 +1075,36 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     alignment = declaration->type->align > 0
         ? (uint32_t)declaration->type->align : 1u;
     if (alignment > 16u) alignment = 16u;
+    if (declaration->var_is_thread_local) {
+        uint64_t aligned = ((uint64_t)mod->tls.size + alignment - 1u) &
+                           ~((uint64_t)alignment - 1u);
+        if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+            rcc_error(declaration->loc,
+                      "static local TLS exceeds compiler limits");
+            return false;
+        }
+        offset = (uint32_t)aligned;
+        codegen_ensure_tls_capacity(mod, (size_t)aligned + size);
+        if (mod->tls.size < aligned) {
+            memset(mod->tls.data + mod->tls.size, 0,
+                   (size_t)aligned - mod->tls.size);
+        }
+        memset(mod->tls.data + offset, 0, size);
+        mod->tls.size = (size_t)aligned + size;
+        if (alignment > mod->tls_align) mod->tls_align = alignment;
+        declaration->var_offset = offset;
+        if (declaration->var_init &&
+            !codegen_emit_tls_initializer(
+                mod, declaration->type, declaration->var_init, offset)) {
+            rcc_error(declaration->loc,
+                      "unsupported static local TLS initializer for '%s'",
+                      declaration->name);
+            return false;
+        }
+        module_add_symbol(mod, decl_link_name(declaration), offset, true,
+                          MODULE_SYMBOL_TLS, false);
+        return true;
+    }
     if (!declaration->var_init) {
         uint64_t aligned = ((uint64_t)mod->bss.size + alignment - 1u) &
                            ~((uint64_t)alignment - 1u);
@@ -1154,7 +1184,11 @@ static void codegen_emit_static_locals(Module* mod, Stmt* statement) {
                     (void)codegen_emit_static_local(mod, statement->decl);
                 } else if (statement->decl->var_is_block_extern) {
                     module_add_symbol(mod, decl_link_name(statement->decl),
-                                      0u, false, MODULE_SYMBOL_DATA, true);
+                                      0u, false,
+                                      statement->decl->var_is_thread_local
+                                          ? MODULE_SYMBOL_TLS
+                                          : MODULE_SYMBOL_DATA,
+                                      true);
                 }
             }
             break;
