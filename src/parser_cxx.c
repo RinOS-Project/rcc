@@ -3166,7 +3166,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
 
 static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                                               Type* pattern, Type* actual,
-                                              Type** arguments) {
+                                              Type** arguments,
+                                              int* specificity) {
+    int nested_specificity = 0;
     if (!tmpl || !pattern || !actual || !arguments) return false;
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
@@ -3175,22 +3177,31 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                 strcmp(parameter->name, pattern->tag) == 0) {
                 if (!arguments[index]) {
                     arguments[index] = actual;
+                    if (specificity) *specificity += 0;
                     return true;
                 }
                 return type_is_compatible(arguments[index], actual);
             }
         }
     }
-    if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR) {
+    if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR &&
+        pattern->is_reference == actual->is_reference &&
+        pattern->is_rvalue_reference == actual->is_rvalue_reference) {
         return deduce_class_specialization_type(
-            tmpl, pattern->base, actual->base, arguments);
+            tmpl, pattern->base, actual->base, arguments,
+            specificity ? &nested_specificity : NULL) &&
+            (!specificity || (*specificity += nested_specificity + 1, true));
     }
     if (pattern->kind == TYPE_ARRAY && actual->kind == TYPE_ARRAY &&
-        pattern->array_len == actual->array_len) {
+        (pattern->array_len < 0 ||
+         pattern->array_len == actual->array_len)) {
+        if (specificity && pattern->array_len >= 0) *specificity += 4;
         return deduce_class_specialization_type(
-            tmpl, pattern->base, actual->base, arguments);
+            tmpl, pattern->base, actual->base, arguments, specificity);
     }
-    return type_is_compatible(pattern, actual);
+    if (!type_is_compatible(pattern, actual)) return false;
+    if (specificity) *specificity += 8;
+    return true;
 }
 
 CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
@@ -3242,11 +3253,16 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         ++argument_count;
     }
     expect(TOK_GT, ">");
+    CxxTemplate* selected = NULL;
+    Type* selected_arguments[32] = { NULL };
+    int selected_specificity = -1;
     for (int index = 0; index < tmpl->specialization_count; ++index) {
         CxxTemplate* specialization = tmpl->specializations[index];
         bool matches = specialization &&
             specialization->specialization_arg_count == argument_count;
         Type* specialization_arguments[32] = { NULL };
+        int specificity = specialization && specialization->param_count == 0
+            ? 100000 : 0;
         for (int argument_index = 0; matches &&
              argument_index < argument_count; ++argument_index) {
             if (specialization->param_count == 0) {
@@ -3259,15 +3275,13 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 matches = deduce_class_specialization_type(
                     specialization,
                     specialization->specialization_args[argument_index],
-                    arguments[argument_index], specialization_arguments);
+                    arguments[argument_index], specialization_arguments,
+                    &specificity);
             } else {
                 matches = false;
             }
         }
         if (matches && specialization->templated_class) {
-            if (specialization->param_count == 0) {
-                return specialization->templated_class->type;
-            }
             for (int parameter_index = 0;
                  parameter_index < specialization->param_count;
                  ++parameter_index) {
@@ -3277,11 +3291,25 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 }
             }
             if (matches) {
-                return instantiate_class_template(
-                    specialization, specialization_arguments,
-                    specialization->param_count, loc);
+                if (specificity > selected_specificity) {
+                    selected = specialization;
+                    selected_specificity = specificity;
+                    memcpy(selected_arguments, specialization_arguments,
+                           sizeof(selected_arguments));
+                } else if (specificity == selected_specificity) {
+                    rcc_error(loc,
+                              "ambiguous class template partial specialization "
+                              "for '%s'",
+                              tmpl->name ? tmpl->name : "template");
+                    return NULL;
+                }
             }
         }
+    }
+    if (selected) {
+        if (selected->param_count == 0) return selected->templated_class->type;
+        return instantiate_class_template(
+            selected, selected_arguments, selected->param_count, loc);
     }
     return instantiate_class_template(tmpl, arguments, argument_count, loc);
 }
