@@ -1949,11 +1949,30 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Array suffix? */
         if (match(TOK_LBRACKET)) {
             int len = -1;
+            Expr* bound_expression = NULL;
             if (check(TOK_INT_LIT)) {
                 len = (int)advance()->value.int_val;
+            } else if (!check(TOK_RBRACKET)) {
+                int64_t constant;
+                bound_expression = parse_assignment_expression();
+                if (expr_eval_integer_constant(bound_expression, &constant)) {
+                    if (constant <= 0 || constant > INT_MAX) {
+                        rcc_error(bound_expression->loc,
+                                  "class member array bound must be a positive "
+                                  "representable integer constant");
+                    } else {
+                        len = (int)constant;
+                    }
+                    bound_expression = NULL;
+                } else if (!bound_expression) {
+                    rcc_error(loc, "class member array bound is invalid");
+                } else {
+                    len = -2;
+                }
             }
             expect(TOK_RBRACKET, "]");
             type = type_array(type, len);
+            type->array_bound = bound_expression;
         }
 
         /* Initializer? */
