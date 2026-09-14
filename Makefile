@@ -829,12 +829,40 @@ test-cxx-non-type-templates: $(RCXX_TARGET)
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
 		grep -F -x -q '_ZN12add_constantEILi3EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		grep -F -x -q '_ZN12add_constantEILi-2EEi'
+		grep -F -x -q '_ZN12add_constantEILin2EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x64.ro | \
 		grep -F -x -q '_ZN20add_default_constantEILi4EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
 		grep -F -x -q '_ZN22add_default_from_valueEILi3ELi4EEi'
 	@echo "RCC++ non-type integer template tests completed"
+
+test-cxx-non-type-template-deduction: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-non-type-template-deduction/x86.s \
+		tests/cxx_non_type_templates.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-non-type-template-deduction/x86.o \
+		$(TEST_OUT)/cxx-non-type-template-deduction/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-non-type-template-deduction/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-non-type-template-deduction/x86 \
+		$(TEST_OUT)/cxx-non-type-template-deduction/start-x86.o \
+		$(TEST_OUT)/cxx-non-type-template-deduction/x86.o
+	$(TEST_OUT)/cxx-non-type-template-deduction/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-non-type-template-deduction/x64.s \
+		tests/cxx_non_type_templates.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-non-type-template-deduction/x64.o \
+		$(TEST_OUT)/cxx-non-type-template-deduction/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-non-type-template-deduction/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-non-type-template-deduction/x64 \
+		$(TEST_OUT)/cxx-non-type-template-deduction/start-x64.o \
+		$(TEST_OUT)/cxx-non-type-template-deduction/x64.o
+	$(TEST_OUT)/cxx-non-type-template-deduction/x64
+	@echo "RCC++ non-type array-bound deduction tests completed"
 
 test-initializer-brace-elision: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/initializer-brace-elision)
@@ -1139,6 +1167,7 @@ endif
 .PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
+.PHONY: test-cxx-non-type-template-deduction
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \

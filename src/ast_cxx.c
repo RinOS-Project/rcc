@@ -97,6 +97,22 @@ char* cxx_mangle_type(Type* type) {
                 mangle_name(buf, &pos, type->tag);
             }
             break;
+        case TYPE_ARRAY: {
+            char base_mangled[256];
+            const char* base = cxx_mangle_type(type->base);
+            strncpy(base_mangled, base ? base : "v",
+                    sizeof(base_mangled) - 1u);
+            base_mangled[sizeof(base_mangled) - 1u] = '\0';
+            if (type->array_len >= 0) {
+                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
+                                        "A%d%s", type->array_len,
+                                        base_mangled);
+            } else {
+                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
+                                        "A_%s", base_mangled);
+            }
+            break;
+        }
         default:
             buf[pos++] = '?';
             break;
@@ -211,8 +227,15 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             memcpy(buf + pos, type_mangled, type_length);
             pos += type_length;
         }
-        pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "%lldE",
-                                (long long)value_args[index]);
+        if (value_args[index] < 0) {
+            uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
+            pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
+                                    "n%lluE",
+                                    (unsigned long long)magnitude);
+        } else {
+            pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "%lldE",
+                                    (long long)value_args[index]);
+        }
     }
     buf[pos++] = 'E';
     if (func->func_params) {

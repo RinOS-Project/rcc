@@ -122,6 +122,9 @@ static Expr* parse_cxx_expression(void);
 extern Expr* parse_expression(void);
 extern Expr* parse_assignment_expression(void);
 extern Expr* rcc_parser_parse_initializer(void);
+extern Type* rcc_parser_parse_cxx_declarator(Type* base_type,
+                                              const char** name,
+                                              DeclList** parameters);
 static Stmt* parse_cxx_statement(void);
 static Type* parse_cxx_type_spec(void);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
@@ -1806,11 +1809,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 advance();
             } else {
                 do {
-                    Type* ptype = parse_cxx_type_spec();
                     const char* pname = NULL;
-                    if (check(TOK_IDENT)) {
-                        pname = advance()->value.str_val;
-                    }
+                    Type* ptype = parse_cxx_type_spec();
+                    ptype = rcc_parser_parse_cxx_declarator(ptype, &pname,
+                                                            NULL);
                     Expr* default_argument = NULL;
                     if (match(TOK_ASSIGN)) {
                         default_argument = parse_assignment_expression();
@@ -2350,11 +2352,11 @@ static DeclList* parse_cxx_parameter_declarations(void) {
         return NULL;
     }
     while (!check(TOK_RPAREN) && !at_end()) {
-        Type* type = parse_cxx_type_spec();
         const char* name = NULL;
+        Type* type = parse_cxx_type_spec();
         Expr* default_argument = NULL;
         Decl* parameter;
-        if (check(TOK_IDENT)) name = advance()->value.str_val;
+        type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
         if (match(TOK_ASSIGN)) {
             default_argument = parse_assignment_expression();
         }
@@ -3285,7 +3287,9 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
 }
 
 static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
-                                          Type* actual, Type** arguments) {
+                                          Type* actual, Type** arguments,
+                                          int64_t* values,
+                                          bool* value_present) {
     if (!tmpl || !pattern || !actual || !arguments) return false;
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
@@ -3301,29 +3305,57 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
         }
     }
     if (pattern->kind == TYPE_PTR && pattern->is_reference) {
-        return deduce_function_template_type(tmpl, pattern->base,
-                                             actual, arguments);
+        if (actual->kind == TYPE_PTR && actual->is_reference) {
+            actual = actual->base;
+        }
+        return deduce_function_template_type(tmpl, pattern->base, actual,
+                                             arguments, values,
+                                             value_present);
     }
     if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR) {
         return deduce_function_template_type(tmpl, pattern->base,
-                                             actual->base, arguments);
+                                             actual->base, arguments, values,
+                                             value_present);
+    }
+    if (pattern->kind == TYPE_ARRAY && actual->kind == TYPE_ARRAY) {
+        if (pattern->array_bound &&
+            pattern->array_bound->kind == EXPR_IDENT && values &&
+            value_present) {
+            for (int index = 0; index < tmpl->param_count; ++index) {
+                TemplateParam* parameter = &tmpl->params[index];
+                if (parameter->kind != TPARAM_NONTYPE ||
+                    !parameter->name ||
+                    strcmp(parameter->name,
+                           pattern->array_bound->ident_name) != 0) {
+                    continue;
+                }
+                if (actual->array_len <= 0) return false;
+                if (value_present[index] && values[index] != actual->array_len) {
+                    return false;
+                }
+                values[index] = actual->array_len;
+                value_present[index] = true;
+                break;
+            }
+        } else if (pattern->array_len >= 0 &&
+                   pattern->array_len != actual->array_len) {
+            return false;
+        }
+        return deduce_function_template_type(tmpl, pattern->base,
+                                             actual->base, arguments, values,
+                                             value_present);
     }
     return type_is_compatible(pattern, actual);
 }
 
 static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                ExprList* call_arguments,
-                                               Type** template_arguments) {
+                                               Type** template_arguments,
+                                               int64_t* template_values,
+                                               bool* template_value_present) {
     DeclList* parameter;
     ExprList* argument;
     if (!tmpl || !tmpl->func_def || !template_arguments) return false;
-    for (int index = 0; index < tmpl->param_count; ++index) {
-        if (tmpl->params[index].kind != TPARAM_TYPE) {
-            rcc_error(tmpl->func_def->loc,
-                      "non-type template argument deduction is not supported");
-            return false;
-        }
-    }
     parameter = tmpl->func_def->func_params;
     argument = call_arguments;
     while (parameter && argument) {
@@ -3341,8 +3373,9 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                       "without a parser-known type");
             return false;
         }
-        if (!deduce_function_template_type(tmpl, parameter->decl->type,
-                                            actual, template_arguments)) {
+        if (!deduce_function_template_type(
+                tmpl, parameter->decl->type, actual, template_arguments,
+                template_values, template_value_present)) {
             rcc_error(argument->expr->loc,
                       "function template argument type does not match its "
                       "parameter pattern");
@@ -3728,11 +3761,23 @@ Expr* rcc_parse_cxx_template_call(void) {
             memset(template_arguments, 0, sizeof(template_arguments));
             argument_count = 0;
             if (!deduce_function_template_arguments(tmpl, call_arguments,
-                                                     template_arguments)) {
+                                                     template_arguments,
+                                                     template_values,
+                                                     template_value_present)) {
                 return expr_int(0, loc);
             }
             for (int index = 0; index < tmpl->param_count; ++index) {
                 TemplateParam* parameter = &tmpl->params[index];
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    if (!template_value_present[index]) {
+                        rcc_error(loc,
+                                  "could not deduce function template non-type "
+                                  "argument %d", index + 1);
+                        return expr_int(0, loc);
+                    }
+                    template_arguments[index] = parameter->type;
+                    continue;
+                }
                 if (!template_arguments[index] && parameter->has_default &&
                     parameter->kind == TPARAM_TYPE &&
                     parameter->default_type) {

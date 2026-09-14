@@ -2001,6 +2001,8 @@ typedef struct ParsedPointerLevel {
     bool is_const;
     bool is_volatile;
     bool is_restrict;
+    bool is_reference;
+    bool is_rvalue_reference;
     struct ParsedPointerLevel* next;
 } ParsedPointerLevel;
 
@@ -2028,8 +2030,10 @@ static bool parser_parenthesized_pointer_is_function(void) {
 static ParsedPointerLevel* parse_pointer_levels(void) {
     ParsedPointerLevel* levels = NULL;
     ParsedPointerLevel** tail = &levels;
-    while (match(TOK_STAR)) {
+    while (match(TOK_STAR) || (parser_cxx_mode && match(TOK_AMP))) {
         ParsedPointerLevel* level = ast_arena_alloc(sizeof(*level));
+        level->is_reference = previous()->type == TOK_AMP;
+        level->is_rvalue_reference = false;
         while (check(TOK_CONST) || check(TOK_VOLATILE) ||
                check(TOK_RESTRICT)) {
             if (match(TOK_CONST)) level->is_const = true;
@@ -2049,6 +2053,8 @@ static Type* apply_pointer_levels(Type* type,
         type->is_const = level->is_const;
         type->is_volatile = level->is_volatile;
         type->is_restrict = level->is_restrict;
+        type->is_reference = level->is_reference;
+        type->is_rvalue_reference = level->is_rvalue_reference;
     }
     return type;
 }
@@ -2075,7 +2081,8 @@ static Type* parse_declarator(Type* base_type, const char** name,
 
     /* Function-pointer declarator: return_type (*name)(parameters). */
     if (check(TOK_LPAREN) && parser.cur->next &&
-        parser.cur->next->type == TOK_STAR &&
+        (parser.cur->next->type == TOK_STAR ||
+         (parser_cxx_mode && parser.cur->next->type == TOK_AMP)) &&
         parser_parenthesized_pointer_is_function()) {
         ParsedPointerLevel* nested_pointers;
         DeclList* function_parameters = NULL;
@@ -2105,7 +2112,8 @@ static Type* parse_declarator(Type* base_type, const char** name,
      * suffixes.  Array suffixes bind to the declarator inside the group, and
      * the pointer levels inside the group are applied afterwards. */
     if (check(TOK_LPAREN) && parser.cur->next &&
-        parser.cur->next->type == TOK_STAR) {
+        (parser.cur->next->type == TOK_STAR ||
+         (parser_cxx_mode && parser.cur->next->type == TOK_AMP))) {
         advance();
         parenthesized_pointers = parse_pointer_levels();
         if (check(TOK_IDENT)) {
@@ -2210,6 +2218,11 @@ static Type* parse_declarator(Type* base_type, const char** name,
         type = apply_pointer_levels(type, parenthesized_pointers);
     }
     return type;
+}
+
+Type* rcc_parser_parse_cxx_declarator(Type* base_type, const char** name,
+                                      DeclList** parameters) {
+    return parse_declarator(base_type, name, parameters);
 }
 
 /* ═══════════════════════════════════════

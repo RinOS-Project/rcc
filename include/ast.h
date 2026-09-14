@@ -13,6 +13,7 @@ typedef struct Type Type;
 typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
+typedef struct DeclList DeclList;
 typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 struct CxxClass;
@@ -184,6 +185,8 @@ void rcc_parser_set_cxx_mode(bool enabled);
 bool rcc_parser_is_cxx_mode(void);
 Type* rcc_parser_lookup_type(const char* name);
 void rcc_parser_define_type(const char* name, Type* type);
+Type* rcc_parser_parse_cxx_declarator(Type* base_type, const char** name,
+                                      DeclList** parameters);
 void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,
                                             uint32_t arity_mask);
 uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type);
