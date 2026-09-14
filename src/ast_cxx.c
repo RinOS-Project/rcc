@@ -650,6 +650,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->class_def = NULL;
     tmpl->is_constexpr = false;
     tmpl->is_noexcept = false;
+    tmpl->constraint = NULL;
     tmpl->function_lowering = TMPL_FUNCTION_NONE;
     tmpl->function_constant = 0;
     tmpl->templated_class = NULL;

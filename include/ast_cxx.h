@@ -168,6 +168,11 @@ struct CxxTemplate {
 
     bool is_constexpr;
     bool is_noexcept;
+    /* A parsed integral requires-clause.  The current frontend accepts
+     * constant expressions over non-type template parameters; keeping the
+     * expression in the template object lets overload/instantiation code
+     * reject unsatisfied specializations before code generation. */
+    Expr* constraint;
     enum {
         TMPL_FUNCTION_NONE,
         TMPL_FUNCTION_VERSIONED_STRUCT,

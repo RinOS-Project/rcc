@@ -127,6 +127,11 @@ static Type* parse_cxx_type_spec(void);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static bool is_active_template_type(const char* name);
+static bool eval_template_integer_expression(Expr* expression,
+                                              CxxTemplate* tmpl,
+                                              const int64_t* values,
+                                              const bool* value_present,
+                                              int64_t* result);
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept,
@@ -2636,6 +2641,20 @@ CxxTemplate* parse_cxx_template(void) {
 
     expect(TOK_GT, ">");
 
+    /* C++20 permits a requires-clause between the template parameter list
+     * and the declaration.  Keep the accepted subset deliberately explicit:
+     * instantiation evaluates an integral constant expression over non-type
+     * parameters, so an unsupported type/concept requirement is diagnosed
+     * instead of being treated as an always-true annotation. */
+    if (match(TOK_REQUIRES)) {
+        bool parenthesized = match(TOK_LPAREN);
+        tmpl->constraint = parse_assignment_expression();
+        if (parenthesized) expect(TOK_RPAREN, ")");
+        if (!tmpl->constraint) {
+            rcc_error(loc, "requires-clause requires a constraint expression");
+        }
+    }
+
     /* Template body */
     if (match(TOK_CLASS) || match(TOK_STRUCT)) {
         CxxTemplate* outer_template = active_template;
@@ -3293,6 +3312,26 @@ static bool eval_template_integer_expression(Expr* expression,
     }
 }
 
+static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
+                                               const int64_t* values,
+                                               const bool* value_present,
+                                               SourceLoc loc) {
+    int64_t result;
+    if (!tmpl || !tmpl->constraint) return true;
+    if (!eval_template_integer_expression(tmpl->constraint, tmpl, values,
+                                          value_present, &result)) {
+        rcc_error(loc,
+                  "requires-clause must be an integral constant expression "
+                  "over non-type template parameters");
+        return false;
+    }
+    if (!result) {
+        rcc_error(loc, "template constraints are not satisfied");
+        return false;
+    }
+    return true;
+}
+
 Type* rcc_parse_cxx_direct_list_type(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
@@ -3544,6 +3583,10 @@ Expr* rcc_parse_cxx_template_call(void) {
         if (argument_count != tmpl->param_count) {
             rcc_error(loc, "function template '%s' requires %d template arguments",
                       name, tmpl->param_count);
+            return expr_int(0, loc);
+        }
+        if (!cxx_template_constraint_satisfied(tmpl, template_values,
+                                               template_value_present, loc)) {
             return expr_int(0, loc);
         }
         instance = (Decl*)cxx_template_instantiate_with_values(
