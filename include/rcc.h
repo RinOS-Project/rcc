@@ -79,6 +79,8 @@ typedef struct {
     bool nostdinc;              /* -nostdinc */
     bool wall;                  /* -Wall */
     bool pedantic;              /* -pedantic */
+    bool pic;                   /* -fPIC/-fpic */
+    bool pie;                   /* -fPIE/-fpie */
     bool verified_backend;      /* -fverified-backend (.ro v2 only) */
 
     /* Final artifact signing.  Keys are paths only and are never embedded. */

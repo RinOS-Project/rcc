@@ -56,6 +56,8 @@ static void print_usage(void) {
     printf("\n");
     printf("Code generation:\n");
     printf("  -ffreestanding  Freestanding environment\n");
+    printf("  -fPIC/-fpic     Position-independent object calls (with -c)\n");
+    printf("  -fPIE/-fpie     Position-independent executable object calls (with -c)\n");
     printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("\n");
     printf("Other:\n");
@@ -129,6 +131,18 @@ static int parse_args(int argc, char** argv) {
             g_opts.nostdinc = true;
         } else if (strcmp(arg, "-ffreestanding") == 0) {
             g_opts.freestanding = true;
+        } else if (strcmp(arg, "-fPIC") == 0 ||
+                   strcmp(arg, "-fpic") == 0) {
+            g_opts.pic = true;
+        } else if (strcmp(arg, "-fPIE") == 0 ||
+                   strcmp(arg, "-fpie") == 0) {
+            g_opts.pie = true;
+        } else if (strcmp(arg, "-fno-PIC") == 0 ||
+                   strcmp(arg, "-fno-pic") == 0) {
+            g_opts.pic = false;
+        } else if (strcmp(arg, "-fno-PIE") == 0 ||
+                   strcmp(arg, "-fno-pie") == 0) {
+            g_opts.pie = false;
         } else if (strcmp(arg, "-shared") == 0 || strcmp(arg, "--shared") == 0) {
             g_opts.output_format = OUTPUT_RLL;
             g_opts.output_format_explicit = true;
@@ -303,10 +317,9 @@ static int parse_args(int argc, char** argv) {
                    strcmp(arg, "--verified-backend") == 0) {
             g_opts.verified_backend = true;
         } else if (strncmp(arg, "-f", 2) == 0) {
-            /* Ignore unknown -f options */
-            if (g_opts.verbose) {
-                fprintf(stderr, "rcc: warning: ignoring unknown option: %s\n", arg);
-            }
+            fprintf(stderr, "rcc: error: unsupported code-generation option: %s\n",
+                    arg);
+            return -1;
         } else if (strncmp(arg, "-W", 2) == 0) {
             /* Ignore unknown -W options */
             if (g_opts.verbose) {
@@ -345,6 +358,14 @@ static int parse_args(int argc, char** argv) {
         g_opts.output_format != OUTPUT_OBJ) {
         fprintf(stderr,
                 "rcc: error: -fverified-backend currently requires -c\n");
+        return -1;
+    }
+    if ((g_opts.pic || g_opts.pie) && !g_opts.preprocess_only &&
+        g_opts.output_format != OUTPUT_OBJ &&
+        g_opts.output_format != OUTPUT_ASM) {
+        fprintf(stderr,
+                "rcc: error: -fPIC/-fPIE final images require the pending "
+                "RIN v3 GOT/PLT ABI; use -c for PIC objects\n");
         return -1;
     }
 

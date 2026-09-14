@@ -49,6 +49,8 @@ static void print_usage_cxx(void) {
     printf("  -MMD/-MF <file> Emit user-header dependencies\n");
     printf("  -Wall/-Werror   Warning controls\n");
     printf("  -ffreestanding  Freestanding environment\n");
+    printf("  -fPIC/-fpic     Position-independent object calls (with -c)\n");
+    printf("  -fPIE/-fpie     Position-independent executable object calls (with -c)\n");
     printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("  -v              Verbose output\n");
     printf("  -h, --help      Show this help\n");
@@ -88,6 +90,14 @@ static int parse_cxx_args(int argc, char** argv) {
         {"sign-profile", required_argument, 0, 16},
         {"verified-backend", no_argument, 0, 17},
         {"fverified-backend", no_argument, 0, 17},
+        {"fPIC", no_argument, 0, 18},
+        {"fpic", no_argument, 0, 18},
+        {"fPIE", no_argument, 0, 19},
+        {"fpie", no_argument, 0, 19},
+        {"fno-PIC", no_argument, 0, 20},
+        {"fno-pic", no_argument, 0, 20},
+        {"fno-PIE", no_argument, 0, 21},
+        {"fno-pie", no_argument, 0, 21},
         {0, 0, 0, 0}
     };
 
@@ -242,6 +252,18 @@ static int parse_cxx_args(int argc, char** argv) {
             case 17:
                 g_opts.verified_backend = true;
                 break;
+            case 18:
+                g_opts.pic = true;
+                break;
+            case 19:
+                g_opts.pie = true;
+                break;
+            case 20:
+                g_opts.pic = false;
+                break;
+            case 21:
+                g_opts.pie = false;
+                break;
             default:
                 return -1;
         }
@@ -278,6 +300,14 @@ static int parse_cxx_args(int argc, char** argv) {
         g_opts.output_format != OUTPUT_OBJ) {
         fprintf(stderr,
                 "rcc++: error: -fverified-backend currently requires -c\n");
+        return -1;
+    }
+    if ((g_opts.pic || g_opts.pie) && !g_opts.preprocess_only &&
+        g_opts.output_format != OUTPUT_OBJ &&
+        g_opts.output_format != OUTPUT_ASM) {
+        fprintf(stderr,
+                "rcc++: error: -fPIC/-fPIE final images require the pending "
+                "RIN v3 GOT/PLT ABI; use -c for PIC objects\n");
         return -1;
     }
 

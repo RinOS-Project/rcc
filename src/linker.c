@@ -1132,8 +1132,12 @@ bool linker_apply_relocations(Linker* ld) {
                 memcpy(patch, &target, sizeof(target));
                 break;
             }
-            case RELOC_REL32: {
-                /* 32-bit PC-relative (relative to next instruction) */
+            case RELOC_REL32:
+            case RELOC_PLT32: {
+                /* PLT32 has the same link-time encoding as REL32.  The
+                 * compiler uses it for external calls in PIC/PIE objects;
+                 * RLD resolves the target to a local definition or import
+                 * thunk before emitting the final v3 image. */
                 uint64_t pc = sect->vaddr + r->offset + 4u;
                 int32_t delta;
                 if (target >= pc) {
@@ -1149,7 +1153,8 @@ bool linker_apply_relocations(Linker* ld) {
                 memcpy(patch, &delta, sizeof(delta));
                 break;
 rel32_overflow:
-                fprintf(stderr, "rld: REL32 relocation overflow for '%s'\n",
+                fprintf(stderr, "rld: %s relocation overflow for '%s'\n",
+                        r->type == RELOC_PLT32 ? "PLT32" : "REL32",
                         r->symbol);
                 return false;
             }

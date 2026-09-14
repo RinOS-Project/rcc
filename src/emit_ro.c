@@ -907,10 +907,14 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                     ? mod->data.size
                     : mr->source_section == MODULE_SYMBOL_TLS
                         ? mod->tls.size : 0u;
+        const ModuleSymbol* referenced_symbol = mr->symbol_name
+            ? module_find_symbol(mod, mr->symbol_name) : NULL;
         uint64_t relocation_width = mr->is_relative || !mr->is_64bit
             ? 4u : 8u;
         RelocType type = mr->is_tls ? RELOC_TLSOFF32S :
-            mr->is_relative ? RELOC_REL32 :
+            mr->is_relative && (g_opts.pic || g_opts.pie) &&
+                    (!referenced_symbol || !referenced_symbol->is_defined)
+                ? RELOC_PLT32 : mr->is_relative ? RELOC_REL32 :
             (mr->is_64bit ? RELOC_ABS64 : RELOC_ABS32U);
 
         if (source_section < 0 || mr->offset > source_size ||
