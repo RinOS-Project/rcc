@@ -3377,6 +3377,19 @@ static bool sema_rewrite_cxx_call_operator(Expr* expression,
     return true;
 }
 
+static void sema_expand_cxx_lambda_captures(Expr* call) {
+    ExprList* captures;
+    ExprList* tail;
+    if (!call || !call->call_func || call->call_func->kind != EXPR_IDENT ||
+        !call->call_func->cxx_lambda_captures) return;
+    captures = call->call_func->cxx_lambda_captures;
+    tail = captures;
+    while (tail->next) tail = tail->next;
+    tail->next = call->call_args;
+    call->call_args = captures;
+    call->call_func->cxx_lambda_captures = NULL;
+}
+
 static Expr* sema_cxx_move_member(Expr* object, TypeField* field) {
     Expr* member = expr_member(object, field->name, object->loc);
     member->member_field = field;
@@ -3585,6 +3598,7 @@ static Type* sema_expr(Expr* expr) {
     if (expr->kind == EXPR_CALL && expr->call_func &&
         !expr->call_is_new && !expr->call_is_delete) {
         Type* object_type;
+        sema_expand_cxx_lambda_captures(expr);
         if (expr->call_func->kind == EXPR_MEMBER ||
             expr->call_func->kind == EXPR_PTR_MEMBER) {
             object_type = sema_expr(expr->call_func->member_base);
@@ -3646,6 +3660,10 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_IDENT: {
+            if (expr->cxx_lambda_captures) {
+                rcc_error(expr->loc,
+                          "capturing lambda must be immediately invoked");
+            }
             if (expr->ident_decl && expr->ident_decl->kind == DECL_FUNC) {
                 expr->type = expr->ident_decl->type;
                 break;

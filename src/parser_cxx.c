@@ -2534,25 +2534,56 @@ static bool cxx_lambda_has_return(Stmt* statement) {
  * function with silently missing state. */
 Expr* rcc_parse_cxx_lambda(void) {
     SourceLoc loc = peek()->loc;
+    DeclList* capture_params = NULL;
     DeclList* params = NULL;
+    DeclList* all_params = NULL;
+    ExprList* captures = NULL;
     StmtList* statements = NULL;
     Type* return_type = NULL;
     Stmt* body;
     Decl* function;
     char name[64];
     int written;
+    int capture_count = 0;
 
     expect(TOK_LBRACKET, "[");
     if (!match(TOK_RBRACKET)) {
-        while (!check(TOK_RBRACKET) && !at_end()) advance();
+        do {
+            Token* capture;
+            Type* capture_type;
+            if (match(TOK_AMP) || match(TOK_AND)) {
+                while (!check(TOK_COMMA) && !check(TOK_RBRACKET) &&
+                       !at_end()) advance();
+                rcc_error(loc,
+                          "reference lambda capture requires a closure environment ABI");
+                if (check(TOK_COMMA)) continue;
+                break;
+            }
+            capture = expect(TOK_IDENT, "lambda capture name");
+            if (!capture) break;
+            capture_type = cxx_parser_value_type(capture->value.str_val);
+            if (!capture_type) capture_type = type_int;
+            exprlist_append(&captures,
+                            expr_ident(capture->value.str_val, capture->loc));
+            decllist_append(&capture_params,
+                            decl_param(capture->value.str_val, capture_type,
+                                       capture_count++, capture->loc));
+        } while (match(TOK_COMMA));
         expect(TOK_RBRACKET, "]");
-        rcc_error(loc,
-                  "capturing lambda requires a closure environment ABI");
-        return expr_int(0, loc);
     }
     if (match(TOK_LPAREN)) {
         params = parse_cxx_parameter_declarations();
         expect(TOK_RPAREN, ")");
+    }
+    for (DeclList* item = capture_params; item; item = item->next) {
+        decllist_append(&all_params, item->decl);
+    }
+    for (DeclList* item = params; item; item = item->next) {
+        if (item->decl) {
+            item->decl->param_index =
+                capture_count + item->decl->param_index;
+        }
+        decllist_append(&all_params, item->decl);
     }
     (void)match(TOK_MUTABLE);
     if (match(TOK_NOEXCEPT)) {
@@ -2564,7 +2595,7 @@ Expr* rcc_parse_cxx_lambda(void) {
             return_type, NULL, NULL);
     }
     expect(TOK_LBRACE, "{");
-    rcc_parser_cxx_begin_function_parameters(params);
+    rcc_parser_cxx_begin_function_parameters(all_params);
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* start = parser.cur;
         Stmt* statement = parse_cxx_statement();
@@ -2582,8 +2613,8 @@ Expr* rcc_parse_cxx_lambda(void) {
         rcc_fatal("C++ lambda symbol name exceeds compiler limits");
     }
     function = decl_func(rcc_intern(name),
-                         cxx_lambda_function_type(return_type, params),
-                         params, body, loc);
+                         cxx_lambda_function_type(return_type, all_params),
+                         all_params, body, loc);
     function->storage = STORAGE_STATIC;
     function->func_is_inline = true;
     function->link_name = function->name;
@@ -2592,6 +2623,7 @@ Expr* rcc_parse_cxx_lambda(void) {
         Expr* result = expr_ident(function->name, loc);
         result->ident_decl = function;
         result->type = function->type;
+        result->cxx_lambda_captures = captures;
         return result;
     }
 }

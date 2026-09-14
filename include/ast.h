@@ -358,6 +358,8 @@ struct Expr {
     CxxMoveAssignment* cxx_move_assignment;
     /* Non-NULL only for the structurally validated SDK close operation. */
     CxxCloseCall* cxx_close_call;
+    /* Captures for a C++ lambda that are spliced into an immediate call. */
+    ExprList* cxx_lambda_captures;
 
     union {
         /* EXPR_INT_LIT */
