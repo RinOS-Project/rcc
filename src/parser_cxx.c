@@ -1803,6 +1803,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         lowered->result_field = NULL;
         lowered->success_constant = 0;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->is_explicit = method->is_explicit;
         lowered->this_owner = method->is_static ? NULL : cls->type;
         lowered->this_adjustment = 0;
         lowered->is_virtual = method->is_virtual;

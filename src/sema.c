@@ -483,6 +483,39 @@ static Type* sema_integer_promotion(Type* type) {
     return type;
 }
 
+/* Find an ordinary public conversion function whose result is exactly the
+ * requested target type.  A user-defined conversion cannot be chained with a
+ * second user-defined conversion, so the exact result type is intentional.
+ * The caller supplies the ambiguity result because overload ranking and the
+ * final cast need to make the same decision without silently picking one. */
+static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
+                                                   Type* target,
+                                                   bool* ambiguous) {
+    TypeMethod* method;
+    TypeMethod* result = NULL;
+    if (ambiguous) *ambiguous = false;
+    if (!aggregate || !target ||
+        (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    for (method = aggregate->methods; method; method = method->next) {
+        if (method->kind != TYPE_METHOD_FUNCTION ||
+            !method->function_decl || !method->return_type ||
+            !method->name || strcmp(method->name, "operator conversion") != 0 ||
+            method->cxx_access != ACCESS_PUBLIC || method->is_explicit ||
+            method->function_decl->func_params ||
+            !type_is_compatible(method->return_type, target)) {
+            continue;
+        }
+        if (result) {
+            if (ambiguous) *ambiguous = true;
+            return NULL;
+        }
+        result = method;
+    }
+    return result;
+}
+
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
@@ -520,6 +553,29 @@ static Type* implicit_cast(Expr* e, Type* target) {
     if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
         type_is_compatible(e->type, target)) {
         return target;
+    }
+
+    /* Lower a public implicit conversion operator as a real member call.  It
+     * is important that this goes through sema_expr() rather than assigning a
+     * result type: the normal call path supplies the object argument, checks
+     * the method ABI, and emits the generated conversion function. */
+    if (rcc_parser_is_cxx_mode() &&
+        (e->type->kind == TYPE_STRUCT || e->type->kind == TYPE_UNION)) {
+        bool ambiguous = false;
+        TypeMethod* conversion = sema_find_cxx_conversion_method(
+            e->type, target, &ambiguous);
+        if (ambiguous) return NULL;
+        if (conversion) {
+            Expr* source = ast_arena_alloc(sizeof(*source));
+            Expr* member;
+            *source = *e;
+            member = expr_member(source, conversion->name, e->loc);
+            Expr* call = expr_call(member, NULL, e->loc);
+            *e = *call;
+            sema_expr(e);
+            return e->type && type_is_compatible(e->type, target)
+                ? target : NULL;
+        }
     }
 
     /* Integer promotions */
@@ -2537,7 +2593,10 @@ static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
         if (method->name &&
             strcmp(method->name, "operator conversion") == 0 &&
             method->return_type && method->return_type->kind == TYPE_BOOL &&
-            method->field && method->cxx_access == 0u) {
+            method->cxx_access == ACCESS_PUBLIC &&
+            ((method->field && method->kind != TYPE_METHOD_FUNCTION) ||
+             (method->kind == TYPE_METHOD_FUNCTION &&
+              method->function_decl && !method->function_decl->func_params))) {
             return method;
         }
     }
@@ -2545,9 +2604,8 @@ static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
 }
 
 /* C++ explicit operator bool participates in contextual conversions without
- * becoming a general implicit conversion.  Only the structurally validated
- * inline method subset is eligible, so arbitrary member bodies remain
- * fail-closed. */
+ * becoming a general implicit conversion.  Both validated field delegates
+ * and ordinary conversion functions use the same expression path here. */
 static Expr* sema_contextual_bool(Expr* expression) {
     Type* type;
     Type* value_type;
@@ -2574,6 +2632,10 @@ static Expr* sema_contextual_bool(Expr* expression) {
     }
     member = expr_member(expression, method->name, expression->loc);
     call = expr_call(member, NULL, expression->loc);
+    if (method->kind == TYPE_METHOD_FUNCTION) {
+        sema_expr(call);
+        return call;
+    }
     call->call_method = method;
     call->type = method->return_type;
     return call;
@@ -2631,6 +2693,15 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         return type_is_compatible(source, target) ? 0 : -1;
     }
     if (cxx_same_parameter_type(source, target, true)) return 0;
+
+    if (rcc_parser_is_cxx_mode() &&
+        (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
+        bool ambiguous = false;
+        if (sema_find_cxx_conversion_method(source, target, &ambiguous)) {
+            return 3; /* user-defined conversion */
+        }
+        if (ambiguous) return -1;
+    }
 
     if (source->kind == TYPE_ARRAY && target->kind == TYPE_PTR) {
         source_base = source->base;

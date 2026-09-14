@@ -85,6 +85,27 @@ static void mangle_name(char* buf, size_t* pos, const char* name) {
                              (unsigned long)len, name);
 }
 
+static void mangle_nested_prefix(char* buf, size_t* pos,
+                                  CxxNamespace* ns, CxxClass* cls) {
+    CxxNamespace* ns_stack[32];
+    int ns_count = 0;
+
+    buf[(*pos)++] = '_';
+    buf[(*pos)++] = 'Z';
+    if (!ns && !cls) return;
+    buf[(*pos)++] = 'N';
+    for (CxxNamespace* current = ns; current && current->name;
+         current = current->parent) {
+        if (ns_count < (int)(sizeof(ns_stack) / sizeof(ns_stack[0]))) {
+            ns_stack[ns_count++] = current;
+        }
+    }
+    for (int index = ns_count - 1; index >= 0; --index) {
+        mangle_name(buf, pos, ns_stack[index]->name);
+    }
+    if (cls) mangle_name(buf, pos, cls->name);
+}
+
 /* Mangle a type */
 char* cxx_mangle_type(Type* type) {
     static char buf[256];
@@ -189,30 +210,10 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
     size_t pos = 0;
 
     /* _Z prefix for mangled names */
-    buf[pos++] = '_';
-    buf[pos++] = 'Z';
+    mangle_nested_prefix(buf, &pos, ns, cls);
 
     /* Nested name indicator */
     if (ns || cls) {
-        buf[pos++] = 'N';
-
-        /* Namespace components */
-        CxxNamespace* ns_stack[32];
-        int ns_count = 0;
-        for (CxxNamespace* n = ns; n && n->name; n = n->parent) {
-            if (ns_count < 32) {
-                ns_stack[ns_count++] = n;
-            }
-        }
-        for (int i = ns_count - 1; i >= 0; i--) {
-            mangle_name(buf, &pos, ns_stack[i]->name);
-        }
-
-        /* Class name */
-        if (cls) {
-            mangle_name(buf, &pos, cls->name);
-        }
-
         /* Member name */
         mangle_name(buf, &pos, name);
 
@@ -229,11 +230,27 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
 /* Mangle a function */
 char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[1024];
+    size_t pos = 0;
 
-    /* Get base mangled name */
-    char* base = cxx_mangle_name(func->name, ns, cls);
-    strcpy(buf, base);
-    size_t pos = strlen(buf);
+    if (func && func->name &&
+        strcmp(func->name, "operator conversion") == 0) {
+        char* return_type;
+        mangle_nested_prefix(buf, &pos, ns, cls);
+        buf[pos++] = 'c';
+        buf[pos++] = 'v';
+        return_type = cxx_mangle_type(func->type ? func->type->ret_type : NULL);
+        if (pos + strlen(return_type) + 2u >= sizeof(buf)) {
+            rcc_fatal("C++ conversion operator name is too long");
+        }
+        strcpy(buf + pos, return_type);
+        pos += strlen(return_type);
+        buf[pos++] = 'E';
+    } else {
+        /* Get base mangled name */
+        char* base = cxx_mangle_name(func->name, ns, cls);
+        strcpy(buf, base);
+        pos = strlen(buf);
+    }
 
     /* Add parameter types */
     if (func->func_params) {
