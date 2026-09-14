@@ -1412,14 +1412,364 @@ static bool sema_eval_constexpr_scalar_expr(
     Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, SemaConstexprScalar* value);
 
+static bool sema_constexpr_scalar_binary(
+    int expression_kind, const SemaConstexprScalar* left,
+    const SemaConstexprScalar* right, Type* result_type,
+    SemaConstexprScalar* output) {
+    SemaConstexprScalar converted_left;
+    SemaConstexprScalar converted_right;
+    SemaConstexprScalar raw;
+    double left_value;
+    double right_value;
+
+    if (!left || !right || !output ||
+        !sema_constexpr_scalar_type(result_type) ||
+        !sema_constexpr_scalar_convert(left, result_type, &converted_left) ||
+        !sema_constexpr_scalar_convert(right, result_type, &converted_right)) {
+        return false;
+    }
+    if (result_type->kind == TYPE_FLOAT || result_type->kind == TYPE_DOUBLE) {
+        left_value = converted_left.floating_value;
+        right_value = converted_right.floating_value;
+        if (expression_kind == EXPR_EQ || expression_kind == EXPR_NE ||
+            expression_kind == EXPR_LT || expression_kind == EXPR_GT ||
+            expression_kind == EXPR_LE || expression_kind == EXPR_GE) {
+            output->type = type_int;
+            output->is_floating = false;
+            switch (expression_kind) {
+                case EXPR_EQ: output->integer_value = left_value == right_value; break;
+                case EXPR_NE: output->integer_value = left_value != right_value; break;
+                case EXPR_LT: output->integer_value = left_value < right_value; break;
+                case EXPR_GT: output->integer_value = left_value > right_value; break;
+                case EXPR_LE: output->integer_value = left_value <= right_value; break;
+                case EXPR_GE: output->integer_value = left_value >= right_value; break;
+                default: return false;
+            }
+            return true;
+        }
+        if (expression_kind == EXPR_DIV && right_value == 0.0) {
+            return false;
+        }
+        raw.type = result_type;
+        raw.integer_value = 0;
+        raw.is_floating = true;
+        switch (expression_kind) {
+            case EXPR_ADD: raw.floating_value = left_value + right_value; break;
+            case EXPR_SUB: raw.floating_value = left_value - right_value; break;
+            case EXPR_MUL: raw.floating_value = left_value * right_value; break;
+            case EXPR_DIV: raw.floating_value = left_value / right_value; break;
+            default: return false;
+        }
+        return sema_constexpr_scalar_convert(&raw, result_type, output);
+    }
+    if (converted_left.is_floating || converted_right.is_floating) {
+        return false;
+    }
+    output->type = result_type;
+    output->is_floating = false;
+    switch (expression_kind) {
+        case EXPR_ADD:
+            return sema_constexpr_add(converted_left.integer_value,
+                                      converted_right.integer_value,
+                                      &output->integer_value);
+        case EXPR_SUB:
+            return sema_constexpr_sub(converted_left.integer_value,
+                                      converted_right.integer_value,
+                                      &output->integer_value);
+        case EXPR_MUL:
+            return sema_constexpr_mul(converted_left.integer_value,
+                                      converted_right.integer_value,
+                                      &output->integer_value);
+        case EXPR_DIV:
+            if (converted_right.integer_value == 0 ||
+                (converted_left.integer_value == INT64_MIN &&
+                 converted_right.integer_value == -1)) return false;
+            output->integer_value = converted_left.integer_value /
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_MOD:
+            if (converted_right.integer_value == 0 ||
+                (converted_left.integer_value == INT64_MIN &&
+                 converted_right.integer_value == -1)) return false;
+            output->integer_value = converted_left.integer_value %
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_BITAND:
+            output->integer_value = converted_left.integer_value &
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_BITOR:
+            output->integer_value = converted_left.integer_value |
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_BITXOR:
+            output->integer_value = converted_left.integer_value ^
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_LSHIFT:
+            if (converted_right.integer_value < 0 ||
+                converted_right.integer_value >= 64 ||
+                converted_left.integer_value < 0 ||
+                (converted_right.integer_value == 63 &&
+                 converted_left.integer_value != 0) ||
+                (converted_right.integer_value < 63 &&
+                 converted_left.integer_value >
+                     (INT64_MAX >> converted_right.integer_value))) {
+                return false;
+            }
+            output->integer_value = converted_left.integer_value <<
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_RSHIFT:
+            if (converted_right.integer_value < 0 ||
+                converted_right.integer_value >= 64) return false;
+            output->integer_value = converted_left.integer_value >>
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_EQ:
+            output->integer_value = converted_left.integer_value ==
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_NE:
+            output->integer_value = converted_left.integer_value !=
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_LT:
+            output->integer_value = converted_left.integer_value <
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_GT:
+            output->integer_value = converted_left.integer_value >
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_LE:
+            output->integer_value = converted_left.integer_value <=
+                                    converted_right.integer_value;
+            return true;
+        case EXPR_GE:
+            output->integer_value = converted_left.integer_value >=
+                                    converted_right.integer_value;
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool sema_constexpr_scalar_assign(
+    int expression_kind, const SemaConstexprScalar* current,
+    const SemaConstexprScalar* right, Type* variable_type,
+    SemaConstexprScalar* assigned) {
+    if (!current || !right || !variable_type || !assigned) return false;
+    if (expression_kind == EXPR_ASSIGN) {
+        return sema_constexpr_scalar_convert(right, variable_type, assigned);
+    }
+    return sema_constexpr_scalar_binary(
+        expression_kind == EXPR_ADD_ASSIGN ? EXPR_ADD :
+        expression_kind == EXPR_SUB_ASSIGN ? EXPR_SUB :
+        expression_kind == EXPR_MUL_ASSIGN ? EXPR_MUL :
+        expression_kind == EXPR_DIV_ASSIGN ? EXPR_DIV :
+        expression_kind == EXPR_MOD_ASSIGN ? EXPR_MOD :
+        expression_kind == EXPR_AND_ASSIGN ? EXPR_BITAND :
+        expression_kind == EXPR_OR_ASSIGN ? EXPR_BITOR :
+        expression_kind == EXPR_XOR_ASSIGN ? EXPR_BITXOR :
+        expression_kind == EXPR_LSHIFT_ASSIGN ? EXPR_LSHIFT : EXPR_RSHIFT,
+        current, right, variable_type, assigned);
+}
+
+static bool sema_eval_constexpr_scalar_statement(
+    Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
+    SemaConstexprScalar* value, SemaConstexprStatementResult* result);
+
+static bool sema_constexpr_scalar_truth(const SemaConstexprScalar* value) {
+    if (!value) return false;
+    return value->is_floating ? value->floating_value != 0.0
+                              : value->integer_value != 0;
+}
+
+static bool sema_eval_constexpr_scalar_statement(
+    Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
+    SemaConstexprScalar* value, SemaConstexprStatementResult* result) {
+    int saved_binding_count;
+
+    if (!statement || !bindings || !binding_count || !value || !result) {
+        return false;
+    }
+    *result = SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+    switch (statement->kind) {
+        case STMT_NULL:
+            return true;
+        case STMT_EXPR:
+            return !statement->expr || sema_eval_constexpr_scalar_expr(
+                statement->expr, bindings, *binding_count, value);
+        case STMT_RETURN:
+            if (!statement->return_val ||
+                !sema_eval_constexpr_scalar_expr(
+                    statement->return_val, bindings, *binding_count, value)) {
+                return false;
+            }
+            *result = SEMA_CONSTEXPR_STMT_RETURNED;
+            return true;
+        case STMT_DECL: {
+            SemaConstexprScalar initializer;
+            Decl* declaration = statement->decl;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                !declaration->name || !sema_constexpr_scalar_type(
+                    declaration->type) || !declaration->var_init ||
+                *binding_count >= 64 ||
+                !sema_eval_constexpr_scalar_expr(
+                    declaration->var_init, bindings, *binding_count,
+                    &initializer) ||
+                !sema_constexpr_scalar_convert(
+                    &initializer, declaration->type, &initializer)) {
+                return false;
+            }
+            bindings[*binding_count].declaration = declaration;
+            bindings[*binding_count].type = declaration->type;
+            bindings[*binding_count].value = initializer.integer_value;
+            bindings[*binding_count].floating_value = initializer.floating_value;
+            bindings[*binding_count].is_floating = initializer.is_floating;
+            ++*binding_count;
+            *value = initializer;
+            return true;
+        }
+        case STMT_BLOCK:
+            saved_binding_count = *binding_count;
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                SemaConstexprStatementResult nested_result;
+                if (!sema_eval_constexpr_scalar_statement(
+                        item->stmt, bindings, binding_count, value,
+                        &nested_result)) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_RETURNED ||
+                    nested_result == SEMA_CONSTEXPR_STMT_BREAK ||
+                    nested_result == SEMA_CONSTEXPR_STMT_CONTINUE) {
+                    *result = nested_result;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+            }
+            *binding_count = saved_binding_count;
+            return true;
+        case STMT_IF: {
+            SemaConstexprScalar condition;
+            Stmt* selected;
+            if (!statement->if_cond ||
+                !sema_eval_constexpr_scalar_expr(
+                    statement->if_cond, bindings, *binding_count,
+                    &condition)) return false;
+            selected = sema_constexpr_scalar_truth(&condition)
+                ? statement->if_then : statement->if_else;
+            if (!selected) return true;
+            return sema_eval_constexpr_scalar_statement(
+                selected, bindings, binding_count, value, result);
+        }
+        case STMT_BREAK:
+            *result = SEMA_CONSTEXPR_STMT_BREAK;
+            return true;
+        case STMT_CONTINUE:
+            *result = SEMA_CONSTEXPR_STMT_CONTINUE;
+            return true;
+        case STMT_FOR: {
+            SemaConstexprScalar condition;
+            int saved_count = *binding_count;
+            unsigned iteration;
+            if (statement->for_init) {
+                SemaConstexprStatementResult init_result;
+                if (!sema_eval_constexpr_scalar_statement(
+                        statement->for_init, bindings, binding_count, value,
+                        &init_result) ||
+                    init_result != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+            }
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprStatementResult body_result =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (statement->for_cond &&
+                    !sema_eval_constexpr_scalar_expr(
+                        statement->for_cond, bindings, *binding_count,
+                        &condition)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+                if (statement->for_cond &&
+                    !sema_constexpr_scalar_truth(&condition)) break;
+                if (statement->for_body &&
+                    !sema_eval_constexpr_scalar_statement(
+                        statement->for_body, bindings, binding_count, value,
+                        &body_result)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = body_result;
+                    *binding_count = saved_count;
+                    return true;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_BREAK) break;
+                if (statement->for_inc &&
+                    !sema_eval_constexpr_scalar_expr(
+                        statement->for_inc, bindings, *binding_count,
+                        value)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+            }
+            if (iteration == 1000000u) {
+                *binding_count = saved_count;
+                return false;
+            }
+            *binding_count = saved_count;
+            return true;
+        }
+        case STMT_WHILE:
+        case STMT_DO: {
+            SemaConstexprScalar condition;
+            unsigned iteration;
+            bool do_body = statement->kind == STMT_DO;
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprStatementResult body_result =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (!do_body) {
+                    if (!sema_eval_constexpr_scalar_expr(
+                            statement->while_cond, bindings, *binding_count,
+                            &condition)) return false;
+                    if (!sema_constexpr_scalar_truth(&condition)) return true;
+                }
+                if (statement->while_body &&
+                    !sema_eval_constexpr_scalar_statement(
+                        statement->while_body, bindings, binding_count, value,
+                        &body_result)) return false;
+                if (body_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = body_result;
+                    return true;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_BREAK) return true;
+                if (!sema_eval_constexpr_scalar_expr(
+                        statement->while_cond, bindings, *binding_count,
+                        &condition)) return false;
+                if (!sema_constexpr_scalar_truth(&condition)) return true;
+                do_body = false;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
 static bool sema_eval_constexpr_scalar_function(
     Decl* declaration, ExprList* args, SemaConstexprScalar* value) {
     SemaConstexprBinding bindings[64];
     DeclList* parameter;
     ExprList* argument;
-    StmtList* statements;
     SemaConstexprScalar argument_value;
     SemaConstexprScalar result;
+    SemaConstexprStatementResult statement_result;
     int count = 0;
 
     if (!declaration || !value || !declaration->func_is_constexpr ||
@@ -1427,11 +1777,6 @@ static bool sema_eval_constexpr_scalar_function(
         declaration->type->kind != TYPE_FUNC || declaration->type->variadic ||
         !sema_constexpr_scalar_type(declaration->type->ret_type) ||
         !declaration->func_body || declaration->func_body->kind != STMT_BLOCK) {
-        return false;
-    }
-    statements = declaration->func_body->block_stmts;
-    if (!statements || statements->next || !statements->stmt ||
-        statements->stmt->kind != STMT_RETURN || !statements->stmt->return_val) {
         return false;
     }
     parameter = declaration->func_params;
@@ -1458,14 +1803,16 @@ static bool sema_eval_constexpr_scalar_function(
     }
     if (parameter || argument || constexpr_eval_depth >= 64) return false;
     ++constexpr_eval_depth;
-    if (!sema_eval_constexpr_scalar_expr(
-            statements->stmt->return_val, bindings, count, &result)) {
+    if (!sema_eval_constexpr_scalar_statement(
+            declaration->func_body, bindings, &count, &result,
+            &statement_result)) {
         --constexpr_eval_depth;
         return false;
     }
     --constexpr_eval_depth;
-    return sema_constexpr_scalar_convert(&result,
-                                         declaration->type->ret_type, value);
+    return statement_result == SEMA_CONSTEXPR_STMT_RETURNED &&
+           sema_constexpr_scalar_convert(
+               &result, declaration->type->ret_type, value);
 }
 
 static bool sema_eval_constexpr_scalar_expr(
@@ -1529,6 +1876,75 @@ static bool sema_eval_constexpr_scalar_expr(
                     value, expression->ident_decl->type, value);
             }
             return false;
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN: {
+            SemaConstexprScalar current;
+            SemaConstexprScalar right;
+            SemaConstexprScalar assigned;
+            binding_index = sema_constexpr_binding_index(
+                expression->binary_lhs, bindings, binding_count);
+            if (binding_index < 0 ||
+                !sema_eval_constexpr_scalar_expr(
+                    expression->binary_rhs, bindings, binding_count,
+                    &right)) return false;
+            current.type = bindings[binding_index].type;
+            current.integer_value = bindings[binding_index].value;
+            current.floating_value = bindings[binding_index].floating_value;
+            current.is_floating = bindings[binding_index].is_floating;
+            if (!sema_constexpr_scalar_assign(
+                    expression->kind, &current, &right,
+                    bindings[binding_index].type, &assigned)) return false;
+            bindings[binding_index].value = assigned.integer_value;
+            bindings[binding_index].floating_value = assigned.floating_value;
+            bindings[binding_index].is_floating = assigned.is_floating;
+            bindings[binding_index].type = assigned.type;
+            *value = assigned;
+            return true;
+        }
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC: {
+            SemaConstexprScalar current;
+            SemaConstexprScalar one;
+            SemaConstexprScalar updated;
+            binding_index = sema_constexpr_binding_index(
+                expression->unary_operand, bindings, binding_count);
+            if (binding_index < 0) return false;
+            current.type = bindings[binding_index].type;
+            current.integer_value = bindings[binding_index].value;
+            current.floating_value = bindings[binding_index].floating_value;
+            current.is_floating = bindings[binding_index].is_floating;
+            memset(&one, 0, sizeof(one));
+            one.type = type_int;
+            one.integer_value = 1;
+            if (!sema_constexpr_scalar_assign(
+                    expression->kind == EXPR_PREINC ||
+                    expression->kind == EXPR_POSTINC ? EXPR_ADD_ASSIGN
+                                                     : EXPR_SUB_ASSIGN,
+                    &current, &one, bindings[binding_index].type,
+                    &updated)) return false;
+            bindings[binding_index].value = updated.integer_value;
+            bindings[binding_index].floating_value = updated.floating_value;
+            bindings[binding_index].is_floating = updated.is_floating;
+            bindings[binding_index].type = updated.type;
+            if (expression->kind == EXPR_POSTINC ||
+                expression->kind == EXPR_POSTDEC) {
+                *value = current;
+            } else {
+                *value = updated;
+            }
+            return true;
+        }
         case EXPR_CAST:
             if (!sema_eval_constexpr_scalar_expr(expression->cast_expr,
                                                   bindings, binding_count,
