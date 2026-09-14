@@ -654,6 +654,10 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->function_lowering = TMPL_FUNCTION_NONE;
     tmpl->function_constant = 0;
     tmpl->templated_class = NULL;
+    tmpl->specializations = NULL;
+    tmpl->specialization_count = 0;
+    tmpl->specialization_args = NULL;
+    tmpl->specialization_arg_count = 0;
     tmpl->instances = NULL;
     tmpl->instance_count = 0;
     return tmpl;

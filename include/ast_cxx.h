@@ -182,6 +182,12 @@ struct CxxTemplate {
     /* Alternate storage for parsed class (used by parser_cxx.c) */
     CxxClass* templated_class;
 
+    /* Explicit class-template specializations owned by this primary. */
+    CxxTemplate** specializations;
+    int specialization_count;
+    Type** specialization_args;
+    int specialization_arg_count;
+
     /* Instantiations */
     struct {
         Type** args;

@@ -126,6 +126,7 @@ static Stmt* parse_cxx_statement(void);
 static Type* parse_cxx_type_spec(void);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
+static CxxTemplate* find_class_template(const char* qualified_name);
 static bool is_active_template_type(const char* name);
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
@@ -1972,15 +1973,13 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     }
 }
 
-/* Parse class definition */
-CxxClass* parse_cxx_class(void) {
-    SourceLoc loc = previous()->loc;
-    bool is_struct = previous()->type == TOK_STRUCT;
+/* Parse the body and ABI metadata of a class after its source name has
+ * already been consumed.  Explicit template specializations use this same
+ * path so their class body cannot be mistaken for a primary-template body. */
+static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
+                                       const char* class_name) {
     bool has_definition = false;
 
-    /* Class name */
-    Token* name_tok = expect(TOK_IDENT, "class name");
-    const char* class_name = name_tok ? name_tok->value.str_val : "anonymous";
     /* A final class has the same object layout as an otherwise identical
      * class; the semantic restriction is enforced when bases are resolved. */
     match(TOK_FINAL);
@@ -2077,6 +2076,15 @@ CxxClass* parse_cxx_class(void) {
     }
 
     return cls;
+}
+
+/* Parse class definition. */
+CxxClass* parse_cxx_class(void) {
+    SourceLoc loc = previous()->loc;
+    bool is_struct = previous()->type == TOK_STRUCT;
+    Token* name_tok = expect(TOK_IDENT, "class name");
+    const char* class_name = name_tok ? name_tok->value.str_val : "anonymous";
+    return parse_cxx_class_named(loc, is_struct, class_name);
 }
 
 /* ═══════════════════════════════════════
@@ -2649,7 +2657,68 @@ CxxTemplate* parse_cxx_template(void) {
     }
 
     /* Template body */
-    if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+    if ((tmpl->param_count == 0) &&
+        (check(TOK_CLASS) || check(TOK_STRUCT)) &&
+        parser.cur->next && parser.cur->next->type == TOK_IDENT &&
+        parser.cur->next->next &&
+        parser.cur->next->next->type == TOK_LT) {
+        bool is_struct = match(TOK_STRUCT);
+        Token* name_token;
+        CxxTemplate* primary;
+        Type* arguments[32];
+        int argument_count = 0;
+        CxxClass* specialized_class;
+        CxxTemplate* outer_template = active_template;
+
+        if (!is_struct) expect(TOK_CLASS, "class or struct");
+        name_token = expect(TOK_IDENT, "specialized class name");
+        primary = name_token ? find_class_template(name_token->value.str_val)
+                             : NULL;
+        expect(TOK_LT, "<");
+        if (!check(TOK_GT)) {
+            do {
+                if (argument_count == (int)(sizeof(arguments) /
+                                            sizeof(arguments[0]))) {
+                    rcc_error(loc, "class specialization argument limit exceeded");
+                    while (!check(TOK_GT) && !at_end()) advance();
+                    break;
+                }
+                arguments[argument_count++] = parse_cxx_type_spec();
+            } while (match(TOK_COMMA));
+        }
+        expect(TOK_GT, ">");
+        if (!primary || primary->kind != TMPL_CLASS ||
+            argument_count != primary->param_count) {
+            rcc_error(loc, "explicit specialization has no matching class template");
+        }
+        tmpl->name = ast_arena_strdup(name_token ? name_token->value.str_val
+                                                  : "specialization");
+        tmpl->kind = TMPL_CLASS;
+        tmpl->templated_class = NULL;
+        active_template = tmpl;
+        specialized_class = parse_cxx_class_named(
+            loc, is_struct,
+            name_token ? name_token->value.str_val : "specialization");
+        active_template = outer_template;
+        tmpl->templated_class = specialized_class;
+        if (specialized_class) {
+            register_ordinary_class_methods(specialized_class);
+            specialized_class->templ = tmpl;
+            if (primary && argument_count == primary->param_count) {
+                tmpl->specialization_args = ast_arena_alloc(
+                    sizeof(Type*) * (size_t)argument_count);
+                memcpy(tmpl->specialization_args, arguments,
+                       sizeof(Type*) * (size_t)argument_count);
+                tmpl->specialization_arg_count = argument_count;
+                primary->specializations = ast_arena_grow(
+                    primary->specializations,
+                    sizeof(CxxTemplate*) * (size_t)primary->specialization_count,
+                    sizeof(CxxTemplate*) *
+                        (size_t)(primary->specialization_count + 1));
+                primary->specializations[primary->specialization_count++] = tmpl;
+            }
+        }
+    } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
         CxxTemplate* outer_template = active_template;
         active_template = tmpl;
         tmpl->templated_class = parse_cxx_class();
@@ -3141,6 +3210,20 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         ++argument_count;
     }
     expect(TOK_GT, ">");
+    for (int index = 0; index < tmpl->specialization_count; ++index) {
+        CxxTemplate* specialization = tmpl->specializations[index];
+        bool matches = specialization &&
+            specialization->specialization_arg_count == argument_count;
+        for (int argument_index = 0; matches &&
+             argument_index < argument_count; ++argument_index) {
+            matches = type_is_compatible(
+                specialization->specialization_args[argument_index],
+                arguments[argument_index]);
+        }
+        if (matches && specialization->templated_class) {
+            return specialization->templated_class->type;
+        }
+    }
     return instantiate_class_template(tmpl, arguments, argument_count, loc);
 }
 
