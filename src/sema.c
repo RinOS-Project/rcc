@@ -4080,6 +4080,16 @@ static void sema_decl(Decl* decl) {
                     decl->var_is_global = true;
                 }
             }
+            if (!is_global && decl->storage == STORAGE_EXTERN) {
+                if (decl->var_init) {
+                    rcc_error(decl->loc,
+                              "block-scope extern declaration cannot have an initializer");
+                }
+                decl->var_is_block_extern = true;
+                /* Keep the source declaration in its block scope, but use
+                 * external DATA symbol addressing and avoid a stack slot. */
+                decl->var_is_global = true;
+            }
             if (decl->var_is_vla) {
                 int word_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
                 decl->var_vla_size_offset = decl->var_offset + word_size;

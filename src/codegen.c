@@ -1149,8 +1149,13 @@ static void codegen_emit_static_locals(Module* mod, Stmt* statement) {
             codegen_emit_static_locals(mod, statement->label_stmt);
             break;
         case STMT_DECL:
-            if (statement->decl && statement->decl->var_is_static_local) {
-                (void)codegen_emit_static_local(mod, statement->decl);
+            if (statement->decl) {
+                if (statement->decl->var_is_static_local) {
+                    (void)codegen_emit_static_local(mod, statement->decl);
+                } else if (statement->decl->var_is_block_extern) {
+                    module_add_symbol(mod, decl_link_name(statement->decl),
+                                      0u, false, MODULE_SYMBOL_DATA, true);
+                }
             }
             break;
         default:
@@ -7252,7 +7257,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_is_static_local) break;
+            if (d->kind == DECL_VAR &&
+                (d->var_is_static_local || d->var_is_block_extern)) break;
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen_vla_alloc(mod, d);
                 record_vla_scope(d);

@@ -687,6 +687,7 @@ struct Decl {
             int var_vla_scope_offset; /* Owning scope's saved stack slot */
             bool var_is_global;
             bool var_is_static_local;
+            bool var_is_block_extern;
             bool var_is_thread_local;
             bool var_is_vla;
             bool var_is_auto;       /* C++ placeholder type, deduced in sema. */

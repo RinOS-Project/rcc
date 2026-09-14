@@ -4519,7 +4519,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
-            if (d->kind == DECL_VAR && d->var_is_static_local) break;
+            if (d->kind == DECL_VAR &&
+                (d->var_is_static_local || d->var_is_block_extern)) break;
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen64_vla_alloc(mod, d);
                 record64_vla_scope(d);
