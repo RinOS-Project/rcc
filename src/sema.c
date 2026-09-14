@@ -788,6 +788,18 @@ static bool sema_eval_constexpr_expr(
                 *value = expression->ident_decl->enum_val;
                 return true;
             }
+            if (expression->ident_decl &&
+                expression->ident_decl->kind == DECL_VAR &&
+                expression->ident_decl->var_is_constexpr &&
+                expression->ident_decl->var_init &&
+                constexpr_eval_depth < 64) {
+                ++constexpr_eval_depth;
+                bool result = sema_eval_constexpr_expr(
+                    expression->ident_decl->var_init, bindings,
+                    binding_count, value);
+                --constexpr_eval_depth;
+                return result;
+            }
             return false;
         case EXPR_NEG:
             if (!sema_eval_constexpr_expr(expression->unary_operand,
@@ -991,7 +1003,8 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
         if (count == (int)(sizeof(bindings) / sizeof(bindings[0])) ||
             !parameter->decl || !parameter->decl->name ||
             !sema_constexpr_integer_type(parameter->decl->type) ||
-            !expr_eval_integer_constant(argument->expr, &argument_value)) {
+            !sema_eval_constexpr_expr(argument->expr, NULL, 0,
+                                      &argument_value)) {
             return false;
         }
         bindings[count].declaration = parameter->decl;
@@ -4555,11 +4568,24 @@ static void sema_decl(Decl* decl) {
 
             if (decl->var_init) {
                 sema_initializer(decl->type, decl->var_init);
+                if (decl->var_is_constexpr) {
+                    int64_t constexpr_value;
+                    if (!sema_constexpr_integer_type(decl->type) ||
+                        !sema_eval_constexpr_expr(
+                            decl->var_init, NULL, 0, &constexpr_value)) {
+                        rcc_error(decl->loc,
+                                  "constexpr variable initializer is not a supported integer constant expression");
+                    }
+                }
                 if ((is_global || decl->storage == STORAGE_STATIC) &&
                     decl->type && (type_is_integer(decl->type) ||
                                    decl->type->kind == TYPE_ENUM)) {
                     sema_validate_static_integer_expression(decl->var_init);
                 }
+            }
+            if (decl->var_is_constexpr && !decl->var_init) {
+                rcc_error(decl->loc,
+                          "constexpr variable requires an initializer");
             }
             sema_prepare_variable_cleanup(decl, is_global);
             current_cxx_namespace = saved_cxx_namespace;

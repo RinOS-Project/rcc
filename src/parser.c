@@ -2438,6 +2438,7 @@ static Stmt* parse_statement(void) {
 Stmt* parse_declaration(void) {
     bool is_typedef = false;
     bool is_inline = false;
+    bool is_constexpr = false;
     bool is_thread_local = false;
     const char* declaration_name = NULL;
     DeclList* parameters = NULL;
@@ -2476,6 +2477,7 @@ Stmt* parse_declaration(void) {
     }
 
     skip_attributes();
+    if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
     if (!is_type_start()) {
         return parse_statement();
     }
@@ -2574,6 +2576,7 @@ Stmt* parse_declaration(void) {
         declaration = decl_func(declaration_name, type, parameters, body, loc);
         declaration->storage = storage;
         declaration->func_is_inline = is_inline;
+        declaration->func_is_constexpr = is_constexpr;
         return stmt_decl(declaration, loc);
     }
 
@@ -2600,6 +2603,7 @@ Stmt* parse_declaration(void) {
     declaration = decl_var(declaration_name, type, init, loc);
     declaration->storage = storage;
     declaration->var_is_thread_local = is_thread_local;
+    declaration->var_is_constexpr = is_constexpr;
     return stmt_decl(declaration, loc);
 }
 

@@ -131,6 +131,37 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept);
 CxxTemplate* parse_cxx_template(void);
+static void add_cxx_declaration(AST* ast, Stmt* statement,
+                                bool c_language_linkage);
+
+/* `constexpr` can introduce either a function or a variable.  The dedicated
+ * function parser is needed for C++ parameter/body handling, while ordinary
+ * declaration parsing owns the variable initializer grammar.  Stop at the
+ * first declaration-level initializer boundary so a call in a variable
+ * initializer is not mistaken for a function declarator. */
+static bool cxx_constexpr_starts_function(void) {
+    Token* token = parser.cur;
+    int parentheses = 0;
+    int brackets = 0;
+
+    if (!token || token->type != TOK_CONSTEXPR) return false;
+    token = token->next;
+    for (; token; token = token->next) {
+        if (parentheses == 0 && brackets == 0) {
+            if (token->type == TOK_ASSIGN || token->type == TOK_LBRACE ||
+                token->type == TOK_SEMICOLON) {
+                return false;
+            }
+            if (token->type == TOK_LPAREN) return true;
+        }
+        if (token->type == TOK_LPAREN) ++parentheses;
+        else if (token->type == TOK_RPAREN && parentheses > 0) --parentheses;
+        else if (token->type == TOK_LBRACKET) ++brackets;
+        else if (token->type == TOK_RBRACKET && brackets > 0) --brackets;
+        if (token->type == TOK_EOF) break;
+    }
+    return false;
+}
 
 /* ═══════════════════════════════════════
  * C++ Scope Resolution
@@ -2237,6 +2268,12 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
             (void)parse_cxx_namespace(ast, ns);
         } else if (match(TOK_USING)) {
             parse_cxx_using(ns);
+        } else if (check(TOK_CONSTEXPR) &&
+                   !cxx_constexpr_starts_function()) {
+            Stmt* statement = parse_cxx_statement();
+            if (statement && statement->kind == STMT_DECL) {
+                add_namespace_declaration(ast, ns, statement->decl);
+            }
         } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
             bool is_constexpr = false;
@@ -3890,6 +3927,8 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 }
 
 static Stmt* parse_cxx_statement(void) {
+    if (check(TOK_CONSTEXPR)) return parse_declaration();
+
     if (check(TOK_AUTO) ||
         (check(TOK_IDENT) &&
          is_active_template_type(peek()->value.str_val))) {
@@ -4026,6 +4065,12 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 cxx_namespace_add_class(g_global_namespace, cls);
             }
             (void)loc;
+        } else if (check(TOK_CONSTEXPR) &&
+                   !cxx_constexpr_starts_function()) {
+            Stmt* statement = parse_cxx_statement();
+            if (statement && statement->kind == STMT_DECL) {
+                add_cxx_declaration(ast, statement, false);
+            }
         } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
             bool is_constexpr = false;

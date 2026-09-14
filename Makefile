@@ -412,6 +412,12 @@ test-cxx-constexpr: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/host-x64.o \
 		$(TEST_OUT)/cxx-constexpr/x64.o
 	$(TEST_OUT)/cxx-constexpr/x64
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr/invalid.ro \
+		tests/cxx_constexpr_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/invalid.log 2>&1
+	grep -q "constexpr variable requires an initializer" \
+		$(TEST_OUT)/cxx-constexpr/invalid.log
 	@echo "RCC++ restricted integer constexpr folding tests completed"
 
 test-pic-direct-internal: $(RCC_TARGET) $(RINVALIDATE)
