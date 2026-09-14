@@ -93,6 +93,8 @@ Module* codegen_new(void) {
     mod->relocs_arr = NULL;
     mod->reloc_count = 0;
     mod->reloc_capacity = 0;
+    mod->got_entries = NULL;
+    mod->got_entry_count = 0u;
     mod->global_initializers = NULL;
     mod->global_initializer_count = 0;
     mod->global_finalizers = NULL;
@@ -121,6 +123,13 @@ void codegen_free(Module* mod) {
         GlobalFinalizer* next = mod->global_finalizers->next;
         rcc_free(mod->global_finalizers);
         mod->global_finalizers = next;
+    }
+    while (mod->got_entries) {
+        ModuleGotEntry* next = mod->got_entries->next;
+        rcc_free((void*)mod->got_entries->target_symbol);
+        rcc_free((void*)mod->got_entries->slot_symbol);
+        rcc_free(mod->got_entries);
+        mod->got_entries = next;
     }
     relocation = mod->relocs;
     while (relocation) {
@@ -267,7 +276,15 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
     rel->is_relative = is_relative;
     rel->is_64bit = is_64bit;
     rel->is_tls = false;
+    rel->is_got = false;
     rel->symbol_name = symbol_name ? rcc_strdup(symbol_name) : NULL;
+}
+
+void module_add_got_relocation(Module* mod, ModuleSymbolSection source_section,
+                               uint32_t offset, const char* symbol_name) {
+    module_add_relocation(mod, source_section, offset, 0u, true, false,
+                          symbol_name);
+    mod->relocs_arr[mod->reloc_count - 1].is_got = true;
 }
 
 void module_add_tls_relocation(Module* mod,
@@ -276,6 +293,40 @@ void module_add_tls_relocation(Module* mod,
     module_add_relocation(mod, source_section, offset, 0u, false, false,
                           symbol_name);
     mod->relocs_arr[mod->reloc_count - 1].is_tls = true;
+}
+
+const char* module_get_got_entry(Module* mod, const char* target_symbol) {
+    ModuleGotEntry* entry;
+    uint32_t pointer_size;
+    uint32_t offset;
+    uint8_t zero[8] = {0};
+    char slot_name[64];
+
+    if (!mod || !target_symbol || target_symbol[0] == '\0') return NULL;
+    for (entry = mod->got_entries; entry; entry = entry->next) {
+        if (strcmp(entry->target_symbol, target_symbol) == 0) {
+            return entry->slot_symbol;
+        }
+    }
+
+    pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    while ((mod->data.size & (pointer_size - 1u)) != 0u) {
+        emit_data(mod, zero, 1u);
+    }
+    offset = emit_data(mod, zero, pointer_size);
+    snprintf(slot_name, sizeof(slot_name), "__rcc_got_%u",
+             (unsigned int)mod->got_entry_count++);
+    entry = rcc_alloc(sizeof(*entry));
+    entry->target_symbol = rcc_strdup(target_symbol);
+    entry->slot_symbol = rcc_strdup(slot_name);
+    entry->offset = offset;
+    entry->next = mod->got_entries;
+    mod->got_entries = entry;
+    module_add_symbol(mod, entry->slot_symbol, offset, true,
+                      MODULE_SYMBOL_DATA, false);
+    module_add_relocation(mod, MODULE_SYMBOL_DATA, offset, 0u, false,
+                          pointer_size == 8u, target_symbol);
+    return entry->slot_symbol;
 }
 
 bool module_resolve_image_relocation(const Module* mod,
@@ -3212,6 +3263,20 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
 
 static void gen_symbol_address(Module* mod, const char* symbol,
                                uint32_t addend) {
+    if (g_opts.pic || g_opts.pie) {
+        const char* slot = module_get_got_entry(mod, symbol);
+        uint32_t offset;
+        emit_byte(mod, 0xE8); /* call next instruction */
+        emit_dword(mod, 0u);
+        emit_pop_reg(mod, EAX);
+        emit_byte(mod, 0x05); /* add EAX, disp32 */
+        offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        module_add_got_relocation(mod, MODULE_SYMBOL_CODE, offset, slot);
+        emit_mov_reg_mem(mod, EAX, EAX, 0);
+        if (addend != 0u) emit_add_reg_imm(mod, EAX, (int32_t)addend);
+        return;
+    }
     emit_mov_reg_imm(mod, EAX, 0u);
     module_add_relocation(mod, MODULE_SYMBOL_CODE,
                           code_offset(mod) - 4u, addend,

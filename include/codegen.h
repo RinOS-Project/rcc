@@ -78,8 +78,20 @@ typedef struct ModuleReloc {
     bool is_relative;
     bool is_64bit;
     bool is_tls;
+    bool is_got;
     const char* symbol_name;
 } ModuleReloc;
+
+/* A compiler-owned GOT slot.  The slot lives in writable .data and contains
+ * the resolved address of target_symbol.  Code refers to the slot through a
+ * PC-relative RELOC_GOT32 relocation, so the object remains position
+ * independent until the final image ABI materializes the slot. */
+typedef struct ModuleGotEntry {
+    const char* target_symbol;
+    const char* slot_symbol;
+    uint32_t offset;
+    struct ModuleGotEntry* next;
+} ModuleGotEntry;
 
 /* A scalar global initializer which cannot be represented in the image's
  * static data payload.  The frontend has already type-checked the expression;
@@ -121,6 +133,8 @@ typedef struct Module {
     ModuleReloc* relocs_arr;
     int reloc_count;
     int reloc_capacity;
+    ModuleGotEntry* got_entries;
+    uint32_t got_entry_count;
 
     GlobalInitializer* global_initializers;
     int global_initializer_count;
@@ -162,9 +176,12 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                           uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,
                           const char* symbol_name);
+void module_add_got_relocation(Module* mod, ModuleSymbolSection source_section,
+                               uint32_t offset, const char* symbol_name);
 void module_add_tls_relocation(Module* mod,
                                ModuleSymbolSection source_section,
                                uint32_t offset, const char* symbol_name);
+const char* module_get_got_entry(Module* mod, const char* target_symbol);
 bool module_resolve_image_relocation(const Module* mod,
                                      ModuleSymbolSection source_section,
                                      uint32_t offset,

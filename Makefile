@@ -143,7 +143,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -2184,10 +2184,10 @@ test-pic-plt: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/pic_relocation_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/pic-plt/verify \
 		$(TEST_OUT)/pic-plt/x86.ro $(TEST_OUT)/pic-plt/x64.ro
-	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+	$(RLD_TARGET) --target i686-unknown-rinos -e call_import --emit-unsigned-v3 \
 		--dep rincrt.rll --import imported_function=rincrt.rll@function \
 		-o $(TEST_OUT)/pic-plt/x86.rin $(TEST_OUT)/pic-plt/x86.ro
-	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+	$(RLD_TARGET) --target x86_64-unknown-rinos -e call_import --emit-unsigned-v3 \
 		--dep rincrt.rll --import imported_function=rincrt.rll@function \
 		-o $(TEST_OUT)/pic-plt/x64.rin $(TEST_OUT)/pic-plt/x64.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
@@ -2200,6 +2200,32 @@ test-pic-plt: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	grep -q "final images require the pending RIN v3 GOT/PLT ABI" \
 		$(TEST_OUT)/pic-plt/forbidden.log
 	@echo "PIC/PIE PLT32 object and RLD import-thunk tests completed"
+
+test-pic-got: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/pic-got)
+	$(RCC_TARGET) --target i686-unknown-rinos -fPIC -c \
+		-o $(TEST_OUT)/pic-got/x86.ro tests/pic_got.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fPIE -c \
+		-o $(TEST_OUT)/pic-got/x64.ro tests/pic_got.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/pic-got/verify \
+		tests/pic_got_relocation_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/pic-got/verify \
+		$(TEST_OUT)/pic-got/x86.ro $(TEST_OUT)/pic-got/x64.ro
+	$(RLD_TARGET) --target i686-unknown-rinos -e pic_got_use \
+		--emit-unsigned-v3 --dep rincrt.rll \
+		--import imported_data=rincrt.rll@data \
+		--import imported_function=rincrt.rll@function \
+		-o $(TEST_OUT)/pic-got/x86.rin $(TEST_OUT)/pic-got/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos -e pic_got_use \
+		--emit-unsigned-v3 --dep rincrt.rll \
+		--import imported_data=rincrt.rll@data \
+		--import imported_function=rincrt.rll@function \
+		-o $(TEST_OUT)/pic-got/x64.rin $(TEST_OUT)/pic-got/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/pic-got/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/pic-got/x64.rin
+	@echo "PIC/PIE GOT32 object and RLD resolution tests completed"
 
 # Exercise runtime scalar global initialization in both frontends.  The host
 # CRT used by MinGW does not dispatch RinOS .init_array entries, so the x64

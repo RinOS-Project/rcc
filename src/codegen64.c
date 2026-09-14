@@ -1831,6 +1831,26 @@ static void gen64_stmt(Module* mod, Stmt* stmt);
 
 static void gen64_symbol_address(Module* mod, const char* symbol,
                                  uint32_t addend) {
+    if (g_opts.pic || g_opts.pie) {
+        const char* slot = module_get_got_entry(mod, symbol);
+        uint32_t offset;
+        emit_byte(mod, 0x48);
+        emit_byte(mod, 0x8B); /* MOV RAX, [RIP+disp32] */
+        emit_byte(mod, 0x05);
+        offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        module_add_got_relocation(mod, MODULE_SYMBOL_CODE, offset, slot);
+        if (addend != 0u) {
+            if (addend <= (uint32_t)INT32_MAX) {
+                emit64_add_reg_imm(mod, RAX, (int32_t)addend);
+            } else {
+                emit64_mov_reg_imm64(mod, RCX, addend);
+                emit64_add_reg_reg(mod, RAX, RCX);
+            }
+        }
+        emit64_mov_reg_mem(mod, RAX, RAX, 0);
+        return;
+    }
     emit64_mov_reg_imm64(mod, RAX, 0u);
     module_add_relocation(mod, MODULE_SYMBOL_CODE,
                           code_offset(mod) - 8u, addend,

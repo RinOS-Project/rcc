@@ -911,7 +911,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
             ? module_find_symbol(mod, mr->symbol_name) : NULL;
         uint64_t relocation_width = mr->is_relative || !mr->is_64bit
             ? 4u : 8u;
-        RelocType type = mr->is_tls ? RELOC_TLSOFF32S :
+        RelocType type = mr->is_tls ? RELOC_TLSOFF32S : mr->is_got
+            ? RELOC_GOT32 :
             mr->is_relative && (g_opts.pic || g_opts.pie) &&
                     (!referenced_symbol || !referenced_symbol->is_defined)
                 ? RELOC_PLT32 : mr->is_relative ? RELOC_REL32 :

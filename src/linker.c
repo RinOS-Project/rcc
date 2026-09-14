@@ -1133,11 +1133,11 @@ bool linker_apply_relocations(Linker* ld) {
                 break;
             }
             case RELOC_REL32:
+            case RELOC_GOT32:
             case RELOC_PLT32: {
-                /* PLT32 has the same link-time encoding as REL32.  The
-                 * compiler uses it for external calls in PIC/PIE objects;
-                 * RLD resolves the target to a local definition or import
-                 * thunk before emitting the final v3 image. */
+                /* GOT32 and PLT32 have the same signed PC-relative encoding
+                 * as REL32. GOT32 targets a compiler-owned data slot, while
+                 * PLT32 targets a local definition or import thunk. */
                 uint64_t pc = sect->vaddr + r->offset + 4u;
                 int32_t delta;
                 if (target >= pc) {
@@ -1154,6 +1154,7 @@ bool linker_apply_relocations(Linker* ld) {
                 break;
 rel32_overflow:
                 fprintf(stderr, "rld: %s relocation overflow for '%s'\n",
+                        r->type == RELOC_GOT32 ? "GOT32" :
                         r->type == RELOC_PLT32 ? "PLT32" : "REL32",
                         r->symbol);
                 return false;
