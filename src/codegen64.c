@@ -2258,6 +2258,54 @@ static void gen64_cxx_zero_object(Module* mod, Type* object_type,
     }
 }
 
+static TypeField* gen64_cxx_constructor_field(Type* object_type,
+                                               const char* name) {
+    for (TypeField* field = object_type ? object_type->fields : NULL;
+         field; field = field->next) {
+        if (field->name && name && strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
+                                         CxxConstructorInfo* constructor,
+                                         ExprList* arguments) {
+    TypeField* field;
+    CxxConstructorInitializer* initializer;
+    ExprList* argument;
+    int address_reg = RCX;
+
+    gen64_cxx_zero_object(mod, object_type, address_reg);
+    if (!constructor) return;
+    if (constructor->parameter_count == 0) {
+        for (initializer = constructor->initializers; initializer;
+             initializer = initializer->next) {
+            field = gen64_cxx_constructor_field(
+                object_type, initializer->field);
+            if (!field || !initializer->value) {
+                rcc_fatal("validated C++ constructor field is missing");
+            }
+            emit64_push_reg(mod, address_reg);
+            gen64_expr(mod, initializer->value);
+            emit64_pop_reg(mod, address_reg);
+            emit64_store_typed(mod, address_reg, field->offset,
+                               RAX, field->type);
+        }
+        return;
+    }
+    field = object_type ? object_type->fields : NULL;
+    for (argument = arguments; argument && field;
+         argument = argument->next, field = field->next) {
+        emit64_push_reg(mod, address_reg);
+        gen64_expr(mod, argument->expr);
+        emit64_pop_reg(mod, address_reg);
+        emit64_store_typed(mod, address_reg, field->offset,
+                           RAX, field->type);
+    }
+}
+
 static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field = object_type ? object_type->fields : NULL;
@@ -2289,10 +2337,10 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
     for (argument = expr->call_new_args; argument;
          argument = argument->next) {
         emit64_mov_reg_mem(mod, RCX, RSP, 16);
-        gen64_cxx_zero_object(mod, object_type, RCX);
-        gen64_expr(mod, argument->expr);
+        gen64_cxx_initialize_object(mod, object_type,
+                                     expr->call_new_constructor,
+                                     argument);
         emit64_mov_reg_mem(mod, RCX, RSP, 16);
-        emit64_store_typed(mod, RCX, field->offset, RAX, field->type);
         emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
         emit64_mov_mem_reg(mod, RSP, 16, RCX);
     }
@@ -2335,7 +2383,8 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
     emit64_cmp_reg_imm(mod, RDX, 0);
     emit64_jcc_label(mod, CC64_E, done);
     emit64_label(mod, loop);
-    gen64_cxx_zero_object(mod, object_type, RCX);
+    gen64_cxx_initialize_object(mod, object_type,
+                                 expr->call_new_constructor, NULL);
     emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
     emit64_sub_reg_imm(mod, RDX, 1);
     emit64_cmp_reg_imm(mod, RDX, 0);
@@ -2393,6 +2442,13 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
 
     emit64_push_reg(mod, RAX);
     emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    if (expr->call_new_constructor) {
+        gen64_cxx_initialize_object(mod, object_type,
+                                     expr->call_new_constructor,
+                                     argument);
+        emit64_pop_reg(mod, RAX);
+        return;
+    }
     emit64_mov_reg_imm32(mod, RAX, 0u);
     if (object_type->kind == TYPE_STRUCT ||
         object_type->kind == TYPE_UNION) {

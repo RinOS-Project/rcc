@@ -386,8 +386,17 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 break;
             }
             if (arity == 0u) {
-                if (initializer->value->kind != EXPR_INT_LIT ||
-                    initializer->value->int_val != 0) {
+                int64_t constant_value = 0;
+                if (!expr_eval_integer_constant(
+                        initializer->value, &constant_value) ||
+                    !field->type ||
+                    !(type_is_integer(field->type) ||
+                      field->type->kind == TYPE_ENUM ||
+                      field->type->kind == TYPE_PTR ||
+                      field->type->kind == TYPE_NULLPTR) ||
+                    field->type->size <= 0 ||
+                    (g_opts.target_arch == ARCH_X86 && field->type->size > 4) ||
+                    (g_opts.target_arch == ARCH_X64 && field->type->size > 8)) {
                     supported = false;
                     break;
                 }

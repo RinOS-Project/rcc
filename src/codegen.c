@@ -3959,6 +3959,64 @@ static void gen_cxx_zero_object32(Module* mod, Type* object_type,
     }
 }
 
+static TypeField* gen_cxx_constructor_field32(Type* object_type,
+                                              const char* name) {
+    for (TypeField* field = object_type ? object_type->fields : NULL;
+         field; field = field->next) {
+        if (field->name && name && strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
+                                         CxxConstructorInfo* constructor,
+                                         ExprList* arguments) {
+    TypeField* field;
+    CxxConstructorInitializer* initializer;
+    ExprList* argument;
+    int address_reg = ECX;
+
+    gen_cxx_zero_object32(mod, object_type, address_reg);
+    if (!constructor) return;
+    if (constructor->parameter_count == 0) {
+        for (initializer = constructor->initializers; initializer;
+             initializer = initializer->next) {
+            field = gen_cxx_constructor_field32(
+                object_type, initializer->field);
+            if (!field || !initializer->value) {
+                rcc_fatal("validated C++ constructor field is missing");
+            }
+            emit_push_reg(mod, address_reg);
+            gen_expr_as_type(mod, initializer->value, field->type);
+            emit_pop_reg(mod, address_reg);
+            if (type_is_integer(field->type) ||
+                field->type->kind == TYPE_ENUM) {
+                emit_convert_integer_value(mod, EAX,
+                                           initializer->value->type,
+                                           field->type);
+            }
+            emit_store_typed32(mod, address_reg, field->offset,
+                               EAX, field->type);
+        }
+        return;
+    }
+    field = object_type ? object_type->fields : NULL;
+    for (argument = arguments; argument && field;
+         argument = argument->next, field = field->next) {
+        emit_push_reg(mod, address_reg);
+        gen_expr_as_type(mod, argument->expr, field->type);
+        emit_pop_reg(mod, address_reg);
+        if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(mod, EAX, argument->expr->type,
+                                       field->type);
+        }
+        emit_store_typed32(mod, address_reg, field->offset,
+                           EAX, field->type);
+    }
+}
+
 /* Lower the validated one-parameter constructor for each explicitly
  * initialized class-array element.  The semantic pass proves that the
  * constructor initializes the complete object from one scalar parameter and
@@ -3997,14 +4055,10 @@ static void gen_cxx_init_class_array32(Module* mod, Expr* expr) {
     for (argument = expr->call_new_args; argument;
          argument = argument->next) {
         emit_mov_reg_mem(mod, ECX, ESP, 4);
-        gen_cxx_zero_object32(mod, object_type, ECX);
-        gen_expr_as_type(mod, argument->expr, field->type);
-        if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
-            emit_convert_integer_value(mod, EAX, argument->expr->type,
-                                       field->type);
-        }
+        gen_cxx_initialize_object32(mod, object_type,
+                                     expr->call_new_constructor,
+                                     argument);
         emit_mov_reg_mem(mod, ECX, ESP, 4);
-        emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
         emit_add_reg_imm(mod, ECX, (uint32_t)element_size);
         emit_mov_mem_reg(mod, ESP, 4, ECX);
     }
@@ -4046,7 +4100,8 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
     emit_cmp_reg_imm(mod, EDX, 0);
     emit_jcc_label(mod, CC_E, done);
     emit_label(mod, loop);
-    gen_cxx_zero_object32(mod, object_type, ECX);
+    gen_cxx_initialize_object32(mod, object_type,
+                                 expr->call_new_constructor, NULL);
     emit_add_reg_imm(mod, ECX, (uint32_t)object_type->size);
     emit_sub_reg_imm(mod, EDX, 1);
     emit_cmp_reg_imm(mod, EDX, 0);
@@ -4104,6 +4159,13 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
 
     emit_push_reg(mod, EAX); /* retain the allocation across initializers */
     emit_mov_reg_mem(mod, ECX, ESP, 0);
+    if (expr->call_new_constructor) {
+        gen_cxx_initialize_object32(mod, object_type,
+                                     expr->call_new_constructor,
+                                     argument);
+        emit_pop_reg(mod, EAX);
+        return;
+    }
     emit_mov_reg_imm(mod, EAX, 0u);
     if (object_type->kind == TYPE_STRUCT ||
         object_type->kind == TYPE_UNION) {
