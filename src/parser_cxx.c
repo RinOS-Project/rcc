@@ -3096,6 +3096,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     char tag[320];
     int index;
     uint32_t constructor_mask;
+    bool has_value_parameters = false;
 
     if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->templated_class ||
         argument_count != tmpl->param_count) {
@@ -3103,6 +3104,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         return type_struct(tmpl && tmpl->name ? tmpl->name : "template");
     }
     for (index = 0; index < argument_count; ++index) {
+        if (tmpl->params[index].kind == TPARAM_NONTYPE) {
+            has_value_parameters = true;
+        }
         if (tmpl->params[index].kind == TPARAM_TYPE &&
             (!arguments || !arguments[index])) {
             rcc_error(loc,
@@ -3277,7 +3281,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     tmpl->instances[tmpl->instance_count].args = instance->template_args;
     tmpl->instances[tmpl->instance_count].value_args = NULL;
     tmpl->instances[tmpl->instance_count].value_present = NULL;
-    if (argument_count > 0) {
+    if (has_value_parameters) {
         tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
             sizeof(int64_t) * (size_t)argument_count);
         tmpl->instances[tmpl->instance_count].value_present = ast_arena_alloc(
@@ -3375,6 +3379,8 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc) {
     Type* arguments[32];
+    int64_t values[32] = { 0 };
+    bool value_present[32] = { false };
     int argument_count = 0;
     expect(TOK_LT, "<");
     if (!check(TOK_GT)) {
@@ -3384,15 +3390,64 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 rcc_error(loc, "class template argument limit exceeded");
                 break;
             }
-            arguments[argument_count++] = parse_cxx_type_spec();
+            if (argument_count >= tmpl->param_count) {
+                rcc_error(peek()->loc, "too many class template arguments");
+                while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
+                    advance();
+                }
+                arguments[argument_count++] = type_int;
+                continue;
+            }
+            TemplateParam* parameter = &tmpl->params[argument_count];
+            if (parameter->kind == TPARAM_TYPE) {
+                arguments[argument_count++] = parse_cxx_type_spec();
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                Expr* value_expression;
+                int64_t value;
+                rcc_parser_set_cxx_template_default_mode(true);
+                value_expression = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+                if (!expr_eval_integer_constant(value_expression, &value)) {
+                    SourceLoc value_loc;
+                    cxx_parser_expr_loc(&value_loc, value_expression, &loc);
+                    rcc_error(value_loc,
+                              "class template non-type argument must be an "
+                              "integer constant expression");
+                    value = 0;
+                }
+                arguments[argument_count] = parameter->type;
+                values[argument_count] = value;
+                value_present[argument_count] = true;
+                ++argument_count;
+            } else {
+                rcc_error(peek()->loc,
+                          "class template template parameters are not supported");
+                arguments[argument_count++] = type_int;
+            }
         } while (match(TOK_COMMA));
     }
     while (argument_count < tmpl->param_count &&
-           tmpl->params[argument_count].kind == TPARAM_TYPE &&
-           tmpl->params[argument_count].has_default &&
-           tmpl->params[argument_count].default_type) {
-        arguments[argument_count] =
-            tmpl->params[argument_count].default_type;
+           tmpl->params[argument_count].has_default) {
+        TemplateParam* parameter = &tmpl->params[argument_count];
+        if (parameter->kind == TPARAM_TYPE && parameter->default_type) {
+            arguments[argument_count] = parameter->default_type;
+        } else if (parameter->kind == TPARAM_NONTYPE &&
+                   parameter->default_value) {
+            int64_t value;
+            if (!eval_template_integer_expression(
+                    parameter->default_value, tmpl, values, value_present,
+                    &value)) {
+                rcc_error(loc,
+                          "class template non-type default must be an "
+                          "integer constant expression");
+                value = 0;
+            }
+            arguments[argument_count] = parameter->type;
+            values[argument_count] = value;
+            value_present[argument_count] = true;
+        } else {
+            break;
+        }
         ++argument_count;
     }
     expect(TOK_GT, ">");
@@ -3452,9 +3507,11 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
     if (selected) {
         if (selected->param_count == 0) return selected->templated_class->type;
         return instantiate_class_template(
-            selected, selected_arguments, selected->param_count, loc);
+            selected, selected_arguments, NULL, NULL,
+            selected->param_count, loc);
     }
-    return instantiate_class_template(tmpl, arguments, argument_count, loc);
+    return instantiate_class_template(tmpl, arguments, values, value_present,
+                                      argument_count, loc);
 }
 
 static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
