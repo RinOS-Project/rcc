@@ -44,6 +44,8 @@ typedef struct TypeField {
     const char* name;
     Type* type;
     int offset;
+    /* C++ default member initializer, if one was declared in the class. */
+    Expr* initializer;
     /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
      * C AST does not depend on the C++ extension header. */
     unsigned char cxx_access;
@@ -53,6 +55,8 @@ typedef struct TypeField {
 typedef struct TypeParam {
     const char* name;
     Type* type;
+    /* Used by C++ class fields; function parameters leave this NULL. */
+    Expr* initializer;
     unsigned char cxx_access;
     struct TypeParam* next;
 } TypeParam;

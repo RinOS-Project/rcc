@@ -121,6 +121,7 @@ static Token* expect(TokenType type, const char* msg) {
 static Expr* parse_cxx_expression(void);
 extern Expr* parse_expression(void);
 extern Expr* parse_assignment_expression(void);
+extern Expr* rcc_parser_parse_initializer(void);
 static Stmt* parse_cxx_statement(void);
 static Type* parse_cxx_type_spec(void);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
@@ -1816,6 +1817,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         Expr* init = NULL;
         if (match(TOK_ASSIGN)) {
             init = parse_cxx_expression();
+        } else if (check(TOK_LBRACE)) {
+            init = rcc_parser_parse_initializer();
         }
         if (init) cls->has_field_initializer = true;
         if (current_access != ACCESS_PUBLIC) {
@@ -1826,7 +1829,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         expect(TOK_SEMICOLON, ";");
 
         /* Add field to class */
-        cxx_class_add_field(cls, name, type, current_access);
+        cxx_class_add_field_initializer(cls, name, type, current_access, init);
     }
 }
 
@@ -2709,11 +2712,11 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
            sizeof(Type*) * (size_t)argument_count);
 
     for (TypeParam* field = definition->fields; field; field = field->next) {
-        cxx_class_add_field(
+        cxx_class_add_field_initializer(
             instance, field->name,
             substitute_template_type(
                 tmpl, field->type, arguments, argument_count),
-            (AccessSpec)field->cxx_access);
+            (AccessSpec)field->cxx_access, field->initializer);
     }
     for (struct CxxMember* member = definition->members; member;
          member = member->next) {
@@ -3552,45 +3555,11 @@ Type* rcc_parse_cxx_type_name(void) {
     return parse_cxx_type_spec();
 }
 
-/* ═══════════════════════════════════════
- * C++ Expression Parsing (simplified)
- * ═══════════════════════════════════════ */
-
-static Expr* parse_cxx_primary(void) {
-    SourceLoc loc = peek()->loc;
-
-    /* this */
-    if (match(TOK_THIS)) {
-        Expr* e = expr_ident("this", loc);
-        return e;
-    }
-
-    /* nullptr */
-    if (match(TOK_NULLPTR)) {
-        Expr* null_pointer = expr_int(0, loc);
-        null_pointer->type = type_nullptr;
-        null_pointer->is_cxx_nullptr = true;
-        return null_pointer;
-    }
-
-    /* true/false */
-    if (match(TOK_TRUE)) {
-        return expr_int(1, loc);
-    }
-    if (match(TOK_FALSE)) {
-        return expr_int(0, loc);
-    }
-
-    if (check(TOK_NEW) || check(TOK_DELETE)) {
-        return rcc_parse_cxx_special_expression();
-    }
-
-    /* Fall back to C expression parsing */
-    return parse_expression();
-}
-
 static Expr* parse_cxx_expression(void) {
-    return parse_cxx_primary();
+    /* The common parser provides the complete precedence grammar.  Its C++
+     * primary hook handles this/nullptr/new/delete and its C++ mode branch
+     * handles true/false, so expressions are not truncated at one token. */
+    return parse_expression();
 }
 
 /* ═══════════════════════════════════════

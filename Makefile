@@ -3,7 +3,8 @@
 # Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP
+CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP \
+	-I$(RINOS_SDK_ROOT)/include
 LDFLAGS =
 OBJCOPY ?= objcopy
 
@@ -272,6 +273,30 @@ test-cxx-language-core: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x64.o \
 		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o
 	$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/field-initializers-x86.s \
+		tests/cxx_field_initializers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-language-core/field-initializers-x64.s \
+		tests/cxx_field_initializers.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x86.o \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/field-initializers-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/field-initializers-x86 \
+		$(TEST_OUT)/cxx-language-core/field-initializers-start-x86.o \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x86.o
+	$(TEST_OUT)/cxx-language-core/field-initializers-x86
+	gcc -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x64.o \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-language-core/field-initializers-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-language-core/field-initializers-x64 \
+		$(TEST_OUT)/cxx-language-core/field-initializers-start-x64.o \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x64.o
+	$(TEST_OUT)/cxx-language-core/field-initializers-x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/inheritance-x86.s \
 		tests/cxx_inheritance.cpp

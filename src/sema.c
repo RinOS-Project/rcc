@@ -3683,6 +3683,118 @@ static void sema_validate_vla_gotos(Stmt* statement) {
     }
 }
 
+static int sema_cxx_field_count(Type* type) {
+    int count = 0;
+    for (TypeField* field = type ? type->fields : NULL; field;
+         field = field->next) {
+        ++count;
+    }
+    return count;
+}
+
+static int sema_cxx_field_index(Type* type, const char* name) {
+    int index = 0;
+    if (!type || !name) return -1;
+    for (TypeField* field = type->fields; field; field = field->next, ++index) {
+        if (field->name && strcmp(field->name, name) == 0) return index;
+    }
+    return -1;
+}
+
+/* Turn C++ default member initializers into ordinary designated aggregate
+ * clauses.  This keeps one well-tested initialization path for local,
+ * static, and TLS objects: storage is zeroed first, explicit initializers
+ * retain their source order, and omitted members receive their declared
+ * defaults.  A non-aggregate initializer is deliberately left alone because
+ * it denotes copy/constructor initialization rather than member defaults. */
+static Expr* sema_cxx_default_member_initializer(Decl* declaration) {
+    Type* type = declaration ? declaration->type : NULL;
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    Expr* source = declaration ? declaration->var_init : NULL;
+    ExprList* items = NULL;
+    unsigned char* initialized = NULL;
+    int field_count;
+    int cursor = 0;
+    int index;
+
+    if (!declaration || !type || !cls || !cls->has_field_initializer ||
+        !type->fields || (source && source->kind != EXPR_COMPOUND)) {
+        return NULL;
+    }
+    if (cls->has_user_constructor) {
+        rcc_error(declaration->loc,
+                  "default member initializers with a user constructor require constructor lowering");
+        return NULL;
+    }
+
+    field_count = sema_cxx_field_count(type);
+    if (field_count <= 0) return NULL;
+    initialized = rcc_alloc((size_t)field_count);
+
+    /* `{}` is represented as a value-init `{0}` node.  It is not an explicit
+     * initializer for the first member in C++, so defaults replace it. */
+    if (source && !source->compound_value_init) {
+        for (ExprList* item = source->compound_init; item;
+             item = item->next) {
+            if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                index = sema_cxx_field_index(type, item->designator_field);
+                if (index < 0) {
+                    rcc_free(initialized);
+                    return NULL;
+                }
+                cursor = index + 1;
+            } else if (item->designator_kind == INIT_DESIGNATOR_NONE) {
+                index = cursor++;
+                if (index < 0 || index >= field_count) {
+                    rcc_free(initialized);
+                    return NULL;
+                }
+            } else {
+                /* An array designator is invalid for a class aggregate; let
+                 * the normal initializer diagnostic report it unchanged. */
+                rcc_free(initialized);
+                return NULL;
+            }
+            if (initialized[index]) {
+                rcc_free(initialized);
+                return NULL;
+            }
+            initialized[index] = 1u;
+            {
+                TypeField* field = type->fields;
+                for (int field_index = 0; field && field_index < index;
+                     field = field->next, ++field_index) {
+                }
+                if (!field || !field->name) {
+                    rcc_free(initialized);
+                    return NULL;
+                }
+                exprlist_append_designated(&items, item->expr,
+                                           INIT_DESIGNATOR_FIELD, 0,
+                                           field->name);
+            }
+        }
+    }
+
+    index = 0;
+    for (TypeField* field = type->fields; field; field = field->next, ++index) {
+        if (!initialized[index] && field->initializer) {
+            exprlist_append_designated(&items, field->initializer,
+                                       INIT_DESIGNATOR_FIELD, 0,
+                                       field->name);
+        }
+    }
+    rcc_free(initialized);
+    if (!items) return NULL;
+
+    {
+        SourceLoc loc = source ? source->loc : declaration->loc;
+        Expr* result = expr_initializer_list(items, loc);
+        result->compound_type = type;
+        return result;
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
@@ -3691,6 +3803,11 @@ static void sema_decl(Decl* decl) {
             bool is_global = g_symtab->current == g_symtab->global;
             if (decl->var_is_auto) {
                 decl->type = sema_deduce_auto_type(decl);
+            }
+            {
+                Expr* default_initializer =
+                    sema_cxx_default_member_initializer(decl);
+                if (default_initializer) decl->var_init = default_initializer;
             }
             if (decl->var_is_thread_local && !is_global) {
                 rcc_error(decl->loc,

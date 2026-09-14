@@ -265,6 +265,9 @@ static void synchronize(void) {
 Expr* parse_expression(void);  /* Exported for C++ parser */
 static Expr* parse_assignment(void);
 static Expr* parse_initializer(void);
+
+/* C++ field parsing reuses the complete shared initializer grammar. */
+Expr* rcc_parser_parse_initializer(void);
 static Expr* parse_unary(void);
 static Stmt* parse_statement(void);
 Stmt* parse_declaration(void);  /* Exported for C++ parser */
@@ -889,6 +892,12 @@ static Expr* parse_primary(void) {
         null_pointer->is_cxx_nullptr = true;
         return null_pointer;
     }
+    if (parser_cxx_mode && match(TOK_TRUE)) {
+        return expr_int(1, loc);
+    }
+    if (parser_cxx_mode && match(TOK_FALSE)) {
+        return expr_int(0, loc);
+    }
     if (match(TOK_GENERIC)) {
         return parse_generic_selection(loc);
     }
@@ -1504,6 +1513,10 @@ static Expr* parse_initializer(void) {
     Expr* initializer = expr_initializer_list(items, loc);
     initializer->compound_value_init = value_init;
     return initializer;
+}
+
+Expr* rcc_parser_parse_initializer(void) {
+    return parse_initializer();
 }
 
 static int parser_align_up(int value, int alignment) {

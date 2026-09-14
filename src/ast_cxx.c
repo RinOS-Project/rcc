@@ -384,6 +384,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->name = f->name;
         field->type = type;
         field->offset = offset;
+        field->initializer = f->initializer;
         field->cxx_access = f->cxx_access;
         field->next = NULL;
         *field_tail = field;
@@ -413,6 +414,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->name = base_field->name;
             field->type = base_field->type;
             field->offset = base_offsets[i] + base_field->offset;
+            field->initializer = base_field->initializer;
             field->cxx_access = access;
             field->next = NULL;
             *field_tail = field;
@@ -1254,11 +1256,14 @@ void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access)
 }
 
 /* Add field to class */
-void cxx_class_add_field(CxxClass* cls, const char* name, Type* type, AccessSpec access) {
+void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
+                                     Type* type, AccessSpec access,
+                                     Expr* initializer) {
     /* Create field as TypeParam (reusing existing structure) */
     TypeParam* field = rcc_alloc(sizeof(TypeParam));
     field->name = name ? rcc_strdup(name) : NULL;
     field->type = type;
+    field->initializer = initializer;
     field->cxx_access = (unsigned char)access;
     field->next = NULL;
 
@@ -1270,6 +1275,11 @@ void cxx_class_add_field(CxxClass* cls, const char* name, Type* type, AccessSpec
         while (f->next) f = f->next;
         f->next = field;
     }
+}
+
+void cxx_class_add_field(CxxClass* cls, const char* name, Type* type,
+                         AccessSpec access) {
+    cxx_class_add_field_initializer(cls, name, type, access, NULL);
 }
 
 /* Add method to class */
