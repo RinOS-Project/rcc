@@ -129,12 +129,13 @@ static CxxClass* find_class(const char* qualified_name);
 static bool is_active_template_type(const char* name);
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
-                                            bool* is_noexcept);
+                                            bool* is_noexcept,
+                                            bool* is_consteval);
 CxxTemplate* parse_cxx_template(void);
 static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage);
 
-/* `constexpr` can introduce either a function or a variable.  The dedicated
+/* `constexpr`/`consteval` can introduce either a function or a variable.  The dedicated
  * function parser is needed for C++ parameter/body handling, while ordinary
  * declaration parsing owns the variable initializer grammar.  Stop at the
  * first declaration-level initializer boundary so a call in a variable
@@ -144,7 +145,8 @@ static bool cxx_constexpr_starts_function(void) {
     int parentheses = 0;
     int brackets = 0;
 
-    if (!token || token->type != TOK_CONSTEXPR) return false;
+    if (!token || (token->type != TOK_CONSTEXPR &&
+                   token->type != TOK_CONSTEVAL)) return false;
     token = token->next;
     for (; token; token = token->next) {
         if (parentheses == 0 && brackets == 0) {
@@ -1730,6 +1732,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     bool is_virtual = false;
     bool is_static = false;
     bool is_constexpr = false;
+    bool is_consteval = false;
     bool is_explicit = false;
 
     /* C++ declaration specifiers can be combined in either order. */
@@ -1737,6 +1740,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         if (match(TOK_VIRTUAL)) is_virtual = true;
         else if (match(TOK_STATIC)) is_static = true;
         else if (match(TOK_CONSTEXPR)) is_constexpr = true;
+        else if (match(TOK_CONSTEVAL)) {
+            is_constexpr = true;
+            is_consteval = true;
+        }
         else if (match(TOK_EXPLICIT)) is_explicit = true;
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) { }
         else if (match(TOK_FRIEND) || match(TOK_MUTABLE)) { }
@@ -1896,6 +1903,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_static = is_static;
         method->is_constexpr = is_constexpr;
         method->decl->func_is_constexpr = is_constexpr;
+        method->decl->func_is_consteval = is_consteval;
         method->is_explicit = is_explicit;
         method->is_const = is_const;
         method->is_override = is_override;
@@ -2268,18 +2276,20 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
             (void)parse_cxx_namespace(ast, ns);
         } else if (match(TOK_USING)) {
             parse_cxx_using(ns);
-        } else if (check(TOK_CONSTEXPR) &&
+        } else if ((check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL)) &&
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
             if (statement && statement->kind == STMT_DECL) {
                 add_namespace_declaration(ast, ns, statement->decl);
             }
-        } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
+        } else if (check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL) ||
+                   check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
             bool is_constexpr = false;
             bool is_noexcept = false;
+            bool is_consteval = false;
             Decl* declaration = parse_cxx_function_declaration(
-                true, &is_constexpr, &is_noexcept);
+                true, &is_constexpr, &is_noexcept, &is_consteval);
             add_namespace_declaration(ast, ns, declaration);
         } else {
             Stmt* statement = parse_cxx_statement();
@@ -2362,7 +2372,8 @@ static bool inline_body_is_lowerable(void) {
 
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
-                                            bool* is_noexcept) {
+                                            bool* is_noexcept,
+                                            bool* is_consteval) {
     SourceLoc loc;
     Type* return_type;
     Token* name;
@@ -2372,10 +2383,15 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
 
     *is_constexpr = false;
     *is_noexcept = false;
+    *is_consteval = false;
     skip_cxx_attributes();
     loc = peek()->loc;
     for (;;) {
         if (match(TOK_CONSTEXPR)) *is_constexpr = true;
+        else if (match(TOK_CONSTEVAL)) {
+            *is_constexpr = true;
+            *is_consteval = true;
+        }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
     }
@@ -2419,6 +2435,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
                                          params, body, loc);
     function->decl->func_is_inline = is_inline;
     function->decl->func_is_constexpr = *is_constexpr;
+    function->decl->func_is_consteval = *is_consteval;
     return function->decl;
 }
 
@@ -2612,9 +2629,10 @@ CxxTemplate* parse_cxx_template(void) {
     } else {
         tmpl->kind = TMPL_FUNCTION;
         CxxTemplate* outer_template = active_template;
+        bool is_consteval = false;
         active_template = tmpl;
         tmpl->func_def = parse_cxx_function_declaration(
-            true, &tmpl->is_constexpr, &tmpl->is_noexcept);
+            true, &tmpl->is_constexpr, &tmpl->is_noexcept, &is_consteval);
         active_template = outer_template;
         if (tmpl->func_def) {
             tmpl->name = ast_arena_strdup(tmpl->func_def->name);
@@ -4065,18 +4083,20 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 cxx_namespace_add_class(g_global_namespace, cls);
             }
             (void)loc;
-        } else if (check(TOK_CONSTEXPR) &&
+        } else if ((check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL)) &&
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
             if (statement && statement->kind == STMT_DECL) {
                 add_cxx_declaration(ast, statement, false);
             }
-        } else if (check(TOK_CONSTEXPR) || check(TOK_INLINE) ||
+        } else if (check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL) ||
+                   check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
             bool is_constexpr = false;
             bool is_noexcept = false;
+            bool is_consteval = false;
             Decl* declaration = parse_cxx_function_declaration(
-                true, &is_constexpr, &is_noexcept);
+                true, &is_constexpr, &is_noexcept, &is_consteval);
             if (g_global_namespace && declaration) {
                 add_namespace_declaration(ast, g_global_namespace,
                                            declaration);

@@ -420,6 +420,8 @@ test-cxx-constexpr: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	grep -q "constexpr variable initializer is not a supported scalar constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
+	grep -q "consteval call is not a constant expression" \
+		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-constexpr/invalid-x64.ro \
 		tests/cxx_constexpr_invalid.cpp \
@@ -427,6 +429,8 @@ test-cxx-constexpr: $(RCXX_TARGET)
 	grep -q "constexpr variable requires an initializer" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	grep -q "constexpr variable initializer is not a supported scalar constant expression" \
+		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
+	grep -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	@echo "RCC++ scalar constexpr folding tests completed"
 

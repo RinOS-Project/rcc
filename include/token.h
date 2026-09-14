@@ -97,6 +97,7 @@ typedef enum {
     TOK_EXPLICIT,       /* explicit */
     TOK_MUTABLE,        /* mutable */
     TOK_CONSTEXPR,      /* constexpr */
+    TOK_CONSTEVAL,      /* consteval */
     TOK_NOEXCEPT,       /* noexcept */
     TOK_STATIC_CAST,    /* static_cast */
     TOK_DYNAMIC_CAST,   /* dynamic_cast */

@@ -711,6 +711,7 @@ struct Decl {
             bool func_has_cxx_linkage;
             bool func_is_cxx_method;
             bool func_is_constexpr;
+            bool func_is_consteval;
             Decl* func_overload_next;
         };
 

@@ -59,6 +59,10 @@ constexpr int truncate_float(float value) {
     return static_cast<int>(value);
 }
 
+consteval int force_constant(int value) {
+    return value + 4;
+}
+
 constexpr float local_float(int value) {
     float result = static_cast<float>(value);
     result += 0.5f;
@@ -83,6 +87,7 @@ constexpr int constexpr_do = do_value(5);
 constexpr float constexpr_float = scale_float(1.5f);
 constexpr double constexpr_double = half_integer(7);
 constexpr int constexpr_truncated = truncate_float(3.75f);
+constexpr int constexpr_consteval = force_constant(3);
 constexpr float constexpr_local_float = local_float(2);
 constexpr double constexpr_loop_float = loop_float(4);
 
@@ -91,7 +96,8 @@ int main(void) {
                    constexpr_mutated == 15 && constexpr_loop == 10 &&
                    constexpr_while == 8 && constexpr_do == 5 &&
                    constexpr_float == 3.5f && constexpr_double == 3.75 &&
-                   constexpr_truncated == 3 && constexpr_local_float == 5.0f &&
+                   constexpr_truncated == 3 && constexpr_consteval == 7 &&
+                   constexpr_local_float == 5.0f &&
                    constexpr_loop_float == 2.0
                ? 0 : 1;
 }

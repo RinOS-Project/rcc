@@ -4058,6 +4058,7 @@ static Type* sema_expr(Expr* expr) {
 
             expr->type = ft->ret_type;
             if (call_declaration && call_declaration->func_is_constexpr) {
+                bool constexpr_folded = false;
                 if (sema_constexpr_integer_type(expr->type)) {
                     int64_t constexpr_value;
                     if (sema_eval_constexpr_function(call_declaration,
@@ -4068,6 +4069,7 @@ static Type* sema_expr(Expr* expr) {
                         expr->is_cxx_nullptr = false;
                         expr->cxx_move_assignment = NULL;
                         expr->cxx_close_call = NULL;
+                        constexpr_folded = true;
                     } else {
                         SemaConstexprScalar scalar_value;
                         if (sema_eval_constexpr_scalar_function(
@@ -4078,6 +4080,7 @@ static Type* sema_expr(Expr* expr) {
                             expr->is_cxx_nullptr = false;
                             expr->cxx_move_assignment = NULL;
                             expr->cxx_close_call = NULL;
+                            constexpr_folded = true;
                         }
                     }
                 } else if (expr->type &&
@@ -4093,7 +4096,12 @@ static Type* sema_expr(Expr* expr) {
                         expr->is_cxx_nullptr = false;
                         expr->cxx_move_assignment = NULL;
                         expr->cxx_close_call = NULL;
+                        constexpr_folded = true;
                     }
+                }
+                if (call_declaration->func_is_consteval && !constexpr_folded) {
+                    rcc_error(expr->loc,
+                              "consteval call is not a constant expression");
                 }
             }
             break;

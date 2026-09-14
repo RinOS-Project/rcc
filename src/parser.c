@@ -2439,6 +2439,7 @@ Stmt* parse_declaration(void) {
     bool is_typedef = false;
     bool is_inline = false;
     bool is_constexpr = false;
+    bool is_consteval = false;
     bool is_thread_local = false;
     const char* declaration_name = NULL;
     DeclList* parameters = NULL;
@@ -2478,6 +2479,10 @@ Stmt* parse_declaration(void) {
 
     skip_attributes();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
+    if (parser_cxx_mode && match(TOK_CONSTEVAL)) {
+        is_constexpr = true;
+        is_consteval = true;
+    }
     if (!is_type_start()) {
         return parse_statement();
     }
@@ -2577,6 +2582,7 @@ Stmt* parse_declaration(void) {
         declaration->storage = storage;
         declaration->func_is_inline = is_inline;
         declaration->func_is_constexpr = is_constexpr;
+        declaration->func_is_consteval = is_consteval;
         return stmt_decl(declaration, loc);
     }
 
@@ -2604,6 +2610,9 @@ Stmt* parse_declaration(void) {
     declaration->storage = storage;
     declaration->var_is_thread_local = is_thread_local;
     declaration->var_is_constexpr = is_constexpr;
+    if (is_consteval) {
+        rcc_error(loc, "consteval declaration must declare a function");
+    }
     return stmt_decl(declaration, loc);
 }
 

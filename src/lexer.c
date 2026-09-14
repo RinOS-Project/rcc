@@ -101,6 +101,7 @@ static struct {
     {"explicit", TOK_EXPLICIT},
     {"mutable", TOK_MUTABLE},
     {"constexpr", TOK_CONSTEXPR},
+    {"consteval", TOK_CONSTEVAL},
     {"thread_local", TOK_THREAD_LOCAL},
     {"noexcept", TOK_NOEXCEPT},
     {"static_cast", TOK_STATIC_CAST},

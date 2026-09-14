@@ -891,6 +891,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_has_cxx_linkage = false;
     d->func_is_cxx_method = false;
     d->func_is_constexpr = false;
+    d->func_is_consteval = false;
     d->func_overload_next = NULL;
     return d;
 }
