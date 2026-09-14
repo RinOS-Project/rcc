@@ -377,6 +377,19 @@ test-cxx-new-array: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-new-array/x86.ro tests/cxx_new_array.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-new-array/x64.ro tests/cxx_new_array.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-new-array/constructor-x86.ro \
+		tests/cxx_new_array_constructor.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-new-array/constructor-x64.ro \
+		tests/cxx_new_array_constructor.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-new-array/constructor-x64.s \
+		tests/cxx_new_array_constructor.cpp
+	$(CC) -o $(TEST_OUT)/cxx-new-array/constructor-run-test \
+		tests/cxx_new_array_constructor_run_test.c \
+		$(TEST_OUT)/cxx-new-array/constructor-x64.s
+	$(TEST_OUT)/cxx-new-array/constructor-run-test
 ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-new-array/invalid.ro' tests/cxx_new_array_parenthesized_rejected.cpp *> '$(TEST_OUT)/cxx-new-array/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
 	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'array new element initializers require braces' '$(TEST_OUT)/cxx-new-array/invalid.log')) { exit 1 }"
@@ -390,7 +403,7 @@ else
 	grep -q "array new element initializers require braces" \
 		$(TEST_OUT)/cxx-new-array/invalid.log
 endif
-	@echo "RCC++ scalar array-new initializer tests completed"
+	@echo "RCC++ scalar and constructor array-new initializer tests completed"
 
 test-cxx-language-linkage: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-language-linkage

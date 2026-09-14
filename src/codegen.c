@@ -3947,6 +3947,115 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
     emit_pop_reg(mod, EAX);
 }
 
+static void gen_cxx_zero_object32(Module* mod, Type* object_type,
+                                   int address_reg) {
+    emit_mov_reg_imm(mod, EAX, 0u);
+    for (int offset = 0; offset + 4 <= object_type->size; offset += 4) {
+        emit_mov_mem_reg(mod, address_reg, offset, EAX);
+    }
+    for (int offset = (object_type->size / 4) * 4;
+         offset < object_type->size; ++offset) {
+        emit_mov_mem_reg8(mod, address_reg, offset, EAX);
+    }
+}
+
+/* Lower the validated one-parameter constructor for each explicitly
+ * initialized class-array element.  The semantic pass proves that the
+ * constructor initializes the complete object from one scalar parameter and
+ * that the destructor is trivial, so no hidden cookie or cleanup ABI is
+ * needed for this allocation. */
+static void gen_cxx_init_class_array32(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    TypeField* field = object_type ? object_type->fields : NULL;
+    ExprList* argument;
+    int32_t element_size;
+
+    if (!object_type || !field || object_type->size <= 0 ||
+        !expr || !expr->call_new_count || !expr->call_new_constructor) {
+        SourceLoc location;
+        codegen_expr_loc(&location, expr);
+        rcc_error(location,
+                  "array new constructor has invalid element storage");
+        emit_mov_reg_imm(mod, EAX, 0u);
+        return;
+    }
+    element_size = object_type->size;
+    gen_expr(mod, expr->call_new_count);
+    emit_push_reg(mod, EAX);              /* count */
+    emit_scale_reg(mod, EAX, (uint32_t)element_size);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("rin_malloc", call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_push_reg(mod, EAX);              /* base, count */
+    emit_push_reg(mod, EAX);              /* current, base, count */
+
+    for (argument = expr->call_new_args; argument;
+         argument = argument->next) {
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
+        gen_cxx_zero_object32(mod, object_type, ECX);
+        gen_expr_as_type(mod, argument->expr, field->type);
+        if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(mod, EAX, argument->expr->type,
+                                       field->type);
+        }
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
+        emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
+        emit_add_reg_imm(mod, ECX, (uint32_t)element_size);
+        emit_mov_mem_reg(mod, ESP, 4, ECX);
+    }
+    emit_mov_reg_mem(mod, EAX, ESP, 8);
+    emit_add_reg_imm(mod, ESP, 12);
+}
+
+static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    int loop;
+    int done;
+
+    if (!object_type || object_type->size <= 0 ||
+        !expr || !expr->call_new_count || !expr->call_new_constructor) {
+        SourceLoc location;
+        codegen_expr_loc(&location, expr);
+        rcc_error(location,
+                  "array new default constructor has invalid element storage");
+        emit_mov_reg_imm(mod, EAX, 0u);
+        return;
+    }
+    gen_expr(mod, expr->call_new_count);
+    emit_push_reg(mod, EAX);              /* count */
+    emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("rin_malloc", call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_push_reg(mod, EAX);              /* base, count */
+    emit_push_reg(mod, EAX);              /* current, base, count */
+    emit_mov_reg_mem(mod, ECX, ESP, 4);
+    emit_mov_reg_mem(mod, EDX, ESP, 8);
+    loop = new_label();
+    done = new_label();
+    emit_cmp_reg_imm(mod, EDX, 0);
+    emit_jcc_label(mod, CC_E, done);
+    emit_label(mod, loop);
+    gen_cxx_zero_object32(mod, object_type, ECX);
+    emit_add_reg_imm(mod, ECX, (uint32_t)object_type->size);
+    emit_sub_reg_imm(mod, EDX, 1);
+    emit_cmp_reg_imm(mod, EDX, 0);
+    emit_jcc_label(mod, CC_NE, loop);
+    emit_label(mod, done);
+    emit_mov_reg_mem(mod, EAX, ESP, 8);
+    emit_add_reg_imm(mod, ESP, 12);
+}
+
 static void gen_cxx_new32(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
@@ -3959,6 +4068,16 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
         codegen_expr_loc(&location, expr);
         rcc_error(location, "C++ new expression has no complete storage type");
         emit_mov_reg_imm(mod, EAX, 0u);
+        return;
+    }
+    if (expr->call_new_is_array && expr->call_new_constructor &&
+        expr->call_new_args) {
+        gen_cxx_init_class_array32(mod, expr);
+        return;
+    }
+    if (expr->call_new_is_array && expr->call_new_constructor &&
+        !expr->call_new_args) {
+        gen_cxx_init_default_class_array32(mod, expr);
         return;
     }
     if (expr->call_new_is_array && expr->call_new_value_init) {

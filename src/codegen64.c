@@ -2241,6 +2241,110 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
     emit64_pop_reg(mod, RAX);
 }
 
+static void gen64_cxx_zero_object(Module* mod, Type* object_type,
+                                  int address_reg) {
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    int offset = 0;
+    for (; offset + 8 <= object_type->size; offset += 8) {
+        emit64_mov_mem_reg(mod, address_reg, offset, RAX);
+    }
+    if (offset + 4 <= object_type->size) {
+        emit64_store_typed(mod, address_reg, offset, RAX, type_uint);
+        offset += 4;
+    }
+    while (offset < object_type->size) {
+        emit64_store_typed(mod, address_reg, offset, RAX, type_uchar);
+        ++offset;
+    }
+}
+
+static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    TypeField* field = object_type ? object_type->fields : NULL;
+    ExprList* argument;
+
+    if (!object_type || !field || object_type->size <= 0 ||
+        !expr || !expr->call_new_count || !expr->call_new_constructor) {
+        SourceLoc location;
+        codegen64_expr_loc(&location, expr);
+        rcc_error(location,
+                  "array new constructor has invalid element storage");
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    gen64_expr(mod, expr->call_new_count);
+    emit64_sub_reg_imm(mod, RSP, 24);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX);  /* count */
+    emit64_mov_reg_imm32(mod, RCX, (uint32_t)object_type->size);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_malloc", call_offset);
+    }
+    emit64_mov_mem_reg(mod, RSP, 8, RAX);  /* base */
+    emit64_mov_mem_reg(mod, RSP, 16, RAX); /* current */
+    for (argument = expr->call_new_args; argument;
+         argument = argument->next) {
+        emit64_mov_reg_mem(mod, RCX, RSP, 16);
+        gen64_cxx_zero_object(mod, object_type, RCX);
+        gen64_expr(mod, argument->expr);
+        emit64_mov_reg_mem(mod, RCX, RSP, 16);
+        emit64_store_typed(mod, RCX, field->offset, RAX, field->type);
+        emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
+        emit64_mov_mem_reg(mod, RSP, 16, RCX);
+    }
+    emit64_mov_reg_mem(mod, RAX, RSP, 8);
+    emit64_add_reg_imm(mod, RSP, 24);
+}
+
+static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    int loop;
+    int done;
+
+    if (!object_type || object_type->size <= 0 ||
+        !expr || !expr->call_new_count || !expr->call_new_constructor) {
+        SourceLoc location;
+        codegen64_expr_loc(&location, expr);
+        rcc_error(location,
+                  "array new default constructor has invalid element storage");
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    gen64_expr(mod, expr->call_new_count);
+    emit64_sub_reg_imm(mod, RSP, 24);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX);  /* count */
+    emit64_mov_reg_imm32(mod, RCX, (uint32_t)object_type->size);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_malloc", call_offset);
+    }
+    emit64_mov_mem_reg(mod, RSP, 8, RAX);  /* base */
+    emit64_mov_mem_reg(mod, RSP, 16, RAX); /* current */
+    emit64_mov_reg_mem(mod, RCX, RSP, 16);
+    emit64_mov_reg_mem(mod, RDX, RSP, 0);
+    loop = new_label64();
+    done = new_label64();
+    emit64_cmp_reg_imm(mod, RDX, 0);
+    emit64_jcc_label(mod, CC64_E, done);
+    emit64_label(mod, loop);
+    gen64_cxx_zero_object(mod, object_type, RCX);
+    emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
+    emit64_sub_reg_imm(mod, RDX, 1);
+    emit64_cmp_reg_imm(mod, RDX, 0);
+    emit64_jcc_label(mod, CC64_NE, loop);
+    emit64_label(mod, done);
+    emit64_mov_reg_mem(mod, RAX, RSP, 8);
+    emit64_add_reg_imm(mod, RSP, 24);
+}
+
 static void gen64_cxx_new(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
@@ -2253,6 +2357,16 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         codegen64_expr_loc(&location, expr);
         rcc_error(location, "C++ new expression has no complete storage type");
         emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    if (expr->call_new_is_array && expr->call_new_constructor &&
+        expr->call_new_args) {
+        gen64_cxx_init_class_array(mod, expr);
+        return;
+    }
+    if (expr->call_new_is_array && expr->call_new_constructor &&
+        !expr->call_new_args) {
+        gen64_cxx_init_default_class_array(mod, expr);
         return;
     }
     if (expr->call_new_is_array && expr->call_new_value_init) {

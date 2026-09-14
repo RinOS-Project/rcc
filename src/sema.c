@@ -890,6 +890,47 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
     return best;
 }
 
+/* Array new initializers are a sequence of element initializers, rather than
+ * one constructor argument list.  The currently lowerable ABI supports a
+ * default constructor for every element or a single constructor parameter
+ * for each explicitly initialized element.  Select the constructor from the
+ * first element and then validate every remaining element against that same
+ * signature; mixing constructor arities would otherwise produce a partially
+ * initialized allocation. */
+static CxxConstructorInfo* sema_select_cxx_array_constructor(
+    Type* object_type, ExprList* initializers, SourceLoc loc) {
+    CxxConstructorInfo* constructor;
+    ExprList one;
+    TypeParam* parameter;
+
+    if (!object_type || !object_type->cxx_class) return NULL;
+    if (!initializers) {
+        return sema_select_cxx_new_constructor(object_type, NULL, loc);
+    }
+    if (initializers->next) {
+        one = *initializers;
+        one.next = NULL;
+        constructor = sema_select_cxx_new_constructor(
+            object_type, &one, loc);
+    } else {
+        constructor = sema_select_cxx_new_constructor(
+            object_type, initializers, loc);
+    }
+    if (!constructor || constructor->parameter_count != 1 ||
+        !constructor->parameters) {
+        return NULL;
+    }
+    parameter = constructor->parameters;
+    for (ExprList* item = initializers; item; item = item->next) {
+        if (!item->expr || cxx_conversion_rank(item->expr, parameter->type) < 0) {
+            rcc_error(item && item->expr ? item->expr->loc : loc,
+                      "array new initializer is incompatible with the element constructor");
+            return NULL;
+        }
+    }
+    return constructor;
+}
+
 static bool sema_validate_cxx_new_arguments(Type* object_type,
                                             ExprList* arguments,
                                             CxxConstructorInfo* constructor) {
@@ -2091,28 +2132,52 @@ static Type* sema_expr(Expr* expr) {
                     return expr->type;
                 }
                 argument_count = sema_cxx_argument_count(expr->call_new_args);
-                if (expr->call_new_is_array && expr->call_new_args) {
-                    int64_t element_count;
-                    if (!expr->call_new_brace_init) {
+                if (expr->call_new_is_array) {
+                    int64_t element_count = 0;
+                    if (expr->call_new_args && !expr->call_new_brace_init) {
                         rcc_error(expr->loc,
                                   "array new element initializers require braces");
-                    } else if (object_type->cxx_nontrivial) {
+                        return expr->type;
+                    }
+                    if (!expr->call_new_count ||
+                        !expr_eval_integer_constant(
+                            expr->call_new_count, &element_count) ||
+                        element_count < 0) {
                         rcc_error(expr->loc,
-                                  "array new requires element constructor and destructor lowering");
+                                  "array new element initializers require a non-negative constant count");
+                        return expr->type;
+                    }
+                    if (element_count < argument_count) {
+                        rcc_error(expr->loc,
+                                  "array new has more initializers than elements");
+                        return expr->type;
+                    }
+                    if (object_type->cxx_nontrivial) {
+                        /* A class array is safe here only when its
+                         * destructor is trivial and its constructor belongs
+                         * to the exact aggregate-lowering subset. */
+                        if (object_type->kind != TYPE_STRUCT ||
+                            !sema_cxx_trivially_destructible(object_type, 0) ||
+                            !cls ||
+                            !rcc_parser_cxx_constructor_arity_mask(object_type)) {
+                            rcc_error(expr->loc,
+                                      "array new requires a lowerable element constructor and trivial destructor");
+                            return expr->type;
+                        }
+                        constructor = sema_select_cxx_array_constructor(
+                            object_type, expr->call_new_args, expr->loc);
+                        if (!constructor) {
+                            rcc_error(expr->loc,
+                                      "array new has no lowerable constructor for its element initializers");
+                            return expr->type;
+                        }
+                        expr->call_new_constructor = constructor;
                     } else if (object_type->kind == TYPE_STRUCT ||
                                object_type->kind == TYPE_UNION ||
                                object_type->kind == TYPE_ARRAY) {
                         rcc_error(expr->loc,
                                   "array new currently requires scalar elements");
-                    } else if (!expr->call_new_count ||
-                               !expr_eval_integer_constant(
-                                   expr->call_new_count, &element_count) ||
-                               element_count < 0) {
-                        rcc_error(expr->loc,
-                                  "array new element initializers require a non-negative constant count");
-                    } else if (element_count < argument_count) {
-                        rcc_error(expr->loc,
-                                  "array new has more initializers than elements");
+                        return expr->type;
                     } else {
                         for (argument = expr->call_new_args; argument;
                              argument = argument->next) {
@@ -2120,14 +2185,10 @@ static Type* sema_expr(Expr* expr) {
                                                     object_type) < 0) {
                                 rcc_error(argument->expr->loc,
                                           "array new initializer is incompatible with the element type");
+                                return expr->type;
                             }
                         }
                     }
-                }
-                if (expr->call_new_is_array && object_type->cxx_nontrivial) {
-                    return expr->type;
-                }
-                if (expr->call_new_is_array) {
                     return expr->type;
                 }
                 if (object_type->cxx_nontrivial &&
