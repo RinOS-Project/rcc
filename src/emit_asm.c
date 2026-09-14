@@ -202,6 +202,14 @@ bool rcc_emit_asm(Module* mod, const char* outfile) {
                                   mod->init_array.data, mod->init_array.size,
                                   0u);
     }
+    if (ok && mod->fini_array.size > 0u) {
+        unsigned alignment = g_opts.target_arch == ARCH_X64 ? 3u : 2u;
+        ok = fprintf(file, ".section .fini_array\n.p2align %u\n",
+                     alignment) >= 0 &&
+             emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_FINI_ARRAY,
+                                  mod->fini_array.data, mod->fini_array.size,
+                                  0u);
+    }
     if (ok && mod->data.size > 0u) {
         ok = fprintf(file, ".section .data\n.p2align 4\n") >= 0 &&
              emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_DATA,

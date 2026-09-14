@@ -40,6 +40,7 @@ typedef enum ModuleSymbolSection {
     MODULE_SYMBOL_BSS,
     MODULE_SYMBOL_TLS,
     MODULE_SYMBOL_INIT_ARRAY,
+    MODULE_SYMBOL_FINI_ARRAY,
 } ModuleSymbolSection;
 
 /* Relocation entry */
@@ -88,11 +89,20 @@ typedef struct GlobalInitializer {
     struct GlobalInitializer* next;
 } GlobalInitializer;
 
+/* A validated static-storage cleanup expression emitted into the module's
+ * finalizer callback.  The list is kept in reverse declaration order so
+ * destruction follows C++ reverse construction order. */
+typedef struct GlobalFinalizer {
+    Expr* expression;
+    struct GlobalFinalizer* next;
+} GlobalFinalizer;
+
 /* Compiled module */
 typedef struct Module {
     CodeSection code;
     DataSection rodata;
     DataSection init_array;
+    DataSection fini_array;
     DataSection data;
     BssSection bss;
     DataSection tls;
@@ -114,6 +124,8 @@ typedef struct Module {
 
     GlobalInitializer* global_initializers;
     int global_initializer_count;
+    GlobalFinalizer* global_finalizers;
+    int global_finalizer_count;
 } Module;
 
 /* Code generation functions */
@@ -163,6 +175,7 @@ bool module_resolve_tls_relocation(const Module* mod,
                                    uint32_t offset, uint32_t* value);
 void module_ensure_rodata_base_symbol(Module* mod);
 void codegen_add_init_array_entry(Module* mod, const char* symbol);
+void codegen_add_fini_array_entry(Module* mod, const char* symbol);
 void codegen_emit_global_data(Module* mod, AST* ast);
 void codegen_emit_cxx_vtables(Module* mod);
 int codegen_required_local_bytes(Stmt* statement);

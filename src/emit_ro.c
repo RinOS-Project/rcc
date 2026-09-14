@@ -771,6 +771,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     int next_section = 1;
     int rodata_section = -1;
     int init_array_section = -1;
+    int fini_array_section = -1;
     int data_section = -1;
     int bss_section = -1;
     int tls_section = -1;
@@ -787,6 +788,15 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                          mod->init_array.size);
         init_array->align = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
         init_array_section = next_section++;
+    }
+
+    if (mod->fini_array.size > 0u) {
+        ObjSection* fini_array = objfile_add_section(
+            obj, ".fini_array", SECT_FINI_ARRAY, SECT_FLAG_ALLOC);
+        section_add_data(fini_array, mod->fini_array.data,
+                         mod->fini_array.size);
+        fini_array->align = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        fini_array_section = next_section++;
     }
 
     if (mod->rodata.size > 0u) {
@@ -880,6 +890,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
             : mr->source_section == MODULE_SYMBOL_RODATA ? rodata_section
             : mr->source_section == MODULE_SYMBOL_INIT_ARRAY
                 ? init_array_section
+            : mr->source_section == MODULE_SYMBOL_FINI_ARRAY
+                ? fini_array_section
             : mr->source_section == MODULE_SYMBOL_DATA ? data_section
             : mr->source_section == MODULE_SYMBOL_TLS ? tls_section
             : -1;
@@ -889,6 +901,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                 ? mod->rodata.size
                 : mr->source_section == MODULE_SYMBOL_INIT_ARRAY
                     ? mod->init_array.size
+                : mr->source_section == MODULE_SYMBOL_FINI_ARRAY
+                    ? mod->fini_array.size
                 : mr->source_section == MODULE_SYMBOL_DATA
                     ? mod->data.size
                     : mr->source_section == MODULE_SYMBOL_TLS

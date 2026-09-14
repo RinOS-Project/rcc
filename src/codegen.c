@@ -65,6 +65,10 @@ Module* codegen_new(void) {
     mod->init_array.size = 0;
     mod->init_array.capacity = INIT_CAPACITY;
 
+    mod->fini_array.data = rcc_alloc(INIT_CAPACITY);
+    mod->fini_array.size = 0;
+    mod->fini_array.capacity = INIT_CAPACITY;
+
     mod->data.data = rcc_alloc(INIT_CAPACITY);
     mod->data.size = 0;
     mod->data.capacity = INIT_CAPACITY;
@@ -91,6 +95,8 @@ Module* codegen_new(void) {
     mod->reloc_capacity = 0;
     mod->global_initializers = NULL;
     mod->global_initializer_count = 0;
+    mod->global_finalizers = NULL;
+    mod->global_finalizer_count = 0;
 
     return mod;
 }
@@ -110,6 +116,11 @@ void codegen_free(Module* mod) {
         rcc_free(mod->global_initializers);
         mod->global_initializers = next;
     }
+    while (mod->global_finalizers) {
+        GlobalFinalizer* next = mod->global_finalizers->next;
+        rcc_free(mod->global_finalizers);
+        mod->global_finalizers = next;
+    }
     relocation = mod->relocs;
     while (relocation) {
         Reloc* next = relocation->next;
@@ -125,6 +136,7 @@ void codegen_free(Module* mod) {
     rcc_free(mod->code.data);
     rcc_free(mod->rodata.data);
     rcc_free(mod->init_array.data);
+    rcc_free(mod->fini_array.data);
     rcc_free(mod->data.data);
     rcc_free(mod->tls.data);
     rcc_free(mod->symbols);
@@ -519,6 +531,16 @@ static void codegen_defer_global_initializer(Module* mod, Decl* declaration) {
     while (*tail) tail = &(*tail)->next;
     *tail = initializer;
     ++mod->global_initializer_count;
+}
+
+static void codegen_defer_global_finalizer(Module* mod, Expr* expression) {
+    GlobalFinalizer* finalizer;
+    if (!mod || !expression) return;
+    finalizer = rcc_alloc(sizeof(*finalizer));
+    finalizer->expression = expression;
+    finalizer->next = mod->global_finalizers;
+    mod->global_finalizers = finalizer;
+    ++mod->global_finalizer_count;
 }
 
 /* Evaluate the floating subset permitted in a static initializer.  Keeping
@@ -1107,6 +1129,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                           declaration->name);
             }
         }
+        if (declaration->var_cleanup) {
+            codegen_defer_global_finalizer(mod, declaration->var_cleanup);
+        }
         codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
                                    declaration->type);
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
@@ -1610,6 +1635,34 @@ void codegen_add_init_array_entry(Module* mod, const char* symbol) {
     module_add_relocation(mod, MODULE_SYMBOL_INIT_ARRAY, offset, 0u,
                           false, pointer_size == 8u, symbol);
     add_reloc(mod, MODULE_SYMBOL_INIT_ARRAY, offset,
+              pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+}
+
+static void ensure_fini_array_capacity(Module* mod, size_t needed) {
+    if (mod->fini_array.size + needed > mod->fini_array.capacity) {
+        while (mod->fini_array.size + needed > mod->fini_array.capacity) {
+            mod->fini_array.capacity *= 2;
+        }
+        mod->fini_array.data = rcc_realloc(mod->fini_array.data,
+                                           mod->fini_array.capacity);
+    }
+}
+
+void codegen_add_fini_array_entry(Module* mod, const char* symbol) {
+    uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    uint32_t offset;
+    if (!mod || !symbol) return;
+    while ((mod->fini_array.size & (pointer_size - 1u)) != 0u) {
+        ensure_fini_array_capacity(mod, 1u);
+        mod->fini_array.data[mod->fini_array.size++] = 0u;
+    }
+    offset = (uint32_t)mod->fini_array.size;
+    ensure_fini_array_capacity(mod, pointer_size);
+    memset(mod->fini_array.data + mod->fini_array.size, 0, pointer_size);
+    mod->fini_array.size += pointer_size;
+    module_add_relocation(mod, MODULE_SYMBOL_FINI_ARRAY, offset, 0u,
+                          false, pointer_size == 8u, symbol);
+    add_reloc(mod, MODULE_SYMBOL_FINI_ARRAY, offset,
               pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
 }
 
@@ -6514,6 +6567,53 @@ static void codegen_emit_global_init32(Module* mod) {
     codegen_add_init_array_entry(mod, name);
 }
 
+static void codegen_emit_global_fini32(Module* mod) {
+    const char* name = "__rcc_global_fini";
+    GlobalFinalizer* finalizer;
+    Type* old_return_type;
+    CleanupCodegen* old_cleanups;
+    VLAScopeCodegen* old_vla_scopes;
+    VLAScopeCodegen* old_break_vla;
+    VLAScopeCodegen* old_continue_vla;
+    uint32_t start;
+    if (!mod || !mod->global_finalizers) return;
+    start = code_offset(mod);
+    add_func_def(name, start);
+    emit_push_reg(mod, EBP);
+    emit_mov_reg_reg(mod, EBP, ESP);
+    old_return_type = current_function_return_type;
+    current_function_return_type = NULL;
+    old_cleanups = active_cleanups;
+    old_vla_scopes = active_vla_scopes;
+    old_break_vla = break_vla_marker;
+    old_continue_vla = continue_vla_marker;
+    active_cleanups = NULL;
+    active_vla_scopes = NULL;
+    break_vla_marker = NULL;
+    continue_vla_marker = NULL;
+    for (finalizer = mod->global_finalizers; finalizer;
+         finalizer = finalizer->next) {
+        if (!finalizer->expression) {
+            rcc_error((SourceLoc){"<global-fini>", 0, 0},
+                      "cannot lower deferred global finalizer");
+            continue;
+        }
+        gen_expr(mod, finalizer->expression);
+    }
+    discard_cleanups_until(NULL);
+    discard_vla_scopes_until(NULL);
+    active_cleanups = old_cleanups;
+    active_vla_scopes = old_vla_scopes;
+    break_vla_marker = old_break_vla;
+    continue_vla_marker = old_continue_vla;
+    current_function_return_type = old_return_type;
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_leave(mod);
+    emit_ret(mod);
+    module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
+    codegen_add_fini_array_entry(mod, name);
+}
+
 static Type* codegen_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -7117,6 +7217,7 @@ Module* rcc_codegen(AST* ast) {
     }
 
     codegen_emit_global_init32(mod);
+    codegen_emit_global_fini32(mod);
 
     codegen_emit_cxx_vtables(mod);
 

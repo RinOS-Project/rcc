@@ -35,9 +35,13 @@ WSL_RINCOMPILER_ROOT ?= /mnt/e/RinOS/RinCompiler
 WINDOWS_TEST_OUT = $(subst /,\,$(TEST_OUT))
 CHECK_INIT_ARRAY = findstr /c:".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
+CHECK_FINI_ARRAY = findstr /c:".section .fini_array"
+CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
 else
 CHECK_INIT_ARRAY = grep -F -q ".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(1)
+CHECK_FINI_ARRAY = grep -F -q ".section .fini_array"
+CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(1)
 endif
 
 ifeq ($(OS),Windows_NT)
@@ -139,7 +143,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1899,39 +1903,39 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/format-validation)
 	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
-		-o "$(TEST_OUT)/format-validation/direct-x86.rin" tests/hello.c
+		-o $(TEST_OUT)/format-validation/direct-x86.rin tests/hello.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
-		-o "$(TEST_OUT)/format-validation/direct-x64.rin" tests/hello.c
+		-o $(TEST_OUT)/format-validation/direct-x64.rin tests/hello.c
 	$(RCXX_TARGET) --target i686-unknown-rinos -shared --emit-unsigned-v3 \
-		-o "$(TEST_OUT)/format-validation/library-x86.rll" tests/hello.cpp
+		-o $(TEST_OUT)/format-validation/library-x86.rll tests/hello.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -shared --emit-unsigned-v3 \
-		-o "$(TEST_OUT)/format-validation/library-x64.rll" tests/hello.cpp
+		-o $(TEST_OUT)/format-validation/library-x64.rll tests/hello.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -driver --emit-unsigned-v3 \
-		-o "$(TEST_OUT)/format-validation/driver-x86.drv" tests/driver_policy_ok.c
+		-o $(TEST_OUT)/format-validation/driver-x86.drv tests/driver_policy_ok.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --emit-unsigned-v3 \
-		-o "$(TEST_OUT)/format-validation/driver-x64.drv" tests/driver_policy_ok.c
+		-o $(TEST_OUT)/format-validation/driver-x64.drv tests/driver_policy_ok.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o "$(TEST_OUT)/format-validation/main-x64.ro" tests/main.c
+		-o $(TEST_OUT)/format-validation/main-x64.ro tests/main.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o "$(TEST_OUT)/format-validation/lib-x64.ro" tests/lib.c
+		-o $(TEST_OUT)/format-validation/lib-x64.ro tests/lib.c
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
-		-o "$(TEST_OUT)/format-validation/linked-x64.rin" \
-		"$(TEST_OUT)/format-validation/main-x64.ro" \
-		"$(TEST_OUT)/format-validation/lib-x64.ro"
+		-o $(TEST_OUT)/format-validation/linked-x64.rin \
+		$(TEST_OUT)/format-validation/main-x64.ro \
+		$(TEST_OUT)/format-validation/lib-x64.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
-		"$(TEST_OUT)/format-validation/direct-x86.rin"
+		$(TEST_OUT)/format-validation/direct-x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
-		"$(TEST_OUT)/format-validation/direct-x64.rin"
+		$(TEST_OUT)/format-validation/direct-x64.rin
 	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned \
-		"$(TEST_OUT)/format-validation/library-x86.rll"
+		$(TEST_OUT)/format-validation/library-x86.rll
 	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
-		"$(TEST_OUT)/format-validation/library-x64.rll"
+		$(TEST_OUT)/format-validation/library-x64.rll
 	$(RINVALIDATE) --kind driver --arch x86 --allow-unsigned \
-		"$(TEST_OUT)/format-validation/driver-x86.drv"
+		$(TEST_OUT)/format-validation/driver-x86.drv
 	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
-		"$(TEST_OUT)/format-validation/driver-x64.drv"
+		$(TEST_OUT)/format-validation/driver-x64.drv
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
-		"$(TEST_OUT)/format-validation/linked-x64.rin"
+		$(TEST_OUT)/format-validation/linked-x64.rin
 	@echo "RCC/RCC++/RLD native RIN/RLL/NDRV v3 format validation completed"
 
 # Exercise runtime scalar global initialization in both frontends.  The host
@@ -2028,6 +2032,57 @@ test-global-initializers: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDA
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/global-initializers/cxx-linked-x86.rin
 	@echo "C17/C++20 scalar global initializer and current image format tests completed"
+
+test-global-finalizers: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/global-finalizers)
+	$(RCXX_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/global-finalizers/x86.s tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/global-finalizers/x64.s tests/cxx_global_finalizers.cpp
+	$(call CHECK_FINI_ARRAY_FILE,$(TEST_OUT)/global-finalizers/x86.s)
+	$(call CHECK_FINI_ARRAY_FILE,$(TEST_OUT)/global-finalizers/x64.s)
+	$(CC) -m32 -c $(TEST_OUT)/global-finalizers/x86.s \
+		-o $(TEST_OUT)/global-finalizers/x86.o
+	$(CC) -c $(TEST_OUT)/global-finalizers/x64.s \
+		-o $(TEST_OUT)/global-finalizers/x64.o
+	$(OBJCOPY) --redefine-sym main=rcc_global_finalizers_main \
+		$(TEST_OUT)/global-finalizers/x64.o
+	$(CC) $(TEST_OUT)/global-finalizers/x64.o \
+		tests/cxx_global_finalizers_host.c \
+		-o $(TEST_OUT)/global-finalizers/x64-host
+	$(TEST_OUT)/global-finalizers/x64-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/global-finalizers/x86.ro \
+		tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/global-finalizers/x64.ro \
+		tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/global-finalizers/x86.rin \
+		tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/global-finalizers/x64.rin \
+		tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-shared -o $(TEST_OUT)/global-finalizers/x64.rll \
+		tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-driver -o $(TEST_OUT)/global-finalizers/x64.drv \
+		tests/cxx_global_finalizers.cpp
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/global-finalizers/linked-x64.rin \
+		$(TEST_OUT)/global-finalizers/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/global-finalizers/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/global-finalizers/x64.rin
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/global-finalizers/x64.rll
+	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/global-finalizers/x64.drv
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/global-finalizers/linked-x64.rin
+	@echo "C++ static-storage finalizer and current image format tests completed"
 
 test-sanitize:
 	$(MAKE) OBJDIR=$(SANITIZER_ROOT)/obj BINDIR=$(SANITIZER_ROOT)/bin \

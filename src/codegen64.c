@@ -3760,6 +3760,53 @@ static void codegen_emit_global_init64(Module* mod) {
     codegen_add_init_array_entry(mod, name);
 }
 
+static void codegen_emit_global_fini64(Module* mod) {
+    const char* name = "__rcc_global_fini";
+    GlobalFinalizer* finalizer;
+    Type* old_return_type;
+    CleanupCodegen64* old_cleanups;
+    VLAScopeCodegen64* old_vla_scopes;
+    VLAScopeCodegen64* old_break_vla;
+    VLAScopeCodegen64* old_continue_vla;
+    uint32_t start;
+    if (!mod || !mod->global_finalizers) return;
+    start = code_offset(mod);
+    add_func_def64(name, start);
+    emit64_push_reg(mod, RBP);
+    emit64_mov_reg_reg(mod, RBP, RSP);
+    old_return_type = current_function_return_type64;
+    current_function_return_type64 = NULL;
+    old_cleanups = active_cleanups64;
+    old_vla_scopes = active_vla_scopes64;
+    old_break_vla = break_vla_marker64;
+    old_continue_vla = continue_vla_marker64;
+    active_cleanups64 = NULL;
+    active_vla_scopes64 = NULL;
+    break_vla_marker64 = NULL;
+    continue_vla_marker64 = NULL;
+    for (finalizer = mod->global_finalizers; finalizer;
+         finalizer = finalizer->next) {
+        if (!finalizer->expression) {
+            rcc_error((SourceLoc){"<global-fini>", 0, 0},
+                      "cannot lower deferred global finalizer");
+            continue;
+        }
+        gen64_expr(mod, finalizer->expression);
+    }
+    gen64_cleanups_until(mod, NULL);
+    gen64_vla_scopes_until(mod, NULL);
+    active_cleanups64 = old_cleanups;
+    active_vla_scopes64 = old_vla_scopes;
+    break_vla_marker64 = old_break_vla;
+    continue_vla_marker64 = old_continue_vla;
+    current_function_return_type64 = old_return_type;
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    emit64_leave(mod);
+    emit64_ret(mod);
+    module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
+    codegen_add_fini_array_entry(mod, name);
+}
+
 static Type* codegen64_switch_control_type(Type* type) {
     if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
         return type_int;
@@ -4874,6 +4921,7 @@ Module* rcc_codegen64(AST* ast) {
     }
 
     codegen_emit_global_init64(mod);
+    codegen_emit_global_fini64(mod);
 
     codegen_emit_cxx_vtables(mod);
 

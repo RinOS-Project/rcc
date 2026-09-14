@@ -3496,7 +3496,7 @@ static Expr* sema_cleanup_member_expression(Decl* declaration,
 }
 
 static void sema_prepare_variable_cleanup(Decl* declaration,
-                                          bool is_global) {
+                                           bool is_global) {
     Symbol* symbol;
     Decl* function;
     TypeParam* parameter;
@@ -3512,11 +3512,10 @@ static void sema_prepare_variable_cleanup(Decl* declaration,
         !declaration->type->cleanup_field) {
         return;
     }
-    if (is_global) {
-        rcc_error(declaration->loc,
-                  "C++ cleanup for static storage is not supported yet");
-        return;
-    }
+    /* Static-storage cleanup expressions are registered in the module's
+     * .fini_array callback after this validation completes.  Keep the same
+     * structural restrictions as automatic RAII objects. */
+    (void)is_global;
     if (!declaration->var_init ||
         declaration->var_init->kind != EXPR_COMPOUND ||
         declaration->var_init->compound_type != declaration->type) {

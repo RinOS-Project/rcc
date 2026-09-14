@@ -2570,6 +2570,15 @@ Stmt* parse_declaration(void) {
     } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
     }
+    /* A declaration-level C++ braced initializer carries the declared class
+     * type, just like a direct-list expression parsed in an expression or
+     * local-declaration context.  Preserve that type so validated direct
+     * constructors, including static-storage cleanup wrappers, are selected
+     * consistently at semantic analysis time. */
+    if (parser_cxx_mode && init && init->kind == EXPR_COMPOUND &&
+        !init->compound_type) {
+        init->compound_type = type;
+    }
     rcc_parser_validate_cxx_constructor_initializer(type, init);
 
     expect(TOK_SEMICOLON, ";");
