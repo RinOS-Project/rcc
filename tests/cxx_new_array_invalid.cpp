@@ -1,7 +1,7 @@
 struct ArrayConstructor {
     int value;
 
-    ArrayConstructor() : value(7) {}
+    ArrayConstructor(int first, int second) : value(first + second) {}
 };
 
 int invalid_array_new() {

@@ -2140,18 +2140,30 @@ static Type* sema_expr(Expr* expr) {
                                   "array new element initializers require braces");
                         return expr->type;
                     }
-                    if (!expr->call_new_count ||
-                        !expr_eval_integer_constant(
-                            expr->call_new_count, &element_count) ||
-                        element_count < 0) {
+                    if (!expr->call_new_count) {
                         rcc_error(expr->loc,
-                                  "array new element initializers require a non-negative constant count");
+                                  "array new requires an element count");
                         return expr->type;
                     }
-                    if (element_count < argument_count) {
-                        rcc_error(expr->loc,
-                                  "array new has more initializers than elements");
-                        return expr->type;
+                    /* A dynamic bound is valid for value-initialized scalar
+                     * arrays and for the validated default-constructor path.
+                     * Explicit per-element initializers need a constant bound
+                     * so the frontend can prove that every initializer fits;
+                     * the backend still evaluates a dynamic bound exactly once
+                     * for the allocation and initialization loop. */
+                    if (expr->call_new_args) {
+                        if (!expr_eval_integer_constant(
+                                expr->call_new_count, &element_count) ||
+                            element_count < 0) {
+                            rcc_error(expr->loc,
+                                      "array new element initializers require a non-negative constant count");
+                            return expr->type;
+                        }
+                        if (element_count < argument_count) {
+                            rcc_error(expr->loc,
+                                      "array new has more initializers than elements");
+                            return expr->type;
+                        }
                     }
                     if (object_type->cxx_nontrivial) {
                         /* A class array is safe here only when its
