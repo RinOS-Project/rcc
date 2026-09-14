@@ -13,6 +13,7 @@ INCDIR = include
 OBJDIR = obj
 BINDIR = .
 RINOS_ROOT ?= ..
+RINOS_SDK_ROOT ?= ../../RinOS-SDK
 RINGPU_ROOT ?= ../../libs/RinGPU
 TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
@@ -30,7 +31,7 @@ else
 MKDIR_P = mkdir -p $(1)
 endif
 
-BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude
+BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
                       src/ir.c src/ir_pass.c src/mir.c src/mir_alloc.c \
                       src/mir_phi.c src/x86_abi.c src/x86_select.c \
