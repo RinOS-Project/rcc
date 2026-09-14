@@ -864,6 +864,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_vla_extent_count = 0;
     d->var_vla_scope_offset = 0;
     d->var_is_global = false;
+    d->var_is_static_local = false;
     d->var_is_thread_local = false;
     d->var_is_auto = false;
     d->var_cleanup = NULL;

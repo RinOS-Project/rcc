@@ -1062,6 +1062,102 @@ static void codegen_add_vtable_pointer(Module* mod,
                                        ModuleSymbolSection source_section,
                                        uint32_t offset, Type* type);
 
+static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
+    uint8_t zero[32] = {0};
+    uint32_t size;
+    uint32_t alignment;
+    uint32_t offset;
+    if (!mod || !declaration || !declaration->var_is_static_local ||
+        !declaration->type || declaration->type->size <= 0) {
+        return false;
+    }
+    size = (uint32_t)declaration->type->size;
+    alignment = declaration->type->align > 0
+        ? (uint32_t)declaration->type->align : 1u;
+    if (alignment > 16u) alignment = 16u;
+    if (!declaration->var_init) {
+        uint64_t aligned = ((uint64_t)mod->bss.size + alignment - 1u) &
+                           ~((uint64_t)alignment - 1u);
+        if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+            rcc_error(declaration->loc,
+                      "static local BSS exceeds compiler limits");
+            return false;
+        }
+        offset = (uint32_t)aligned;
+        mod->bss.size = (size_t)(aligned + size);
+        if (alignment > mod->bss.align) mod->bss.align = alignment;
+        declaration->var_offset = offset;
+        module_add_symbol(mod, decl_link_name(declaration), offset, true,
+                          MODULE_SYMBOL_BSS, false);
+        return true;
+    }
+    while ((mod->data.size & (alignment - 1u)) != 0u) {
+        emit_data(mod, zero, 1u);
+    }
+    offset = (uint32_t)mod->data.size;
+    while (size > sizeof(zero)) {
+        emit_data(mod, zero, sizeof(zero));
+        size -= sizeof(zero);
+    }
+    if (size) emit_data(mod, zero, size);
+    declaration->var_offset = offset;
+    if (!codegen_emit_static_initializer(
+            mod, declaration->type, declaration->var_init, offset)) {
+        rcc_error(declaration->loc,
+                  "static local initializer for '%s' is not a constant address or expression",
+                  declaration->name);
+        return false;
+    }
+    codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
+                               declaration->type);
+    module_add_symbol(mod, decl_link_name(declaration), offset, true,
+                      MODULE_SYMBOL_DATA, false);
+    return true;
+}
+
+static void codegen_emit_static_locals(Module* mod, Stmt* statement) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                codegen_emit_static_locals(mod, item->stmt);
+            }
+            break;
+        case STMT_IF:
+            codegen_emit_static_locals(mod, statement->if_then);
+            codegen_emit_static_locals(mod, statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            codegen_emit_static_locals(mod, statement->while_body);
+            break;
+        case STMT_FOR:
+            codegen_emit_static_locals(mod, statement->for_init);
+            codegen_emit_static_locals(mod, statement->for_body);
+            break;
+        case STMT_SWITCH:
+            codegen_emit_static_locals(mod, statement->switch_body);
+            break;
+        case STMT_CASE:
+            codegen_emit_static_locals(mod, statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            codegen_emit_static_locals(mod, statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            codegen_emit_static_locals(mod, statement->label_stmt);
+            break;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->var_is_static_local) {
+                (void)codegen_emit_static_local(mod, statement->decl);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 void codegen_emit_global_data(Module* mod, AST* ast) {
     for (DeclList* item = ast->decls; item; item = item->next) {
         Decl* declaration = item->decl;
@@ -1186,6 +1282,12 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
                           MODULE_SYMBOL_DATA,
                           declaration->storage != STORAGE_STATIC);
+    }
+    for (DeclList* item = ast->decls; item; item = item->next) {
+        if (item->decl && item->decl->kind == DECL_FUNC &&
+            item->decl->func_body) {
+            codegen_emit_static_locals(mod, item->decl->func_body);
+        }
     }
 }
 
@@ -7150,6 +7252,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
+            if (d->kind == DECL_VAR && d->var_is_static_local) break;
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen_vla_alloc(mod, d);
                 record_vla_scope(d);

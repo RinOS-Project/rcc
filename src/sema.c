@@ -34,6 +34,7 @@ static CxxNamespace* sema_cxx_global_namespace(void) {
 static Type* current_func_ret = NULL;
 static bool current_func_variadic = false;
 static Decl* current_func_last_param = NULL;
+static unsigned static_local_counter = 0u;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
@@ -4060,6 +4061,25 @@ static void sema_decl(Decl* decl) {
             if (!is_global || decl->var_init) sym->is_defined = true;
             decl->var_offset = sym->offset;
             decl->var_is_global = sym->is_global;
+            if (!is_global && decl->storage == STORAGE_STATIC) {
+                char name[64];
+                int written;
+                ++static_local_counter;
+                written = snprintf(name, sizeof(name),
+                                   "__rcc_static_%u_%s",
+                                   static_local_counter, decl->name);
+                if (written < 0 || (size_t)written >= sizeof(name)) {
+                    rcc_error(decl->loc,
+                              "static local symbol name exceeds compiler limits");
+                } else {
+                    decl->link_name = rcc_intern(name);
+                    decl->var_is_static_local = true;
+                    /* Static locals use the global address path in both
+                     * native backends, while their source scope remains
+                     * local in the semantic symbol table. */
+                    decl->var_is_global = true;
+                }
+            }
             if (decl->var_is_vla) {
                 int word_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
                 decl->var_vla_size_offset = decl->var_offset + word_size;
@@ -4280,6 +4300,7 @@ bool rcc_sema(AST* ast) {
     /* Create symbol table */
     g_symtab = symtab_new();
     current_cxx_namespace = NULL;
+    static_local_counter = 0u;
 
     /* Process all top-level declarations */
     for (DeclList* d = ast->decls; d; d = d->next) {
