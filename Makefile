@@ -866,6 +866,34 @@ test-cxx-class-template-non-type: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-class-template-non-type/x64
 	@echo "RCC++ class non-type template test completed"
 
+test-cxx-operator-overload: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-overload)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-operator-overload/x86.s \
+		tests/cxx_operator_overload.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-overload/x86.o \
+		$(TEST_OUT)/cxx-operator-overload/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-overload/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-operator-overload/x86 \
+		$(TEST_OUT)/cxx-operator-overload/start-x86.o \
+		$(TEST_OUT)/cxx-operator-overload/x86.o
+	$(TEST_OUT)/cxx-operator-overload/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-operator-overload/x64.s \
+		tests/cxx_operator_overload.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-overload/x64.o \
+		$(TEST_OUT)/cxx-operator-overload/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-overload/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-operator-overload/x64 \
+		$(TEST_OUT)/cxx-operator-overload/start-x64.o \
+		$(TEST_OUT)/cxx-operator-overload/x64.o
+	$(TEST_OUT)/cxx-operator-overload/x64
+	@echo "RCC++ member operator overload test completed"
+
 test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-templates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -1217,6 +1245,7 @@ endif
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-specialization-ambiguous
 .PHONY: test-cxx-class-template-non-type
+.PHONY: test-cxx-operator-overload
 .PHONY: test-cxx-non-type-template-deduction
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
