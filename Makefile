@@ -788,7 +788,7 @@ test-cxx-class-template-methods: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-methods/start-x64.o \
 		$(TEST_OUT)/cxx-class-template-methods/x64.o
 	$(TEST_OUT)/cxx-class-template-methods/x64
-	@echo "RCC++ substituted class-template member test completed"
+	@echo "RCC++ substituted class-template member and constructor test completed"
 
 test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-templates)

@@ -2951,6 +2951,17 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     return copy;
 }
 
+static CxxMethod* instantiated_constructor_method(CxxClass* instance,
+                                                   int ordinal) {
+    for (struct CxxMember* member = instance ? instance->members : NULL;
+         member; member = member->next) {
+        if (!member->method || !member->method->is_constructor) continue;
+        if (ordinal == 0) return member->method;
+        --ordinal;
+    }
+    return NULL;
+}
+
 static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                                         int argument_count, SourceLoc loc) {
     CxxClass* definition;
@@ -3020,16 +3031,35 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             cxx_class_add_method(instance, method);
         }
     }
-    for (CxxConstructorInfo* constructor = definition->constructors;
-         constructor; constructor = constructor->next) {
+    {
+        int constructor_ordinal = 0;
+        for (CxxConstructorInfo* constructor = definition->constructors;
+             constructor; constructor = constructor->next) {
         CxxConstructorInfo* copy = ast_arena_alloc(sizeof(*copy));
         CxxConstructorInfo** tail = &instance->constructors;
+        CxxConstructorInitializer** initializer_tail;
         *copy = *constructor;
+        copy->method = instantiated_constructor_method(instance,
+                                                       constructor_ordinal++);
         copy->parameters = substitute_template_parameters(
             tmpl, constructor->parameters, arguments, argument_count);
+        copy->initializers = NULL;
+        initializer_tail = &copy->initializers;
+        for (CxxConstructorInitializer* initializer = constructor->initializers;
+             initializer; initializer = initializer->next) {
+            CxxConstructorInitializer* initializer_copy =
+                ast_arena_alloc(sizeof(*initializer_copy));
+            *initializer_copy = *initializer;
+            initializer_copy->value = cxx_template_clone_expr(
+                tmpl, initializer->value, arguments, argument_count);
+            initializer_copy->next = NULL;
+            *initializer_tail = initializer_copy;
+            initializer_tail = &initializer_copy->next;
+        }
         copy->next = NULL;
         while (*tail) tail = &(*tail)->next;
         *tail = copy;
+        }
     }
 
     cxx_class_build_vtable(instance);
