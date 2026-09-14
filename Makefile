@@ -8,6 +8,15 @@ CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP \
 LDFLAGS =
 OBJCOPY ?= objcopy
 
+ifeq ($(OS),Windows_NT)
+# Use the ISO printf implementation so the C11 `%z` length modifier remains
+# valid when RCC itself is built with MinGW's Windows CRT headers.
+CFLAGS += -D__USE_MINGW_ANSI_STDIO=1
+EXE_SUFFIX = .exe
+else
+EXE_SUFFIX =
+endif
+
 # Directories
 SRCDIR = src
 INCDIR = include
@@ -85,38 +94,47 @@ COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 # RCC (C compiler)
 RCC_SRCS = $(SRCDIR)/main.c
 RCC_OBJS = $(RCC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-RCC_TARGET = $(BINDIR)/rcc
+RCC_TARGET = $(BINDIR)/rcc$(EXE_SUFFIX)
 
 # RCC++ (C++ compiler)
 RCXX_SRCS = $(SRCDIR)/main_cxx.c $(SRCDIR)/ast_cxx.c $(SRCDIR)/parser_cxx.c
 RCXX_OBJS = $(RCXX_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-RCXX_TARGET = $(BINDIR)/rcc++
+RCXX_TARGET = $(BINDIR)/rcc++$(EXE_SUFFIX)
 
 # RLD (Linker) - uses minimal common code
 RLD_COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/emit_ro.c $(SRCDIR)/archive.c $(SRCDIR)/build_manifest.c
 RLD_COMMON_OBJS = $(RLD_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RLD_SRCS = $(SRCDIR)/main_rld.c $(SRCDIR)/linker.c
 RLD_OBJS = $(RLD_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-RLD_TARGET = $(BINDIR)/rld
+RLD_TARGET = $(BINDIR)/rld$(EXE_SUFFIX)
+
+# Native v3 image validator used by the format audit target.  Keep this as a
+# sibling checkout by default, while allowing CI and package builds to point
+# at an installed validator.
+ifeq ($(OS),Windows_NT)
+RINVALIDATE ?= ../rinvalidate/rinvalidate.exe
+else
+RINVALIDATE ?= ../rinvalidate/rinvalidate
+endif
 
 # Aquamarine Shader Language compiler. RSH1 validation is shared with the
 # public RinGPU checkout selected by RINGPU_ROOT.
 AQC_SRCS = $(SRCDIR)/main_aqc.c $(SRCDIR)/aqc.c
 AQC_OBJS = $(AQC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o) $(OBJDIR)/ringpu_shader.o
-AQC_TARGET = $(BINDIR)/aqc
+AQC_TARGET = $(BINDIR)/aqc$(EXE_SUFFIX)
 
 # RAR (Archiver) - uses minimal common code
 RAR_COMMON_SRCS = $(SRCDIR)/utils.c
 RAR_COMMON_OBJS = $(RAR_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-RAR_TARGET = $(BINDIR)/rar
+RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 
 # Keep object/header dependencies in the build tree so a changed public
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-compound-literals test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1818,6 +1836,48 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		\( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' \
 		-o -name '*.rcc-signed-*' \) -print -quit)"
 	@echo "Isolated final signing and atomic publication tests completed"
+
+# Audit the exact unsigned artifacts emitted by RCC/RCC++/RLD with the native
+# validator.  This deliberately covers all three image families and both
+# direct and linked RIN output; signing is exercised separately by
+# test-signing because this target is about section/table/ABI conformance.
+test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/format-validation)
+	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o "$(TEST_OUT)/format-validation/direct-x86.rin" tests/hello.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o "$(TEST_OUT)/format-validation/direct-x64.rin" tests/hello.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -shared --emit-unsigned-v3 \
+		-o "$(TEST_OUT)/format-validation/library-x86.rll" tests/hello.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -shared --emit-unsigned-v3 \
+		-o "$(TEST_OUT)/format-validation/library-x64.rll" tests/hello.cpp
+	$(RCC_TARGET) --target i686-unknown-rinos -driver --emit-unsigned-v3 \
+		-o "$(TEST_OUT)/format-validation/driver-x86.drv" tests/driver_policy_ok.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --emit-unsigned-v3 \
+		-o "$(TEST_OUT)/format-validation/driver-x64.drv" tests/driver_policy_ok.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o "$(TEST_OUT)/format-validation/main-x64.ro" tests/main.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o "$(TEST_OUT)/format-validation/lib-x64.ro" tests/lib.c
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o "$(TEST_OUT)/format-validation/linked-x64.rin" \
+		"$(TEST_OUT)/format-validation/main-x64.ro" \
+		"$(TEST_OUT)/format-validation/lib-x64.ro"
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		"$(TEST_OUT)/format-validation/direct-x86.rin"
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		"$(TEST_OUT)/format-validation/direct-x64.rin"
+	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned \
+		"$(TEST_OUT)/format-validation/library-x86.rll"
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		"$(TEST_OUT)/format-validation/library-x64.rll"
+	$(RINVALIDATE) --kind driver --arch x86 --allow-unsigned \
+		"$(TEST_OUT)/format-validation/driver-x86.drv"
+	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
+		"$(TEST_OUT)/format-validation/driver-x64.drv"
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		"$(TEST_OUT)/format-validation/linked-x64.rin"
+	@echo "RCC/RCC++/RLD native RIN/RLL/NDRV v3 format validation completed"
 
 test-sanitize:
 	$(MAKE) OBJDIR=$(SANITIZER_ROOT)/obj BINDIR=$(SANITIZER_ROOT)/bin \

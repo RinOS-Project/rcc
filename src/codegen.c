@@ -12,12 +12,21 @@
 
 /* The C-only executable deliberately does not link the C++ frontend.  The
  * vtable pass is therefore an optional extension boundary, not a second
- * implementation or a fake namespace. */
-#if defined(__GNUC__)
-extern CxxNamespace* g_global_namespace __attribute__((weak));
-#else
-extern CxxNamespace* g_global_namespace;
+ * implementation or a fake namespace.  Use a weak function rather than a
+ * weak data reference: MinGW does not resolve an undefined weak object at
+ * link time, while an undefined weak function is a valid null extension
+ * point. */
+#if defined(__GNUC__) || defined(__clang__)
+extern CxxNamespace* cxx_namespace_global(void) __attribute__((weak));
 #endif
+
+static CxxNamespace* codegen_cxx_global_namespace(void) {
+#if defined(__GNUC__) || defined(__clang__)
+    return cxx_namespace_global ? cxx_namespace_global() : NULL;
+#else
+    return NULL;
+#endif
+}
 
 /* Label management */
 static int label_counter = 0;
@@ -1601,16 +1610,9 @@ static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
 }
 
 void codegen_emit_cxx_vtables(Module* mod) {
-    /* An unresolved weak object symbol is represented by address zero on
-     * ELF.  Reading the object before checking its address would make the
-     * C-only rcc binary dereference address zero merely because the optional
-     * C++ frontend is not linked. */
-#if defined(__GNUC__)
-    if (mod && &g_global_namespace != NULL && g_global_namespace) {
-#else
-    if (mod && g_global_namespace) {
-#endif
-        codegen_emit_cxx_vtables_in_namespace(mod, g_global_namespace);
+    CxxNamespace* global_namespace = codegen_cxx_global_namespace();
+    if (mod && global_namespace) {
+        codegen_emit_cxx_vtables_in_namespace(mod, global_namespace);
     }
 }
 

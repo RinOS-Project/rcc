@@ -1316,6 +1316,10 @@ void cxx_init(void) {
     }
 }
 
+CxxNamespace* cxx_namespace_global(void) {
+    return g_global_namespace;
+}
+
 /* ═══════════════════════════════════════
  * Parser API (for parser_cxx.c)
  * ═══════════════════════════════════════ */

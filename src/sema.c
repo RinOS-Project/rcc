@@ -13,7 +13,7 @@
  * lookup extension optional at this boundary so the C frontend remains a
  * standalone executable while rcc++ supplies the real implementation. */
 #if defined(__GNUC__) || defined(__clang__)
-extern CxxNamespace* g_global_namespace __attribute__((weak));
+extern CxxNamespace* cxx_namespace_global(void) __attribute__((weak));
 extern CxxNamespace* cxx_namespace_find(
     CxxNamespace*, const char*) __attribute__((weak));
 extern CxxNamespace* cxx_namespace_for_decl_name(
@@ -21,6 +21,14 @@ extern CxxNamespace* cxx_namespace_for_decl_name(
 extern const char* cxx_namespace_qualified_name(
     CxxNamespace*) __attribute__((weak));
 #endif
+
+static CxxNamespace* sema_cxx_global_namespace(void) {
+#if defined(__GNUC__) || defined(__clang__)
+    return cxx_namespace_global ? cxx_namespace_global() : NULL;
+#else
+    return NULL;
+#endif
+}
 
 /* Current function return type */
 static Type* current_func_ret = NULL;
@@ -222,7 +230,7 @@ static Symbol* sema_cxx_lookup_name(const char* name) {
         return symbol;
     }
     for (ns = current_cxx_namespace ? current_cxx_namespace
-                                    : g_global_namespace;
+                                    : sema_cxx_global_namespace();
          ns; ns = ns->parent) {
         symbol = sema_cxx_lookup_namespace(ns, name, visited, 0);
         if (symbol) return symbol;
@@ -231,14 +239,15 @@ static Symbol* sema_cxx_lookup_name(const char* name) {
 }
 
 static CxxNamespace* sema_decl_namespace(Decl* decl) {
-    if (!g_global_namespace || !decl) return g_global_namespace;
+    CxxNamespace* global_namespace = sema_cxx_global_namespace();
+    if (!global_namespace || !decl) return global_namespace;
     if (decl->kind == DECL_FUNC && decl->func_method_owner &&
         decl->func_method_owner->cxx_namespace) {
         CxxNamespace* owner_namespace = cxx_namespace_find(
-            g_global_namespace, decl->func_method_owner->cxx_namespace);
+            global_namespace, decl->func_method_owner->cxx_namespace);
         if (owner_namespace) return owner_namespace;
     }
-    return cxx_namespace_for_decl_name(g_global_namespace, decl->name);
+    return cxx_namespace_for_decl_name(global_namespace, decl->name);
 }
 
 static bool sema_statement_has_current_switch_label(Stmt* statement) {

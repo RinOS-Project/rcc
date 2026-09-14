@@ -249,6 +249,7 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
 
 /* Global C++ state */
 extern CxxNamespace* g_global_namespace;
+CxxNamespace* cxx_namespace_global(void);
 
 /* Initialize C++ subsystem */
 void cxx_init(void);
