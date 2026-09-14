@@ -35,6 +35,8 @@ extern Stmt* rcc_parse_cxx_class_local_declaration(
     SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
     Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parser_cxx_capture_expression(
+    const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
@@ -1001,6 +1003,11 @@ static Expr* parse_primary(void) {
         if (parser_lookup_enum_constant(previous()->value.str_val,
                                         &enum_value, NULL)) {
             return expr_int(enum_value, loc);
+        }
+        if (parser_cxx_mode && rcc_parser_cxx_capture_expression) {
+            Expr* capture = rcc_parser_cxx_capture_expression(
+                previous()->value.str_val, loc);
+            if (capture) return capture;
         }
         return expr_ident(previous()->value.str_val, loc);
     }

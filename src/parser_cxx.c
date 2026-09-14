@@ -32,9 +32,17 @@ typedef struct CxxParserValueBinding {
     struct CxxParserValueBinding* next;
 } CxxParserValueBinding;
 
+typedef struct CxxReferenceCapture {
+    const char* name;
+    struct CxxReferenceCapture* next;
+} CxxReferenceCapture;
+
 static CxxParserValueBinding* active_value_bindings;
 static CxxParserValueBinding* saved_value_bindings[32];
 static int saved_value_binding_depth;
+static CxxReferenceCapture* active_reference_captures;
+static CxxReferenceCapture* saved_reference_captures[32];
+static int saved_reference_capture_depth;
 static unsigned cxx_lambda_counter;
 
 static void cxx_parser_expr_loc(SourceLoc* location, const Expr* expression,
@@ -85,6 +93,19 @@ static Type* cxx_parser_value_type(const char* name) {
          binding; binding = binding->next) {
         if (binding->name && name && strcmp(binding->name, name) == 0) {
             return binding->type;
+        }
+    }
+    return NULL;
+}
+
+/* Reference captures are represented by pointer parameters in the lowered
+ * immediate-call ABI.  Rewrite an occurrence in the lambda body to a real
+ * dereference so reads and writes observe the original object. */
+Expr* rcc_parser_cxx_capture_expression(const char* name, SourceLoc loc) {
+    for (CxxReferenceCapture* capture = active_reference_captures;
+         capture; capture = capture->next) {
+        if (capture->name && name && strcmp(capture->name, name) == 0) {
+            return expr_unary(EXPR_DEREF, expr_ident(name, loc), loc);
         }
     }
     return NULL;
@@ -2603,26 +2624,33 @@ Expr* rcc_parse_cxx_lambda(void) {
     char name[64];
     int written;
     int capture_count = 0;
+    CxxReferenceCapture* lambda_reference_captures = NULL;
 
     expect(TOK_LBRACKET, "[");
     if (!match(TOK_RBRACKET)) {
         do {
             Token* capture;
             Type* capture_type;
-            if (match(TOK_AMP) || match(TOK_AND)) {
-                while (!check(TOK_COMMA) && !check(TOK_RBRACKET) &&
-                       !at_end()) advance();
-                rcc_error(loc,
-                          "reference lambda capture requires a closure environment ABI");
-                if (check(TOK_COMMA)) continue;
-                break;
-            }
+            bool reference_capture = match(TOK_AMP) || match(TOK_AND);
             capture = expect(TOK_IDENT, "lambda capture name");
             if (!capture) break;
             capture_type = cxx_parser_value_type(capture->value.str_val);
             if (!capture_type) capture_type = type_int;
-            exprlist_append(&captures,
-                            expr_ident(capture->value.str_val, capture->loc));
+            if (reference_capture) {
+                CxxReferenceCapture* reference =
+                    ast_arena_alloc(sizeof(*reference));
+                reference->name = capture->value.str_val;
+                reference->next = lambda_reference_captures;
+                lambda_reference_captures = reference;
+                capture_type = type_ptr(capture_type);
+                exprlist_append(&captures, expr_unary(
+                    EXPR_ADDR, expr_ident(capture->value.str_val,
+                                          capture->loc), capture->loc));
+            } else {
+                exprlist_append(&captures,
+                                expr_ident(capture->value.str_val,
+                                           capture->loc));
+            }
             decllist_append(&capture_params,
                             decl_param(capture->value.str_val, capture_type,
                                        capture_count++, capture->loc));
@@ -2653,6 +2681,14 @@ Expr* rcc_parse_cxx_lambda(void) {
             return_type, NULL, NULL);
     }
     expect(TOK_LBRACE, "{");
+    if (saved_reference_capture_depth >=
+        (int)(sizeof(saved_reference_captures) /
+              sizeof(saved_reference_captures[0]))) {
+        rcc_fatal("C++ lambda nesting is too deep");
+    }
+    saved_reference_captures[saved_reference_capture_depth++] =
+        active_reference_captures;
+    active_reference_captures = lambda_reference_captures;
     rcc_parser_cxx_begin_function_parameters(all_params);
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* start = parser.cur;
@@ -2662,6 +2698,8 @@ Expr* rcc_parse_cxx_lambda(void) {
     }
     expect(TOK_RBRACE, "}");
     rcc_parser_cxx_end_function_parameters();
+    active_reference_captures = saved_reference_captures[
+        --saved_reference_capture_depth];
     body = stmt_block(statements, loc);
     if (!return_type) return_type = cxx_lambda_has_return(body)
         ? type_int : type_void;

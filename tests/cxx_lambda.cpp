@@ -6,5 +6,10 @@ int main() {
     int captured = [base](int extra) -> int {
         return base + extra;
     }(22);
-    return direct == 42 && captured == 42 ? 0 : 1;
+    int referenced = [&base](int extra) -> int {
+        base += extra;
+        return base;
+    }(2);
+    return direct == 42 && captured == 42 && referenced == 22 && base == 22
+        ? 0 : 1;
 }
