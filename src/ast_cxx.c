@@ -485,6 +485,35 @@ void cxx_class_build_vtable(CxxClass* cls) {
         cls->vtable[index] = primary_base->vtable[index];
     }
 
+    /* A secondary base has its own vptr and therefore cannot use the
+     * derived class's primary table.  Until this backend can emit a
+     * this-adjusting thunk and a secondary derived table, reject an override
+     * here rather than silently retaining the base implementation. */
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        if (!method || !method->decl || method->is_static ||
+            method->is_constructor || method->is_destructor) continue;
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            if (!base || base == primary_base ||
+                cls->bases[base_index].is_virtual || base->vtable_size <= 0 ||
+                !base->vtable) continue;
+            for (int slot = 0; slot < base->vtable_size; ++slot) {
+                if (base->vtable[slot].name && method->decl->name &&
+                    strcmp(base->vtable[slot].name,
+                           method->decl->name) == 0) {
+                    rcc_error(method->decl->loc,
+                              "virtual override '%s' for secondary base '%s' "
+                              "requires a this-adjusting thunk",
+                              method->decl->name,
+                              base->name ? base->name : "<anonymous>");
+                    break;
+                }
+            }
+        }
+    }
+
     /* Build one Itanium-style primary table.  The current object model has a
      * single vptr; secondary and virtual-base tables remain separate work. */
     for (struct CxxMember* member = cls->members; member;
