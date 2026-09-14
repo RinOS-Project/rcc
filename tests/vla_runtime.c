@@ -5,6 +5,7 @@ int vla_break_reclaim(int count, int rounds);
 int vla_goto(int count);
 int vla_matrix(int rows, int cols);
 int vla_parameter(int cols, int values[][cols]);
+int vla_pointer_parameter(int cols, int (*values)[cols]);
 int vla_star_prototype(int values[*]);
 int vla_snapshot(int rows, int cols);
 int vla_parameter_snapshot(int cols, int values[][cols]);
@@ -23,6 +24,7 @@ int main(void)
     if (vla_goto(5) != 3) return 14;
     if (vla_matrix(2, 3) != 7) return 15;
     if (vla_parameter(3, input) != 9) return 16;
+    if (vla_pointer_parameter(3, input) != 13) return 23;
     if (vla_snapshot(2, 3) != 7) return 17;
     if (vla_parameter_snapshot(3, input) != 11) return 18;
     input[0][0] = 4;
@@ -112,6 +114,13 @@ int vla_matrix(int rows, int cols)
 int vla_parameter(int cols, int values[][cols])
 {
     values[1][2] = 9;
+    return values[1][2];
+}
+
+int vla_pointer_parameter(int cols, int (*values)[cols])
+{
+    if (sizeof(*values) != cols * sizeof(int)) return -1;
+    values[1][2] = 13;
     return values[1][2];
 }
 

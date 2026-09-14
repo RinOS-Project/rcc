@@ -41,6 +41,8 @@ int main(int argc, char** argv)
     nullary_int_function generated_stack_varargs;
     nullary_wide_function generated_wide_varargs;
     nullary_double_function generated_floating_varargs;
+    nullary_double_function generated_float_promotion_varargs;
+    nullary_int_function generated_fixed_float_conversion;
     nullary_double_function generated_named_floating;
     nullary_double_function generated_stack_floating;
     nullary_int_function generated_copy_varargs;
@@ -79,6 +81,10 @@ int main(int argc, char** argv)
                   "generated_wide_varargs");
     LOAD_FUNCTION(generated_floating_varargs, object, mapping,
                   "generated_floating_varargs");
+    LOAD_FUNCTION(generated_float_promotion_varargs, object, mapping,
+                  "generated_float_promotion_varargs");
+    LOAD_FUNCTION(generated_fixed_float_conversion, object, mapping,
+                  "generated_fixed_float_conversion");
     LOAD_FUNCTION(generated_named_floating, object, mapping,
                   "generated_named_floating");
     LOAD_FUNCTION(generated_stack_floating, object, mapping,
@@ -101,6 +107,9 @@ int main(int argc, char** argv)
     assert(generated_wide_varargs() == 0x1122334455667788LL);
     assert(generated_floating_varargs() > 7.4999 &&
            generated_floating_varargs() < 7.5001);
+    assert(generated_float_promotion_varargs() > 7.4999 &&
+           generated_float_promotion_varargs() < 7.5001);
+    assert(generated_fixed_float_conversion() == 3);
     assert(generated_named_floating() > 6.9999 &&
            generated_named_floating() < 7.0001);
     assert(generated_stack_floating() > 44.9999 &&

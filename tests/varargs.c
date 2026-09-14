@@ -10,6 +10,11 @@ struct Mixed {
     double second;
 };
 
+float fixed_float_identity(float value)
+{
+    return value;
+}
+
 int sum_values(int count, ...)
 {
     va_list arguments;
@@ -141,6 +146,16 @@ long long generated_wide_varargs(void)
 double generated_floating_varargs(void)
 {
     return sum_floating(3, 1.25, 2.5, 3.75);
+}
+
+double generated_float_promotion_varargs(void)
+{
+    return sum_floating(3, 1.25f, 2.5f, 3.75f);
+}
+
+int generated_fixed_float_conversion(void)
+{
+    return (int)fixed_float_identity(3);
 }
 
 double generated_named_floating(void)

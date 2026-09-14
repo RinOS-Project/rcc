@@ -1681,6 +1681,16 @@ static bool codegen_type_has_vla(const Type* type) {
            (type->array_bound != NULL || codegen_type_has_vla(type->base));
 }
 
+/* Pointer objects have fixed storage, but a pointer-to-VLA parameter still
+ * carries runtime array bounds that must be captured at function entry. */
+static bool codegen_type_has_vla_any(const Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_bound != NULL || codegen_type_has_vla_any(type->base);
+    }
+    return type->kind == TYPE_PTR && codegen_type_has_vla_any(type->base);
+}
+
 /* Leave the runtime byte extent of an array type in EAX.  VLA dimensions are
  * evaluated at the point where the expression is emitted; local declarations
  * save the resulting extent so later sizeof expressions observe the declared
@@ -1710,7 +1720,11 @@ static void gen_vla_extent(Module* mod, Type* type) {
 }
 
 static int codegen_vla_dimension_count(const Type* type) {
-    if (!type || type->kind != TYPE_ARRAY) return 0;
+    if (!type) return 0;
+    if (type->kind == TYPE_PTR) {
+        return codegen_vla_dimension_count(type->base);
+    }
+    if (type->kind != TYPE_ARRAY) return 0;
     return 1 + codegen_vla_dimension_count(type->base);
 }
 
@@ -1733,8 +1747,14 @@ static int codegen_vla_extent_index(const Type* owner, const Type* target) {
 }
 
 static Decl* codegen_vla_owner(Expr* expression) {
-    while (expression && expression->kind == EXPR_INDEX) {
-        expression = expression->index_base;
+    while (expression) {
+        if (expression->kind == EXPR_INDEX) {
+            expression = expression->index_base;
+        } else if (expression->kind == EXPR_DEREF) {
+            expression = expression->unary_operand;
+        } else {
+            break;
+        }
     }
     if (expression && expression->kind == EXPR_IDENT &&
         expression->ident_decl &&
@@ -1747,6 +1767,10 @@ static Decl* codegen_vla_owner(Expr* expression) {
 
 static void gen_vla_extents(Module* mod, Type* type, Decl* declaration,
                             int* slot_index) {
+    if (type && type->kind == TYPE_PTR) {
+        gen_vla_extents(mod, type->base, declaration, slot_index);
+        return;
+    }
     if (!type || type->kind != TYPE_ARRAY) {
         emit_mov_reg_imm(mod, EAX, type && type->size > 0
             ? (uint32_t)type->size : 0u);
@@ -1815,7 +1839,7 @@ static void codegen_assign_vla_parameter_slots(Decl* decl, int* stack_size) {
         int dimensions;
         int64_t bytes;
         if (!value || !value->param_array_type ||
-            !codegen_type_has_vla(value->param_array_type)) {
+            !codegen_type_has_vla_any(value->param_array_type)) {
             continue;
         }
         dimensions = codegen_vla_dimension_count(value->param_array_type);

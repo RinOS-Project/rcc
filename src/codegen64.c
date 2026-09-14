@@ -648,6 +648,16 @@ static bool gen64_type_has_vla(const Type* type) {
            (type->array_bound != NULL || gen64_type_has_vla(type->base));
 }
 
+/* Pointer objects have fixed storage, but a pointer-to-VLA parameter still
+ * carries runtime array bounds that must be captured at function entry. */
+static bool gen64_type_has_vla_any(const Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_bound != NULL || gen64_type_has_vla_any(type->base);
+    }
+    return type->kind == TYPE_PTR && gen64_type_has_vla_any(type->base);
+}
+
 static void gen64_vla_extent(Module* mod, Type* type) {
     if (!type || type->kind != TYPE_ARRAY) {
         emit64_mov_reg_imm32(mod, RAX, type && type->size > 0
@@ -673,7 +683,11 @@ static void gen64_vla_extent(Module* mod, Type* type) {
 }
 
 static int gen64_vla_dimension_count(const Type* type) {
-    if (!type || type->kind != TYPE_ARRAY) return 0;
+    if (!type) return 0;
+    if (type->kind == TYPE_PTR) {
+        return gen64_vla_dimension_count(type->base);
+    }
+    if (type->kind != TYPE_ARRAY) return 0;
     return 1 + gen64_vla_dimension_count(type->base);
 }
 
@@ -696,8 +710,14 @@ static int gen64_vla_extent_index(const Type* owner, const Type* target) {
 }
 
 static Decl* gen64_vla_owner(Expr* expression) {
-    while (expression && expression->kind == EXPR_INDEX) {
-        expression = expression->index_base;
+    while (expression) {
+        if (expression->kind == EXPR_INDEX) {
+            expression = expression->index_base;
+        } else if (expression->kind == EXPR_DEREF) {
+            expression = expression->unary_operand;
+        } else {
+            break;
+        }
     }
     if (expression && expression->kind == EXPR_IDENT &&
         expression->ident_decl &&
@@ -710,6 +730,10 @@ static Decl* gen64_vla_owner(Expr* expression) {
 
 static void gen64_vla_extents(Module* mod, Type* type, Decl* declaration,
                               int* slot_index) {
+    if (type && type->kind == TYPE_PTR) {
+        gen64_vla_extents(mod, type->base, declaration, slot_index);
+        return;
+    }
     if (!type || type->kind != TYPE_ARRAY) {
         emit64_mov_reg_imm32(mod, RAX, type && type->size > 0
             ? (uint32_t)type->size : 0u);
@@ -778,7 +802,8 @@ static void gen64_vla_parameter_extents(Module* mod, Decl* decl) {
         Decl* value = parameter->decl;
         int slot_index = 0;
         if (!value || value->var_vla_extent_count <= 0 ||
-            !value->param_array_type) {
+            !value->param_array_type ||
+            !gen64_type_has_vla_any(value->param_array_type)) {
             continue;
         }
         gen64_vla_extents(mod, value->param_array_type, value, &slot_index);
@@ -3007,7 +3032,17 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                 } else {
                     gen64_expr(mod, argument);
-                    if (type_is_integer(passed_type) ||
+                    if (gen64_is_floating(passed_type)) {
+                        /* Sema records the source expression type and the
+                         * call ABI type separately.  This matters for both
+                         * fixed floating parameters and the default
+                         * promotion of float variadic arguments: the raw
+                         * value must be converted before it is copied to the
+                         * temporary area, otherwise a float's 32-bit bits
+                         * would be interpreted as a double. */
+                        gen64_convert_to_float(mod, argument->type,
+                                               passed_type);
+                    } else if (type_is_integer(passed_type) ||
                         (passed_type && passed_type->kind == TYPE_ENUM)) {
                         emit64_normalize_atomic_value(mod, RAX,
                                                        passed_type);

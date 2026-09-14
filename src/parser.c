@@ -1919,6 +1919,11 @@ static DeclList* parse_parameter_list(bool* variadic) {
             }
         } else if (parameter_type->kind == TYPE_FUNC) {
             parameter_type = type_ptr(parameter_type);
+        } else if (parser_type_is_variably_modified(parameter_type)) {
+            /* A pointer-to-VLA parameter keeps its pointer ABI type, but the
+             * original variably modified type is needed for bound analysis
+             * and for multidimensional stride lowering. */
+            parameter_array_type = parameter_type;
         }
         if (parser_cxx_mode && match(TOK_ASSIGN)) {
             parameter_default = parse_assignment();
@@ -1944,6 +1949,27 @@ typedef struct ParsedPointerLevel {
     bool is_restrict;
     struct ParsedPointerLevel* next;
 } ParsedPointerLevel;
+
+/* A parenthesized pointer declarator is also the spelling used for a
+ * pointer-to-function.  Decide which grammar follows the closing parenthesis
+ * before taking the function-pointer shortcut; otherwise a valid pointer to
+ * a VLA such as `int (*rows)[count]` is mistaken for a function declarator. */
+static bool parser_parenthesized_pointer_is_function(void) {
+    Token* token = parser.cur;
+    int depth = 0;
+    if (!token || token->type != TOK_LPAREN) return false;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++depth;
+        } else if (token->type == TOK_RPAREN) {
+            --depth;
+            if (depth == 0) {
+                return token->next && token->next->type == TOK_LPAREN;
+            }
+        }
+    }
+    return false;
+}
 
 static ParsedPointerLevel* parse_pointer_levels(void) {
     ParsedPointerLevel* levels = NULL;
@@ -1986,6 +2012,8 @@ static Type* parse_declarator(Type* base_type, const char** name,
     bool array_volatiles[32];
     bool array_restricts[32];
     int array_count = 0;
+    ParsedPointerLevel* parenthesized_pointers = NULL;
+    bool parenthesized_pointer = false;
     if (name) *name = NULL;
     if (parameters) *parameters = NULL;
 
@@ -1993,7 +2021,8 @@ static Type* parse_declarator(Type* base_type, const char** name,
 
     /* Function-pointer declarator: return_type (*name)(parameters). */
     if (check(TOK_LPAREN) && parser.cur->next &&
-        parser.cur->next->type == TOK_STAR) {
+        parser.cur->next->type == TOK_STAR &&
+        parser_parenthesized_pointer_is_function()) {
         ParsedPointerLevel* nested_pointers;
         DeclList* function_parameters = NULL;
         bool variadic = false;
@@ -2018,8 +2047,23 @@ static Type* parse_declarator(Type* base_type, const char** name,
         return type;
     }
 
+    /* Handle the other parenthesized pointer declarators before parsing
+     * suffixes.  Array suffixes bind to the declarator inside the group, and
+     * the pointer levels inside the group are applied afterwards. */
+    if (check(TOK_LPAREN) && parser.cur->next &&
+        parser.cur->next->type == TOK_STAR) {
+        advance();
+        parenthesized_pointers = parse_pointer_levels();
+        if (check(TOK_IDENT)) {
+            Token* identifier = advance();
+            if (name) *name = identifier->value.str_val;
+        }
+        expect(TOK_RPAREN, ")");
+        parenthesized_pointer = true;
+    }
+
     type = apply_pointer_levels(type, leading_pointers);
-    if (check(TOK_IDENT)) {
+    if (!parenthesized_pointer && check(TOK_IDENT)) {
         Token* identifier = advance();
         if (name) *name = identifier->value.str_val;
     }
@@ -2107,6 +2151,9 @@ static Type* parse_declarator(Type* base_type, const char** name,
         type->array_parameter_const = array_consts[array_count];
         type->array_parameter_volatile = array_volatiles[array_count];
         type->array_parameter_restrict = array_restricts[array_count];
+    }
+    if (parenthesized_pointers) {
+        type = apply_pointer_levels(type, parenthesized_pointers);
     }
     return type;
 }
