@@ -60,6 +60,7 @@ static const char* cxx_operator_abi_code(const char* name) {
     if (strcmp(name, "operator>>=") == 0) return "rS";
     if (strcmp(name, "operator,") == 0) return "cm";
     if (strcmp(name, "operator->*") == 0) return "pm";
+    if (strcmp(name, "operator.*") == 0) return "ds";
     if (strcmp(name, "operator->") == 0) return "pt";
     if (strcmp(name, "operator()") == 0) return "cl";
     if (strcmp(name, "operator[]") == 0) return "ix";

@@ -3240,6 +3240,102 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     return true;
 }
 
+static const char* sema_cxx_unary_operator_name(ExprKind kind) {
+    switch (kind) {
+        case EXPR_NEG: return "operator-";
+        case EXPR_BITNOT: return "operator~";
+        case EXPR_NOT: return "operator!";
+        case EXPR_PREINC:
+        case EXPR_POSTINC: return "operator++";
+        case EXPR_PREDEC:
+        case EXPR_POSTDEC: return "operator--";
+        default: return NULL;
+    }
+}
+
+/* Lower unary member operators through the same call path as an explicit
+ * member invocation.  A postfix increment/decrement receives the required
+ * dummy int argument, which lets overload selection distinguish it from the
+ * prefix form without inventing a backend-only operation. */
+static bool sema_rewrite_cxx_unary_operator(Expr* expression,
+                                            Type* operand_type) {
+    const char* name;
+    Type* aggregate;
+    TypeMethod* method;
+    ExprList* arguments = NULL;
+    Expr* member;
+    Expr* call;
+    if (!expression || !operand_type) return false;
+    aggregate = generic_selection_type(operand_type);
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION)) {
+        return false;
+    }
+    name = sema_cxx_unary_operator_name(expression->kind);
+    if (!name) return false;
+    method = sema_find_function_method(aggregate, name);
+    if (!method || !method->function_decl) return false;
+    if (expression->kind == EXPR_POSTINC ||
+        expression->kind == EXPR_POSTDEC) {
+        arguments = exprlist_new(expr_int(0, expression->loc));
+    }
+    member = expr_member(expression->unary_operand, name, expression->loc);
+    call = expr_call(member, arguments, expression->loc);
+    *expression = *call;
+    return true;
+}
+
+static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
+                                                Type* object_type) {
+    Type* aggregate;
+    TypeMethod* method;
+    Expr* member;
+    Expr* call;
+    if (!expression || !object_type || expression->kind != EXPR_INDEX) {
+        return false;
+    }
+    aggregate = generic_selection_type(object_type);
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION)) {
+        return false;
+    }
+    method = sema_find_function_method(aggregate, "operator[]");
+    if (!method || !method->function_decl) return false;
+    member = expr_member(expression->index_base, "operator[]", expression->loc);
+    call = expr_call(member, exprlist_new(expression->index_expr),
+                     expression->loc);
+    *expression = *call;
+    return true;
+}
+
+static bool sema_rewrite_cxx_call_operator(Expr* expression,
+                                           Type* object_type) {
+    Type* aggregate;
+    TypeMethod* method;
+    Expr* member;
+    Expr* call;
+    if (!expression || !object_type || expression->kind != EXPR_CALL ||
+        !expression->call_func || expression->call_is_new ||
+        expression->call_is_delete) {
+        return false;
+    }
+    if (expression->call_func->kind == EXPR_MEMBER ||
+        expression->call_func->kind == EXPR_PTR_MEMBER) {
+        return false;
+    }
+    aggregate = generic_selection_type(object_type);
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION)) {
+        return false;
+    }
+    method = sema_find_function_method(aggregate, "operator()");
+    if (!method || !method->function_decl) return false;
+    member = expr_member(expression->call_func, "operator()", expression->loc);
+    call = expr_call(member, expression->call_args, expression->loc);
+    *expression = *call;
+    return true;
+}
+
 static Expr* sema_cxx_move_member(Expr* object, TypeField* field) {
     Expr* member = expr_member(object, field->name, object->loc);
     member->member_field = field;
@@ -3427,6 +3523,50 @@ static bool sema_prepare_cxx_close_call(Expr* expression,
 
 static Type* sema_expr(Expr* expr) {
     if (!expr) return NULL;
+
+    if ((expr->kind == EXPR_NEG || expr->kind == EXPR_BITNOT ||
+         expr->kind == EXPR_NOT || expr->kind == EXPR_PREINC ||
+         expr->kind == EXPR_PREDEC || expr->kind == EXPR_POSTINC ||
+         expr->kind == EXPR_POSTDEC) && expr->unary_operand) {
+        Type* operand_type = sema_expr(expr->unary_operand);
+        if (sema_rewrite_cxx_unary_operator(expr, operand_type)) {
+            return sema_expr(expr);
+        }
+    }
+
+    if (expr->kind == EXPR_INDEX && expr->index_base) {
+        Type* object_type = sema_expr(expr->index_base);
+        if (sema_rewrite_cxx_subscript_operator(expr, object_type)) {
+            return sema_expr(expr);
+        }
+    }
+
+    if (expr->kind == EXPR_CALL && expr->call_func &&
+        !expr->call_is_new && !expr->call_is_delete) {
+        Type* object_type;
+        if (expr->call_func->kind == EXPR_MEMBER ||
+            expr->call_func->kind == EXPR_PTR_MEMBER) {
+            object_type = sema_expr(expr->call_func->member_base);
+            if (expr->call_func->kind == EXPR_PTR_MEMBER) {
+                object_type = get_pointer_base(object_type);
+            }
+        } else if (expr->call_func->kind == EXPR_IDENT) {
+            Symbol* symbol = expr->call_func->ident_decl
+                ? NULL : sema_cxx_lookup_name(expr->call_func->ident_name);
+            if (expr->call_func->ident_decl &&
+                (expr->call_func->ident_decl->kind == DECL_VAR ||
+                 expr->call_func->ident_decl->kind == DECL_PARAM)) {
+                object_type = expr->call_func->ident_decl->type;
+            } else {
+                object_type = symbol ? symbol->type : NULL;
+            }
+        } else {
+            object_type = sema_expr(expr->call_func);
+        }
+        if (sema_rewrite_cxx_call_operator(expr, object_type)) {
+            return sema_expr(expr);
+        }
+    }
 
     if (expr->kind >= EXPR_ADD && expr->kind <= EXPR_OR &&
         expr->binary_lhs && expr->binary_rhs) {
@@ -6405,10 +6545,14 @@ static void sema_decl(Decl* decl) {
                 }
                 for (DeclList* p = decl->func_params; p; p = p->next) {
                     current_func_last_param = p->decl;
-                    Symbol* psym = symtab_define(g_symtab, p->decl->name, SYM_PARAM,
-                                                  p->decl->type, p->decl->loc);
-                    psym->decl = p->decl;
-                    psym->offset = param_offset;
+                    Symbol* psym = NULL;
+                    if (p->decl->name) {
+                        psym = symtab_define(g_symtab, p->decl->name,
+                                             SYM_PARAM, p->decl->type,
+                                             p->decl->loc);
+                        psym->decl = p->decl;
+                        psym->offset = param_offset;
+                    }
                     p->decl->var_offset = param_offset;
                     {
                         int parameter_size = p->decl->type &&

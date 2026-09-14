@@ -309,6 +309,36 @@ static const char* parse_operator_name(void) {
         case TOK_ASSIGN:
             advance();
             return rcc_intern("operator=");
+        case TOK_PLUS_ASSIGN:
+            advance();
+            return rcc_intern("operator+=");
+        case TOK_MINUS_ASSIGN:
+            advance();
+            return rcc_intern("operator-=");
+        case TOK_STAR_ASSIGN:
+            advance();
+            return rcc_intern("operator*=");
+        case TOK_SLASH_ASSIGN:
+            advance();
+            return rcc_intern("operator/=");
+        case TOK_PERCENT_ASSIGN:
+            advance();
+            return rcc_intern("operator%=");
+        case TOK_AMP_ASSIGN:
+            advance();
+            return rcc_intern("operator&=");
+        case TOK_PIPE_ASSIGN:
+            advance();
+            return rcc_intern("operator|=");
+        case TOK_CARET_ASSIGN:
+            advance();
+            return rcc_intern("operator^=");
+        case TOK_LSHIFT_ASSIGN:
+            advance();
+            return rcc_intern("operator<<=");
+        case TOK_RSHIFT_ASSIGN:
+            advance();
+            return rcc_intern("operator>>=");
         case TOK_PLUS:
             advance();
             return rcc_intern("operator+");
@@ -381,6 +411,12 @@ static const char* parse_operator_name(void) {
         case TOK_ARROW:
             advance();
             return rcc_intern("operator->");
+        case TOK_DOT_STAR:
+            advance();
+            return rcc_intern("operator.*");
+        case TOK_ARROW_STAR:
+            advance();
+            return rcc_intern("operator->*");
         default:
             rcc_error(peek()->loc, "expected overloaded operator");
             return NULL;
