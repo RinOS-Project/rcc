@@ -2610,6 +2610,15 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_DEREF:
             gen64_expr(mod, expr->unary_operand);
+            /* Aggregate lvalues carry their address through expression
+             * lowering.  Loading here would turn a pointer-to-array
+             * dereference into the array's first element and break the
+             * subsequent index operation. */
+            if (expr->type && (expr->type->kind == TYPE_ARRAY ||
+                               expr->type->kind == TYPE_STRUCT ||
+                               expr->type->kind == TYPE_UNION)) {
+                break;
+            }
             emit64_load_typed(mod, RAX, RAX, 0, expr->type);
             break;
 

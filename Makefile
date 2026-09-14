@@ -784,7 +784,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-aggregate-union-abi
+.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-aggregate-union-abi
 test-cxx-static-members: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -860,6 +860,46 @@ test-vla-declarations: $(RCC_TARGET)
 	grep -q "variably modified type is not allowed for struct/union member" \
 		$(TEST_OUT)/vla-declarations/invalid-member-x64.log
 	@echo "C17 invalid variably modified declaration tests completed"
+
+ifeq ($(OS),Windows_NT)
+test-vla-declarator-variants: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/vla-declarator-variants)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/vla-declarator-variants/x86.s \
+		tests/vla_declarator_variants.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/vla-declarator-variants/x64.s \
+		tests/vla_declarator_variants.c
+	@echo "Dual-architecture VLA declarator variant assembly generation completed; runtime execution is verified by the direct WSL host check"
+else
+test-vla-declarator-variants: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/vla-declarator-variants)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/vla-declarator-variants/x86.s \
+		tests/vla_declarator_variants.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/vla-declarator-variants/x64.s \
+		tests/vla_declarator_variants.c
+	$(CC) -m32 -c -o $(TEST_OUT)/vla-declarator-variants/x86.o \
+		$(TEST_OUT)/vla-declarator-variants/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/vla-declarator-variants/x86-start.o \
+		tests/vla_runtime_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/vla-declarator-variants/x86 \
+		$(TEST_OUT)/vla-declarator-variants/x86-start.o \
+		$(TEST_OUT)/vla-declarator-variants/x86.o
+	$(TEST_OUT)/vla-declarator-variants/x86
+	$(CC) -c -o $(TEST_OUT)/vla-declarator-variants/x64.o \
+		$(TEST_OUT)/vla-declarator-variants/x64.s
+	$(CC) -c -o $(TEST_OUT)/vla-declarator-variants/x64-start.o \
+		tests/vla_runtime_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/vla-declarator-variants/x64 \
+		$(TEST_OUT)/vla-declarator-variants/x64-start.o \
+		$(TEST_OUT)/vla-declarator-variants/x64.o
+	$(TEST_OUT)/vla-declarator-variants/x64
+	@echo "Dual-architecture VLA declarator variant lowering tests completed"
+endif
 
 test-aggregate-union-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-union-abi)

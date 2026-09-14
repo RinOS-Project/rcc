@@ -4909,6 +4909,15 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_DEREF:
             gen_expr(mod, expr->unary_operand);
+            /* An aggregate lvalue evaluates to its address.  This is
+             * especially important for a pointer-to-array dereference:
+             * `(*row)[index]` must index the array object, not load its first
+             * element before applying the index. */
+            if (expr->type && (expr->type->kind == TYPE_ARRAY ||
+                               expr->type->kind == TYPE_STRUCT ||
+                               expr->type->kind == TYPE_UNION)) {
+                break;
+            }
             if (gen_is_floating(expr->type)) {
                 emit_load_floating_raw(mod, expr->type, EAX, 0);
             } else {
