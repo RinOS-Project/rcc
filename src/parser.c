@@ -30,6 +30,9 @@ extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_class_local_declaration(
+    Type* base_type, int storage, bool is_thread_local,
+    SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
@@ -2502,6 +2505,17 @@ Stmt* parse_declaration(void) {
     /* A standalone aggregate declaration has no declarator. Enum constants
      * were registered while parsing its body. */
     if (match(TOK_SEMICOLON)) return stmt_null(loc);
+
+    /* C++ direct initialization uses a different declarator grammar from C:
+     * `Pair value(7, 11);` is an object declaration, not a function returning
+     * Pair.  Let the C++ parser consume this form only after the declaration
+     * specifiers have been collected, so storage qualifiers are preserved. */
+    if (!is_typedef && parser_cxx_mode &&
+        rcc_parse_cxx_class_local_declaration) {
+        Stmt* class_declaration = rcc_parse_cxx_class_local_declaration(
+            base_type, storage, is_thread_local, loc);
+        if (class_declaration) return class_declaration;
+    }
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
     if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&

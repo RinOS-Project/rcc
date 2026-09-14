@@ -3847,6 +3847,46 @@ Stmt* rcc_parse_cxx_auto_local_declaration(void) {
     return parse_cxx_dependent_local_declaration();
 }
 
+Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
+                                            int storage,
+                                            bool is_thread_local,
+                                            SourceLoc loc) {
+    Token* name;
+    ExprList* arguments = NULL;
+    Expr* initializer;
+    Decl* declaration;
+
+    /* Only consume the spelling that the common C parser would misinterpret
+     * as a function declarator.  Constructor arity was registered only after
+     * the C++ class verifier proved its storage representation is ABI-safe. */
+    if (!base_type || (base_type->kind != TYPE_STRUCT &&
+                       base_type->kind != TYPE_UNION) ||
+        !type_is_complete(base_type) ||
+        rcc_parser_cxx_constructor_arity_mask(base_type) == 0u ||
+        !check(TOK_IDENT) || !check_next(TOK_LPAREN)) {
+        return NULL;
+    }
+
+    name = advance();
+    advance(); /* `(` */
+    if (!check(TOK_RPAREN)) {
+        do {
+            exprlist_append(&arguments, parse_assignment_expression());
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_RPAREN, ")");
+
+    initializer = expr_initializer_list(arguments, loc);
+    initializer->compound_type = base_type;
+    rcc_parser_validate_cxx_constructor_initializer(base_type, initializer);
+    expect(TOK_SEMICOLON, ";");
+
+    declaration = decl_var(name->value.str_val, base_type, initializer, loc);
+    declaration->storage = (StorageClass)storage;
+    declaration->var_is_thread_local = is_thread_local;
+    return stmt_decl(declaration, loc);
+}
+
 static Stmt* parse_cxx_statement(void) {
     if (check(TOK_AUTO) ||
         (check(TOK_IDENT) &&

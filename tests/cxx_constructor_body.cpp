@@ -17,3 +17,9 @@ int cxx_constructor_body()
     delete value;
     return result == 18 ? 0 : 1;
 }
+
+int cxx_local_constructor()
+{
+    Pair value(7, 11);
+    return value.first + value.second == 18 ? 0 : 1;
+}

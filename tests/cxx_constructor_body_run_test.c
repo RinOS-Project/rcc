@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 int cxx_constructor_body(void) __asm__("_Z20cxx_constructor_bodyv");
+int cxx_local_constructor(void) __asm__("_Z21cxx_local_constructorv");
 
 void* rin_malloc(unsigned long size)
 {
@@ -17,6 +18,7 @@ void rin_free(void* pointer)
 int main(void)
 {
     assert(cxx_constructor_body() == 0);
+    assert(cxx_local_constructor() == 0);
     puts("C++ constructor body execution test passed");
     return 0;
 }
