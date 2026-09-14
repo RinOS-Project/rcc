@@ -143,7 +143,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-constexpr test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -447,7 +447,7 @@ test-cxx-constexpr: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constexpr/invalid-x86.log 2>&1
 	grep -q "constexpr variable requires an initializer" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
-	grep -q "constexpr variable initializer is not a supported scalar constant expression" \
+	grep -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	grep -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
@@ -457,11 +457,41 @@ test-cxx-constexpr: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constexpr/invalid-x64.log 2>&1
 	grep -q "constexpr variable requires an initializer" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
-	grep -q "constexpr variable initializer is not a supported scalar constant expression" \
+	grep -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	grep -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	@echo "RCC++ scalar constexpr folding tests completed"
+
+test-cxx-constexpr-aggregate: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-aggregate)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-aggregate/x86.s \
+		tests/cxx_constexpr_aggregate.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-aggregate/x64.s \
+		tests/cxx_constexpr_aggregate.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-constexpr-aggregate/x86.o \
+		$(TEST_OUT)/cxx-constexpr-aggregate/x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-constexpr-aggregate/host-x86.o \
+		tests/cxx_constexpr_host.c
+	objcopy --redefine-sym main=rcc_cxx_constexpr_main \
+		$(TEST_OUT)/cxx-constexpr-aggregate/x86.o
+	gcc -m32 -no-pie -o $(TEST_OUT)/cxx-constexpr-aggregate/x86 \
+		$(TEST_OUT)/cxx-constexpr-aggregate/host-x86.o \
+		$(TEST_OUT)/cxx-constexpr-aggregate/x86.o
+	$(TEST_OUT)/cxx-constexpr-aggregate/x86
+	gcc -c -o $(TEST_OUT)/cxx-constexpr-aggregate/x64.o \
+		$(TEST_OUT)/cxx-constexpr-aggregate/x64.s
+	gcc -c -o $(TEST_OUT)/cxx-constexpr-aggregate/host-x64.o \
+		tests/cxx_constexpr_host.c
+	objcopy --redefine-sym main=rcc_cxx_constexpr_main \
+		$(TEST_OUT)/cxx-constexpr-aggregate/x64.o
+	gcc -no-pie -o $(TEST_OUT)/cxx-constexpr-aggregate/x64 \
+		$(TEST_OUT)/cxx-constexpr-aggregate/host-x64.o \
+		$(TEST_OUT)/cxx-constexpr-aggregate/x64.o
+	$(TEST_OUT)/cxx-constexpr-aggregate/x64
+	@echo "RCC++ aggregate constexpr tests completed"
 
 test-pic-direct-internal: $(RCC_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/pic-direct-internal)
