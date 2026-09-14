@@ -287,6 +287,95 @@ typedef struct ParsedConstructorInitializer {
     bool is_supported;
 } ParsedConstructorInitializer;
 
+/* Convert the small, ABI-transparent constructor-body form into the same
+ * field initializer representation used by a mem-initializer list.  The
+ * conversion is deliberately structural: every statement must assign the
+ * next data field, and each right-hand side must be either the corresponding
+ * constructor parameter or an integer constant for a default constructor.
+ * No arbitrary constructor statement is ever interpreted by codegen. */
+static bool lowerable_constructor_body(CxxClass* cls,
+                                       CxxConstructorInfo* constructor) {
+    StmtList* statement_list;
+    TypeParam* field;
+    TypeParam* parameter;
+    CxxConstructorInitializer* items = NULL;
+    CxxConstructorInitializer** tail = &items;
+    int count = 0;
+
+    if (!cls || !constructor || constructor->initializers ||
+        constructor->initializer_count != 0 ||
+        !constructor->method || !constructor->method->decl ||
+        !constructor->method->decl->func_body ||
+        constructor->method->decl->func_body->kind != STMT_BLOCK) {
+        return false;
+    }
+    statement_list = constructor->method->decl->func_body->block_stmts;
+    field = cls->fields;
+    parameter = constructor->parameters;
+    while (statement_list && field) {
+        Stmt* statement = statement_list->stmt;
+        Expr* assignment;
+        const char* field_name = NULL;
+        Expr* value;
+        CxxConstructorInitializer* item;
+
+        if (!statement || statement->kind != STMT_EXPR ||
+            !statement->expr || statement->expr->kind != EXPR_ASSIGN) {
+            return false;
+        }
+        assignment = statement->expr;
+        if (assignment->binary_lhs &&
+            assignment->binary_lhs->kind == EXPR_IDENT) {
+            field_name = assignment->binary_lhs->ident_name;
+        } else if (assignment->binary_lhs &&
+                   assignment->binary_lhs->kind == EXPR_PTR_MEMBER &&
+                   assignment->binary_lhs->member_base &&
+                   assignment->binary_lhs->member_base->kind == EXPR_IDENT &&
+                   assignment->binary_lhs->member_base->ident_name &&
+                   strcmp(assignment->binary_lhs->member_base->ident_name,
+                          "this") == 0) {
+            field_name = assignment->binary_lhs->member_name;
+        }
+        if (!field_name || !field->name ||
+            strcmp(field_name, field->name) != 0) {
+            return false;
+        }
+        value = assignment->binary_rhs;
+        if (!value) return false;
+        if (constructor->parameter_count == 0) {
+            int64_t constant_value;
+            if (!expr_eval_integer_constant(value, &constant_value)) {
+                return false;
+            }
+        } else {
+            if (!parameter || !parameter->name ||
+                value->kind != EXPR_IDENT ||
+                strcmp(value->ident_name, parameter->name) != 0) {
+                return false;
+            }
+            parameter = parameter->next;
+        }
+        item = ast_arena_alloc(sizeof(*item));
+        item->field = field->name;
+        item->value = value;
+        item->next = NULL;
+        *tail = item;
+        tail = &item->next;
+        ++count;
+        field = field->next;
+        statement_list = statement_list->next;
+    }
+    if (statement_list || field ||
+        (constructor->parameter_count != 0 && parameter) || count == 0) {
+        return false;
+    }
+    constructor->initializers = items;
+    constructor->initializer_count = count;
+    constructor->initializers_are_supported = true;
+    constructor->body_is_empty = true;
+    return true;
+}
+
 /* Retain a parenthesized mem-initializer list.  It is lowered only when the
  * later verifier proves a one-to-one, declaration-order mapping from fields
  * to constructor parameters (or integer zeroes for a default constructor). */
@@ -1805,6 +1894,9 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             info->is_defaulted = is_defaulted;
             info->access = current_access;
             info->next = NULL;
+            if (!info->body_is_empty) {
+                (void)lowerable_constructor_body(cls, info);
+            }
             while (*tail) tail = &(*tail)->next;
             *tail = info;
         }
