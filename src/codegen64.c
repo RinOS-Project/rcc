@@ -2625,7 +2625,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_NOT:
             if (gen64_is_floating(expr->unary_operand->type)) {
                 gen64_float_truth(mod, expr->unary_operand);
-                emit64_xor_reg_reg(mod, RAX, 1);
+                emit64_mov_reg_imm32(mod, RCX, 1u);
+                emit64_xor_reg_reg(mod, RAX, RCX);
             } else {
                 gen64_expr(mod, expr->unary_operand);
                 emit64_cmp_reg_imm(mod, RAX, 0);

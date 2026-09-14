@@ -7,7 +7,9 @@
 #include "ast.h"
 #include "ast_cxx.h"
 #include "symtab.h"
+#include <float.h>
 #include <limits.h>
+#include <math.h>
 
 /* The C compiler intentionally omits the C++ AST object.  Keep the namespace
  * lookup extension optional at this boundary so the C frontend remains a
@@ -679,7 +681,10 @@ static void sema_validate_static_integer_expression(Expr* expression) {
  * ABI details. */
 typedef struct SemaConstexprBinding {
     Decl* declaration;
+    Type* type;
     int64_t value;
+    double floating_value;
+    bool is_floating;
 } SemaConstexprBinding;
 
 static int constexpr_eval_depth;
@@ -1308,7 +1313,10 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
             return false;
         }
         bindings[count].declaration = parameter->decl;
+        bindings[count].type = parameter->decl->type;
         bindings[count].value = argument_value;
+        bindings[count].floating_value = 0.0;
+        bindings[count].is_floating = false;
         ++count;
         parameter = parameter->next;
         argument = argument->next;
@@ -1322,6 +1330,413 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
         return false;
     }
     return sema_constexpr_convert(*value, declaration->type->ret_type, value);
+}
+
+typedef struct SemaConstexprScalar {
+    Type* type;
+    int64_t integer_value;
+    double floating_value;
+    bool is_floating;
+} SemaConstexprScalar;
+
+static bool sema_constexpr_scalar_type(Type* type) {
+    return type && (sema_constexpr_integer_type(type) ||
+                    type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
+}
+
+static bool sema_constexpr_scalar_convert(
+    const SemaConstexprScalar* input, Type* type,
+    SemaConstexprScalar* output) {
+    long double numeric;
+    unsigned bits;
+    uint64_t converted;
+    long double minimum;
+    long double maximum;
+
+    if (!input || !output || !sema_constexpr_scalar_type(type) ||
+        type->size <= 0) return false;
+    if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
+        numeric = input->is_floating
+            ? (long double)input->floating_value
+            : (long double)input->integer_value;
+        if (!isfinite(numeric)) return false;
+        output->type = type;
+        output->is_floating = true;
+        output->floating_value = type->kind == TYPE_FLOAT
+            ? (double)(float)numeric : (double)numeric;
+        output->integer_value = 0;
+        if (!isfinite(output->floating_value) ||
+            (type->kind == TYPE_FLOAT &&
+             (output->floating_value > FLT_MAX ||
+              output->floating_value < -FLT_MAX))) return false;
+        return true;
+    }
+    if (input->is_floating) {
+        numeric = (long double)input->floating_value;
+        if (!isfinite(numeric)) return false;
+        bits = (unsigned)type->size * 8u;
+        if (bits == 0u || bits > 64u) return false;
+        if (type->is_unsigned) {
+            maximum = bits == 64u
+                ? (long double)UINT64_MAX
+                : (long double)((UINT64_C(1) << bits) - 1u);
+            if (numeric < 0.0L || numeric >= maximum + 1.0L) return false;
+        } else {
+            minimum = bits == 64u
+                ? (long double)INT64_MIN
+                : -(long double)(UINT64_C(1) << (bits - 1u));
+            maximum = bits == 64u
+                ? (long double)INT64_MAX
+                : (long double)((UINT64_C(1) << (bits - 1u)) - 1u);
+            if (numeric < minimum || numeric >= maximum + 1.0L) return false;
+        }
+        if (type->is_unsigned && numeric >= 9223372036854775808.0L) {
+            converted = (uint64_t)(numeric - 9223372036854775808.0L) +
+                        UINT64_C(0x8000000000000000);
+        } else {
+            converted = (uint64_t)(int64_t)numeric;
+        }
+        output->integer_value = (int64_t)converted;
+    } else {
+        output->integer_value = input->integer_value;
+    }
+    if (!sema_constexpr_convert(output->integer_value, type,
+                                &output->integer_value)) return false;
+    output->type = type;
+    output->floating_value = 0.0;
+    output->is_floating = false;
+    return true;
+}
+
+static bool sema_eval_constexpr_scalar_expr(
+    Expr* expression, SemaConstexprBinding* bindings,
+    int binding_count, SemaConstexprScalar* value);
+
+static bool sema_eval_constexpr_scalar_function(
+    Decl* declaration, ExprList* args, SemaConstexprScalar* value) {
+    SemaConstexprBinding bindings[64];
+    DeclList* parameter;
+    ExprList* argument;
+    StmtList* statements;
+    SemaConstexprScalar argument_value;
+    SemaConstexprScalar result;
+    int count = 0;
+
+    if (!declaration || !value || !declaration->func_is_constexpr ||
+        declaration->func_this_param || !declaration->type ||
+        declaration->type->kind != TYPE_FUNC || declaration->type->variadic ||
+        !sema_constexpr_scalar_type(declaration->type->ret_type) ||
+        !declaration->func_body || declaration->func_body->kind != STMT_BLOCK) {
+        return false;
+    }
+    statements = declaration->func_body->block_stmts;
+    if (!statements || statements->next || !statements->stmt ||
+        statements->stmt->kind != STMT_RETURN || !statements->stmt->return_val) {
+        return false;
+    }
+    parameter = declaration->func_params;
+    argument = args;
+    while (parameter && argument) {
+        if (count == (int)(sizeof(bindings) / sizeof(bindings[0])) ||
+            !parameter->decl || !parameter->decl->name ||
+            !sema_constexpr_scalar_type(parameter->decl->type) ||
+            !sema_eval_constexpr_scalar_expr(argument->expr, NULL, 0,
+                                               &argument_value) ||
+            !sema_constexpr_scalar_convert(&argument_value,
+                                           parameter->decl->type,
+                                           &argument_value)) {
+            return false;
+        }
+        bindings[count].declaration = parameter->decl;
+        bindings[count].type = parameter->decl->type;
+        bindings[count].value = argument_value.integer_value;
+        bindings[count].floating_value = argument_value.floating_value;
+        bindings[count].is_floating = argument_value.is_floating;
+        ++count;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    if (parameter || argument || constexpr_eval_depth >= 64) return false;
+    ++constexpr_eval_depth;
+    if (!sema_eval_constexpr_scalar_expr(
+            statements->stmt->return_val, bindings, count, &result)) {
+        --constexpr_eval_depth;
+        return false;
+    }
+    --constexpr_eval_depth;
+    return sema_constexpr_scalar_convert(&result,
+                                         declaration->type->ret_type, value);
+}
+
+static bool sema_eval_constexpr_scalar_expr(
+    Expr* expression, SemaConstexprBinding* bindings,
+    int binding_count, SemaConstexprScalar* value) {
+    SemaConstexprScalar left;
+    SemaConstexprScalar right;
+    Type* result_type;
+    int64_t integer;
+    int binding_index;
+
+    if (!expression || !value) return false;
+    memset(value, 0, sizeof(*value));
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+            value->type = expression->type ? expression->type : type_int;
+            value->integer_value = expression->int_val;
+            value->is_floating = false;
+            return true;
+        case EXPR_CHAR_LIT:
+            value->type = type_int;
+            value->integer_value = (unsigned char)expression->char_val;
+            value->is_floating = false;
+            return true;
+        case EXPR_FLOAT_LIT:
+            value->type = expression->type &&
+                (expression->type->kind == TYPE_FLOAT ||
+                 expression->type->kind == TYPE_DOUBLE)
+                ? expression->type : type_double;
+            value->floating_value = expression->float_val;
+            value->is_floating = true;
+            return isfinite(value->floating_value);
+        case EXPR_IDENT:
+            binding_index = sema_constexpr_binding_index(
+                expression, bindings, binding_count);
+            if (binding_index >= 0) {
+                value->type = bindings[binding_index].type;
+                value->integer_value = bindings[binding_index].value;
+                value->floating_value = bindings[binding_index].floating_value;
+                value->is_floating = bindings[binding_index].is_floating;
+                return true;
+            }
+            if (expression->ident_decl &&
+                expression->ident_decl->kind == DECL_ENUM_CONST) {
+                value->type = type_int;
+                value->integer_value = expression->ident_decl->enum_val;
+                return true;
+            }
+            if (expression->ident_decl &&
+                expression->ident_decl->kind == DECL_VAR &&
+                expression->ident_decl->var_is_constexpr &&
+                expression->ident_decl->var_init &&
+                sema_constexpr_scalar_type(expression->ident_decl->type) &&
+                constexpr_eval_depth < 64) {
+                ++constexpr_eval_depth;
+                bool result = sema_eval_constexpr_scalar_expr(
+                    expression->ident_decl->var_init, bindings,
+                    binding_count, value);
+                --constexpr_eval_depth;
+                return result && sema_constexpr_scalar_convert(
+                    value, expression->ident_decl->type, value);
+            }
+            return false;
+        case EXPR_CAST:
+            if (!sema_eval_constexpr_scalar_expr(expression->cast_expr,
+                                                  bindings, binding_count,
+                                                  &left)) return false;
+            return sema_constexpr_scalar_convert(&left,
+                                                 expression->cast_type, value);
+        case EXPR_NEG:
+            if (!sema_eval_constexpr_scalar_expr(expression->unary_operand,
+                                                  bindings, binding_count,
+                                                  &left)) return false;
+            if (left.is_floating) {
+                *value = left;
+                value->floating_value = -left.floating_value;
+                return true;
+            }
+            if (left.integer_value == INT64_MIN) return false;
+            *value = left;
+            value->integer_value = -left.integer_value;
+            return true;
+        case EXPR_NOT:
+            if (!sema_eval_constexpr_scalar_expr(expression->unary_operand,
+                                                  bindings, binding_count,
+                                                  &left)) return false;
+            value->type = type_int;
+            value->integer_value = left.is_floating
+                ? left.floating_value == 0.0 : left.integer_value == 0;
+            return true;
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            if (expression->sizeof_type == NULL ||
+                (expression->kind == EXPR_SIZEOF
+                    ? expression->sizeof_type->size <= 0
+                    : expression->sizeof_type->align <= 0)) return false;
+            value->type = type_ulong;
+            value->integer_value = expression->kind == EXPR_SIZEOF
+                ? expression->sizeof_type->size : expression->sizeof_type->align;
+            return true;
+        case EXPR_COND:
+            if (!sema_eval_constexpr_scalar_expr(expression->cond_test,
+                                                  bindings, binding_count,
+                                                  &left)) return false;
+            if (left.is_floating ? left.floating_value != 0.0
+                                 : left.integer_value != 0) {
+                return sema_eval_constexpr_scalar_expr(
+                    expression->cond_then, bindings, binding_count, value);
+            }
+            return sema_eval_constexpr_scalar_expr(
+                expression->cond_else, bindings, binding_count, value);
+        case EXPR_COMMA:
+            if (!sema_eval_constexpr_scalar_expr(expression->binary_lhs,
+                                                  bindings, binding_count,
+                                                  &left)) return false;
+            return sema_eval_constexpr_scalar_expr(
+                expression->binary_rhs, bindings, binding_count, value);
+        case EXPR_AND:
+        case EXPR_OR:
+            if (!sema_eval_constexpr_scalar_expr(expression->binary_lhs,
+                                                  bindings, binding_count,
+                                                  &left)) return false;
+            integer = left.is_floating ? left.floating_value != 0.0
+                                       : left.integer_value != 0;
+            if ((expression->kind == EXPR_AND && !integer) ||
+                (expression->kind == EXPR_OR && integer)) {
+                value->type = type_int;
+                value->integer_value = expression->kind == EXPR_OR;
+                return true;
+            }
+            if (!sema_eval_constexpr_scalar_expr(expression->binary_rhs,
+                                                  bindings, binding_count,
+                                                  &right)) return false;
+            value->type = type_int;
+            value->integer_value = right.is_floating
+                ? right.floating_value != 0.0 : right.integer_value != 0;
+            return true;
+        case EXPR_CALL:
+            if (!expression->call_func ||
+                expression->call_func->kind != EXPR_IDENT ||
+                !expression->call_func->ident_decl ||
+                expression->call_func->ident_decl->kind != DECL_FUNC) {
+                return false;
+            }
+            return sema_eval_constexpr_scalar_function(
+                expression->call_func->ident_decl, expression->call_args,
+                value);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            if (!sema_eval_constexpr_scalar_expr(expression->binary_lhs,
+                                                  bindings, binding_count,
+                                                  &left) ||
+                !sema_eval_constexpr_scalar_expr(expression->binary_rhs,
+                                                  bindings, binding_count,
+                                                  &right)) return false;
+            if (left.is_floating || right.is_floating) {
+                double left_value = left.is_floating
+                    ? left.floating_value : (double)left.integer_value;
+                double right_value = right.is_floating
+                    ? right.floating_value : (double)right.integer_value;
+                if ((expression->kind == EXPR_DIV) && right_value == 0.0) {
+                    return false;
+                }
+                if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
+                    expression->kind == EXPR_LT || expression->kind == EXPR_GT ||
+                    expression->kind == EXPR_LE || expression->kind == EXPR_GE) {
+                    value->type = type_int;
+                    switch (expression->kind) {
+                        case EXPR_EQ: value->integer_value = left_value == right_value; break;
+                        case EXPR_NE: value->integer_value = left_value != right_value; break;
+                        case EXPR_LT: value->integer_value = left_value < right_value; break;
+                        case EXPR_GT: value->integer_value = left_value > right_value; break;
+                        case EXPR_LE: value->integer_value = left_value <= right_value; break;
+                        case EXPR_GE: value->integer_value = left_value >= right_value; break;
+                        default: return false;
+                    }
+                    return true;
+                }
+                result_type = expression->type &&
+                    (expression->type->kind == TYPE_FLOAT ||
+                     expression->type->kind == TYPE_DOUBLE)
+                    ? expression->type : type_double;
+                value->type = result_type;
+                value->is_floating = true;
+                switch (expression->kind) {
+                    case EXPR_ADD: value->floating_value = left_value + right_value; break;
+                    case EXPR_SUB: value->floating_value = left_value - right_value; break;
+                    case EXPR_MUL: value->floating_value = left_value * right_value; break;
+                    case EXPR_DIV: value->floating_value = left_value / right_value; break;
+                    default: return false;
+                }
+                return isfinite(value->floating_value);
+            }
+            value->type = type_int;
+            switch (expression->kind) {
+                case EXPR_ADD: return sema_constexpr_add(left.integer_value, right.integer_value, &value->integer_value);
+                case EXPR_SUB: return sema_constexpr_sub(left.integer_value, right.integer_value, &value->integer_value);
+                case EXPR_MUL: return sema_constexpr_mul(left.integer_value, right.integer_value, &value->integer_value);
+                case EXPR_DIV:
+                    if (right.integer_value == 0 ||
+                        (left.integer_value == INT64_MIN && right.integer_value == -1)) return false;
+                    value->integer_value = left.integer_value / right.integer_value;
+                    return true;
+                case EXPR_EQ: value->integer_value = left.integer_value == right.integer_value; return true;
+                case EXPR_NE: value->integer_value = left.integer_value != right.integer_value; return true;
+                case EXPR_LT: value->integer_value = left.integer_value < right.integer_value; return true;
+                case EXPR_GT: value->integer_value = left.integer_value > right.integer_value; return true;
+                case EXPR_LE: value->integer_value = left.integer_value <= right.integer_value; return true;
+                case EXPR_GE: value->integer_value = left.integer_value >= right.integer_value; return true;
+                default: return false;
+            }
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+            if (!sema_eval_constexpr_scalar_expr(expression->binary_lhs,
+                                                  bindings, binding_count,
+                                                  &left) ||
+                !sema_eval_constexpr_scalar_expr(expression->binary_rhs,
+                                                  bindings, binding_count,
+                                                  &right) ||
+                left.is_floating || right.is_floating) return false;
+            value->type = type_int;
+            value->is_floating = false;
+            switch (expression->kind) {
+                case EXPR_MOD:
+                    if (right.integer_value == 0 ||
+                        (left.integer_value == INT64_MIN &&
+                         right.integer_value == -1)) return false;
+                    value->integer_value = left.integer_value % right.integer_value;
+                    return true;
+                case EXPR_BITAND:
+                    value->integer_value = left.integer_value & right.integer_value;
+                    return true;
+                case EXPR_BITOR:
+                    value->integer_value = left.integer_value | right.integer_value;
+                    return true;
+                case EXPR_BITXOR:
+                    value->integer_value = left.integer_value ^ right.integer_value;
+                    return true;
+                case EXPR_LSHIFT:
+                    if (right.integer_value < 0 || right.integer_value >= 64 ||
+                        left.integer_value < 0 ||
+                        (right.integer_value == 63 && left.integer_value != 0) ||
+                        (right.integer_value < 63 &&
+                         left.integer_value >
+                             (INT64_MAX >> right.integer_value))) return false;
+                    value->integer_value = left.integer_value << right.integer_value;
+                    return true;
+                case EXPR_RSHIFT:
+                    if (right.integer_value < 0 || right.integer_value >= 64) {
+                        return false;
+                    }
+                    value->integer_value = left.integer_value >> right.integer_value;
+                    return true;
+                default:
+                    return false;
+            }
+        default:
+            return false;
+    }
 }
 
 static TypeMethod* sema_find_function_method(Type* aggregate,
@@ -3226,17 +3641,43 @@ static Type* sema_expr(Expr* expr) {
             }
 
             expr->type = ft->ret_type;
-            if (call_declaration && call_declaration->func_is_constexpr &&
-                sema_constexpr_integer_type(expr->type)) {
-                int64_t constexpr_value;
-                if (sema_eval_constexpr_function(call_declaration,
-                                                  expr->call_args,
-                                                  &constexpr_value)) {
-                    expr->kind = EXPR_INT_LIT;
-                    expr->int_val = constexpr_value;
-                    expr->is_cxx_nullptr = false;
-                    expr->cxx_move_assignment = NULL;
-                    expr->cxx_close_call = NULL;
+            if (call_declaration && call_declaration->func_is_constexpr) {
+                if (sema_constexpr_integer_type(expr->type)) {
+                    int64_t constexpr_value;
+                    if (sema_eval_constexpr_function(call_declaration,
+                                                      expr->call_args,
+                                                      &constexpr_value)) {
+                        expr->kind = EXPR_INT_LIT;
+                        expr->int_val = constexpr_value;
+                        expr->is_cxx_nullptr = false;
+                        expr->cxx_move_assignment = NULL;
+                        expr->cxx_close_call = NULL;
+                    } else {
+                        SemaConstexprScalar scalar_value;
+                        if (sema_eval_constexpr_scalar_function(
+                                call_declaration, expr->call_args,
+                                &scalar_value) && !scalar_value.is_floating) {
+                            expr->kind = EXPR_INT_LIT;
+                            expr->int_val = scalar_value.integer_value;
+                            expr->is_cxx_nullptr = false;
+                            expr->cxx_move_assignment = NULL;
+                            expr->cxx_close_call = NULL;
+                        }
+                    }
+                } else if (expr->type &&
+                           (expr->type->kind == TYPE_FLOAT ||
+                            expr->type->kind == TYPE_DOUBLE)) {
+                    SemaConstexprScalar constexpr_value;
+                    if (sema_eval_constexpr_scalar_function(
+                            call_declaration, expr->call_args,
+                            &constexpr_value)) {
+                        expr->kind = EXPR_FLOAT_LIT;
+                        expr->float_val = constexpr_value.floating_value;
+                        expr->type = call_declaration->type->ret_type;
+                        expr->is_cxx_nullptr = false;
+                        expr->cxx_move_assignment = NULL;
+                        expr->cxx_close_call = NULL;
+                    }
                 }
             }
             break;
@@ -4871,12 +5312,26 @@ static void sema_decl(Decl* decl) {
             if (decl->var_init) {
                 sema_initializer(decl->type, decl->var_init);
                 if (decl->var_is_constexpr) {
-                    int64_t constexpr_value;
-                    if (!sema_constexpr_integer_type(decl->type) ||
-                        !sema_eval_constexpr_expr(
-                            decl->var_init, NULL, 0, &constexpr_value)) {
+                    bool valid_constexpr = false;
+                    if (sema_constexpr_integer_type(decl->type)) {
+                        int64_t constexpr_value;
+                        valid_constexpr = sema_eval_constexpr_expr(
+                            decl->var_init, NULL, 0, &constexpr_value);
+                    } else if (decl->type &&
+                               (decl->type->kind == TYPE_FLOAT ||
+                                decl->type->kind == TYPE_DOUBLE)) {
+                        SemaConstexprScalar constexpr_value;
+                        valid_constexpr =
+                            sema_eval_constexpr_scalar_expr(
+                                decl->var_init, NULL, 0,
+                                &constexpr_value) &&
+                            sema_constexpr_scalar_convert(
+                                &constexpr_value, decl->type,
+                                &constexpr_value);
+                    }
+                    if (!valid_constexpr) {
                         rcc_error(decl->loc,
-                                  "constexpr variable initializer is not a supported integer constant expression");
+                                  "constexpr variable initializer is not a supported scalar constant expression");
                     }
                 }
                 if ((is_global || decl->storage == STORAGE_STATIC) &&

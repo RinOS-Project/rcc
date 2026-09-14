@@ -418,7 +418,9 @@ test-cxx-constexpr: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constexpr/invalid.log 2>&1
 	grep -q "constexpr variable requires an initializer" \
 		$(TEST_OUT)/cxx-constexpr/invalid.log
-	@echo "RCC++ restricted integer constexpr folding tests completed"
+	grep -q "constexpr variable initializer is not a supported scalar constant expression" \
+		$(TEST_OUT)/cxx-constexpr/invalid.log
+	@echo "RCC++ scalar constexpr folding tests completed"
 
 test-pic-direct-internal: $(RCC_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/pic-direct-internal)

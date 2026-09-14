@@ -2370,7 +2370,7 @@ static void emit_x87_fsubp_st1(Module* mod) {
 
 static void emit_x87_fucomip_st1(Module* mod) {
     emit_byte(mod, 0xDF);
-    emit_byte(mod, 0xE9); /* FUCOMIP ST(0), ST(1) */
+    emit_byte(mod, 0xE9); /* FUCOMIP ST(1), ST(0), then pop ST(0) */
 }
 
 static void emit_x87_fstp_st0(Module* mod) {
@@ -2467,14 +2467,16 @@ static void emit_x87_compare_stack(Module* mod, const Type* type,
                                    int expression_kind) {
     int width = gen_float_width(type);
     int lhs_offset = width == 4 ? 4 : 8;
-    /* DF E9 compares ST(0) with ST(1) and pops ST(0).  Load rhs first and
-     * lhs second so the flags represent lhs versus rhs in source order. */
+    /* DF E9 compares ST(1) with ST(0) and pops ST(0).  Load rhs first so
+     * lhs is ST(0), preserving the source-order comparison in EFLAGS. */
     emit_x87_load_memory(mod, width, ESP, 0);
     emit_x87_load_memory(mod, width, ESP, lhs_offset);
     emit_x87_fucomip_st1(mod);
     emit_x87_fstp_st0(mod);
-    emit_add_reg_imm(mod, ESP, width == 4 ? 8 : 16);
     emit_x87_compare_result(mod, expression_kind);
+    /* FUCOMIP writes EFLAGS.  Do not adjust ESP until the result has been
+     * materialized because ADD would overwrite those flags. */
+    emit_add_reg_imm(mod, ESP, width == 4 ? 8 : 16);
 }
 
 static void emit_x87_power_of_two(Module* mod, int exponent) {
@@ -2598,7 +2600,6 @@ static void emit_x87_floating_truth(Module* mod, const Type* type) {
     emit_x87_load_memory(mod, width, ESP, 0);
     emit_x87_fucomip_st1(mod);
     emit_x87_fstp_st0(mod);
-    emit_add_reg_imm(mod, ESP, width == 4 ? 4 : 8);
     emit_setcc(mod, CC_NE, EAX);
     emit_byte(mod, 0x0F);
     emit_byte(mod, 0xB6);
@@ -2608,6 +2609,8 @@ static void emit_x87_floating_truth(Module* mod, const Type* type) {
     emit_byte(mod, 0xB6);
     emit_byte(mod, modrm(3, ECX, ECX));
     emit_or_reg_reg(mod, EAX, ECX);
+    /* The x87 comparison flags must be consumed before ADD changes them. */
+    emit_add_reg_imm(mod, ESP, width == 4 ? 4 : 8);
 }
 
 static void emit_x87_compare_result(Module* mod, int expression_kind) {
