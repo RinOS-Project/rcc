@@ -901,6 +901,13 @@ static bool gen64_classify_type_at(const Type* type, int base_offset,
                 continue;
             }
             if (field->offset < 0 || field->offset > type->size ||
+                /* SysV classifies an aggregate as MEMORY when a field is
+                 * not naturally aligned.  The containing type's alignment
+                 * may be one after #pragma pack, so checking only the
+                 * aggregate alignment would incorrectly pass a long long or
+                 * double beginning in the middle of an eightbyte. */
+                (field->type && field->type->align > 1 &&
+                 field->offset % field->type->align != 0) ||
                 !gen64_classify_type_at(field->type,
                                         base_offset + field->offset,
                                         result)) {
