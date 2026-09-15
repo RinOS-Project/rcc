@@ -798,6 +798,9 @@ typedef struct SemaConstexprBinding {
     int64_t value;
     double floating_value;
     bool is_floating;
+    bool is_pointer;
+    Decl* pointer_declaration;
+    int64_t pointer_offset;
     /* Fixed-size aggregate locals are evaluated in an isolated byte buffer.
      * The buffer follows the target layout already computed by the parser, so
      * member/index lvalues can be read and written without inventing a second
@@ -1414,6 +1417,8 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
     int64_t argument_value;
     bool result;
 
+    memset(bindings, 0, sizeof(bindings));
+
     if (!declaration || !value || !declaration->func_is_constexpr ||
         declaration->func_this_param || !declaration->type ||
         declaration->type->variadic || !declaration->func_body ||
@@ -1457,6 +1462,9 @@ typedef struct SemaConstexprScalar {
     int64_t integer_value;
     double floating_value;
     bool is_floating;
+    bool is_pointer;
+    Decl* pointer_declaration;
+    int64_t pointer_offset;
 } SemaConstexprScalar;
 
 /* Integer constexpr values keep their target-width bit pattern in the
@@ -1496,6 +1504,7 @@ static int64_t sema_constexpr_integer_signed(
 
 static bool sema_constexpr_scalar_type(Type* type) {
     return type && (sema_constexpr_integer_type(type) ||
+                    type->kind == TYPE_PTR ||
                     type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
 }
 
@@ -1510,6 +1519,32 @@ static bool sema_constexpr_scalar_convert(
 
     if (!input || !output || !sema_constexpr_scalar_type(type) ||
         type->size <= 0) return false;
+    if (type->kind == TYPE_PTR) {
+        if (input->is_pointer) {
+            output->type = type;
+            output->integer_value = 0;
+            output->floating_value = 0.0;
+            output->is_floating = false;
+            output->is_pointer = true;
+            output->pointer_declaration = input->pointer_declaration;
+            output->pointer_offset = input->pointer_offset;
+            return true;
+        }
+        if (!input->is_floating && input->type &&
+            sema_constexpr_integer_type(input->type) &&
+            sema_constexpr_integer_bits(input) == 0u) {
+            output->type = type;
+            output->integer_value = 0;
+            output->floating_value = 0.0;
+            output->is_floating = false;
+            output->is_pointer = true;
+            output->pointer_declaration = NULL;
+            output->pointer_offset = 0;
+            return true;
+        }
+        return false;
+    }
+    if (input->is_pointer) return false;
     if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
         numeric = input->is_floating
             ? (long double)input->floating_value
@@ -1522,6 +1557,9 @@ static bool sema_constexpr_scalar_convert(
         output->floating_value = type->kind == TYPE_FLOAT
             ? (double)(float)numeric : (double)numeric;
         output->integer_value = 0;
+        output->is_pointer = false;
+        output->pointer_declaration = NULL;
+        output->pointer_offset = 0;
         if (!isfinite(output->floating_value) ||
             (type->kind == TYPE_FLOAT &&
              (output->floating_value > FLT_MAX ||
@@ -1562,6 +1600,9 @@ static bool sema_constexpr_scalar_convert(
     output->type = type;
     output->floating_value = 0.0;
     output->is_floating = false;
+    output->is_pointer = false;
+    output->pointer_declaration = NULL;
+    output->pointer_offset = 0;
     return true;
 }
 
@@ -1580,6 +1621,69 @@ static bool sema_constexpr_aggregate_type(Type* type) {
                     type->kind == TYPE_STRUCT ||
                     type->kind == TYPE_UNION) &&
            type_is_complete(type) && type->size > 0;
+}
+
+static bool sema_constexpr_pointer_offset(int64_t base, int64_t elements,
+                                          int element_size, int64_t* result) {
+    int64_t bytes;
+    if (!result || element_size <= 0) return false;
+#if defined(__GNUC__) || defined(__clang__)
+    if (__builtin_mul_overflow(elements, (int64_t)element_size, &bytes) ||
+        __builtin_add_overflow(base, bytes, result)) return false;
+#else
+    if (elements != 0 &&
+        (elements > INT64_MAX / element_size ||
+         elements < INT64_MIN / element_size)) return false;
+    bytes = elements * element_size;
+    if ((bytes > 0 && base > INT64_MAX - bytes) ||
+        (bytes < 0 && base < INT64_MIN - bytes)) return false;
+    *result = base + bytes;
+#endif
+    return true;
+}
+
+static bool sema_constexpr_address_target(Expr* expression, Decl** declaration,
+                                          int64_t* offset) {
+    int64_t index;
+    int64_t element_size;
+    if (!expression || !declaration || !offset) return false;
+    if (expression->kind == EXPR_IDENT && expression->ident_decl) {
+        Decl* target = expression->ident_decl;
+        if (target->kind == DECL_FUNC ||
+            (target->kind == DECL_VAR &&
+             (target->var_is_global || target->var_is_static_local))) {
+            *declaration = target;
+            *offset = 0;
+            return true;
+        }
+        return false;
+    }
+    if (expression->kind == EXPR_INDEX && expression->index_base &&
+        expression->index_expr &&
+        sema_constexpr_address_target(expression->index_base, declaration,
+                                       offset) &&
+        (*declaration)->kind == DECL_VAR && (*declaration)->type &&
+        (*declaration)->type->kind == TYPE_ARRAY &&
+        (*declaration)->type->base &&
+        expr_eval_integer_constant(expression->index_expr, &index)) {
+        element_size = (*declaration)->type->base->size;
+        if (element_size <= 0 || index < 0 ||
+            ((*declaration)->type->array_len >= 0 &&
+             index > (*declaration)->type->array_len) ||
+            index > INT64_MAX / element_size ||
+            index < INT64_MIN / element_size) return false;
+        return sema_constexpr_pointer_offset(*offset, index,
+                                             (int)element_size, offset);
+    }
+    if (expression->kind == EXPR_MEMBER && expression->member_base &&
+        expression->member_field &&
+        sema_constexpr_address_target(expression->member_base, declaration,
+                                       offset) &&
+        expression->member_field->offset >= 0) {
+        return sema_constexpr_pointer_offset(
+            *offset, expression->member_field->offset, 1, offset);
+    }
+    return false;
 }
 
 static bool sema_constexpr_zero_initializer(Expr* initializer);
@@ -2180,6 +2284,139 @@ static bool sema_constexpr_scalar_binary(
     comparison = expression_kind == EXPR_EQ || expression_kind == EXPR_NE ||
                 expression_kind == EXPR_LT || expression_kind == EXPR_GT ||
                 expression_kind == EXPR_LE || expression_kind == EXPR_GE;
+
+    if (left->is_pointer || right->is_pointer) {
+        bool left_pointer = left->is_pointer;
+        bool right_pointer = right->is_pointer;
+        bool left_null = left_pointer && !left->pointer_declaration &&
+                         left->pointer_offset == 0;
+        bool right_null = right_pointer && !right->pointer_declaration &&
+                          right->pointer_offset == 0;
+        int64_t element_size;
+        int64_t difference;
+
+        if (comparison) {
+            if (!left_pointer && left->is_floating) return false;
+            if (!right_pointer && right->is_floating) return false;
+            if (!left_pointer && left->integer_value == 0) {
+                left_pointer = true;
+                left_null = true;
+            }
+            if (!right_pointer && right->integer_value == 0) {
+                right_pointer = true;
+                right_null = true;
+            }
+            if (!left_pointer || !right_pointer) return false;
+            if (expression_kind == EXPR_EQ || expression_kind == EXPR_NE) {
+                bool equal = left_null && right_null;
+                if (!left_null && !right_null) {
+                    equal = left->pointer_declaration ==
+                                right->pointer_declaration &&
+                            left->pointer_offset == right->pointer_offset;
+                }
+                output->type = type_int;
+                output->integer_value = expression_kind == EXPR_EQ
+                    ? equal : !equal;
+                output->floating_value = 0.0;
+                output->is_floating = false;
+                output->is_pointer = false;
+                output->pointer_declaration = NULL;
+                output->pointer_offset = 0;
+                return true;
+            }
+            if (left_null || right_null ||
+                left->pointer_declaration != right->pointer_declaration) {
+                return false;
+            }
+            output->type = type_int;
+            output->is_floating = false;
+            output->is_pointer = false;
+            output->pointer_declaration = NULL;
+            output->pointer_offset = 0;
+            switch (expression_kind) {
+                case EXPR_LT:
+                    output->integer_value = left->pointer_offset <
+                                            right->pointer_offset;
+                    break;
+                case EXPR_GT:
+                    output->integer_value = left->pointer_offset >
+                                            right->pointer_offset;
+                    break;
+                case EXPR_LE:
+                    output->integer_value = left->pointer_offset <=
+                                            right->pointer_offset;
+                    break;
+                case EXPR_GE:
+                    output->integer_value = left->pointer_offset >=
+                                            right->pointer_offset;
+                    break;
+                default:
+                    return false;
+            }
+            return true;
+        }
+
+        if (expression_kind == EXPR_SUB && left_pointer && right_pointer) {
+            if (left->pointer_declaration != right->pointer_declaration ||
+                (!left->pointer_declaration && left->pointer_offset == 0) ||
+                (!right->pointer_declaration && right->pointer_offset == 0) ||
+                !left->type || left->type->kind != TYPE_PTR ||
+                !left->type->base || left->type->base->size <= 0) return false;
+#if defined(__GNUC__) || defined(__clang__)
+            if (__builtin_sub_overflow(left->pointer_offset,
+                                       right->pointer_offset,
+                                       &difference)) return false;
+#else
+            if ((right->pointer_offset < 0 &&
+                 left->pointer_offset > INT64_MAX + right->pointer_offset) ||
+                (right->pointer_offset > 0 &&
+                 left->pointer_offset < INT64_MIN + right->pointer_offset)) {
+                return false;
+            }
+            difference = left->pointer_offset - right->pointer_offset;
+#endif
+            element_size = left->type->base->size;
+            if (difference % element_size != 0) return false;
+            output->type = result_type;
+            output->integer_value = difference / element_size;
+            output->floating_value = 0.0;
+            output->is_floating = false;
+            output->is_pointer = false;
+            output->pointer_declaration = NULL;
+            output->pointer_offset = 0;
+            return true;
+        }
+        if (expression_kind == EXPR_ADD || expression_kind == EXPR_SUB) {
+            const SemaConstexprScalar* pointer = left_pointer ? left : right;
+            const SemaConstexprScalar* integer_value = left_pointer ? right : left;
+            int64_t elements;
+            if (expression_kind == EXPR_SUB && !left_pointer) return false;
+            if (!pointer->type || pointer->type->kind != TYPE_PTR ||
+                !pointer->type->base || pointer->type->base->size <= 0 ||
+                (!pointer->pointer_declaration && pointer->pointer_offset == 0) ||
+                integer_value->is_pointer || integer_value->is_floating) {
+                return false;
+            }
+            elements = integer_value->integer_value;
+            if (expression_kind == EXPR_SUB) {
+                if (elements == INT64_MIN) return false;
+                elements = -elements;
+            }
+            if (!sema_constexpr_pointer_offset(
+                    pointer->pointer_offset, elements,
+                    pointer->type->base->size, &difference)) return false;
+            output->type = result_type->kind == TYPE_PTR
+                ? result_type : pointer->type;
+            output->integer_value = 0;
+            output->floating_value = 0.0;
+            output->is_floating = false;
+            output->is_pointer = true;
+            output->pointer_declaration = pointer->pointer_declaration;
+            output->pointer_offset = difference;
+            return true;
+        }
+        return false;
+    }
     operation_type = comparison ? type_common(left->type, right->type)
                                 : result_type;
     if (!sema_constexpr_scalar_type(operation_type) ||
@@ -2198,6 +2435,9 @@ static bool sema_constexpr_scalar_binary(
             expression_kind == EXPR_LE || expression_kind == EXPR_GE) {
             output->type = type_int;
             output->is_floating = false;
+            output->is_pointer = false;
+            output->pointer_declaration = NULL;
+            output->pointer_offset = 0;
             switch (expression_kind) {
                 case EXPR_EQ: output->integer_value = left_value == right_value; break;
                 case EXPR_NE: output->integer_value = left_value != right_value; break;
@@ -2215,6 +2455,9 @@ static bool sema_constexpr_scalar_binary(
         raw.type = operation_type;
         raw.integer_value = 0;
         raw.is_floating = true;
+        raw.is_pointer = false;
+        raw.pointer_declaration = NULL;
+        raw.pointer_offset = 0;
         switch (expression_kind) {
             case EXPR_ADD: raw.floating_value = left_value + right_value; break;
             case EXPR_SUB: raw.floating_value = left_value - right_value; break;
@@ -2229,6 +2472,9 @@ static bool sema_constexpr_scalar_binary(
     }
     output->type = comparison ? type_int : result_type;
     output->is_floating = false;
+    output->is_pointer = false;
+    output->pointer_declaration = NULL;
+    output->pointer_offset = 0;
     if (comparison) {
         uint64_t left_bits = sema_constexpr_integer_bits(&converted_left);
         uint64_t right_bits = sema_constexpr_integer_bits(&converted_right);
@@ -2380,6 +2626,9 @@ static bool sema_eval_constexpr_scalar_statement(
 
 static bool sema_constexpr_scalar_truth(const SemaConstexprScalar* value) {
     if (!value) return false;
+    if (value->is_pointer) {
+        return value->pointer_declaration != NULL || value->pointer_offset != 0;
+    }
     return value->is_floating ? value->floating_value != 0.0
                               : value->integer_value != 0;
 }
@@ -2436,6 +2685,9 @@ static bool sema_eval_constexpr_scalar_statement(
                 bindings[*binding_count].value = 0;
                 bindings[*binding_count].floating_value = 0.0;
                 bindings[*binding_count].is_floating = false;
+                bindings[*binding_count].is_pointer = false;
+                bindings[*binding_count].pointer_declaration = NULL;
+                bindings[*binding_count].pointer_offset = 0;
                 bindings[*binding_count].object_bytes = object_bytes;
                 bindings[*binding_count].object_size =
                     (size_t)declaration->type->size;
@@ -2461,6 +2713,10 @@ static bool sema_eval_constexpr_scalar_statement(
             bindings[*binding_count].value = initializer.integer_value;
             bindings[*binding_count].floating_value = initializer.floating_value;
             bindings[*binding_count].is_floating = initializer.is_floating;
+            bindings[*binding_count].is_pointer = initializer.is_pointer;
+            bindings[*binding_count].pointer_declaration =
+                initializer.pointer_declaration;
+            bindings[*binding_count].pointer_offset = initializer.pointer_offset;
             bindings[*binding_count].object_bytes = NULL;
             bindings[*binding_count].object_size = 0u;
             bindings[*binding_count].is_object = false;
@@ -2609,6 +2865,8 @@ static bool sema_eval_constexpr_scalar_function(
     SemaConstexprStatementResult statement_result;
     int count = 0;
 
+    memset(bindings, 0, sizeof(bindings));
+
     if (!declaration || !value || !declaration->func_is_constexpr ||
         declaration->func_this_param || !declaration->type ||
         declaration->type->kind != TYPE_FUNC || declaration->type->variadic ||
@@ -2638,6 +2896,10 @@ static bool sema_eval_constexpr_scalar_function(
             bindings[count].value = argument_value.integer_value;
             bindings[count].floating_value = argument_value.floating_value;
             bindings[count].is_floating = argument_value.is_floating;
+            bindings[count].is_pointer = argument_value.is_pointer;
+            bindings[count].pointer_declaration =
+                argument_value.pointer_declaration;
+            bindings[count].pointer_offset = argument_value.pointer_offset;
         } else if (sema_constexpr_aggregate_type(parameter->decl->type)) {
             if (parameter->decl->type->size <= 0) return false;
             bindings[count].object_bytes = ast_arena_alloc(
@@ -2684,6 +2946,12 @@ static bool sema_eval_constexpr_scalar_expr(
     memset(value, 0, sizeof(*value));
     switch (expression->kind) {
         case EXPR_INT_LIT:
+            if (expression->is_cxx_nullptr ||
+                (expression->type && expression->type->kind == TYPE_NULLPTR)) {
+                value->type = expression->type ? expression->type : type_nullptr;
+                value->is_pointer = true;
+                return true;
+            }
             value->type = expression->type ? expression->type : type_int;
             value->integer_value = expression->int_val;
             value->is_floating = false;
@@ -2709,6 +2977,10 @@ static bool sema_eval_constexpr_scalar_expr(
                 value->integer_value = bindings[binding_index].value;
                 value->floating_value = bindings[binding_index].floating_value;
                 value->is_floating = bindings[binding_index].is_floating;
+                value->is_pointer = bindings[binding_index].is_pointer;
+                value->pointer_declaration =
+                    bindings[binding_index].pointer_declaration;
+                value->pointer_offset = bindings[binding_index].pointer_offset;
                 return true;
             }
             if (expression->ident_decl &&
@@ -2730,6 +3002,14 @@ static bool sema_eval_constexpr_scalar_expr(
                 --constexpr_eval_depth;
                 return result && sema_constexpr_scalar_convert(
                     value, expression->ident_decl->type, value);
+            }
+            if (expression->ident_decl &&
+                expression->ident_decl->kind == DECL_FUNC) {
+                value->type = type_ptr(expression->ident_decl->type);
+                value->is_pointer = true;
+                value->pointer_declaration = expression->ident_decl;
+                value->pointer_offset = 0;
+                return true;
             }
             return false;
         case EXPR_COMPOUND:
@@ -2836,6 +3116,10 @@ static bool sema_eval_constexpr_scalar_expr(
             current.integer_value = bindings[binding_index].value;
             current.floating_value = bindings[binding_index].floating_value;
             current.is_floating = bindings[binding_index].is_floating;
+            current.is_pointer = bindings[binding_index].is_pointer;
+            current.pointer_declaration =
+                bindings[binding_index].pointer_declaration;
+            current.pointer_offset = bindings[binding_index].pointer_offset;
             if (!sema_constexpr_scalar_assign(
                     expression->kind, &current, &right,
                     bindings[binding_index].type, &assigned)) return false;
@@ -2843,6 +3127,10 @@ static bool sema_eval_constexpr_scalar_expr(
             bindings[binding_index].floating_value = assigned.floating_value;
             bindings[binding_index].is_floating = assigned.is_floating;
             bindings[binding_index].type = assigned.type;
+            bindings[binding_index].is_pointer = assigned.is_pointer;
+            bindings[binding_index].pointer_declaration =
+                assigned.pointer_declaration;
+            bindings[binding_index].pointer_offset = assigned.pointer_offset;
             *value = assigned;
             return true;
         }
@@ -2885,6 +3173,10 @@ static bool sema_eval_constexpr_scalar_expr(
             current.integer_value = bindings[binding_index].value;
             current.floating_value = bindings[binding_index].floating_value;
             current.is_floating = bindings[binding_index].is_floating;
+            current.is_pointer = bindings[binding_index].is_pointer;
+            current.pointer_declaration =
+                bindings[binding_index].pointer_declaration;
+            current.pointer_offset = bindings[binding_index].pointer_offset;
             memset(&one, 0, sizeof(one));
             one.type = type_int;
             one.integer_value = 1;
@@ -2898,6 +3190,10 @@ static bool sema_eval_constexpr_scalar_expr(
             bindings[binding_index].floating_value = updated.floating_value;
             bindings[binding_index].is_floating = updated.is_floating;
             bindings[binding_index].type = updated.type;
+            bindings[binding_index].is_pointer = updated.is_pointer;
+            bindings[binding_index].pointer_declaration =
+                updated.pointer_declaration;
+            bindings[binding_index].pointer_offset = updated.pointer_offset;
             if (expression->kind == EXPR_POSTINC ||
                 expression->kind == EXPR_POSTDEC) {
                 *value = current;
@@ -2912,6 +3208,19 @@ static bool sema_eval_constexpr_scalar_expr(
                                                   &left)) return false;
             return sema_constexpr_scalar_convert(&left,
                                                  expression->cast_type, value);
+        case EXPR_ADDR: {
+            Decl* declaration = NULL;
+            int64_t offset = 0;
+            if (!sema_constexpr_address_target(
+                    expression->unary_operand, &declaration, &offset)) {
+                return false;
+            }
+            value->type = expression->type;
+            value->is_pointer = true;
+            value->pointer_declaration = declaration;
+            value->pointer_offset = offset;
+            return true;
+        }
         case EXPR_NEG:
             if (!sema_eval_constexpr_scalar_expr(expression->unary_operand,
                                                   bindings, binding_count,
@@ -2941,8 +3250,7 @@ static bool sema_eval_constexpr_scalar_expr(
                                                   bindings, binding_count,
                                                   &left)) return false;
             value->type = type_int;
-            value->integer_value = left.is_floating
-                ? left.floating_value == 0.0 : left.integer_value == 0;
+            value->integer_value = !sema_constexpr_scalar_truth(&left);
             return true;
         case EXPR_BITNOT:
             if (!sema_eval_constexpr_scalar_expr(expression->unary_operand,
@@ -7370,19 +7678,7 @@ static void sema_decl(Decl* decl) {
                 sema_initializer(decl->type, decl->var_init);
                 if (decl->var_is_constexpr) {
                     bool valid_constexpr = false;
-                    if (sema_constexpr_integer_type(decl->type)) {
-                        SemaConstexprScalar constexpr_value;
-                        valid_constexpr =
-                            sema_eval_constexpr_scalar_expr(
-                                decl->var_init, NULL, 0,
-                                &constexpr_value) &&
-                            !constexpr_value.is_floating &&
-                            sema_constexpr_scalar_convert(
-                                &constexpr_value, decl->type,
-                                &constexpr_value);
-                    } else if (decl->type &&
-                               (decl->type->kind == TYPE_FLOAT ||
-                                decl->type->kind == TYPE_DOUBLE)) {
+                    if (sema_constexpr_scalar_type(decl->type)) {
                         SemaConstexprScalar constexpr_value;
                         valid_constexpr =
                             sema_eval_constexpr_scalar_expr(
@@ -7405,7 +7701,11 @@ static void sema_decl(Decl* decl) {
                                 &folded) &&
                             sema_constexpr_scalar_convert(
                                 &folded, decl->type, &folded)) {
-                            if (folded.is_floating) {
+                            if (folded.is_pointer) {
+                                /* Address constants must remain relocatable
+                                 * AST expressions; replacing them with an
+                                 * integer would lose the target symbol. */
+                            } else if (folded.is_floating) {
                                 decl->var_init->kind = EXPR_FLOAT_LIT;
                                 decl->var_init->float_val =
                                     folded.floating_value;

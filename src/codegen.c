@@ -792,6 +792,15 @@ static bool codegen_static_address(Module* mod, Expr* expression,
         return true;
     }
     if (expression->kind == EXPR_IDENT && expression->ident_decl &&
+        expression->ident_decl->kind == DECL_VAR &&
+        expression->ident_decl->var_is_constexpr &&
+        expression->ident_decl->type &&
+        expression->ident_decl->type->kind == TYPE_PTR &&
+        expression->ident_decl->var_init) {
+        return codegen_static_address(mod, expression->ident_decl->var_init,
+                                      symbol_name, addend);
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_decl &&
         (expression->ident_decl->kind == DECL_FUNC ||
          (expression->ident_decl->kind == DECL_VAR &&
           expression->ident_decl->var_is_global &&

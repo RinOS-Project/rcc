@@ -152,6 +152,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-range-for
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
+.PHONY: test-cxx-constexpr-pointer
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1232,6 +1233,28 @@ test-cxx-if-constexpr: $(RCXX_TARGET)
 	grep -q "if constexpr condition is not a constant expression" \
 		$(TEST_OUT)/cxx-if-constexpr/nonconstant.log
 	@echo "C++ if constexpr selection and diagnostics tests completed"
+
+test-cxx-constexpr-pointer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-pointer/x86.s \
+		tests/cxx_constexpr_pointer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constexpr-pointer/x86.o \
+		$(TEST_OUT)/cxx-constexpr-pointer/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-constexpr-pointer/x86 \
+		tests/cxx_constexpr_pointer_run_test.c \
+		$(TEST_OUT)/cxx-constexpr-pointer/x86.o
+	$(TEST_OUT)/cxx-constexpr-pointer/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-pointer/x64.s \
+		tests/cxx_constexpr_pointer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-constexpr-pointer/x64.o \
+		$(TEST_OUT)/cxx-constexpr-pointer/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-constexpr-pointer/x64 \
+		tests/cxx_constexpr_pointer_run_test.c \
+		$(TEST_OUT)/cxx-constexpr-pointer/x64.o
+	$(TEST_OUT)/cxx-constexpr-pointer/x64
+	@echo "C++ constexpr pointer tests completed"
 
 test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)
