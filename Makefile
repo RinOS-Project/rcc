@@ -1714,7 +1714,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi
+.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-specialization-ambiguous
@@ -1961,6 +1961,32 @@ test-aggregate-sse-abi: $(RCC_TARGET)
 		$(TEST_OUT)/aggregate-sse-abi/x64.o
 	$(TEST_OUT)/aggregate-sse-abi/x64
 	@echo "SysV SSE aggregate and variadic ABI tests completed"
+
+test-aggregate-nested-abi: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/aggregate-nested-abi)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-nested-abi/x86.s \
+		tests/aggregate_nested_abi.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-nested-abi/x64.s \
+		tests/aggregate_nested_abi.c
+	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-nested-abi/x86.o \
+		$(TEST_OUT)/aggregate-nested-abi/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-nested-abi/host-x86.o \
+		tests/aggregate_nested_abi_host.c
+	$(CC) -m32 -o $(TEST_OUT)/aggregate-nested-abi/x86 \
+		$(TEST_OUT)/aggregate-nested-abi/host-x86.o \
+		$(TEST_OUT)/aggregate-nested-abi/x86.o
+	$(TEST_OUT)/aggregate-nested-abi/x86
+	$(CC) -c -o $(TEST_OUT)/aggregate-nested-abi/x64.o \
+		$(TEST_OUT)/aggregate-nested-abi/x64.s
+	$(CC) -c -o $(TEST_OUT)/aggregate-nested-abi/host-x64.o \
+		tests/aggregate_nested_abi_host.c
+	$(CC) -o $(TEST_OUT)/aggregate-nested-abi/x64 \
+		$(TEST_OUT)/aggregate-nested-abi/host-x64.o \
+		$(TEST_OUT)/aggregate-nested-abi/x64.o
+	$(TEST_OUT)/aggregate-nested-abi/x64
+	@echo "SysV nested aggregate ABI tests completed"
 
 test-cxx-overloads: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-overloads
