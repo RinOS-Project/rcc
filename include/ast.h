@@ -760,6 +760,9 @@ struct Decl {
             bool var_is_thread_local;
             bool var_is_vla;
             bool var_is_auto;       /* C++ placeholder type, deduced in sema. */
+            bool var_is_auto_reference;
+            bool var_is_auto_rvalue_reference;
+            bool var_is_auto_const;
             bool var_is_constexpr;  /* C++ constexpr variable declaration. */
             Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
         };

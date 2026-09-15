@@ -153,7 +153,8 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
 .PHONY: test-cxx-constexpr-pointer
-.PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto
+.PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
+	test-cxx-auto-local-refs
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1346,6 +1347,36 @@ test-cxx-decltype-auto: $(RCXX_TARGET)
 	grep -q "auto return type requires a function definition" \
 		$(TEST_OUT)/cxx-decltype-auto/invalid.log
 	@echo "C++ decltype(auto) tests completed"
+
+test-cxx-auto-local-refs: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-local-refs)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-auto-local-refs/x86.s \
+		tests/cxx_auto_local_refs.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-auto-local-refs/x86.o \
+		$(TEST_OUT)/cxx-auto-local-refs/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-auto-local-refs/x86 \
+		tests/cxx_auto_local_refs_run_test.c \
+		$(TEST_OUT)/cxx-auto-local-refs/x86.o
+	$(TEST_OUT)/cxx-auto-local-refs/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-auto-local-refs/x64.s \
+		tests/cxx_auto_local_refs.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-auto-local-refs/x64.o \
+		$(TEST_OUT)/cxx-auto-local-refs/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-auto-local-refs/x64 \
+		tests/cxx_auto_local_refs_run_test.c \
+		$(TEST_OUT)/cxx-auto-local-refs/x64.o
+	$(TEST_OUT)/cxx-auto-local-refs/x64
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-auto-local-refs/invalid.ro \
+		tests/cxx_auto_local_refs_invalid.cpp \
+		>$(TEST_OUT)/cxx-auto-local-refs/invalid.log 2>&1; then \
+		echo "auto& temporary unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "auto& initializer must be an lvalue" \
+		$(TEST_OUT)/cxx-auto-local-refs/invalid.log
+	@echo "C++ local auto reference tests completed"
 	grep -q "unsupported operator in decltype expression" \
 		$(TEST_OUT)/cxx-decltype/invalid.log
 	@echo "C++ decltype tests completed"

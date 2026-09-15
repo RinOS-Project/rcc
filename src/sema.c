@@ -7017,6 +7017,32 @@ static Type* sema_deduce_auto_type(Decl* declaration) {
     }
     deduced = declaration->var_init->type;
     if (!deduced) deduced = sema_expr(declaration->var_init);
+    if (declaration->var_is_auto_reference) {
+        bool binds_lvalue = is_lvalue(declaration->var_init);
+        if (!deduced || deduced->kind == TYPE_VOID) {
+            rcc_error(declaration->loc,
+                      "auto reference initializer has no object type");
+            return type_int;
+        }
+        if (!binds_lvalue && !declaration->var_is_auto_rvalue_reference) {
+            rcc_error(declaration->loc,
+                      "auto& initializer must be an lvalue");
+        }
+        if (deduced->kind == TYPE_PTR && deduced->is_reference) {
+            deduced = deduced->base;
+        }
+        if (declaration->var_is_auto_const && deduced) {
+            Type* qualified = ast_arena_alloc(sizeof(*qualified));
+            *qualified = *deduced;
+            qualified->is_const = true;
+            deduced = qualified;
+        }
+        Type* reference = type_ptr(deduced);
+        reference->is_reference = true;
+        reference->is_rvalue_reference =
+            declaration->var_is_auto_rvalue_reference && !binds_lvalue;
+        return reference;
+    }
     if (deduced && deduced->is_reference && deduced->kind == TYPE_PTR) {
         deduced = deduced->base;
     } else if (deduced && deduced->kind == TYPE_ARRAY) {
@@ -7036,6 +7062,12 @@ static Type* sema_deduce_auto_type(Decl* declaration) {
         unqualified->is_const = false;
         unqualified->is_volatile = false;
         deduced = unqualified;
+    }
+    if (declaration->var_is_auto_const) {
+        Type* qualified = ast_arena_alloc(sizeof(*qualified));
+        *qualified = *deduced;
+        qualified->is_const = true;
+        deduced = qualified;
     }
     return deduced;
 }

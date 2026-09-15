@@ -5337,13 +5337,23 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     Type* type;
     Token* name;
     Expr* initializer = NULL;
+    bool is_auto_const = match(TOK_CONST);
     bool is_auto = match(TOK_AUTO);
+    bool is_auto_reference = false;
+    bool is_auto_rvalue_reference = false;
 
-    if (is_auto) {
-        type = NULL;
-    } else {
-        type = parse_cxx_type_spec();
+    if (!is_auto) {
+        rcc_error(loc, "expected auto local declaration");
+        return NULL;
     }
+    if (match(TOK_AMP)) {
+        is_auto_reference = true;
+    } else if (match(TOK_AND)) {
+        is_auto_reference = true;
+        is_auto_rvalue_reference = true;
+    }
+
+    type = NULL;
     name = expect(TOK_IDENT, "local variable name");
     if (!name) return NULL;
     if (match(TOK_ASSIGN)) {
@@ -5388,12 +5398,18 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     expect(TOK_SEMICOLON, ";");
     Decl* declaration = decl_var(name->value.str_val, type, initializer, loc);
     declaration->var_is_auto = is_auto;
+    declaration->var_is_auto_reference = is_auto_reference;
+    declaration->var_is_auto_rvalue_reference = is_auto_rvalue_reference;
+    declaration->var_is_auto_const = is_auto_const;
     rcc_parser_cxx_add_value_binding(declaration->name, declaration->type);
     return stmt_decl(declaration, loc);
 }
 
 Stmt* rcc_parse_cxx_auto_local_declaration(void) {
-    if (!check(TOK_AUTO)) return NULL;
+    if (!check(TOK_AUTO) && !(check(TOK_CONST) && parser.cur->next &&
+                              parser.cur->next->type == TOK_AUTO)) {
+        return NULL;
+    }
     return parse_cxx_dependent_local_declaration();
 }
 
