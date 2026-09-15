@@ -34,6 +34,16 @@ public:
     }
 };
 
+template<typename T>
+class Value<T***> {
+public:
+    int marker;
+
+    int kind() {
+        return marker + 30;
+    }
+};
+
 template<int N>
 class Number {
 public:
@@ -86,6 +96,7 @@ int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};
     Value<int**> pointer_pointer_value{2};
+    Value<int***> pointer_pointer_pointer_value{3};
     Number<3> ordinary_number;
     Number<7> specialized_number;
     Pair<int, 3> ordinary_pair;
@@ -94,6 +105,7 @@ int main() {
     Select<int, 3> specialized_select;
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
+                   pointer_pointer_pointer_value.kind() == 33 &&
                    ordinary_number.kind() == 3 &&
                    specialized_number.kind() == 70 &&
                    ordinary_pair.kind() == 3 &&
