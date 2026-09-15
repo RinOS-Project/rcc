@@ -33,6 +33,9 @@ extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_class_local_declaration(
     Type* base_type, int storage, bool is_thread_local,
     SourceLoc loc) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_qualified_data_definition(
+    Type* base_type, int storage, bool is_inline, bool is_constexpr,
+    bool is_thread_local, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
     Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parser_cxx_capture_expression(
@@ -2836,6 +2839,13 @@ Stmt* parse_declaration(void) {
         Stmt* class_declaration = rcc_parse_cxx_class_local_declaration(
             base_type, storage, is_thread_local, loc);
         if (class_declaration) return class_declaration;
+    }
+
+    if (!is_typedef && parser_cxx_mode &&
+        rcc_parse_cxx_qualified_data_definition) {
+        Stmt* qualified_definition = rcc_parse_cxx_qualified_data_definition(
+            base_type, storage, is_inline, is_constexpr, is_thread_local, loc);
+        if (qualified_definition) return qualified_definition;
     }
 
     type = parse_declarator(base_type, &declaration_name, &parameters);

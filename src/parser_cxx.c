@@ -3482,6 +3482,109 @@ static CxxClass* find_class(const char* qualified_name) {
     return namespace_class(ns, component);
 }
 
+/* Complete a previously declared static data member outside its class.  The
+ * class parser has already published the declaration and its ABI spelling;
+ * this hook only consumes the qualified definition and updates that same
+ * declaration, avoiding duplicate data symbols in one translation unit. */
+Stmt* rcc_parse_cxx_qualified_data_definition(
+    Type* base_type, int storage, bool is_inline, bool is_constexpr,
+    bool is_thread_local, SourceLoc loc) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    const char* qualified;
+    const char* separator;
+    const char* member_name;
+    size_t owner_length;
+    char owner_name[512];
+    CxxClass* cls;
+    Decl* declaration = NULL;
+    TypeParam* field;
+    Expr* initializer = NULL;
+
+    (void)is_inline;
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    qualified = parse_qualified_name();
+    separator = qualified ? strrchr(qualified, ':') : NULL;
+    if (!separator || separator <= qualified || separator[-1] != ':') {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    owner_length = (size_t)(separator - qualified - 1);
+    if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    memcpy(owner_name, qualified, owner_length);
+    owner_name[owner_length] = '\0';
+    member_name = separator + 1;
+    if (!*member_name) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    cls = find_class(owner_name);
+    if (!cls) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        const char* final_name;
+        if (!member->is_static || member->method || !member->decl ||
+            member->decl->kind != DECL_VAR || !member->decl->name) {
+            continue;
+        }
+        final_name = strrchr(member->decl->name, ':');
+        final_name = final_name ? final_name + 1 : member->decl->name;
+        if (strcmp(final_name, member_name) == 0) {
+            declaration = member->decl;
+            break;
+        }
+    }
+    if (!declaration) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    if (is_thread_local) {
+        rcc_error(loc,
+                  "thread-local static data member definitions are not supported");
+    }
+    if (!base_type || !declaration->type ||
+        !type_is_compatible(base_type, declaration->type)) {
+        rcc_error(loc, "static data member definition type does not match '%s'",
+                  declaration->name);
+    }
+    if (match(TOK_ASSIGN)) {
+        initializer = rcc_parser_parse_initializer();
+    } else if (check(TOK_LBRACE)) {
+        initializer = rcc_parser_parse_initializer();
+    }
+    rcc_parser_validate_cxx_constructor_initializer(
+        declaration->type, initializer);
+    expect(TOK_SEMICOLON, ";");
+
+    if (declaration->var_init && initializer) {
+        rcc_error(loc, "redefinition of static data member '%s'",
+                  declaration->name);
+    } else if (initializer) {
+        declaration->var_init = initializer;
+        declaration->var_is_constexpr = is_constexpr;
+        for (field = cls->fields; field; field = field->next) {
+            if (field->is_static && field->name &&
+                strcmp(field->name, member_name) == 0) {
+                field->initializer = initializer;
+                break;
+            }
+        }
+    }
+    if (storage == STORAGE_EXTERN) declaration->storage = STORAGE_EXTERN;
+    return stmt_null(loc);
+}
+
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc) {
     if (!cls) return;
     for (int index = 0; index < cls->base_count; ++index) {
