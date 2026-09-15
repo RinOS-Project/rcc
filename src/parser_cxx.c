@@ -849,7 +849,6 @@ static bool cxx_constructor_base_layout_supported(CxxClass* cls, int index) {
     CxxClass* base;
     if (!cls || index < 0 || index >= cls->base_count ||
         !cls->base_offsets || cls->base_offsets[index] < 0 ||
-        cls->bases[index].is_virtual ||
         cls->bases[index].access != ACCESS_PUBLIC) {
         return false;
     }
@@ -1053,9 +1052,10 @@ static CxxConstructorInitializer* cxx_find_constructor_initializer(
 }
 
 /* Complete a constructor's effective base/member-initializer sequence in
- * declaration order.  Base initialization is deliberately limited to public,
- * fixed-layout, non-virtual, non-polymorphic bases whose constructor overload
- * is known.  Unsupported forms remain diagnosed by the lowering verifier. */
+ * declaration order.  Base initialization is limited to public,
+ * non-polymorphic bases whose constructor overload and concrete subobject
+ * offset are known.  Virtual bases use the most-derived fixed layout offset;
+ * their pointer conversions use the runtime vbtable after construction. */
 static void complete_cxx_default_member_initializers(CxxClass* cls) {
     if (!cls || (!cls->has_field_initializer && cls->base_count == 0 &&
                  !cls->constructors)) return;

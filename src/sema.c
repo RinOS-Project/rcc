@@ -4226,6 +4226,41 @@ static bool sema_eval_constexpr_scalar_expr(
             value->pointer_offset = offset;
             return true;
         }
+        case EXPR_DEREF: {
+            Decl* declaration;
+            unsigned char* storage;
+            size_t offset;
+            Type* target_type = expression->type;
+            if (!sema_eval_constexpr_scalar_expr(
+                    expression->unary_operand, bindings, binding_count,
+                    &left) || !left.is_pointer ||
+                !left.pointer_declaration ||
+                left.pointer_declaration->kind != DECL_VAR ||
+                !left.pointer_declaration->type || !target_type ||
+                !sema_constexpr_scalar_type(target_type) ||
+                left.pointer_offset < 0) {
+                return false;
+            }
+            declaration = left.pointer_declaration;
+            if (declaration->type->size <= 0 || !declaration->var_init) {
+                return false;
+            }
+            offset = (size_t)left.pointer_offset;
+            if (offset > (size_t)declaration->type->size ||
+                (size_t)target_type->size >
+                    (size_t)declaration->type->size - offset) {
+                return false;
+            }
+            storage = ast_arena_alloc((size_t)declaration->type->size);
+            if (!sema_constexpr_materialize_object(
+                    declaration->type, declaration->var_init, NULL, 0,
+                    storage, (size_t)declaration->type->size)) {
+                return false;
+            }
+            return sema_constexpr_load_scalar_bytes(
+                storage + offset, (size_t)target_type->size,
+                target_type, value);
+        }
         case EXPR_NEG:
             if (!sema_eval_constexpr_scalar_expr(expression->unary_operand,
                                                   bindings, binding_count,
@@ -5448,7 +5483,6 @@ static void sema_resolve_cxx_constructor_initializers(
             CxxClass* base = cls->bases[base_index].base;
             Type* base_type = base ? base->type : NULL;
             if (!base_type || !type_is_complete(base_type) ||
-                cls->bases[base_index].is_virtual ||
                 cls->bases[base_index].access != ACCESS_PUBLIC) {
                 rcc_error(loc,
                           "base constructor initializer is not safely lowerable");
