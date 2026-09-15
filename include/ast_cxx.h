@@ -131,6 +131,11 @@ struct CxxClass {
     int template_arg_count;
     int64_t* template_value_args;
     bool* template_value_present;
+    CxxTemplate* template_identity_tmpl;
+    Type** template_identity_args;
+    int template_identity_arg_count;
+    int64_t* template_identity_value_args;
+    bool* template_identity_value_present;
 };
 
 /* C++ Namespace */
@@ -228,6 +233,7 @@ struct CxxTemplate {
     CxxClass* templated_class;
 
     /* Explicit class-template specializations owned by this primary. */
+    CxxTemplate* primary_template;
     CxxTemplate** specializations;
     int specialization_count;
     Type** specialization_args;

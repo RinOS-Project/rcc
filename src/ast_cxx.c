@@ -122,10 +122,23 @@ static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
  * inline variable or an in-class method across object files. */
 static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     CxxTemplate* tmpl;
+    Type** template_args;
+    int template_arg_count;
+    int64_t* template_value_args;
+    bool* template_value_present;
     if (!cls) return;
-    tmpl = cls->templ;
-    if (!tmpl || !tmpl->name || cls->template_arg_count != tmpl->param_count ||
-        (cls->template_arg_count > 0 && !cls->template_args)) {
+    tmpl = cls->template_identity_tmpl
+        ? cls->template_identity_tmpl : cls->templ;
+    template_args = cls->template_identity_tmpl
+        ? cls->template_identity_args : cls->template_args;
+    template_arg_count = cls->template_identity_tmpl
+        ? cls->template_identity_arg_count : cls->template_arg_count;
+    template_value_args = cls->template_identity_tmpl
+        ? cls->template_identity_value_args : cls->template_value_args;
+    template_value_present = cls->template_identity_tmpl
+        ? cls->template_identity_value_present : cls->template_value_present;
+    if (!tmpl || !tmpl->name || template_arg_count != tmpl->param_count ||
+        (template_arg_count > 0 && !template_args)) {
         mangle_name(buf, pos, cls->name);
         return;
     }
@@ -135,12 +148,11 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->kind == TPARAM_TYPE) {
-            cxx_mangle_type_append(buf, pos, cls->template_args[index]);
+            cxx_mangle_type_append(buf, pos, template_args[index]);
         } else if (parameter->kind == TPARAM_NONTYPE) {
             int written;
-            if (!cls->template_value_present ||
-                !cls->template_value_present[index] ||
-                !cls->template_value_args) {
+            if (!template_value_present || !template_value_present[index] ||
+                !template_value_args) {
                 rcc_fatal("C++ template class value argument is missing");
             }
             if (*pos + 1u >= 256u) {
@@ -148,14 +160,14 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             }
             buf[(*pos)++] = 'L';
             cxx_mangle_type_append(buf, pos, parameter->type);
-            if (cls->template_value_args[index] < 0) {
+            if (template_value_args[index] < 0) {
                 uint64_t magnitude =
-                    (uint64_t)(-(cls->template_value_args[index] + 1)) + 1u;
+                    (uint64_t)(-(template_value_args[index] + 1)) + 1u;
                 written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
                                    (unsigned long long)magnitude);
             } else {
                 written = snprintf(buf + *pos, 256u - *pos, "%lldE",
-                                   (long long)cls->template_value_args[index]);
+                                   (long long)template_value_args[index]);
             }
             if (written < 0 || (size_t)written >= 256u - *pos) {
                 rcc_fatal("C++ template class name is too long");
@@ -529,6 +541,11 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->template_arg_count = 0;
     cls->template_value_args = NULL;
     cls->template_value_present = NULL;
+    cls->template_identity_tmpl = NULL;
+    cls->template_identity_args = NULL;
+    cls->template_identity_arg_count = 0;
+    cls->template_identity_value_args = NULL;
+    cls->template_identity_value_present = NULL;
     return cls;
 }
 
@@ -1233,6 +1250,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->function_lowering = TMPL_FUNCTION_NONE;
     tmpl->function_constant = 0;
     tmpl->templated_class = NULL;
+    tmpl->primary_template = NULL;
     tmpl->specializations = NULL;
     tmpl->specialization_count = 0;
     tmpl->specialization_args = NULL;

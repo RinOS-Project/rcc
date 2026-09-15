@@ -2981,6 +2981,32 @@ static const char* cxx_instance_static_source_name(
     return rcc_intern(buffer);
 }
 
+static void cxx_set_template_identity(
+    CxxClass* cls, CxxTemplate* tmpl, Type** arguments,
+    const int64_t* value_args, const bool* value_present, int argument_count) {
+    if (!cls || !tmpl || argument_count != tmpl->param_count ||
+        (argument_count > 0 && !arguments)) {
+        return;
+    }
+    cls->template_identity_tmpl = tmpl;
+    cls->template_identity_arg_count = argument_count;
+    if (argument_count == 0) return;
+    cls->template_identity_args = ast_arena_alloc(
+        sizeof(Type*) * (size_t)argument_count);
+    memcpy(cls->template_identity_args, arguments,
+           sizeof(Type*) * (size_t)argument_count);
+    if (value_args && value_present) {
+        cls->template_identity_value_args = ast_arena_alloc(
+            sizeof(int64_t) * (size_t)argument_count);
+        cls->template_identity_value_present = ast_arena_alloc(
+            sizeof(bool) * (size_t)argument_count);
+        memcpy(cls->template_identity_value_args, value_args,
+               sizeof(int64_t) * (size_t)argument_count);
+        memcpy(cls->template_identity_value_present, value_present,
+               sizeof(bool) * (size_t)argument_count);
+    }
+}
+
 /* Static data members are declarations owned by the class template
  * definition, not methods, so the ordinary class publication pass skips
  * them while the template is still dependent.  Materialize one substituted
@@ -4365,6 +4391,7 @@ CxxTemplate* parse_cxx_template(void) {
         tmpl->name = ast_arena_strdup(name_token ? name_token->value.str_val
                                                   : "specialization");
         tmpl->kind = TMPL_CLASS;
+        tmpl->primary_template = primary;
         tmpl->templated_class = NULL;
         specialized_class = parse_cxx_class_named(
             loc, is_struct,
@@ -4372,7 +4399,26 @@ CxxTemplate* parse_cxx_template(void) {
         active_template = outer_template;
         tmpl->templated_class = specialized_class;
         if (specialized_class) {
+            int64_t identity_values[32] = { 0 };
+            bool identity_present[32] = { false };
+            if (primary && argument_count == primary->param_count) {
+                for (int argument_index = 0;
+                     argument_index < argument_count; ++argument_index) {
+                    if (primary->params[argument_index].kind ==
+                            TPARAM_NONTYPE &&
+                        value_arguments[argument_index] &&
+                        expr_eval_integer_constant(
+                            value_arguments[argument_index],
+                            &identity_values[argument_index])) {
+                        identity_present[argument_index] = true;
+                    }
+                }
+                cxx_set_template_identity(
+                    specialized_class, primary, arguments,
+                    identity_values, identity_present, argument_count);
+            }
             if (tmpl->param_count == 0) {
+                register_class_static_fields(specialized_class);
                 register_ordinary_class_methods(specialized_class);
             }
             specialized_class->templ = tmpl;
@@ -5042,6 +5088,55 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         sizeof(Type*) * (size_t)argument_count);
     memcpy(instance->template_args, arguments,
            sizeof(Type*) * (size_t)argument_count);
+    if (has_value_parameters) {
+        instance->template_value_args = ast_arena_alloc(
+            sizeof(int64_t) * (size_t)argument_count);
+        instance->template_value_present = ast_arena_alloc(
+            sizeof(bool) * (size_t)argument_count);
+        memcpy(instance->template_value_args, value_args,
+               sizeof(int64_t) * (size_t)argument_count);
+        memcpy(instance->template_value_present, value_present,
+               sizeof(bool) * (size_t)argument_count);
+    }
+    if (tmpl->primary_template &&
+        tmpl->specialization_arg_count ==
+            tmpl->primary_template->param_count) {
+        Type* identity_arguments[32] = { NULL };
+        int64_t identity_values[32] = { 0 };
+        bool identity_present[32] = { false };
+        for (int identity_index = 0;
+             identity_index < tmpl->primary_template->param_count;
+             ++identity_index) {
+            TemplateParam* parameter =
+                &tmpl->primary_template->params[identity_index];
+            if (parameter->kind == TPARAM_TYPE) {
+                identity_arguments[identity_index] = substitute_template_type(
+                    tmpl, tmpl->specialization_args[identity_index],
+                    arguments, argument_count, value_args, value_present);
+            } else if (parameter->kind == TPARAM_NONTYPE &&
+                       tmpl->specialization_value_args &&
+                       tmpl->specialization_value_args[identity_index]) {
+                if (eval_template_integer_expression(
+                        tmpl->specialization_value_args[identity_index],
+                        tmpl,
+                        value_args, value_present,
+                        &identity_values[identity_index])) {
+                    identity_present[identity_index] = true;
+                } else {
+                    rcc_error(loc,
+                              "class template specialization value is not "
+                              "an integer constant expression");
+                }
+            }
+        }
+        cxx_set_template_identity(
+            instance, tmpl->primary_template, identity_arguments,
+            identity_values, identity_present,
+            tmpl->primary_template->param_count);
+    } else {
+        cxx_set_template_identity(instance, tmpl, arguments, value_args,
+                                  value_present, argument_count);
+    }
 
     for (TypeParam* field = definition->fields; field; field = field->next) {
         cxx_class_add_field_initializer(
@@ -5422,11 +5517,36 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         }
     }
     if (selected) {
-        if (selected->param_count == 0) return selected->templated_class->type;
-        return instantiate_class_template(
+        if (selected->param_count == 0) {
+            CxxClass* specialized = selected->templated_class;
+            int64_t identity_values[32] = { 0 };
+            bool identity_present[32] = { false };
+            for (int argument_index = 0; argument_index < argument_count;
+                 ++argument_index) {
+                if (tmpl->params[argument_index].kind == TPARAM_NONTYPE &&
+                    selected->specialization_value_args &&
+                    selected->specialization_value_args[argument_index] &&
+                    expr_eval_integer_constant(
+                        selected->specialization_value_args[argument_index],
+                        &identity_values[argument_index])) {
+                    identity_present[argument_index] = true;
+                }
+            }
+            cxx_set_template_identity(
+                specialized, tmpl, arguments, identity_values,
+                identity_present, argument_count);
+            return specialized->type;
+        }
+        Type* instance_type = instantiate_class_template(
             selected, selected_arguments, selected_values,
             selected_value_present,
             selected->param_count, loc);
+        if (instance_type && instance_type->cxx_class) {
+            cxx_set_template_identity(
+                instance_type->cxx_class, tmpl, arguments, values,
+                value_present, argument_count);
+        }
+        return instance_type;
     }
     return instantiate_class_template(tmpl, arguments, values, value_present,
                                       argument_count, loc);
