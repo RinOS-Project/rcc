@@ -10,6 +10,10 @@ private:
     int value_;
 };
 
+static int consume(Converting object) {
+    return object.value();
+}
+
     Converting global_value = 2;
 
 extern "C" int cxx_converting_constructor(void) {
@@ -19,7 +23,7 @@ extern "C" int cxx_converting_constructor(void) {
     Converting* heap_value = new Converting(6);
     int result = global_value.value() + local_value.value() +
                  direct_value.value() + copied_value.value() +
-                 heap_value->value();
+                 heap_value->value() + consume(Converting(7));
     delete heap_value;
-    return result == 22 ? 0 : 1;
+    return result == 29 ? 0 : 1;
 }

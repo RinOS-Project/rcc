@@ -5334,6 +5334,55 @@ Type* rcc_parse_cxx_direct_list_type(void) {
     return type;
 }
 
+Expr* rcc_parse_cxx_functional_cast(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    SourceLoc loc = peek()->loc;
+    const char* name;
+    CxxTemplate* tmpl;
+    CxxClass* cls;
+    Type* type;
+    ExprList* arguments = NULL;
+    Expr* initializer;
+
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    name = parse_qualified_name();
+    tmpl = check(TOK_LT) ? find_class_template(name) : NULL;
+    if (tmpl) {
+        type = parse_class_template_specialization(tmpl, loc);
+    } else {
+        cls = find_class(name);
+        type = cls ? cls->type : NULL;
+        if (!type) {
+            /* Classes registered through the common aggregate path are also
+             * visible in the parser type table.  The cxx_class guard keeps a
+             * C aggregate or typedef from becoming a constructor expression. */
+            type = rcc_parser_lookup_type(name);
+            if (!type || !type->cxx_class) type = NULL;
+        }
+    }
+    if (!type || !type->cxx_class || !check(TOK_LPAREN) ||
+        rcc_parser_cxx_constructor_arity_mask(type) == 0u) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+
+    advance(); /* `(` */
+    if (!check(TOK_RPAREN)) {
+        do {
+            exprlist_append(&arguments, parse_assignment_expression());
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_RPAREN, ")");
+
+    initializer = expr_initializer_list(arguments, loc);
+    initializer->compound_type = type;
+    initializer->compound_value_init = arguments == NULL;
+    rcc_parser_validate_cxx_constructor_initializer(type, initializer);
+    return initializer;
+}
+
 static TypeField* versioned_public_integer_field(Type* type,
                                                 const char* name) {
     TypeField* field;

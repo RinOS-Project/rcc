@@ -27,6 +27,7 @@ Parser parser;  /* Non-static for C++ parser access */
 #endif
 extern Type* rcc_parse_cxx_direct_list_type(void) RCC_OPTIONAL_CXX;
 extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
@@ -992,6 +993,15 @@ static Expr* parse_primary(void) {
                                                             initializer);
             return initializer;
         }
+    }
+    /* A class temporary written as `C(args)` is distinct from an ordinary
+     * function call.  Let the C++ frontend claim only a parser-known class
+     * spelling; unknown identifiers are restored so normal call parsing is
+     * unchanged. */
+    if (parser_cxx_mode && rcc_parse_cxx_functional_cast &&
+        (check(TOK_IDENT) || check(TOK_SCOPE))) {
+        Expr* functional_cast = rcc_parse_cxx_functional_cast();
+        if (functional_cast) return functional_cast;
     }
     if (parser_cxx_mode &&
         (check(TOK_SCOPE) ||
