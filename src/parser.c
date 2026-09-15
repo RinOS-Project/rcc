@@ -1961,7 +1961,15 @@ static Type* parse_type_spec(void) {
         }
     }
 
-    if (match(TOK_VOID)) {
+    if (long_count != 0 && match(TOK_DOUBLE)) {
+        rcc_error(previous()->loc,
+                  "long double is not supported by the RinOS floating-point ABI");
+        if (is_unsigned || saw_sign || is_short) {
+            rcc_error(previous()->loc,
+                      "invalid integer qualifier on double type");
+        }
+        t = type_double;
+    } else if (match(TOK_VOID)) {
         t = type_void;
     } else if (match(TOK_CHAR)) {
         t = is_unsigned ? type_uchar : type_char;
@@ -1976,8 +1984,20 @@ static Type* parse_type_spec(void) {
             t = is_unsigned ? type_uint : type_int;
         }
     } else if (match(TOK_FLOAT)) {
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "invalid integer qualifier on float type");
+        }
         t = type_float;
     } else if (match(TOK_DOUBLE)) {
+        if (long_count != 0) {
+            rcc_error(previous()->loc,
+                      "long double is not supported by the RinOS floating-point ABI");
+        }
+        if (is_unsigned || saw_sign || is_short) {
+            rcc_error(previous()->loc,
+                      "invalid integer qualifier on double type");
+        }
         t = type_double;
     } else if (match(TOK__BOOL)) {
         t = type_bool;
