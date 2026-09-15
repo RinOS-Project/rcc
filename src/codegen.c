@@ -3255,9 +3255,7 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
 
     rcc_error(call->loc,
               "%s i686 64-bit lowering is not implemented yet", name);
-    emit_mov_reg_imm(mod, EAX, 0u);
-    emit_mov_reg_imm(mod, EDX, 0u);
-    return true;
+    return false;
 }
 
 typedef enum {
@@ -3691,8 +3689,9 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             /* Use decl set during semantic analysis */
             Decl* decl = expr->ident_decl;
             if (!decl) {
-                emit_mov_reg_imm(mod, EAX, 0);
-                break;
+                rcc_error(expr->loc,
+                          "identifier has no semantic declaration in i686 code generation");
+                return;
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
                 gen_tls_address(mod, decl_link_name(decl));
@@ -3762,8 +3761,7 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             if (!expr->compound_type || expr->compound_offset >= 0) {
                 rcc_error(expr->loc,
                           "compound literal has no automatic storage slot");
-                emit_mov_reg_imm(mod, EAX, 0u);
-                break;
+                return;
             }
             if ((expr->compound_type->kind == TYPE_ARRAY ||
                  expr->compound_type->kind == TYPE_STRUCT ||
@@ -3796,8 +3794,7 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 expr->call_result_offset >= 0) {
                 rcc_error(expr->loc,
                           "aggregate call has no automatic result slot");
-                emit_mov_reg_imm(mod, EAX, 0u);
-                break;
+                return;
             }
             gen_expr(mod, expr);
             emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
@@ -3810,14 +3807,12 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 (expr->va_arg_type->kind != TYPE_STRUCT &&
                  expr->va_arg_type->kind != TYPE_UNION)) {
                 rcc_error(expr->loc, "va_arg aggregate address requested for scalar");
-                emit_mov_reg_imm(mod, EAX, 0u);
-                break;
+                return;
             }
             if (expr->va_arg_result_offset >= 0) {
                 rcc_error(expr->loc,
                           "aggregate va_arg has no automatic result slot");
-                emit_mov_reg_imm(mod, EAX, 0u);
-                break;
+                return;
             }
             gen_expr(mod, expr);
             break;
@@ -4071,8 +4066,8 @@ static void gen_shift_integer64(Module* mod, Expr* lhs, Expr* rhs,
  * silently truncate its high word. */
 static void gen_expr64_pair(Module* mod, Expr* expr) {
     if (!expr) {
-        emit_mov_reg_imm(mod, EAX, 0u);
-        emit_mov_reg_imm(mod, EDX, 0u);
+        rcc_error((SourceLoc){"<expr>", 0, 0},
+                  "missing expression in i686 64-bit code generation");
         return;
     }
 
@@ -4366,9 +4361,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         default:
             rcc_error(expr->loc,
                       "unsupported i686 64-bit integer operation");
-            emit_mov_reg_imm(mod, EAX, 0u);
-            emit_mov_reg_imm(mod, EDX, 0u);
-            break;
+            return;
     }
 }
 
@@ -4731,7 +4724,6 @@ static void gen_cxx_zero_array32(Module* mod, Expr* expr) {
         SourceLoc location;
         codegen_expr_loc(&location, expr);
         rcc_error(location, "array new value-initialization has no element count");
-        emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }
     /* Keep the bound alive across allocation so a runtime bound is evaluated
@@ -4785,7 +4777,6 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
         SourceLoc location;
         codegen_expr_loc(&location, expr);
         rcc_error(location, "array new initializer has invalid element storage");
-        emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }
     /* Evaluate a constant element count once and retain the allocation across
@@ -4971,7 +4962,6 @@ static void gen_cxx_init_class_array32(Module* mod, Expr* expr) {
         codegen_expr_loc(&location, expr);
         rcc_error(location,
                   "array new constructor has invalid element storage");
-        emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }
     element_size = object_type->size;
@@ -5025,7 +5015,6 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
         codegen_expr_loc(&location, expr);
         rcc_error(location,
                   "array new default constructor has invalid element storage");
-        emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }
     if (expr->call_new_array_cookie) {
@@ -5100,7 +5089,6 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
         SourceLoc location;
         codegen_expr_loc(&location, expr);
         rcc_error(location, "C++ new expression has no complete storage type");
-        emit_mov_reg_imm(mod, EAX, 0u);
         return;
     }
     if (expr->call_new_is_array && expr->call_new_constructor &&
@@ -5323,7 +5311,6 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
             !destructor->link_name) {
             rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
                       "C++ delete destructor metadata is incomplete");
-            emit_mov_reg_imm(mod, EAX, 0);
             return;
         }
         done = new_label();
@@ -6558,8 +6545,9 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         default:
-            emit_mov_reg_imm(mod, EAX, 0);
-            break;
+            rcc_error(expr ? expr->loc : (SourceLoc){"<expr>", 0, 0},
+                      "unsupported expression kind in i686 code generation");
+            return;
     }
 }
 

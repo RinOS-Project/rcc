@@ -1046,7 +1046,6 @@ static void gen64_float_cast(Module* mod, Expr* expression) {
         SourceLoc location;
         codegen64_expr_loc(&location, expression);
         rcc_error(location, "floating cast has no source or destination type");
-        emit64_mov_reg_imm64(mod, RAX, 0u);
         return;
     }
     gen64_expr(mod, expression->cast_expr);
@@ -1213,7 +1212,6 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
         SourceLoc location;
         codegen64_expr_loc(&location, expression);
         rcc_error(location, "aggregate va_arg has no automatic result slot");
-        emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
     if (!classification.memory) {
@@ -2093,8 +2091,9 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
         case EXPR_IDENT: {
             Decl* decl = expr->ident_decl;
             if (!decl) {
-                emit64_mov_reg_imm32(mod, RAX, 0);
-                break;
+                rcc_error(expr->loc,
+                          "identifier has no semantic declaration in AMD64 code generation");
+                return;
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
                 gen64_tls_address(mod, decl_link_name(decl));
@@ -2159,8 +2158,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             if (!expr->compound_type || expr->compound_offset >= 0) {
                 rcc_error(expr->loc,
                           "compound literal has no automatic storage slot");
-                emit64_mov_reg_imm32(mod, RAX, 0u);
-                break;
+                return;
             }
             if ((expr->compound_type->kind == TYPE_ARRAY ||
                  expr->compound_type->kind == TYPE_STRUCT ||
@@ -2191,8 +2189,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 expr->call_result_offset >= 0) {
                 rcc_error(expr->loc,
                           "aggregate call has no automatic result slot");
-                emit64_mov_reg_imm32(mod, RAX, 0u);
-                break;
+                return;
             }
             gen64_expr(mod, expr);
             emit64_lea(mod, RAX, RBP, expr->call_result_offset);
@@ -2202,7 +2199,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             if (!gen64_is_aggregate(expr ? expr->va_arg_type : NULL)) {
                 rcc_error(expr->loc,
                           "va_arg aggregate address requested for scalar");
-                emit64_mov_reg_imm32(mod, RAX, 0u);
+                return;
             } else {
                 gen64_expr(mod, expr);
             }
@@ -2439,7 +2436,6 @@ static void gen64_cxx_zero_array(Module* mod, Expr* expr) {
         SourceLoc location;
         codegen64_expr_loc(&location, expr);
         rcc_error(location, "array new value-initialization has no element count");
-        emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
     /* Store the bound in the private call frame before invoking rin_malloc;
@@ -2498,7 +2494,6 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
         SourceLoc location;
         codegen64_expr_loc(&location, expr);
         rcc_error(location, "array new initializer has invalid element storage");
-        emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
     /* Keep the element count in the allocation expression only; the
@@ -2667,7 +2662,6 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
         codegen64_expr_loc(&location, expr);
         rcc_error(location,
                   "array new constructor has invalid element storage");
-        emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
     if (expr->call_new_array_cookie) {
@@ -2719,7 +2713,6 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
         codegen64_expr_loc(&location, expr);
         rcc_error(location,
                   "array new default constructor has invalid element storage");
-        emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
     if (expr->call_new_array_cookie) {
@@ -2794,7 +2787,6 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         SourceLoc location;
         codegen64_expr_loc(&location, expr);
         rcc_error(location, "C++ new expression has no complete storage type");
-        emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
     if (expr->call_new_is_array && expr->call_new_constructor &&
@@ -2981,7 +2973,6 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
             !destructor->link_name) {
             rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
                       "C++ delete destructor metadata is incomplete");
-            emit64_mov_reg_imm32(mod, RAX, 0);
             return;
         }
         done = new_label64();
@@ -4199,8 +4190,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         default:
-            emit64_mov_reg_imm32(mod, RAX, 0);
-            break;
+            rcc_error(expr ? expr->loc : (SourceLoc){"<expr>", 0, 0},
+                      "unsupported expression kind in AMD64 code generation");
+            return;
     }
 }
 
