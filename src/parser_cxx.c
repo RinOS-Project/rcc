@@ -5297,7 +5297,10 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
             for (int parameter_index = 0;
                  parameter_index < specialization->param_count;
                  ++parameter_index) {
-                if (!specialization_arguments[parameter_index]) {
+                if (specialization->params[parameter_index].kind ==
+                        TPARAM_NONTYPE
+                    ? !specialization_value_present[parameter_index]
+                    : !specialization_arguments[parameter_index]) {
                     matches = false;
                     break;
                 }

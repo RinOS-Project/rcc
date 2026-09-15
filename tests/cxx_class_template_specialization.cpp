@@ -66,6 +66,22 @@ public:
     }
 };
 
+template<typename T, int N>
+class Select {
+public:
+    int kind() {
+        return N;
+    }
+};
+
+template<int N>
+class Select<int, N> {
+public:
+    int kind() {
+        return N + 100;
+    }
+};
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};
@@ -74,10 +90,14 @@ int main() {
     Number<7> specialized_number;
     Pair<int, 3> ordinary_pair;
     Pair<long, 4> specialized_pair;
+    Select<long, 3> ordinary_select;
+    Select<int, 3> specialized_select;
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    ordinary_number.kind() == 3 &&
                    specialized_number.kind() == 70 &&
                    ordinary_pair.kind() == 3 &&
-                   specialized_pair.kind() == 40 ? 0 : 1;
+                   specialized_pair.kind() == 40 &&
+                   ordinary_select.kind() == 3 &&
+                   specialized_select.kind() == 103 ? 0 : 1;
 }
