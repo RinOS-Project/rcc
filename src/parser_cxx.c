@@ -4204,6 +4204,20 @@ CxxTemplate* parse_cxx_template(void) {
                     param_name = advance()->value.str_val;
                 }
                 cxx_template_add_type_param(tmpl, param_name);
+            } else if (match(TOK_AUTO)) {
+                /* C++17 `template<auto N>` is represented by the existing
+                 * integral non-type path.  The bounded RinOS profile accepts
+                 * only values that evaluate as target-independent integers;
+                 * keeping the parameter's ABI type as int preserves the
+                 * existing substitution, constraint, and mangling rules. */
+                const char* param_name = NULL;
+                if (check(TOK_IDENT)) {
+                    param_name = advance()->value.str_val;
+                } else {
+                    rcc_error(peek()->loc,
+                              "auto non-type template parameter requires a name");
+                }
+                cxx_template_add_value_param(tmpl, param_name, type_int);
             } else {
                 /* Non-type parameter */
                 Type* param_type = parse_cxx_type_spec();
