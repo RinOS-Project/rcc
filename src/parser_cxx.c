@@ -39,6 +39,13 @@ typedef struct CxxReferenceCapture {
     struct CxxReferenceCapture* next;
 } CxxReferenceCapture;
 
+typedef struct CxxLambdaCaptureSpec {
+    const char* name;
+    SourceLoc loc;
+    bool reference;
+    struct CxxLambdaCaptureSpec* next;
+} CxxLambdaCaptureSpec;
+
 static CxxParserValueBinding* active_value_bindings;
 static CxxParserValueBinding* saved_value_bindings[32];
 static int saved_value_binding_depth;
@@ -2719,28 +2726,82 @@ Expr* rcc_parse_cxx_lambda(void) {
     int written;
     int capture_count = 0;
     CxxReferenceCapture* lambda_reference_captures = NULL;
+    CxxLambdaCaptureSpec* explicit_captures = NULL;
+    CxxLambdaCaptureSpec* explicit_capture_tail = NULL;
     bool default_capture = false;
     bool default_reference = false;
 
     expect(TOK_LBRACKET, "[");
-    if (check(TOK_ASSIGN) && check_next(TOK_RBRACKET)) {
+    if ((check(TOK_ASSIGN) || check(TOK_AMP)) &&
+        (check_next(TOK_RBRACKET) || check_next(TOK_COMMA))) {
+        bool reference_default = check(TOK_AMP);
         advance();
         default_capture = true;
-    } else if (check(TOK_AMP) && check_next(TOK_RBRACKET)) {
-        advance();
-        default_capture = true;
-        default_reference = true;
+        default_reference = reference_default;
+    }
+    if (default_capture && !check(TOK_RBRACKET)) {
+        expect(TOK_COMMA, "',' after lambda default capture");
+    }
+    if (!match(TOK_RBRACKET)) {
+        do {
+            Token* capture;
+            bool reference_capture = match(TOK_AMP) || match(TOK_AND);
+            capture = expect(TOK_IDENT, "lambda capture name");
+            if (!capture) break;
+            {
+                CxxLambdaCaptureSpec* spec =
+                    ast_arena_alloc(sizeof(*spec));
+                spec->name = capture->value.str_val;
+                spec->loc = capture->loc;
+                spec->reference = reference_capture;
+                spec->next = NULL;
+                if (explicit_capture_tail) {
+                    explicit_capture_tail->next = spec;
+                } else {
+                    explicit_captures = spec;
+                }
+                explicit_capture_tail = spec;
+            }
+        } while (match(TOK_COMMA));
+        expect(TOK_RBRACKET, "]");
+    }
+    for (CxxLambdaCaptureSpec* spec = explicit_captures; spec;
+         spec = spec->next) {
+        Type* capture_type = cxx_parser_value_type(spec->name);
+        if (!capture_type) {
+            rcc_error(spec->loc, "lambda capture '%s' is not a local value",
+                      spec->name);
+            continue;
+        }
+        if (spec->reference) {
+            CxxReferenceCapture* reference =
+                ast_arena_alloc(sizeof(*reference));
+            reference->name = spec->name;
+            reference->next = lambda_reference_captures;
+            lambda_reference_captures = reference;
+            capture_type = type_ptr(capture_type);
+            exprlist_append(&captures, expr_unary(
+                EXPR_ADDR, expr_ident(spec->name, spec->loc), spec->loc));
+        } else {
+            exprlist_append(&captures,
+                            expr_ident(spec->name, spec->loc));
+        }
+        decllist_append(&capture_params,
+                        decl_param(spec->name, capture_type,
+                                   capture_count++, spec->loc));
     }
     if (default_capture) {
-        if (!match(TOK_RBRACKET)) {
-            rcc_error(peek()->loc,
-                      "lambda default capture cannot be combined with an explicit capture in this ABI");
-            while (!check(TOK_RBRACKET) && !at_end()) advance();
-            expect(TOK_RBRACKET, "]");
-            return NULL;
-        }
         for (CxxParserValueBinding* binding = active_value_bindings;
              binding; binding = binding->next) {
+            bool explicitly_captured = false;
+            for (CxxLambdaCaptureSpec* spec = explicit_captures; spec;
+                 spec = spec->next) {
+                if (strcmp(spec->name, binding->name) == 0) {
+                    explicitly_captured = true;
+                    break;
+                }
+            }
+            if (explicitly_captured) continue;
             Type* capture_type = binding->type;
             if (!capture_type) {
                 rcc_error(loc, "lambda capture has no semantic type");
@@ -2763,35 +2824,6 @@ Expr* rcc_parse_cxx_lambda(void) {
                             decl_param(binding->name, capture_type,
                                        capture_count++, loc));
         }
-    } else if (!match(TOK_RBRACKET)) {
-        do {
-            Token* capture;
-            Type* capture_type;
-            bool reference_capture = match(TOK_AMP) || match(TOK_AND);
-            capture = expect(TOK_IDENT, "lambda capture name");
-            if (!capture) break;
-            capture_type = cxx_parser_value_type(capture->value.str_val);
-            if (!capture_type) capture_type = type_int;
-            if (reference_capture) {
-                CxxReferenceCapture* reference =
-                    ast_arena_alloc(sizeof(*reference));
-                reference->name = capture->value.str_val;
-                reference->next = lambda_reference_captures;
-                lambda_reference_captures = reference;
-                capture_type = type_ptr(capture_type);
-                exprlist_append(&captures, expr_unary(
-                    EXPR_ADDR, expr_ident(capture->value.str_val,
-                                          capture->loc), capture->loc));
-            } else {
-                exprlist_append(&captures,
-                                expr_ident(capture->value.str_val,
-                                           capture->loc));
-            }
-            decllist_append(&capture_params,
-                            decl_param(capture->value.str_val, capture_type,
-                                       capture_count++, capture->loc));
-        } while (match(TOK_COMMA));
-        expect(TOK_RBRACKET, "]");
     }
     if (match(TOK_LPAREN)) {
         params = parse_cxx_parameter_declarations();

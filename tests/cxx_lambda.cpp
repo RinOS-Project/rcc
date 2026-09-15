@@ -17,7 +17,15 @@ int main() {
         base += extra;
         return base;
     }(3);
+    int mixed_referenced = [=, &base](int extra) -> int {
+        base += extra;
+        return base;
+    }(4);
+    int mixed_copied = [&, base](int extra) -> int {
+        return base + extra;
+    }(5);
     return direct == 42 && captured == 42 && default_captured == 42 &&
-           referenced == 22 && default_referenced == 25 && base == 25
+           referenced == 22 && default_referenced == 25 &&
+           mixed_referenced == 29 && mixed_copied == 34 && base == 29
         ? 0 : 1;
 }

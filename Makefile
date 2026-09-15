@@ -1074,7 +1074,7 @@ test-cxx-lambda: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-lambda/x64 \
 		$(TEST_OUT)/cxx-lambda/start-x64.o $(TEST_OUT)/cxx-lambda/x64.o
 	$(TEST_OUT)/cxx-lambda/x64
-	@echo "RCC++ non-capturing lambda tests completed"
+	@echo "RCC++ lambda capture tests completed"
 
 test-cxx-conversion-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
