@@ -211,6 +211,7 @@ Type* rcc_parse_cxx_direct_list_type(void);
 Type* rcc_parse_cxx_type_name(void);
 bool rcc_parse_cxx_type_start(void);
 Expr* rcc_parse_cxx_template_call(void);
+Expr* rcc_parse_cxx_qualified_template_member(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
 Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
                                             int storage,

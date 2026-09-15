@@ -2058,7 +2058,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
+.PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-specialization-ambiguous
@@ -2125,6 +2125,34 @@ test-cxx-static-data-members: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-data-members/x64.o
 	$(TEST_OUT)/cxx-static-data-members/x64
 	@echo "RCC++ static data member tests completed"
+
+test-cxx-class-template-static-data: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-static-data)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-static-data/x86.s \
+		tests/cxx_class_template_static_data.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-static-data/x64.s \
+		tests/cxx_class_template_static_data.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data/x86.o \
+		$(TEST_OUT)/cxx-class-template-static-data/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data/start.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-static-data/x86 \
+		$(TEST_OUT)/cxx-class-template-static-data/start.o \
+		$(TEST_OUT)/cxx-class-template-static-data/x86.o
+	$(TEST_OUT)/cxx-class-template-static-data/x86
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-static-data/x64.o \
+		$(TEST_OUT)/cxx-class-template-static-data/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-static-data/start64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-static-data/x64 \
+		$(TEST_OUT)/cxx-class-template-static-data/start64.o \
+		$(TEST_OUT)/cxx-class-template-static-data/x64.o
+	$(TEST_OUT)/cxx-class-template-static-data/x64
+	@echo "RCC++ class-template static data member tests completed"
 
 test-cxx-static-locals: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-locals)

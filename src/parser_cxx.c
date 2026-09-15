@@ -2967,6 +2967,60 @@ static void register_class_static_fields(CxxClass* cls) {
     }
 }
 
+static const char* cxx_instance_static_source_name(
+    CxxClass* cls, const char* field_name, SourceLoc loc) {
+    char buffer[512];
+    int written;
+    if (!cls || !cls->name || !field_name) return rcc_intern("");
+    written = snprintf(buffer, sizeof(buffer), "%s::%s",
+                       cls->name, field_name);
+    if (written < 0 || (size_t)written >= sizeof(buffer)) {
+        rcc_error(loc, "instantiated static member name exceeds compiler limit");
+        return rcc_intern("");
+    }
+    return rcc_intern(buffer);
+}
+
+/* Static data members are declarations owned by the class template
+ * definition, not methods, so the ordinary class publication pass skips
+ * them while the template is still dependent.  Materialize one substituted
+ * declaration for each cached class instance before its member bodies are
+ * re-analyzed. */
+static void register_instantiated_class_static_fields(
+    CxxClass* instance, CxxClass* definition) {
+    if (!instance || !definition || !active_ast) return;
+    for (TypeParam* field = instance->fields; field; field = field->next) {
+        Decl* source = NULL;
+        Decl* declaration;
+        if (!field->is_static || !field->name || !field->type) continue;
+        for (struct CxxMember* member = definition->members;
+             member; member = member->next) {
+            const char* name;
+            if (!member->is_static || member->method || !member->decl) continue;
+            name = member->decl->name;
+            name = name ? strrchr(name, ':') : NULL;
+            name = name ? name + 1 : member->decl->name;
+            if (name && strcmp(name, field->name) == 0) {
+                source = member->decl;
+                break;
+            }
+        }
+        declaration = decl_var(
+            cxx_instance_static_source_name(instance, field->name,
+                                            source ? source->loc : (SourceLoc){"<template>", 0, 0}),
+            field->type, field->initializer,
+            source ? source->loc : (SourceLoc){"<template>", 0, 0});
+        declaration->link_name = rcc_intern(cxx_mangle_name(
+            field->name, instance->ns, instance));
+        declaration->var_is_inline = source && source->var_is_inline;
+        declaration->var_is_constexpr = source && source->var_is_constexpr;
+        declaration->storage = STORAGE_NONE;
+        cxx_class_add_member(instance, declaration,
+                             (AccessSpec)field->cxx_access, true);
+        ast_add_decl(active_ast, declaration);
+    }
+}
+
 /* Parse class member (field or method) */
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
@@ -5001,6 +5055,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                 value_args, value_present),
             field->is_bitfield, field->bit_width, field->is_static);
     }
+    register_instantiated_class_static_fields(instance, definition);
     for (struct CxxMember* member = definition->members; member;
          member = member->next) {
         CxxMethod* method = substitute_template_method(
@@ -6742,6 +6797,63 @@ Expr* rcc_parse_cxx_special_expression(void) {
 
     rcc_error(loc, "internal C++ special-expression parser entry");
     return expr_int(0, loc);
+}
+
+/* Parse a static member selected through a class-template specialization,
+ * such as `Counter<int>::value`.  The common qualified-name parser cannot
+ * consume the angle-bracket portion, so keep this narrow hook transactional:
+ * ordinary comparisons, namespace names, and unsupported members are left
+ * for the normal expression parser without inventing a fallback value. */
+Expr* rcc_parse_cxx_qualified_template_member(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    SourceLoc loc = peek()->loc;
+    const char* name;
+    CxxTemplate* tmpl;
+    Type* type;
+    const char* member_name;
+    CxxClass* cls;
+    Expr* result = NULL;
+
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    name = parse_qualified_name();
+    tmpl = check(TOK_LT) ? find_class_template(name) : NULL;
+    if (!tmpl) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    type = parse_class_template_specialization(tmpl, loc);
+    if (!type || !type->cxx_class || !match(TOK_SCOPE) ||
+        !check(TOK_IDENT)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    member_name = advance()->value.str_val;
+    cls = type->cxx_class;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        const char* final_name;
+        Decl* declaration = member->decl;
+        if (!member->is_static || !declaration ||
+            (declaration->kind != DECL_VAR && declaration->kind != DECL_FUNC) ||
+            !declaration->name) {
+            continue;
+        }
+        final_name = strrchr(declaration->name, ':');
+        final_name = final_name ? final_name + 1 : declaration->name;
+        if (strcmp(final_name, member_name) != 0) continue;
+        result = expr_ident(declaration->name, loc);
+        result->ident_decl = declaration;
+        result->type = declaration->type;
+        break;
+    }
+    if (!result) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+    }
+    return result;
 }
 
 Type* rcc_parse_cxx_type_name(void) {
