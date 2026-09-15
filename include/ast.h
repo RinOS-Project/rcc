@@ -584,6 +584,9 @@ struct Stmt {
     SourceLoc loc;
     /* Fixed-frame slot used to restore RSP when a VLA-owning scope ends. */
     int vla_stack_offset;
+    /* C++ `if constexpr` is selected after semantic constant evaluation, so
+     * the discarded branch is never analyzed or lowered. */
+    bool if_is_constexpr;
 
     union {
         /* STMT_EXPR */

@@ -5675,6 +5675,31 @@ static void sema_stmt(Stmt* stmt) {
 
         case STMT_IF:
             stmt->if_cond = sema_contextual_bool(stmt->if_cond);
+            if (stmt->if_is_constexpr) {
+                SemaConstexprScalar condition;
+                Stmt* selected;
+                if (!sema_eval_constexpr_scalar_expr(
+                        stmt->if_cond, NULL, 0, &condition)) {
+                    rcc_error(stmt->if_cond->loc,
+                              "if constexpr condition is not a constant expression");
+                    break;
+                }
+                selected = sema_constexpr_scalar_truth(&condition)
+                    ? stmt->if_then : stmt->if_else;
+                if (!selected) {
+                    stmt->kind = STMT_NULL;
+                    break;
+                }
+                sema_stmt(selected);
+                {
+                    StmtList* selected_list = rcc_alloc(sizeof(*selected_list));
+                    selected_list->stmt = selected;
+                    selected_list->next = NULL;
+                    stmt->kind = STMT_BLOCK;
+                    stmt->block_stmts = selected_list;
+                }
+                break;
+            }
             sema_stmt(stmt->if_then);
             if (stmt->if_else) {
                 sema_stmt(stmt->if_else);

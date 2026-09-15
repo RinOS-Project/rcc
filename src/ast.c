@@ -724,6 +724,7 @@ Stmt* stmt_if(Expr* cond, Stmt* then_stmt, Stmt* else_stmt, SourceLoc loc) {
     Stmt* s = rcc_alloc(sizeof(Stmt));
     s->kind = STMT_IF;
     s->loc = loc;
+    s->if_is_constexpr = false;
     s->if_cond = cond;
     s->if_then = then_stmt;
     s->if_else = else_stmt;

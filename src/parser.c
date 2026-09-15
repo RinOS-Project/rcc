@@ -2492,6 +2492,7 @@ static Stmt* parse_block(void) {
 
 static Stmt* parse_if_stmt(void) {
     SourceLoc loc = previous()->loc;
+    bool is_constexpr = parser_cxx_mode && match(TOK_CONSTEXPR);
     expect(TOK_LPAREN, "(");
     Expr* cond = parse_expression();
     expect(TOK_RPAREN, ")");
@@ -2503,7 +2504,9 @@ static Stmt* parse_if_stmt(void) {
         else_stmt = parse_statement();
     }
 
-    return stmt_if(cond, then_stmt, else_stmt, loc);
+    Stmt* statement = stmt_if(cond, then_stmt, else_stmt, loc);
+    statement->if_is_constexpr = is_constexpr;
+    return statement;
 }
 
 static Stmt* parse_while_stmt(void) {

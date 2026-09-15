@@ -151,6 +151,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-x86-wide-scalar test-language-boundaries test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts
 .PHONY: test-cxx-range-for
 .PHONY: test-cxx-lambda-function-pointer
+.PHONY: test-cxx-if-constexpr
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1202,6 +1203,35 @@ test-cxx-lambda-function-pointer: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-lambda-function-pointer/x64.o
 	$(TEST_OUT)/cxx-lambda-function-pointer/x64
 	@echo "C++ captureless lambda function-pointer tests completed"
+
+test-cxx-if-constexpr: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-if-constexpr/x86.s \
+		tests/cxx_if_constexpr.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-if-constexpr/x86.o \
+		$(TEST_OUT)/cxx-if-constexpr/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-if-constexpr/x86 \
+		tests/cxx_if_constexpr_run_test.c \
+		$(TEST_OUT)/cxx-if-constexpr/x86.o
+	$(TEST_OUT)/cxx-if-constexpr/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-if-constexpr/x64.s \
+		tests/cxx_if_constexpr.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-if-constexpr/x64.o \
+		$(TEST_OUT)/cxx-if-constexpr/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-if-constexpr/x64 \
+		tests/cxx_if_constexpr_run_test.c \
+		$(TEST_OUT)/cxx-if-constexpr/x64.o
+	$(TEST_OUT)/cxx-if-constexpr/x64
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-if-constexpr/nonconstant.ro \
+		tests/cxx_if_constexpr_nonconstant.cpp \
+		>$(TEST_OUT)/cxx-if-constexpr/nonconstant.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "if constexpr condition is not a constant expression" \
+		$(TEST_OUT)/cxx-if-constexpr/nonconstant.log
+	@echo "C++ if constexpr selection and diagnostics tests completed"
 
 test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)
