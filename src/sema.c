@@ -9306,6 +9306,8 @@ static void sema_cxx_wrap_copy_constructor_initializer(Decl* declaration) {
         return;
     }
     source = declaration->var_init;
+    sema_expr(source);
+    if (source->type && type_is_compatible(source->type, type)) return;
     initializer = expr_initializer_list(exprlist_new(source), source->loc);
     initializer->compound_type = type;
     initializer->compound_copy_init = true;
