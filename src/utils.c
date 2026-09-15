@@ -79,6 +79,42 @@ const char* rcc_signing_profile_name(SigningProfile profile) {
     }
 }
 
+bool rcc_copy_path(char* destination, size_t capacity, const char* source) {
+    size_t length;
+    if (!destination || capacity == 0u || !source) return false;
+    length = strlen(source);
+    if (length >= capacity) return false;
+    memcpy(destination, source, length + 1u);
+    return true;
+}
+
+bool rcc_derive_output_path(const char* input, const char* extension,
+                            char* output, size_t capacity) {
+    const char* slash;
+    const char* backslash;
+    const char* dot;
+    size_t stem_length;
+    size_t extension_length;
+
+    if (!input || !extension || !output || capacity == 0u) return false;
+    slash = strrchr(input, '/');
+    backslash = strrchr(input, '\\');
+    dot = strrchr(input, '.');
+    if (dot && ((slash && dot < slash) ||
+                (backslash && dot < backslash))) {
+        dot = NULL;
+    }
+    stem_length = dot ? (size_t)(dot - input) : strlen(input);
+    extension_length = strlen(extension);
+    if (stem_length > SIZE_MAX - extension_length - 1u ||
+        stem_length + extension_length >= capacity) {
+        return false;
+    }
+    memcpy(output, input, stem_length);
+    memcpy(output + stem_length, extension, extension_length + 1u);
+    return true;
+}
+
 static bool string_present(const char* value) {
     return value && value[0] != '\0';
 }

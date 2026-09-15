@@ -103,6 +103,9 @@ const char* rcc_target_triple(TargetArch arch);
 bool rcc_parse_optimization_level(const char* value, int* level_out);
 bool rcc_parse_signing_profile(const char* value, SigningProfile* profile_out);
 const char* rcc_signing_profile_name(SigningProfile profile);
+bool rcc_copy_path(char* destination, size_t capacity, const char* source);
+bool rcc_derive_output_path(const char* input, const char* extension,
+                            char* output, size_t capacity);
 bool rcc_validate_signing_options(const char* tool_name, bool final_artifact);
 bool rcc_create_signing_temp(const char* output_path, const char* stage,
                              char* temp_path, size_t capacity);

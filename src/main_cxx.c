@@ -109,7 +109,12 @@ static int parse_cxx_args(int argc, char** argv) {
                 g_opts.output_format_explicit = true;
                 break;
             case 'o':
-                strncpy(g_opts.output_file, optarg, RCC_MAX_PATH - 1);
+                if (!rcc_copy_path(g_opts.output_file,
+                                   sizeof(g_opts.output_file), optarg)) {
+                    fprintf(stderr, "rcc++: error: output path is too long (maximum %u bytes)\n",
+                            (unsigned)(sizeof(g_opts.output_file) - 1u));
+                    return -1;
+                }
                 break;
             case 'O':
                 if (!rcc_parse_optimization_level(
@@ -235,7 +240,12 @@ static int parse_cxx_args(int argc, char** argv) {
             case 9: g_opts.emit_unsigned_v3 = true; break;
             case 10: g_opts.emit_dependencies = true; break;
             case 11:
-                strncpy(g_opts.dependency_file, optarg, RCC_MAX_PATH - 1);
+                if (!rcc_copy_path(g_opts.dependency_file,
+                                   sizeof(g_opts.dependency_file), optarg)) {
+                    fprintf(stderr, "rcc++: error: dependency path is too long (maximum %u bytes)\n",
+                            (unsigned)(sizeof(g_opts.dependency_file) - 1u));
+                    return -1;
+                }
                 break;
             case 12: g_opts.nostdinc = true; break;
             case 13: g_opts.freestanding = true; break;
@@ -275,7 +285,12 @@ static int parse_cxx_args(int argc, char** argv) {
         return -1;
     }
 
-    strncpy(g_opts.input_file, argv[optind], RCC_MAX_PATH - 1);
+    if (!rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
+                       argv[optind])) {
+        fprintf(stderr, "rcc++: error: input path is too long (maximum %u bytes)\n",
+                (unsigned)(sizeof(g_opts.input_file) - 1u));
+        return -1;
+    }
 
     if (g_opts.manifest_path) {
         RccBuildManifest manifest;
@@ -314,10 +329,13 @@ static int parse_cxx_args(int argc, char** argv) {
             default: ext = ".out"; break;
         }
 
-        strncpy(g_opts.output_file, g_opts.input_file, RCC_MAX_PATH - 1);
-        char* dot = strrchr(g_opts.output_file, '.');
-        if (dot) *dot = '\0';
-        strncat(g_opts.output_file, ext, RCC_MAX_PATH - strlen(g_opts.output_file) - 1);
+        if (!rcc_derive_output_path(g_opts.input_file, ext,
+                                    g_opts.output_file,
+                                    sizeof(g_opts.output_file))) {
+            fprintf(stderr, "rcc++: error: derived output path is too long (maximum %u bytes)\n",
+                    (unsigned)(sizeof(g_opts.output_file) - 1u));
+            return -1;
+        }
     }
 
     return 0;
@@ -420,11 +438,15 @@ int main(int argc, char** argv) {
     }
     if (g_opts.emit_dependencies) {
         if (g_opts.dependency_file[0] == '\0') {
-            strncpy(g_opts.dependency_file, g_opts.output_file, RCC_MAX_PATH - 1);
-            char* extension = strrchr(g_opts.dependency_file, '.');
-            if (extension) *extension = '\0';
-            strncat(g_opts.dependency_file, ".d",
-                    RCC_MAX_PATH - strlen(g_opts.dependency_file) - 1);
+            if (!rcc_derive_output_path(g_opts.output_file, ".d",
+                                        g_opts.dependency_file,
+                                        sizeof(g_opts.dependency_file))) {
+                fprintf(stderr, "rcc++: error: derived dependency path is too long (maximum %u bytes)\n",
+                        (unsigned)(sizeof(g_opts.dependency_file) - 1u));
+                rcc_free(pp_source);
+                pp_free(pp);
+                return 1;
+            }
         }
         if (!pp_write_dependencies(pp, g_opts.output_file, g_opts.input_file,
                                    g_opts.dependency_file)) {

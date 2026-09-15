@@ -67,7 +67,12 @@ static int parse_args(int argc, char** argv) {
     while ((opt = getopt_long_only(argc, argv, "o:e:T:m:vh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'o':
-                strncpy(g_linker_opts.output_file, optarg, RCC_MAX_PATH - 1);
+                if (!rcc_copy_path(g_linker_opts.output_file,
+                                   sizeof(g_linker_opts.output_file), optarg)) {
+                    fprintf(stderr, "rld: error: output path is too long (maximum %u bytes)\n",
+                            (unsigned)(sizeof(g_linker_opts.output_file) - 1u));
+                    return -1;
+                }
                 g_linker_opts.output_explicit = true;
                 break;
             case 'e':
@@ -236,7 +241,12 @@ static int parse_args(int argc, char** argv) {
         g_linker_opts.shared = manifest_shared;
         g_linker_opts.shared_explicit = true;
         if (manifest.entry_present) {
-            strcpy(g_linker_opts.manifest_entry, manifest.entry);
+            if (!rcc_copy_path(g_linker_opts.manifest_entry,
+                               sizeof(g_linker_opts.manifest_entry),
+                               manifest.entry)) {
+                fprintf(stderr, "rld: error: manifest entry is too long\n");
+                return -1;
+            }
             g_linker_opts.entry = g_linker_opts.manifest_entry;
         }
         if (!rcc_manifest_apply_signing(&manifest, &g_opts,
