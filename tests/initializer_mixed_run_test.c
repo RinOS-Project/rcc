@@ -100,7 +100,7 @@ int main(int argc, char** argv)
         address = mapping + symbol->value;
         memcpy(&function, &address, sizeof(function));
         int result = function();
-        assert(result == 'x' + 'y' + 'z' + 0 + 0 + 9 + 11);
+        assert(result == 'x' + 'y' + 'z' + 0 + 0 + 9 + 11 + 1);
         assert(munmap(mapping, mapping_size) == 0);
     }
 #endif

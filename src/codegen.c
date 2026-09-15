@@ -2331,6 +2331,7 @@ static void resolve_labels(Module* mod) {
 /* Forward declaration */
 static void gen_expr(Module* mod, Expr* expr);
 static void gen_expr_raw(Module* mod, Expr* expr);
+static void emit_test_scalar_value(Module* mod, const Type* type);
 static void gen_expr64_pair(Module* mod, Expr* expr);
 static void gen_expr_as_integer64(Module* mod, Expr* expr);
 static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
@@ -3685,6 +3686,27 @@ static void gen_tls_address(Module* mod, const char* symbol) {
 static bool gen_inline_method_address(Module* mod, Expr* expr);
 static bool gen_inline_method_integer64(Module* mod, Expr* expr);
 
+static bool gen_aggregate_type32(const Type* type) {
+    return type && (type->kind == TYPE_STRUCT ||
+                    type->kind == TYPE_UNION);
+}
+
+static void gen_copy_aggregate32(Module* mod, int32_t destination_offset,
+                                  int source_register, int size) {
+    int offset = 0;
+    emit_mov_reg_reg(mod, ECX, source_register);
+    while (offset + 4 <= size) {
+        emit_mov_reg_mem(mod, EAX, ECX, offset);
+        emit_mov_mem_reg(mod, EBP, destination_offset + offset, EAX);
+        offset += 4;
+    }
+    while (offset < size) {
+        emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
+        emit_mov_mem_reg8(mod, EBP, destination_offset + offset, EAX);
+        ++offset;
+    }
+}
+
 /* Generate lvalue address in EAX */
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -3746,9 +3768,11 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 emit_pop_reg(mod, EAX);
                 emit_imul_reg_reg(mod, EAX, ECX);
             } else if (expr->type && expr->type->size > 1) {
-                emit_byte(mod, 0x6B);  /* IMUL EAX, EAX, imm8 */
-                emit_byte(mod, modrm(3, EAX, EAX));
-                emit_byte(mod, (uint8_t)expr->type->size);
+                /* The imm8 form silently wraps scales such as a 1024-byte
+                 * row in a multidimensional array to zero.  Use the full
+                 * register multiply so every complete C array element size
+                 * is represented on i686 as well. */
+                emit_scale_reg(mod, EAX, (uint32_t)expr->type->size);
             }
             emit_pop_reg(mod, ECX);
             emit_add_reg_reg(mod, EAX, ECX);
@@ -3832,6 +3856,44 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             }
             gen_expr(mod, expr);
             break;
+
+        case EXPR_COND:
+        case EXPR_COMMA: {
+            Expr* then_expr = expr->kind == EXPR_COND
+                ? expr->cond_then : expr->binary_rhs;
+            Expr* else_expr = expr->kind == EXPR_COND
+                ? expr->cond_else : NULL;
+            int else_label = expr->kind == EXPR_COND ? new_label() : -1;
+            int end_label = expr->kind == EXPR_COND ? new_label() : -1;
+            if (!gen_aggregate_type32(expr->type) ||
+                expr->aggregate_offset >= 0 || !then_expr ||
+                (expr->kind == EXPR_COND && !else_expr)) {
+                rcc_error(expr->loc, "aggregate expression has no automatic result slot");
+                return;
+            }
+            if (expr->kind == EXPR_COND) {
+                gen_expr(mod, expr->cond_test);
+                emit_test_scalar_value(mod, expr->cond_test->type);
+                emit_jcc_label(mod, CC_E, else_label);
+            } else {
+                gen_expr(mod, expr->binary_lhs);
+            }
+            gen_lvalue(mod, then_expr);
+            gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
+                                 expr->type->size);
+            if (expr->kind == EXPR_COND) {
+                emit_jmp_label(mod, end_label);
+                emit_label(mod, else_label);
+                gen_lvalue(mod, else_expr);
+                gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
+                                     expr->type->size);
+                emit_label(mod, end_label);
+            }
+            emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+            emit_byte(mod, modrm(2, EAX, EBP));
+            emit_dword(mod, (uint32_t)expr->aggregate_offset);
+            break;
+        }
 
         case EXPR_ASSIGN:
             if (expr->type &&
@@ -4310,6 +4372,10 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             break;
 
         case EXPR_COND: {
+            if (gen_aggregate_type32(expr->type)) {
+                gen_lvalue(mod, expr);
+                break;
+            }
             int else_label = new_label();
             int end_label = new_label();
             gen_expr(mod, expr->cond_test);
@@ -4329,6 +4395,10 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         }
 
         case EXPR_COMMA:
+            if (gen_aggregate_type32(expr->type)) {
+                gen_lvalue(mod, expr);
+                break;
+            }
             gen_expr(mod, expr->binary_lhs);
             gen_expr64_pair(mod, expr->binary_rhs);
             break;
@@ -6395,6 +6465,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_COND: {
+            if (gen_aggregate_type32(expr->type)) {
+                gen_lvalue(mod, expr);
+                break;
+            }
             int else_label = new_label();
             int end_label = new_label();
             gen_expr(mod, expr->cond_test);
@@ -6562,6 +6636,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_COMMA:
+            if (gen_aggregate_type32(expr->type)) {
+                gen_lvalue(mod, expr);
+                break;
+            }
             gen_expr(mod, expr->binary_lhs);
             gen_expr(mod, expr->binary_rhs);
             break;
@@ -7166,13 +7244,50 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
         case EXPR_XOR_ASSIGN:
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
+            codegen_assign_compound_expr(expression->binary_lhs, bytes,
+                                         stack_alignment);
+            codegen_assign_compound_expr(expression->binary_rhs, bytes,
+                                         stack_alignment);
+            break;
         case EXPR_COMMA:
+            if (gen_aggregate_type32(expression->type) &&
+                expression->aggregate_offset == 0) {
+                int size = expression->type->size;
+                int alignment = expression->type->align;
+                int64_t extent;
+                if (alignment < stack_alignment) alignment = stack_alignment;
+                if (size <= 0) size = 1;
+                extent = (int64_t)*bytes + size;
+                if (extent > INT_MAX) {
+                    *bytes = INT_MAX;
+                } else {
+                    *bytes = codegen_align_frame_bytes((int)extent,
+                                                       alignment);
+                    expression->aggregate_offset = -*bytes;
+                }
+            }
             codegen_assign_compound_expr(expression->binary_lhs, bytes,
                                          stack_alignment);
             codegen_assign_compound_expr(expression->binary_rhs, bytes,
                                          stack_alignment);
             break;
         case EXPR_COND:
+            if (gen_aggregate_type32(expression->type) &&
+                expression->aggregate_offset == 0) {
+                int size = expression->type->size;
+                int alignment = expression->type->align;
+                int64_t extent;
+                if (alignment < stack_alignment) alignment = stack_alignment;
+                if (size <= 0) size = 1;
+                extent = (int64_t)*bytes + size;
+                if (extent > INT_MAX) {
+                    *bytes = INT_MAX;
+                } else {
+                    *bytes = codegen_align_frame_bytes((int)extent,
+                                                       alignment);
+                    expression->aggregate_offset = -*bytes;
+                }
+            }
             codegen_assign_compound_expr(expression->cond_test, bytes,
                                          stack_alignment);
             codegen_assign_compound_expr(expression->cond_then, bytes,
@@ -7623,6 +7738,9 @@ static void gen_expr(Module* mod, Expr* expr) {
 typedef struct CleanupCodegen {
     Expr* expression;
     struct CleanupCodegen* previous;
+    Decl* declaration;
+    int exception_frame_offset;
+    bool exception_registered;
 } CleanupCodegen;
 
 /* Cleanups below this marker belong to the protected try/catch region.  A
@@ -7630,6 +7748,13 @@ typedef struct CleanupCodegen {
  * region are rejected by sema because a callee cannot see this compiler-side
  * cleanup stack. */
 static CleanupCodegen* active_cxx_exception_cleanup_marker = NULL;
+static bool cxx_exception_cleanup_registration_enabled = false;
+static int active_cxx_exception_cleanup_frame_offset = INT_MAX;
+
+static void gen_cxx_exception_unregister_cleanup32(
+    Module* mod, const CleanupCodegen* cleanup);
+static void gen_cxx_exception_cleanups_until_throw32(
+    Module* mod, CleanupCodegen* marker);
 
 typedef struct VLAScopeCodegen {
     int stack_offset;
@@ -7646,6 +7771,9 @@ static VLAScopeCodegen* continue_vla_marker = NULL;
 static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
     for (CleanupCodegen* item = active_cleanups; item && item != marker;
          item = item->previous) {
+        if (item->exception_registered) {
+            gen_cxx_exception_unregister_cleanup32(mod, item);
+        }
         gen_expr(mod, item->expression);
     }
 }
@@ -7653,6 +7781,9 @@ static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
 static bool gen_cleanup_count(Module* mod, unsigned count) {
     CleanupCodegen* item = active_cleanups;
     while (item && count > 0u) {
+        if (item->exception_registered) {
+            gen_cxx_exception_unregister_cleanup32(mod, item);
+        }
         gen_expr(mod, item->expression);
         item = item->previous;
         --count;
@@ -7665,6 +7796,16 @@ static void discard_cleanups_until(CleanupCodegen* marker) {
         CleanupCodegen* previous = active_cleanups->previous;
         rcc_free(active_cleanups);
         active_cleanups = previous;
+    }
+}
+
+static void gen_cxx_exception_cleanups_until_throw32(
+    Module* mod, CleanupCodegen* marker) {
+    for (CleanupCodegen* item = active_cleanups; item && item != marker;
+         item = item->previous) {
+        /* Registered destructor cleanups are consumed by the runtime before
+         * it longjmps.  Inline-only wrapper cleanups still need code here. */
+        if (!item->exception_registered) gen_expr(mod, item->expression);
     }
 }
 
@@ -7719,6 +7860,66 @@ static void gen_cxx_exception_call32(Module* mod, const char* name) {
     add_func_call_ref(name, call_offset);
 }
 
+static Decl* gen_cxx_cleanup_destructor(const CleanupCodegen* cleanup) {
+    Expr* expression = cleanup ? cleanup->expression : NULL;
+    Expr* function = expression && expression->kind == EXPR_CALL
+        ? expression->call_func : NULL;
+    Decl* declaration = function && function->kind == EXPR_IDENT
+        ? function->ident_decl : NULL;
+    return declaration && declaration->func_is_cxx_destructor
+        ? declaration : NULL;
+}
+
+static void gen_cxx_exception_unregister_cleanup32(
+    Module* mod, const CleanupCodegen* cleanup) {
+    Decl* destructor = gen_cxx_cleanup_destructor(cleanup);
+    ExprList* arguments = cleanup && cleanup->expression
+        ? cleanup->expression->call_args : NULL;
+    Expr* address = arguments ? arguments->expr : NULL;
+    if (!destructor || !address || address->kind != EXPR_ADDR ||
+        !address->unary_operand) {
+        rcc_error(cleanup && cleanup->expression
+                      ? cleanup->expression->loc
+                      : (SourceLoc){"<exception-cleanup>", 0, 0},
+                  "registered C++ exception cleanup metadata is incomplete");
+        return;
+    }
+    gen_lvalue(mod, address->unary_operand);
+    emit_push_reg(mod, EAX); /* object */
+    gen_symbol_address(mod, decl_link_name(destructor), 0u);
+    emit_push_reg(mod, EAX); /* destructor */
+    gen_cxx_exception_frame_address32(mod, cleanup->exception_frame_offset);
+    emit_push_reg(mod, EAX); /* frame */
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_unregister_cleanup");
+    emit_add_reg_imm(mod, ESP, 12);
+}
+
+static void gen_cxx_exception_register_cleanup32(
+    Module* mod, CleanupCodegen* cleanup) {
+    Decl* destructor = gen_cxx_cleanup_destructor(cleanup);
+    ExprList* arguments = cleanup && cleanup->expression
+        ? cleanup->expression->call_args : NULL;
+    Expr* address = arguments ? arguments->expr : NULL;
+    if (!destructor || !address || address->kind != EXPR_ADDR ||
+        !address->unary_operand) {
+        return;
+    }
+    gen_lvalue(mod, address->unary_operand);
+    emit_push_reg(mod, EAX); /* object */
+    gen_symbol_address(mod, decl_link_name(destructor), 0u);
+    emit_push_reg(mod, EAX); /* destructor */
+    gen_cxx_exception_frame_address32(mod, cleanup->exception_frame_offset);
+    emit_push_reg(mod, EAX); /* frame */
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_register_cleanup");
+    emit_add_reg_imm(mod, ESP, 12);
+    cleanup->exception_registered = true;
+}
+
+static void gen_cxx_exception_unwind_cleanup32(Module* mod) {
+    gen_cxx_exception_cleanups_until_throw32(
+        mod, active_cxx_exception_cleanup_marker);
+}
+
 static void gen_cxx_exception_release_frame32(Module* mod, int offset) {
     if (offset == INT_MAX) return;
     gen_cxx_exception_frame_address32(mod, offset);
@@ -7735,7 +7936,7 @@ static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
     Type* type;
     if (!stmt) rcc_fatal("validated C++ throw is missing");
     if (!stmt->throw_expr) {
-        gen_cleanups_until(mod, active_cxx_exception_cleanup_marker);
+        gen_cxx_exception_unwind_cleanup32(mod);
         if (active_cxx_exception_frame_offset != INT_MAX) {
             gen_cxx_exception_frame_address32(
                 mod, active_cxx_exception_frame_offset);
@@ -7751,7 +7952,7 @@ static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
     if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
         gen_lvalue(mod, stmt->throw_expr);
         emit_push_reg(mod, EAX); /* preserve source across cleanup/release */
-        gen_cleanups_until(mod, active_cxx_exception_cleanup_marker);
+        gen_cxx_exception_unwind_cleanup32(mod);
         gen_cxx_exception_release_frame32(mod, active_cxx_exception_frame_offset);
         emit_pop_reg(mod, ECX); /* source object */
         emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));
@@ -7764,7 +7965,7 @@ static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
     } else {
         gen_expr(mod, stmt->throw_expr);
         emit_push_reg(mod, EAX); /* preserve value across cleanup/release */
-        gen_cleanups_until(mod, active_cxx_exception_cleanup_marker);
+        gen_cxx_exception_unwind_cleanup32(mod);
         gen_cxx_exception_release_frame32(mod, active_cxx_exception_frame_offset);
         emit_pop_reg(mod, EDX); /* value */
         emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));
@@ -7784,6 +7985,9 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
     CleanupCodegen* old_exception_cleanup_marker =
         active_cxx_exception_cleanup_marker;
     CleanupCodegen* try_cleanup_marker = active_cleanups;
+    int old_cleanup_frame_offset = active_cxx_exception_cleanup_frame_offset;
+    bool old_cleanup_registration_enabled =
+        cxx_exception_cleanup_registration_enabled;
 
     gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
     emit_push_reg(mod, EAX);
@@ -7797,9 +8001,14 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
     emit_test_reg_reg(mod, EAX, EAX);
     emit_jcc_label(mod, CC_NE, dispatch_label);
 
+    active_cxx_exception_cleanup_frame_offset = stmt->try_frame_offset;
     active_cxx_exception_cleanup_marker = try_cleanup_marker;
+    cxx_exception_cleanup_registration_enabled = true;
     gen_scoped_stmt(mod, stmt->try_body);
+    active_cxx_exception_cleanup_frame_offset = old_cleanup_frame_offset;
     active_cxx_exception_cleanup_marker = old_exception_cleanup_marker;
+    cxx_exception_cleanup_registration_enabled =
+        old_cleanup_registration_enabled;
     gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
     emit_push_reg(mod, EAX);
     gen_cxx_exception_call32(mod, "rin_cpp_exception_leave");
@@ -7852,7 +8061,10 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
         emit_add_reg_imm(mod, ESP, 4);
         active_cxx_exception_frame_offset = stmt->try_frame_offset;
         active_cxx_exception_cleanup_marker = try_cleanup_marker;
+        cxx_exception_cleanup_registration_enabled = false;
         gen_scoped_stmt(mod, handler->body);
+        cxx_exception_cleanup_registration_enabled =
+            old_cleanup_registration_enabled;
         active_cxx_exception_cleanup_marker = old_exception_cleanup_marker;
         gen_cxx_exception_release_frame32(mod, stmt->try_frame_offset);
         active_cxx_exception_frame_offset = old_active_frame_offset;
@@ -8502,7 +8714,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
                 cleanup->expression = d->var_cleanup;
                 cleanup->previous = active_cleanups;
+                cleanup->declaration = d;
+                cleanup->exception_frame_offset =
+                    active_cxx_exception_cleanup_frame_offset;
+                cleanup->exception_registered = false;
                 active_cleanups = cleanup;
+                if (cxx_exception_cleanup_registration_enabled &&
+                    active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+                    gen_cxx_exception_register_cleanup32(mod, cleanup);
+                }
             }
             break;
         }
@@ -8574,6 +8794,7 @@ static void gen_function(Module* mod, Decl* decl) {
         ? decl->type->ret_type : NULL;
     active_cxx_exception_frame_offset = INT_MAX;
     active_cxx_exception_cleanup_marker = NULL;
+    active_cxx_exception_cleanup_frame_offset = INT_MAX;
     old_cleanups = active_cleanups;
     old_vla_scopes = active_vla_scopes;
     old_break_vla = break_vla_marker;
@@ -8594,6 +8815,7 @@ static void gen_function(Module* mod, Decl* decl) {
     current_function_return_type = old_return_type;
     active_cxx_exception_frame_offset = old_active_frame_offset;
     active_cxx_exception_cleanup_marker = NULL;
+    active_cxx_exception_cleanup_frame_offset = INT_MAX;
 
     /* Function epilogue (fallthrough return) */
     Type* return_type = decl->type && decl->type->kind == TYPE_FUNC

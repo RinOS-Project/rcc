@@ -155,6 +155,7 @@ char* rcc_preproc(struct Preprocessor* pp, const char* filename);
 /* Lexer */
 struct TokenList* rcc_lex(const char* filename);
 struct TokenList* rcc_lex_string(const char* source, const char* filename);
+void rcc_lexer_set_cxx_mode(bool enabled);
 void rcc_parser_set_cxx_mode(bool enabled);
 struct AST* rcc_parse(struct TokenList* tokens);
 bool rcc_sema(struct AST* ast);

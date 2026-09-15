@@ -9,6 +9,9 @@
 .globl rin_cpp_exception_throw_object
 .globl rin_cpp_exception_rethrow_frame
 .globl rin_cpp_exception_release_frame
+.globl rin_cpp_exception_register_cleanup
+.globl rin_cpp_exception_unregister_cleanup
+.globl rin_cpp_exception_unwind_cleanups
 .extern _rcc_entry
 
 .bss
@@ -23,6 +26,10 @@ rin_cpp_exception_object_used:
     .quad 0
 rin_cpp_exception_object_storage:
     .space 4096
+rin_cpp_exception_cleanup_used:
+    .quad 0
+rin_cpp_exception_cleanup_storage:
+    .space 1536
 
 .text
 setjmp:
@@ -57,9 +64,84 @@ longjmp:
     mov 56(%rdx), %rcx
     jmp *%rcx
 
+rin_cpp_exception_register_cleanup:
+    test %rdi, %rdi
+    jz 5f
+    test %rsi, %rsi
+    jz 5f
+    test %rdx, %rdx
+    jz 5f
+    mov rin_cpp_exception_cleanup_used(%rip), %rax
+    mov %rax, %r10
+    add $24, %r10
+    jc 5f
+    cmp $1536, %r10
+    jae 5f
+    lea rin_cpp_exception_cleanup_storage(%rip), %r10
+    add %rax, %r10
+    mov %rsi, 0(%r10)
+    mov %rdx, 8(%r10)
+    mov 88(%rdi), %rax
+    mov %rax, 16(%r10)
+    mov %r10, 88(%rdi)
+    mov rin_cpp_exception_cleanup_used(%rip), %rax
+    add $24, %rax
+    mov %rax, rin_cpp_exception_cleanup_used(%rip)
+    ret
+
+rin_cpp_exception_unregister_cleanup:
+    test %rdi, %rdi
+    jz 5f
+    test %rsi, %rsi
+    jz 5f
+    test %rdx, %rdx
+    jz 5f
+    mov 88(%rdi), %rax
+    xor %r8d, %r8d
+7:
+    test %rax, %rax
+    jz 5f
+    cmp %rsi, 0(%rax)
+    jne 8f
+    cmp %rdx, 8(%rax)
+    je 9f
+8:
+    mov %rax, %r8
+    mov 16(%rax), %rax
+    jmp 7b
+9:
+    mov 16(%rax), %rcx
+    test %r8, %r8
+    jnz 10f
+    mov %rcx, 88(%rdi)
+    ret
+10:
+    mov %rcx, 16(%r8)
+    ret
+
+rin_cpp_exception_unwind_cleanups:
+    test %rdi, %rdi
+    jz 5f
+    mov 88(%rdi), %rax
+    movq $0, 88(%rdi)
+11:
+    test %rax, %rax
+    jz 12f
+    mov 16(%rax), %rcx
+    mov 8(%rax), %rdx
+    mov 0(%rax), %r8
+    push %rcx
+    mov %rdx, %rdi
+    call *%r8
+    pop %rax
+    jmp 11b
+12:
+    ret
+
 rin_cpp_exception_install:
     mov rin_cpp_exception_top(%rip), %rax
     mov %rax, 64(%rdi)
+    movq $0, 88(%rdi)
     mov %rdi, rin_cpp_exception_top(%rip)
     ret
 
@@ -69,6 +151,7 @@ rin_cpp_exception_leave:
     jne 2f
     mov 64(%rdi), %rax
     mov %rax, rin_cpp_exception_top(%rip)
+    call rin_cpp_exception_unwind_cleanups
 2:
     ret
 
@@ -76,12 +159,20 @@ rin_cpp_exception_throw:
     mov rin_cpp_exception_top(%rip), %rdx
     test %rdx, %rdx
     jz 3f
+    mov 64(%rdx), %rax
+    mov %rax, rin_cpp_exception_top(%rip)
+    push %rsi
+    push %rdi
+    push %rdx
+    mov %rdx, %rdi
+    call rin_cpp_exception_unwind_cleanups
+    pop %rdx
+    pop %rdi
+    pop %rsi
     mov %rdi, 72(%rdx)
     mov %rdi, rin_cpp_exception_current_value(%rip)
     mov %rsi, 80(%rdx)
     mov %rsi, rin_cpp_exception_current_type(%rip)
-    mov 64(%rdx), %rax
-    mov %rax, rin_cpp_exception_top(%rip)
     mov %rdx, %rdi
     mov $1, %esi
     jmp longjmp

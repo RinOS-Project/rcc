@@ -371,6 +371,10 @@ struct Expr {
     CxxCloseCall* cxx_close_call;
     /* Captures for a C++ lambda that are spliced into an immediate call. */
     ExprList* cxx_lambda_captures;
+    /* Automatic storage used to materialize an aggregate rvalue.  A zero
+     * value means that codegen has not assigned a slot; negative values are
+     * frame-relative displacements, matching the other expression spills. */
+    int aggregate_offset;
     /* Synthetic constructor this argument.  The offset is relative to the
      * active call's temporary/argument area and is set only by codegen. */
     int cxx_this_stack_offset;

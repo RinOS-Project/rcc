@@ -18,6 +18,12 @@ typedef struct {
     int line_start;
 } Lexer;
 
+static bool lexer_cxx_mode;
+
+void rcc_lexer_set_cxx_mode(bool enabled) {
+    lexer_cxx_mode = enabled;
+}
+
 /* Keyword table */
 static struct {
     const char* name;
@@ -319,6 +325,12 @@ static Token* lex_identifier(Lexer* lex) {
     str[len] = '\0';
 
     TokenType type = keyword_lookup(str);
+    /* C++ keywords are ordinary identifiers in C17.  Keeping this decision
+     * in the lexer prevents a valid C implementation name such as
+     * `protected` from being rejected before the C parser sees it. */
+    if (!lexer_cxx_mode && type >= TOK_CLASS && type <= TOK_CONST_CAST) {
+        type = TOK_IDENT;
+    }
     Token* tok = token_new(type, loc);
 
     if (type == TOK_IDENT) {

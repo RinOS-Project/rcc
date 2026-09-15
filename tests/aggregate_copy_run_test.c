@@ -15,6 +15,8 @@ struct Pair {
 typedef int (*binary_function)(int, int);
 typedef int (*pair_function)(struct Pair*);
 typedef int (*ternary_function)(int, int, int);
+typedef int (*unary_function)(int);
+typedef int (*void_function)(void);
 
 static ObjSection* code_section(ObjectFile* object)
 {
@@ -46,6 +48,8 @@ int main(int argc, char** argv)
     binary_function assign_odd;
     pair_function copy_pointer;
     ternary_function anonymous_members;
+    unary_function conditional_argument;
+    void_function comma_argument;
     struct Pair pair = { 4, 7 };
 
     assert(argc == 2);
@@ -72,12 +76,17 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(assign_chain, object, mapping, "assign_chain");
     LOAD_FUNCTION(assign_odd, object, mapping, "assign_odd");
     LOAD_FUNCTION(anonymous_members, object, mapping, "anonymous_members");
+    LOAD_FUNCTION(conditional_argument, object, mapping, "conditional_argument");
+    LOAD_FUNCTION(comma_argument, object, mapping, "comma_argument");
 
     assert(copy_local(3, 8) == 38);
     assert(copy_pointer(&pair) == 47);
     assert(assign_chain(3, 8) == 3838);
     assert(assign_odd(7, 0xab) == 7171);
     assert(anonymous_members(1, 2, 3) == 123);
+    assert(conditional_argument(0) == 47);
+    assert(conditional_argument(1) == 38);
+    assert(comma_argument() == 56);
 
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);

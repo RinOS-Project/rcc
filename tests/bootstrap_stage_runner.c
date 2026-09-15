@@ -14,6 +14,239 @@
 
 typedef int (*RccEntry)(int argc, char** argv);
 
+/* The stage image imports the same target-width exception ABI as rincrt.  The
+ * runner owns a hosted implementation so a bootstrap image can exercise the
+ * ABI without linking against a second copy of the SDK runtime. */
+#if defined(__x86_64__)
+typedef long RccBootstrapJmpBuf[8];
+#else
+typedef long RccBootstrapJmpBuf[6];
+#endif
+
+typedef void (*RccBootstrapCleanup)(void* object);
+typedef struct RccBootstrapCleanupRecord {
+    RccBootstrapCleanup callback;
+    void* object;
+    struct RccBootstrapCleanupRecord* previous;
+} RccBootstrapCleanupRecord;
+
+typedef struct RccBootstrapExceptionFrame {
+    RccBootstrapJmpBuf env;
+    struct RccBootstrapExceptionFrame* previous;
+    uintptr_t value;
+    uintptr_t type;
+    RccBootstrapCleanupRecord* cleanup_top;
+} RccBootstrapExceptionFrame;
+
+#define RCC_BOOTSTRAP_OBJECT_FLAG ((uintptr_t)UINT32_C(0x80000000))
+
+static __thread RccBootstrapExceptionFrame* bootstrap_exception_top;
+static __thread uintptr_t bootstrap_exception_value;
+static __thread uintptr_t bootstrap_exception_type;
+
+#if defined(__x86_64__)
+__attribute__((naked, returns_twice))
+int rcc_bootstrap_setjmp(RccBootstrapJmpBuf env __attribute__((unused)))
+{
+    __asm__ __volatile__(
+        "mov %rdi, %rax\n"
+        "mov %rbx, 0(%rax)\n"
+        "mov %rbp, 8(%rax)\n"
+        "mov %r12, 16(%rax)\n"
+        "mov %r13, 24(%rax)\n"
+        "mov %r14, 32(%rax)\n"
+        "mov %r15, 40(%rax)\n"
+        "lea 8(%rsp), %rdx\n"
+        "mov %rdx, 48(%rax)\n"
+        "mov (%rsp), %rdx\n"
+        "mov %rdx, 56(%rax)\n"
+        "xor %eax, %eax\n"
+        "ret\n");
+}
+
+__attribute__((naked, noreturn))
+void rcc_bootstrap_longjmp(RccBootstrapJmpBuf env __attribute__((unused)),
+                           int value __attribute__((unused)))
+{
+    __asm__ __volatile__(
+        "mov %rdi, %rdx\n"
+        "mov %esi, %eax\n"
+        "test %eax, %eax\n"
+        "jnz 1f\n"
+        "mov $1, %eax\n"
+        "1:\n"
+        "mov 0(%rdx), %rbx\n"
+        "mov 8(%rdx), %rbp\n"
+        "mov 16(%rdx), %r12\n"
+        "mov 24(%rdx), %r13\n"
+        "mov 32(%rdx), %r14\n"
+        "mov 40(%rdx), %r15\n"
+        "mov 48(%rdx), %rsp\n"
+        "mov 56(%rdx), %rcx\n"
+        "jmp *%rcx\n");
+}
+#else
+__attribute__((naked, returns_twice))
+int rcc_bootstrap_setjmp(RccBootstrapJmpBuf env __attribute__((unused)))
+{
+    __asm__ __volatile__(
+        "mov 4(%esp), %eax\n"
+        "mov %ebx, 0(%eax)\n"
+        "mov %esi, 4(%eax)\n"
+        "mov %edi, 8(%eax)\n"
+        "mov %ebp, 12(%eax)\n"
+        "lea 4(%esp), %edx\n"
+        "mov %edx, 16(%eax)\n"
+        "mov (%esp), %edx\n"
+        "mov %edx, 20(%eax)\n"
+        "xor %eax, %eax\n"
+        "ret\n");
+}
+
+__attribute__((naked, noreturn))
+void rcc_bootstrap_longjmp(RccBootstrapJmpBuf env __attribute__((unused)),
+                           int value __attribute__((unused)))
+{
+    __asm__ __volatile__(
+        "mov 4(%esp), %edx\n"
+        "mov 8(%esp), %eax\n"
+        "test %eax, %eax\n"
+        "jnz 1f\n"
+        "mov $1, %eax\n"
+        "1:\n"
+        "mov 0(%edx), %ebx\n"
+        "mov 4(%edx), %esi\n"
+        "mov 8(%edx), %edi\n"
+        "mov 12(%edx), %ebp\n"
+        "mov 16(%edx), %esp\n"
+        "mov 20(%edx), %ecx\n"
+        "jmp *%ecx\n");
+}
+#endif
+
+static void bootstrap_exception_unwind(
+    RccBootstrapExceptionFrame* frame)
+{
+    RccBootstrapCleanupRecord* record;
+    if (!frame) exit(134);
+    record = frame->cleanup_top;
+    frame->cleanup_top = NULL;
+    while (record) {
+        RccBootstrapCleanupRecord* previous = record->previous;
+        RccBootstrapCleanup callback = record->callback;
+        void* object = record->object;
+        free(record);
+        if (!callback || !object) exit(134);
+        callback(object);
+        record = previous;
+    }
+}
+
+void rin_cpp_exception_register_cleanup(
+    RccBootstrapExceptionFrame* frame, RccBootstrapCleanup callback,
+    void* object)
+{
+    RccBootstrapCleanupRecord* record;
+    if (!frame || !callback || !object) exit(134);
+    record = malloc(sizeof(*record));
+    if (!record) exit(134);
+    record->callback = callback;
+    record->object = object;
+    record->previous = frame->cleanup_top;
+    frame->cleanup_top = record;
+}
+
+void rin_cpp_exception_unregister_cleanup(
+    RccBootstrapExceptionFrame* frame, RccBootstrapCleanup callback,
+    void* object)
+{
+    RccBootstrapCleanupRecord* record;
+    RccBootstrapCleanupRecord* previous = NULL;
+    if (!frame || !callback || !object) exit(134);
+    for (record = frame->cleanup_top; record; record = record->previous) {
+        if (record->callback == callback && record->object == object) {
+            if (previous) previous->previous = record->previous;
+            else frame->cleanup_top = record->previous;
+            free(record);
+            return;
+        }
+        previous = record;
+    }
+    exit(134);
+}
+
+void rin_cpp_exception_unwind_cleanups(RccBootstrapExceptionFrame* frame)
+{
+    bootstrap_exception_unwind(frame);
+}
+
+void rin_cpp_exception_install(RccBootstrapExceptionFrame* frame)
+{
+    if (!frame) exit(134);
+    frame->previous = bootstrap_exception_top;
+    frame->cleanup_top = NULL;
+    bootstrap_exception_top = frame;
+}
+
+void rin_cpp_exception_leave(RccBootstrapExceptionFrame* frame)
+{
+    if (frame && bootstrap_exception_top == frame) {
+        bootstrap_exception_top = frame->previous;
+        bootstrap_exception_unwind(frame);
+    }
+}
+
+__attribute__((noreturn))
+void rin_cpp_exception_throw(uintptr_t value, uintptr_t type)
+{
+    RccBootstrapExceptionFrame* frame = bootstrap_exception_top;
+    if (!frame) exit(1);
+    bootstrap_exception_top = frame->previous;
+    bootstrap_exception_unwind(frame);
+    frame->value = value;
+    frame->type = type;
+    bootstrap_exception_value = value;
+    bootstrap_exception_type = type;
+    rcc_bootstrap_longjmp(frame->env, 1);
+}
+
+__attribute__((noreturn))
+void rin_cpp_exception_throw_object(const void* object, uintptr_t size,
+                                    uintptr_t type)
+{
+    unsigned char* copy;
+    if (!object || size == 0u || (type & RCC_BOOTSTRAP_OBJECT_FLAG) == 0u) {
+        exit(134);
+    }
+    copy = malloc((size_t)size);
+    if (!copy) exit(134);
+    memcpy(copy, object, (size_t)size);
+    rin_cpp_exception_throw((uintptr_t)copy, type);
+}
+
+void rin_cpp_exception_release_frame(RccBootstrapExceptionFrame* frame)
+{
+    if (!frame || (frame->type & RCC_BOOTSTRAP_OBJECT_FLAG) == 0u ||
+        frame->value == 0u) return;
+    free((void*)frame->value);
+    frame->value = 0u;
+    frame->type = 0u;
+}
+
+__attribute__((noreturn))
+void rin_cpp_exception_rethrow_frame(RccBootstrapExceptionFrame* frame)
+{
+    if (!frame || frame->type == 0u) exit(134);
+    rin_cpp_exception_throw(frame->value, frame->type);
+}
+
+__attribute__((noreturn))
+void rin_cpp_exception_rethrow(void)
+{
+    rin_cpp_exception_throw(bootstrap_exception_value,
+                            bootstrap_exception_type);
+}
+
 static void fail(const char* message)
 {
     fprintf(stderr, "bootstrap-stage-runner: %s\n", message);
@@ -33,6 +266,78 @@ static FILE* rin_stderr_adapter(void)
 static uintptr_t symbol_address(const char* name)
 {
     void* address;
+    if (strcmp(name, "setjmp") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rcc_bootstrap_setjmp;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "longjmp") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rcc_bootstrap_longjmp;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_install") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_install;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_leave") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_leave;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_throw") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_throw;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_rethrow") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_rethrow;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_throw_object") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_throw_object;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_rethrow_frame") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_rethrow_frame;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_release_frame") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_release_frame;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_register_cleanup") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_register_cleanup;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_unregister_cleanup") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_unregister_cleanup;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_unwind_cleanups") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) = (void (*)(void))rin_cpp_exception_unwind_cleanups;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
     if (strcmp(name, "__rin_stderr") == 0) {
         FILE* (*function)(void) = rin_stderr_adapter;
         uintptr_t result = 0u;

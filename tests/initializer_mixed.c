@@ -15,10 +15,13 @@ int mixed_array[4] = {[2] = 3, 4, [0] = 1, 2};
 int mixed_initializer_local(void)
 {
     char local_rows[2][4] = {"xy", "z"};
+    char large_rows[2][1024];
     struct MixedAggregate local = {
         .values = {[2] = 9},
         11,
     };
+    large_rows[1][1023] = 1;
     return local_rows[0][0] + local_rows[0][1] + local_rows[1][0] +
-           local.values[0] + local.values[1] + local.values[2] + local.tail;
+           local.values[0] + local.values[1] + local.values[2] + local.tail +
+           large_rows[1][1023];
 }

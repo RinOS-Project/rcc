@@ -53,3 +53,17 @@ int anonymous_members(int left, int right, int tail) {
     value.tail = tail;
     return value.left * 100 + value.right * 10 + value.tail;
 }
+
+int sum_pair(struct Pair value) {
+    return value.left * 10 + value.right;
+}
+
+int conditional_argument(int condition) {
+    return sum_pair(condition ? (struct Pair){ 3, 8 }
+                             : (struct Pair){ 4, 7 });
+}
+
+int comma_argument(void) {
+    struct Pair source = { 1, 2 };
+    return sum_pair((source, (struct Pair){ 5, 6 }));
+}

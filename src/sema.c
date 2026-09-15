@@ -61,6 +61,7 @@ static int loop_depth = 0;
 /* Forward declarations */
 static void sema_stmt(Stmt* stmt);
 static bool sema_exception_body_has_cleanup(const Stmt* stmt);
+static bool sema_exception_body_has_unregistered_cleanup(const Stmt* stmt);
 static bool sema_exception_body_has_vla(const Stmt* stmt);
 static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
@@ -782,6 +783,76 @@ static bool sema_exception_body_has_cleanup(const Stmt* statement) {
             for (const CxxCatch* handler = statement->try_catches; handler;
                  handler = handler->next) {
                 if (sema_exception_body_has_cleanup(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
+/* A direct, non-virtual C++ destructor has a stable callback ABI and can be
+ * registered in the runtime exception frame.  Scope-cleanup wrappers and
+ * other synthesized calls still depend on compiler-side state, so allowing a
+ * call to cross such a protected scope would make the cleanup unreachable.
+ */
+static bool sema_exception_body_has_unregistered_cleanup(
+    const Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (sema_exception_body_has_unregistered_cleanup(item->stmt)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_DECL: {
+            Decl* declaration = statement->decl;
+            Expr* cleanup = declaration && declaration->kind == DECL_VAR
+                ? declaration->var_cleanup : NULL;
+            Expr* function = cleanup && cleanup->kind == EXPR_CALL
+                ? cleanup->call_func : NULL;
+            Decl* destructor = function && function->kind == EXPR_IDENT
+                ? function->ident_decl : NULL;
+            if (!declaration || declaration->kind != DECL_VAR) return false;
+            if (declaration->var_is_vla) return true;
+            return cleanup && (!destructor || !destructor->func_is_cxx_destructor);
+        }
+        case STMT_IF:
+            return sema_exception_body_has_unregistered_cleanup(
+                       statement->if_then) ||
+                sema_exception_body_has_unregistered_cleanup(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_exception_body_has_unregistered_cleanup(
+                statement->while_body);
+        case STMT_FOR:
+            return sema_exception_body_has_unregistered_cleanup(
+                       statement->for_init) ||
+                sema_exception_body_has_unregistered_cleanup(statement->for_body);
+        case STMT_SWITCH:
+            return sema_exception_body_has_unregistered_cleanup(
+                statement->switch_body);
+        case STMT_CASE:
+            return sema_exception_body_has_unregistered_cleanup(
+                statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_exception_body_has_unregistered_cleanup(
+                statement->default_stmt);
+        case STMT_LABEL:
+            return sema_exception_body_has_unregistered_cleanup(
+                statement->label_stmt);
+        case STMT_TRY:
+            if (sema_exception_body_has_unregistered_cleanup(
+                    statement->try_body)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (sema_exception_body_has_unregistered_cleanup(handler->body)) {
                     return true;
                 }
             }
@@ -1704,11 +1775,14 @@ static bool sema_constexpr_scalar_type(Type* type) {
 static bool sema_constexpr_scalar_convert(
     const SemaConstexprScalar* input, Type* type,
     SemaConstexprScalar* output) {
-    long double numeric;
+    /* The target ABI has no long-double scalar.  Keep evaluator intermediates
+     * within the supported language surface so RCC can bootstrap its own
+     * semantic analyser with -nostdinc. */
+    double numeric;
     unsigned bits;
     uint64_t converted;
-    long double minimum;
-    long double maximum;
+    double minimum;
+    double maximum;
 
     if (!input || !output || !sema_constexpr_scalar_type(type) ||
         type->size <= 0) return false;
@@ -1740,10 +1814,10 @@ static bool sema_constexpr_scalar_convert(
     if (input->is_pointer) return false;
     if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
         numeric = input->is_floating
-            ? (long double)input->floating_value
+            ? input->floating_value
             : (input->type && input->type->is_unsigned
-                ? (long double)sema_constexpr_integer_bits(input)
-                : (long double)sema_constexpr_integer_signed(input));
+                ? (double)sema_constexpr_integer_bits(input)
+                : (double)sema_constexpr_integer_signed(input));
         if (!isfinite(numeric)) return false;
         output->type = type;
         output->is_floating = true;
@@ -1760,26 +1834,26 @@ static bool sema_constexpr_scalar_convert(
         return true;
     }
     if (input->is_floating) {
-        numeric = (long double)input->floating_value;
+        numeric = (double)input->floating_value;
         if (!isfinite(numeric)) return false;
         bits = (unsigned)type->size * 8u;
         if (bits == 0u || bits > 64u) return false;
         if (type->is_unsigned) {
             maximum = bits == 64u
-                ? (long double)UINT64_MAX
-                : (long double)((UINT64_C(1) << bits) - 1u);
-            if (numeric < 0.0L || numeric >= maximum + 1.0L) return false;
+                ? (double)UINT64_MAX
+                : (double)((UINT64_C(1) << bits) - 1u);
+            if (numeric < 0.0 || numeric >= maximum + 1.0) return false;
         } else {
             minimum = bits == 64u
-                ? (long double)INT64_MIN
-                : -(long double)(UINT64_C(1) << (bits - 1u));
+                ? (double)INT64_MIN
+                : -(double)(UINT64_C(1) << (bits - 1u));
             maximum = bits == 64u
-                ? (long double)INT64_MAX
-                : (long double)((UINT64_C(1) << (bits - 1u)) - 1u);
-            if (numeric < minimum || numeric >= maximum + 1.0L) return false;
+                ? (double)INT64_MAX
+                : (double)((UINT64_C(1) << (bits - 1u)) - 1u);
+            if (numeric < minimum || numeric >= maximum + 1.0) return false;
         }
-        if (type->is_unsigned && numeric >= 9223372036854775808.0L) {
-            converted = (uint64_t)(numeric - 9223372036854775808.0L) +
+        if (type->is_unsigned && numeric >= 9223372036854775808.0) {
+            converted = (uint64_t)(numeric - 9223372036854775808.0) +
                         UINT64_C(0x8000000000000000);
         } else {
             converted = (uint64_t)(int64_t)numeric;
@@ -6393,7 +6467,7 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_TRY: {
-            int frame_size = g_opts.target_arch == ARCH_X64 ? 88 : 36;
+            int frame_size = g_opts.target_arch == ARCH_X64 ? 96 : 40;
             char frame_name[64];
             int written;
             Symbol* frame_symbol;
@@ -6426,7 +6500,8 @@ static void sema_stmt(Stmt* stmt) {
             if (sema_exception_body_has_vla(stmt->try_body)) {
                 rcc_error(stmt->loc,
                           "C++ exception unwinding cannot bypass VLA lifetime");
-            } else if (sema_exception_body_has_cleanup(stmt->try_body)) {
+            } else if (sema_exception_body_has_unregistered_cleanup(
+                           stmt->try_body)) {
                 if (sema_exception_body_has_call(stmt->try_body)) {
                     rcc_error(stmt->loc,
                               "C++ exception cleanup requires a call-free protected body");

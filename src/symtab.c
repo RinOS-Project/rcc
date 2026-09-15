@@ -129,6 +129,16 @@ Symbol* symtab_define(SymTab* st, const char* name, SymKind kind, Type* type, So
     /* Check for redefinition in current scope */
     Symbol* existing = symtab_lookup_local(st, name);
     if (existing) {
+        /* C permits a typedef name to be redeclared to the same type in the
+         * same scope.  This is required for the standard forward declaration
+         * form `typedef struct Tag Tag;` followed by the completed definition
+         * `typedef struct Tag { ... } Tag;`.  The parser interns tagged types
+         * and builtin types, so pointer identity is the semantic identity
+         * available at this symbol-table boundary. */
+        if (kind == SYM_TYPE && existing->kind == SYM_TYPE &&
+            existing->type == type) {
+            return existing;
+        }
         rcc_error(loc, "redefinition of '%s'", name);
         return existing;
     }

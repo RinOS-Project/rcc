@@ -1,5 +1,7 @@
 extern "C" int cxx_exception_cleanup_close(int* value);
+extern "C" int cxx_exception_cleanup_callee(int value);
 extern "C" int cxx_exception_cleanup_total = 0;
+extern "C" int cxx_exception_destructor_total = 0;
 
 class ExceptionGuard final {
 public:
@@ -55,12 +57,47 @@ extern "C" int cxx_exception_cleanup_rethrow() {
     }
 }
 
+class NativeExceptionGuard final {
+public:
+    NativeExceptionGuard(int* value, int* order, int id)
+        : value_(value), order_(order), id_(id) {}
+
+    ~NativeExceptionGuard() {
+        ++*value_;
+        ++cxx_exception_destructor_total;
+        *order_ = *order_ * 10 + id_;
+    }
+
+private:
+    int* value_;
+    int* order_;
+    int id_;
+};
+
+extern "C" int cxx_exception_cleanup_callee(int value) {
+    throw value;
+}
+
+extern "C" int cxx_exception_cleanup_across_call() {
+    int count = 0;
+    int order = 0;
+    try {
+        NativeExceptionGuard first{&count, &order, 1};
+        NativeExceptionGuard second{&count, &order, 2};
+        cxx_exception_cleanup_callee(23);
+    } catch (int caught) {
+        return caught + count * 100 + order * 1000;
+    }
+}
+
 extern "C" int main() {
     return cxx_exception_cleanup_direct() == 141 &&
                    cxx_exception_cleanup_handler() == 7 &&
                    cxx_exception_cleanup_total == 2 &&
                    cxx_exception_cleanup_rethrow() == 105 &&
-                   cxx_exception_cleanup_total == 3
+                   cxx_exception_cleanup_total == 3 &&
+                   cxx_exception_cleanup_across_call() == 21223 &&
+                   cxx_exception_destructor_total == 2
                ? 0
                : 1;
 }

@@ -80,12 +80,15 @@ BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
                               malloc memchr memcmp memcpy memset mkstemp perror printf \
                               qsort realloc remove rename snprintf strchr strcmp \
                               strcpy strlen strcat strncat strncmp strncpy strrchr strstr strtod \
-                              strtoull tolower vfprintf vsnprintf waitpid setjmp longjmp \
+                              strtoll strtoull tolower vfprintf vsnprintf waitpid setjmp longjmp \
                               rin_cpp_exception_install rin_cpp_exception_leave \
                               rin_cpp_exception_throw rin_cpp_exception_rethrow \
                               rin_cpp_exception_throw_object \
                               rin_cpp_exception_rethrow_frame \
-                              rin_cpp_exception_release_frame
+                              rin_cpp_exception_release_frame \
+                              rin_cpp_exception_register_cleanup \
+                              rin_cpp_exception_unregister_cleanup \
+                              rin_cpp_exception_unwind_cleanups
 BOOTSTRAP_RUNTIME_IMPORTS = $(foreach symbol,$(BOOTSTRAP_RUNTIME_FUNCTIONS),\
                               --import $(symbol)=rincrt.rll@function)
 

@@ -388,9 +388,15 @@ bool rcc_run_rinsign(const char* unsigned_path, const char* output_path) {
     return signed_ok;
 }
 
-/* String interning hash table */
-#define INTERN_SIZE 4096
-static const char* intern_table[INTERN_SIZE];
+/* String interning hash table.  The compiler interns every source spelling,
+ * generated label, qualified name, and link name, so a fixed table turns a
+ * large but valid translation unit into an internal fatal error.  Keep open
+ * addressing for deterministic lookup, but grow it before the load factor
+ * becomes probe-hostile. */
+#define INTERN_INITIAL_SIZE 4096u
+static const char** intern_table;
+static size_t intern_capacity;
+static size_t intern_count;
 
 static unsigned int hash_string(const char* s) {
     unsigned int h = 0;
@@ -400,23 +406,48 @@ static unsigned int hash_string(const char* s) {
     return h;
 }
 
+static void intern_rehash(size_t new_capacity) {
+    const char** old_table = intern_table;
+    size_t old_capacity = intern_capacity;
+    if (new_capacity < INTERN_INITIAL_SIZE ||
+        new_capacity > SIZE_MAX / sizeof(*intern_table)) {
+        rcc_fatal("string intern table exceeds compiler limits");
+    }
+    intern_table = rcc_alloc(new_capacity * sizeof(*intern_table));
+    intern_capacity = new_capacity;
+    for (size_t index = 0; index < old_capacity; ++index) {
+        const char* value = old_table[index];
+        if (value) {
+            size_t slot = hash_string(value) % intern_capacity;
+            while (intern_table[slot]) {
+                slot = (slot + 1u) % intern_capacity;
+            }
+            intern_table[slot] = value;
+        }
+    }
+    if (old_table) rcc_free((void*)old_table);
+}
+
 const char* rcc_intern(const char* str) {
-    unsigned int h = hash_string(str) % INTERN_SIZE;
-    unsigned int start = h;
-
-    do {
-        if (!intern_table[h]) {
-            intern_table[h] = rcc_strdup(str);
-            return intern_table[h];
+    size_t slot;
+    if (!str) return NULL;
+    if (intern_capacity == 0u) intern_rehash(INTERN_INITIAL_SIZE);
+    if (intern_count + 1u > intern_capacity * 3u / 4u) {
+        if (intern_capacity > SIZE_MAX / 2u) {
+            rcc_fatal("string intern table exceeds compiler limits");
         }
-        if (strcmp(intern_table[h], str) == 0) {
-            return intern_table[h];
+        intern_rehash(intern_capacity * 2u);
+    }
+    slot = hash_string(str) % intern_capacity;
+    while (intern_table[slot]) {
+        if (strcmp(intern_table[slot], str) == 0) {
+            return intern_table[slot];
         }
-        h = (h + 1) % INTERN_SIZE;
-    } while (h != start);
-
-    rcc_fatal("string intern table full");
-    return NULL;
+        slot = (slot + 1u) % intern_capacity;
+    }
+    intern_table[slot] = rcc_strdup(str);
+    ++intern_count;
+    return intern_table[slot];
 }
 
 /* Memory allocation */

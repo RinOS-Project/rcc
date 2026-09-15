@@ -464,6 +464,7 @@ int main(int argc, char** argv) {
     }
 
     /* Phase 1: Lexical analysis */
+    rcc_lexer_set_cxx_mode(true);
     if (g_opts.verbose) {
         printf("Lexing...\n");
     }
