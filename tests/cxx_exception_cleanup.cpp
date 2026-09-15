@@ -74,6 +74,40 @@ private:
     int id_;
 };
 
+class NestedFirstExceptionGuard final {
+public:
+    explicit NestedFirstExceptionGuard(int* order) : order_(order) {}
+
+    ~NestedFirstExceptionGuard() {
+        *order_ = *order_ * 10 + 1;
+    }
+
+private:
+    int* order_;
+};
+
+class NestedSecondExceptionGuard final {
+public:
+    explicit NestedSecondExceptionGuard(int* order) : order_(order) {}
+
+    ~NestedSecondExceptionGuard() {
+        *order_ = *order_ * 10 + 2;
+    }
+
+private:
+    int* order_;
+};
+
+class NestedExceptionScope final {
+public:
+    NestedExceptionScope(int* first, int* second)
+        : first_(first), second_(second) {}
+
+private:
+    NestedFirstExceptionGuard first_;
+    NestedSecondExceptionGuard second_;
+};
+
 extern "C" int cxx_exception_cleanup_callee(int value) {
     throw value;
 }
@@ -90,6 +124,16 @@ extern "C" int cxx_exception_cleanup_across_call() {
     }
 }
 
+extern "C" int cxx_exception_cleanup_nested_members() {
+    int order = 0;
+    try {
+        NestedExceptionScope scope{&order, &order};
+        cxx_exception_cleanup_callee(29);
+    } catch (int caught) {
+        return caught + order * 1000;
+    }
+}
+
 extern "C" int main() {
     return cxx_exception_cleanup_direct() == 141 &&
                    cxx_exception_cleanup_handler() == 7 &&
@@ -97,7 +141,8 @@ extern "C" int main() {
                    cxx_exception_cleanup_rethrow() == 105 &&
                    cxx_exception_cleanup_total == 3 &&
                    cxx_exception_cleanup_across_call() == 21223 &&
-                   cxx_exception_destructor_total == 2
+                   cxx_exception_destructor_total == 2 &&
+                   cxx_exception_cleanup_nested_members() == 21029
                ? 0
                : 1;
 }
