@@ -702,7 +702,7 @@ void rcc_parser_validate_cxx_constructor_initializer(Type* type,
     uint32_t mask;
     unsigned arity = 0u;
     ExprList* item;
-    if (!parser_cxx_mode || !type || !initializer ||
+    if (!parser_cxx_mode || !type || type->cxx_dependent || !initializer ||
         initializer->kind != EXPR_COMPOUND) {
         return;
     }

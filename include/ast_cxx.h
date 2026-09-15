@@ -218,6 +218,7 @@ struct CxxTemplate {
 /* C++ Method (extends Decl) */
 struct CxxMethod {
     Decl* decl;              /* Base function declaration */
+    const char* source_name; /* Stable source spelling after ABI mangling. */
     CxxClass* owner;         /* Owning class */
     AccessSpec access;
     bool is_static;

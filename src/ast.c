@@ -159,6 +159,7 @@ Type* type_ptr(Type* base) {
     t->array_parameter_restrict = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
@@ -181,6 +182,7 @@ Type* type_array(Type* base, int len) {
     t->array_parameter_restrict = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
@@ -199,6 +201,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->has_prototype = true;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
@@ -216,6 +219,7 @@ Type* type_struct(const char* tag) {
     t->is_complete = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
@@ -233,6 +237,7 @@ Type* type_union(const char* tag) {
     t->is_complete = false;
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
+    t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;

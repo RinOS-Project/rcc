@@ -109,6 +109,7 @@ struct Type {
     bool is_rvalue_reference;
     bool cxx_is_class;
     bool cxx_nontrivial;
+    bool cxx_dependent;
     struct CxxClass* cxx_class;
     /* Fully qualified namespace owning a C++ class type, or NULL for the
      * global namespace and non-class C types. */

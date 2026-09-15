@@ -1749,6 +1749,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
 
     /* Create declaration */
     method->decl = decl_func(name, func_type, params, body, loc);
+    method->source_name = name;
     method->owner = NULL;
     method->access = ACCESS_PUBLIC;
     method->is_static = false;

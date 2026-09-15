@@ -3419,6 +3419,13 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
     }
     name = sema_cxx_assignment_operator_name(expression->kind);
     if (!name) return false;
+    if (expression->kind == EXPR_ASSIGN &&
+        aggregate->move_assignment_method) {
+        /* The validated ownership lowering is attached to the assignment
+         * expression itself and must not be replaced by ordinary overload
+         * lookup. */
+        return false;
+    }
     method = sema_find_function_method(aggregate, name);
     if (!method || !method->function_decl) return false;
     member = expr_member(expression->binary_lhs, name, expression->loc);
@@ -4724,6 +4731,13 @@ static Type* sema_expr(Expr* expr) {
                 if (member->kind == EXPR_PTR_MEMBER) {
                     owner = get_pointer_base(owner);
                 }
+                if (owner && owner->cxx_dependent) {
+                    /* Dependent member lookup is completed after class
+                     * template substitution; never diagnose or lower the
+                     * placeholder expression here. */
+                    expr->type = owner;
+                    break;
+                }
                 method = sema_find_inline_method(owner,
                                                  member->member_name);
                 if (method) {
@@ -5836,7 +5850,7 @@ static void normalize_brace_elided_initializer(Type* type,
 
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
-    if (!type || !initializer) return;
+    if (!type || type->cxx_dependent || !initializer) return;
     normalize_brace_elided_initializer(type, initializer);
     string = initializer_character_string(type, initializer);
     if (string) {

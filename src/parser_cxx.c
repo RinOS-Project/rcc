@@ -26,6 +26,8 @@ static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static AST* active_ast;
 
+static const char* cxx_method_source_name(CxxMethod* method);
+
 typedef struct CxxParserValueBinding {
     const char* name;
     Type* type;
@@ -862,7 +864,8 @@ static void register_inline_class_accessors(CxxClass* cls) {
             }
         }
         lowered = ast_arena_alloc(sizeof(*lowered));
-        lowered->name = method->decl->name;
+        lowered->name = method->source_name
+            ? method->source_name : method->decl->name;
         lowered->return_type = method->decl->type->ret_type;
         lowered->field = field;
         lowered->function_decl = NULL;
@@ -920,8 +923,9 @@ static void register_inline_class_bool_delegates(CxxClass* cls) {
             method->is_defaulted || method->is_constructor ||
             method->is_destructor || !method->is_const ||
             !method->decl || !method->decl->type ||
-            !method->decl->name ||
-            strcmp(method->decl->name, "operator conversion") != 0 ||
+            !(method->source_name ? method->source_name : method->decl->name) ||
+            strcmp(method->source_name ? method->source_name : method->decl->name,
+                   "operator conversion") != 0 ||
             !method->decl->type->ret_type ||
             method->decl->type->ret_type->kind != TYPE_BOOL ||
             method->decl->func_params || !method->decl->func_body ||
@@ -946,7 +950,8 @@ static void register_inline_class_bool_delegates(CxxClass* cls) {
         if (!target) continue;
         lowered = ast_arena_alloc(sizeof(*lowered));
         *lowered = *target;
-        lowered->name = method->decl->name;
+        lowered->name = method->source_name
+            ? method->source_name : method->decl->name;
         lowered->return_type = method->decl->type->ret_type;
         lowered->cxx_access = (unsigned char)member->access;
         lowered->this_owner = target->this_owner;
@@ -983,17 +988,6 @@ static void register_inline_class_releases(CxxClass* cls) {
         Type* return_type;
         int64_t invalid;
         TypeMethod* lowered;
-        if (cls->type->tag && strstr(cls->type->tag, "CxxUnique") &&
-            method && method->decl && method->decl->name &&
-            strcmp(method->decl->name, "release") == 0) {
-            fprintf(stderr, "DEBUG release flags static=%d virtual=%d deleted=%d defaulted=%d ctor=%d dtor=%d const=%d params=%p body=%p kind=%d\\n",
-                    method->is_static, method->is_virtual, method->is_deleted,
-                    method->is_defaulted, method->is_constructor,
-                    method->is_destructor, method->is_const,
-                    (void*)method->decl->func_params,
-                    (void*)method->decl->func_body,
-                    method->decl->func_body ? method->decl->func_body->kind : -1);
-        }
         if (!method || method->is_static || method->is_virtual ||
             method->is_pure_virtual || method->is_deleted ||
             method->is_defaulted || method->is_constructor ||
@@ -1055,7 +1049,8 @@ static void register_inline_class_releases(CxxClass* cls) {
         return_type = method->decl->type->ret_type;
         if (!type_is_compatible(return_type, field->type)) continue;
         lowered = ast_arena_alloc(sizeof(*lowered));
-        lowered->name = method->decl->name;
+        lowered->name = method->source_name
+            ? method->source_name : method->decl->name;
         lowered->return_type = return_type;
         lowered->field = field;
         lowered->function_decl = NULL;
@@ -1358,7 +1353,7 @@ static void register_inline_class_closes(CxxClass* cls) {
         int64_t success;
         int64_t assigned;
         TypeMethod* lowered;
-        if (!method || !method->decl || !method->decl->name ||
+        if (!method || !cxx_method_source_name(method) ||
             member->access != ACCESS_PUBLIC || method->is_static ||
             method->is_virtual || method->is_pure_virtual ||
             method->is_deleted || method->is_defaulted ||
@@ -1465,7 +1460,7 @@ static void register_inline_class_closes(CxxClass* cls) {
             continue;
         }
         lowered = ast_arena_alloc(sizeof(*lowered));
-        lowered->name = method->decl->name;
+        lowered->name = cxx_method_source_name(method);
         lowered->return_type = return_type;
         lowered->field = field;
         lowered->function_decl = NULL;
@@ -1524,7 +1519,7 @@ static void register_inline_class_close_delegates(CxxClass* cls) {
         Expr* callee;
         TypeMethod* target;
         TypeMethod* lowered;
-        if (!method || !method->decl || !method->decl->name ||
+        if (!method || !cxx_method_source_name(method) ||
             member->access != ACCESS_PUBLIC || method->is_static ||
             method->is_virtual || method->is_pure_virtual ||
             method->is_deleted || method->is_defaulted ||
@@ -1549,7 +1544,7 @@ static void register_inline_class_close_delegates(CxxClass* cls) {
         }
         callee = returned->call_func;
         if (!callee->ident_name ||
-            strcmp(callee->ident_name, method->decl->name) == 0) {
+            strcmp(callee->ident_name, cxx_method_source_name(method)) == 0) {
             continue;
         }
         target = class_close_method(cls, callee->ident_name, field);
@@ -1560,7 +1555,7 @@ static void register_inline_class_close_delegates(CxxClass* cls) {
         }
         lowered = ast_arena_alloc(sizeof(*lowered));
         *lowered = *target;
-        lowered->name = method->decl->name;
+        lowered->name = cxx_method_source_name(method);
         lowered->return_type = method->decl->type->ret_type;
         lowered->cxx_access = (unsigned char)member->access;
         lowered->this_owner = target->this_owner;
@@ -1612,8 +1607,8 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
         TypeMethod* close;
         TypeMethod* release;
         const char* close_name;
-        if (!method || !method->decl || !method->decl->name ||
-            strcmp(method->decl->name, "operator=") != 0 ||
+        if (!method || !cxx_method_source_name(method) ||
+            strcmp(cxx_method_source_name(method), "operator=") != 0 ||
             member->access != ACCESS_PUBLIC || method->is_static ||
             method->is_virtual || method->is_pure_virtual ||
             method->is_deleted || method->is_defaulted ||
@@ -1712,8 +1707,8 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
  * such as api::Counter::add while its link name remains the Itanium spelling
  * produced by cxx_mangle_function(). */
 static const char* cxx_class_method_source_name(CxxClass* cls,
-                                                const char* method_name,
-                                                SourceLoc loc) {
+                                                 const char* method_name,
+                                                 SourceLoc loc) {
     CxxNamespace* stack[32];
     int count = 0;
     size_t length = 0u;
@@ -1758,13 +1753,18 @@ static const char* cxx_class_method_source_name(CxxClass* cls,
     return rcc_intern(buffer);
 }
 
+static const char* cxx_method_source_name(CxxMethod* method) {
+    return method && method->source_name
+        ? method->source_name
+        : (method && method->decl ? method->decl->name : NULL);
+}
+
 static bool class_declares_method_name(CxxClass* cls, const char* name) {
     struct CxxMember* member;
     if (!cls || !name) return false;
     for (member = cls->members; member; member = member->next) {
-        if (member->method && member->method->decl &&
-            member->method->decl->name &&
-            strcmp(member->method->decl->name, name) == 0) {
+        if (member->method && cxx_method_source_name(member->method) &&
+            strcmp(cxx_method_source_name(member->method), name) == 0) {
             return true;
         }
     }
@@ -1861,7 +1861,16 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         }
 
         declaration = method->decl;
-        source_name = declaration->name;
+        source_name = cxx_method_source_name(method);
+        if (!method->is_destructor && source_name &&
+            strcmp(source_name, "operator=") == 0 &&
+            cls->type->move_assignment_method) {
+            /* Validated field/ownership lowerings are complete executable
+             * implementations.  Do not also publish their unvalidated body;
+             * duplicate registration would make template instances route
+             * through a call with no ABI function type. */
+            continue;
+        }
         link_name = rcc_intern(cxx_mangle_function(
             declaration, active_namespace, cls));
 
@@ -3444,7 +3453,7 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     return_type = substitute_template_type(
         tmpl, method->decl->type->ret_type, arguments, argument_count,
         value_args, value_present);
-    copy = cxx_method_new(method->decl->name, return_type, parameters,
+    copy = cxx_method_new(cxx_method_source_name(method), return_type, parameters,
                           method->decl->func_body, method->decl->loc);
     copy->access = method->access;
     copy->is_static = method->is_static;
@@ -3651,7 +3660,6 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     cxx_class_compute_layout(instance);
     cxx_class_build_vtable(instance);
     diagnose_unlowered_destructors(instance);
-    register_ordinary_class_methods(instance);
     register_inline_class_accessors(instance);
     register_inline_class_bool_delegates(instance);
     register_inline_class_cleanup(instance);
@@ -3660,6 +3668,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     register_inline_class_close_delegates(instance);
     register_inline_class_move_constructor(instance);
     register_inline_class_move_assignment(instance);
+    register_ordinary_class_methods(instance);
     constructor_mask = lowerable_constructor_arity_mask(instance);
     if (constructor_mask != 0u) {
         rcc_parser_define_cxx_constructor_type(instance->name,
@@ -3844,6 +3853,16 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         ++argument_count;
     }
     expect(TOK_GT, ">");
+    for (int argument_index = 0; argument_index < argument_count;
+         ++argument_index) {
+        if (arguments[argument_index] &&
+            arguments[argument_index]->cxx_dependent) {
+            Type* dependent = type_struct(tmpl->name ? tmpl->name :
+                                          "dependent-template");
+            dependent->cxx_dependent = true;
+            return dependent;
+        }
+    }
     CxxTemplate* selected = NULL;
     Type* selected_arguments[32] = { NULL };
     int selected_specificity = -1;
@@ -4565,6 +4584,13 @@ static Type* parse_cxx_type_spec(void) {
             ? rcc_parser_lookup_type(name) : NULL;
         if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);
+        } else if (known_class && active_template &&
+                   active_class == known_class) {
+            /* A self-reference in a class template is dependent on the
+             * specialization even when the primary class is already visible
+             * in the parser's class table. */
+            t = type_struct(name);
+            t->cxx_dependent = true;
         } else if (known_class) {
             t = known_class->type;
         } else if (known_type) {
@@ -4573,6 +4599,7 @@ static Type* parse_cxx_type_spec(void) {
             /* A dependent type remains an incomplete placeholder until
              * template substitution. */
             t = type_struct(name);
+            t->cxx_dependent = true;
         } else {
             if (check(TOK_LT)) {
                 rcc_error(loc, "unknown C++ class template '%s'", name);

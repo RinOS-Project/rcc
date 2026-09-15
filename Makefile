@@ -1867,20 +1867,12 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-release.ro \
 		tests/cxx_unsafe_release_rejected.cpp
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-bool.ro \
-		tests/cxx_unsafe_bool_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	grep -q "condition requires scalar type or validated operator bool" \
-		$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-bool-delegate.ro \
-		tests/cxx_unsafe_bool_delegate_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool-delegate.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	grep -q "condition requires scalar type or validated operator bool" \
-		$(TEST_OUT)/cxx-inline-aggregates/unsafe-bool-delegate.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/explicit-bool.ro \
+		tests/cxx_unsafe_bool_rejected.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inline-aggregates/bool-delegate.ro \
+		tests/cxx_unsafe_bool_delegate_rejected.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.ro \
 		tests/cxx_unsafe_close_delegate_rejected.cpp
@@ -1896,9 +1888,7 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/cxx_unsafe_move_assignment_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "C++ ownership assignment requires a validated rvalue operator=" \
-		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
-	grep -q "C++ scope-cleanup object assignment requires a validated operator=" \
+	grep -q "no matching member overload for 'operator='" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
