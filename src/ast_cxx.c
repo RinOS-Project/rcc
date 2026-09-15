@@ -106,100 +106,98 @@ static void mangle_nested_prefix(char* buf, size_t* pos,
     if (cls) mangle_name(buf, pos, cls->name);
 }
 
-/* Mangle a type */
-char* cxx_mangle_type(Type* type) {
-    static char buf[256];
-    size_t pos = 0;
+static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
 
+static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
+    if (*pos + 1u >= 256u) {
+        rcc_fatal("C++ type name is too long");
+    }
+    buf[(*pos)++] = value;
+}
+
+/* Append a type without recursively reusing the public static result buffer.
+ * A type can contain another function type (for example `int (*)(int)`), so
+ * every recursive call must keep writing at the caller's current position. */
+static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
     if (!type) {
-        buf[0] = 'v';  /* void */
-        buf[1] = '\0';
-        return buf;
+        cxx_mangle_type_char(buf, pos, 'v');
+        return;
     }
 
-    /* Handle pointers and the Itanium ABI reference constructors. */
     while (type->kind == TYPE_PTR) {
-        if (type->is_reference) {
-            buf[pos++] = type->is_rvalue_reference ? 'O' : 'R';
-        } else {
-            buf[pos++] = 'P';
-        }
+        cxx_mangle_type_char(buf, pos,
+                             type->is_reference
+                                 ? (type->is_rvalue_reference ? 'O' : 'R')
+                                 : 'P');
         type = type->base;
     }
 
-    /* Handle const */
-    if (type->is_const) {
-        buf[pos++] = 'K';
-    }
+    if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');
 
-    /* Base types */
     switch (type->kind) {
-        case TYPE_VOID:   buf[pos++] = 'v'; break;
-        case TYPE_BOOL:   buf[pos++] = 'b'; break;
-        case TYPE_CHAR:
-            if (type->is_unsigned)
-                buf[pos++] = 'h';  /* unsigned char */
-            else
-                buf[pos++] = 'c';  /* char */
-            break;
-        case TYPE_SHORT:
-            if (type->is_unsigned)
-                buf[pos++] = 't';  /* unsigned short */
-            else
-                buf[pos++] = 's';  /* short */
-            break;
-        case TYPE_INT:
-            if (type->is_unsigned)
-                buf[pos++] = 'j';  /* unsigned int */
-            else
-                buf[pos++] = 'i';  /* int */
-            break;
-        case TYPE_LONG:
-            if (type->is_unsigned)
-                buf[pos++] = 'm';  /* unsigned long */
-            else
-                buf[pos++] = 'l';  /* long */
-            break;
-        case TYPE_LLONG:
-            if (type->is_unsigned)
-                buf[pos++] = 'y';  /* unsigned long long */
-            else
-                buf[pos++] = 'x';  /* long long */
-            break;
-        case TYPE_FLOAT:  buf[pos++] = 'f'; break;
-        case TYPE_DOUBLE: buf[pos++] = 'd'; break;
+        case TYPE_VOID:   cxx_mangle_type_char(buf, pos, 'v'); break;
+        case TYPE_BOOL:   cxx_mangle_type_char(buf, pos, 'b'); break;
+        case TYPE_CHAR:   cxx_mangle_type_char(buf, pos,
+                              type->is_unsigned ? 'h' : 'c'); break;
+        case TYPE_SHORT:  cxx_mangle_type_char(buf, pos,
+                              type->is_unsigned ? 't' : 's'); break;
+        case TYPE_INT:    cxx_mangle_type_char(buf, pos,
+                              type->is_unsigned ? 'j' : 'i'); break;
+        case TYPE_LONG:   cxx_mangle_type_char(buf, pos,
+                              type->is_unsigned ? 'm' : 'l'); break;
+        case TYPE_LLONG:  cxx_mangle_type_char(buf, pos,
+                              type->is_unsigned ? 'y' : 'x'); break;
+        case TYPE_FLOAT:  cxx_mangle_type_char(buf, pos, 'f'); break;
+        case TYPE_DOUBLE: cxx_mangle_type_char(buf, pos, 'd'); break;
         case TYPE_NULLPTR:
-            buf[pos++] = 'D';
-            buf[pos++] = 'n';
+            cxx_mangle_type_char(buf, pos, 'D');
+            cxx_mangle_type_char(buf, pos, 'n');
             break;
         case TYPE_STRUCT:
         case TYPE_UNION:
-            /* Named type */
-            if (type->tag) {
-                mangle_name(buf, &pos, type->tag);
-            }
+            if (!type->tag) rcc_fatal("C++ anonymous type cannot be mangled");
+            mangle_name(buf, pos, type->tag);
             break;
         case TYPE_ARRAY: {
             char base_mangled[256];
-            const char* base = cxx_mangle_type(type->base);
-            strncpy(base_mangled, base ? base : "v",
-                    sizeof(base_mangled) - 1u);
-            base_mangled[sizeof(base_mangled) - 1u] = '\0';
-            if (type->array_len >= 0) {
-                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
-                                        "A%d%s", type->array_len,
-                                        base_mangled);
-            } else {
-                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
-                                        "A_%s", base_mangled);
+            size_t base_pos = 0u;
+            int written;
+            cxx_mangle_type_append(base_mangled, &base_pos, type->base);
+            base_mangled[base_pos] = '\0';
+            written = type->array_len >= 0
+                ? snprintf(buf + *pos, 256u - *pos, "A%d%s",
+                           type->array_len, base_mangled)
+                : snprintf(buf + *pos, 256u - *pos, "A_%s", base_mangled);
+            if (written < 0 || (size_t)written >= 256u - *pos) {
+                rcc_fatal("C++ array type name is too long");
             }
+            *pos += (size_t)written;
             break;
         }
-        default:
-            buf[pos++] = '?';
+        case TYPE_FUNC:
+            cxx_mangle_type_char(buf, pos, 'F');
+            cxx_mangle_type_append(buf, pos, type->ret_type);
+            if (type->params) {
+                for (TypeParam* parameter = type->params; parameter;
+                     parameter = parameter->next) {
+                    cxx_mangle_type_append(buf, pos, parameter->type);
+                }
+            } else {
+                cxx_mangle_type_char(buf, pos, 'v');
+            }
+            if (type->variadic) cxx_mangle_type_char(buf, pos, 'z');
+            cxx_mangle_type_char(buf, pos, 'E');
             break;
+        default:
+            rcc_fatal("unsupported C++ type in name mangling");
     }
+}
 
+/* Mangle a type */
+char* cxx_mangle_type(Type* type) {
+    static char buf[256];
+    size_t pos = 0u;
+    cxx_mangle_type_append(buf, &pos, type);
     buf[pos] = '\0';
     return buf;
 }

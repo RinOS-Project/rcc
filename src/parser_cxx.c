@@ -53,6 +53,7 @@ static CxxReferenceCapture* active_reference_captures;
 static CxxReferenceCapture* saved_reference_captures[32];
 static int saved_reference_capture_depth;
 static unsigned cxx_lambda_counter;
+static unsigned cxx_range_for_counter;
 
 static void cxx_parser_expr_loc(SourceLoc* location, const Expr* expression,
                                 const SourceLoc* fallback) {
@@ -4888,6 +4889,117 @@ static bool is_active_template_type(const char* name) {
         }
     }
     return false;
+}
+
+/* Return whether a `for` header contains the range separator at its outer
+ * parameter-list depth.  Nested conditional expressions may contain `:`;
+ * only a separator directly inside the header belongs to range-for. */
+static bool cxx_range_for_header(void) {
+    Token* token;
+    int depth = 0;
+    int conditional_depth = 0;
+    if (!parser.cur || parser.cur->type != TOK_FOR || !parser.cur->next ||
+        parser.cur->next->type != TOK_LPAREN) return false;
+    for (token = parser.cur->next; token; token = token->next) {
+        if (token->type == TOK_LPAREN || token->type == TOK_LBRACKET ||
+            token->type == TOK_LBRACE) {
+            ++depth;
+        } else if (token->type == TOK_RPAREN ||
+                   token->type == TOK_RBRACKET ||
+                   token->type == TOK_RBRACE) {
+            if (token->type == TOK_RPAREN && depth == 1) break;
+            if (depth > 0) --depth;
+        } else if (depth == 1 && token->type == TOK_QUESTION) {
+            ++conditional_depth;
+        } else if (token->type == TOK_COLON && depth == 1) {
+            if (conditional_depth > 0) {
+                --conditional_depth;
+            } else {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/* Lower the array form of a C++ range-for into the existing indexed-loop
+ * representation.  Restricting the range operand to an identifier makes
+ * the C++ single-evaluation rule explicit without inventing a hidden object
+ * temporary.  Iterator/class ranges are diagnosed instead of being silently
+ * reinterpreted as a different loop. */
+Stmt* rcc_parse_cxx_range_for_statement(void) {
+    SourceLoc loc;
+    Type* item_type = NULL;
+    bool is_auto = false;
+    const char* item_name = NULL;
+    Expr* range;
+    Expr* index_expression;
+    Expr* element_expression;
+    Expr* count_expression;
+    Expr* condition;
+    Expr* increment;
+    Decl* index_decl;
+    Decl* item_decl;
+    Stmt* original_body;
+    StmtList* body_statements = NULL;
+    char index_name[64];
+    int written;
+
+    if (!cxx_range_for_header()) return NULL;
+    loc = parser.cur->loc;
+    advance(); /* for */
+    expect(TOK_LPAREN, "(");
+    if (match(TOK_AUTO)) {
+        is_auto = true;
+        {
+            Token* name = expect(TOK_IDENT, "range variable name");
+            if (name) item_name = name->value.str_val;
+        }
+    } else {
+        item_type = parse_cxx_type_spec();
+        item_type = rcc_parser_parse_cxx_declarator(
+            item_type, &item_name, NULL);
+        if (!item_name) {
+            rcc_error(peek()->loc, "range-for requires an element declaration");
+        }
+    }
+    expect(TOK_COLON, ":");
+    range = parse_cxx_expression();
+    expect(TOK_RPAREN, ")");
+    if (!range || range->kind != EXPR_IDENT) {
+        rcc_error(loc,
+                  "RinOS range-for currently requires an array identifier range");
+    }
+
+    written = snprintf(index_name, sizeof(index_name),
+                       "__rcc_range_index_%u", ++cxx_range_for_counter);
+    if (written < 0 || (size_t)written >= sizeof(index_name)) {
+        rcc_error(loc, "range-for index name exceeds compiler limits");
+        index_name[0] = '\0';
+    }
+    index_decl = decl_var(rcc_intern(index_name), type_int,
+                          expr_int(0, loc), loc);
+    index_expression = expr_ident(index_decl->name, loc);
+    element_expression = expr_index(range, index_expression, loc);
+    item_decl = decl_var(item_name ? item_name : rcc_intern("__rcc_range_item"),
+                         item_type, element_expression, loc);
+    item_decl->var_is_auto = is_auto;
+    rcc_parser_cxx_add_value_binding(item_decl->name,
+                                     item_type ? item_type : type_int);
+
+    count_expression = expr_binary(
+        EXPR_DIV, expr_sizeof_expr(range, loc),
+        expr_sizeof_expr(expr_index(range, expr_int(0, loc), loc), loc), loc);
+    condition = expr_binary(EXPR_LT, expr_ident(index_decl->name, loc),
+                            count_expression, loc);
+    increment = expr_unary(EXPR_PREINC,
+                           expr_ident(index_decl->name, loc), loc);
+
+    original_body = parse_cxx_statement();
+    stmtlist_append(&body_statements, stmt_decl(item_decl, loc));
+    if (original_body) stmtlist_append(&body_statements, original_body);
+    return stmt_for(stmt_decl(index_decl, loc), condition, increment,
+                    stmt_block(body_statements, loc), loc);
 }
 
 static Stmt* parse_cxx_dependent_local_declaration(void) {

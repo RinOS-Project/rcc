@@ -40,6 +40,7 @@ extern Expr* rcc_parser_cxx_capture_expression(
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_end_function_parameters(void) RCC_OPTIONAL_CXX;
@@ -2603,6 +2604,11 @@ static Stmt* parse_statement(void) {
     }
     if (match(TOK_DO)) {
         return parse_do_stmt();
+    }
+    if (parser_cxx_mode && rcc_parse_cxx_range_for_statement &&
+        check(TOK_FOR)) {
+        Stmt* range_for = rcc_parse_cxx_range_for_statement();
+        if (range_for) return range_for;
     }
     if (match(TOK_FOR)) {
         return parse_for_stmt();

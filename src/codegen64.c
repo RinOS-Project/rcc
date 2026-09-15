@@ -4018,6 +4018,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     function_type->variadic) {
                     emit64_mov_reg_imm32(mod, RAX, (uint32_t)fp_cursor);
                 }
+                emit_rex(mod, false, 2, 0, R11);
                 emit_byte(mod, 0xFF);  /* CALL R11 */
                 emit_byte(mod, modrm64(3, 2, R11));
             }
