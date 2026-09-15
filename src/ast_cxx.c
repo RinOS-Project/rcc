@@ -85,6 +85,9 @@ static void mangle_name(char* buf, size_t* pos, const char* name) {
                              (unsigned long)len, name);
 }
 
+static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
+static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls);
+
 static void mangle_nested_prefix(char* buf, size_t* pos,
                                   CxxNamespace* ns, CxxClass* cls) {
     CxxNamespace* ns_stack[32];
@@ -103,16 +106,67 @@ static void mangle_nested_prefix(char* buf, size_t* pos,
     for (int index = ns_count - 1; index >= 0; --index) {
         mangle_name(buf, pos, ns_stack[index]->name);
     }
-    if (cls) mangle_name(buf, pos, cls->name);
+    if (cls) mangle_class_name(buf, pos, cls);
 }
-
-static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
 
 static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
     if (*pos + 1u >= 256u) {
         rcc_fatal("C++ type name is too long");
     }
     buf[(*pos)++] = value;
+}
+
+/* Use the source template and its complete argument list for class members.
+ * The parser's internal `.__instanceN` tag is intentionally useful for AST
+ * ownership, but N is translation-unit order and therefore cannot identify an
+ * inline variable or an in-class method across object files. */
+static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
+    CxxTemplate* tmpl;
+    if (!cls) return;
+    tmpl = cls->templ;
+    if (!tmpl || !tmpl->name || cls->template_arg_count != tmpl->param_count ||
+        (cls->template_arg_count > 0 && !cls->template_args)) {
+        mangle_name(buf, pos, cls->name);
+        return;
+    }
+    mangle_name(buf, pos, tmpl->name);
+    if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
+    buf[(*pos)++] = 'I';
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_TYPE) {
+            cxx_mangle_type_append(buf, pos, cls->template_args[index]);
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            int written;
+            if (!cls->template_value_present ||
+                !cls->template_value_present[index] ||
+                !cls->template_value_args) {
+                rcc_fatal("C++ template class value argument is missing");
+            }
+            if (*pos + 1u >= 256u) {
+                rcc_fatal("C++ template class name is too long");
+            }
+            buf[(*pos)++] = 'L';
+            cxx_mangle_type_append(buf, pos, parameter->type);
+            if (cls->template_value_args[index] < 0) {
+                uint64_t magnitude =
+                    (uint64_t)(-(cls->template_value_args[index] + 1)) + 1u;
+                written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
+                                   (unsigned long long)magnitude);
+            } else {
+                written = snprintf(buf + *pos, 256u - *pos, "%lldE",
+                                   (long long)cls->template_value_args[index]);
+            }
+            if (written < 0 || (size_t)written >= 256u - *pos) {
+                rcc_fatal("C++ template class name is too long");
+            }
+            *pos += (size_t)written;
+        } else {
+            rcc_fatal("unsupported C++ template class parameter");
+        }
+    }
+    if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
+    buf[(*pos)++] = 'E';
 }
 
 /* Append a type without recursively reusing the public static result buffer.
@@ -473,6 +527,8 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->templ = NULL;
     cls->template_args = NULL;
     cls->template_arg_count = 0;
+    cls->template_value_args = NULL;
+    cls->template_value_present = NULL;
     return cls;
 }
 

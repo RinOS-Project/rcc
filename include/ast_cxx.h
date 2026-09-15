@@ -129,6 +129,8 @@ struct CxxClass {
     CxxTemplate* templ;
     Type** template_args;
     int template_arg_count;
+    int64_t* template_value_args;
+    bool* template_value_present;
 };
 
 /* C++ Namespace */

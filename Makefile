@@ -2058,7 +2058,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
+.PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-class-template-static-data-odr test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-specialization-ambiguous
@@ -2153,6 +2153,50 @@ test-cxx-class-template-static-data: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-static-data/x64.o
 	$(TEST_OUT)/cxx-class-template-static-data/x64
 	@echo "RCC++ class-template static data member tests completed"
+
+test-cxx-class-template-static-data-odr: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-static-data-odr)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.s \
+		tests/cxx_class_template_static_data_a.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.s \
+		tests/cxx_class_template_static_data_b.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.s
+	$(OBJCOPY) --redefine-sym _rcc_entry=_rcc_entry_b \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-static-data-odr/x86 \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/start-x86.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o
+	$(TEST_OUT)/cxx-class-template-static-data-odr/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.s \
+		tests/cxx_class_template_static_data_a.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.s \
+		tests/cxx_class_template_static_data_b.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.s
+	$(OBJCOPY) --redefine-sym _rcc_entry=_rcc_entry_b \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.o
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-static-data-odr/x64 \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/start-x64.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.o \
+		$(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.o
+	$(TEST_OUT)/cxx-class-template-static-data-odr/x64
+	@echo "RCC++ template static data ODR tests completed"
 
 test-cxx-static-locals: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-locals)

@@ -113,7 +113,10 @@ static bool emit_asm_symbols(FILE* file, const Module* mod,
         const ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || symbol->section != section ||
             symbol->offset != offset || !symbol->name) continue;
-        if (symbol->is_global && fprintf(file, ".globl %s\n", symbol->name) < 0) {
+        if (symbol->is_weak) {
+            if (fprintf(file, ".weak %s\n", symbol->name) < 0) return false;
+        } else if (symbol->is_global &&
+                   fprintf(file, ".globl %s\n", symbol->name) < 0) {
             return false;
         }
         if (fprintf(file, "%s:\n", symbol->name) < 0) return false;
@@ -142,8 +145,13 @@ static bool emit_asm_code(FILE* file, Module* mod) {
                 strcmp(symbol->name, "_rcc_entry") == 0) {
                 continue;
             }
-            if (fprintf(file, ".globl %s\n%s:\n", symbol->name,
-                        symbol->name) < 0) {
+            if (symbol->is_weak) {
+                if (fprintf(file, ".weak %s\n%s:\n", symbol->name,
+                            symbol->name) < 0) {
+                    return false;
+                }
+            } else if (fprintf(file, ".globl %s\n%s:\n", symbol->name,
+                               symbol->name) < 0) {
                 return false;
             }
             label_written = true;
