@@ -3457,7 +3457,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CXX_THIS:
-            emit64_mov_reg_reg(mod, RAX, RCX);
+            if (expr->cxx_this_stack_offset >= 0) {
+                emit64_mov_reg_mem(mod, RAX, RSP,
+                                   expr->cxx_this_stack_offset);
+            } else {
+                emit64_mov_reg_reg(mod, RAX, RCX);
+            }
             break;
 
         case EXPR_STRING_LIT: {
@@ -5048,6 +5053,18 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
     Type* type = declaration ? declaration->type : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
     if (!mod || !declaration || !type || !initializer) return false;
+    if (type->cxx_class && initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_constructor &&
+        initializer->compound_constructor->method &&
+        initializer->compound_constructor->method->decl &&
+        initializer->compound_constructor->method->decl->func_body) {
+        gen64_symbol_address(mod, decl_link_name(declaration), 0u);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        gen64_cxx_initialize_object(
+            mod, type, initializer->compound_constructor,
+            initializer->compound_init);
+        return true;
+    }
     gen64_expr(mod, initializer);
     if (gen64_is_floating(type)) {
         gen64_convert_to_float(mod, initializer->type, type);

@@ -589,6 +589,16 @@ static bool codegen_runtime_global_scalar(const Type* type) {
            type_is_floating((Type*)type);
 }
 
+static bool codegen_runtime_global_constructor(const Type* type,
+                                               const Expr* initializer) {
+    return type && type->cxx_class && initializer &&
+           initializer->kind == EXPR_COMPOUND &&
+           initializer->compound_constructor &&
+           initializer->compound_constructor->method &&
+           initializer->compound_constructor->method->decl &&
+           initializer->compound_constructor->method->decl->func_body;
+}
+
 static void codegen_defer_global_initializer(Module* mod, Decl* declaration) {
     GlobalInitializer* initializer;
     GlobalInitializer** tail;
@@ -935,6 +945,14 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
     Expr* string;
     if (!mod || !type || !initializer || offset > mod->data.size ||
         (uint64_t)type->size > mod->data.size - offset) {
+        return false;
+    }
+    /* A C++ constructor is executable semantics, even when its argument
+     * layout happens to resemble the class fields.  Defer it to the module
+     * initializer so a body such as `field = value + 1` is not silently
+     * replaced by a bytewise aggregate copy. */
+    if (initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_constructor) {
         return false;
     }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
@@ -1445,7 +1463,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         declaration->var_offset = offset;
         if (!codegen_emit_static_initializer(
                 mod, declaration->type, declaration->var_init, offset)) {
-            if (codegen_runtime_global_scalar(declaration->type)) {
+            if (codegen_runtime_global_scalar(declaration->type) ||
+                codegen_runtime_global_constructor(declaration->type,
+                                                   declaration->var_init)) {
                 codegen_defer_global_initializer(mod, declaration);
             } else {
                 rcc_error(declaration->loc,
@@ -8508,6 +8528,14 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
     Type* type = declaration ? declaration->type : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
     if (!mod || !declaration || !type || !initializer) return false;
+    if (codegen_runtime_global_constructor(type, initializer)) {
+        gen_symbol_address(mod, decl_link_name(declaration), 0u);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        gen_cxx_initialize_object32(
+            mod, type, initializer->compound_constructor,
+            initializer->compound_init);
+        return true;
+    }
     if (gen_is_floating(type)) {
         gen_expr_as_type(mod, initializer, type);
         if (gen_float_width(type) == 4) {

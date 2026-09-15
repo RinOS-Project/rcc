@@ -152,7 +152,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 -include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-x86-wide-scalar test-language-boundaries test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts
-.PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime
+.PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
@@ -3827,6 +3827,32 @@ test-global-initializers: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDA
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/global-initializers/cxx-linked-x86.rin
 	@echo "C17/C++20 scalar global initializer and current image format tests completed"
+
+test-cxx-global-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-global-constructor)
+	$(RCXX_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-global-constructor/x86.s \
+		tests/cxx_global_constructor.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-global-constructor/x64.s \
+		tests/cxx_global_constructor.cpp
+	$(CC) -m32 -c $(TEST_OUT)/cxx-global-constructor/x86.s \
+		-o $(TEST_OUT)/cxx-global-constructor/x86.o
+	$(CC) -c $(TEST_OUT)/cxx-global-constructor/x64.s \
+		-o $(TEST_OUT)/cxx-global-constructor/x64.o
+	$(OBJCOPY) --redefine-sym main=rcc_cxx_global_constructor_main \
+		$(TEST_OUT)/cxx-global-constructor/x64.o
+	$(CC) $(TEST_OUT)/cxx-global-constructor/x64.o \
+		tests/cxx_global_constructor_host.c \
+		-o $(TEST_OUT)/cxx-global-constructor/x64-host
+	$(TEST_OUT)/cxx-global-constructor/x64-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-global-constructor/x86.ro \
+		tests/cxx_global_constructor.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-global-constructor/x64.ro \
+		tests/cxx_global_constructor.cpp
+	@echo "C++ static-storage constructor execution tests completed"
 
 test-global-finalizers: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/global-finalizers)
