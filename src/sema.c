@@ -288,25 +288,9 @@ static void sema_cxx_adl_collect_namespace(
         return;
     }
     strcpy(qualified, namespace_name);
-    for (;;) {
-        Symbol* symbol;
-        size_t separator;
-
-        strcpy(qualified + length, "::");
-        strcpy(qualified + length + 2u, name);
-        symbol = symtab_lookup(g_symtab, qualified);
-        sema_cxx_adl_collect_symbol(symbol, candidates);
-
-        separator = length;
-        while (separator >= 2u &&
-               !(qualified[separator - 2u] == ':' &&
-                 qualified[separator - 1u] == ':')) {
-            --separator;
-        }
-        if (separator < 2u) break;
-        length = separator - 2u;
-        qualified[length] = '\0';
-    }
+    strcpy(qualified + length, "::");
+    strcpy(qualified + length + 2u, name);
+    sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, qualified), candidates);
 }
 
 static Symbol* sema_cxx_make_function_symbol(
