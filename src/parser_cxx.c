@@ -983,6 +983,17 @@ static void register_inline_class_releases(CxxClass* cls) {
         Type* return_type;
         int64_t invalid;
         TypeMethod* lowered;
+        if (cls->type->tag && strstr(cls->type->tag, "CxxUnique") &&
+            method && method->decl && method->decl->name &&
+            strcmp(method->decl->name, "release") == 0) {
+            fprintf(stderr, "DEBUG release flags static=%d virtual=%d deleted=%d defaulted=%d ctor=%d dtor=%d const=%d params=%p body=%p kind=%d\\n",
+                    method->is_static, method->is_virtual, method->is_deleted,
+                    method->is_defaulted, method->is_constructor,
+                    method->is_destructor, method->is_const,
+                    (void*)method->decl->func_params,
+                    (void*)method->decl->func_body,
+                    method->decl->func_body ? method->decl->func_body->kind : -1);
+        }
         if (!method || method->is_static || method->is_virtual ||
             method->is_pure_virtual || method->is_deleted ||
             method->is_defaulted || method->is_constructor ||
@@ -1035,7 +1046,7 @@ static void register_inline_class_releases(CxxClass* cls) {
               field->type->kind == TYPE_PTR)) {
             continue;
         }
-        if (class_has_destructor(cls) &&
+        if (class_has_destructor(cls) && !cls->destructor_method &&
             (!cls->type->cleanup_function ||
              cls->type->cleanup_field != field ||
              cls->type->cleanup_invalid != invalid)) {
