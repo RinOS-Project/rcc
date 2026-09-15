@@ -1441,6 +1441,10 @@ static bool is_type_start(void) {
         case TOK_EXTERN:
         case TOK_THREAD_LOCAL:
         case TOK__BOOL:
+        case TOK__COMPLEX:
+        case TOK__IMAGINARY:
+        case TOK__ATOMIC:
+        case TOK__NORETURN:
         case TOK___BUILTIN_VA_LIST:
         case TOK___ATTRIBUTE__:
         case TOK___INLINE__:
@@ -1938,6 +1942,8 @@ static Type* parse_type_spec(void) {
     bool saw_sign = false;
     bool is_const = false;
     bool is_volatile = false;
+    bool saw_complex = false;
+    bool saw_imaginary = false;
     int long_count = 0;
     bool is_short = false;
 
@@ -1956,12 +1962,38 @@ static Type* parse_type_spec(void) {
             long_count++;
         } else if (match(TOK_SHORT)) {
             is_short = true;
+        } else if (match(TOK__COMPLEX)) {
+            rcc_error(previous()->loc,
+                      "_Complex is not supported by the RinOS floating-point ABI");
+            saw_complex = true;
+        } else if (match(TOK__IMAGINARY)) {
+            rcc_error(previous()->loc,
+                      "_Imaginary is not supported by the RinOS floating-point ABI");
+            saw_imaginary = true;
+        } else if (match(TOK__ATOMIC)) {
+            rcc_error(previous()->loc,
+                      "language _Atomic is not supported; use RinOS atomic builtins");
+        } else if (match(TOK__NORETURN)) {
+            rcc_error(previous()->loc,
+                      "_Noreturn is not supported by the RinOS function ABI");
         } else {
             break;
         }
     }
 
-    if (long_count != 0 && match(TOK_DOUBLE)) {
+    if (saw_complex || saw_imaginary) {
+        /* Consume the optional scalar component after the diagnostic so
+         * parser recovery does not reinterpret it as a declarator. */
+        if (match(TOK_FLOAT)) {
+            t = type_float;
+        } else if (match(TOK_DOUBLE)) {
+            t = type_double;
+        } else if (match(TOK_INT)) {
+            t = type_int;
+        } else {
+            t = type_double;
+        }
+    } else if (long_count != 0 && match(TOK_DOUBLE)) {
         rcc_error(previous()->loc,
                   "long double is not supported by the RinOS floating-point ABI");
         if (is_unsigned || saw_sign || is_short) {
@@ -2061,6 +2093,15 @@ static Type* parse_type_spec(void) {
     } else {
         /* Default to int */
         t = is_unsigned ? type_uint : type_int;
+    }
+
+    /* Also diagnose the standard spellings where a floating qualifier follows
+     * the component type, such as `double _Complex`. */
+    while (match(TOK__COMPLEX) || match(TOK__IMAGINARY)) {
+        rcc_error(previous()->loc,
+                  previous()->type == TOK__COMPLEX
+                      ? "_Complex is not supported by the RinOS floating-point ABI"
+                      : "_Imaginary is not supported by the RinOS floating-point ABI");
     }
 
     /* C17 permits signed and unsigned without an explicit int.  When the

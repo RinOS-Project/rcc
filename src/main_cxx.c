@@ -18,7 +18,6 @@
 #include <getopt.h>
 
 /* C++ specific options */
-static bool g_cxx_mode = true;
 static int g_cxx_standard = 20;  /* C++20 is the RinOS v3 language contract. */
 
 /* Print usage for rcc++ */

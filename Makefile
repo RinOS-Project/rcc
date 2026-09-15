@@ -2249,7 +2249,29 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-literal-x64.log
-	@echo "RCC/RCC++ unsupported long double boundary diagnostics completed"
+	@for fixture in complex imaginary language_atomic noreturn; do \
+		case "$$fixture" in \
+			complex) message="_Complex is not supported by the RinOS floating-point ABI" ;; \
+			imaginary) message="_Imaginary is not supported by the RinOS floating-point ABI" ;; \
+			language_atomic) message="language _Atomic is not supported; use RinOS atomic builtins" ;; \
+			noreturn) message="_Noreturn is not supported by the RinOS function ABI" ;; \
+		esac; \
+		if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+			-o $(TEST_OUT)/language-boundaries/$$fixture-x86.ro \
+			tests/unsupported_$$fixture.c \
+			>$(TEST_OUT)/language-boundaries/$$fixture-x86.log 2>&1; then \
+			echo "C $$fixture fixture unexpectedly compiled"; exit 1; \
+		fi; \
+		grep -q "$$message" $(TEST_OUT)/language-boundaries/$$fixture-x86.log; \
+		if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+			-o $(TEST_OUT)/language-boundaries/$$fixture-x64.ro \
+			tests/unsupported_$$fixture.c \
+			>$(TEST_OUT)/language-boundaries/$$fixture-x64.log 2>&1; then \
+			echo "C $$fixture fixture unexpectedly compiled"; exit 1; \
+		fi; \
+		grep -q "$$message" $(TEST_OUT)/language-boundaries/$$fixture-x64.log; \
+	done
+	@echo "RCC/RCC++ unsupported language and floating-point boundary diagnostics completed"
 
 test-integer-literals: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/integer-literals
