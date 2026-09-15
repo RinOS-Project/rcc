@@ -2030,6 +2030,16 @@ static bool sema_constexpr_materialize_object(
     Type* type, Expr* initializer, SemaConstexprBinding* bindings,
     int binding_count, unsigned char* storage, size_t storage_size);
 
+static bool sema_eval_constexpr_aggregate_function(
+    Decl* declaration, ExprList* args, SemaConstexprBinding* caller_bindings,
+    int caller_binding_count, unsigned char* storage, size_t storage_size);
+
+static bool sema_constexpr_scalar_truth(const SemaConstexprScalar* value);
+
+static Expr* sema_constexpr_rebuild_object(
+    Type* type, const unsigned char* storage, size_t storage_size,
+    SourceLoc loc);
+
 static bool sema_constexpr_binding_lvalue(
     Expr* expression, SemaConstexprBinding* bindings, int binding_count,
     int* binding_index, size_t* offset, Type** type) {
@@ -2174,6 +2184,57 @@ static bool sema_constexpr_materialize_object(
                    storage, storage_size, type, &value);
     }
     if (!sema_constexpr_aggregate_type(type)) return false;
+    if (bindings && (initializer->kind == EXPR_IDENT ||
+                     initializer->kind == EXPR_MEMBER ||
+                     initializer->kind == EXPR_INDEX)) {
+        int binding_index;
+        size_t source_offset;
+        Type* source_type;
+        if (sema_constexpr_binding_lvalue(
+                initializer, bindings, binding_count, &binding_index,
+                &source_offset, &source_type) &&
+            sema_constexpr_aggregate_type(source_type) &&
+            type_is_compatible(type, source_type) &&
+            source_offset <= bindings[binding_index].object_size &&
+            (size_t)type->size <=
+                bindings[binding_index].object_size - source_offset) {
+            memcpy(storage, bindings[binding_index].object_bytes + source_offset,
+                   (size_t)type->size);
+            return true;
+        }
+    }
+    if (initializer->kind == EXPR_CALL && initializer->call_func &&
+        initializer->call_func->kind == EXPR_IDENT &&
+        initializer->call_func->ident_decl &&
+        initializer->call_func->ident_decl->kind == DECL_FUNC &&
+        initializer->call_func->ident_decl->type &&
+        initializer->call_func->ident_decl->type->kind == TYPE_FUNC &&
+        sema_constexpr_aggregate_type(
+            initializer->call_func->ident_decl->type->ret_type) &&
+        type_is_compatible(
+            type, initializer->call_func->ident_decl->type->ret_type)) {
+        return sema_eval_constexpr_aggregate_function(
+            initializer->call_func->ident_decl, initializer->call_args,
+            bindings, binding_count, storage, storage_size);
+    }
+    if (initializer->kind == EXPR_COND || initializer->kind == EXPR_COMMA) {
+        SemaConstexprScalar condition;
+        if (initializer->kind == EXPR_COND) {
+            if (!sema_eval_constexpr_scalar_expr(
+                    initializer->cond_test, bindings, binding_count,
+                    &condition)) return false;
+            return sema_constexpr_materialize_object(
+                type, sema_constexpr_scalar_truth(&condition)
+                    ? initializer->cond_then : initializer->cond_else,
+                bindings, binding_count, storage, storage_size);
+        }
+        if (!sema_eval_constexpr_scalar_expr(
+                initializer->binary_lhs, bindings, binding_count,
+                &condition)) return false;
+        return sema_constexpr_materialize_object(
+            type, initializer->binary_rhs, bindings, binding_count,
+            storage, storage_size);
+    }
     if (initializer->kind == EXPR_IDENT) {
         int binding_index = sema_constexpr_binding_index(
             initializer, bindings, binding_count);
@@ -2486,6 +2547,23 @@ static bool sema_validate_constexpr_object(
             type, initializer->ident_decl->var_init);
         --constexpr_eval_depth;
         return result;
+    }
+    if (initializer->kind == EXPR_CALL && initializer->call_func &&
+        initializer->call_func->kind == EXPR_IDENT &&
+        initializer->call_func->ident_decl &&
+        initializer->call_func->ident_decl->kind == DECL_FUNC &&
+        initializer->call_func->ident_decl->type &&
+        initializer->call_func->ident_decl->type->kind == TYPE_FUNC &&
+        sema_constexpr_aggregate_type(
+            initializer->call_func->ident_decl->type->ret_type) &&
+        type_is_compatible(
+            type, initializer->call_func->ident_decl->type->ret_type)) {
+        unsigned char* storage = ast_arena_alloc((size_t)type->size);
+        if (!sema_eval_constexpr_aggregate_function(
+            initializer->call_func->ident_decl, initializer->call_args,
+            NULL, 0, storage, (size_t)type->size)) return false;
+        return sema_constexpr_rebuild_object(
+            type, storage, (size_t)type->size, initializer->loc) != NULL;
     }
     if (initializer->kind != EXPR_COMPOUND) return false;
     if (type->kind == TYPE_ARRAY) {
@@ -2898,6 +2976,382 @@ static bool sema_constexpr_scalar_truth(const SemaConstexprScalar* value) {
     }
     return value->is_floating ? value->floating_value != 0.0
                               : value->integer_value != 0;
+}
+
+/* Aggregate-returning constexpr functions use the same target-layout byte
+ * storage as aggregate locals.  Keeping this evaluator separate from the
+ * scalar path makes a failed aggregate expression a real semantic failure;
+ * it can never turn into a zero-valued recovery result. */
+static bool sema_eval_constexpr_aggregate_statement(
+    Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
+    SemaConstexprScalar* value, SemaConstexprStatementResult* result,
+    Type* return_type, unsigned char* return_storage, size_t return_size) {
+    int saved_binding_count;
+
+    if (!statement || !bindings || !binding_count || !value || !result ||
+        !return_type || !return_storage) return false;
+    *result = SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+    switch (statement->kind) {
+        case STMT_NULL:
+            return true;
+        case STMT_EXPR:
+            if (!statement->expr) return true;
+            if (statement->expr->kind == EXPR_ASSIGN &&
+                sema_constexpr_assign_object(
+                    statement->expr, bindings, *binding_count)) {
+                memset(value, 0, sizeof(*value));
+                value->type = statement->expr->type;
+                return true;
+            }
+            return sema_eval_constexpr_scalar_expr(
+                statement->expr, bindings, *binding_count, value);
+        case STMT_RETURN:
+            if (!statement->return_val ||
+                !sema_constexpr_materialize_object(
+                    return_type, statement->return_val, bindings,
+                    *binding_count, return_storage, return_size)) {
+                return false;
+            }
+            *result = SEMA_CONSTEXPR_STMT_RETURNED;
+            return true;
+        case STMT_DECL: {
+            Decl* declaration = statement->decl;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                !declaration->name || *binding_count >= 64) return false;
+            if (sema_constexpr_aggregate_type(declaration->type)) {
+                unsigned char* object_bytes;
+                if (declaration->type->size <= 0) return false;
+                object_bytes = ast_arena_alloc(
+                    (size_t)declaration->type->size);
+                if (!sema_constexpr_materialize_object(
+                        declaration->type, declaration->var_init, bindings,
+                        *binding_count, object_bytes,
+                        (size_t)declaration->type->size)) return false;
+                memset(&bindings[*binding_count], 0,
+                       sizeof(bindings[*binding_count]));
+                bindings[*binding_count].declaration = declaration;
+                bindings[*binding_count].type = declaration->type;
+                bindings[*binding_count].object_bytes = object_bytes;
+                bindings[*binding_count].object_size =
+                    (size_t)declaration->type->size;
+                bindings[*binding_count].is_object = true;
+                ++*binding_count;
+                memset(value, 0, sizeof(*value));
+                value->type = declaration->type;
+                return true;
+            }
+            {
+                SemaConstexprScalar initializer;
+                if (!declaration->var_init ||
+                    !sema_constexpr_scalar_type(declaration->type) ||
+                    !sema_eval_constexpr_scalar_expr(
+                        declaration->var_init, bindings, *binding_count,
+                        &initializer) ||
+                    !sema_constexpr_scalar_convert(
+                        &initializer, declaration->type, &initializer)) {
+                    return false;
+                }
+                memset(&bindings[*binding_count], 0,
+                       sizeof(bindings[*binding_count]));
+                bindings[*binding_count].declaration = declaration;
+                bindings[*binding_count].type = declaration->type;
+                bindings[*binding_count].value = initializer.integer_value;
+                bindings[*binding_count].floating_value =
+                    initializer.floating_value;
+                bindings[*binding_count].is_floating = initializer.is_floating;
+                bindings[*binding_count].is_pointer = initializer.is_pointer;
+                bindings[*binding_count].pointer_declaration =
+                    initializer.pointer_declaration;
+                bindings[*binding_count].pointer_offset =
+                    initializer.pointer_offset;
+                ++*binding_count;
+                *value = initializer;
+                return true;
+            }
+        }
+        case STMT_BLOCK:
+            saved_binding_count = *binding_count;
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                SemaConstexprStatementResult nested_result;
+                if (!sema_eval_constexpr_aggregate_statement(
+                        item->stmt, bindings, binding_count, value,
+                        &nested_result, return_type, return_storage,
+                        return_size)) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_RETURNED ||
+                    nested_result == SEMA_CONSTEXPR_STMT_BREAK ||
+                    nested_result == SEMA_CONSTEXPR_STMT_CONTINUE) {
+                    *result = nested_result;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+            }
+            *binding_count = saved_binding_count;
+            return true;
+        case STMT_IF: {
+            SemaConstexprScalar condition;
+            Stmt* selected;
+            if (!statement->if_cond ||
+                !sema_eval_constexpr_scalar_expr(
+                    statement->if_cond, bindings, *binding_count,
+                    &condition)) return false;
+            selected = sema_constexpr_scalar_truth(&condition)
+                ? statement->if_then : statement->if_else;
+            if (!selected) return true;
+            return sema_eval_constexpr_aggregate_statement(
+                selected, bindings, binding_count, value, result,
+                return_type, return_storage, return_size);
+        }
+        case STMT_BREAK:
+            *result = SEMA_CONSTEXPR_STMT_BREAK;
+            return true;
+        case STMT_CONTINUE:
+            *result = SEMA_CONSTEXPR_STMT_CONTINUE;
+            return true;
+        case STMT_FOR: {
+            SemaConstexprScalar condition;
+            int saved_count = *binding_count;
+            unsigned iteration;
+            if (statement->for_init) {
+                SemaConstexprStatementResult init_result;
+                if (!sema_eval_constexpr_aggregate_statement(
+                        statement->for_init, bindings, binding_count, value,
+                        &init_result, return_type, return_storage,
+                        return_size) ||
+                    init_result != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+            }
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprStatementResult body_result =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (statement->for_cond &&
+                    (!sema_eval_constexpr_scalar_expr(
+                        statement->for_cond, bindings, *binding_count,
+                        &condition) ||
+                     !sema_constexpr_scalar_truth(&condition))) break;
+                if (statement->for_body &&
+                    !sema_eval_constexpr_aggregate_statement(
+                        statement->for_body, bindings, binding_count, value,
+                        &body_result, return_type, return_storage,
+                        return_size)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = body_result;
+                    *binding_count = saved_count;
+                    return true;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_BREAK) break;
+                if (statement->for_inc &&
+                    !sema_eval_constexpr_scalar_expr(
+                        statement->for_inc, bindings, *binding_count,
+                        &condition)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+            }
+            if (iteration == 1000000u) {
+                *binding_count = saved_count;
+                return false;
+            }
+            *binding_count = saved_count;
+            return true;
+        }
+        case STMT_WHILE:
+        case STMT_DO: {
+            SemaConstexprScalar condition;
+            unsigned iteration;
+            bool do_body = statement->kind == STMT_DO;
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprStatementResult body_result =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (!do_body) {
+                    if (!sema_eval_constexpr_scalar_expr(
+                            statement->while_cond, bindings, *binding_count,
+                            &condition)) return false;
+                    if (!sema_constexpr_scalar_truth(&condition)) return true;
+                }
+                if (statement->while_body &&
+                    !sema_eval_constexpr_aggregate_statement(
+                        statement->while_body, bindings, binding_count, value,
+                        &body_result, return_type, return_storage,
+                        return_size)) return false;
+                if (body_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = body_result;
+                    return true;
+                }
+                if (body_result == SEMA_CONSTEXPR_STMT_BREAK) return true;
+                if (!sema_eval_constexpr_scalar_expr(
+                        statement->while_cond, bindings, *binding_count,
+                        &condition)) return false;
+                if (!sema_constexpr_scalar_truth(&condition)) return true;
+                do_body = false;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
+static bool sema_eval_constexpr_aggregate_function(
+    Decl* declaration, ExprList* args, SemaConstexprBinding* caller_bindings,
+    int caller_binding_count, unsigned char* storage, size_t storage_size) {
+    SemaConstexprBinding bindings[64];
+    DeclList* parameter;
+    ExprList* argument;
+    SemaConstexprScalar argument_value;
+    SemaConstexprScalar result;
+    SemaConstexprStatementResult statement_result;
+    int count = 0;
+
+    memset(bindings, 0, sizeof(bindings));
+    if (!declaration || !declaration->func_is_constexpr ||
+        declaration->func_this_param || !declaration->type ||
+        declaration->type->kind != TYPE_FUNC || declaration->type->variadic ||
+        !sema_constexpr_aggregate_type(declaration->type->ret_type) ||
+        !declaration->func_body || declaration->func_body->kind != STMT_BLOCK ||
+        !storage || declaration->type->ret_type->size <= 0 ||
+        (size_t)declaration->type->ret_type->size > storage_size ||
+        constexpr_eval_depth >= 64) return false;
+
+    parameter = declaration->func_params;
+    argument = args;
+    while (parameter && argument) {
+        if (count == (int)(sizeof(bindings) / sizeof(bindings[0])) ||
+            !parameter->decl || !parameter->decl->name) return false;
+        bindings[count].declaration = parameter->decl;
+        bindings[count].type = parameter->decl->type;
+        if (sema_constexpr_scalar_type(parameter->decl->type)) {
+            if (!sema_eval_constexpr_scalar_expr(
+                    argument->expr, caller_bindings, caller_binding_count,
+                    &argument_value) ||
+                !sema_constexpr_scalar_convert(
+                    &argument_value, parameter->decl->type, &argument_value)) {
+                return false;
+            }
+            bindings[count].value = argument_value.integer_value;
+            bindings[count].floating_value = argument_value.floating_value;
+            bindings[count].is_floating = argument_value.is_floating;
+            bindings[count].is_pointer = argument_value.is_pointer;
+            bindings[count].pointer_declaration =
+                argument_value.pointer_declaration;
+            bindings[count].pointer_offset = argument_value.pointer_offset;
+        } else if (sema_constexpr_aggregate_type(parameter->decl->type)) {
+            if (parameter->decl->type->size <= 0) return false;
+            bindings[count].object_bytes = ast_arena_alloc(
+                (size_t)parameter->decl->type->size);
+            if (!sema_constexpr_materialize_object(
+                    parameter->decl->type, argument->expr,
+                    caller_bindings, caller_binding_count,
+                    bindings[count].object_bytes,
+                    (size_t)parameter->decl->type->size)) return false;
+            bindings[count].object_size = (size_t)parameter->decl->type->size;
+            bindings[count].is_object = true;
+        } else {
+            return false;
+        }
+        ++count;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    if (parameter || argument) return false;
+    ++constexpr_eval_depth;
+    bool evaluated = sema_eval_constexpr_aggregate_statement(
+        declaration->func_body, bindings, &count, &result,
+        &statement_result, declaration->type->ret_type, storage,
+        storage_size);
+    --constexpr_eval_depth;
+    return evaluated && statement_result == SEMA_CONSTEXPR_STMT_RETURNED;
+}
+
+/* Convert a fully evaluated aggregate back into the normal initializer AST so
+ * static storage and ordinary aggregate codegen share one representation.
+ * Pointer-bearing results are intentionally left to the existing relocatable
+ * initializer path; no host address is ever encoded into the object bytes. */
+static Expr* sema_constexpr_rebuild_object(
+    Type* type, const unsigned char* storage, size_t storage_size,
+    SourceLoc loc) {
+    Expr* expression;
+    if (!type || !storage || type->size <= 0 ||
+        (size_t)type->size > storage_size) return NULL;
+    if (sema_constexpr_scalar_type(type)) {
+        SemaConstexprScalar value;
+        if (!sema_constexpr_load_scalar_bytes(
+                storage, storage_size, type, &value) || value.is_pointer) {
+            return NULL;
+        }
+        if (value.is_floating) {
+            expression = expr_float(value.floating_value, loc);
+            expression->type = type;
+            return expression;
+        }
+        expression = expr_int(value.integer_value, loc);
+        expression->type = type;
+        return expression;
+    }
+    if (!sema_constexpr_aggregate_type(type) || type->kind == TYPE_UNION) {
+        return NULL;
+    }
+    expression = expr_initializer_list(NULL, loc);
+    expression->compound_type = type;
+    expression->type = type;
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->base->size <= 0) return NULL;
+        for (int64_t index = 0; index < type->array_len; ++index) {
+            size_t offset = (size_t)index * (size_t)type->base->size;
+            Expr* item;
+            if (offset > (size_t)type->size) return NULL;
+            item = sema_constexpr_rebuild_object(
+                type->base, storage + offset,
+                (size_t)type->size - offset, loc);
+            exprlist_append(&expression->compound_init, item);
+        }
+        return expression;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        size_t offset;
+        Expr* item;
+        if (field->is_bitfield || field->offset < 0 ||
+            field->type->size <= 0) return NULL;
+        offset = (size_t)field->offset;
+        if (offset > (size_t)type->size ||
+            (size_t)field->type->size > (size_t)type->size - offset) {
+            return NULL;
+        }
+        item = sema_constexpr_rebuild_object(
+            field->type, storage + offset,
+            (size_t)type->size - offset, loc);
+        if (!item) return NULL;
+        exprlist_append(&expression->compound_init, item);
+    }
+    return expression;
+}
+
+static bool sema_fold_constexpr_aggregate_call(Expr* expression,
+                                                Decl* declaration) {
+    unsigned char* storage;
+    Expr* replacement;
+    if (!expression || !declaration || !declaration->type ||
+        !sema_constexpr_aggregate_type(declaration->type->ret_type)) {
+        return false;
+    }
+    storage = ast_arena_alloc((size_t)declaration->type->ret_type->size);
+    if (!sema_eval_constexpr_aggregate_function(
+            declaration, expression->call_args, NULL, 0, storage,
+            (size_t)declaration->type->ret_type->size)) return false;
+    replacement = sema_constexpr_rebuild_object(
+        declaration->type->ret_type, storage,
+        (size_t)declaration->type->ret_type->size, expression->loc);
+    if (!replacement) return false;
+    *expression = *replacement;
+    return true;
 }
 
 static bool sema_eval_constexpr_scalar_statement(
@@ -6136,6 +6590,12 @@ static Type* sema_expr(Expr* expr) {
                         expr->cxx_close_call = NULL;
                         constexpr_folded = true;
                     }
+                } else if (expr->type &&
+                           sema_constexpr_aggregate_type(expr->type) &&
+                           !expr->type->cxx_nontrivial &&
+                           expr->type->cxx_vtable_size == 0) {
+                    constexpr_folded = sema_fold_constexpr_aggregate_call(
+                        expr, call_declaration);
                 }
                 if (call_declaration->func_is_consteval && !constexpr_folded) {
                     rcc_error(expr->loc,
