@@ -159,8 +159,8 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base-method
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
-	test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
-	test-cxx-template-two-phase-namespace
+test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
+	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
@@ -1503,6 +1503,34 @@ test-cxx-template-two-phase-namespace: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-template-two-phase-namespace/x64.o
 	$(TEST_OUT)/cxx-template-two-phase-namespace/x64
 	@echo "C++ template defining-namespace lookup tests completed"
+
+test-cxx-template-two-phase-adl: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-adl)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-two-phase-adl/x86.s \
+		tests/cxx_template_two_phase_adl.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-two-phase-adl/x86.o \
+		$(TEST_OUT)/cxx-template-two-phase-adl/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-two-phase-adl/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-two-phase-adl/x86 \
+		$(TEST_OUT)/cxx-template-two-phase-adl/start-x86.o \
+		$(TEST_OUT)/cxx-template-two-phase-adl/x86.o
+	$(TEST_OUT)/cxx-template-two-phase-adl/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-two-phase-adl/x64.s \
+		tests/cxx_template_two_phase_adl.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-template-two-phase-adl/x64.o \
+		$(TEST_OUT)/cxx-template-two-phase-adl/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-template-two-phase-adl/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-two-phase-adl/x64 \
+		$(TEST_OUT)/cxx-template-two-phase-adl/start-x64.o \
+		$(TEST_OUT)/cxx-template-two-phase-adl/x64.o
+	$(TEST_OUT)/cxx-template-two-phase-adl/x64
+	@echo "C++ template instantiation-time ADL tests completed"
 
 test-cxx-constexpr-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
