@@ -2621,7 +2621,11 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
     ExprList* argument;
     int address_reg = RCX;
 
-    if (!constructor) return;
+    if (!constructor) {
+        rcc_error((SourceLoc){"<constructor>", 0, 0},
+                  "C++ constructor lowering metadata is missing");
+        return;
+    }
     if (!constructor->body_is_empty) {
         gen64_cxx_call_constructor(mod, constructor, arguments);
         return;
@@ -3004,6 +3008,8 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
     }
     if (!cleanup || !field || !expr->call_args ||
         !expr->call_args->expr) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
+                  "C++ delete cleanup metadata is incomplete");
         return;
     }
     skip_cleanup = new_label64();

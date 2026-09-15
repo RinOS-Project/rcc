@@ -4902,7 +4902,11 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
     ExprList* argument;
     int address_reg = ECX;
 
-    if (!constructor) return;
+    if (!constructor) {
+        rcc_error((SourceLoc){"<constructor>", 0, 0},
+                  "C++ constructor lowering metadata is missing");
+        return;
+    }
     if (!constructor->body_is_empty) {
         gen_cxx_call_constructor32(mod, constructor, arguments);
         return;
@@ -5341,6 +5345,8 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
     }
     if (!cleanup || !field || !expr->call_args ||
         !expr->call_args->expr) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
+                  "C++ delete cleanup metadata is incomplete");
         return;
     }
     skip_cleanup = new_label();
