@@ -3091,6 +3091,52 @@ static RccIrLowerValue lower_cxx_exception_type_match(
     return condition;
 }
 
+static RccIrLowerValue lower_cxx_exception_payload_address(
+    RccIrLowerContext* context, RccIrLowerValue frame,
+    const CxxCatch* handler) {
+    const uint64_t value_offset =
+        (uint64_t)(g_opts.target_arch == ARCH_X64 ? 72u : 28u);
+    const uint64_t type_offset =
+        (uint64_t)(g_opts.target_arch == ARCH_X64 ? 80u : 32u);
+    RccIrLowerValue payload_word;
+    RccIrLowerValue payload;
+    RccIrLowerValue actual;
+
+    if (!context || !handler || !frame.valid) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    payload_word = lower_load_address(
+        context, lower_byte_offset_address(context, frame, value_offset),
+        type_ulong);
+    payload = lower_cast(context, payload_word, type_ptr(type_void));
+    if (!payload.valid) return lower_invalid_value();
+    for (size_t index = 0u; index < handler->compatible_tag_count; ++index) {
+        RccIrLowerValue condition;
+        RccIrLowerValue candidate;
+        RccIrInstruction* select;
+        RccIrValue operands[3];
+        actual = lower_load_address(
+            context, lower_byte_offset_address(context, frame, type_offset),
+            type_ulong);
+        condition = lower_cxx_exception_type_compare(
+            context, actual, handler->compatible_tags[index]);
+        candidate = lower_byte_offset_address(
+            context, payload,
+            (uint64_t)(handler->compatible_tag_offsets
+                           ? handler->compatible_tag_offsets[index] : 0));
+        if (!condition.valid || !candidate.valid) return lower_invalid_value();
+        operands[0] = condition.value;
+        operands[1] = candidate.value;
+        operands[2] = payload.value;
+        select = lower_append(context, RCC_IR_SELECT, candidate.type,
+                              operands, 3u, NULL, 0u);
+        if (!select) return lower_invalid_value();
+        payload = lower_value(select->result, candidate.type, true);
+    }
+    return payload;
+}
+
 static bool lower_cxx_catch_body(RccIrLowerContext* context,
                                  const CxxCatch* handler,
                                  RccIrLowerValue frame) {
@@ -3108,12 +3154,7 @@ static bool lower_cxx_catch_body(RccIrLowerContext* context,
             return false;
         }
         local = lower_find_local(context, handler->parameter);
-        value = lower_load_address(
-            context,
-            lower_byte_offset_address(
-                context, frame,
-                (uint64_t)(g_opts.target_arch == ARCH_X64 ? 72u : 28u)),
-            type_ulong);
+        value = lower_cxx_exception_payload_address(context, frame, handler);
         if (!local || !value.valid) {
             context->unsupported = true;
             return false;

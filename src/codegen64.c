@@ -4551,6 +4551,33 @@ static uint64_t gen64_cxx_exception_type_tag(const Type* type) {
     return rcc_cxx_exception_type_tag(type);
 }
 
+static void gen64_cxx_exception_payload_address(
+    Module* mod, Stmt* stmt, CxxCatch* handler) {
+    int payload_ready;
+
+    gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+    emit64_mov_reg_mem(mod, RAX, RDI, 72);
+    if (!handler->compatible_tag_count) return;
+    payload_ready = new_label64();
+    gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+    emit64_mov_reg_mem(mod, RCX, RDI, 80);
+    for (size_t index = 0u; index < handler->compatible_tag_count; ++index) {
+        int next_tag = new_label64();
+        emit64_mov_reg_imm64(
+            mod, RDX, handler->compatible_tags[index]);
+        emit64_cmp_reg_reg(mod, RCX, RDX);
+        emit64_jcc_label(mod, CC64_NE, next_tag);
+        if (handler->compatible_tag_offsets &&
+            handler->compatible_tag_offsets[index] != 0) {
+            emit64_add_reg_imm(mod, RAX,
+                               handler->compatible_tag_offsets[index]);
+        }
+        emit64_jmp_label(mod, payload_ready);
+        emit64_label(mod, next_tag);
+    }
+    emit64_label(mod, payload_ready);
+}
+
 static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
     Type* type;
     if (!stmt) rcc_fatal("validated C++ throw is missing");
@@ -4645,14 +4672,15 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
             emit64_label(mod, matching_handler);
         }
         if (handler->parameter) {
-            gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
-            emit64_mov_reg_mem(mod, RAX, RDI, value_offset);
             if (handler->parameter->type &&
                 (handler->parameter->type->kind == TYPE_STRUCT ||
                  handler->parameter->type->kind == TYPE_UNION)) {
+                gen64_cxx_exception_payload_address(mod, stmt, handler);
                 gen64_copy_memory(mod, RBP, handler->parameter->var_offset,
                                   RAX, 0, handler->parameter->type->size);
             } else {
+                gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+                emit64_mov_reg_mem(mod, RAX, RDI, value_offset);
                 emit64_store_typed(mod, RBP, handler->parameter->var_offset,
                                    RAX, handler->parameter->type);
             }

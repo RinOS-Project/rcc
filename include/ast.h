@@ -544,8 +544,10 @@ struct CxxCatch {
     bool is_ellipsis;
     /* Additional class tags known in this translation unit that publicly
      * derive from the handler type.  Lowering ORs these exact tags into the
-     * dispatch condition; no handler is silently widened. */
+     * dispatch condition; no handler is silently widened.  Each offset is
+     * the base-subobject displacement within the thrown derived object. */
     uint64_t* compatible_tags;
+    int32_t* compatible_tag_offsets;
     size_t compatible_tag_count;
     CxxCatch* next;
 };

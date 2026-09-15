@@ -7853,6 +7853,32 @@ static void gen_cxx_exception_frame_address32(Module* mod, int offset) {
     emit_add_reg_imm(mod, EAX, offset);
 }
 
+static void gen_cxx_exception_payload_address32(
+    Module* mod, Stmt* stmt, CxxCatch* handler) {
+    int payload_ready;
+
+    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+    emit_mov_reg_mem(mod, EDX, EAX, 28);
+    if (!handler->compatible_tag_count) return;
+    payload_ready = new_label();
+    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+    emit_mov_reg_mem(mod, EAX, EAX, 32);
+    for (size_t index = 0u; index < handler->compatible_tag_count; ++index) {
+        int next_tag = new_label();
+        emit_cmp_reg_imm(
+            mod, EAX, (int32_t)(uint32_t)handler->compatible_tags[index]);
+        emit_jcc_label(mod, CC_NE, next_tag);
+        if (handler->compatible_tag_offsets &&
+            handler->compatible_tag_offsets[index] != 0) {
+            emit_add_reg_imm(mod, EDX,
+                             handler->compatible_tag_offsets[index]);
+        }
+        emit_jmp_label(mod, payload_ready);
+        emit_label(mod, next_tag);
+    }
+    emit_label(mod, payload_ready);
+}
+
 static void gen_cxx_exception_call32(Module* mod, const char* name) {
     uint32_t call_offset;
     emit_call_rel32(mod, 0u);
@@ -8038,11 +8064,10 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
             emit_label(mod, matching_handler);
         }
         if (handler->parameter) {
-            gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
-            emit_mov_reg_mem(mod, EDX, EAX, value_offset);
             if (handler->parameter->type &&
                 (handler->parameter->type->kind == TYPE_STRUCT ||
                  handler->parameter->type->kind == TYPE_UNION)) {
+                gen_cxx_exception_payload_address32(mod, stmt, handler);
                 int offset = 0;
                 emit_mov_reg_reg(mod, ECX, EDX);
                 emit_mov_reg_reg(mod, EDX, EBP);
@@ -8058,6 +8083,8 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
                     ++offset;
                 }
             } else {
+                gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+                emit_mov_reg_mem(mod, EDX, EAX, value_offset);
                 emit_store_typed32(mod, EBP, handler->parameter->var_offset,
                                    EDX, handler->parameter->type);
             }

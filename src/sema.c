@@ -130,7 +130,8 @@ static bool sema_cxx_public_base(Type* derived, Type* target,
     return false;
 }
 
-static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag) {
+static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag,
+                                       int adjustment) {
     if (!handler || tag == 0u) return;
     for (size_t index = 0u; index < handler->compatible_tag_count; ++index) {
         if (handler->compatible_tags[index] == tag) return;
@@ -138,9 +139,17 @@ static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag) {
     handler->compatible_tags = ast_arena_grow(
         handler->compatible_tags,
         sizeof(*handler->compatible_tags) * handler->compatible_tag_count,
-        sizeof(*handler->compatible_tags) *
+            sizeof(*handler->compatible_tags) *
+            (handler->compatible_tag_count + 1u));
+    handler->compatible_tag_offsets = ast_arena_grow(
+        handler->compatible_tag_offsets,
+        sizeof(*handler->compatible_tag_offsets) *
+            handler->compatible_tag_count,
+        sizeof(*handler->compatible_tag_offsets) *
             (handler->compatible_tag_count + 1u));
     handler->compatible_tags[handler->compatible_tag_count++] = tag;
+    handler->compatible_tag_offsets[handler->compatible_tag_count - 1u] =
+        (int32_t)adjustment;
 }
 
 static void sema_cxx_collect_exception_tags(CxxNamespace* ns, Type* target,
@@ -154,7 +163,7 @@ static void sema_cxx_collect_exception_tags(CxxNamespace* ns, Type* target,
             continue;
         }
         sema_cxx_add_exception_tag(
-            handler, rcc_cxx_exception_type_tag(candidate->type));
+            handler, rcc_cxx_exception_type_tag(candidate->type), adjustment);
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
         sema_cxx_collect_exception_tags(child, target, handler, depth + 1u);
