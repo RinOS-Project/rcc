@@ -6586,12 +6586,22 @@ static Type* sema_expr(Expr* expr) {
                 }
                 adl_symbol = sema_cxx_adl_lookup(
                     expr->call_func->ident_name, expr->call_args);
-                if (adl_symbol) {
-                    expr->call_func->ident_name = adl_symbol->name;
-                    expr->call_func->ident_decl = adl_symbol->decl;
-                    expr->call_func->type = adl_symbol->type;
-                    arguments_analyzed = true;
+            if (adl_symbol) {
+                expr->call_func->ident_name = adl_symbol->name;
+                expr->call_func->ident_decl = adl_symbol->decl;
+                expr->call_func->type = adl_symbol->type;
+                arguments_analyzed = true;
+                if (adl_symbol->decl &&
+                    adl_symbol->decl->func_overload_next) {
+                    selected_overload = sema_select_cxx_overload(expr);
+                    if (!selected_overload) {
+                        expr->type = type_int;
+                        break;
+                    }
+                    expr->call_func->ident_decl = selected_overload;
+                    expr->call_func->type = selected_overload->type;
                 }
+            }
             }
             if (sema_atomic_builtin_call(expr)) break;
             if (expr->call_func->kind == EXPR_IDENT) {
