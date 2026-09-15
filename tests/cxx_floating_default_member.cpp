@@ -17,7 +17,7 @@ public:
     }
 
 private:
-    float fraction = 1.25f;
+    float fraction = 1.0f + 0.25f;
     int marker_;
 };
 

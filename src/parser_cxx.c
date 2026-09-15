@@ -1116,11 +1116,43 @@ static bool cxx_constructor_scalar_constant(Expr* expression) {
     int64_t integer_value;
     if (!expression) return false;
     if (expr_eval_integer_constant(expression, &integer_value)) return true;
-    if (expression->kind == EXPR_FLOAT_LIT) return true;
-    if (expression->kind == EXPR_NEG) {
-        return cxx_constructor_scalar_constant(expression->unary_operand);
+    switch (expression->kind) {
+        case EXPR_FLOAT_LIT:
+            return true;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_constructor_scalar_constant(
+                expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_constructor_scalar_constant(expression->binary_lhs) &&
+                   cxx_constructor_scalar_constant(expression->binary_rhs);
+        case EXPR_COND:
+            return cxx_constructor_scalar_constant(expression->cond_test) &&
+                   cxx_constructor_scalar_constant(expression->cond_then) &&
+                   cxx_constructor_scalar_constant(expression->cond_else);
+        case EXPR_CAST:
+            return cxx_constructor_scalar_constant(expression->cast_expr);
+        default:
+            return false;
     }
-    return false;
 }
 
 static bool cxx_constructor_expression_is_lowerable(
