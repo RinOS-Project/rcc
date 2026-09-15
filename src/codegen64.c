@@ -2239,11 +2239,80 @@ static bool gen64_cxx_move_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+/* Allocate a non-trivial array with a target-width element-count cookie.
+ * The returned pointer addresses the first element and the cookie address is
+ * retained for the matching delete[] operation. */
+static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    int done;
+    if (!object_type || object_type->size <= 0 ||
+        !expr || !expr->call_new_count) {
+        rcc_fatal("validated C++ array allocation has incomplete metadata");
+    }
+    gen64_expr(mod, expr->call_new_count);
+    emit64_sub_reg_imm(mod, RSP, 16);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX); /* evaluated element count */
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+    emit64_add_reg_imm(mod, RAX, 8);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_malloc", call_offset);
+    }
+    done = new_label64();
+    emit64_cmp_reg_imm(mod, RAX, 0);
+    emit64_jcc_label(mod, CC64_E, done);
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    emit64_mov_mem_reg(mod, RAX, 0, RCX);
+    emit64_add_reg_imm(mod, RAX, 8);
+    emit64_label(mod, done);
+    emit64_add_reg_imm(mod, RSP, 16);
+}
+
 static void gen64_cxx_zero_array(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     int loop;
     int done;
 
+    if (expr && expr->call_new_array_cookie) {
+        int cookie_loop = new_label64();
+        int cookie_done = new_label64();
+        gen64_cxx_alloc_array_cookie(mod, expr);
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_sub_reg_imm(mod, RCX, 8);
+        emit64_mov_reg_mem(mod, RDX, RCX, 0);
+        emit64_cmp_reg_imm(mod, RDX, 0);
+        emit64_jcc_label(mod, CC64_E, cookie_done);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_label(mod, cookie_loop);
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        {
+            int offset = 0;
+            for (; offset + 8 <= object_type->size; offset += 8) {
+                emit64_mov_mem_reg(mod, RCX, offset, RAX);
+            }
+            if (offset + 4 <= object_type->size) {
+                emit64_store_typed(mod, RCX, offset, RAX, type_uint);
+                offset += 4;
+            }
+            for (; offset < object_type->size; ++offset) {
+                emit64_store_typed(mod, RCX, offset, RAX, type_uchar);
+            }
+        }
+        emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
+        emit64_sub_reg_imm(mod, RDX, 1);
+        emit64_cmp_reg_imm(mod, RDX, 0);
+        emit64_jcc_label(mod, CC64_NE, cookie_loop);
+        emit64_label(mod, cookie_done);
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        emit64_add_reg_imm(mod, RSP, 8);
+        return;
+    }
     if (!object_type || !expr->call_new_count) {
         SourceLoc location;
         codegen64_expr_loc(&location, expr);
@@ -2479,9 +2548,14 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
         emit64_mov_reg_imm32(mod, RAX, 0u);
         return;
     }
-    gen64_expr(mod, expr->call_new_count);
-    emit64_sub_reg_imm(mod, RSP, 24);
-    emit64_mov_mem_reg(mod, RSP, 0, RAX);  /* count */
+    if (expr->call_new_array_cookie) {
+        gen64_cxx_alloc_array_cookie(mod, expr);
+        emit64_push_reg(mod, RAX);           /* user base */
+        emit64_push_reg(mod, RAX);           /* current */
+    } else {
+        gen64_expr(mod, expr->call_new_count);
+        emit64_sub_reg_imm(mod, RSP, 24);
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);  /* count */
     emit64_mov_reg_imm32(mod, RCX, (uint32_t)object_type->size);
     emit64_imul_reg_reg(mod, RAX, RCX);
     emit64_mov_reg_reg(mod, RDI, RAX);
@@ -2491,20 +2565,25 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
         emit_dword(mod, 0u);
         add_func_call_ref64("rin_malloc", call_offset);
     }
-    emit64_mov_mem_reg(mod, RSP, 8, RAX);  /* base */
-    emit64_mov_mem_reg(mod, RSP, 16, RAX); /* current */
+        emit64_mov_mem_reg(mod, RSP, 8, RAX);  /* base */
+        emit64_mov_mem_reg(mod, RSP, 16, RAX); /* current */
+    }
     for (argument = expr->call_new_args; argument;
          argument = argument->next) {
-        emit64_mov_reg_mem(mod, RCX, RSP, 16);
+        emit64_mov_reg_mem(mod, RCX, RSP,
+                           expr->call_new_array_cookie ? 0 : 16);
         gen64_cxx_initialize_object(mod, object_type,
                                      expr->call_new_constructor,
                                      argument);
-        emit64_mov_reg_mem(mod, RCX, RSP, 16);
+        emit64_mov_reg_mem(mod, RCX, RSP,
+                           expr->call_new_array_cookie ? 0 : 16);
         emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
-        emit64_mov_mem_reg(mod, RSP, 16, RCX);
+        emit64_mov_mem_reg(mod, RSP,
+                           expr->call_new_array_cookie ? 0 : 16, RCX);
     }
     emit64_mov_reg_mem(mod, RAX, RSP, 8);
-    emit64_add_reg_imm(mod, RSP, 24);
+    emit64_add_reg_imm(mod, RSP,
+                       expr->call_new_array_cookie ? 16 : 24);
 }
 
 static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
@@ -2519,6 +2598,35 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
         rcc_error(location,
                   "array new default constructor has invalid element storage");
         emit64_mov_reg_imm32(mod, RAX, 0u);
+        return;
+    }
+    if (expr->call_new_array_cookie) {
+        int cookie_loop = new_label64();
+        int cookie_done = new_label64();
+        gen64_cxx_alloc_array_cookie(mod, expr);
+        emit64_push_reg(mod, RAX);           /* user base */
+        emit64_push_reg(mod, RAX);           /* current */
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_sub_reg_imm(mod, RCX, 8);
+        emit64_mov_reg_mem(mod, RDX, RCX, 0);
+        emit64_push_reg(mod, RDX);           /* count, current, user */
+        emit64_cmp_reg_imm(mod, RDX, 0);
+        emit64_jcc_label(mod, CC64_E, cookie_done);
+        emit64_label(mod, cookie_loop);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        gen64_cxx_initialize_object(mod, object_type,
+                                     expr->call_new_constructor, NULL);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
+        emit64_mov_mem_reg(mod, RSP, 8, RCX);
+        emit64_mov_reg_mem(mod, RDX, RSP, 0);
+        emit64_sub_reg_imm(mod, RDX, 1);
+        emit64_mov_mem_reg(mod, RSP, 0, RDX);
+        emit64_cmp_reg_imm(mod, RDX, 0);
+        emit64_jcc_label(mod, CC64_NE, cookie_loop);
+        emit64_label(mod, cookie_done);
+        emit64_mov_reg_mem(mod, RAX, RSP, 16);
+        emit64_add_reg_imm(mod, RSP, 24);
         return;
     }
     gen64_expr(mod, expr->call_new_count);
@@ -2585,6 +2693,10 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         gen64_cxx_init_array(mod, expr);
         return;
     }
+    if (expr->call_new_is_array && expr->call_new_array_cookie) {
+        gen64_cxx_alloc_array_cookie(mod, expr);
+        return;
+    }
     saved_is_new = expr->call_is_new;
     expr->call_is_new = false;
     gen64_expr(mod, expr);
@@ -2640,6 +2752,99 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         emit64_store_typed(mod, RCX, 0, RAX, object_type);
     }
     emit64_pop_reg(mod, RAX);
+}
+
+static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {
+    Type* object_type;
+    Decl* destructor;
+    Decl* cleanup;
+    TypeField* field;
+    int loop;
+    int free_label;
+    int done;
+    if (!expr || !expr->call_args || !expr->call_args->expr ||
+        !expr->call_args->expr->type ||
+        expr->call_args->expr->type->kind != TYPE_PTR) {
+        rcc_fatal("validated C++ array delete has incomplete operand metadata");
+    }
+    object_type = expr->call_args->expr->type->base;
+    destructor = expr->call_delete_array_destructor;
+    cleanup = expr->call_delete_array_cleanup;
+    field = expr->call_delete_array_cleanup_field;
+    if (!object_type || object_type->size <= 0 ||
+        (!destructor && (!cleanup || !field))) {
+        rcc_fatal("validated C++ array delete has incomplete destructor metadata");
+    }
+
+    done = new_label64();
+    gen64_expr(mod, expr->call_args->expr);
+    emit64_cmp_reg_imm(mod, RAX, 0);
+    emit64_jcc_label(mod, CC64_E, done);
+    emit64_push_reg(mod, RAX);                 /* user pointer */
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_sub_reg_imm(mod, RCX, 8);
+    emit64_mov_reg_mem(mod, RDX, RCX, 0);      /* element count */
+    emit64_push_reg(mod, RCX);                 /* allocator pointer */
+    emit64_push_reg(mod, RDX);                 /* remaining count */
+    emit64_push_reg(mod, RAX);                 /* current element */
+    free_label = new_label64();
+    loop = new_label64();
+    emit64_cmp_reg_imm(mod, RDX, 0);
+    emit64_jcc_label(mod, CC64_E, free_label);
+
+    /* delete[] destroys the last constructed element first. */
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    emit64_mov_reg_mem(mod, RCX, RSP, 8);
+    emit64_sub_reg_imm(mod, RCX, 1);
+    emit64_mov_reg_imm32(mod, RDX, (uint32_t)object_type->size);
+    emit64_imul_reg_reg(mod, RCX, RDX);
+    emit64_add_reg_reg(mod, RAX, RCX);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX);
+    emit64_label(mod, loop);
+    if (destructor) {
+        emit64_mov_reg_mem(mod, RDI, RSP, 0);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref64(decl_link_name(destructor), call_offset);
+        }
+    } else {
+        int skip_cleanup = new_label64();
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_load_typed(mod, RAX, RCX, field->offset, field->type);
+        emit64_compare_constant(mod, RAX,
+                                expr->call_delete_array_cleanup_invalid);
+        emit64_jcc_label(mod, CC64_E, skip_cleanup);
+        emit64_mov_reg_reg(mod, RDI, RAX);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref64(decl_link_name(cleanup), call_offset);
+        }
+        emit64_label(mod, skip_cleanup);
+    }
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    emit64_sub_reg_imm(mod, RCX, (uint32_t)object_type->size);
+    emit64_mov_mem_reg(mod, RSP, 0, RCX);
+    emit64_mov_reg_mem(mod, RDX, RSP, 8);
+    emit64_sub_reg_imm(mod, RDX, 1);
+    emit64_mov_mem_reg(mod, RSP, 8, RDX);
+    emit64_cmp_reg_imm(mod, RDX, 0);
+    emit64_jcc_label(mod, CC64_NE, loop);
+
+    emit64_label(mod, free_label);
+    emit64_mov_reg_mem(mod, RDI, RSP, 16);     /* allocator pointer */
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t free_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_free", free_offset);
+    }
+    emit64_add_reg_imm(mod, RSP, 32);
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    emit64_label(mod, done);
 }
 
 static void gen64_cxx_delete(Module* mod, Expr* expr) {
@@ -3308,6 +3513,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_CALL: {
             if (expr->call_is_new) {
                 gen64_cxx_new(mod, expr);
+                break;
+            }
+            if (expr->call_is_delete && expr->call_delete_is_array &&
+                (expr->call_delete_array_cleanup ||
+                 expr->call_delete_array_destructor)) {
+                gen64_cxx_array_destructor(mod, expr);
                 break;
             }
             if (expr->call_is_delete &&

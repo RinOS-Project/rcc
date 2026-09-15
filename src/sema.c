@@ -4517,8 +4517,27 @@ static Type* sema_expr(Expr* expr) {
                 if (object_type->cxx_nontrivial &&
                     !sema_cxx_trivially_destructible(object_type, 0)) {
                     if (expr->call_delete_is_array) {
-                        rcc_error(expr->loc,
-                                  "array delete requires element destructor lowering");
+                        expr->call_delete_array_destructor =
+                            sema_cxx_destructor_function(object_type);
+                        if (!expr->call_delete_array_destructor &&
+                            object_type->cleanup_function &&
+                            object_type->cleanup_field) {
+                            cleanup_function = sema_cxx_cleanup_function(
+                                object_type, expr->loc);
+                            if (cleanup_function) {
+                                expr->call_delete_array_cleanup =
+                                    cleanup_function;
+                                expr->call_delete_array_cleanup_field =
+                                    object_type->cleanup_field;
+                                expr->call_delete_array_cleanup_invalid =
+                                    object_type->cleanup_invalid;
+                            }
+                        }
+                        if (!expr->call_delete_array_destructor &&
+                            !expr->call_delete_array_cleanup) {
+                            rcc_error(expr->loc,
+                                      "array delete requires a lowerable element destructor");
+                        }
                         return expr->type;
                     }
                     if (!object_type->cleanup_function ||
@@ -4602,25 +4621,35 @@ static Type* sema_expr(Expr* expr) {
                         }
                     }
                     if (object_type->cxx_nontrivial) {
-                        /* A class array is safe here only when its
-                         * destructor is trivial and its constructor belongs
-                         * to the exact aggregate-lowering subset. */
-                        if (object_type->kind != TYPE_STRUCT ||
-                            !sema_cxx_trivially_destructible(object_type, 0) ||
-                            !cls ||
-                            !rcc_parser_cxx_constructor_arity_mask(object_type)) {
+                        Decl* destructor = sema_cxx_destructor_function(
+                            object_type);
+                        bool has_cleanup = object_type->cleanup_function &&
+                            object_type->cleanup_field;
+                        bool has_constructor = cls &&
+                            rcc_parser_cxx_constructor_arity_mask(object_type);
+                        bool has_user_constructor = cls &&
+                            cls->constructors != NULL;
+                        if (object_type->kind != TYPE_STRUCT || !cls ||
+                            (!sema_cxx_trivially_destructible(object_type, 0) &&
+                             !destructor && !has_cleanup) ||
+                            (!has_constructor && has_user_constructor)) {
                             rcc_error(expr->loc,
-                                      "array new requires a lowerable element constructor and trivial destructor");
+                                      "array new requires a lowerable element constructor and destructor");
                             return expr->type;
                         }
-                        constructor = sema_select_cxx_array_constructor(
-                            object_type, expr->call_new_args, expr->loc);
-                        if (!constructor) {
-                            rcc_error(expr->loc,
-                                      "array new has no lowerable constructor for its element initializers");
-                            return expr->type;
+                        if (has_constructor) {
+                            constructor = sema_select_cxx_array_constructor(
+                                object_type, expr->call_new_args, expr->loc);
+                            if (!constructor) {
+                                rcc_error(expr->loc,
+                                          "array new has no lowerable constructor for its element initializers");
+                                return expr->type;
+                            }
+                            expr->call_new_constructor = constructor;
                         }
-                        expr->call_new_constructor = constructor;
+                        if (destructor || has_cleanup) {
+                            expr->call_new_array_cookie = true;
+                        }
                     } else if (object_type->kind == TYPE_STRUCT ||
                                object_type->kind == TYPE_UNION ||
                                object_type->kind == TYPE_ARRAY) {
@@ -4641,7 +4670,12 @@ static Type* sema_expr(Expr* expr) {
                     return expr->type;
                 }
                 if (object_type->cxx_nontrivial &&
-                    (!cls || !rcc_parser_cxx_constructor_arity_mask(object_type))) {
+                    (!cls || !rcc_parser_cxx_constructor_arity_mask(object_type)) &&
+                    !(expr->call_new_is_array &&
+                      cls && !cls->constructors &&
+                      (sema_cxx_destructor_function(object_type) ||
+                       (object_type->cleanup_function &&
+                        object_type->cleanup_field)))) {
                     rcc_error(expr->loc,
                               "new for this C++ object requires an unsupported constructor or destructor ABI");
                     return expr->type;

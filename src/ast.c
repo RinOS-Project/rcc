@@ -572,6 +572,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_new_value_init = false;
     e->call_new_is_array = false;
     e->call_new_brace_init = false;
+    e->call_new_array_cookie = false;
     e->call_new_type = NULL;
     e->call_new_count = NULL;
     e->call_new_args = NULL;
@@ -580,8 +581,12 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_delete_is_array = false;
     e->call_delete_cleanup = NULL;
     e->call_delete_destructor = NULL;
+    e->call_delete_array_cleanup = NULL;
+    e->call_delete_array_destructor = NULL;
     e->call_delete_cleanup_field = NULL;
+    e->call_delete_array_cleanup_field = NULL;
     e->call_delete_cleanup_invalid = 0;
+    e->call_delete_array_cleanup_invalid = 0;
     e->type = NULL;
     return e;
 }

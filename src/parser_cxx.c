@@ -903,8 +903,8 @@ static TypeMethod* inline_bool_delegate_target(Type* aggregate,
  *
  * The target accessor has already been reduced to a field operation above,
  * so copying that operation cannot execute an arbitrary member body.  This
- * covers the SDK status/outcome wrappers while retaining fail-closed parsing
- * for unvalidated helper calls. */
+ * covers the SDK status/outcome wrappers while retaining explicit validation
+ * for helper calls that have no executable lowering. */
 static void register_inline_class_bool_delegates(CxxClass* cls) {
     struct CxxMember* member;
     TypeMethod** tail;

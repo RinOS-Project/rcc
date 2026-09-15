@@ -421,6 +421,7 @@ struct Expr {
             bool call_new_value_init;
             bool call_new_is_array;
             bool call_new_brace_init;
+            bool call_new_array_cookie;
             Type* call_new_type;
             Expr* call_new_count;
             ExprList* call_new_args;
@@ -432,8 +433,12 @@ struct Expr {
             bool call_delete_is_array;
             Decl* call_delete_cleanup;
             Decl* call_delete_destructor;
+            Decl* call_delete_array_cleanup;
+            Decl* call_delete_array_destructor;
             TypeField* call_delete_cleanup_field;
+            TypeField* call_delete_array_cleanup_field;
             int64_t call_delete_cleanup_invalid;
+            int64_t call_delete_array_cleanup_invalid;
         };
 
         /* EXPR_INDEX */
