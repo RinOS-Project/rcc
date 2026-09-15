@@ -5532,7 +5532,7 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
 
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc) {
-    Type* arguments[32];
+    Type* arguments[32] = { NULL };
     int64_t values[32] = { 0 };
     bool value_present[32] = { false };
     int argument_count = 0;
@@ -5584,7 +5584,9 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
            tmpl->params[argument_count].has_default) {
         TemplateParam* parameter = &tmpl->params[argument_count];
         if (parameter->kind == TPARAM_TYPE && parameter->default_type) {
-            arguments[argument_count] = parameter->default_type;
+            arguments[argument_count] = substitute_template_type(
+                tmpl, parameter->default_type, arguments, tmpl->param_count,
+                values, value_present);
         } else if (parameter->kind == TPARAM_NONTYPE &&
                    parameter->default_value) {
             int64_t value;
@@ -6195,7 +6197,9 @@ static bool prepare_cxx_function_template_match(
             if (!parameter->has_default) return false;
             if (parameter->kind == TPARAM_TYPE) {
                 if (!parameter->default_type) return false;
-                match->arguments[index] = parameter->default_type;
+                match->arguments[index] = substitute_template_type(
+                    tmpl, parameter->default_type, match->arguments,
+                    tmpl->param_count, match->values, match->value_present);
             } else {
                 if (!parameter->default_value ||
                     !eval_template_integer_expression(
@@ -6238,7 +6242,9 @@ static bool prepare_cxx_function_template_match(
                 match->arguments[index] = parameter->type;
             } else if (!match->arguments[index] && parameter->has_default &&
                        parameter->default_type) {
-                match->arguments[index] = parameter->default_type;
+                match->arguments[index] = substitute_template_type(
+                    tmpl, parameter->default_type, match->arguments,
+                    tmpl->param_count, match->values, match->value_present);
             }
             if (!match->arguments[index]) return false;
         }

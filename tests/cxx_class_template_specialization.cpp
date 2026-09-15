@@ -84,6 +84,16 @@ public:
     }
 };
 
+template<typename T, typename U = T>
+class DefaultType {
+public:
+    U value;
+
+    int kind() {
+        return sizeof(U) + value;
+    }
+};
+
 template<int N>
 class Select<int, N> {
 public:
@@ -103,6 +113,7 @@ int main() {
     Pair<long, 4> specialized_pair;
     Select<long, 3> ordinary_select;
     Select<int, 3> specialized_select;
+    DefaultType<int> default_type{5};
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    pointer_pointer_pointer_value.kind() == 33 &&
@@ -111,5 +122,6 @@ int main() {
                    ordinary_pair.kind() == 3 &&
                    specialized_pair.kind() == 40 &&
                    ordinary_select.kind() == 3 &&
-                   specialized_select.kind() == 103 ? 0 : 1;
+                   specialized_select.kind() == 103 &&
+                   default_type.kind() == 9 ? 0 : 1;
 }
