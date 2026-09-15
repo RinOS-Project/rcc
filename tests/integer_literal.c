@@ -16,6 +16,12 @@ _Static_assert(0xffffffffffffffffULL > 0,
                "unsigned constant comparison must not become signed");
 _Static_assert(0xffffffffU + 1U == 0,
                "unsigned constant arithmetic must wrap at its type width");
+_Static_assert(-1U == 0xffffffffU,
+               "unsigned unary negation must wrap at its type width");
+_Static_assert((~0U) == 0xffffffffU,
+               "unsigned bitwise complement must retain its type width");
+_Static_assert((1U << 31) == 0x80000000U,
+               "unsigned left shift must use the operand width");
 
 #if defined(__x86_64__)
 _Static_assert(_Generic(2147483648, long: 1, default: 0),

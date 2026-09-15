@@ -1506,7 +1506,9 @@ static bool sema_constexpr_scalar_convert(
     if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
         numeric = input->is_floating
             ? (long double)input->floating_value
-            : (long double)input->integer_value;
+            : (input->type && input->type->is_unsigned
+                ? (long double)sema_constexpr_integer_bits(input)
+                : (long double)sema_constexpr_integer_signed(input));
         if (!isfinite(numeric)) return false;
         output->type = type;
         output->is_floating = true;
@@ -2495,9 +2497,20 @@ static bool sema_eval_constexpr_scalar_expr(
                 value->floating_value = -left.floating_value;
                 return true;
             }
-            if (left.integer_value == INT64_MIN) return false;
+            result_type = expression->type ? expression->type : left.type;
+            if (!sema_constexpr_scalar_convert(&left, result_type, &left)) {
+                return false;
+            }
             *value = left;
-            value->integer_value = -left.integer_value;
+            if (result_type->is_unsigned) {
+                value->integer_value = (int64_t)(
+                    (UINT64_C(0) - sema_constexpr_integer_bits(&left)) &
+                    sema_constexpr_integer_mask(result_type));
+            } else {
+                int64_t signed_value = sema_constexpr_integer_signed(&left);
+                if (signed_value == INT64_MIN) return false;
+                value->integer_value = -signed_value;
+            }
             return true;
         case EXPR_NOT:
             if (!sema_eval_constexpr_scalar_expr(expression->unary_operand,
@@ -2512,8 +2525,15 @@ static bool sema_eval_constexpr_scalar_expr(
                                                   bindings, binding_count,
                                                   &left) ||
                 left.is_floating) return false;
-            value->type = type_int;
-            value->integer_value = ~left.integer_value;
+            result_type = expression->type ? expression->type : left.type;
+            if (!sema_constexpr_scalar_convert(&left, result_type, &left)) {
+                return false;
+            }
+            value->type = result_type;
+            value->is_floating = false;
+            value->integer_value = (int64_t)(
+                ~sema_constexpr_integer_bits(&left) &
+                sema_constexpr_integer_mask(result_type));
             return true;
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
