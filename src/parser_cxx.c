@@ -1966,6 +1966,27 @@ static bool class_declares_method_name(CxxClass* cls, const char* name) {
     return false;
 }
 
+static bool class_uses_base_member(CxxClass* cls, CxxClass* base,
+                                   const char* name) {
+    if (!cls || !base || !name) return false;
+    for (int index = 0; index < cls->using_base_member_count; ++index) {
+        const char* base_name = cls->using_base_members[index].base_name;
+        const char* member_name = cls->using_base_members[index].member_name;
+        const char* suffix;
+        if (!base_name || !member_name || strcmp(member_name, name) != 0) {
+            continue;
+        }
+        if (strcmp(base_name, base->name) == 0) return true;
+        suffix = strstr(base_name, "::");
+        while (suffix) {
+            suffix += 2;
+            if (strcmp(suffix, base->name) == 0) return true;
+            suffix = strstr(suffix, "::");
+        }
+    }
+    return false;
+}
+
 /* Publish methods of accessible bases on the derived class.  The layout pass
  * records the concrete offset used by this backend, so the alias can carry
  * the real base declaration and an explicit byte adjustment. */
@@ -1986,7 +2007,8 @@ static void register_inherited_class_methods(CxxClass* cls,
             TypeMethod* inherited;
             if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
                 !method->function_decl ||
-                class_declares_method_name(cls, method->name)) {
+                (class_declares_method_name(cls, method->name) &&
+                 !class_uses_base_member(cls, base, method->name))) {
                 continue;
             }
             inherited = ast_arena_alloc(sizeof(*inherited));
@@ -2543,6 +2565,33 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
             AccessSpec new_access = parse_access_spec();
             if (new_access != (AccessSpec)-1) {
                 current_access = new_access;
+                continue;
+            }
+
+            if (match(TOK_USING)) {
+                SourceLoc using_loc = previous()->loc;
+                const char* qualified = parse_qualified_name();
+                const char* separator = qualified
+                    ? strrchr(qualified, ':') : NULL;
+                if (!separator || separator == qualified ||
+                    separator[-1] != ':') {
+                    rcc_error(using_loc,
+                              "class using-declaration must name a base member");
+                } else {
+                    size_t base_length = (size_t)(separator - qualified - 1);
+                    char base_name[512];
+                    if (base_length == 0 || base_length >= sizeof(base_name)) {
+                        rcc_error(using_loc,
+                                  "class using-declaration base name is too long");
+                    } else {
+                        memcpy(base_name, qualified, base_length);
+                        base_name[base_length] = '\0';
+                        cxx_class_add_using_base_member(
+                            cls, rcc_intern(base_name),
+                            rcc_intern(separator + 1));
+                    }
+                }
+                expect(TOK_SEMICOLON, ";");
                 continue;
             }
 
@@ -4091,6 +4140,15 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     instance->has_nonpublic_field = definition->has_nonpublic_field;
     instance->has_static_field = definition->has_static_field;
     instance->has_field_initializer = definition->has_field_initializer;
+    instance->using_base_member_count = definition->using_base_member_count;
+    if (definition->using_base_member_count != 0) {
+        instance->using_base_members = ast_arena_alloc(
+            sizeof(instance->using_base_members[0]) *
+            (size_t)definition->using_base_member_count);
+        memcpy(instance->using_base_members, definition->using_base_members,
+               sizeof(instance->using_base_members[0]) *
+               (size_t)definition->using_base_member_count);
+    }
     instance->templ = tmpl;
     instance->template_arg_count = argument_count;
             instance->template_args = ast_arena_alloc(

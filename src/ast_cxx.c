@@ -376,6 +376,8 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->constructors = NULL;
     cls->bases = NULL;
     cls->base_count = 0;
+    cls->using_base_members = NULL;
+    cls->using_base_member_count = 0;
     cls->base_offsets = NULL;
     cls->virtual_bases = NULL;
     cls->virtual_base_count = 0;
@@ -1868,6 +1870,22 @@ void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access)
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = false;
     cls->base_count++;
+}
+
+void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
+                                     const char* member_name) {
+    if (!cls || !base_name || !member_name) return;
+    cls->using_base_members = ast_arena_grow(
+        cls->using_base_members,
+        sizeof(cls->using_base_members[0]) *
+            (size_t)cls->using_base_member_count,
+        sizeof(cls->using_base_members[0]) *
+            (size_t)(cls->using_base_member_count + 1));
+    cls->using_base_members[cls->using_base_member_count].base_name =
+        base_name;
+    cls->using_base_members[cls->using_base_member_count].member_name =
+        member_name;
+    ++cls->using_base_member_count;
 }
 
 /* Add field to class */

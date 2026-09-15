@@ -77,6 +77,13 @@ struct CxxClass {
         bool is_virtual;
     } *bases;
     int base_count;
+    /* Explicit `using Base::member` declarations restore a hidden base
+     * overload into the derived member lookup set. */
+    struct {
+        const char* base_name;
+        const char* member_name;
+    } *using_base_members;
+    int using_base_member_count;
     /* Byte offsets of non-virtual base subobjects after layout. */
     int* base_offsets;
     /* One shared subobject for every virtual base reachable from this class. */
@@ -261,6 +268,8 @@ char* cxx_mangle_type(Type* type);
 /* Class operations (core API) */
 CxxClass* cxx_class_alloc(const char* name, bool is_struct);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
+void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
+                                     const char* member_name);
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static);
 void cxx_class_compute_layout(CxxClass* cls);
 bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,

@@ -8,6 +8,22 @@ int times_two(int value) {
 }
 }
 
+class UsingBase {
+public:
+    int choose(int value, int extra) {
+        return value + extra;
+    }
+};
+
+class UsingDerived : public UsingBase {
+public:
+    using UsingBase::choose;
+
+    int choose(int value) {
+        return value + 10;
+    }
+};
+
 using namespace math;
 using math::times_two;
 using Integer = int;
@@ -17,5 +33,7 @@ Integer cxx_using_probe(Integer value) {
 }
 
 int main() {
-    return cxx_using_probe(20) == 61 ? 0 : 1;
+    UsingDerived value;
+    return cxx_using_probe(20) == 61 && value.choose(4) == 14 &&
+                   value.choose(4, 2) == 6 ? 0 : 1;
 }
