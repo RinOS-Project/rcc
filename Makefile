@@ -168,6 +168,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime
 .PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
 .PHONY: test-cxx-qualified-class-initialization
+.PHONY: test-cxx-constructor-general
 .PHONY: test-cxx-auto-non-type-template
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
@@ -618,6 +619,34 @@ test-cxx-virtual-base-constructor: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-virtual-base-constructor/x64.o
 	$(TEST_OUT)/cxx-virtual-base-constructor/x64
 	@echo "C++ virtual-base constructor tests completed"
+
+test-cxx-constructor-general: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-general)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constructor-general/x86.s \
+		tests/cxx_constructor_general.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constructor-general/x86.o \
+		$(TEST_OUT)/cxx-constructor-general/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constructor-general/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-constructor-general/x86 \
+		$(TEST_OUT)/cxx-constructor-general/start-x86.o \
+		$(TEST_OUT)/cxx-constructor-general/x86.o
+	$(TEST_OUT)/cxx-constructor-general/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constructor-general/x64.s \
+		tests/cxx_constructor_general.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-constructor-general/x64.o \
+		$(TEST_OUT)/cxx-constructor-general/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-constructor-general/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-constructor-general/x64 \
+		$(TEST_OUT)/cxx-constructor-general/start-x64.o \
+		$(TEST_OUT)/cxx-constructor-general/x64.o
+	$(TEST_OUT)/cxx-constructor-general/x64
+	@echo "C++ general constructor-body tests completed"
 
 test-cxx-shared-virtual-base: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-shared-virtual-base)
