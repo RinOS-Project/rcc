@@ -2576,6 +2576,20 @@ static bool gen_is_integer64(const Type* type) {
            type_is_integer((Type*)type);
 }
 
+/* A scalar expression wider than the i686 register width is returned in
+ * EDX:EAX.  Keep the pair intact when a C++ initializer materializes that
+ * value into an object field; the ordinary typed store intentionally handles
+ * only the low word for the other scalar widths. */
+static void emit_store_scalar32(Module* mod, int base, int32_t displacement,
+                                const Type* type) {
+    if (gen_is_integer64(type)) {
+        emit_mov_mem_reg(mod, base, displacement, EAX);
+        emit_mov_mem_reg(mod, base, displacement + 4, EDX);
+        return;
+    }
+    emit_store_typed32(mod, base, displacement, EAX, type);
+}
+
 static bool gen_is_floating(const Type* type) {
     return type && (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
 }
@@ -4943,7 +4957,7 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
             emit_convert_integer_value(mod, EAX, argument->expr->type,
                                        element_type);
         }
-        emit_store_typed32(mod, ECX, offset, EAX, element_type);
+        emit_store_scalar32(mod, ECX, offset, element_type);
     }
     emit_pop_reg(mod, EAX);
 }
@@ -4971,7 +4985,7 @@ static void gen_cxx_initialize_default_members32(Module* mod, Type* object_type)
             emit_convert_integer_value(mod, EAX, field->initializer->type,
                                        field->type);
         }
-        emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
+        emit_store_scalar32(mod, ECX, field->offset, field->type);
     }
 }
 
@@ -5341,7 +5355,7 @@ static void gen_cxx_initialize_member_initializers32(
             emit_convert_integer_value(
                 mod, EAX, initializer->value->type, field->type);
         }
-        emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
+        emit_store_scalar32(mod, ECX, field->offset, field->type);
     }
 }
 
@@ -5455,8 +5469,8 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                     emit_convert_integer_value(mod, EAX, value->type,
                                                field->type);
                 }
-                emit_store_typed32(mod, address_reg, field->offset,
-                                   EAX, field->type);
+                emit_store_scalar32(mod, address_reg, field->offset,
+                                    field->type);
             }
         }
         return;
@@ -5478,8 +5492,7 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                                            initializer->value->type,
                                            field->type);
             }
-            emit_store_typed32(mod, address_reg, field->offset,
-                               EAX, field->type);
+            emit_store_scalar32(mod, address_reg, field->offset, field->type);
         }
         return;
     }
@@ -5493,8 +5506,7 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
             emit_convert_integer_value(mod, EAX, argument->expr->type,
                                        field->type);
         }
-        emit_store_typed32(mod, address_reg, field->offset,
-                           EAX, field->type);
+        emit_store_scalar32(mod, address_reg, field->offset, field->type);
     }
 }
 
@@ -5996,7 +6008,7 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
                 emit_convert_integer_value(mod, EAX, argument->expr->type,
                                            field->type);
             }
-            emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
+            emit_store_scalar32(mod, ECX, field->offset, field->type);
             field = field->next;
             argument = argument->next;
         }
