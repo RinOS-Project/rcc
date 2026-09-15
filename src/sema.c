@@ -4910,6 +4910,21 @@ static int sema_cxx_constructor_base_index(CxxClass* cls,
     return -1;
 }
 
+static int sema_cxx_constructor_virtual_base_index(CxxClass* cls,
+                                                   const char* name) {
+    const char* name_tail = sema_cxx_unqualified_name(name);
+    if (!cls || !name || !name_tail) return -1;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxClass* base = cls->virtual_bases[index].base;
+        if ((base && base->name && strcmp(base->name, name) == 0) ||
+            (base && base->name &&
+             strcmp(sema_cxx_unqualified_name(base->name), name_tail) == 0)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static Expr* sema_cxx_object_member(Expr* object, TypeField* field) {
     Expr* member;
     if (!object || !field || !field->name) return NULL;
@@ -5500,6 +5515,37 @@ static void sema_resolve_cxx_constructor_initializers(
                 if (!initializer->constructor) {
                     rcc_error(loc,
                               "no safely lowerable constructor accepts the base initializer");
+                }
+            }
+            initializer->is_virtual_base_initializer =
+                cls->bases[base_index].is_virtual;
+            continue;
+        }
+        int virtual_base_index = sema_cxx_constructor_virtual_base_index(
+            cls, initializer->field);
+        if (virtual_base_index >= 0) {
+            CxxClass* base = cls->virtual_bases[virtual_base_index].base;
+            Type* base_type = base ? base->type : NULL;
+            if (!base_type || !type_is_complete(base_type) ||
+                !cls->virtual_bases[virtual_base_index].public_path) {
+                rcc_error(loc,
+                          "virtual base constructor initializer is not safely lowerable");
+                continue;
+            }
+            initializer->is_base_initializer = true;
+            initializer->is_virtual_base_initializer = true;
+            for (ExprList* argument = initializer->arguments; argument;
+                 argument = argument->next) {
+                sema_bind_cxx_constructor_expression(
+                    constructor, argument->expr);
+                sema_expr(argument->expr);
+            }
+            if (base->constructors || initializer->arguments) {
+                initializer->constructor = sema_select_cxx_new_constructor(
+                    base_type, &initializer->arguments, loc);
+                if (!initializer->constructor) {
+                    rcc_error(loc,
+                              "no safely lowerable constructor accepts the virtual base initializer");
                 }
             }
             continue;

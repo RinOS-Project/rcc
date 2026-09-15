@@ -42,6 +42,7 @@ struct CxxConstructorInitializer {
     ExprList* arguments;
     CxxConstructorInfo* constructor;
     bool is_base_initializer;
+    bool is_virtual_base_initializer;
     bool is_delegating_constructor;
     bool is_default_member_initializer;
     CxxConstructorInitializer* next;

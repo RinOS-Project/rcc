@@ -5489,16 +5489,20 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
     emit_pop_reg(mod, EAX);
 }
 
-static void gen_cxx_zero_object32(Module* mod, Type* object_type,
-                                   int address_reg) {
+static void gen_cxx_zero_object32_size(Module* mod, int address_reg, int size) {
     emit_mov_reg_imm(mod, EAX, 0u);
-    for (int offset = 0; offset + 4 <= object_type->size; offset += 4) {
+    for (int offset = 0; offset + 4 <= size; offset += 4) {
         emit_mov_mem_reg(mod, address_reg, offset, EAX);
     }
-    for (int offset = (object_type->size / 4) * 4;
-         offset < object_type->size; ++offset) {
+    for (int offset = (size / 4) * 4; offset < size; ++offset) {
         emit_mov_mem_reg8(mod, address_reg, offset, EAX);
     }
+}
+
+static void gen_cxx_zero_object32(Module* mod, Type* object_type,
+                                   int address_reg) {
+    gen_cxx_zero_object32_size(mod, address_reg,
+                                object_type ? object_type->size : 0);
 }
 
 static void gen_cxx_initialize_default_members32(Module* mod, Type* object_type) {
@@ -5596,6 +5600,34 @@ static int gen_cxx_constructor_base32(Type* object_type, const char* name,
             if (base_type) *base_type = base ? base->type : NULL;
             return cls->base_offsets && cls->base_offsets[index] >= 0
                 ? cls->base_offsets[index] : -1;
+        }
+    }
+    return -1;
+}
+
+static int gen_cxx_constructor_virtual_base32(Type* object_type,
+                                              const char* name,
+                                              Type** base_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    const char* name_tail = name;
+    const char* separator;
+    if (base_type) *base_type = NULL;
+    if (!cls || !name) return -1;
+    separator = strrchr(name, ':');
+    if (separator && separator > name && separator[-1] == ':') {
+        name_tail = separator + 1;
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxClass* base = cls->virtual_bases[index].base;
+        const char* base_tail = base ? base->name : NULL;
+        separator = base_tail ? strrchr(base_tail, ':') : NULL;
+        if (separator && separator > base_tail && separator[-1] == ':') {
+            base_tail = separator + 1;
+        }
+        if ((base && base->name && strcmp(base->name, name) == 0) ||
+            (base_tail && strcmp(base_tail, name_tail) == 0)) {
+            if (base_type) *base_type = base ? base->type : NULL;
+            return cls->virtual_bases[index].offset;
         }
     }
     return -1;
@@ -5760,6 +5792,9 @@ static ExprList* gen_cxx_bind_constructor_arguments32(
     return bound;
 }
 
+static void gen_cxx_initialize_object32_mode(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool initialize_virtual_bases);
 static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
                                          ExprList* arguments);
@@ -5799,8 +5834,41 @@ static ExprList* gen_cxx_constructor_function_arguments32(Decl* declaration) {
  * order and argument evaluation. */
 static void gen_cxx_initialize_member_initializers32(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
-    ExprList* arguments) {
+    ExprList* arguments, bool initialize_virtual_bases) {
     if (!mod || !object_type || !constructor) return;
+    for (CxxConstructorInitializer* initializer = constructor->initializers;
+         initializer; initializer = initializer->next) {
+        Type* base_type = NULL;
+        int base_offset;
+        if (!initializer->is_base_initializer ||
+            !initializer->is_virtual_base_initializer) {
+            continue;
+        }
+        if (!initialize_virtual_bases) continue;
+        base_offset = gen_cxx_constructor_virtual_base32(
+            object_type, initializer->field, &base_type);
+        if (base_offset < 0 || !base_type) {
+            rcc_error((SourceLoc){"<constructor>", 0, 0},
+                      "validated C++ virtual base initializer is incomplete");
+            return;
+        }
+        emit_push_reg(mod, ECX);
+        if (base_offset != 0) emit_add_reg_imm(mod, ECX, (uint32_t)base_offset);
+        if (initializer->constructor) {
+            gen_cxx_initialize_object32_mode(
+                mod, base_type, initializer->constructor,
+                gen_cxx_bind_constructor_arguments32(
+                    constructor, initializer->arguments, arguments), false);
+        } else if (initializer->arguments) {
+            rcc_error((SourceLoc){"<constructor>", 0, 0},
+                      "virtual base initializer has no matching constructor");
+            emit_pop_reg(mod, ECX);
+            return;
+        } else {
+            gen_cxx_zero_object32(mod, base_type, ECX);
+        }
+        emit_pop_reg(mod, ECX);
+    }
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
         if (initializer->is_delegating_constructor) {
@@ -5810,13 +5878,15 @@ static void gen_cxx_initialize_member_initializers32(
                           "validated C++ delegating constructor is incomplete");
                 return;
             }
-            gen_cxx_initialize_object32(
+            gen_cxx_initialize_object32_mode(
                 mod, object_type, initializer->constructor,
                 gen_cxx_bind_constructor_arguments32(
-                    constructor, initializer->arguments, arguments));
+                    constructor, initializer->arguments, arguments),
+                initialize_virtual_bases);
             continue;
         }
         if (initializer->is_base_initializer) {
+            if (initializer->is_virtual_base_initializer) continue;
             Type* base_type = NULL;
             int base_offset = gen_cxx_constructor_base32(
                 object_type, initializer->field, &base_type);
@@ -5830,10 +5900,10 @@ static void gen_cxx_initialize_member_initializers32(
                 emit_add_reg_imm(mod, ECX, (uint32_t)base_offset);
             }
             if (initializer->constructor) {
-                gen_cxx_initialize_object32(
+                gen_cxx_initialize_object32_mode(
                     mod, base_type, initializer->constructor,
                     gen_cxx_bind_constructor_arguments32(
-                        constructor, initializer->arguments, arguments));
+                        constructor, initializer->arguments, arguments), false);
             } else if (initializer->arguments) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "base initializer has no matching constructor");
@@ -5860,10 +5930,10 @@ static void gen_cxx_initialize_member_initializers32(
             }
             emit_push_reg(mod, ECX);
             emit_add_reg_imm(mod, ECX, (uint32_t)field->offset);
-            gen_cxx_initialize_object32(
+            gen_cxx_initialize_object32_mode(
                 mod, field->type, initializer->constructor,
                 gen_cxx_bind_constructor_arguments32(
-                    constructor, initializer->arguments, arguments));
+                    constructor, initializer->arguments, arguments), true);
             emit_pop_reg(mod, ECX);
             continue;
         }
@@ -5886,9 +5956,9 @@ static void gen_cxx_initialize_member_initializers32(
     }
 }
 
-static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
-                                         CxxConstructorInfo* constructor,
-                                         ExprList* arguments) {
+static void gen_cxx_initialize_object32_mode(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool initialize_virtual_bases) {
     TypeField* field;
     CxxConstructorInitializer* initializer;
     ExprList* argument;
@@ -5901,7 +5971,8 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
     }
     if (!constructor->body_is_empty) {
         gen_cxx_initialize_member_initializers32(
-            mod, object_type, constructor, arguments);
+            mod, object_type, constructor, arguments,
+            initialize_virtual_bases);
         gen_cxx_call_constructor32(mod, constructor, arguments);
         return;
     }
@@ -5914,17 +5985,62 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                       "validated C++ delegating constructor is incomplete");
             return;
         }
-        gen_cxx_initialize_object32(
+        gen_cxx_initialize_object32_mode(
             mod, object_type, delegation->constructor,
             gen_cxx_bind_constructor_arguments32(
-                constructor, delegation->arguments, arguments));
+                constructor, delegation->arguments, arguments),
+            initialize_virtual_bases);
         return;
     }
-    gen_cxx_zero_object32(mod, object_type, address_reg);
+    if (!initialize_virtual_bases && object_type && object_type->cxx_class &&
+        object_type->cxx_class->virtual_base_count > 0 &&
+        object_type->cxx_class->nonvirtual_size > 0) {
+        gen_cxx_zero_object32_size(
+            mod, address_reg,
+            object_type->cxx_class->nonvirtual_size);
+    } else {
+        gen_cxx_zero_object32(mod, object_type, address_reg);
+    }
     if (constructor->initializers) {
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {
+            Type* base_type = NULL;
+            int base_offset;
+            if (!initializer->is_base_initializer ||
+                !initializer->is_virtual_base_initializer) continue;
+            if (!initialize_virtual_bases) continue;
+            base_offset = gen_cxx_constructor_virtual_base32(
+                object_type, initializer->field, &base_type);
+            if (base_offset < 0 || !base_type) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ virtual base initializer is incomplete");
+                return;
+            }
+            emit_push_reg(mod, address_reg);
+            if (base_offset != 0) {
+                emit_add_reg_imm(mod, address_reg, (uint32_t)base_offset);
+            }
+            if (initializer->constructor) {
+                ExprList* bound_arguments =
+                    gen_cxx_bind_constructor_arguments32(
+                        constructor, initializer->arguments, arguments);
+                gen_cxx_initialize_object32_mode(
+                    mod, base_type, initializer->constructor,
+                    bound_arguments, false);
+            } else if (initializer->arguments) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "virtual base initializer has no matching constructor");
+                emit_pop_reg(mod, address_reg);
+                return;
+            } else {
+                gen_cxx_zero_object32(mod, base_type, address_reg);
+            }
+            emit_pop_reg(mod, address_reg);
+        }
+        for (initializer = constructor->initializers; initializer;
+             initializer = initializer->next) {
             if (initializer->is_base_initializer) {
+                if (initializer->is_virtual_base_initializer) continue;
                 Type* base_type = NULL;
                 int base_offset = gen_cxx_constructor_base32(
                     object_type, initializer->field, &base_type);
@@ -5942,9 +6058,9 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                     ExprList* bound_arguments =
                         gen_cxx_bind_constructor_arguments32(
                             constructor, initializer->arguments, arguments);
-                    gen_cxx_initialize_object32(
+                    gen_cxx_initialize_object32_mode(
                         mod, base_type, initializer->constructor,
-                        bound_arguments);
+                        bound_arguments, false);
                 } else if (initializer->arguments) {
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
                               "base initializer has no matching constructor");
@@ -5975,9 +6091,9 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                 ExprList* bound_arguments =
                     gen_cxx_bind_constructor_arguments32(
                         constructor, initializer->arguments, arguments);
-                gen_cxx_initialize_object32(
+                gen_cxx_initialize_object32_mode(
                     mod, field->type, initializer->constructor,
-                    bound_arguments);
+                    bound_arguments, true);
                 emit_pop_reg(mod, address_reg);
             } else {
                 Expr* value = gen_cxx_bind_constructor_expression32(
@@ -6035,6 +6151,13 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
         }
         emit_store_scalar32(mod, address_reg, field->offset, field->type);
     }
+}
+
+static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
+                                         CxxConstructorInfo* constructor,
+                                         ExprList* arguments) {
+    gen_cxx_initialize_object32_mode(
+        mod, object_type, constructor, arguments, true);
 }
 
 /* Lower the validated one-parameter constructor for each explicitly
@@ -10422,7 +10545,7 @@ static void gen_function(Module* mod, Decl* decl) {
             emit_mov_reg_reg(mod, ECX, EAX);
             gen_cxx_initialize_member_initializers32(
                 mod, decl->func_method_owner, constructor,
-                gen_cxx_constructor_function_arguments32(decl));
+                gen_cxx_constructor_function_arguments32(decl), true);
         }
     }
     gen_stmt(mod, decl->func_body);

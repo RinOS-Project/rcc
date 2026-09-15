@@ -778,6 +778,7 @@ static bool lowerable_constructor_body(CxxClass* cls,
         item->arguments = NULL;
         item->constructor = NULL;
         item->is_base_initializer = false;
+        item->is_virtual_base_initializer = false;
         item->is_delegating_constructor = false;
         item->is_default_member_initializer = false;
         item->next = NULL;
@@ -845,6 +846,21 @@ static int cxx_constructor_base_index(CxxClass* cls, const char* name) {
     return -1;
 }
 
+static int cxx_constructor_virtual_base_index(CxxClass* cls,
+                                              const char* name) {
+    const char* name_tail = cxx_unqualified_name(name);
+    if (!cls || !name || !name_tail) return -1;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxClass* base = cls->virtual_bases[index].base;
+        const char* base_tail = base ? cxx_unqualified_name(base->name) : NULL;
+        if ((base && base->name && strcmp(base->name, name) == 0) ||
+            (base_tail && strcmp(base_tail, name_tail) == 0)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static bool cxx_constructor_base_layout_supported(CxxClass* cls, int index) {
     CxxClass* base;
     if (!cls || index < 0 || index >= cls->base_count ||
@@ -854,7 +870,7 @@ static bool cxx_constructor_base_layout_supported(CxxClass* cls, int index) {
     }
     base = cls->bases[index].base;
     if (!base || !base->type || !type_is_complete(base->type) ||
-        base->vtable_size != 0 || base->virtual_base_count != 0) {
+        base->vtable_size != 0) {
         return false;
     }
     /* A class without a user constructor is only safe to zero here when it
@@ -1015,6 +1031,24 @@ static CxxConstructorInitializer* cxx_find_base_initializer(
     return result;
 }
 
+static CxxConstructorInitializer* cxx_find_virtual_base_initializer(
+    CxxConstructorInfo* constructor, CxxClass* cls, int virtual_base_index,
+    bool* duplicate) {
+    CxxConstructorInitializer* result = NULL;
+    if (duplicate) *duplicate = false;
+    for (CxxConstructorInitializer* item = constructor
+             ? constructor->initializers : NULL;
+         item; item = item->next) {
+        if (cxx_constructor_virtual_base_index(cls, item->field) !=
+            virtual_base_index) {
+            continue;
+        }
+        if (result && duplicate) *duplicate = true;
+        if (!result) result = item;
+    }
+    return result;
+}
+
 static CxxConstructorInitializer* cxx_copy_constructor_initializer(
     CxxConstructorInitializer* source, const char* field, bool is_base,
     CxxConstructorInfo* base_constructor, bool is_default_member) {
@@ -1027,6 +1061,7 @@ static CxxConstructorInitializer* cxx_copy_constructor_initializer(
         copy->arguments = NULL;
         copy->constructor = NULL;
         copy->is_delegating_constructor = false;
+        copy->is_virtual_base_initializer = false;
     }
     copy->constructor = base_constructor;
     copy->is_base_initializer = is_base;
@@ -1125,14 +1160,53 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->value = item->arguments ? item->arguments->expr : NULL;
                 item->constructor = base_constructor;
                 item->is_base_initializer = true;
+                item->is_virtual_base_initializer = cls->bases[base_index].is_virtual;
                 item->is_default_member_initializer = false;
-            } else if (!cxx_constructor_field_parameter(cls, item->field) ||
-                       cxx_find_constructor_initializer(
-                           constructor, item->field, &duplicate) != item ||
-                       duplicate) {
-                valid = false;
             } else {
-                item->is_base_initializer = false;
+                int virtual_base_index =
+                    cxx_constructor_virtual_base_index(cls, item->field);
+                if (virtual_base_index >= 0) {
+                    CxxClass* virtual_base =
+                        cls->virtual_bases[virtual_base_index].base;
+                    int argument_count = cxx_constructor_argument_count(
+                        item->arguments);
+                    CxxConstructorInfo* virtual_constructor;
+                    if (cxx_find_virtual_base_initializer(
+                            constructor, cls, virtual_base_index,
+                            &duplicate) != item || duplicate ||
+                        !cls->virtual_bases[virtual_base_index].public_path) {
+                        valid = false;
+                        continue;
+                    }
+                    virtual_constructor = cxx_find_base_constructor(
+                        virtual_base, argument_count);
+                    if ((!virtual_constructor && argument_count != 0) ||
+                        (!virtual_constructor && virtual_base &&
+                         virtual_base->constructors)) {
+                        valid = false;
+                        continue;
+                    }
+                    if (virtual_constructor &&
+                        argument_count != virtual_constructor->parameter_count &&
+                        !cxx_append_constructor_default_arguments(
+                            &item->arguments, virtual_constructor,
+                            argument_count)) {
+                        valid = false;
+                        continue;
+                    }
+                    item->value = item->arguments ? item->arguments->expr : NULL;
+                    item->constructor = virtual_constructor;
+                    item->is_base_initializer = true;
+                    item->is_virtual_base_initializer = true;
+                    item->is_default_member_initializer = false;
+                } else if (!cxx_constructor_field_parameter(cls, item->field) ||
+                           cxx_find_constructor_initializer(
+                               constructor, item->field, &duplicate) != item ||
+                           duplicate) {
+                    valid = false;
+                } else {
+                    item->is_base_initializer = false;
+                }
             }
         }
         if (!valid) {
@@ -1171,6 +1245,8 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item = cxx_copy_constructor_initializer(
                     NULL, base && base->name ? base->name : NULL, true,
                     base_constructor, false);
+                item->is_virtual_base_initializer =
+                    cls->bases[base_index].is_virtual;
                 if (base_constructor &&
                     !cxx_append_constructor_default_arguments(
                         &item->arguments, base_constructor, 0)) {
@@ -1182,6 +1258,67 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item = cxx_copy_constructor_initializer(
                     item, item->field, true, item->constructor, false);
             }
+            *tail = item;
+            tail = &item->next;
+            ++count;
+        }
+        if (!valid) {
+            constructor->initializers_are_supported = false;
+            continue;
+        }
+        for (int virtual_base_index = 0;
+             virtual_base_index < cls->virtual_base_count;
+             ++virtual_base_index) {
+            CxxClass* virtual_base =
+                cls->virtual_bases[virtual_base_index].base;
+            CxxConstructorInitializer* item = cxx_find_virtual_base_initializer(
+                constructor, cls, virtual_base_index, NULL);
+            CxxConstructorInfo* virtual_constructor;
+            bool direct_virtual = false;
+            for (int base_index = 0; base_index < cls->base_count;
+                 ++base_index) {
+                if (cls->bases[base_index].is_virtual &&
+                    cls->bases[base_index].base == virtual_base) {
+                    direct_virtual = true;
+                    break;
+                }
+            }
+            if (direct_virtual) continue;
+            if (item) {
+                item = cxx_copy_constructor_initializer(
+                    item, item->field, true, item->constructor, false);
+                item->is_virtual_base_initializer = true;
+                *tail = item;
+                tail = &item->next;
+                ++count;
+                continue;
+            }
+            if (!cls->virtual_bases[virtual_base_index].public_path) {
+                valid = false;
+                break;
+            }
+            virtual_constructor = cxx_find_base_constructor(virtual_base, 0);
+            if ((!virtual_constructor && virtual_base &&
+                 virtual_base->constructors) ||
+                (!virtual_constructor && virtual_base &&
+                 (virtual_base->fields || virtual_base->base_count ||
+                  virtual_base->has_field_initializer ||
+                  virtual_base->type->cxx_nontrivial))) {
+                valid = false;
+                break;
+            }
+            item = cxx_copy_constructor_initializer(
+                NULL, virtual_base && virtual_base->name
+                    ? virtual_base->name : NULL,
+                true, virtual_constructor, false);
+            item->is_virtual_base_initializer = true;
+            if (virtual_constructor &&
+                !cxx_append_constructor_default_arguments(
+                    &item->arguments, virtual_constructor, 0)) {
+                valid = false;
+                break;
+            }
+            item->value = item->arguments ? item->arguments->expr : NULL;
             *tail = item;
             tail = &item->next;
             ++count;
@@ -1215,6 +1352,7 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->arguments = NULL;
                 item->constructor = NULL;
                 item->is_base_initializer = false;
+                item->is_virtual_base_initializer = false;
                 item->is_delegating_constructor = false;
                 item->is_default_member_initializer = true;
                 item->next = NULL;
@@ -1280,6 +1418,7 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         item->arguments = arguments;
         item->constructor = NULL;
         item->is_base_initializer = false;
+        item->is_virtual_base_initializer = false;
         item->is_delegating_constructor = false;
         item->is_default_member_initializer = false;
         item->next = NULL;
