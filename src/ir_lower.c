@@ -10,6 +10,7 @@
 #include "mir_phi.h"
 #include "x86_select.h"
 #include "x86_legalize.h"
+#include "cxx_exception_type.h"
 
 typedef struct RccIrLowerLocal {
     const Decl* declaration;
@@ -3001,9 +3002,7 @@ static RccIrType lower_cxx_exception_word_type(void) {
 }
 
 static uint64_t lower_cxx_exception_type_tag(const Type* type) {
-    if (type && type->kind == TYPE_PTR) return (uint64_t)TYPE_PTR;
-    if (type && type->kind == TYPE_ENUM) return (uint64_t)TYPE_ENUM;
-    return type ? (uint64_t)type->kind : (uint64_t)TYPE_VOID;
+    return rcc_cxx_exception_type_tag(type);
 }
 
 static RccIrLowerValue lower_cxx_runtime_call(

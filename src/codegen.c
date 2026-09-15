@@ -8,6 +8,7 @@
 #include "ast_cxx.h"
 #include "symtab.h"
 #include "codegen.h"
+#include "cxx_exception_type.h"
 #include <limits.h>
 
 /* The C-only executable deliberately does not link the C++ frontend.  The
@@ -7429,9 +7430,7 @@ static void gen_cxx_exception_call32(Module* mod, const char* name) {
 }
 
 static uint32_t gen_cxx_exception_type_tag32(const Type* type) {
-    if (type && type->kind == TYPE_PTR) return (uint32_t)TYPE_PTR;
-    if (type && type->kind == TYPE_ENUM) return (uint32_t)TYPE_ENUM;
-    return type ? (uint32_t)type->kind : (uint32_t)TYPE_VOID;
+    return (uint32_t)rcc_cxx_exception_type_tag(type);
 }
 
 static void gen_cxx_throw32(Module* mod, Stmt* stmt) {

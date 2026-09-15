@@ -1,0 +1,66 @@
+/*
+ * RCC++ - Stable exception type identity for the scalar exception ABI
+ */
+
+#ifndef RCC_CXX_EXCEPTION_TYPE_H
+#define RCC_CXX_EXCEPTION_TYPE_H
+
+#include "ast.h"
+
+/* The current RinOS exception frame carries one target-width type word.  A
+ * TypeKind alone is not an exception type identity: signedness, enum identity,
+ * and pointer pointee type all participate in C++ catch matching.  Keep this
+ * hash deterministic so a throw in one translation unit can be matched by a
+ * handler in another one without embedding a host pointer in the image. */
+static inline void rcc_cxx_exception_hash_byte(uint64_t* hash,
+                                               unsigned char byte) {
+    *hash ^= byte;
+    *hash *= UINT64_C(1099511628211);
+}
+
+static inline void rcc_cxx_exception_hash_text(uint64_t* hash,
+                                               const char* text) {
+    const unsigned char* cursor = (const unsigned char*)(text ? text : "");
+    while (*cursor) rcc_cxx_exception_hash_byte(hash, *cursor++);
+    rcc_cxx_exception_hash_byte(hash, 0u);
+}
+
+static inline void rcc_cxx_exception_hash_type(uint64_t* hash,
+                                               const Type* type,
+                                               bool top_level,
+                                               unsigned depth) {
+    if (!type || depth >= 32u) {
+        rcc_cxx_exception_hash_byte(hash, 0xffu);
+        return;
+    }
+    rcc_cxx_exception_hash_byte(hash, (unsigned char)type->kind);
+    if (type->kind == TYPE_PTR) {
+        /* Top-level cv-qualification on the pointer object is discarded by
+         * throw/catch value semantics; pointee qualification is retained. */
+        rcc_cxx_exception_hash_type(hash, type->base, false, depth + 1u);
+        return;
+    }
+    if (type->kind == TYPE_ENUM) {
+        rcc_cxx_exception_hash_text(hash, type->enum_tag);
+        rcc_cxx_exception_hash_byte(hash, type->enum_is_scoped ? 1u : 0u);
+    } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        rcc_cxx_exception_hash_text(hash, type->cxx_namespace);
+        rcc_cxx_exception_hash_text(hash, type->tag);
+    } else {
+        rcc_cxx_exception_hash_byte(hash, type->is_unsigned ? 1u : 0u);
+        rcc_cxx_exception_hash_byte(hash, (unsigned char)type->size);
+    }
+    if (!top_level) {
+        rcc_cxx_exception_hash_byte(hash, type->is_const ? 1u : 0u);
+        rcc_cxx_exception_hash_byte(hash, type->is_volatile ? 1u : 0u);
+    }
+}
+
+static inline uint64_t rcc_cxx_exception_type_tag(const Type* type) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    rcc_cxx_exception_hash_type(&hash, type, true, 0u);
+    /* Zero is reserved for an absent runtime type. */
+    return hash ? hash : UINT64_C(1);
+}
+
+#endif

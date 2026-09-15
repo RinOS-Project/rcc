@@ -47,12 +47,23 @@ extern "C" int cxx_exception_rethrow(int value) {
     return 0;
 }
 
+extern "C" int cxx_exception_type_identity() {
+    try {
+        throw 7u;
+    } catch (int) {
+        return 1;
+    } catch (unsigned int caught) {
+        return caught == 7u ? 0 : 2;
+    }
+}
+
 extern "C" int main() {
     return cxx_exception_path(41) == 42 &&
                    cxx_exception_path(0) == 0 &&
                    cxx_exception_ellipsis(3) == 7 &&
                    cxx_exception_nested(1) == 9 &&
-                   cxx_exception_rethrow(5) == 8
+                   cxx_exception_rethrow(5) == 8 &&
+                   cxx_exception_type_identity() == 0
                ? 0
                : 1;
 }

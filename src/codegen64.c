@@ -8,6 +8,7 @@
 #include "ast_cxx.h"
 #include "symtab.h"
 #include "codegen.h"
+#include "cxx_exception_type.h"
 #include <limits.h>
 
 /* Only compile if generating 64-bit code */
@@ -4143,9 +4144,7 @@ static void gen64_cxx_exception_call(Module* mod, const char* name) {
 }
 
 static uint64_t gen64_cxx_exception_type_tag(const Type* type) {
-    if (type && type->kind == TYPE_PTR) return (uint64_t)TYPE_PTR;
-    if (type && type->kind == TYPE_ENUM) return (uint64_t)TYPE_ENUM;
-    return type ? (uint64_t)type->kind : (uint64_t)TYPE_VOID;
+    return rcc_cxx_exception_type_tag(type);
 }
 
 static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
