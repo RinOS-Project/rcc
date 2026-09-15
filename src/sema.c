@@ -61,6 +61,8 @@ static int loop_depth = 0;
 /* Forward declarations */
 static void sema_stmt(Stmt* stmt);
 static bool sema_exception_body_has_cleanup(const Stmt* stmt);
+static bool sema_exception_body_has_vla(const Stmt* stmt);
+static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
@@ -784,6 +786,196 @@ static bool sema_exception_body_has_cleanup(const Stmt* statement) {
                 }
             }
             return false;
+        default:
+            return false;
+    }
+}
+
+static bool sema_exception_body_has_vla(const Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (sema_exception_body_has_vla(item->stmt)) return true;
+            }
+            return false;
+        case STMT_DECL:
+            return statement->decl && statement->decl->kind == DECL_VAR &&
+                statement->decl->var_is_vla;
+        case STMT_IF:
+            return sema_exception_body_has_vla(statement->if_then) ||
+                sema_exception_body_has_vla(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_exception_body_has_vla(statement->while_body);
+        case STMT_FOR:
+            return sema_exception_body_has_vla(statement->for_init) ||
+                sema_exception_body_has_vla(statement->for_body);
+        case STMT_SWITCH:
+            return sema_exception_body_has_vla(statement->switch_body);
+        case STMT_CASE:
+            return sema_exception_body_has_vla(statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_exception_body_has_vla(statement->default_stmt);
+        case STMT_LABEL:
+            return sema_exception_body_has_vla(statement->label_stmt);
+        case STMT_TRY:
+            if (sema_exception_body_has_vla(statement->try_body)) return true;
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (sema_exception_body_has_vla(handler->body)) return true;
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
+static bool sema_exception_expression_has_call(const Expr* expression) {
+    const ExprList* item;
+    if (!expression) return false;
+    if (expression->kind == EXPR_CALL) return true;
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_CAST:
+            return sema_exception_expression_has_call(
+                expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            return sema_exception_expression_has_call(
+                       expression->binary_lhs) ||
+                sema_exception_expression_has_call(expression->binary_rhs);
+        case EXPR_COND:
+            return sema_exception_expression_has_call(expression->cond_test) ||
+                sema_exception_expression_has_call(expression->cond_then) ||
+                sema_exception_expression_has_call(expression->cond_else);
+        case EXPR_INDEX:
+            return sema_exception_expression_has_call(expression->index_base) ||
+                sema_exception_expression_has_call(expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return sema_exception_expression_has_call(expression->member_base);
+        case EXPR_COMPOUND:
+            for (item = expression->compound_init; item; item = item->next) {
+                if (sema_exception_expression_has_call(item->expr)) return true;
+            }
+            return false;
+        case EXPR_GENERIC:
+            if (sema_exception_expression_has_call(
+                    expression->generic_control)) {
+                return true;
+            }
+            for (GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                if (sema_exception_expression_has_call(association->expr)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return sema_exception_expression_has_call(
+                       expression->va_list_operand) ||
+                sema_exception_expression_has_call(
+                    expression->va_second_operand);
+        default:
+            return false;
+    }
+}
+
+static bool sema_exception_body_has_call(const Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            return sema_exception_expression_has_call(statement->expr);
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (sema_exception_body_has_call(item->stmt)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return sema_exception_expression_has_call(statement->if_cond) ||
+                sema_exception_body_has_call(statement->if_then) ||
+                sema_exception_body_has_call(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_exception_expression_has_call(statement->while_cond) ||
+                sema_exception_body_has_call(statement->while_body);
+        case STMT_FOR:
+            return sema_exception_body_has_call(statement->for_init) ||
+                sema_exception_expression_has_call(statement->for_cond) ||
+                sema_exception_expression_has_call(statement->for_inc) ||
+                sema_exception_body_has_call(statement->for_body);
+        case STMT_SWITCH:
+            return sema_exception_expression_has_call(statement->switch_expr) ||
+                sema_exception_body_has_call(statement->switch_body);
+        case STMT_CASE:
+            return sema_exception_expression_has_call(statement->case_val) ||
+                sema_exception_body_has_call(statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_exception_body_has_call(statement->default_stmt);
+        case STMT_LABEL:
+            return sema_exception_body_has_call(statement->label_stmt);
+        case STMT_RETURN:
+            return sema_exception_expression_has_call(statement->return_val);
+        case STMT_DECL:
+            /* Do not inspect the synthesized destructor expression: it is the
+             * cleanup being protected by the exception lowering. */
+            return statement->decl &&
+                sema_exception_expression_has_call(
+                    statement->decl->var_init);
+        case STMT_TRY:
+            if (sema_exception_body_has_call(statement->try_body)) return true;
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (sema_exception_body_has_call(handler->body)) return true;
+            }
+            return false;
+        case STMT_THROW:
+            return sema_exception_expression_has_call(statement->throw_expr);
         default:
             return false;
     }
@@ -6231,9 +6423,14 @@ static void sema_stmt(Stmt* stmt) {
             stmt->try_frame_size = frame_size;
 
             sema_stmt(stmt->try_body);
-            if (sema_exception_body_has_cleanup(stmt->try_body)) {
+            if (sema_exception_body_has_vla(stmt->try_body)) {
                 rcc_error(stmt->loc,
-                          "C++ exception unwinding cannot bypass VLA or scope cleanup");
+                          "C++ exception unwinding cannot bypass VLA lifetime");
+            } else if (sema_exception_body_has_cleanup(stmt->try_body)) {
+                if (sema_exception_body_has_call(stmt->try_body)) {
+                    rcc_error(stmt->loc,
+                              "C++ exception cleanup requires a call-free protected body");
+                }
             }
             for (CxxCatch* handler = stmt->try_catches; handler;
                  handler = handler->next) {
@@ -6267,9 +6464,14 @@ static void sema_stmt(Stmt* stmt) {
                               "named C++ catch parameter must have a scalar type or a trivially-copyable aggregate");
                 }
                 sema_stmt(handler->body);
-                if (sema_exception_body_has_cleanup(handler->body)) {
+                if (sema_exception_body_has_vla(handler->body)) {
                     rcc_error(handler->body ? handler->body->loc : stmt->loc,
-                              "C++ exception handlers cannot contain VLA or scope cleanup");
+                              "C++ exception unwinding cannot bypass VLA lifetime");
+                } else if (sema_exception_body_has_cleanup(handler->body)) {
+                    if (sema_exception_body_has_call(handler->body)) {
+                        rcc_error(handler->body ? handler->body->loc : stmt->loc,
+                                  "C++ exception cleanup requires a call-free handler body");
+                    }
                 }
             }
             break;

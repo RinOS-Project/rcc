@@ -4289,6 +4289,12 @@ typedef struct CleanupCodegen64 {
     struct CleanupCodegen64* previous;
 } CleanupCodegen64;
 
+/* Cleanups below this marker belong to the protected try/catch region.  A
+ * direct same-function throw can run them before longjmp; calls in such a
+ * region are rejected by sema because a callee cannot see this compiler-side
+ * cleanup stack. */
+static CleanupCodegen64* active_cxx_exception_cleanup_marker64 = NULL;
+
 typedef struct VLAScopeCodegen64 {
     int stack_offset;
     struct VLAScopeCodegen64* previous;
@@ -4392,6 +4398,7 @@ static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
     Type* type;
     if (!stmt) rcc_fatal("validated C++ throw is missing");
     if (!stmt->throw_expr) {
+        gen64_cleanups_until(mod, active_cxx_exception_cleanup_marker64);
         if (active_cxx_exception_frame_offset64 != INT_MAX) {
             gen64_cxx_exception_frame_address(
                 mod, active_cxx_exception_frame_offset64);
@@ -4402,20 +4409,23 @@ static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
         return;
     }
     type = stmt->throw_expr->type;
-    /* The caught payload is owned by the active handler.  Evaluate an
-     * explicit replacement after releasing it so caller-saved registers do
-     * not have to carry a borrowed value across the release call. */
-    gen64_cxx_exception_release_frame(
-        mod, active_cxx_exception_frame_offset64);
     if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
         gen64_lvalue(mod, stmt->throw_expr);
-        emit64_mov_reg_reg(mod, RDI, RAX); /* source object */
+        emit64_push_reg(mod, RAX); /* preserve source across cleanup/release */
+        gen64_cleanups_until(mod, active_cxx_exception_cleanup_marker64);
+        gen64_cxx_exception_release_frame(
+            mod, active_cxx_exception_frame_offset64);
+        emit64_pop_reg(mod, RDI); /* source object */
         emit64_mov_reg_imm64(mod, RSI, (uint64_t)type->size);
         emit64_mov_reg_imm64(mod, RDX, gen64_cxx_exception_type_tag(type));
         gen64_cxx_exception_call(mod, "rin_cpp_exception_throw_object");
     } else {
         gen64_expr(mod, stmt->throw_expr);
-        emit64_mov_reg_reg(mod, RDI, RAX);
+        emit64_push_reg(mod, RAX); /* preserve value across cleanup/release */
+        gen64_cleanups_until(mod, active_cxx_exception_cleanup_marker64);
+        gen64_cxx_exception_release_frame(
+            mod, active_cxx_exception_frame_offset64);
+        emit64_pop_reg(mod, RDI); /* value */
         emit64_mov_reg_imm64(mod, RSI, gen64_cxx_exception_type_tag(type));
         gen64_cxx_exception_call(mod, "rin_cpp_exception_throw");
     }
@@ -4427,6 +4437,9 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
     int dispatch_label = new_label64();
     int end_label = new_label64();
     int old_active_frame_offset = active_cxx_exception_frame_offset64;
+    CleanupCodegen64* old_exception_cleanup_marker =
+        active_cxx_exception_cleanup_marker64;
+    CleanupCodegen64* try_cleanup_marker = active_cleanups64;
 
     gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
     gen64_cxx_exception_call(mod, "rin_cpp_exception_install");
@@ -4436,7 +4449,9 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
     emit64_test_reg_reg(mod, RAX, RAX);
     emit64_jcc_label(mod, CC64_NE, dispatch_label);
 
+    active_cxx_exception_cleanup_marker64 = try_cleanup_marker;
     gen64_scoped_stmt(mod, stmt->try_body);
+    active_cxx_exception_cleanup_marker64 = old_exception_cleanup_marker;
     gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
     gen64_cxx_exception_call(mod, "rin_cpp_exception_leave");
     emit64_jmp_label(mod, end_label);
@@ -4473,7 +4488,9 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
         gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
         gen64_cxx_exception_call(mod, "rin_cpp_exception_leave");
         active_cxx_exception_frame_offset64 = stmt->try_frame_offset;
+        active_cxx_exception_cleanup_marker64 = try_cleanup_marker;
         gen64_scoped_stmt(mod, handler->body);
+        active_cxx_exception_cleanup_marker64 = old_exception_cleanup_marker;
         gen64_cxx_exception_release_frame(mod, stmt->try_frame_offset);
         active_cxx_exception_frame_offset64 = old_active_frame_offset;
         emit64_jmp_label(mod, end_label);
@@ -4485,6 +4502,7 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
     gen64_cxx_exception_call(mod, "rin_cpp_exception_rethrow_frame");
     emit64_label(mod, end_label);
     active_cxx_exception_frame_offset64 = old_active_frame_offset;
+    active_cxx_exception_cleanup_marker64 = old_exception_cleanup_marker;
 }
 
 static bool gen64_global_initializer(Module* mod, Decl* declaration) {
@@ -5685,6 +5703,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     current_function_sret_offset64 = memory_result ? -8 : 0;
     current_function_return_type64 = return_type;
     active_cxx_exception_frame_offset64 = INT_MAX;
+    active_cxx_exception_cleanup_marker64 = NULL;
     current_function_variadic64 = variadic;
     current_function_va_gp_offset64 = register_cursor * 8;
     if (current_function_va_gp_offset64 > 48) {
@@ -5715,6 +5734,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     codegen64_release_named_labels();
     current_function_return_type64 = old_return_type;
     active_cxx_exception_frame_offset64 = old_active_frame_offset;
+    active_cxx_exception_cleanup_marker64 = NULL;
     current_function_sret_offset64 = old_sret_offset;
     current_function_variadic64 = old_variadic;
     current_function_va_gp_offset64 = old_va_gp_offset;

@@ -5343,20 +5343,19 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     bool is_auto_rvalue_reference = false;
     bool is_auto_pointer = false;
 
-    if (!is_auto) {
-        rcc_error(loc, "expected auto local declaration");
-        return NULL;
+    if (is_auto) {
+        if (match(TOK_STAR)) {
+            is_auto_pointer = true;
+        } else if (match(TOK_AMP)) {
+            is_auto_reference = true;
+        } else if (match(TOK_AND)) {
+            is_auto_reference = true;
+            is_auto_rvalue_reference = true;
+        }
+        type = NULL;
+    } else {
+        type = parse_cxx_type_spec();
     }
-    if (match(TOK_STAR)) {
-        is_auto_pointer = true;
-    } else if (match(TOK_AMP)) {
-        is_auto_reference = true;
-    } else if (match(TOK_AND)) {
-        is_auto_reference = true;
-        is_auto_rvalue_reference = true;
-    }
-
-    type = NULL;
     name = expect(TOK_IDENT, "local variable name");
     if (!name) return NULL;
     if (match(TOK_ASSIGN)) {
