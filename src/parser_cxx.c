@@ -5345,6 +5345,7 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     ExprList* arguments = NULL;
     Expr* initializer;
     bool keyword_type = false;
+    bool brace_form = false;
 
     switch (peek()->type) {
         case TOK_VOID:
@@ -5389,7 +5390,7 @@ Expr* rcc_parse_cxx_functional_cast(void) {
             }
         }
     }
-    if (!type || !check(TOK_LPAREN) ||
+    if (!type || (!check(TOK_LPAREN) && !check(TOK_LBRACE)) ||
         (type->cxx_class &&
          rcc_parser_cxx_constructor_arity_mask(type) == 0u)) {
         parser.cur = saved_cur;
@@ -5397,13 +5398,16 @@ Expr* rcc_parse_cxx_functional_cast(void) {
         return NULL;
     }
 
-    advance(); /* `(` */
-    if (!check(TOK_RPAREN)) {
+    brace_form = match(TOK_LBRACE);
+    if (!brace_form) advance(); /* `(` */
+    if ((!brace_form && !check(TOK_RPAREN)) ||
+        (brace_form && !check(TOK_RBRACE))) {
         do {
             exprlist_append(&arguments, parse_assignment_expression());
         } while (match(TOK_COMMA));
     }
-    expect(TOK_RPAREN, ")");
+    expect(brace_form ? TOK_RBRACE : TOK_RPAREN,
+           brace_form ? "}" : ")");
 
     if (!type->cxx_class) {
         if (!arguments) {
