@@ -742,6 +742,75 @@ static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int
             char ident[256];
             end = read_ident(p, ident, sizeof(ident));
 
+            if (strcmp(ident, "__VA_OPT__") == 0) {
+                const char* open = skip_macro_space(end);
+                const char* content_start;
+                const char* content_end;
+                int depth = 0;
+                char quote = '\0';
+                int variadic = macro_param_index(macro, "__VA_ARGS__");
+                bool present = false;
+                if (*open != '(') {
+                    buf_append(&result, p, (size_t)(end - p));
+                    p = end;
+                    paste_pending = false;
+                    continue;
+                }
+                content_start = open + 1;
+                content_end = content_start;
+                for (const char* cursor = content_start; *cursor; cursor++) {
+                    if (quote != '\0') {
+                        if (*cursor == '\\' && cursor[1]) {
+                            cursor++;
+                        } else if (*cursor == quote) {
+                            quote = '\0';
+                        }
+                        continue;
+                    }
+                    if (*cursor == '"' || *cursor == '\'') {
+                        quote = *cursor;
+                    } else if (*cursor == '(') {
+                        depth++;
+                    } else if (*cursor == ')') {
+                        if (depth == 0) {
+                            content_end = cursor;
+                            break;
+                        }
+                        depth--;
+                    }
+                }
+                if (*content_end != ')') {
+                    /* Leave malformed C++20 syntax for the parser to reject. */
+                    buf_append(&result, p, (size_t)(end - p));
+                    p = end;
+                    paste_pending = false;
+                    continue;
+                }
+                if (variadic >= 0 && variadic < arg_count) {
+                    const char* argument = args[variadic];
+                    while (*argument && isspace((unsigned char)*argument)) {
+                        argument++;
+                    }
+                    present = *argument != '\0';
+                }
+                if (present) {
+                    size_t length = (size_t)(content_end - content_start);
+                    char* body = rcc_alloc(length + 1u);
+                    Macro nested = *macro;
+                    memcpy(body, content_start, length);
+                    body[length] = '\0';
+                    nested.body = body;
+                    char* expanded = expand_macro(pp, &nested, args,
+                                                  arg_count);
+                    buf_append_str(&result, expanded);
+                    rcc_free(expanded);
+                    rcc_free(body);
+                }
+                p = content_end + 1;
+                paste_pending = false;
+                continue;
+            }
+
             /* Check if it's a parameter */
             int parameter = macro_param_index(macro, ident);
             const char* paste = skip_macro_space(end);
