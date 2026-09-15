@@ -1688,6 +1688,9 @@ static void gen64_zero_local_storage(Module* mod, int32_t displacement,
 static void gen64_cxx_call_constructor(Module* mod,
                                         CxxConstructorInfo* constructor,
                                         ExprList* arguments);
+static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
+                                        CxxConstructorInfo* constructor,
+                                        ExprList* arguments);
 static bool gen64_bitfield_initializer(Module* mod, const TypeField* field,
                                         Expr* initializer,
                                         int32_t displacement);
@@ -1708,7 +1711,16 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         emit64_mov_reg_reg(mod, RCX, RAX);
         gen64_cxx_call_constructor(
             mod, initializer->compound_constructor,
-            initializer->compound_init);
+            initializer->compound_value_init ? NULL : initializer->compound_init);
+        return true;
+    }
+    if (initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_constructor && type->cxx_class) {
+        emit64_lea(mod, RAX, RBP, displacement);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        gen64_cxx_initialize_object(
+            mod, type, initializer->compound_constructor,
+            initializer->compound_value_init ? NULL : initializer->compound_init);
         return true;
     }
     if (gen64_aggregate_zero_initializer(type, initializer)) return true;

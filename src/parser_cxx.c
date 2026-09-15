@@ -639,6 +639,108 @@ static bool lowerable_constructor_body(CxxClass* cls,
     return true;
 }
 
+static TypeParam* cxx_constructor_field_parameter(CxxClass* cls,
+                                                  const char* name) {
+    for (TypeParam* field = cls ? cls->fields : NULL; field;
+         field = field->next) {
+        if (!field->is_static && field->name && name &&
+            strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static CxxConstructorInitializer* cxx_find_constructor_initializer(
+    CxxConstructorInfo* constructor, const char* field, bool* duplicate) {
+    CxxConstructorInitializer* result = NULL;
+    if (duplicate) *duplicate = false;
+    for (CxxConstructorInitializer* item = constructor
+             ? constructor->initializers : NULL;
+         item; item = item->next) {
+        if (!item->field || !field || strcmp(item->field, field) != 0) {
+            continue;
+        }
+        if (result && duplicate) *duplicate = true;
+        if (!result) result = item;
+    }
+    return result;
+}
+
+/* Complete a constructor's effective member-initializer sequence in
+ * declaration order.  Only scalar integer constant defaults are admitted in
+ * this first complete path; class-valued and brace defaults need constructor
+ * overload resolution and therefore remain explicitly diagnosed rather than
+ * being treated as a zero initializer. */
+static void complete_cxx_default_member_initializers(CxxClass* cls) {
+    if (!cls || !cls->has_field_initializer) return;
+    for (CxxConstructorInfo* constructor = cls->constructors; constructor;
+         constructor = constructor->next) {
+        CxxConstructorInitializer* ordered = NULL;
+        CxxConstructorInitializer** tail = &ordered;
+        bool valid = constructor->initializers_are_supported;
+        int count = 0;
+
+        if (!valid && constructor->initializer_count != 0) continue;
+        for (CxxConstructorInitializer* item = constructor->initializers;
+             item; item = item->next) {
+            bool duplicate = false;
+            if (!cxx_constructor_field_parameter(cls, item->field) ||
+                cxx_find_constructor_initializer(constructor, item->field,
+                                                 &duplicate) != item ||
+                duplicate) {
+                valid = false;
+            }
+        }
+        if (!valid) {
+            constructor->initializers_are_supported = false;
+            continue;
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            CxxConstructorInitializer* item;
+            if (field->is_static || !field->name) continue;
+            item = cxx_find_constructor_initializer(
+                constructor, field->name, NULL);
+            if (!item && field->initializer) {
+                int64_t value;
+                Type* type = field->type;
+                if (!type || type->size <= 0 ||
+                    !(type_is_integer(type) || type->kind == TYPE_ENUM ||
+                      type->kind == TYPE_PTR ||
+                      type->kind == TYPE_NULLPTR) ||
+                    !expr_eval_integer_constant(field->initializer, &value)) {
+                    valid = false;
+                    break;
+                }
+                item = ast_arena_alloc(sizeof(*item));
+                item->field = field->name;
+                item->value = field->initializer;
+                item->arguments = NULL;
+                item->constructor = NULL;
+                item->is_default_member_initializer = true;
+                item->next = NULL;
+            }
+            if (item) {
+                CxxConstructorInitializer* copy = ast_arena_alloc(
+                    sizeof(*copy));
+                *copy = *item;
+                item = copy;
+                item->next = NULL;
+                *tail = item;
+                tail = &item->next;
+                ++count;
+            }
+        }
+        if (!valid) {
+            constructor->initializers_are_supported = false;
+            continue;
+        }
+        constructor->initializers = ordered;
+        constructor->initializer_count = count;
+        constructor->initializers_are_supported = true;
+    }
+}
+
 /* Retain a parenthesized mem-initializer list.  It is lowered only when the
  * later verifier proves a one-to-one, declaration-order mapping from fields
  * to constructor parameters (or integer zeroes for a default constructor). */
@@ -714,7 +816,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     uint32_t mask = cls && cls->type && cls->type->move_constructor_method
         ? UINT32_C(1) << 1 : 0u;
     if (!cls || !cls->type->is_complete || cls->base_count != 0 ||
-        cls->has_static_field || cls->has_field_initializer ||
+        cls->has_static_field ||
         class_has_virtual_member(cls) ||
         (class_has_destructor(cls) && !cls->type->cleanup_function &&
          (!cls->destructor_method || !cls->destructor_method->decl ||
@@ -726,6 +828,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
          constructor = constructor->next) {
         unsigned arity;
         bool supported = true;
+        int argument_initializer_count = 0;
         TypeParam* field = cls->fields;
         TypeParam* parameter = constructor->parameters;
         CxxConstructorInitializer* initializer = constructor->initializers;
@@ -761,6 +864,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
              * one-to-one parameter shape needed by this storage lowering. */
             if (field->type && field->type->cxx_class) {
                 if (arity != 0u) {
+                    ++argument_initializer_count;
                     ExprList* argument = initializer->arguments;
                     if (!parameter || !argument || argument->next ||
                         !argument->expr ||
@@ -777,6 +881,28 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 initializer = initializer->next;
                 continue;
             }
+            if (initializer->is_default_member_initializer) {
+                int64_t default_value;
+                if (!expr_eval_integer_constant(initializer->value,
+                                                &default_value) ||
+                    !field->type ||
+                    !(type_is_integer(field->type) ||
+                      field->type->kind == TYPE_ENUM ||
+                      field->type->kind == TYPE_PTR ||
+                      field->type->kind == TYPE_NULLPTR) ||
+                    field->type->size <= 0 ||
+                    (g_opts.target_arch == ARCH_X86 &&
+                     field->type->size > 4) ||
+                    (g_opts.target_arch == ARCH_X64 &&
+                     field->type->size > 8)) {
+                    supported = false;
+                    break;
+                }
+                field = field->next;
+                initializer = initializer->next;
+                continue;
+            }
+            ++argument_initializer_count;
             if (arity == 0u) {
                 int64_t constant_value = 0;
                 if (!expr_eval_integer_constant(
@@ -818,7 +944,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         }
         if (!supported || field || initializer || parameter ||
             (arity != 0u &&
-             constructor->initializer_count != (int)arity)) {
+             argument_initializer_count != (int)arity)) {
             continue;
         }
         mask |= UINT32_C(1) << arity;
@@ -2268,6 +2394,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             info->initializers = constructor_initializer.items;
             info->initializer_count = constructor_initializer.count;
             info->initializers_are_supported =
+                constructor_initializer.count == 0 ||
                 constructor_initializer.is_supported;
             info->body_is_empty = body && body->kind == STMT_BLOCK &&
                                   body->block_stmts == NULL;
@@ -2440,6 +2567,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     cls->ns = active_namespace ? active_namespace : g_global_namespace;
     resolve_class_bases(cls, loc);
     cxx_class_compute_layout(cls);
+    complete_cxx_default_member_initializers(cls);
     cxx_class_build_vtable(cls);
     register_inline_class_accessors(cls);
     register_inline_class_bool_delegates(cls);
@@ -4036,6 +4164,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     }
 
     cxx_class_compute_layout(instance);
+    complete_cxx_default_member_initializers(instance);
     cxx_class_build_vtable(instance);
     diagnose_unlowered_destructors(instance);
     register_inline_class_accessors(instance);

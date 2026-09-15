@@ -8088,7 +8088,18 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         emit_mov_reg_reg(mod, ECX, EAX);
         gen_cxx_call_constructor32(
             mod, initializer->compound_constructor,
-            initializer->compound_init);
+            initializer->compound_value_init ? NULL : initializer->compound_init);
+        return true;
+    }
+    if (initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_constructor && type->cxx_class) {
+        emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)displacement);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        gen_cxx_initialize_object32(
+            mod, type, initializer->compound_constructor,
+            initializer->compound_value_init ? NULL : initializer->compound_init);
         return true;
     }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
@@ -8763,7 +8774,7 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
         emit_mov_reg_reg(mod, ECX, EAX);
         gen_cxx_initialize_object32(
             mod, type, initializer->compound_constructor,
-            initializer->compound_init);
+            initializer->compound_value_init ? NULL : initializer->compound_init);
         return true;
     }
     if (gen_is_floating(type)) {

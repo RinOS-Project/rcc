@@ -41,6 +41,7 @@ struct CxxConstructorInitializer {
      * `value` remains the first argument for the scalar aggregate verifier. */
     ExprList* arguments;
     CxxConstructorInfo* constructor;
+    bool is_default_member_initializer;
     CxxConstructorInitializer* next;
 };
 

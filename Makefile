@@ -161,6 +161,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
+.PHONY: test-cxx-default-member-initializer
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1988,6 +1989,24 @@ test-cxx-constructor-initializer-body: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constructor-initializer-body/x64.s
 	$(TEST_OUT)/cxx-constructor-initializer-body/x64
 	@echo "C++ constructor mem-initializer plus body tests completed"
+
+test-cxx-default-member-initializer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-default-member-initializer)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-default-member-initializer/x86.s \
+		tests/cxx_default_member_initializer.cpp
+	$(CC) -m32 -o $(TEST_OUT)/cxx-default-member-initializer/x86 \
+		tests/cxx_default_member_initializer_run_test.c \
+		$(TEST_OUT)/cxx-default-member-initializer/x86.s
+	$(TEST_OUT)/cxx-default-member-initializer/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-default-member-initializer/x64.s \
+		tests/cxx_default_member_initializer.cpp
+	$(CC) -o $(TEST_OUT)/cxx-default-member-initializer/x64 \
+		tests/cxx_default_member_initializer_run_test.c \
+		$(TEST_OUT)/cxx-default-member-initializer/x64.s
+	$(TEST_OUT)/cxx-default-member-initializer/x64
+	@echo "C++ default member initializer tests completed"
 
 test-aggregate-union-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-union-abi)

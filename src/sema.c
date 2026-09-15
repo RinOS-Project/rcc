@@ -4937,6 +4937,15 @@ static void sema_resolve_cxx_constructor_initializers(
                 sema_expr(argument->expr);
             }
         }
+        if (initializer->is_default_member_initializer &&
+            initializer->value) {
+            Type* value_type = sema_expr(initializer->value);
+            if (!value_type || !implicit_cast(initializer->value,
+                                               field->type)) {
+                rcc_error(initializer->value->loc,
+                          "default member initializer is incompatible with its field");
+            }
+        }
         if (field->type->cxx_class) {
             initializer->constructor = sema_select_cxx_new_constructor(
                 field->type, initializer->arguments, initializer->value
@@ -8203,8 +8212,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
     initializer->type = type;
     if (rcc_parser_is_cxx_mode() && type->cxx_class &&
         type->cxx_class->has_user_constructor &&
-        !initializer->compound_value_init) {
-        for (ExprList* item = initializer->compound_init; item;
+        (!initializer->compound_value_init ||
+         (rcc_parser_cxx_constructor_arity_mask(type) & 1u) != 0u)) {
+        ExprList* constructor_arguments = initializer->compound_value_init
+            ? NULL : initializer->compound_init;
+        for (ExprList* item = constructor_arguments; item;
              item = item->next) {
             if (item->designator_kind != INIT_DESIGNATOR_NONE) {
                 rcc_error(item->expr ? item->expr->loc : initializer->loc,
@@ -8214,7 +8226,7 @@ static void sema_initializer(Type* type, Expr* initializer) {
             }
         }
         initializer->compound_constructor = sema_select_cxx_new_constructor(
-            type, initializer->compound_init, initializer->loc);
+            type, constructor_arguments, initializer->loc);
         return;
     }
     if (initializer_is_aggregate_zero(type, initializer)) {
@@ -8815,11 +8827,10 @@ static Expr* sema_cxx_default_member_initializer(Decl* declaration) {
         !type->fields || (source && source->kind != EXPR_COMPOUND)) {
         return NULL;
     }
-    if (cls->has_user_constructor) {
-        rcc_error(declaration->loc,
-                  "default member initializers with a user constructor require constructor lowering");
-        return NULL;
-    }
+    /* User constructors consume the original initializer through the C++
+     * constructor-selection path below.  This aggregate-only helper must not
+     * rewrite their argument list before that selection occurs. */
+    if (cls->has_user_constructor) return NULL;
 
     field_count = sema_cxx_field_count(type);
     if (field_count <= 0) return NULL;
