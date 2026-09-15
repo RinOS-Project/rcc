@@ -426,13 +426,13 @@ test-cxx-language-core: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x86.ro \
 		tests/cxx_new_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log 2>&1
-	grep -q 'array new requires a lowerable element constructor and trivial destructor' \
+	grep -q 'array new requires a lowerable element constructor and destructor' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x64.ro \
 		tests/cxx_new_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log 2>&1
-	grep -q 'array new requires a lowerable element constructor and trivial destructor' \
+	grep -q 'array new requires a lowerable element constructor and destructor' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	@echo "RCC++ core language tests completed"
 
