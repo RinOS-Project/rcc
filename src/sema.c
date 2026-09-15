@@ -5059,6 +5059,83 @@ static bool sema_append_cxx_constructor_default_arguments(
     return true;
 }
 
+static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
+    CxxClass* cls, CxxConstructorInfo* current, ExprList** arguments,
+    SourceLoc loc) {
+    CxxConstructorInfo* candidate;
+    CxxConstructorInfo* best = NULL;
+    ExprList* supplied_arguments = arguments ? *arguments : NULL;
+    int argument_count = sema_cxx_argument_count(supplied_arguments);
+    int best_total = INT_MAX;
+    int best_worst = INT_MAX;
+    bool ambiguous = false;
+
+    if (!cls || !cls->type || argument_count < 0 || argument_count >= 32) {
+        return NULL;
+    }
+    for (candidate = cls->constructors; candidate;
+         candidate = candidate->next) {
+        TypeParam* parameter;
+        ExprList* argument;
+        int total = 0;
+        int worst = 0;
+        bool viable = true;
+        if (candidate == current || !candidate->method ||
+            candidate->method->owner != cls ||
+            candidate->access != ACCESS_PUBLIC || candidate->is_deleted ||
+            candidate->is_defaulted || candidate->parameter_count < argument_count ||
+            (candidate->parameter_count != argument_count &&
+             !sema_cxx_constructor_arity_has_defaults(
+                 candidate, argument_count)) ||
+            !candidate->initializers_are_supported ||
+            (!candidate->body_is_empty &&
+             (!candidate->method->decl ||
+              !candidate->method->decl->func_is_cxx_method ||
+              !candidate->method->decl->func_body))) {
+            continue;
+        }
+        parameter = candidate->parameters;
+        argument = supplied_arguments;
+        while (parameter && argument) {
+            int rank = cxx_conversion_rank(argument->expr, parameter->type);
+            if (rank < 0) {
+                viable = false;
+                break;
+            }
+            total += rank;
+            if (rank > worst) worst = rank;
+            parameter = parameter->next;
+            argument = argument->next;
+        }
+        if (!viable || argument ||
+            (parameter && !sema_cxx_constructor_arity_has_defaults(
+                candidate, argument_count))) {
+            continue;
+        }
+        if (!best || total < best_total ||
+            (total == best_total && worst < best_worst)) {
+            best = candidate;
+            best_total = total;
+            best_worst = worst;
+            ambiguous = false;
+        } else if (total == best_total && worst == best_worst) {
+            ambiguous = true;
+        }
+    }
+    if (ambiguous) {
+        rcc_error(loc, "ambiguous C++ delegating constructor");
+        return NULL;
+    }
+    if (best && arguments && argument_count < best->parameter_count &&
+        !sema_append_cxx_constructor_default_arguments(
+            arguments, best, argument_count)) {
+        rcc_error(loc,
+                  "delegating constructor defaults are not safely lowerable");
+        return NULL;
+    }
+    return best;
+}
+
 static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
     Type* object_type, ExprList** arguments, SourceLoc loc,
     bool allow_explicit) {
@@ -5174,44 +5251,23 @@ static void sema_resolve_cxx_constructor_initializers(
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
         if (initializer->is_delegating_constructor) {
-            CxxConstructorInfo* target = initializer->constructor;
-            TypeParam* parameter = target ? target->parameters : NULL;
+            CxxConstructorInfo* target;
             ExprList* argument = initializer->arguments;
             int argument_count = sema_cxx_argument_count(argument);
-            bool valid = target && target != constructor &&
-                target->method && target->method->owner == cls;
-            if (!valid) {
+            for (; argument; argument = argument->next) {
+                sema_bind_cxx_constructor_expression(
+                    constructor, argument->expr);
+                sema_expr(argument->expr);
+            }
+            target = sema_select_cxx_delegating_constructor(
+                cls, constructor, &initializer->arguments, loc);
+            if (!target) {
                 initializer->constructor = NULL;
                 rcc_error(loc,
                           "delegating constructor target is not safely lowerable");
                 continue;
             }
-            while (parameter && argument) {
-                sema_bind_cxx_constructor_expression(
-                    constructor, argument->expr);
-                sema_expr(argument->expr);
-                if (cxx_conversion_rank(argument->expr, parameter->type) < 0) {
-                    valid = false;
-                    break;
-                }
-                parameter = parameter->next;
-                argument = argument->next;
-            }
-            if (!valid || argument ||
-                (parameter && !sema_cxx_constructor_arity_has_defaults(
-                    target, argument_count))) {
-                initializer->constructor = NULL;
-                rcc_error(loc,
-                          "delegating constructor arguments are not safely lowerable");
-                continue;
-            }
-            if (parameter && !sema_append_cxx_constructor_default_arguments(
-                    &initializer->arguments, target, argument_count)) {
-                initializer->constructor = NULL;
-                rcc_error(loc,
-                          "delegating constructor defaults are not safely lowerable");
-                continue;
-            }
+            initializer->constructor = target;
             if (argument_count < target->parameter_count) {
                 for (argument = initializer->arguments; argument;
                      argument = argument->next) {
