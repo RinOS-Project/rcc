@@ -58,15 +58,6 @@ static const char* buf_append_quoted_token(PPBuffer* buffer,
     return input;
 }
 
-/* Hash function for macro names */
-static unsigned int hash_macro(const char* name) {
-    unsigned int h = 0;
-    while (*name) {
-        h = h * 31 + (unsigned char)*name++;
-    }
-    return h;
-}
-
 /* Create new preprocessor */
 Preprocessor* pp_new(void) {
     Preprocessor* pp = rcc_alloc(sizeof(Preprocessor));
@@ -262,12 +253,25 @@ static char* read_file(const char* filename) {
     FILE* f = fopen(filename, "rb");
     if (!f) return NULL;
 
-    fseek(f, 0, SEEK_END);
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        rcc_fatal("cannot seek include file '%s'", filename);
+        return NULL;
+    }
     long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        rcc_fatal("cannot determine include file size '%s'", filename);
+        return NULL;
+    }
 
-    char* buf = rcc_alloc(size + 1);
-    fread(buf, 1, size, f);
+    char* buf = rcc_alloc((size_t)size + 1u);
+    if (fread(buf, 1, (size_t)size, f) != (size_t)size) {
+        rcc_free(buf);
+        fclose(f);
+        rcc_fatal("cannot read include file '%s'", filename);
+        return NULL;
+    }
     buf[size] = '\0';
     fclose(f);
     return buf;

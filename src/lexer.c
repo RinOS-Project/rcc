@@ -837,12 +837,25 @@ TokenList* rcc_lex(const char* filename) {
         return NULL;
     }
 
-    fseek(f, 0, SEEK_END);
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        rcc_fatal("cannot seek source file '%s'", filename);
+        return NULL;
+    }
     long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        rcc_fatal("cannot determine source file size '%s'", filename);
+        return NULL;
+    }
 
-    char* src = rcc_alloc(size + 1);
-    fread(src, 1, size, f);
+    char* src = rcc_alloc((size_t)size + 1u);
+    if (fread(src, 1, (size_t)size, f) != (size_t)size) {
+        rcc_free(src);
+        fclose(f);
+        rcc_fatal("cannot read source file '%s'", filename);
+        return NULL;
+    }
     src[size] = '\0';
     fclose(f);
 
