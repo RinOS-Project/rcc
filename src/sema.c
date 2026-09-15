@@ -1452,6 +1452,41 @@ typedef struct SemaConstexprScalar {
     bool is_floating;
 } SemaConstexprScalar;
 
+/* Integer constexpr values keep their target-width bit pattern in the
+ * int64_t carrier.  Never compare or calculate an unsigned value through
+ * the host's signed representation: ULL literals such as UINT64_MAX would
+ * otherwise become -1 during static assertion evaluation. */
+static uint64_t sema_constexpr_integer_mask(Type* type) {
+    unsigned bits = type && type->size > 0
+        ? (unsigned)type->size * 8u : 0u;
+    if (bits == 0u) return 0u;
+    return bits >= 64u ? UINT64_MAX : (UINT64_C(1) << bits) - 1u;
+}
+
+static uint64_t sema_constexpr_integer_bits(
+    const SemaConstexprScalar* value) {
+    if (!value || value->is_floating) return 0u;
+    return (uint64_t)value->integer_value &
+           sema_constexpr_integer_mask(value->type);
+}
+
+static int64_t sema_constexpr_integer_signed(
+    const SemaConstexprScalar* value) {
+    uint64_t mask;
+    uint64_t bits;
+    unsigned width;
+    if (!value || value->is_floating) return 0;
+    mask = sema_constexpr_integer_mask(value->type);
+    bits = sema_constexpr_integer_bits(value);
+    width = value->type && value->type->size > 0
+        ? (unsigned)value->type->size * 8u : 64u;
+    if (width < 64u && !value->type->is_unsigned &&
+        (bits & (UINT64_C(1) << (width - 1u))) != 0u) {
+        bits |= ~mask;
+    }
+    return (int64_t)bits;
+}
+
 static bool sema_constexpr_scalar_type(Type* type) {
     return type && (sema_constexpr_integer_type(type) ||
                     type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
@@ -1822,14 +1857,26 @@ static bool sema_constexpr_scalar_binary(
     SemaConstexprScalar raw;
     double left_value;
     double right_value;
+    Type* operation_type;
+    bool comparison;
 
-    if (!left || !right || !output ||
-        !sema_constexpr_scalar_type(result_type) ||
-        !sema_constexpr_scalar_convert(left, result_type, &converted_left) ||
-        !sema_constexpr_scalar_convert(right, result_type, &converted_right)) {
+    if (!left || !right || !output || !result_type) {
         return false;
     }
-    if (result_type->kind == TYPE_FLOAT || result_type->kind == TYPE_DOUBLE) {
+    comparison = expression_kind == EXPR_EQ || expression_kind == EXPR_NE ||
+                expression_kind == EXPR_LT || expression_kind == EXPR_GT ||
+                expression_kind == EXPR_LE || expression_kind == EXPR_GE;
+    operation_type = comparison ? type_common(left->type, right->type)
+                                : result_type;
+    if (!sema_constexpr_scalar_type(operation_type) ||
+        !sema_constexpr_scalar_convert(left, operation_type,
+                                       &converted_left) ||
+        !sema_constexpr_scalar_convert(right, operation_type,
+                                       &converted_right)) {
+        return false;
+    }
+    if (operation_type->kind == TYPE_FLOAT ||
+        operation_type->kind == TYPE_DOUBLE) {
         left_value = converted_left.floating_value;
         right_value = converted_right.floating_value;
         if (expression_kind == EXPR_EQ || expression_kind == EXPR_NE ||
@@ -1851,7 +1898,7 @@ static bool sema_constexpr_scalar_binary(
         if (expression_kind == EXPR_DIV && right_value == 0.0) {
             return false;
         }
-        raw.type = result_type;
+        raw.type = operation_type;
         raw.integer_value = 0;
         raw.is_floating = true;
         switch (expression_kind) {
@@ -1861,13 +1908,73 @@ static bool sema_constexpr_scalar_binary(
             case EXPR_DIV: raw.floating_value = left_value / right_value; break;
             default: return false;
         }
-        return sema_constexpr_scalar_convert(&raw, result_type, output);
+        return sema_constexpr_scalar_convert(&raw, operation_type, output);
     }
     if (converted_left.is_floating || converted_right.is_floating) {
         return false;
     }
-    output->type = result_type;
+    output->type = comparison ? type_int : result_type;
     output->is_floating = false;
+    if (comparison) {
+        uint64_t left_bits = sema_constexpr_integer_bits(&converted_left);
+        uint64_t right_bits = sema_constexpr_integer_bits(&converted_right);
+        int64_t left_signed = sema_constexpr_integer_signed(&converted_left);
+        int64_t right_signed = sema_constexpr_integer_signed(&converted_right);
+        if (operation_type->is_unsigned) {
+            switch (expression_kind) {
+                case EXPR_EQ: output->integer_value = left_bits == right_bits; break;
+                case EXPR_NE: output->integer_value = left_bits != right_bits; break;
+                case EXPR_LT: output->integer_value = left_bits < right_bits; break;
+                case EXPR_GT: output->integer_value = left_bits > right_bits; break;
+                case EXPR_LE: output->integer_value = left_bits <= right_bits; break;
+                case EXPR_GE: output->integer_value = left_bits >= right_bits; break;
+                default: return false;
+            }
+        } else {
+            switch (expression_kind) {
+                case EXPR_EQ: output->integer_value = left_signed == right_signed; break;
+                case EXPR_NE: output->integer_value = left_signed != right_signed; break;
+                case EXPR_LT: output->integer_value = left_signed < right_signed; break;
+                case EXPR_GT: output->integer_value = left_signed > right_signed; break;
+                case EXPR_LE: output->integer_value = left_signed <= right_signed; break;
+                case EXPR_GE: output->integer_value = left_signed >= right_signed; break;
+                default: return false;
+            }
+        }
+        return true;
+    }
+    {
+        uint64_t left_bits = sema_constexpr_integer_bits(&converted_left);
+        uint64_t right_bits = sema_constexpr_integer_bits(&converted_right);
+        uint64_t mask = sema_constexpr_integer_mask(result_type);
+        if (result_type->is_unsigned) {
+            switch (expression_kind) {
+                case EXPR_ADD: output->integer_value = (int64_t)((left_bits + right_bits) & mask); return true;
+                case EXPR_SUB: output->integer_value = (int64_t)((left_bits - right_bits) & mask); return true;
+                case EXPR_MUL: output->integer_value = (int64_t)((left_bits * right_bits) & mask); return true;
+                case EXPR_DIV:
+                    if (right_bits == 0u) return false;
+                    output->integer_value = (int64_t)(left_bits / right_bits);
+                    return true;
+                case EXPR_MOD:
+                    if (right_bits == 0u) return false;
+                    output->integer_value = (int64_t)(left_bits % right_bits);
+                    return true;
+                case EXPR_BITAND: output->integer_value = (int64_t)((left_bits & right_bits) & mask); return true;
+                case EXPR_BITOR: output->integer_value = (int64_t)((left_bits | right_bits) & mask); return true;
+                case EXPR_BITXOR: output->integer_value = (int64_t)((left_bits ^ right_bits) & mask); return true;
+                case EXPR_LSHIFT:
+                    if (right_bits >= (uint64_t)result_type->size * 8u) return false;
+                    output->integer_value = (int64_t)((left_bits << (unsigned)right_bits) & mask);
+                    return true;
+                case EXPR_RSHIFT:
+                    if (right_bits >= (uint64_t)result_type->size * 8u) return false;
+                    output->integer_value = (int64_t)(left_bits >> (unsigned)right_bits);
+                    return true;
+                default: return false;
+            }
+        }
+    }
     switch (expression_kind) {
         case EXPR_ADD:
             return sema_constexpr_add(converted_left.integer_value,
@@ -1908,48 +2015,24 @@ static bool sema_constexpr_scalar_binary(
                                     converted_right.integer_value;
             return true;
         case EXPR_LSHIFT:
-            if (converted_right.integer_value < 0 ||
-                converted_right.integer_value >= 64 ||
-                converted_left.integer_value < 0 ||
-                (converted_right.integer_value == 63 &&
-                 converted_left.integer_value != 0) ||
-                (converted_right.integer_value < 63 &&
-                 converted_left.integer_value >
-                     (INT64_MAX >> converted_right.integer_value))) {
+            if (sema_constexpr_integer_signed(&converted_right) < 0 ||
+                sema_constexpr_integer_signed(&converted_right) >=
+                    (int64_t)result_type->size * 8 ||
+                sema_constexpr_integer_signed(&converted_left) < 0 ||
+                (sema_constexpr_integer_signed(&converted_right) < 63 &&
+                 sema_constexpr_integer_signed(&converted_left) >
+                     (INT64_MAX >> sema_constexpr_integer_signed(&converted_right)))) {
                 return false;
             }
             output->integer_value = converted_left.integer_value <<
-                                    converted_right.integer_value;
+                                    sema_constexpr_integer_signed(&converted_right);
             return true;
         case EXPR_RSHIFT:
-            if (converted_right.integer_value < 0 ||
-                converted_right.integer_value >= 64) return false;
+            if (sema_constexpr_integer_signed(&converted_right) < 0 ||
+                sema_constexpr_integer_signed(&converted_right) >=
+                    (int64_t)result_type->size * 8) return false;
             output->integer_value = converted_left.integer_value >>
-                                    converted_right.integer_value;
-            return true;
-        case EXPR_EQ:
-            output->integer_value = converted_left.integer_value ==
-                                    converted_right.integer_value;
-            return true;
-        case EXPR_NE:
-            output->integer_value = converted_left.integer_value !=
-                                    converted_right.integer_value;
-            return true;
-        case EXPR_LT:
-            output->integer_value = converted_left.integer_value <
-                                    converted_right.integer_value;
-            return true;
-        case EXPR_GT:
-            output->integer_value = converted_left.integer_value >
-                                    converted_right.integer_value;
-            return true;
-        case EXPR_LE:
-            output->integer_value = converted_left.integer_value <=
-                                    converted_right.integer_value;
-            return true;
-        case EXPR_GE:
-            output->integer_value = converted_left.integer_value >=
-                                    converted_right.integer_value;
+                                    sema_constexpr_integer_signed(&converted_right);
             return true;
         default:
             return false;
@@ -2546,24 +2629,9 @@ static bool sema_eval_constexpr_scalar_expr(
                 }
                 return isfinite(value->floating_value);
             }
-            value->type = type_int;
-            switch (expression->kind) {
-                case EXPR_ADD: return sema_constexpr_add(left.integer_value, right.integer_value, &value->integer_value);
-                case EXPR_SUB: return sema_constexpr_sub(left.integer_value, right.integer_value, &value->integer_value);
-                case EXPR_MUL: return sema_constexpr_mul(left.integer_value, right.integer_value, &value->integer_value);
-                case EXPR_DIV:
-                    if (right.integer_value == 0 ||
-                        (left.integer_value == INT64_MIN && right.integer_value == -1)) return false;
-                    value->integer_value = left.integer_value / right.integer_value;
-                    return true;
-                case EXPR_EQ: value->integer_value = left.integer_value == right.integer_value; return true;
-                case EXPR_NE: value->integer_value = left.integer_value != right.integer_value; return true;
-                case EXPR_LT: value->integer_value = left.integer_value < right.integer_value; return true;
-                case EXPR_GT: value->integer_value = left.integer_value > right.integer_value; return true;
-                case EXPR_LE: value->integer_value = left.integer_value <= right.integer_value; return true;
-                case EXPR_GE: value->integer_value = left.integer_value >= right.integer_value; return true;
-                default: return false;
-            }
+            return sema_constexpr_scalar_binary(
+                expression->kind, &left, &right,
+                expression->type ? expression->type : type_int, value);
         case EXPR_MOD:
         case EXPR_BITAND:
         case EXPR_BITOR:
@@ -2577,42 +2645,9 @@ static bool sema_eval_constexpr_scalar_expr(
                                                   bindings, binding_count,
                                                   &right) ||
                 left.is_floating || right.is_floating) return false;
-            value->type = type_int;
-            value->is_floating = false;
-            switch (expression->kind) {
-                case EXPR_MOD:
-                    if (right.integer_value == 0 ||
-                        (left.integer_value == INT64_MIN &&
-                         right.integer_value == -1)) return false;
-                    value->integer_value = left.integer_value % right.integer_value;
-                    return true;
-                case EXPR_BITAND:
-                    value->integer_value = left.integer_value & right.integer_value;
-                    return true;
-                case EXPR_BITOR:
-                    value->integer_value = left.integer_value | right.integer_value;
-                    return true;
-                case EXPR_BITXOR:
-                    value->integer_value = left.integer_value ^ right.integer_value;
-                    return true;
-                case EXPR_LSHIFT:
-                    if (right.integer_value < 0 || right.integer_value >= 64 ||
-                        left.integer_value < 0 ||
-                        (right.integer_value == 63 && left.integer_value != 0) ||
-                        (right.integer_value < 63 &&
-                         left.integer_value >
-                             (INT64_MAX >> right.integer_value))) return false;
-                    value->integer_value = left.integer_value << right.integer_value;
-                    return true;
-                case EXPR_RSHIFT:
-                    if (right.integer_value < 0 || right.integer_value >= 64) {
-                        return false;
-                    }
-                    value->integer_value = left.integer_value >> right.integer_value;
-                    return true;
-                default:
-                    return false;
-            }
+            return sema_constexpr_scalar_binary(
+                expression->kind, &left, &right,
+                expression->type ? expression->type : type_int, value);
         default:
             return false;
     }
