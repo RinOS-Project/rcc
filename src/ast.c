@@ -852,6 +852,25 @@ Stmt* stmt_asm(const char* templ, AsmOperand* outputs, AsmOperand* inputs,
     return s;
 }
 
+Stmt* stmt_try(Stmt* body, CxxCatch* catches, SourceLoc loc) {
+    Stmt* s = rcc_alloc(sizeof(Stmt));
+    s->kind = STMT_TRY;
+    s->loc = loc;
+    s->try_body = body;
+    s->try_catches = catches;
+    s->try_frame_offset = 0;
+    s->try_frame_size = 0;
+    return s;
+}
+
+Stmt* stmt_throw(Expr* expression, SourceLoc loc) {
+    Stmt* s = rcc_alloc(sizeof(Stmt));
+    s->kind = STMT_THROW;
+    s->loc = loc;
+    s->throw_expr = expression;
+    return s;
+}
+
 AsmOperand* asm_operand_new(const char* constraint, Expr* expr) {
     AsmOperand* op = rcc_alloc(sizeof(AsmOperand));
     op->constraint = constraint;

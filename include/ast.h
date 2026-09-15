@@ -16,6 +16,7 @@ typedef struct Decl Decl;
 typedef struct DeclList DeclList;
 typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
+typedef struct CxxCatch CxxCatch;
 struct CxxClass;
 
 /* ═══════════════════════════════════════
@@ -519,6 +520,18 @@ bool expr_eval_integer_constant(Expr* expr, int64_t* value);
  * Statements
  * ═══════════════════════════════════════ */
 
+/* A C++ catch handler.  The frontend currently materializes scalar exception
+ * payloads; the type and parameter remain explicit so the backend never
+ * treats an unsupported handler as an empty statement. */
+struct CxxCatch {
+    Type* type;                 /* NULL for `catch (...)` */
+    const char* name;           /* NULL for an unnamed handler */
+    Decl* parameter;            /* Synthetic catch parameter, if named */
+    Stmt* body;
+    bool is_ellipsis;
+    CxxCatch* next;
+};
+
 typedef enum {
     STMT_EXPR,          /* expr; */
     STMT_BLOCK,         /* { ... } */
@@ -537,6 +550,8 @@ typedef enum {
     STMT_DECL,          /* declaration */
     STMT_NULL,          /* ; (empty) */
     STMT_ASM,           /* asm("...") */
+    STMT_TRY,           /* try { ... } catch (...) { ... } */
+    STMT_THROW,         /* throw expression; */
 } StmtKind;
 
 /* Inline assembly operand */
@@ -633,6 +648,17 @@ struct Stmt {
             AsmClobber* asm_clobbers;   /* Clobbered registers */
             bool asm_volatile;          /* __volatile__ flag */
         };
+
+        /* STMT_TRY */
+        struct {
+            Stmt* try_body;
+            CxxCatch* try_catches;
+            int try_frame_offset;
+            int try_frame_size;
+        };
+
+        /* STMT_THROW */
+        Expr* throw_expr;
     };
 };
 
@@ -655,6 +681,8 @@ Stmt* stmt_decl(Decl* decl, SourceLoc loc);
 Stmt* stmt_null(SourceLoc loc);
 Stmt* stmt_asm(const char* templ, AsmOperand* outputs, AsmOperand* inputs,
                AsmClobber* clobbers, bool is_volatile, SourceLoc loc);
+Stmt* stmt_try(Stmt* body, CxxCatch* catches, SourceLoc loc);
+Stmt* stmt_throw(Expr* expression, SourceLoc loc);
 
 /* Asm operand/clobber constructors */
 AsmOperand* asm_operand_new(const char* constraint, Expr* expr);

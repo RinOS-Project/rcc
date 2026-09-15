@@ -37,6 +37,7 @@ static Type* current_func_ret = NULL;
 static bool current_func_variadic = false;
 static Decl* current_func_last_param = NULL;
 static unsigned static_local_counter = 0u;
+static unsigned cxx_exception_frame_counter = 0u;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
@@ -58,6 +59,7 @@ static int loop_depth = 0;
 
 /* Forward declarations */
 static void sema_stmt(Stmt* stmt);
+static bool sema_exception_body_has_cleanup(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
@@ -737,6 +739,52 @@ static void sema_validate_static_integer_expression(Expr* expression) {
             return;
         default:
             return;
+    }
+}
+
+static bool sema_exception_body_has_cleanup(const Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (sema_exception_body_has_cleanup(item->stmt)) return true;
+            }
+            return false;
+        case STMT_DECL:
+            return statement->decl && statement->decl->kind == DECL_VAR &&
+                (statement->decl->var_cleanup ||
+                 statement->decl->var_is_vla);
+        case STMT_IF:
+            return sema_exception_body_has_cleanup(statement->if_then) ||
+                sema_exception_body_has_cleanup(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_exception_body_has_cleanup(statement->while_body);
+        case STMT_FOR:
+            return sema_exception_body_has_cleanup(statement->for_init) ||
+                sema_exception_body_has_cleanup(statement->for_body);
+        case STMT_SWITCH:
+            return sema_exception_body_has_cleanup(statement->switch_body);
+        case STMT_CASE:
+            return sema_exception_body_has_cleanup(statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_exception_body_has_cleanup(statement->default_stmt);
+        case STMT_LABEL:
+            return sema_exception_body_has_cleanup(statement->label_stmt);
+        case STMT_TRY:
+            if (sema_exception_body_has_cleanup(statement->try_body)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (sema_exception_body_has_cleanup(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
     }
 }
 
@@ -5304,6 +5352,96 @@ static void sema_stmt(Stmt* stmt) {
                 }
             }
             break;
+
+        case STMT_TRY: {
+            int frame_size = g_opts.target_arch == ARCH_X64 ? 88 : 36;
+            char frame_name[64];
+            int written;
+            Symbol* frame_symbol;
+            bool seen_ellipsis = false;
+
+            if (!stmt->try_body || stmt->try_body->kind != STMT_BLOCK) {
+                rcc_error(stmt->loc, "C++ try body must be a compound statement");
+                break;
+            }
+            if (!stmt->try_catches) {
+                rcc_error(stmt->loc, "C++ try statement requires a catch handler");
+                break;
+            }
+
+            ++cxx_exception_frame_counter;
+            written = snprintf(frame_name, sizeof(frame_name),
+                               "__rcc_exception_frame_%u",
+                               cxx_exception_frame_counter);
+            if (written < 0 || (size_t)written >= sizeof(frame_name)) {
+                rcc_error(stmt->loc, "C++ exception frame name exceeds compiler limits");
+                break;
+            }
+            frame_symbol = symtab_define(
+                g_symtab, rcc_intern(frame_name), SYM_VAR,
+                type_array(type_uchar, frame_size), stmt->loc);
+            stmt->try_frame_offset = frame_symbol->offset;
+            stmt->try_frame_size = frame_size;
+
+            sema_stmt(stmt->try_body);
+            if (sema_exception_body_has_cleanup(stmt->try_body)) {
+                rcc_error(stmt->loc,
+                          "C++ exception unwinding cannot bypass VLA or scope cleanup");
+            }
+            for (CxxCatch* handler = stmt->try_catches; handler;
+                 handler = handler->next) {
+                if (seen_ellipsis) {
+                    rcc_error(handler->body ? handler->body->loc : stmt->loc,
+                              "C++ catch-all handler must be the last handler");
+                }
+                if (handler->is_ellipsis) seen_ellipsis = true;
+                if (!handler->is_ellipsis &&
+                    (!handler->type ||
+                     (!type_is_integer(handler->type) &&
+                      handler->type->kind != TYPE_ENUM &&
+                      handler->type->kind != TYPE_PTR) ||
+                     handler->type->size <= 0 ||
+                     handler->type->size >
+                         (g_opts.target_arch == ARCH_X64 ? 8 : 4))) {
+                    rcc_error(stmt->loc,
+                              "C++ catch currently requires a scalar payload no wider than the target word");
+                }
+                if (handler->parameter &&
+                    (!handler->type ||
+                     (!type_is_integer(handler->type) &&
+                      handler->type->kind != TYPE_ENUM &&
+                      handler->type->kind != TYPE_PTR))) {
+                    rcc_error(handler->parameter->loc,
+                              "named C++ catch parameter must have a scalar type");
+                }
+                sema_stmt(handler->body);
+                if (sema_exception_body_has_cleanup(handler->body)) {
+                    rcc_error(handler->body ? handler->body->loc : stmt->loc,
+                              "C++ exception handlers cannot contain VLA or scope cleanup");
+                }
+            }
+            break;
+        }
+
+        case STMT_THROW: {
+            Type* thrown_type;
+            if (!stmt->throw_expr) {
+                rcc_error(stmt->loc,
+                          "C++ rethrow requires an active exception handler");
+                break;
+            }
+            thrown_type = sema_expr(stmt->throw_expr);
+            if (!thrown_type ||
+                (!type_is_integer(thrown_type) &&
+                 thrown_type->kind != TYPE_ENUM &&
+                 thrown_type->kind != TYPE_PTR) ||
+                thrown_type->size <= 0 ||
+                thrown_type->size > (g_opts.target_arch == ARCH_X64 ? 8 : 4)) {
+                rcc_error(stmt->loc,
+                          "C++ throw currently requires a scalar payload no wider than the target word");
+            }
+            break;
+        }
     }
 }
 
@@ -6956,6 +7094,7 @@ bool rcc_sema(AST* ast) {
     g_symtab = symtab_new();
     current_cxx_namespace = NULL;
     static_local_counter = 0u;
+    cxx_exception_frame_counter = 0u;
 
     /* Process all top-level declarations */
     for (DeclList* d = ast->decls; d; d = d->next) {

@@ -1358,6 +1358,36 @@ static Stmt* template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
                 tmpl, statement->label_stmt, args, arg_count,
                 value_args, value_present);
             break;
+        case STMT_TRY: {
+            CxxCatch** tail = &copy->try_catches;
+            copy->try_body = template_clone_stmt(
+                tmpl, statement->try_body, args, arg_count,
+                value_args, value_present);
+            copy->try_frame_offset = 0;
+            copy->try_frame_size = 0;
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                CxxCatch* cloned = ast_arena_alloc(sizeof(*cloned));
+                memset(cloned, 0, sizeof(*cloned));
+                cloned->type = template_substitute_type(
+                    tmpl, handler->type, args, arg_count,
+                    value_args, value_present);
+                cloned->name = handler->name;
+                cloned->is_ellipsis = handler->is_ellipsis;
+                cloned->body = template_clone_stmt(
+                    tmpl, handler->body, args, arg_count,
+                    value_args, value_present);
+                if (cloned->body && cloned->body->kind == STMT_BLOCK &&
+                    cloned->body->block_stmts &&
+                    cloned->body->block_stmts->stmt->kind == STMT_DECL) {
+                    cloned->parameter = cloned->body->block_stmts->stmt->decl;
+                }
+                cloned->next = NULL;
+                *tail = cloned;
+                tail = &cloned->next;
+            }
+            break;
+        }
         case STMT_DECL:
             copy->decl = template_clone_decl(
                 tmpl, statement->decl, args, arg_count,

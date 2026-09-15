@@ -1119,6 +1119,14 @@ static void propagate_block_constants(Stmt* statement) {
                 optimize_stmt(current);
                 clear_local_constants(&state);
                 break;
+            case STMT_TRY:
+                optimize_stmt(current);
+                clear_local_constants(&state);
+                break;
+            case STMT_THROW:
+                optimize_expr(&current->throw_expr);
+                clear_local_constants(&state);
+                break;
             case STMT_BLOCK:
             case STMT_CASE:
             case STMT_DEFAULT:
@@ -1381,6 +1389,16 @@ static void mark_address_escapes_stmt(const Stmt* statement,
             return;
         case STMT_RETURN:
             mark_address_escapes_expr(statement->return_val, locals);
+            return;
+        case STMT_TRY:
+            mark_address_escapes_stmt(statement->try_body, locals);
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                mark_address_escapes_stmt(handler->body, locals);
+            }
+            return;
+        case STMT_THROW:
+            mark_address_escapes_expr(statement->throw_expr, locals);
             return;
         case STMT_LABEL:
             mark_address_escapes_stmt(statement->label_stmt, locals);
@@ -1725,6 +1743,8 @@ static void eliminate_block_dead_stores(Stmt* statement) {
             case STMT_SWITCH:
             case STMT_CASE:
             case STMT_DEFAULT:
+            case STMT_TRY:
+            case STMT_THROW:
             case STMT_BREAK:
             case STMT_CONTINUE:
             case STMT_GOTO:
@@ -1827,6 +1847,16 @@ static void optimize_stmt(Stmt* statement) {
             break;
         case STMT_RETURN:
             optimize_expr(&statement->return_val);
+            break;
+        case STMT_TRY:
+            optimize_stmt(statement->try_body);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                optimize_stmt(handler->body);
+            }
+            break;
+        case STMT_THROW:
+            optimize_expr(&statement->throw_expr);
             break;
         case STMT_LABEL:
             optimize_stmt(statement->label_stmt);

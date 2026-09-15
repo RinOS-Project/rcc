@@ -447,6 +447,15 @@ typedef struct FuncDef64 {
 
 static LabelRef64* label_refs64 = NULL;
 static LabelDef64* label_defs64 = NULL;
+
+static const char* codegen64_label_symbol(int label) {
+    char name[64];
+    int written = snprintf(name, sizeof(name), "__rcc_label_%d", label);
+    if (written < 0 || (size_t)written >= sizeof(name)) {
+        rcc_fatal("internal code label name exceeds compiler limits");
+    }
+    return rcc_intern(name);
+}
 static FuncCallRef64* func_call_refs64 = NULL;
 static FuncDef64* func_defs64 = NULL;
 
@@ -1820,6 +1829,8 @@ static void emit64_label(Module* mod, int label) {
     def->offset = code_offset(mod);
     def->next = label_defs64;
     label_defs64 = def;
+    module_add_symbol(mod, codegen64_label_symbol(label), def->offset, true,
+                      MODULE_SYMBOL_CODE, false);
 }
 
 static void emit64_jmp_label(Module* mod, int label) {
@@ -4119,6 +4130,89 @@ static void gen64_scoped_stmt(Module* mod, Stmt* statement) {
     discard64_cleanups_until(marker);
 }
 
+static void gen64_cxx_exception_frame_address(Module* mod, int offset) {
+    emit64_lea(mod, RDI, RBP, offset);
+}
+
+static void gen64_cxx_exception_call(Module* mod, const char* name) {
+    uint32_t call_offset;
+    emit_byte(mod, 0xE8);
+    call_offset = code_offset(mod);
+    emit_dword(mod, 0u);
+    add_func_call_ref64(name, call_offset);
+}
+
+static uint64_t gen64_cxx_exception_type_tag(const Type* type) {
+    if (type && type->kind == TYPE_PTR) return (uint64_t)TYPE_PTR;
+    if (type && type->kind == TYPE_ENUM) return (uint64_t)TYPE_ENUM;
+    return type ? (uint64_t)type->kind : (uint64_t)TYPE_VOID;
+}
+
+static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
+    Type* type = stmt->throw_expr ? stmt->throw_expr->type : NULL;
+    gen64_expr(mod, stmt->throw_expr);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit64_mov_reg_imm64(mod, RSI, gen64_cxx_exception_type_tag(type));
+    gen64_cxx_exception_call(mod, "rin_cpp_exception_throw");
+}
+
+static void gen64_cxx_try(Module* mod, Stmt* stmt) {
+    const int value_offset = 72;
+    const int type_offset = 80;
+    int dispatch_label = new_label64();
+    int end_label = new_label64();
+
+    gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+    gen64_cxx_exception_call(mod, "rin_cpp_exception_install");
+
+    gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+    gen64_cxx_exception_call(mod, "setjmp");
+    emit64_test_reg_reg(mod, RAX, RAX);
+    emit64_jcc_label(mod, CC64_NE, dispatch_label);
+
+    gen64_scoped_stmt(mod, stmt->try_body);
+    gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+    gen64_cxx_exception_call(mod, "rin_cpp_exception_leave");
+    emit64_jmp_label(mod, end_label);
+
+    emit64_label(mod, dispatch_label);
+    for (CxxCatch* handler = stmt->try_catches; handler;
+         handler = handler->next) {
+        int next_handler = new_label64();
+        if (!handler->is_ellipsis) {
+            gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+            emit64_mov_reg_mem(mod, RAX, RDI, type_offset);
+            emit64_mov_reg_imm64(mod, RCX,
+                                 gen64_cxx_exception_type_tag(
+                                     handler->type));
+            emit64_cmp_reg_reg(mod, RAX, RCX);
+            emit64_jcc_label(mod, CC64_NE, next_handler);
+        }
+        if (handler->parameter) {
+            gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+            emit64_mov_reg_mem(mod, RAX, RDI, value_offset);
+            emit64_store_typed(mod, RBP, handler->parameter->var_offset,
+                               RAX, handler->parameter->type);
+        }
+        /* A handler owns the transfer out of the protected region.  Remove
+         * this frame before its body so return and rethrow cannot leave a
+         * dead stack frame at the top of the runtime chain. */
+        gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+        gen64_cxx_exception_call(mod, "rin_cpp_exception_leave");
+        gen64_scoped_stmt(mod, handler->body);
+        emit64_jmp_label(mod, end_label);
+        if (!handler->is_ellipsis) emit64_label(mod, next_handler);
+    }
+
+    gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+    emit64_mov_reg_mem(mod, RAX, RDI, value_offset);
+    gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
+    emit64_mov_reg_mem(mod, RSI, RDI, type_offset);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    gen64_cxx_exception_call(mod, "rin_cpp_exception_throw");
+    emit64_label(mod, end_label);
+}
+
 static bool gen64_global_initializer(Module* mod, Decl* declaration) {
     Type* type = declaration ? declaration->type : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
@@ -4296,6 +4390,13 @@ static void codegen64_collect_switch_cases(
             return;
         case STMT_LABEL:
             codegen64_collect_switch_cases(statement->label_stmt, context);
+            return;
+        case STMT_TRY:
+            codegen64_collect_switch_cases(statement->try_body, context);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                codegen64_collect_switch_cases(handler->body, context);
+            }
             return;
         default:
             return;
@@ -4983,6 +5084,14 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             gen64_asm_stmt(mod, stmt);
             break;
 
+        case STMT_TRY:
+            gen64_cxx_try(mod, stmt);
+            break;
+
+        case STMT_THROW:
+            gen64_cxx_throw(mod, stmt);
+            break;
+
         default:
             break;
     }
@@ -5020,6 +5129,26 @@ static bool gen64_shift_local_offsets(Stmt* statement, int shift) {
             return gen64_shift_local_offsets(statement->default_stmt, shift);
         case STMT_LABEL:
             return gen64_shift_local_offsets(statement->label_stmt, shift);
+        case STMT_TRY:
+            if (statement->try_frame_offset < 0) {
+                int64_t shifted = (int64_t)statement->try_frame_offset - shift;
+                if (shifted < INT_MIN) {
+                    rcc_error(statement->loc,
+                              "function stack frame exceeds compiler limits");
+                    return false;
+                }
+                statement->try_frame_offset = (int)shifted;
+            }
+            if (!gen64_shift_local_offsets(statement->try_body, shift)) {
+                return false;
+            }
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!gen64_shift_local_offsets(handler->body, shift)) {
+                    return false;
+                }
+            }
+            return true;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR &&
                 !statement->decl->var_is_global &&

@@ -2995,6 +2995,384 @@ static bool lower_declaration(RccIrLowerContext* context,
     return true;
 }
 
+static RccIrType lower_cxx_exception_word_type(void) {
+    return rcc_ir_type_integer(
+        (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+}
+
+static uint64_t lower_cxx_exception_type_tag(const Type* type) {
+    if (type && type->kind == TYPE_PTR) return (uint64_t)TYPE_PTR;
+    if (type && type->kind == TYPE_ENUM) return (uint64_t)TYPE_ENUM;
+    return type ? (uint64_t)type->kind : (uint64_t)TYPE_VOID;
+}
+
+static RccIrLowerValue lower_cxx_runtime_call(
+    RccIrLowerContext* context, const char* callee, RccIrType result_type,
+    const RccIrValue* operands, size_t operand_count) {
+    RccIrInstruction* call;
+    if (!context || !callee || !callee[0]) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    call = lower_append(context, RCC_IR_CALL, result_type, operands,
+                        operand_count, NULL, 0u);
+    if (!call) return lower_invalid_value();
+    rcc_ir_set_callee(call, callee);
+    return lower_value(call->result, result_type,
+                       result_type.kind == RCC_IR_TYPE_INTEGER);
+}
+
+static bool lower_cxx_exception_leave(RccIrLowerContext* context,
+                                      RccIrLowerValue frame) {
+    RccIrValue operand;
+    if (!frame.valid) return false;
+    operand = frame.value;
+    (void)lower_cxx_runtime_call(context, "rin_cpp_exception_leave",
+                                 rcc_ir_type_void(), &operand, 1u);
+    return !context->unsupported;
+}
+
+static RccIrLowerValue lower_cxx_exception_type_compare(
+    RccIrLowerContext* context, RccIrLowerValue actual, uint64_t expected) {
+    RccIrLowerValue constant;
+    RccIrValue operands[2];
+    RccIrInstruction* compare;
+    if (!actual.valid || actual.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    constant = lower_integer_constant(context, actual.type, true, expected);
+    if (!constant.valid) return lower_invalid_value();
+    operands[0] = actual.value;
+    operands[1] = constant.value;
+    compare = lower_append(context, RCC_IR_ICMP,
+                           rcc_ir_type_integer(1u), operands, 2u,
+                           NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+    return lower_value(compare->result, rcc_ir_type_integer(1u), true);
+}
+
+static bool lower_cxx_catch_body(RccIrLowerContext* context,
+                                 const CxxCatch* handler,
+                                 RccIrLowerValue frame) {
+    const StmtList* item;
+    RccIrLowerLocal* local;
+    RccIrLowerValue value;
+    if (!context || !handler || !handler->body) return false;
+    if (handler->parameter) {
+        if (handler->body->kind != STMT_BLOCK ||
+            !handler->body->block_stmts ||
+            handler->body->block_stmts->stmt->kind != STMT_DECL ||
+            handler->body->block_stmts->stmt->decl != handler->parameter ||
+            !lower_statement(context, handler->body->block_stmts->stmt)) {
+            context->unsupported = true;
+            return false;
+        }
+        local = lower_find_local(context, handler->parameter);
+        value = lower_load_address(
+            context,
+            lower_byte_offset_address(
+                context, frame,
+                (uint64_t)(g_opts.target_arch == ARCH_X64 ? 72u : 28u)),
+            type_ulong);
+        value = lower_cast(context, value, handler->parameter->type);
+        if (!local || !value.valid ||
+            !lower_store_address(
+                context, lower_value(local->address, local->type, true),
+                value)) {
+            context->unsupported = true;
+            return false;
+        }
+        item = handler->body->block_stmts->next;
+        for (; item; item = item->next) {
+            if (!lower_statement(context, item->stmt)) return false;
+        }
+        return true;
+    }
+    return lower_statement(context, handler->body);
+}
+
+static bool lower_cxx_throw(RccIrLowerContext* context,
+                            const Stmt* statement) {
+    RccIrLowerValue value;
+    RccIrLowerValue word;
+    RccIrLowerValue tag;
+    RccIrValue operands[2];
+    if (!statement || !statement->throw_expr) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    value = lower_expression(context, statement->throw_expr);
+    word = lower_cast(context, value, type_ulong);
+    tag = lower_integer_constant(context, lower_cxx_exception_word_type(),
+                                 true, lower_cxx_exception_type_tag(
+                                     statement->throw_expr->type));
+    if (!word.valid || !tag.valid) return false;
+    operands[0] = word.value;
+    operands[1] = tag.value;
+    (void)lower_cxx_runtime_call(context, "rin_cpp_exception_throw",
+                                 rcc_ir_type_void(), operands, 2u);
+    if (context->unsupported ||
+        !lower_append(context, RCC_IR_UNREACHABLE, rcc_ir_type_void(),
+                      NULL, 0u, NULL, 0u)) return false;
+    context->terminated = true;
+    return true;
+}
+
+static bool lower_cxx_statement_falls_through(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return true;
+    switch (statement->kind) {
+        case STMT_RETURN:
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_THROW:
+            return false;
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (!lower_cxx_statement_falls_through(item->stmt)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_IF:
+            return !statement->if_else ||
+                lower_cxx_statement_falls_through(statement->if_then) ||
+                lower_cxx_statement_falls_through(statement->if_else);
+        case STMT_TRY:
+            if (lower_cxx_statement_falls_through(statement->try_body)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (lower_cxx_statement_falls_through(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return true;
+    }
+}
+
+static bool lower_cxx_try(RccIrLowerContext* context,
+                          const Stmt* statement) {
+    RccIrLowerValue frame;
+    RccIrLowerValue setjmp_result;
+    RccIrLowerValue condition;
+    RccIrInstruction* allocation;
+    RccIrBlock* body_block;
+    RccIrBlock* dispatch_block;
+    RccIrBlock* end_block;
+    RccIrBlock* unmatched_block;
+    RccIrBlock** handler_blocks;
+    bool end_reachable;
+    bool has_ellipsis = false;
+    size_t typed_handler_count;
+    size_t handler_count = 0u;
+    size_t index;
+    if (!context || !statement || !statement->try_body ||
+        !statement->try_catches || statement->try_frame_size <= 0) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (const CxxCatch* handler = statement->try_catches; handler;
+         handler = handler->next) ++handler_count;
+    for (const CxxCatch* handler = statement->try_catches; handler;
+         handler = handler->next) {
+        if (handler->is_ellipsis) has_ellipsis = true;
+    }
+    typed_handler_count = has_ellipsis ? handler_count - 1u : handler_count;
+    end_reachable = lower_cxx_statement_falls_through(statement->try_body);
+    for (const CxxCatch* handler = statement->try_catches; handler;
+         handler = handler->next) {
+        end_reachable = end_reachable ||
+            lower_cxx_statement_falls_through(handler->body);
+    }
+    handler_blocks = rcc_alloc(handler_count * sizeof(*handler_blocks));
+    allocation = lower_append(context, RCC_IR_ALLOCA,
+                              rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+    if (!allocation || !handler_blocks) {
+        rcc_free(handler_blocks);
+        context->unsupported = true;
+        return false;
+    }
+    rcc_ir_set_immediate(allocation, (uint64_t)statement->try_frame_size);
+    frame = lower_value(allocation->result, rcc_ir_type_pointer(0u), true);
+    {
+        RccIrValue operand = frame.value;
+        (void)lower_cxx_runtime_call(context, "rin_cpp_exception_install",
+                                     rcc_ir_type_void(), &operand, 1u);
+    }
+    {
+        RccIrValue operand = frame.value;
+        setjmp_result = lower_cxx_runtime_call(
+            context, "setjmp", lower_cxx_exception_word_type(), &operand, 1u);
+    }
+    body_block = rcc_ir_block_add(context->function, "try.body");
+    dispatch_block = rcc_ir_block_add(context->function, "try.dispatch");
+    end_block = end_reachable
+        ? rcc_ir_block_add(context->function, "try.end") : NULL;
+    unmatched_block = has_ellipsis
+        ? NULL : rcc_ir_block_add(context->function, "try.unmatched");
+    if (!setjmp_result.valid || !body_block || !dispatch_block ||
+        (end_reachable && !end_block) || (!has_ellipsis && !unmatched_block)) {
+        rcc_free(handler_blocks);
+        context->unsupported = true;
+        return false;
+    }
+    for (index = 0u; index < handler_count; ++index) {
+        handler_blocks[index] = rcc_ir_block_add(context->function,
+                                                 "try.handler");
+        if (!handler_blocks[index]) {
+            rcc_free(handler_blocks);
+            context->unsupported = true;
+            return false;
+        }
+    }
+    condition = lower_truth(context, setjmp_result);
+    {
+        RccIrBlockId targets[2] = {body_block->id, dispatch_block->id};
+        if (!condition.valid ||
+            !lower_append(context, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                          &condition.value, 1u, targets, 2u)) {
+            rcc_free(handler_blocks);
+            return false;
+        }
+    }
+    context->terminated = true;
+
+    context->current = body_block;
+    context->terminated = false;
+    if (!lower_statement(context, statement->try_body)) {
+        rcc_free(handler_blocks);
+        return false;
+    }
+    if (!context->terminated) {
+        if (!end_reachable || !lower_cxx_exception_leave(context, frame) ||
+            !lower_branch(context, end_block->id)) {
+            rcc_free(handler_blocks);
+            return false;
+        }
+    }
+
+    context->current = dispatch_block;
+    context->terminated = false;
+    index = 0u;
+    {
+        const CxxCatch* handler = statement->try_catches;
+        for (; index < typed_handler_count;
+             ++index, handler = handler->next) {
+            RccIrBlock* next_block;
+            bool final_typed = index + 1u >= typed_handler_count;
+            if (final_typed) {
+                next_block = has_ellipsis
+                    ? handler_blocks[typed_handler_count] : unmatched_block;
+            } else {
+                next_block = rcc_ir_block_add(context->function, "try.next");
+            }
+            if (!next_block) {
+                rcc_free(handler_blocks);
+                context->unsupported = true;
+                return false;
+            }
+            {
+                RccIrLowerValue actual = lower_load_address(
+                    context,
+                    lower_byte_offset_address(
+                        context, frame,
+                        (uint64_t)(g_opts.target_arch == ARCH_X64 ? 80u : 32u)),
+                    type_ulong);
+                condition = lower_cxx_exception_type_compare(
+                    context, actual,
+                    lower_cxx_exception_type_tag(handler->type));
+                if (!condition.valid ||
+                    !lower_conditional_branch(context, condition,
+                                              handler_blocks[index]->id,
+                                              next_block->id)) {
+                    rcc_free(handler_blocks);
+                    return false;
+                }
+            }
+            if (!final_typed) {
+                context->current = next_block;
+                context->terminated = false;
+            }
+        }
+        if (has_ellipsis && typed_handler_count == 0u) {
+            if (!lower_branch(context, handler_blocks[0]->id)) {
+                rcc_free(handler_blocks);
+                return false;
+            }
+        }
+    }
+
+    if (!has_ellipsis) {
+        context->current = unmatched_block;
+        context->terminated = false;
+        {
+            RccIrLowerValue value = lower_load_address(
+                context,
+                lower_byte_offset_address(
+                    context, frame,
+                    (uint64_t)(g_opts.target_arch == ARCH_X64 ? 72u : 28u)),
+                type_ulong);
+            RccIrLowerValue type = lower_load_address(
+                context,
+                lower_byte_offset_address(
+                    context, frame,
+                    (uint64_t)(g_opts.target_arch == ARCH_X64 ? 80u : 32u)),
+                type_ulong);
+            RccIrValue operands[2];
+            if (!value.valid || !type.valid) {
+                rcc_free(handler_blocks);
+                return false;
+            }
+            operands[0] = value.value;
+            operands[1] = type.value;
+            (void)lower_cxx_runtime_call(context, "rin_cpp_exception_throw",
+                                         rcc_ir_type_void(), operands, 2u);
+            if (context->unsupported ||
+                !lower_append(context, RCC_IR_UNREACHABLE, rcc_ir_type_void(),
+                              NULL, 0u, NULL, 0u)) {
+                rcc_free(handler_blocks);
+                return false;
+            }
+            context->terminated = true;
+        }
+    }
+
+    /* The parser requires a catch-all handler to be last, so every handler
+     * block is lowered independently after the dispatch chain above. */
+    index = 0u;
+    for (const CxxCatch* handler = statement->try_catches; handler;
+         handler = handler->next, ++index) {
+        context->current = handler_blocks[index];
+        context->terminated = false;
+        if (!lower_cxx_exception_leave(context, frame) ||
+            !lower_cxx_catch_body(context, handler, frame)) {
+            rcc_free(handler_blocks);
+            return false;
+        }
+        if (!context->terminated) {
+            if (!end_reachable || !lower_branch(context, end_block->id)) {
+                rcc_free(handler_blocks);
+                return false;
+            }
+        }
+    }
+    rcc_free(handler_blocks);
+    if (!end_reachable) {
+        context->terminated = true;
+        return true;
+    }
+    context->current = end_block;
+    context->terminated = false;
+    return true;
+}
+
 static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement) {
     if (!context || context->unsupported || !statement) {
@@ -3122,6 +3500,10 @@ static bool lower_statement(RccIrLowerContext* context,
         case STMT_CASE:
         case STMT_DEFAULT:
             return lower_switch_case(context, statement);
+        case STMT_TRY:
+            return lower_cxx_try(context, statement);
+        case STMT_THROW:
+            return lower_cxx_throw(context, statement);
         case STMT_GOTO:
         case STMT_LABEL:
         case STMT_ASM:
@@ -3397,6 +3779,7 @@ bool rcc_ir_verify_ast_subset(const AST* ast, size_t* lowered_functions,
     for (const DeclList* item = ast->decls; item; item = item->next) {
         RccIrModule* module = NULL;
         RccIrLowerStatus status;
+        char detail[512];
         if (!item->decl || item->decl->kind != DECL_FUNC ||
             !item->decl->func_body) {
             continue;
@@ -3404,10 +3787,16 @@ bool rcc_ir_verify_ast_subset(const AST* ast, size_t* lowered_functions,
         status = rcc_ir_lower_function(item->decl, &module, error,
                                        error_size);
         if (status == RCC_IR_LOWER_INVALID) {
+            snprintf(detail, sizeof(detail), "%s",
+                     error && error[0] ? error : "typed SSA validation failed");
             if (error && error_size != 0u && error[0] == '\0') {
                 snprintf(error, error_size,
                          "function '%s' failed typed SSA validation",
                          item->decl->name ? item->decl->name : "<anonymous>");
+            } else if (error && error_size != 0u) {
+                snprintf(error, error_size, "function '%s': %s",
+                         item->decl->name ? item->decl->name : "<anonymous>",
+                         detail);
             }
             return false;
         }

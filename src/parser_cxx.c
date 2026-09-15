@@ -4882,6 +4882,10 @@ static Stmt* parse_cxx_statement(void) {
     /* try-catch */
     if (match(TOK_TRY)) {
         SourceLoc loc = previous()->loc;
+        Stmt* try_body;
+        CxxCatch* catches = NULL;
+        CxxCatch** catch_tail = &catches;
+
         /* Parse try block */
         expect(TOK_LBRACE, "{");
         StmtList* stmts = NULL;
@@ -4890,44 +4894,67 @@ static Stmt* parse_cxx_statement(void) {
             if (s) stmtlist_append(&stmts, s);
         }
         expect(TOK_RBRACE, "}");
+        try_body = stmt_block(stmts, loc);
 
         /* Parse catch blocks */
         while (match(TOK_CATCH)) {
+            CxxCatch* handler = ast_arena_alloc(sizeof(*handler));
+            StmtList* handler_stmts = NULL;
+            SourceLoc handler_loc = previous()->loc;
+            Type* handler_type = NULL;
+            const char* handler_name = NULL;
+            bool is_ellipsis = false;
+
+            memset(handler, 0, sizeof(*handler));
             expect(TOK_LPAREN, "(");
             if (!check(TOK_ELLIPSIS)) {
-                parse_cxx_type_spec();
-                if (check(TOK_IDENT)) advance();
+                handler_type = parse_cxx_type_spec();
+                if (check(TOK_IDENT)) handler_name = advance()->value.str_val;
             } else {
                 advance();  /* ... */
+                is_ellipsis = true;
             }
             expect(TOK_RPAREN, ")");
 
             expect(TOK_LBRACE, "{");
             while (!check(TOK_RBRACE) && !at_end()) {
-                parse_cxx_statement();
+                Stmt* s = parse_cxx_statement();
+                if (s) stmtlist_append(&handler_stmts, s);
             }
             expect(TOK_RBRACE, "}");
+
+            /* Make the catch parameter a normal block declaration so lookup,
+             * stack layout, and template cloning all use the existing paths. */
+            if (handler_name && handler_type) {
+                handler->parameter = decl_var(handler_name, handler_type,
+                                               NULL, handler_loc);
+                {
+                    StmtList* parameter = ast_arena_alloc(sizeof(*parameter));
+                    parameter->stmt = stmt_decl(handler->parameter,
+                                                handler_loc);
+                    parameter->next = handler_stmts;
+                    handler_stmts = parameter;
+                }
+            }
+            handler->type = handler_type;
+            handler->name = handler_name;
+            handler->is_ellipsis = is_ellipsis;
+            handler->body = stmt_block(handler_stmts, handler_loc);
+            handler->next = NULL;
+            *catch_tail = handler;
+            catch_tail = &handler->next;
         }
 
-        /* There is no exception runtime/ABI in the current RinOS image
-         * contract.  Keep parsing the complete construct for recovery, but
-         * never turn it into a successful try block with silently discarded
-         * handlers. */
-        rcc_error(loc,
-                  "C++ try/catch requires exception tables and runtime ABI");
-        return NULL;
+        return stmt_try(try_body, catches, loc);
     }
 
     /* throw */
     if (match(TOK_THROW)) {
         SourceLoc loc = previous()->loc;
-        if (!check(TOK_SEMICOLON)) {
-            parse_cxx_expression();
-        }
+        Expr* expression = check(TOK_SEMICOLON) ? NULL
+                                               : parse_cxx_expression();
         expect(TOK_SEMICOLON, ";");
-        rcc_error(loc,
-                  "C++ throw requires exception tables and runtime ABI");
-        return NULL;
+        return stmt_throw(expression, loc);
     }
 
     /* Fall back to C statement parsing */

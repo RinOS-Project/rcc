@@ -80,7 +80,9 @@ BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
                               malloc memchr memcmp memcpy memset mkstemp perror printf \
                               qsort realloc remove rename snprintf strchr strcmp \
                               strcpy strlen strcat strncat strncmp strncpy strrchr strstr strtod \
-                              strtoull tolower vfprintf vsnprintf waitpid
+                              strtoull tolower vfprintf vsnprintf waitpid setjmp longjmp \
+                              rin_cpp_exception_install rin_cpp_exception_leave \
+                              rin_cpp_exception_throw
 BOOTSTRAP_RUNTIME_IMPORTS = $(foreach symbol,$(BOOTSTRAP_RUNTIME_FUNCTIONS),\
                               --import $(symbol)=rincrt.rll@function)
 
@@ -1939,20 +1941,55 @@ test-cxx-parser-recovery: $(RCXX_TARGET)
 
 test-cxx-exceptions: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-exceptions
-	@set +e; timeout 10s $(RCXX_TARGET) --target x86_64-unknown-rinos \
-		-std=c++20 -c -o $(TEST_OUT)/cxx-exceptions/rejected.ro \
-		tests/cxx_exceptions_rejected.cpp \
-		>$(TEST_OUT)/cxx-exceptions/rejected.log 2>&1; status=$$?; \
-		set -e; \
-		if [ $$status -eq 0 ]; then \
-			echo "C++ exception fixture unexpectedly compiled"; exit 1; \
-		fi; \
-		if [ $$status -eq 124 ] || [ $$status -eq 139 ]; then \
-			echo "C++ exception parser timed out or crashed"; exit 1; \
-		fi
-	grep -q "C++ try/catch requires exception tables and runtime ABI" \
-		$(TEST_OUT)/cxx-exceptions/rejected.log
-	@echo "RCC++ exception boundary diagnostic test completed"
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-exceptions/x86.s tests/cxx_exceptions_rejected.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-exceptions/x64.s tests/cxx_exceptions_rejected.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exceptions/x86.o \
+		$(TEST_OUT)/cxx-exceptions/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exceptions/x86-start.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-exceptions/x86 \
+		$(TEST_OUT)/cxx-exceptions/x86-start.o \
+		$(TEST_OUT)/cxx-exceptions/x86.o
+	$(TEST_OUT)/cxx-exceptions/x86
+	$(CC) -c -o $(TEST_OUT)/cxx-exceptions/x64.o \
+		$(TEST_OUT)/cxx-exceptions/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-exceptions/x64-start.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-exceptions/x64 \
+		$(TEST_OUT)/cxx-exceptions/x64-start.o \
+		$(TEST_OUT)/cxx-exceptions/x64.o
+	$(TEST_OUT)/cxx-exceptions/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-exceptions/x86-o2.s tests/cxx_exceptions_rejected.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exceptions/x86-o2.o \
+		$(TEST_OUT)/cxx-exceptions/x86-o2.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-exceptions/x86-o2 \
+		$(TEST_OUT)/cxx-exceptions/x86-start.o \
+		$(TEST_OUT)/cxx-exceptions/x86-o2.o
+	$(TEST_OUT)/cxx-exceptions/x86-o2
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-exceptions/x64-o2.s tests/cxx_exceptions_rejected.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-exceptions/x64-o2.o \
+		$(TEST_OUT)/cxx-exceptions/x64-o2.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-exceptions/x64-o2 \
+		$(TEST_OUT)/cxx-exceptions/x64-start.o \
+		$(TEST_OUT)/cxx-exceptions/x64-o2.o
+	$(TEST_OUT)/cxx-exceptions/x64-o2
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-exceptions/x86-verified.ro \
+		tests/cxx_exceptions_rejected.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-exceptions/x64-verified.ro \
+		tests/cxx_exceptions_rejected.cpp
+	@echo "RCC++ exception propagation and nested handler tests completed"
 
 test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/tool-relative/cwd

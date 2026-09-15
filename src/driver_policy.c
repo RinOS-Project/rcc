@@ -384,6 +384,15 @@ static bool driver_validate_stmt(Stmt* statement)
                    driver_validate_stmt(statement->case_stmt);
         case STMT_DEFAULT:
             return driver_validate_stmt(statement->default_stmt);
+        case STMT_TRY:
+            if (!driver_validate_stmt(statement->try_body)) return false;
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!driver_validate_stmt(handler->body)) return false;
+            }
+            return true;
+        case STMT_THROW:
+            return driver_validate_expr(statement->throw_expr);
         case STMT_RETURN:
             return driver_validate_expr(statement->return_val);
         case STMT_LABEL:

@@ -1251,6 +1251,13 @@ static void codegen_emit_static_locals(Module* mod, Stmt* statement) {
         case STMT_LABEL:
             codegen_emit_static_locals(mod, statement->label_stmt);
             break;
+        case STMT_TRY:
+            codegen_emit_static_locals(mod, statement->try_body);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                codegen_emit_static_locals(mod, handler->body);
+            }
+            break;
         case STMT_DECL:
             if (statement->decl) {
                 if (statement->decl->var_is_static_local) {
@@ -1817,6 +1824,15 @@ typedef struct LabelDef {
 static LabelRef* label_refs = NULL;
 static LabelDef* label_defs = NULL;
 
+static const char* codegen_label_symbol(int label) {
+    char name[64];
+    int written = snprintf(name, sizeof(name), "__rcc_label_%d", label);
+    if (written < 0 || (size_t)written >= sizeof(name)) {
+        rcc_fatal("internal code label name exceeds compiler limits");
+    }
+    return rcc_intern(name);
+}
+
 /* Function call references for internal function patching */
 typedef struct FuncCallRef {
     const char* func_name;
@@ -2191,6 +2207,8 @@ static void emit_label(Module* mod, int label) {
     def->offset = code_offset(mod);
     def->next = label_defs;
     label_defs = def;
+    module_add_symbol(mod, codegen_label_symbol(label), def->offset, true,
+                      MODULE_SYMBOL_CODE, false);
 }
 
 static void emit_jmp_label(Module* mod, int label) {
@@ -6716,6 +6734,18 @@ int codegen_required_local_bytes(Stmt* statement) {
             return codegen_required_local_bytes(statement->default_stmt);
         case STMT_LABEL:
             return codegen_required_local_bytes(statement->label_stmt);
+        case STMT_TRY: {
+            int required = statement->try_frame_offset < 0
+                ? -(statement->try_frame_offset) : statement->try_frame_size;
+            required = codegen_max_local_bytes(
+                required, codegen_required_local_bytes(statement->try_body));
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                required = codegen_max_local_bytes(
+                    required, codegen_required_local_bytes(handler->body));
+            }
+            return required;
+        }
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR &&
                 !statement->decl->var_is_global &&
@@ -6744,6 +6774,12 @@ static bool codegen_stmt_owns_vla(Stmt* statement) {
         Stmt* init = statement->for_init;
         return init && init->kind == STMT_DECL && init->decl &&
                init->decl->kind == DECL_VAR && init->decl->var_is_vla;
+    } else if (statement->kind == STMT_TRY) {
+        if (codegen_stmt_owns_vla(statement->try_body)) return true;
+        for (CxxCatch* handler = statement->try_catches; handler;
+             handler = handler->next) {
+            if (codegen_stmt_owns_vla(handler->body)) return true;
+        }
     }
     return false;
 }
@@ -7014,6 +7050,15 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
         case STMT_LABEL:
             codegen_assign_compound_stmt(statement->label_stmt, bytes,
                                          stack_alignment);
+            break;
+        case STMT_TRY:
+            codegen_assign_compound_stmt(statement->try_body, bytes,
+                                         stack_alignment);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                codegen_assign_compound_stmt(handler->body, bytes,
+                                             stack_alignment);
+            }
             break;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR) {
@@ -7371,6 +7416,104 @@ static void gen_scoped_stmt(Module* mod, Stmt* statement) {
     discard_cleanups_until(marker);
 }
 
+static void gen_cxx_exception_frame_address32(Module* mod, int offset) {
+    emit_mov_reg_reg(mod, EAX, EBP);
+    emit_add_reg_imm(mod, EAX, offset);
+}
+
+static void gen_cxx_exception_call32(Module* mod, const char* name) {
+    uint32_t call_offset;
+    emit_call_rel32(mod, 0u);
+    call_offset = code_offset(mod) - 4u;
+    add_func_call_ref(name, call_offset);
+}
+
+static uint32_t gen_cxx_exception_type_tag32(const Type* type) {
+    if (type && type->kind == TYPE_PTR) return (uint32_t)TYPE_PTR;
+    if (type && type->kind == TYPE_ENUM) return (uint32_t)TYPE_ENUM;
+    return type ? (uint32_t)type->kind : (uint32_t)TYPE_VOID;
+}
+
+static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
+    Type* type = stmt->throw_expr ? stmt->throw_expr->type : NULL;
+    gen_expr(mod, stmt->throw_expr);
+    emit_mov_reg_reg(mod, EDX, EAX); /* preserve value while loading tag */
+    emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));
+    emit_push_reg(mod, EAX); /* type tag */
+    emit_push_reg(mod, EDX); /* value; cdecl argument 1 is at the top */
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_throw");
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
+static void gen_cxx_try32(Module* mod, Stmt* stmt) {
+    const int value_offset = 28;
+    const int type_offset = 32;
+    int dispatch_label = new_label();
+    int end_label = new_label();
+
+    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_install");
+    emit_add_reg_imm(mod, ESP, 4);
+
+    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "setjmp");
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_test_reg_reg(mod, EAX, EAX);
+    emit_jcc_label(mod, CC_NE, dispatch_label);
+
+    gen_scoped_stmt(mod, stmt->try_body);
+    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_leave");
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_jmp_label(mod, end_label);
+
+    emit_label(mod, dispatch_label);
+    for (CxxCatch* handler = stmt->try_catches; handler;
+         handler = handler->next) {
+        int next_handler = new_label();
+        if (!handler->is_ellipsis) {
+            gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+            emit_mov_reg_mem(mod, EAX, EAX, type_offset);
+            emit_cmp_reg_imm(mod, EAX,
+                             (int32_t)gen_cxx_exception_type_tag32(
+                                 handler->type));
+            emit_jcc_label(mod, CC_NE, next_handler);
+        }
+        if (handler->parameter) {
+            gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+            emit_mov_reg_mem(mod, EDX, EAX, value_offset);
+            emit_store_typed32(mod, EBP, handler->parameter->var_offset,
+                               EDX, handler->parameter->type);
+        }
+        /* A handler owns the transfer out of the protected region.  Remove
+         * this frame before its body so return and rethrow cannot leave a
+         * dead stack frame at the top of the runtime chain. */
+        gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+        emit_push_reg(mod, EAX);
+        gen_cxx_exception_call32(mod, "rin_cpp_exception_leave");
+        emit_add_reg_imm(mod, ESP, 4);
+        gen_scoped_stmt(mod, handler->body);
+        emit_jmp_label(mod, end_label);
+        if (!handler->is_ellipsis) emit_label(mod, next_handler);
+    }
+
+    /* The runtime has already removed this frame.  Re-submit an unmatched
+     * payload so an enclosing try or the process-level handler can receive it. */
+    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+    emit_mov_reg_mem(mod, EAX, EAX, value_offset);
+    emit_mov_reg_reg(mod, EDX, EAX); /* preserve value while loading tag */
+    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
+    emit_mov_reg_mem(mod, EAX, EAX, type_offset);
+    emit_push_reg(mod, EAX); /* type tag */
+    emit_push_reg(mod, EDX); /* value; cdecl argument 1 is at the top */
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_throw");
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_label(mod, end_label);
+}
+
 static bool gen_global_initializer32(Module* mod, Decl* declaration) {
     Type* type = declaration ? declaration->type : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
@@ -7571,6 +7714,13 @@ static void codegen_collect_switch_cases(Stmt* statement,
             return;
         case STMT_LABEL:
             codegen_collect_switch_cases(statement->label_stmt, context);
+            return;
+        case STMT_TRY:
+            codegen_collect_switch_cases(statement->try_body, context);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                codegen_collect_switch_cases(handler->body, context);
+            }
             return;
         default:
             return;
@@ -7986,6 +8136,14 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_ASM:
             gen_asm_stmt(mod, stmt);
+            break;
+
+        case STMT_TRY:
+            gen_cxx_try32(mod, stmt);
+            break;
+
+        case STMT_THROW:
+            gen_cxx_throw32(mod, stmt);
             break;
 
         default:
