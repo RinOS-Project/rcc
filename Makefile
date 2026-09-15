@@ -153,7 +153,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
 .PHONY: test-cxx-constexpr-pointer
-.PHONY: test-cxx-auto-return test-cxx-decltype
+.PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1318,6 +1318,34 @@ test-cxx-decltype: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-decltype/invalid.log 2>&1; then \
 		echo "unsupported decltype expression unexpectedly compiled"; exit 1; \
 	fi
+
+test-cxx-decltype-auto: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype-auto)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-decltype-auto/x86.s tests/cxx_decltype_auto.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-decltype-auto/x86.o \
+		$(TEST_OUT)/cxx-decltype-auto/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-decltype-auto/x86 \
+		tests/cxx_decltype_auto_run_test.c \
+		$(TEST_OUT)/cxx-decltype-auto/x86.o
+	$(TEST_OUT)/cxx-decltype-auto/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-decltype-auto/x64.s tests/cxx_decltype_auto.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-decltype-auto/x64.o \
+		$(TEST_OUT)/cxx-decltype-auto/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-decltype-auto/x64 \
+		tests/cxx_decltype_auto_run_test.c \
+		$(TEST_OUT)/cxx-decltype-auto/x64.o
+	$(TEST_OUT)/cxx-decltype-auto/x64
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-decltype-auto/invalid.ro \
+		tests/cxx_decltype_auto_invalid.cpp \
+		>$(TEST_OUT)/cxx-decltype-auto/invalid.log 2>&1; then \
+		echo "decltype(auto) declaration unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "auto return type requires a function definition" \
+		$(TEST_OUT)/cxx-decltype-auto/invalid.log
+	@echo "C++ decltype(auto) tests completed"
 	grep -q "unsupported operator in decltype expression" \
 		$(TEST_OUT)/cxx-decltype/invalid.log
 	@echo "C++ decltype tests completed"

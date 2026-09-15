@@ -3797,6 +3797,13 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 gen_inline_method_address(mod, expr)) {
                 break;
             }
+            if (expr->type && expr->type->kind == TYPE_PTR &&
+                expr->type->is_reference) {
+                /* Ordinary reference-returning calls already return the
+                 * referred object's address in the pointer ABI. */
+                gen_expr(mod, expr);
+                break;
+            }
             if (!expr->type ||
                 (expr->type->kind != TYPE_STRUCT &&
                  expr->type->kind != TYPE_UNION) ||
@@ -8350,7 +8357,13 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->return_val) {
-                if (gen_is_floating(current_function_return_type)) {
+                if (current_function_return_type &&
+                    current_function_return_type->kind == TYPE_PTR &&
+                    current_function_return_type->is_reference) {
+                    /* C++ references use the pointer ABI.  A reference
+                     * return carries the lvalue address, not its value. */
+                    gen_lvalue(mod, stmt->return_val);
+                } else if (gen_is_floating(current_function_return_type)) {
                     gen_expr_as_type(mod, stmt->return_val,
                                      current_function_return_type);
                 } else if (current_function_return_type &&

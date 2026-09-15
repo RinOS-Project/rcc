@@ -937,6 +937,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_constexpr = false;
     d->func_is_consteval = false;
     d->func_is_auto_return = false;
+    d->func_is_decltype_auto_return = false;
     d->func_overload_next = NULL;
     return d;
 }

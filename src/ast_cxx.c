@@ -1596,6 +1596,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_constexpr = definition->func_is_constexpr;
         instance->func_is_consteval = definition->func_is_consteval;
         instance->func_is_auto_return = definition->func_is_auto_return;
+        instance->func_is_decltype_auto_return =
+            definition->func_is_decltype_auto_return;
         instance->func_is_template_instance = true;
         instance->func_has_cxx_linkage = true;
         instance->link_name = rcc_intern(cxx_mangle_function_template(

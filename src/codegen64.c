@@ -2191,6 +2191,13 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 gen64_inline_method_address(mod, expr)) {
                 break;
             }
+            if (expr->type && expr->type->kind == TYPE_PTR &&
+                expr->type->is_reference) {
+                /* Ordinary reference-returning calls already return the
+                 * referred object's address in the pointer ABI. */
+                gen64_expr(mod, expr);
+                break;
+            }
             if (!expr->type ||
                 (expr->type->kind != TYPE_STRUCT &&
                  expr->type->kind != TYPE_UNION) ||
@@ -5213,6 +5220,12 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_RETURN:
             if (stmt->return_val) {
                 if (current_function_return_type64 &&
+                    current_function_return_type64->kind == TYPE_PTR &&
+                    current_function_return_type64->is_reference) {
+                    /* C++ references use the pointer ABI.  A reference
+                     * return carries the lvalue address, not its value. */
+                    gen64_lvalue(mod, stmt->return_val);
+                } else if (current_function_return_type64 &&
                     (current_function_return_type64->kind == TYPE_STRUCT ||
                      current_function_return_type64->kind == TYPE_UNION)) {
                     int size = current_function_return_type64->size;

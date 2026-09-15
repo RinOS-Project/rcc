@@ -222,6 +222,21 @@ static bool cxx_constexpr_starts_function(void) {
     return false;
 }
 
+static bool cxx_decltype_auto_starts_function(void) {
+    Token* token = parser.cur;
+    if (!token || token->type != TOK_DECLTYPE) return false;
+    token = token->next;
+    if (!token || token->type != TOK_LPAREN) return false;
+    token = token->next;
+    if (!token || token->type != TOK_AUTO) return false;
+    token = token->next;
+    if (!token || token->type != TOK_RPAREN) return false;
+    token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    token = token->next;
+    return token && token->type == TOK_LPAREN;
+}
+
 /* ═══════════════════════════════════════
  * C++ Scope Resolution
  * ═══════════════════════════════════════ */
@@ -2614,10 +2629,11 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
             add_namespace_statement(ast, ns, statement);
-        } else if (check(TOK_AUTO) && parser.cur->next &&
+        } else if ((check(TOK_AUTO) && parser.cur->next &&
                    parser.cur->next->type == TOK_IDENT &&
                    parser.cur->next->next &&
-                   parser.cur->next->next->type == TOK_LPAREN) {
+                   parser.cur->next->next->type == TOK_LPAREN) ||
+                   cxx_decltype_auto_starts_function()) {
             bool is_constexpr = false;
             bool is_noexcept = false;
             bool is_consteval = false;
@@ -2947,6 +2963,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     Stmt* body = NULL;
     bool is_inline = false;
     bool is_auto_return = false;
+    bool is_decltype_auto_return = false;
 
     *is_constexpr = false;
     *is_noexcept = false;
@@ -2967,6 +2984,21 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         /* The final return type is resolved after the body has been parsed
          * and its expressions have entered the function scope. */
         return_type = type_int;
+    } else if (check(TOK_DECLTYPE) && parser.cur->next &&
+               parser.cur->next->type == TOK_LPAREN &&
+               parser.cur->next->next &&
+               parser.cur->next->next->type == TOK_AUTO &&
+               parser.cur->next->next->next &&
+               parser.cur->next->next->next->type == TOK_RPAREN) {
+        advance();
+        advance();
+        advance();
+        advance();
+        is_auto_return = true;
+        is_decltype_auto_return = true;
+        /* decltype(auto) is deduced after the body has been semantically
+         * analyzed.  The placeholder is never emitted as a real type. */
+        return_type = type_int;
     } else {
         return_type = parse_cxx_type_spec();
     }
@@ -2978,6 +3010,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     if (is_auto_return && match(TOK_ARROW)) {
         return_type = parse_cxx_type_spec();
         is_auto_return = false;
+        is_decltype_auto_return = false;
     }
     if (match(TOK_NOEXCEPT)) {
         *is_noexcept = true;
@@ -3015,6 +3048,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     function->decl->func_is_constexpr = *is_constexpr;
     function->decl->func_is_consteval = *is_consteval;
     function->decl->func_is_auto_return = is_auto_return;
+    function->decl->func_is_decltype_auto_return = is_decltype_auto_return;
     return function->decl;
 }
 
@@ -3621,6 +3655,8 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->decl->func_is_cxx_constructor = copy->is_constructor;
     copy->decl->func_is_cxx_destructor = copy->is_destructor;
     copy->decl->func_is_auto_return = method->decl->func_is_auto_return;
+    copy->decl->func_is_decltype_auto_return =
+        method->decl->func_is_decltype_auto_return;
     copy->vtable_index = method->vtable_index;
     copy->decl->func_body = cxx_template_clone_stmt_with_values(
         tmpl, method->decl->func_body, arguments, argument_count,
@@ -5523,14 +5559,45 @@ static void parse_cxx_language_linkage(AST* ast) {
     if (match(TOK_LBRACE)) {
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
-            add_cxx_declaration(ast, parse_cxx_statement(),
-                                c_language_linkage);
+            if ((check(TOK_AUTO) && parser.cur->next &&
+                 parser.cur->next->type == TOK_IDENT &&
+                 parser.cur->next->next &&
+                 parser.cur->next->next->type == TOK_LPAREN) ||
+                cxx_decltype_auto_starts_function()) {
+                bool is_constexpr = false;
+                bool is_noexcept = false;
+                bool is_consteval = false;
+                Decl* declaration = parse_cxx_function_declaration(
+                    true, &is_constexpr, &is_noexcept, &is_consteval);
+                if (declaration) {
+                    set_cxx_link_name(declaration, NULL, c_language_linkage);
+                    ast_add_decl(ast, declaration);
+                }
+            } else {
+                add_cxx_declaration(ast, parse_cxx_statement(),
+                                    c_language_linkage);
+            }
             if (parser.cur == start && !at_end()) advance();
         }
         expect(TOK_RBRACE, "}");
         return;
     }
-    add_cxx_declaration(ast, parse_cxx_statement(), c_language_linkage);
+    if ((check(TOK_AUTO) && parser.cur->next &&
+         parser.cur->next->type == TOK_IDENT && parser.cur->next->next &&
+         parser.cur->next->next->type == TOK_LPAREN) ||
+        cxx_decltype_auto_starts_function()) {
+        bool is_constexpr = false;
+        bool is_noexcept = false;
+        bool is_consteval = false;
+        Decl* declaration = parse_cxx_function_declaration(
+            true, &is_constexpr, &is_noexcept, &is_consteval);
+        if (declaration) {
+            set_cxx_link_name(declaration, NULL, c_language_linkage);
+            ast_add_decl(ast, declaration);
+        }
+    } else {
+        add_cxx_declaration(ast, parse_cxx_statement(), c_language_linkage);
+    }
 }
 
 /* ═══════════════════════════════════════
@@ -5574,10 +5641,11 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             if (statement && statement->kind == STMT_DECL) {
                 add_cxx_declaration(ast, statement, false);
             }
-        } else if (check(TOK_AUTO) && parser.cur->next &&
+        } else if ((check(TOK_AUTO) && parser.cur->next &&
                    parser.cur->next->type == TOK_IDENT &&
                    parser.cur->next->next &&
-                   parser.cur->next->next->type == TOK_LPAREN) {
+                   parser.cur->next->next->type == TOK_LPAREN) ||
+                   cxx_decltype_auto_starts_function()) {
             bool is_constexpr = false;
             bool is_noexcept = false;
             bool is_consteval = false;
