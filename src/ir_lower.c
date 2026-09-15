@@ -2936,6 +2936,7 @@ static bool lower_declaration(RccIrLowerContext* context,
         declaration->var_is_global || declaration->var_is_thread_local ||
         declaration->storage == STORAGE_EXTERN ||
         declaration->storage == STORAGE_STATIC || declaration->var_cleanup ||
+        declaration->var_cleanups ||
         ((is_array || is_struct || is_union)
              ? (declaration->type->size <= 0 ||
                 declaration->type->is_reference ||

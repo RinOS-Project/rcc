@@ -454,6 +454,9 @@ struct Expr {
             TypeField* call_delete_array_cleanup_field;
             int64_t call_delete_cleanup_invalid;
             int64_t call_delete_array_cleanup_invalid;
+            /* Complete object type for recursively destroying member
+             * subobjects when no single top-level destructor is available. */
+            Type* call_delete_object_type;
         };
 
         /* EXPR_INDEX */
@@ -781,6 +784,7 @@ struct Decl {
             bool var_is_constexpr;  /* C++ constexpr variable declaration. */
             bool var_is_inline;     /* C++17 inline variable definition. */
             Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
+            ExprList* var_cleanups;  /* Validated object/member cleanup calls. */
         };
 
         /* DECL_FUNC */

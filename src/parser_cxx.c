@@ -650,6 +650,7 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
     do {
         const char* field = NULL;
         Expr* value = NULL;
+        ExprList* arguments = NULL;
         bool current_supported = true;
         CxxConstructorInitializer* item;
         if (check(TOK_IDENT) || check(TOK_SCOPE)) {
@@ -659,11 +660,14 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
             return result;
         }
         if (match(TOK_LPAREN)) {
-            if (!check(TOK_RPAREN)) value = parse_cxx_expression();
-            expect(TOK_RPAREN, ")");
-            if (!value || value->kind == EXPR_COMMA) {
-                current_supported = false;
+            if (!check(TOK_RPAREN)) {
+                do {
+                    exprlist_append(&arguments,
+                                    parse_assignment_expression());
+                } while (match(TOK_COMMA));
+                value = arguments ? arguments->expr : NULL;
             }
+            expect(TOK_RPAREN, ")");
         } else if (check(TOK_LBRACE)) {
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
             current_supported = false;
@@ -674,6 +678,8 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         item = ast_arena_alloc(sizeof(*item));
         item->field = field;
         item->value = value;
+        item->arguments = arguments;
+        item->constructor = NULL;
         item->next = NULL;
         *tail = item;
         tail = &item->next;
@@ -743,9 +749,32 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             Type* parameter_value_type;
             if (!initializer->field ||
                 strcmp(initializer->field, field->name) != 0 ||
-                !initializer->value) {
+                (!initializer->value && !initializer->arguments &&
+                 !(field->type && field->type->cxx_class))) {
                 supported = false;
                 break;
+            }
+            /* A class-valued member initializer is resolved by semantic
+             * overload selection after all class declarations are in the
+             * symbol table.  The parser can nevertheless preserve the
+             * one-to-one parameter shape needed by this storage lowering. */
+            if (field->type && field->type->cxx_class) {
+                if (arity != 0u) {
+                    ExprList* argument = initializer->arguments;
+                    if (!parameter || !argument || argument->next ||
+                        !argument->expr ||
+                        argument->expr->kind != EXPR_IDENT ||
+                        !parameter->name ||
+                        strcmp(argument->expr->ident_name,
+                               parameter->name) != 0) {
+                        supported = false;
+                        break;
+                    }
+                    parameter = parameter->next;
+                }
+                field = field->next;
+                initializer = initializer->next;
+                continue;
             }
             if (arity == 0u) {
                 int64_t constant_value = 0;
@@ -3985,6 +4014,16 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             initializer_copy->value = cxx_template_clone_expr_with_values(
                 tmpl, initializer->value, arguments, argument_count,
                 value_args, value_present);
+            initializer_copy->arguments = NULL;
+            for (ExprList* argument = initializer->arguments; argument;
+                 argument = argument->next) {
+                exprlist_append(
+                    &initializer_copy->arguments,
+                    cxx_template_clone_expr_with_values(
+                        tmpl, argument->expr, arguments, argument_count,
+                        value_args, value_present));
+            }
+            initializer_copy->constructor = NULL;
             initializer_copy->next = NULL;
             *initializer_tail = initializer_copy;
             initializer_tail = &initializer_copy->next;

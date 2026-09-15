@@ -587,6 +587,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_delete_array_cleanup_field = NULL;
     e->call_delete_cleanup_invalid = 0;
     e->call_delete_array_cleanup_invalid = 0;
+    e->call_delete_object_type = NULL;
     e->type = NULL;
     return e;
 }
@@ -917,6 +918,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_is_constexpr = false;
     d->var_is_inline = false;
     d->var_cleanup = NULL;
+    d->var_cleanups = NULL;
     return d;
 }
 

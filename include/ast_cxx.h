@@ -37,6 +37,10 @@ typedef enum {
 struct CxxConstructorInitializer {
     const char* field;
     Expr* value;
+    /* Parenthesized mem-initializers retain their complete argument list.
+     * `value` remains the first argument for the scalar aggregate verifier. */
+    ExprList* arguments;
+    CxxConstructorInfo* constructor;
     CxxConstructorInitializer* next;
 };
 

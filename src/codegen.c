@@ -1456,6 +1456,12 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         if (declaration->var_cleanup) {
             codegen_defer_global_finalizer(mod, declaration->var_cleanup);
         }
+        for (ExprList* item = declaration->var_cleanups; item;
+             item = item->next) {
+            if (item->expr) {
+                codegen_defer_global_finalizer(mod, item->expr);
+            }
+        }
         codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
                                    declaration->type);
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
@@ -4992,6 +4998,40 @@ static void gen_cxx_call_constructor32(Module* mod,
     emit_add_reg_imm(mod, ESP, 4);
 }
 
+/* A body-less constructor is lowered directly from its member-initializer
+ * list.  Its initializer expressions still name the source constructor
+ * parameters, but those parameters do not have a normal function frame in
+ * this lowering path.  Bind those names to the actual constructor arguments
+ * before emitting the nested initialization so heap and automatic objects
+ * share the same value flow. */
+static Expr* gen_cxx_bind_constructor_argument32(
+    CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
+    TypeParam* parameter = constructor ? constructor->parameters : NULL;
+    ExprList* argument = arguments;
+    if (!expression || expression->kind != EXPR_IDENT) return expression;
+    while (parameter && argument) {
+        if (parameter->name && expression->ident_name &&
+            strcmp(parameter->name, expression->ident_name) == 0) {
+            return argument->expr;
+        }
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    return expression;
+}
+
+static ExprList* gen_cxx_bind_constructor_arguments32(
+    CxxConstructorInfo* constructor, ExprList* member_arguments,
+    ExprList* arguments) {
+    ExprList* bound = NULL;
+    for (ExprList* member = member_arguments; member; member = member->next) {
+        exprlist_append(&bound,
+                        gen_cxx_bind_constructor_argument32(
+                            constructor, member->expr, arguments));
+    }
+    return bound;
+}
+
 static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
                                          ExprList* arguments) {
@@ -5010,6 +5050,55 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
         return;
     }
     gen_cxx_zero_object32(mod, object_type, address_reg);
+    if (constructor->initializers) {
+        for (initializer = constructor->initializers; initializer;
+             initializer = initializer->next) {
+            field = gen_cxx_constructor_field32(
+                object_type, initializer->field);
+            if (!field || (!initializer->value && !initializer->arguments)) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ member initializer is incomplete");
+                return;
+            }
+            if (field->type && field->type->cxx_class) {
+                if (!initializer->constructor) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "validated C++ member constructor is missing");
+                    return;
+                }
+                emit_push_reg(mod, address_reg);
+                emit_add_reg_imm(mod, address_reg,
+                                 (uint32_t)field->offset);
+                ExprList* bound_arguments =
+                    gen_cxx_bind_constructor_arguments32(
+                        constructor, initializer->arguments, arguments);
+                gen_cxx_initialize_object32(
+                    mod, field->type, initializer->constructor,
+                    bound_arguments);
+                emit_pop_reg(mod, address_reg);
+            } else {
+                Expr* value = gen_cxx_bind_constructor_argument32(
+                    constructor, initializer->value, arguments);
+                if (!value || (initializer->arguments &&
+                               initializer->arguments->next)) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "scalar member initializer has unsupported arity");
+                    return;
+                }
+                emit_push_reg(mod, address_reg);
+                gen_expr_as_type(mod, value, field->type);
+                emit_pop_reg(mod, address_reg);
+                if (type_is_integer(field->type) ||
+                    field->type->kind == TYPE_ENUM) {
+                    emit_convert_integer_value(mod, EAX, value->type,
+                                               field->type);
+                }
+                emit_store_typed32(mod, address_reg, field->offset,
+                                   EAX, field->type);
+            }
+        }
+        return;
+    }
     if (constructor->parameter_count == 0) {
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {
@@ -5180,6 +5269,109 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
     emit_add_reg_imm(mod, ESP, 12);
 }
 
+static void gen_cxx_destroy_complete32(Module* mod, Type* object_type);
+
+/* Destroy direct class members in declaration order as represented by the
+ * cleanup stack: the caller supplies the complete object address in EAX and
+ * each member is destroyed after the enclosing object's destructor. */
+static void gen_cxx_destroy_members32(Module* mod, Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    TypeField** fields = NULL;
+    int field_count = 0;
+    int field_index = 0;
+    if (!cls) return;
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        if (!parameter->is_static && parameter->type &&
+            parameter->type->cxx_class) {
+            ++field_count;
+        }
+    }
+    if (field_count) fields = rcc_alloc(
+        sizeof(*fields) * (size_t)field_count);
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        if (!parameter->is_static && parameter->type &&
+            parameter->type->cxx_class) {
+            TypeField* field = gen_cxx_constructor_field32(
+                object_type, parameter->name);
+            if (field) fields[field_index++] = field;
+        }
+    }
+    emit_push_reg(mod, EAX);
+    for (int index = field_index - 1; index >= 0; --index) {
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        if (fields[index]->offset) {
+            emit_add_reg_imm(mod, ECX, (uint32_t)fields[index]->offset);
+        }
+        emit_mov_reg_reg(mod, EAX, ECX);
+        gen_cxx_destroy_complete32(mod, fields[index]->type);
+    }
+    emit_pop_reg(mod, EAX);
+    if (fields) rcc_free(fields);
+}
+
+static void gen_cxx_destroy_complete32(Module* mod, Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!object_type || !cls) return;
+    emit_push_reg(mod, EAX);
+    if (destructor && destructor->func_body && destructor->link_name) {
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        emit_push_reg(mod, ECX);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref(decl_link_name(destructor), call_offset);
+        }
+        emit_add_reg_imm(mod, ESP, 4);
+    } else if (object_type->cleanup_function &&
+               object_type->cleanup_field) {
+        int skip_cleanup = new_label();
+        TypeField* field = object_type->cleanup_field;
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        if (field->type && field->type->size == 8) {
+            uint64_t invalid = (uint64_t)object_type->cleanup_invalid;
+            emit_mov_reg_mem(mod, EAX, ECX, field->offset);
+            emit_mov_reg_mem(mod, EDX, ECX, field->offset + 4);
+            emit_cmp_reg_imm(mod, EDX,
+                             (int32_t)(uint32_t)(invalid >> 32));
+            emit_jcc_label(mod, CC_NE, skip_cleanup);
+            emit_cmp_reg_imm(mod, EAX, (int32_t)(uint32_t)invalid);
+            emit_jcc_label(mod, CC_E, skip_cleanup);
+            emit_push_reg(mod, EDX);
+            emit_push_reg(mod, EAX);
+            emit_byte(mod, 0xE8);
+            {
+                uint32_t call_offset = code_offset(mod);
+                emit_dword(mod, 0u);
+                add_func_call_ref(object_type->cleanup_function, call_offset);
+            }
+            emit_add_reg_imm(mod, ESP, 8);
+        } else {
+            emit_load_typed32(mod, EAX, ECX, field->offset, field->type);
+            emit_cmp_reg_imm(mod, EAX,
+                             (int32_t)object_type->cleanup_invalid);
+            emit_jcc_label(mod, CC_E, skip_cleanup);
+            emit_push_reg(mod, EAX);
+            emit_byte(mod, 0xE8);
+            {
+                uint32_t call_offset = code_offset(mod);
+                emit_dword(mod, 0u);
+                add_func_call_ref(object_type->cleanup_function,
+                                  call_offset);
+            }
+            emit_add_reg_imm(mod, ESP, 4);
+        }
+        emit_label(mod, skip_cleanup);
+    }
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    gen_cxx_destroy_members32(mod, object_type);
+    emit_pop_reg(mod, EAX);
+}
+
 static void gen_cxx_new32(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
@@ -5291,13 +5483,15 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
         expr->call_args->expr->type->kind != TYPE_PTR) {
         rcc_fatal("validated C++ array delete has incomplete operand metadata");
     }
-    object_type = expr->call_args->expr->type->base;
+    object_type = expr->call_delete_object_type
+        ? expr->call_delete_object_type : expr->call_args->expr->type->base;
     destructor = expr->call_delete_array_destructor;
     cleanup = expr->call_delete_array_cleanup;
     field = expr->call_delete_array_cleanup_field;
     cookie_size = gen_cxx_array_cookie_size();
     if (!object_type || object_type->size <= 0 ||
-        (!destructor && (!cleanup || !field))) {
+        (!destructor && (!cleanup || !field) &&
+         !object_type->cxx_class)) {
         rcc_fatal("validated C++ array delete has incomplete destructor metadata");
     }
 
@@ -5339,6 +5533,10 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
         }
         emit_add_reg_imm(mod, ESP, 4);
         emit_pop_reg(mod, EAX);
+        gen_cxx_destroy_members32(mod, object_type);
+    } else if (!cleanup || !field) {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        gen_cxx_destroy_complete32(mod, object_type);
     } else {
         int skip_cleanup = new_label();
         emit_mov_reg_mem(mod, ECX, ESP, 0);
@@ -5376,6 +5574,8 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
             emit_add_reg_imm(mod, ESP, 4);
         }
         emit_label(mod, skip_cleanup);
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        gen_cxx_destroy_members32(mod, object_type);
     }
     emit_mov_reg_mem(mod, ECX, ESP, 0);
     emit_sub_reg_imm(mod, ECX, (uint32_t)object_type->size);
@@ -5429,6 +5629,8 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
         }
         emit_add_reg_imm(mod, ESP, 4);
         emit_pop_reg(mod, EAX);
+        gen_cxx_destroy_members32(mod,
+                                  expr->call_delete_object_type);
         emit_push_reg(mod, EAX);
         emit_byte(mod, 0xE8);
         {
@@ -5443,6 +5645,29 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
     }
     if (!cleanup || !field || !expr->call_args ||
         !expr->call_args->expr) {
+        if (expr->call_delete_object_type && expr->call_args &&
+            expr->call_args->expr) {
+            done = new_label();
+            gen_expr(mod, expr->call_args->expr);
+            emit_cmp_reg_imm(mod, EAX, 0);
+            emit_jcc_label(mod, CC_E, done);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            gen_cxx_destroy_complete32(mod, expr->call_delete_object_type);
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            emit_push_reg(mod, EAX);
+            emit_byte(mod, 0xE8);
+            {
+                uint32_t free_offset = code_offset(mod);
+                emit_dword(mod, 0u);
+                add_func_call_ref("rin_free", free_offset);
+            }
+            emit_add_reg_imm(mod, ESP, 4);
+            emit_add_reg_imm(mod, ESP, 4);
+            emit_mov_reg_imm(mod, EAX, 0);
+            emit_label(mod, done);
+            return;
+        }
         rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
                   "C++ delete cleanup metadata is incomplete");
         return;
@@ -5483,6 +5708,8 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
     }
     emit_label(mod, skip_cleanup);
     emit_mov_reg_mem(mod, EAX, ESP, 0);
+    gen_cxx_destroy_members32(mod, expr->call_delete_object_type);
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
     emit_push_reg(mod, EAX);
     emit_byte(mod, 0xE8);
     uint32_t free_offset = code_offset(mod);
@@ -5510,12 +5737,14 @@ static void gen_call(Module* mod, Expr* expr) {
     }
     if (expr->call_is_delete && expr->call_delete_is_array &&
         (expr->call_delete_array_cleanup ||
-         expr->call_delete_array_destructor)) {
+         expr->call_delete_array_destructor ||
+         expr->call_delete_object_type)) {
         gen_cxx_array_destructor32(mod, expr);
         return;
     }
     if (expr->call_is_delete &&
-        (expr->call_delete_cleanup || expr->call_delete_destructor)) {
+        (expr->call_delete_cleanup || expr->call_delete_destructor ||
+         expr->call_delete_object_type)) {
         gen_cxx_delete32(mod, expr);
         return;
     }
@@ -8771,6 +9000,23 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 if (cxx_exception_cleanup_registration_enabled &&
                     active_cxx_exception_cleanup_frame_offset != INT_MAX) {
                     gen_cxx_exception_register_cleanup32(mod, cleanup);
+                }
+            }
+            if (d->kind == DECL_VAR && d->var_cleanups) {
+                for (ExprList* item = d->var_cleanups; item;
+                     item = item->next) {
+                    CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
+                    cleanup->expression = item->expr;
+                    cleanup->previous = active_cleanups;
+                    cleanup->declaration = d;
+                    cleanup->exception_frame_offset =
+                        active_cxx_exception_cleanup_frame_offset;
+                    cleanup->exception_registered = false;
+                    active_cleanups = cleanup;
+                    if (cxx_exception_cleanup_registration_enabled &&
+                        active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+                        gen_cxx_exception_register_cleanup32(mod, cleanup);
+                    }
                 }
             }
             break;

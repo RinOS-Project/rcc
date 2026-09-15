@@ -827,6 +827,7 @@ static bool sema_exception_body_has_cleanup(const Stmt* statement) {
         case STMT_DECL:
             return statement->decl && statement->decl->kind == DECL_VAR &&
                 (statement->decl->var_cleanup ||
+                 statement->decl->var_cleanups ||
                  statement->decl->var_is_vla);
         case STMT_IF:
             return sema_exception_body_has_cleanup(statement->if_then) ||
@@ -888,7 +889,22 @@ static bool sema_exception_body_has_unregistered_cleanup(
                 ? function->ident_decl : NULL;
             if (!declaration || declaration->kind != DECL_VAR) return false;
             if (declaration->var_is_vla) return true;
-            return cleanup && (!destructor || !destructor->func_is_cxx_destructor);
+            if (cleanup && (!destructor || !destructor->func_is_cxx_destructor)) {
+                return true;
+            }
+            for (ExprList* item = declaration->var_cleanups; item;
+                 item = item->next) {
+                Expr* expression = item->expr;
+                Expr* function = expression && expression->kind == EXPR_CALL
+                    ? expression->call_func : NULL;
+                Decl* member_destructor = function &&
+                    function->kind == EXPR_IDENT ? function->ident_decl : NULL;
+                if (!member_destructor ||
+                    !member_destructor->func_is_cxx_destructor) {
+                    return true;
+                }
+            }
+            return false;
         }
         case STMT_IF:
             return sema_exception_body_has_unregistered_cleanup(
@@ -4524,36 +4540,205 @@ static Decl* sema_cxx_destructor_function(Type* object_type) {
     return method->decl;
 }
 
-static Expr* sema_cxx_destructor_cleanup(Decl* declaration) {
+static TypeField* sema_cxx_object_field(Type* object_type,
+                                        const char* name) {
+    for (TypeField* field = object_type ? object_type->fields : NULL;
+         field; field = field->next) {
+        if (field->name && name && strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static Expr* sema_cxx_object_member(Expr* object, TypeField* field) {
+    Expr* member;
+    if (!object || !field || !field->name) return NULL;
+    member = expr_member(object, field->name, object->loc);
+    member->member_field = field;
+    member->type = field->type;
+    return member;
+}
+
+static Expr* sema_cxx_destructor_call_for_object(Type* object_type,
+                                                  Expr* object,
+                                                  SourceLoc loc) {
     Decl* destructor;
-    Expr* object;
     Expr* address;
     Expr* function;
     Expr* call;
-    if (!declaration || !declaration->type) return NULL;
-    destructor = sema_cxx_destructor_function(declaration->type);
+    if (!object_type || !object) return NULL;
+    destructor = sema_cxx_destructor_function(object_type);
     if (!destructor) return NULL;
-    object = expr_ident(declaration->name, declaration->loc);
-    object->ident_decl = declaration;
-    object->type = declaration->type;
-    address = expr_unary(EXPR_ADDR, object, declaration->loc);
-    address->type = type_ptr(declaration->type);
-    function = expr_ident(destructor->name, declaration->loc);
+    address = expr_unary(EXPR_ADDR, object, loc);
+    address->type = type_ptr(object_type);
+    function = expr_ident(destructor->name, loc);
     function->ident_decl = destructor;
     function->type = destructor->type;
-    call = expr_call(function, exprlist_new(address), declaration->loc);
+    call = expr_call(function, exprlist_new(address), loc);
     call->type = type_void;
     return call;
 }
 
+static Expr* sema_cxx_wrapper_cleanup_for_object(Type* object_type,
+                                                 Expr* object,
+                                                 SourceLoc loc) {
+    Decl* function;
+    Expr* field_expression;
+    Expr* condition;
+    Expr* function_expression;
+    Expr* call;
+    if (!object_type || !object || !object_type->cleanup_function ||
+        !object_type->cleanup_field) {
+        return NULL;
+    }
+    function = sema_cxx_cleanup_function(object_type, loc);
+    if (!function) return NULL;
+    field_expression = sema_cxx_object_member(
+        object, object_type->cleanup_field);
+    if (!field_expression) return NULL;
+    condition = expr_binary(
+        EXPR_NE, field_expression,
+        expr_int(object_type->cleanup_invalid, loc), loc);
+    condition->type = type_int;
+    function_expression = expr_ident(function->name, loc);
+    function_expression->ident_decl = function;
+    function_expression->type = function->type;
+    call = expr_call(function_expression,
+                     exprlist_new(field_expression), loc);
+    call->type = function->type->ret_type;
+    call = expr_cond(condition, call, expr_int(0, loc), loc);
+    call->type = call->cond_then->type &&
+        call->cond_then->type->kind != TYPE_VOID
+        ? call->cond_then->type : type_int;
+    return call;
+}
+
+static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
+                                                  int depth) {
+    CxxClass* cls;
+    if (!object_type || depth > 32) return false;
+    if (sema_cxx_destructor_function(object_type) ||
+        (object_type->cleanup_function && object_type->cleanup_field)) {
+        return true;
+    }
+    cls = object_type->cxx_class;
+    if (!cls) return false;
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        Type* field_type;
+        if (parameter->is_static) continue;
+        field_type = parameter->type;
+        if (field_type && field_type->cxx_class &&
+            sema_cxx_type_has_destructor_cleanup(field_type, depth + 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Append cleanup calls in the order needed by the cleanup stack.  The stack
+ * is executed from its newest entry, so each subobject's children are
+ * appended before that subobject and the complete object's own destructor is
+ * appended last.  Runtime exception registration can therefore retain one
+ * target-width callback per validated destructor call. */
+static bool sema_cxx_append_object_cleanups(Decl* declaration,
+                                            Type* object_type,
+                                            Expr* object,
+                                            ExprList** cleanups,
+                                            int depth) {
+    CxxClass* cls;
+    TypeField** fields;
+    int field_count = 0;
+    int field_index = 0;
+    bool valid = true;
+    if (!object_type || !object || !cleanups || depth > 32) return false;
+    cls = object_type->cxx_class;
+    if (!cls) return true;
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        if (!parameter->is_static && parameter->type &&
+            parameter->type->cxx_class &&
+            sema_cxx_type_has_destructor_cleanup(parameter->type, 0)) {
+            ++field_count;
+        }
+    }
+    fields = field_count ? rcc_alloc(sizeof(*fields) * (size_t)field_count)
+                         : NULL;
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        TypeField* field;
+        if (parameter->is_static || !parameter->type ||
+            !parameter->type->cxx_class ||
+            !sema_cxx_type_has_destructor_cleanup(parameter->type, 0)) {
+            continue;
+        }
+        field = sema_cxx_object_field(object_type, parameter->name);
+        if (!field) {
+            valid = false;
+            continue;
+        }
+        fields[field_index++] = field;
+    }
+    for (int index = 0; index < field_index; ++index) {
+        Expr* member = sema_cxx_object_member(object, fields[index]);
+        if (!member || !sema_cxx_append_object_cleanups(
+                declaration, fields[index]->type, member, cleanups,
+                depth + 1)) {
+            valid = false;
+        }
+    }
+    if (object_type->cleanup_function && object_type->cleanup_field) {
+        Expr* cleanup = sema_cxx_wrapper_cleanup_for_object(
+            object_type, object, declaration ? declaration->loc : object->loc);
+        if (cleanup) exprlist_append(cleanups, cleanup);
+        else valid = false;
+    } else if (sema_cxx_destructor_function(object_type)) {
+        Expr* destructor = sema_cxx_destructor_call_for_object(
+            object_type, object, declaration ? declaration->loc : object->loc);
+        if (destructor) exprlist_append(cleanups, destructor);
+        else valid = false;
+    }
+    if (fields) rcc_free(fields);
+    return valid;
+}
+
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
+    Expr* object;
     if (!rcc_parser_is_cxx_mode() || !declaration ||
         !declaration->type || declaration->type->kind != TYPE_STRUCT ||
         declaration->type->cleanup_function || declaration->var_cleanup ||
+        declaration->var_cleanups ||
         !declaration->var_init) {
         return;
     }
-    declaration->var_cleanup = sema_cxx_destructor_cleanup(declaration);
+    object = expr_ident(declaration->name, declaration->loc);
+    object->ident_decl = declaration;
+    object->type = declaration->type;
+    if (sema_cxx_type_has_destructor_cleanup(declaration->type, 0) &&
+        !sema_cxx_append_object_cleanups(
+            declaration, declaration->type, object,
+            &declaration->var_cleanups, 0)) {
+        rcc_error(declaration->loc,
+                  "C++ object lifetime cleanup metadata is incomplete");
+    }
+}
+
+static void sema_resolve_cxx_constructor_initializers(
+    CxxConstructorInfo* constructor, SourceLoc loc);
+
+static Decl* sema_cxx_constructor_parameter(
+    CxxConstructorInfo* constructor, const char* name) {
+    if (!constructor || !constructor->method || !name) return NULL;
+    for (DeclList* item = constructor->method->decl
+             ? constructor->method->decl->func_params : NULL;
+         item; item = item->next) {
+        if (item->decl && item->decl->name &&
+            strcmp(item->decl->name, name) == 0) {
+            return item->decl;
+        }
+    }
+    return NULL;
 }
 
 static CxxConstructorInfo* sema_select_cxx_new_constructor(
@@ -4619,7 +4804,51 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
         rcc_error(loc, "ambiguous constructor for C++ new expression");
         return NULL;
     }
+    sema_resolve_cxx_constructor_initializers(best, loc);
     return best;
+}
+
+static void sema_resolve_cxx_constructor_initializers(
+    CxxConstructorInfo* constructor, SourceLoc loc) {
+    CxxClass* cls;
+    if (!constructor || !constructor->method ||
+        !constructor->method->owner || !constructor->method->owner->type) {
+        return;
+    }
+    cls = constructor->method->owner;
+    for (CxxConstructorInitializer* initializer = constructor->initializers;
+         initializer; initializer = initializer->next) {
+        TypeField* field = sema_cxx_object_field(
+            cls->type, initializer->field);
+        if (!field || !field->type) {
+            rcc_error(loc,
+                      "constructor initializer names an unknown member '%s'",
+                      initializer->field ? initializer->field : "");
+            continue;
+        }
+        for (ExprList* argument = initializer->arguments; argument;
+             argument = argument->next) {
+            Decl* parameter = argument->expr &&
+                argument->expr->kind == EXPR_IDENT
+                ? sema_cxx_constructor_parameter(
+                    constructor, argument->expr->ident_name) : NULL;
+            if (parameter) {
+                argument->expr->ident_decl = parameter;
+                argument->expr->type = parameter->type;
+            } else if (argument->expr) {
+                sema_expr(argument->expr);
+            }
+        }
+        if (field->type->cxx_class) {
+            initializer->constructor = sema_select_cxx_new_constructor(
+                field->type, initializer->arguments, initializer->value
+                    ? initializer->value->loc : loc);
+            if (!initializer->constructor) {
+                rcc_error(initializer->value ? initializer->value->loc : loc,
+                          "no safely lowerable constructor accepts the member initializer");
+            }
+        }
+    }
 }
 
 /* Array new initializers are a sequence of element initializers, rather than
@@ -6248,6 +6477,9 @@ static Type* sema_expr(Expr* expr) {
                 }
                 if (object_type->cxx_nontrivial &&
                     !sema_cxx_trivially_destructible(object_type, 0)) {
+                    bool has_member_cleanup =
+                        sema_cxx_type_has_destructor_cleanup(object_type, 0);
+                    expr->call_delete_object_type = object_type;
                     if (expr->call_delete_is_array) {
                         expr->call_delete_array_destructor =
                             sema_cxx_destructor_function(object_type);
@@ -6266,7 +6498,8 @@ static Type* sema_expr(Expr* expr) {
                             }
                         }
                         if (!expr->call_delete_array_destructor &&
-                            !expr->call_delete_array_cleanup) {
+                            !expr->call_delete_array_cleanup &&
+                            !has_member_cleanup) {
                             rcc_error(expr->loc,
                                       "array delete requires a lowerable element destructor");
                         }
@@ -6276,7 +6509,8 @@ static Type* sema_expr(Expr* expr) {
                         !object_type->cleanup_field) {
                         expr->call_delete_destructor =
                             sema_cxx_destructor_function(object_type);
-                        if (!expr->call_delete_destructor) {
+                        if (!expr->call_delete_destructor &&
+                            !has_member_cleanup) {
                             rcc_error(expr->loc,
                                       "delete requires C++ destructor lowering for a non-trivial object");
                             return expr->type;
@@ -6357,13 +6591,16 @@ static Type* sema_expr(Expr* expr) {
                             object_type);
                         bool has_cleanup = object_type->cleanup_function &&
                             object_type->cleanup_field;
+                        bool has_member_cleanup =
+                            sema_cxx_type_has_destructor_cleanup(object_type, 0);
                         bool has_constructor = cls &&
                             rcc_parser_cxx_constructor_arity_mask(object_type);
                         bool has_user_constructor = cls &&
                             cls->constructors != NULL;
                         if (object_type->kind != TYPE_STRUCT || !cls ||
                             (!sema_cxx_trivially_destructible(object_type, 0) &&
-                             !destructor && !has_cleanup) ||
+                             !destructor && !has_cleanup &&
+                             !has_member_cleanup) ||
                             (!has_constructor && has_user_constructor)) {
                             rcc_error(expr->loc,
                                       "array new requires a lowerable element constructor and destructor");
@@ -6379,7 +6616,7 @@ static Type* sema_expr(Expr* expr) {
                             }
                             expr->call_new_constructor = constructor;
                         }
-                        if (destructor || has_cleanup) {
+                        if (destructor || has_cleanup || has_member_cleanup) {
                             expr->call_new_array_cookie = true;
                         }
                     } else if (object_type->kind == TYPE_STRUCT ||
@@ -7814,6 +8051,22 @@ static void sema_initializer(Type* type, Expr* initializer) {
         return;
     }
     initializer->type = type;
+    if (rcc_parser_is_cxx_mode() && type->cxx_class &&
+        type->cxx_class->has_user_constructor &&
+        !initializer->compound_value_init) {
+        for (ExprList* item = initializer->compound_init; item;
+             item = item->next) {
+            if (item->designator_kind != INIT_DESIGNATOR_NONE) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "constructor initializer cannot use an aggregate designator");
+            } else if (item->expr) {
+                sema_expr(item->expr);
+            }
+        }
+        initializer->compound_constructor = sema_select_cxx_new_constructor(
+            type, initializer->compound_init, initializer->loc);
+        return;
+    }
     if (initializer_is_aggregate_zero(type, initializer)) {
         sema_expr(initializer->compound_init->expr);
         if (!type_is_integer(initializer->compound_init->expr->type)) {

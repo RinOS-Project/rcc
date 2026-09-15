@@ -2686,6 +2686,38 @@ static void gen64_cxx_call_constructor(Module* mod,
     emit64_add_reg_imm(mod, RSP, 16);
 }
 
+/* Body-less constructors are emitted from their member initializers.  The
+ * source expressions refer to constructor parameters, while this lowering
+ * path has no ordinary parameter frame; substitute the actual arguments at
+ * each nested initialization boundary. */
+static Expr* gen64_cxx_bind_constructor_argument(
+    CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
+    TypeParam* parameter = constructor ? constructor->parameters : NULL;
+    ExprList* argument = arguments;
+    if (!expression || expression->kind != EXPR_IDENT) return expression;
+    while (parameter && argument) {
+        if (parameter->name && expression->ident_name &&
+            strcmp(parameter->name, expression->ident_name) == 0) {
+            return argument->expr;
+        }
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    return expression;
+}
+
+static ExprList* gen64_cxx_bind_constructor_arguments(
+    CxxConstructorInfo* constructor, ExprList* member_arguments,
+    ExprList* arguments) {
+    ExprList* bound = NULL;
+    for (ExprList* member = member_arguments; member; member = member->next) {
+        exprlist_append(&bound,
+                        gen64_cxx_bind_constructor_argument(
+                            constructor, member->expr, arguments));
+    }
+    return bound;
+}
+
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
                                          ExprList* arguments) {
@@ -2704,6 +2736,54 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
         return;
     }
     gen64_cxx_zero_object(mod, object_type, address_reg);
+    if (constructor->initializers) {
+        for (initializer = constructor->initializers; initializer;
+             initializer = initializer->next) {
+            field = gen64_cxx_constructor_field(
+                object_type, initializer->field);
+            if (!field || (!initializer->value && !initializer->arguments)) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ member initializer is incomplete");
+                return;
+            }
+            if (field->type && field->type->cxx_class) {
+                if (!initializer->constructor) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "validated C++ member constructor is missing");
+                    return;
+                }
+                emit64_push_reg(mod, address_reg);
+                emit64_add_reg_imm(mod, address_reg,
+                                   (uint32_t)field->offset);
+                ExprList* bound_arguments =
+                    gen64_cxx_bind_constructor_arguments(
+                        constructor, initializer->arguments, arguments);
+                gen64_cxx_initialize_object(
+                    mod, field->type, initializer->constructor,
+                    bound_arguments);
+                emit64_pop_reg(mod, address_reg);
+            } else {
+                Expr* value = gen64_cxx_bind_constructor_argument(
+                    constructor, initializer->value, arguments);
+                if (!value || (initializer->arguments &&
+                               initializer->arguments->next)) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "scalar member initializer has unsupported arity");
+                    return;
+                }
+                emit64_push_reg(mod, address_reg);
+                gen64_expr(mod, value);
+                emit64_pop_reg(mod, address_reg);
+                if (type_is_integer(field->type) ||
+                    field->type->kind == TYPE_ENUM) {
+                    emit64_normalize_atomic_value(mod, RAX, field->type);
+                }
+                emit64_store_typed(mod, address_reg, field->offset,
+                                   RAX, field->type);
+            }
+        }
+        return;
+    }
     if (constructor->parameter_count == 0) {
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {
@@ -2729,6 +2809,83 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
         emit64_store_typed(mod, address_reg, field->offset,
                            RAX, field->type);
     }
+}
+
+static void gen64_cxx_destroy_complete(Module* mod, Type* object_type);
+
+static void gen64_cxx_destroy_members(Module* mod, Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    TypeField** fields = NULL;
+    int field_count = 0;
+    int field_index = 0;
+    if (!cls) return;
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        if (!parameter->is_static && parameter->type &&
+            parameter->type->cxx_class) {
+            ++field_count;
+        }
+    }
+    if (field_count) fields = rcc_alloc(
+        sizeof(*fields) * (size_t)field_count);
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        if (!parameter->is_static && parameter->type &&
+            parameter->type->cxx_class) {
+            TypeField* field = gen64_cxx_constructor_field(
+                object_type, parameter->name);
+            if (field) fields[field_index++] = field;
+        }
+    }
+    emit64_push_reg(mod, RAX);
+    for (int index = field_index - 1; index >= 0; --index) {
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        if (fields[index]->offset) {
+            emit64_add_reg_imm(mod, RCX,
+                               (uint32_t)fields[index]->offset);
+        }
+        emit64_mov_reg_reg(mod, RAX, RCX);
+        gen64_cxx_destroy_complete(mod, fields[index]->type);
+    }
+    emit64_pop_reg(mod, RAX);
+    if (fields) rcc_free(fields);
+}
+
+static void gen64_cxx_destroy_complete(Module* mod, Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!object_type || !cls) return;
+    emit64_push_reg(mod, RAX);
+    if (destructor && destructor->func_body && destructor->link_name) {
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_mov_reg_reg(mod, RDI, RCX);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref64(decl_link_name(destructor), call_offset);
+        }
+    } else if (object_type->cleanup_function &&
+               object_type->cleanup_field) {
+        int skip_cleanup = new_label64();
+        TypeField* field = object_type->cleanup_field;
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_load_typed(mod, RAX, RCX, field->offset, field->type);
+        emit64_compare_constant(mod, RAX, object_type->cleanup_invalid);
+        emit64_jcc_label(mod, CC64_E, skip_cleanup);
+        emit64_mov_reg_reg(mod, RDI, RAX);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref64(object_type->cleanup_function, call_offset);
+        }
+        emit64_label(mod, skip_cleanup);
+    }
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    gen64_cxx_destroy_members(mod, object_type);
+    emit64_pop_reg(mod, RAX);
 }
 
 static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
@@ -2961,12 +3118,14 @@ static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {
         expr->call_args->expr->type->kind != TYPE_PTR) {
         rcc_fatal("validated C++ array delete has incomplete operand metadata");
     }
-    object_type = expr->call_args->expr->type->base;
+    object_type = expr->call_delete_object_type
+        ? expr->call_delete_object_type : expr->call_args->expr->type->base;
     destructor = expr->call_delete_array_destructor;
     cleanup = expr->call_delete_array_cleanup;
     field = expr->call_delete_array_cleanup_field;
     if (!object_type || object_type->size <= 0 ||
-        (!destructor && (!cleanup || !field))) {
+        (!destructor && (!cleanup || !field) &&
+         !object_type->cxx_class)) {
         rcc_fatal("validated C++ array delete has incomplete destructor metadata");
     }
 
@@ -3003,6 +3162,11 @@ static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {
             emit_dword(mod, 0u);
             add_func_call_ref64(decl_link_name(destructor), call_offset);
         }
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        gen64_cxx_destroy_members(mod, object_type);
+    } else if (!cleanup || !field) {
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        gen64_cxx_destroy_complete(mod, object_type);
     } else {
         int skip_cleanup = new_label64();
         emit64_mov_reg_mem(mod, RCX, RSP, 0);
@@ -3018,6 +3182,8 @@ static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {
             add_func_call_ref64(decl_link_name(cleanup), call_offset);
         }
         emit64_label(mod, skip_cleanup);
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        gen64_cxx_destroy_members(mod, object_type);
     }
     emit64_mov_reg_mem(mod, RCX, RSP, 0);
     emit64_sub_reg_imm(mod, RCX, (uint32_t)object_type->size);
@@ -3067,6 +3233,8 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
             emit_dword(mod, 0);
             add_func_call_ref64(decl_link_name(destructor), call_offset);
         }
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        gen64_cxx_destroy_members(mod, expr->call_delete_object_type);
         emit64_mov_reg_mem(mod, RDI, RSP, 0);
         emit_byte(mod, 0xE8);
         {
@@ -3081,6 +3249,28 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
     }
     if (!cleanup || !field || !expr->call_args ||
         !expr->call_args->expr) {
+        if (expr->call_delete_object_type && expr->call_args &&
+            expr->call_args->expr) {
+            done = new_label64();
+            gen64_expr(mod, expr->call_args->expr);
+            emit64_cmp_reg_imm(mod, RAX, 0);
+            emit64_jcc_label(mod, CC64_E, done);
+            emit64_push_reg(mod, RAX);
+            emit64_mov_reg_mem(mod, RAX, RSP, 0);
+            gen64_cxx_destroy_complete(mod, expr->call_delete_object_type);
+            emit64_mov_reg_mem(mod, RAX, RSP, 0);
+            emit64_mov_reg_reg(mod, RDI, RAX);
+            emit_byte(mod, 0xE8);
+            {
+                uint32_t free_offset = code_offset(mod);
+                emit_dword(mod, 0u);
+                add_func_call_ref64("rin_free", free_offset);
+            }
+            emit64_add_reg_imm(mod, RSP, 8);
+            emit64_mov_reg_imm32(mod, RAX, 0u);
+            emit64_label(mod, done);
+            return;
+        }
         rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
                   "C++ delete cleanup metadata is incomplete");
         return;
@@ -3102,6 +3292,8 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
     emit_dword(mod, 0);
     add_func_call_ref64(decl_link_name(cleanup), call_offset);
     emit64_label(mod, skip_cleanup);
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    gen64_cxx_destroy_members(mod, expr->call_delete_object_type);
     emit64_mov_reg_mem(mod, RDI, RSP, 0);
     emit_byte(mod, 0xE8);
     uint32_t free_offset = code_offset(mod);
@@ -5601,6 +5793,23 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 if (cxx_exception_cleanup_registration_enabled64 &&
                     active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
                     gen64_cxx_exception_register_cleanup(mod, cleanup);
+                }
+            }
+            if (d->kind == DECL_VAR && d->var_cleanups) {
+                for (ExprList* item = d->var_cleanups; item;
+                     item = item->next) {
+                    CleanupCodegen64* cleanup = rcc_alloc(sizeof(*cleanup));
+                    cleanup->expression = item->expr;
+                    cleanup->previous = active_cleanups64;
+                    cleanup->declaration = d;
+                    cleanup->exception_frame_offset =
+                        active_cxx_exception_cleanup_frame_offset64;
+                    cleanup->exception_registered = false;
+                    active_cleanups64 = cleanup;
+                    if (cxx_exception_cleanup_registration_enabled64 &&
+                        active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+                        gen64_cxx_exception_register_cleanup(mod, cleanup);
+                    }
                 }
             }
             break;

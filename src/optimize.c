@@ -1412,6 +1412,10 @@ static void mark_address_escapes_stmt(const Stmt* statement,
                 mark_address_escapes_expr(statement->decl->var_init, locals);
                 mark_address_escapes_expr(statement->decl->var_cleanup,
                                           locals);
+                for (ExprList* item = statement->decl->var_cleanups;
+                     item; item = item->next) {
+                    mark_address_escapes_expr(item->expr, locals);
+                }
             }
             return;
         case STMT_ASM:
@@ -1728,6 +1732,10 @@ static void eliminate_block_dead_stores(Stmt* statement) {
                            current->decl->kind == DECL_VAR) {
                     mark_dead_store_reads(current->decl->var_init, locals);
                     mark_dead_store_reads(current->decl->var_cleanup, locals);
+                    for (ExprList* item = current->decl->var_cleanups;
+                         item; item = item->next) {
+                        mark_dead_store_reads(item->expr, locals);
+                    }
                 }
                 break;
             case STMT_RETURN:

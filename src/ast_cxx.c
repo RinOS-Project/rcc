@@ -1371,6 +1371,7 @@ static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
             tmpl, declaration->var_init, args, arg_count,
             value_args, value_present);
         copy->var_cleanup = NULL;
+        copy->var_cleanups = NULL;
     }
     return copy;
 }
