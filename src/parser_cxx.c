@@ -4931,8 +4931,11 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     SourceLoc loc;
     Type* item_type = NULL;
     bool is_auto = false;
+    bool auto_const = false;
+    bool auto_reference = false;
     const char* item_name = NULL;
     Expr* range;
+    Type* range_type = NULL;
     Expr* index_expression;
     Expr* element_expression;
     Expr* count_expression;
@@ -4949,8 +4952,11 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     loc = parser.cur->loc;
     advance(); /* for */
     expect(TOK_LPAREN, "(");
-    if (match(TOK_AUTO)) {
+    if (check(TOK_AUTO) || (check(TOK_CONST) && check_next(TOK_AUTO))) {
+        auto_const = match(TOK_CONST);
+        match(TOK_AUTO);
         is_auto = true;
+        auto_reference = match(TOK_AMP);
         {
             Token* name = expect(TOK_IDENT, "range variable name");
             if (name) item_name = name->value.str_val;
@@ -4969,6 +4975,24 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     if (!range || range->kind != EXPR_IDENT) {
         rcc_error(loc,
                   "RinOS range-for currently requires an array identifier range");
+    } else {
+        range_type = cxx_parser_value_type(range->ident_name);
+        if (!range_type || range_type->kind != TYPE_ARRAY ||
+            range_type->array_len < 0 || !range_type->base) {
+            rcc_error(range->loc,
+                      "RinOS range-for requires a complete array identifier range");
+        }
+        if (auto_reference && range_type && range_type->base) {
+            Type* referred_type = range_type->base;
+            if (auto_const) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *referred_type;
+                qualified->is_const = true;
+                referred_type = qualified;
+            }
+            item_type = type_ptr(referred_type);
+            item_type->is_reference = true;
+        }
     }
 
     written = snprintf(index_name, sizeof(index_name),
@@ -4983,7 +5007,7 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     element_expression = expr_index(range, index_expression, loc);
     item_decl = decl_var(item_name ? item_name : rcc_intern("__rcc_range_item"),
                          item_type, element_expression, loc);
-    item_decl->var_is_auto = is_auto;
+    item_decl->var_is_auto = is_auto && !auto_reference;
     rcc_parser_cxx_add_value_binding(item_decl->name,
                                      item_type ? item_type : type_int);
 

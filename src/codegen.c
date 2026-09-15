@@ -7376,6 +7376,11 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         return true;
     }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
+    if (type->kind == TYPE_PTR && type->is_reference) {
+        gen_lvalue(mod, initializer);
+        emit_store_typed32(mod, EBP, displacement, EAX, type);
+        return true;
+    }
     if (string) {
         size_t storage = (size_t)type->size;
         size_t text_size = strlen(string->str_val) + 1u;

@@ -1687,6 +1687,11 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         return true;
     }
     if (gen64_aggregate_zero_initializer(type, initializer)) return true;
+    if (type->kind == TYPE_PTR && type->is_reference) {
+        gen64_lvalue(mod, initializer);
+        emit64_store_typed(mod, RBP, displacement, RAX, type);
+        return true;
+    }
     if (string) {
         size_t storage = (size_t)type->size;
         size_t text_size = strlen(string->str_val) + 1u;
