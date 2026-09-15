@@ -3099,9 +3099,18 @@ static bool lower_cxx_throw(RccIrLowerContext* context,
     RccIrLowerValue word;
     RccIrLowerValue tag;
     RccIrValue operands[2];
-    if (!statement || !statement->throw_expr) {
+    if (!statement) {
         if (context) context->unsupported = true;
         return false;
+    }
+    if (!statement->throw_expr) {
+        (void)lower_cxx_runtime_call(context, "rin_cpp_exception_rethrow",
+                                     rcc_ir_type_void(), NULL, 0u);
+        if (context->unsupported ||
+            !lower_append(context, RCC_IR_UNREACHABLE, rcc_ir_type_void(),
+                          NULL, 0u, NULL, 0u)) return false;
+        context->terminated = true;
+        return true;
     }
     value = lower_expression(context, statement->throw_expr);
     word = lower_cast(context, value, type_ulong);

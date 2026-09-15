@@ -5,11 +5,16 @@
 .globl rin_cpp_exception_install
 .globl rin_cpp_exception_leave
 .globl rin_cpp_exception_throw
+.globl rin_cpp_exception_rethrow
 .extern _rcc_entry
 
 .bss
 .align 8
 rin_cpp_exception_top:
+    .quad 0
+rin_cpp_exception_current_value:
+    .quad 0
+rin_cpp_exception_current_type:
     .quad 0
 
 .text
@@ -65,7 +70,9 @@ rin_cpp_exception_throw:
     test %rdx, %rdx
     jz 3f
     mov %rdi, 72(%rdx)
+    mov %rdi, rin_cpp_exception_current_value(%rip)
     mov %rsi, 80(%rdx)
+    mov %rsi, rin_cpp_exception_current_type(%rip)
     mov 64(%rdx), %rax
     mov %rax, rin_cpp_exception_top(%rip)
     mov %rdx, %rdi
@@ -76,6 +83,11 @@ rin_cpp_exception_throw:
     mov $60, %eax
     syscall
     ud2
+
+rin_cpp_exception_rethrow:
+    mov rin_cpp_exception_current_value(%rip), %rdi
+    mov rin_cpp_exception_current_type(%rip), %rsi
+    jmp rin_cpp_exception_throw
 
 _start:
     call _rcc_entry

@@ -34,11 +34,25 @@ extern "C" int cxx_exception_nested(int value) {
     return 0;
 }
 
+extern "C" int cxx_exception_rethrow(int value) {
+    try {
+        try {
+            throw value;
+        } catch (int) {
+            throw;
+        }
+    } catch (int caught) {
+        return caught + 3;
+    }
+    return 0;
+}
+
 extern "C" int main() {
     return cxx_exception_path(41) == 42 &&
                    cxx_exception_path(0) == 0 &&
                    cxx_exception_ellipsis(3) == 7 &&
-                   cxx_exception_nested(1) == 9
+                   cxx_exception_nested(1) == 9 &&
+                   cxx_exception_rethrow(5) == 8
                ? 0
                : 1;
 }

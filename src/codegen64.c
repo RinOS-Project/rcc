@@ -4149,7 +4149,13 @@ static uint64_t gen64_cxx_exception_type_tag(const Type* type) {
 }
 
 static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
-    Type* type = stmt->throw_expr ? stmt->throw_expr->type : NULL;
+    Type* type;
+    if (!stmt) rcc_fatal("validated C++ throw is missing");
+    if (!stmt->throw_expr) {
+        gen64_cxx_exception_call(mod, "rin_cpp_exception_rethrow");
+        return;
+    }
+    type = stmt->throw_expr->type;
     gen64_expr(mod, stmt->throw_expr);
     emit64_mov_reg_reg(mod, RDI, RAX);
     emit64_mov_reg_imm64(mod, RSI, gen64_cxx_exception_type_tag(type));

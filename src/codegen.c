@@ -7435,7 +7435,13 @@ static uint32_t gen_cxx_exception_type_tag32(const Type* type) {
 }
 
 static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
-    Type* type = stmt->throw_expr ? stmt->throw_expr->type : NULL;
+    Type* type;
+    if (!stmt) rcc_fatal("validated C++ throw is missing");
+    if (!stmt->throw_expr) {
+        gen_cxx_exception_call32(mod, "rin_cpp_exception_rethrow");
+        return;
+    }
+    type = stmt->throw_expr->type;
     gen_expr(mod, stmt->throw_expr);
     emit_mov_reg_reg(mod, EDX, EAX); /* preserve value while loading tag */
     emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));

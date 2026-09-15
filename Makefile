@@ -82,7 +82,7 @@ BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
                               strcpy strlen strcat strncat strncmp strncpy strrchr strstr strtod \
                               strtoull tolower vfprintf vsnprintf waitpid setjmp longjmp \
                               rin_cpp_exception_install rin_cpp_exception_leave \
-                              rin_cpp_exception_throw
+                              rin_cpp_exception_throw rin_cpp_exception_rethrow
 BOOTSTRAP_RUNTIME_IMPORTS = $(foreach symbol,$(BOOTSTRAP_RUNTIME_FUNCTIONS),\
                               --import $(symbol)=rincrt.rll@function)
 

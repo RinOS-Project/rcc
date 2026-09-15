@@ -5,11 +5,16 @@
 .globl rin_cpp_exception_install
 .globl rin_cpp_exception_leave
 .globl rin_cpp_exception_throw
+.globl rin_cpp_exception_rethrow
 .extern _rcc_entry
 
 .bss
 .align 4
 rin_cpp_exception_top:
+    .long 0
+rin_cpp_exception_current_value:
+    .long 0
+rin_cpp_exception_current_type:
     .long 0
 
 .text
@@ -63,13 +68,22 @@ rin_cpp_exception_throw:
     jz 3f
     mov 4(%esp), %eax
     mov %eax, 28(%edx)
+    mov %eax, rin_cpp_exception_current_value
     mov 8(%esp), %eax
     mov %eax, 32(%edx)
+    mov %eax, rin_cpp_exception_current_type
     mov 24(%edx), %eax
     mov %eax, rin_cpp_exception_top
     push $1
     push %edx
     call longjmp
+    ud2
+
+rin_cpp_exception_rethrow:
+    mov rin_cpp_exception_current_value, %eax
+    push rin_cpp_exception_current_type
+    push %eax
+    call rin_cpp_exception_throw
     ud2
 3:
     mov $1, %ebx

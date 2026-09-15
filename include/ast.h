@@ -520,9 +520,9 @@ bool expr_eval_integer_constant(Expr* expr, int64_t* value);
  * Statements
  * ═══════════════════════════════════════ */
 
-/* A C++ catch handler.  The frontend currently materializes scalar exception
- * payloads; the type and parameter remain explicit so the backend never
- * treats an unsupported handler as an empty statement. */
+/* A C++ catch handler.  Scalar and pointer payloads are materialized by the
+ * current target-width exception ABI; aggregate/object payloads remain
+ * explicit so the backend never treats an unsupported handler as empty. */
 struct CxxCatch {
     Type* type;                 /* NULL for `catch (...)` */
     const char* name;           /* NULL for an unnamed handler */

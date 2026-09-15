@@ -5426,8 +5426,9 @@ static void sema_stmt(Stmt* stmt) {
         case STMT_THROW: {
             Type* thrown_type;
             if (!stmt->throw_expr) {
-                rcc_error(stmt->loc,
-                          "C++ rethrow requires an active exception handler");
+                /* The runtime validates that a currently handled exception
+                 * exists.  Keep `throw;` as a real terminator instead of
+                 * dropping it during semantic analysis. */
                 break;
             }
             thrown_type = sema_expr(stmt->throw_expr);
