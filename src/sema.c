@@ -35,6 +35,7 @@ static CxxNamespace* sema_cxx_global_namespace(void) {
 /* Current function return type */
 static Type* current_func_ret = NULL;
 static bool current_func_variadic = false;
+static bool current_func_auto_return_pending = false;
 static Decl* current_func_last_param = NULL;
 static unsigned static_local_counter = 0u;
 static unsigned cxx_exception_frame_counter = 0u;
@@ -6114,7 +6115,8 @@ static void sema_stmt(Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->return_val) {
-                if (stmt->return_val->kind == EXPR_COMPOUND &&
+                if (!current_func_auto_return_pending &&
+                    stmt->return_val->kind == EXPR_COMPOUND &&
                     !stmt->return_val->compound_type && current_func_ret &&
                     current_func_ret != type_void) {
                     stmt->return_val->compound_type = current_func_ret;
@@ -6122,13 +6124,14 @@ static void sema_stmt(Stmt* stmt) {
                         current_func_ret, stmt->return_val);
                 }
                 sema_expr(stmt->return_val);
-                if (current_func_ret &&
+                if (!current_func_auto_return_pending && current_func_ret &&
                     current_func_ret->cleanup_function) {
                     rcc_error(stmt->loc,
                               "returning a C++ scope-cleanup type is not "
                               "supported yet");
                 }
-                if (current_func_ret && current_func_ret != type_void) {
+                if (!current_func_auto_return_pending && current_func_ret &&
+                    current_func_ret != type_void) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {
                         if (sema_is_scoped_enum(stmt->return_val->type) ||
                             sema_is_scoped_enum(current_func_ret)) {
@@ -7571,6 +7574,61 @@ static Type* sema_decltype_auto_return_type(Expr* expression) {
     return result;
 }
 
+static bool sema_validate_auto_return_stmt(Stmt* statement) {
+    if (!statement) return true;
+    switch (statement->kind) {
+        case STMT_RETURN:
+            if (statement->return_val && current_func_ret &&
+                current_func_ret != type_void &&
+                !implicit_cast(statement->return_val, current_func_ret)) {
+                if (sema_is_scoped_enum(statement->return_val->type) ||
+                    sema_is_scoped_enum(current_func_ret)) {
+                    rcc_error(statement->loc,
+                              "cannot implicitly convert scoped enum in return");
+                } else {
+                    rcc_warning(statement->loc, "incompatible return type");
+                }
+            }
+            return true;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!sema_validate_auto_return_stmt(item->stmt)) return false;
+            }
+            return true;
+        case STMT_IF:
+            return sema_validate_auto_return_stmt(statement->if_then) &&
+                   sema_validate_auto_return_stmt(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_validate_auto_return_stmt(statement->while_body);
+        case STMT_FOR:
+            return sema_validate_auto_return_stmt(statement->for_init) &&
+                   sema_validate_auto_return_stmt(statement->for_body);
+        case STMT_SWITCH:
+            return sema_validate_auto_return_stmt(statement->switch_body);
+        case STMT_CASE:
+            return sema_validate_auto_return_stmt(statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_validate_auto_return_stmt(statement->default_stmt);
+        case STMT_LABEL:
+            return sema_validate_auto_return_stmt(statement->label_stmt);
+        case STMT_TRY:
+            if (!sema_validate_auto_return_stmt(statement->try_body)) {
+                return false;
+            }
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!sema_validate_auto_return_stmt(handler->body)) {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
 static bool sema_deduce_auto_return_stmt(Stmt* statement, Type** deduced,
                                          bool* saw_return,
                                          bool decltype_auto) {
@@ -7938,6 +7996,7 @@ static void sema_decl(Decl* decl) {
                 symtab_enter_function(g_symtab);
                 current_func_ret = decl->type->ret_type;
                 current_func_variadic = decl->type->variadic;
+                current_func_auto_return_pending = decl->func_is_auto_return;
                 current_func_last_param = NULL;
 
                 /* Add parameters */
@@ -7980,17 +8039,6 @@ static void sema_decl(Decl* decl) {
                 }
                 current_cxx_method_owner = decl->func_method_owner;
                 current_cxx_this_param = decl->func_this_param;
-                if (decl->func_is_auto_return) {
-                    Type* deduced_return = NULL;
-                    bool saw_return = false;
-                    if (sema_deduce_auto_return_stmt(
-                            decl->func_body, &deduced_return, &saw_return,
-                            decl->func_is_decltype_auto_return)) {
-                        if (!saw_return) deduced_return = type_void;
-                        decl->type->ret_type = deduced_return;
-                    }
-                }
-                current_func_ret = decl->type->ret_type;
                 for (DeclList* p = decl->func_params; p; p = p->next) {
                     if (p->decl && p->decl->param_array_type) {
                         sema_validate_array_parameter_type(
@@ -8007,6 +8055,23 @@ static void sema_decl(Decl* decl) {
                 sema_validate_cleanup_gotos(decl->func_body);
                 sema_validate_vla_gotos(decl->func_body);
 
+                /* Local declarations are installed by the ordinary body
+                 * walk.  Deduce auto and decltype(auto) returns only after
+                 * that walk, then validate the already-resolved return
+                 * expressions against the exact deduced type. */
+                if (decl->func_is_auto_return) {
+                    Type* deduced_return = NULL;
+                    bool saw_return = false;
+                    if (sema_deduce_auto_return_stmt(
+                            decl->func_body, &deduced_return, &saw_return,
+                            decl->func_is_decltype_auto_return)) {
+                        if (!saw_return) deduced_return = type_void;
+                        decl->type->ret_type = deduced_return;
+                        current_func_ret = deduced_return;
+                        sema_validate_auto_return_stmt(decl->func_body);
+                    }
+                }
+
                 /* Check for undefined labels */
                 for (Symbol* label = g_symtab->labels; label; label = label->next) {
                     if (!label->is_defined) {
@@ -8017,6 +8082,7 @@ static void sema_decl(Decl* decl) {
                 symtab_leave_function(g_symtab);
                 current_func_ret = NULL;
                 current_func_variadic = false;
+                current_func_auto_return_pending = false;
                 current_func_last_param = NULL;
                 current_cxx_method_owner = previous_method_owner;
                 current_cxx_this_param = previous_this_param;
