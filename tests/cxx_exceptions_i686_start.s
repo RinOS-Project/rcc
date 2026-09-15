@@ -135,9 +135,9 @@ rin_cpp_exception_release_frame:
     mov 32(%eax), %edx
     test $0x80000000, %edx
     jz 6f
-    mov $0, 28(%eax)
-    mov $0, 32(%eax)
-    mov $0, rin_cpp_exception_object_used
+    movl $0, 28(%eax)
+    movl $0, 32(%eax)
+    movl $0, rin_cpp_exception_object_used
 6:
     ret
 3:
