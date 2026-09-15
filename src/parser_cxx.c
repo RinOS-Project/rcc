@@ -2975,6 +2975,10 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     expect(TOK_LPAREN, "(");
     params = parse_cxx_parameter_declarations();
     expect(TOK_RPAREN, ")");
+    if (is_auto_return && match(TOK_ARROW)) {
+        return_type = parse_cxx_type_spec();
+        is_auto_return = false;
+    }
     if (match(TOK_NOEXCEPT)) {
         *is_noexcept = true;
         if (check(TOK_LPAREN)) {
