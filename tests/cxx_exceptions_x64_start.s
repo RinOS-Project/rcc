@@ -12,6 +12,8 @@
 .globl rin_cpp_exception_register_cleanup
 .globl rin_cpp_exception_unregister_cleanup
 .globl rin_cpp_exception_unwind_cleanups
+.globl rin_malloc
+.globl rin_free
 .extern _rcc_entry
 
 .bss
@@ -30,6 +32,9 @@ rin_cpp_exception_cleanup_used:
     .quad 0
 rin_cpp_exception_cleanup_storage:
     .space 1536
+.align 8
+rin_exception_test_heap:
+    .space 128
 
 .text
 setjmp:
@@ -235,6 +240,13 @@ rin_cpp_exception_release_frame:
     mov $60, %eax
     syscall
     ud2
+
+rin_malloc:
+    lea rin_exception_test_heap(%rip), %rax
+    ret
+
+rin_free:
+    ret
 
 _start:
     call _rcc_entry

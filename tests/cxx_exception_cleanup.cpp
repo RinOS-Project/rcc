@@ -108,6 +108,20 @@ private:
     NestedSecondExceptionGuard second_;
 };
 
+class NestedDeleteThrowingScope final {
+public:
+    NestedDeleteThrowingScope(int* first, int* second)
+        : first_(first), second_(second) {}
+
+    ~NestedDeleteThrowingScope() {
+        throw 37;
+    }
+
+private:
+    NestedFirstExceptionGuard first_;
+    NestedSecondExceptionGuard second_;
+};
+
 extern "C" int cxx_exception_cleanup_callee(int value) {
     throw value;
 }
@@ -134,6 +148,17 @@ extern "C" int cxx_exception_cleanup_nested_members() {
     }
 }
 
+extern "C" int cxx_exception_cleanup_delete_throw() {
+    int order = 0;
+    try {
+        NestedDeleteThrowingScope* scope =
+            new NestedDeleteThrowingScope(&order, &order);
+        delete scope;
+    } catch (int caught) {
+        return caught + order * 1000;
+    }
+}
+
 extern "C" int main() {
     return cxx_exception_cleanup_direct() == 141 &&
                    cxx_exception_cleanup_handler() == 7 &&
@@ -142,7 +167,8 @@ extern "C" int main() {
                    cxx_exception_cleanup_total == 3 &&
                    cxx_exception_cleanup_across_call() == 21223 &&
                    cxx_exception_destructor_total == 2 &&
-                   cxx_exception_cleanup_nested_members() == 21029
+                   cxx_exception_cleanup_nested_members() == 21029 &&
+                   cxx_exception_cleanup_delete_throw() == 21037
                ? 0
                : 1;
 }

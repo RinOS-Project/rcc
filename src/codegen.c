@@ -5270,6 +5270,118 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
 }
 
 static void gen_cxx_destroy_complete32(Module* mod, Type* object_type);
+static int active_cxx_exception_cleanup_frame_offset;
+
+/* A deleting destructor can transfer control through the active C++
+ * exception frame before the delete expression reaches its member-destruction
+ * code.  Register only the direct member subobjects here; the complete
+ * object's destructor is already the operation in flight and must not be
+ * registered a second time.  The runtime consumes these callbacks on an
+ * exceptional transfer and the normal path unregisters them before the
+ * compiler emits the ordinary reverse-order member walk. */
+static void gen_cxx_register_delete_object32(Module* mod, Type* object_type,
+                                             int frame_offset);
+
+static void gen_cxx_register_delete_members32(Module* mod, Type* object_type,
+                                              int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls) return;
+    emit_push_reg(mod, EAX);
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        TypeField* field;
+        if (parameter->is_static || !parameter->type ||
+            !parameter->type->cxx_class) {
+            continue;
+        }
+        field = gen_cxx_constructor_field32(object_type, parameter->name);
+        if (!field) continue;
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        if (field->offset) {
+            emit_add_reg_imm(mod, EAX, (uint32_t)field->offset);
+        }
+        gen_cxx_register_delete_object32(mod, field->type, frame_offset);
+    }
+    emit_pop_reg(mod, EAX);
+}
+
+static void gen_cxx_register_delete_object32(Module* mod, Type* object_type,
+                                             int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!cls) return;
+    gen_cxx_register_delete_members32(mod, object_type, frame_offset);
+    if (!destructor || !destructor->func_body || !destructor->link_name) {
+        return;
+    }
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(mod, decl_link_name(destructor), 0u);
+    emit_push_reg(mod, EAX);
+    emit_mov_reg_reg(mod, EAX, EBP);
+    emit_add_reg_imm(mod, EAX, frame_offset);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("rin_cpp_exception_register_cleanup", call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 12);
+    emit_pop_reg(mod, EAX);
+}
+
+static void gen_cxx_unregister_delete_object32(Module* mod, Type* object_type,
+                                               int frame_offset);
+
+static void gen_cxx_unregister_delete_members32(Module* mod, Type* object_type,
+                                                int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls) return;
+    emit_push_reg(mod, EAX);
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        TypeField* field;
+        if (parameter->is_static || !parameter->type ||
+            !parameter->type->cxx_class) {
+            continue;
+        }
+        field = gen_cxx_constructor_field32(object_type, parameter->name);
+        if (!field) continue;
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        if (field->offset) {
+            emit_add_reg_imm(mod, EAX, (uint32_t)field->offset);
+        }
+        gen_cxx_unregister_delete_object32(mod, field->type, frame_offset);
+    }
+    emit_pop_reg(mod, EAX);
+}
+
+static void gen_cxx_unregister_delete_object32(Module* mod, Type* object_type,
+                                               int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!cls) return;
+    gen_cxx_unregister_delete_members32(mod, object_type, frame_offset);
+    if (!destructor || !destructor->func_body || !destructor->link_name) {
+        return;
+    }
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(mod, decl_link_name(destructor), 0u);
+    emit_push_reg(mod, EAX);
+    emit_mov_reg_reg(mod, EAX, EBP);
+    emit_add_reg_imm(mod, EAX, frame_offset);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("rin_cpp_exception_unregister_cleanup", call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 12);
+    emit_pop_reg(mod, EAX);
+}
 
 /* Destroy direct class members in declaration order as represented by the
  * cleanup stack: the caller supplies the complete object address in EAX and
@@ -5619,6 +5731,11 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
         gen_expr(mod, expr->call_args->expr);
         emit_cmp_reg_imm(mod, EAX, 0);
         emit_jcc_label(mod, CC_E, done);
+        if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+            gen_cxx_register_delete_members32(
+                mod, expr->call_delete_object_type,
+                active_cxx_exception_cleanup_frame_offset);
+        }
         emit_push_reg(mod, EAX);
         emit_push_reg(mod, EAX);
         emit_byte(mod, 0xE8);
@@ -5629,6 +5746,11 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
         }
         emit_add_reg_imm(mod, ESP, 4);
         emit_pop_reg(mod, EAX);
+        if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+            gen_cxx_unregister_delete_members32(
+                mod, expr->call_delete_object_type,
+                active_cxx_exception_cleanup_frame_offset);
+        }
         gen_cxx_destroy_members32(mod,
                                   expr->call_delete_object_type);
         emit_push_reg(mod, EAX);
@@ -5651,9 +5773,19 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
             gen_expr(mod, expr->call_args->expr);
             emit_cmp_reg_imm(mod, EAX, 0);
             emit_jcc_label(mod, CC_E, done);
+            if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+                gen_cxx_register_delete_members32(
+                    mod, expr->call_delete_object_type,
+                    active_cxx_exception_cleanup_frame_offset);
+            }
             emit_push_reg(mod, EAX);
             emit_mov_reg_mem(mod, EAX, ESP, 0);
             gen_cxx_destroy_complete32(mod, expr->call_delete_object_type);
+            if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+                gen_cxx_unregister_delete_members32(
+                    mod, expr->call_delete_object_type,
+                    active_cxx_exception_cleanup_frame_offset);
+            }
             emit_mov_reg_mem(mod, EAX, ESP, 0);
             emit_push_reg(mod, EAX);
             emit_byte(mod, 0xE8);
@@ -5677,6 +5809,11 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
     gen_expr(mod, expr->call_args->expr);
     emit_cmp_reg_imm(mod, EAX, 0);
     emit_jcc_label(mod, CC_E, done);
+    if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+        gen_cxx_register_delete_members32(
+            mod, expr->call_delete_object_type,
+            active_cxx_exception_cleanup_frame_offset);
+    }
     emit_push_reg(mod, EAX); /* Keep the object address across destructor. */
     emit_mov_reg_mem(mod, ECX, ESP, 0);
     if (field->type && field->type->size == 8) {
@@ -5707,6 +5844,11 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
         emit_add_reg_imm(mod, ESP, 4);
     }
     emit_label(mod, skip_cleanup);
+    if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+        gen_cxx_unregister_delete_members32(
+            mod, expr->call_delete_object_type,
+            active_cxx_exception_cleanup_frame_offset);
+    }
     emit_mov_reg_mem(mod, EAX, ESP, 0);
     gen_cxx_destroy_members32(mod, expr->call_delete_object_type);
     emit_mov_reg_mem(mod, EAX, ESP, 0);

@@ -2812,6 +2812,112 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
 }
 
 static void gen64_cxx_destroy_complete(Module* mod, Type* object_type);
+static int active_cxx_exception_cleanup_frame_offset64;
+
+/* Keep direct member destructors registered while a deleting destructor is
+ * running.  If that destructor throws, the target runtime unwinds this list;
+ * on normal return the list is removed before the ordinary member walk. */
+static void gen64_cxx_register_delete_object(
+    Module* mod, Type* object_type, int frame_offset);
+
+static void gen64_cxx_register_delete_members(
+    Module* mod, Type* object_type, int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls) return;
+    emit64_push_reg(mod, RAX);
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        TypeField* field;
+        if (parameter->is_static || !parameter->type ||
+            !parameter->type->cxx_class) {
+            continue;
+        }
+        field = gen64_cxx_constructor_field(object_type, parameter->name);
+        if (!field) continue;
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        if (field->offset) {
+            emit64_add_reg_imm(mod, RAX, (uint32_t)field->offset);
+        }
+        gen64_cxx_register_delete_object(mod, field->type, frame_offset);
+    }
+    emit64_pop_reg(mod, RAX);
+}
+
+static void gen64_cxx_register_delete_object(
+    Module* mod, Type* object_type, int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!cls) return;
+    gen64_cxx_register_delete_members(mod, object_type, frame_offset);
+    if (!destructor || !destructor->func_body || !destructor->link_name) {
+        return;
+    }
+    emit64_push_reg(mod, RAX);
+    gen64_symbol_address(mod, decl_link_name(destructor), 0u);
+    emit64_mov_reg_reg(mod, RSI, RAX);
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    emit64_mov_reg_reg(mod, RDX, RAX);
+    emit64_lea(mod, RDI, RBP, frame_offset);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_cpp_exception_register_cleanup", call_offset);
+    }
+    emit64_pop_reg(mod, RAX);
+}
+
+static void gen64_cxx_unregister_delete_object(
+    Module* mod, Type* object_type, int frame_offset);
+
+static void gen64_cxx_unregister_delete_members(
+    Module* mod, Type* object_type, int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls) return;
+    emit64_push_reg(mod, RAX);
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        TypeField* field;
+        if (parameter->is_static || !parameter->type ||
+            !parameter->type->cxx_class) {
+            continue;
+        }
+        field = gen64_cxx_constructor_field(object_type, parameter->name);
+        if (!field) continue;
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        if (field->offset) {
+            emit64_add_reg_imm(mod, RAX, (uint32_t)field->offset);
+        }
+        gen64_cxx_unregister_delete_object(mod, field->type, frame_offset);
+    }
+    emit64_pop_reg(mod, RAX);
+}
+
+static void gen64_cxx_unregister_delete_object(
+    Module* mod, Type* object_type, int frame_offset) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!cls) return;
+    gen64_cxx_unregister_delete_members(mod, object_type, frame_offset);
+    if (!destructor || !destructor->func_body || !destructor->link_name) {
+        return;
+    }
+    emit64_push_reg(mod, RAX);
+    gen64_symbol_address(mod, decl_link_name(destructor), 0u);
+    emit64_mov_reg_reg(mod, RSI, RAX);
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    emit64_mov_reg_reg(mod, RDX, RAX);
+    emit64_lea(mod, RDI, RBP, frame_offset);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_cpp_exception_unregister_cleanup", call_offset);
+    }
+    emit64_pop_reg(mod, RAX);
+}
 
 static void gen64_cxx_destroy_members(Module* mod, Type* object_type) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
@@ -3225,6 +3331,11 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
         gen64_expr(mod, expr->call_args->expr);
         emit64_cmp_reg_imm(mod, RAX, 0);
         emit64_jcc_label(mod, CC64_E, done);
+        if (active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+            gen64_cxx_register_delete_members(
+                mod, expr->call_delete_object_type,
+                active_cxx_exception_cleanup_frame_offset64);
+        }
         emit64_push_reg(mod, RAX);
         emit64_mov_reg_mem(mod, RDI, RSP, 0);
         emit_byte(mod, 0xE8);
@@ -3234,6 +3345,11 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
             add_func_call_ref64(decl_link_name(destructor), call_offset);
         }
         emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        if (active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+            gen64_cxx_unregister_delete_members(
+                mod, expr->call_delete_object_type,
+                active_cxx_exception_cleanup_frame_offset64);
+        }
         gen64_cxx_destroy_members(mod, expr->call_delete_object_type);
         emit64_mov_reg_mem(mod, RDI, RSP, 0);
         emit_byte(mod, 0xE8);
@@ -3255,9 +3371,19 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
             gen64_expr(mod, expr->call_args->expr);
             emit64_cmp_reg_imm(mod, RAX, 0);
             emit64_jcc_label(mod, CC64_E, done);
+            if (active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+                gen64_cxx_register_delete_members(
+                    mod, expr->call_delete_object_type,
+                    active_cxx_exception_cleanup_frame_offset64);
+            }
             emit64_push_reg(mod, RAX);
             emit64_mov_reg_mem(mod, RAX, RSP, 0);
             gen64_cxx_destroy_complete(mod, expr->call_delete_object_type);
+            if (active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+                gen64_cxx_unregister_delete_members(
+                    mod, expr->call_delete_object_type,
+                    active_cxx_exception_cleanup_frame_offset64);
+            }
             emit64_mov_reg_mem(mod, RAX, RSP, 0);
             emit64_mov_reg_reg(mod, RDI, RAX);
             emit_byte(mod, 0xE8);
@@ -3280,6 +3406,11 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
     gen64_expr(mod, expr->call_args->expr);
     emit64_cmp_reg_imm(mod, RAX, 0);
     emit64_jcc_label(mod, CC64_E, done);
+    if (active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+        gen64_cxx_register_delete_members(
+            mod, expr->call_delete_object_type,
+            active_cxx_exception_cleanup_frame_offset64);
+    }
     emit64_push_reg(mod, RAX); /* Keep the object address across destructor. */
     emit64_mov_reg_mem(mod, RCX, RSP, 0);
     emit64_load_typed(mod, RAX, RCX, field->offset, field->type);
@@ -3292,6 +3423,11 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
     emit_dword(mod, 0);
     add_func_call_ref64(decl_link_name(cleanup), call_offset);
     emit64_label(mod, skip_cleanup);
+    if (active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+        gen64_cxx_unregister_delete_members(
+            mod, expr->call_delete_object_type,
+            active_cxx_exception_cleanup_frame_offset64);
+    }
     emit64_mov_reg_mem(mod, RAX, RSP, 0);
     gen64_cxx_destroy_members(mod, expr->call_delete_object_type);
     emit64_mov_reg_mem(mod, RDI, RSP, 0);
