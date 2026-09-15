@@ -2941,6 +2941,19 @@ static void gen64_cxx_initialize_member_initializers(
     if (!mod || !object_type || !constructor) return;
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
+        if (initializer->is_delegating_constructor) {
+            if (!initializer->constructor ||
+                initializer->constructor == constructor || initializer->next) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ delegating constructor is incomplete");
+                return;
+            }
+            gen64_cxx_initialize_object(
+                mod, object_type, initializer->constructor,
+                gen64_cxx_bind_constructor_arguments(
+                    constructor, initializer->arguments, arguments));
+            continue;
+        }
         if (initializer->is_base_initializer) {
             Type* base_type = NULL;
             int base_offset = gen64_cxx_constructor_base(
@@ -3023,6 +3036,21 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
         gen64_cxx_initialize_member_initializers(
             mod, object_type, constructor, arguments);
         gen64_cxx_call_constructor(mod, constructor, arguments);
+        return;
+    }
+    if (constructor->initializers &&
+        constructor->initializers->is_delegating_constructor) {
+        CxxConstructorInitializer* delegation = constructor->initializers;
+        if (!delegation->constructor ||
+            delegation->constructor == constructor || delegation->next) {
+            rcc_error((SourceLoc){"<constructor>", 0, 0},
+                      "validated C++ delegating constructor is incomplete");
+            return;
+        }
+        gen64_cxx_initialize_object(
+            mod, object_type, delegation->constructor,
+            gen64_cxx_bind_constructor_arguments(
+                constructor, delegation->arguments, arguments));
         return;
     }
     gen64_cxx_zero_object(mod, object_type, address_reg);

@@ -5262,6 +5262,19 @@ static void gen_cxx_initialize_member_initializers32(
     if (!mod || !object_type || !constructor) return;
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
+        if (initializer->is_delegating_constructor) {
+            if (!initializer->constructor ||
+                initializer->constructor == constructor || initializer->next) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ delegating constructor is incomplete");
+                return;
+            }
+            gen_cxx_initialize_object32(
+                mod, object_type, initializer->constructor,
+                gen_cxx_bind_constructor_arguments32(
+                    constructor, initializer->arguments, arguments));
+            continue;
+        }
         if (initializer->is_base_initializer) {
             Type* base_type = NULL;
             int base_offset = gen_cxx_constructor_base32(
@@ -5349,6 +5362,21 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
         gen_cxx_initialize_member_initializers32(
             mod, object_type, constructor, arguments);
         gen_cxx_call_constructor32(mod, constructor, arguments);
+        return;
+    }
+    if (constructor->initializers &&
+        constructor->initializers->is_delegating_constructor) {
+        CxxConstructorInitializer* delegation = constructor->initializers;
+        if (!delegation->constructor ||
+            delegation->constructor == constructor || delegation->next) {
+            rcc_error((SourceLoc){"<constructor>", 0, 0},
+                      "validated C++ delegating constructor is incomplete");
+            return;
+        }
+        gen_cxx_initialize_object32(
+            mod, object_type, delegation->constructor,
+            gen_cxx_bind_constructor_arguments32(
+                constructor, delegation->arguments, arguments));
         return;
     }
     gen_cxx_zero_object32(mod, object_type, address_reg);

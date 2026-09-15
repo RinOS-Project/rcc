@@ -624,6 +624,7 @@ static bool lowerable_constructor_body(CxxClass* cls,
         item->arguments = NULL;
         item->constructor = NULL;
         item->is_base_initializer = false;
+        item->is_delegating_constructor = false;
         item->is_default_member_initializer = false;
         item->next = NULL;
         *tail = item;
@@ -795,6 +796,34 @@ static bool cxx_append_constructor_default_arguments(
     return true;
 }
 
+static bool cxx_constructor_name_matches(CxxClass* cls, const char* name) {
+    const char* class_name = cxx_unqualified_name(cls ? cls->name : NULL);
+    const char* initializer_name = cxx_unqualified_name(name);
+    return class_name && initializer_name &&
+           strcmp(class_name, initializer_name) == 0;
+}
+
+static CxxConstructorInfo* cxx_find_delegating_constructor(
+    CxxClass* cls, CxxConstructorInfo* current, int argument_count) {
+    if (!cls || argument_count < 0) return NULL;
+    for (CxxConstructorInfo* candidate = cls->constructors;
+         candidate; candidate = candidate->next) {
+        bool callable_body = candidate->method && candidate->method->decl &&
+            candidate->method->decl->func_body;
+        if (candidate == current || candidate->access != ACCESS_PUBLIC ||
+            candidate->is_deleted || candidate->is_defaulted ||
+            candidate->parameter_count < argument_count ||
+            (candidate->parameter_count != argument_count &&
+             !cxx_constructor_arity_has_defaults(candidate, argument_count)) ||
+            !candidate->initializers_are_supported ||
+            (!candidate->body_is_empty && !callable_body)) {
+            continue;
+        }
+        return candidate;
+    }
+    return NULL;
+}
+
 static CxxConstructorInfo* cxx_find_base_constructor(CxxClass* base,
                                                       int argument_count) {
     if (!base) return NULL;
@@ -844,6 +873,7 @@ static CxxConstructorInitializer* cxx_copy_constructor_initializer(
         copy->value = NULL;
         copy->arguments = NULL;
         copy->constructor = NULL;
+        copy->is_delegating_constructor = false;
     }
     copy->constructor = base_constructor;
     copy->is_base_initializer = is_base;
@@ -873,11 +903,13 @@ static CxxConstructorInitializer* cxx_find_constructor_initializer(
  * fixed-layout, non-virtual, non-polymorphic bases whose constructor overload
  * is known.  Unsupported forms remain diagnosed by the lowering verifier. */
 static void complete_cxx_default_member_initializers(CxxClass* cls) {
-    if (!cls || (!cls->has_field_initializer && cls->base_count == 0)) return;
+    if (!cls || (!cls->has_field_initializer && cls->base_count == 0 &&
+                 !cls->constructors)) return;
     for (CxxConstructorInfo* constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         CxxConstructorInitializer* ordered = NULL;
         CxxConstructorInitializer** tail = &ordered;
+        CxxConstructorInitializer* delegation = NULL;
         bool valid = constructor->initializers_are_supported;
         int count = 0;
 
@@ -885,6 +917,31 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
         for (CxxConstructorInitializer* item = constructor->initializers;
              item; item = item->next) {
             bool duplicate = false;
+            if (cxx_constructor_name_matches(cls, item->field)) {
+                int argument_count = cxx_constructor_argument_count(
+                    item->arguments);
+                CxxConstructorInfo* target =
+                    cxx_find_delegating_constructor(
+                        cls, constructor, argument_count);
+                if (delegation || constructor->initializer_count != 1 ||
+                    !target || target == constructor) {
+                    valid = false;
+                    continue;
+                }
+                if (target->parameter_count != argument_count &&
+                    !cxx_append_constructor_default_arguments(
+                        &item->arguments, target, argument_count)) {
+                    valid = false;
+                    continue;
+                }
+                item->value = item->arguments ? item->arguments->expr : NULL;
+                item->constructor = target;
+                item->is_base_initializer = false;
+                item->is_delegating_constructor = true;
+                item->is_default_member_initializer = false;
+                delegation = item;
+                continue;
+            }
             int base_index = cxx_constructor_base_index(cls, item->field);
             if (base_index >= 0) {
                 CxxClass* base = cls->bases[base_index].base;
@@ -926,6 +983,15 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
         }
         if (!valid) {
             constructor->initializers_are_supported = false;
+            continue;
+        }
+        if (delegation) {
+            constructor->initializers = cxx_copy_constructor_initializer(
+                delegation, delegation->field, false, delegation->constructor,
+                false);
+            constructor->initializers->is_delegating_constructor = true;
+            constructor->initializer_count = 1;
+            constructor->initializers_are_supported = true;
             continue;
         }
 
@@ -995,6 +1061,7 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->arguments = NULL;
                 item->constructor = NULL;
                 item->is_base_initializer = false;
+                item->is_delegating_constructor = false;
                 item->is_default_member_initializer = true;
                 item->next = NULL;
             }
@@ -1059,6 +1126,7 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         item->arguments = arguments;
         item->constructor = NULL;
         item->is_base_initializer = false;
+        item->is_delegating_constructor = false;
         item->is_default_member_initializer = false;
         item->next = NULL;
         *tail = item;
@@ -1311,6 +1379,40 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             continue;
         }
         if (!constructor->initializers_are_supported) continue;
+        if (initializer && initializer->is_delegating_constructor) {
+            CxxConstructorInfo* target = initializer->constructor;
+            TypeParam* parameter = target ? target->parameters : NULL;
+            ExprList* argument = initializer->arguments;
+            if (!target || target == constructor || initializer->next) {
+                continue;
+            }
+            while (parameter && argument) {
+                if (!cxx_constructor_expression_is_lowerable(
+                        constructor, argument->expr, parameter->type,
+                        parameter_used, arity)) {
+                    supported = false;
+                    break;
+                }
+                parameter = parameter->next;
+                argument = argument->next;
+            }
+            if (!supported || parameter || argument) continue;
+            if (arity != 0u) {
+                bool all_parameters_used = true;
+                for (unsigned index = 0; index < arity; ++index) {
+                    if (!parameter_used[index]) {
+                        all_parameters_used = false;
+                        break;
+                    }
+                }
+                if (!all_parameters_used) continue;
+            }
+            for (unsigned invocation_arity = minimum_arity;
+                 invocation_arity <= arity; ++invocation_arity) {
+                mask |= UINT32_C(1) << invocation_arity;
+            }
+            continue;
+        }
         while (initializer && initializer->is_base_initializer) {
             if (!cxx_base_initializer_is_lowerable(
                     constructor, initializer, parameter_used, arity)) {

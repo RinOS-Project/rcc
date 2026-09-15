@@ -4888,6 +4888,9 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
 static void sema_resolve_cxx_constructor_initializers(
     CxxConstructorInfo* constructor, SourceLoc loc);
 
+static CxxConstructorInfo* sema_constructor_resolution_stack[64];
+static unsigned sema_constructor_resolution_depth;
+
 static Decl* sema_cxx_constructor_parameter(
     CxxConstructorInfo* constructor, const char* name) {
     if (!constructor || !constructor->method || !name) return NULL;
@@ -5140,13 +5143,78 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
 static void sema_resolve_cxx_constructor_initializers(
     CxxConstructorInfo* constructor, SourceLoc loc) {
     CxxClass* cls;
+    unsigned index;
     if (!constructor || !constructor->method ||
         !constructor->method->owner || !constructor->method->owner->type) {
         return;
     }
+    for (index = 0; index < sema_constructor_resolution_depth; ++index) {
+        if (sema_constructor_resolution_stack[index] == constructor) {
+            rcc_error(loc, "cyclic C++ delegating constructor");
+            return;
+        }
+    }
+    if (sema_constructor_resolution_depth >=
+        sizeof(sema_constructor_resolution_stack) /
+            sizeof(sema_constructor_resolution_stack[0])) {
+        rcc_error(loc, "C++ constructor delegation depth is unsupported");
+        return;
+    }
+    sema_constructor_resolution_stack[
+        sema_constructor_resolution_depth++] = constructor;
     cls = constructor->method->owner;
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
+        if (initializer->is_delegating_constructor) {
+            CxxConstructorInfo* target = initializer->constructor;
+            TypeParam* parameter = target ? target->parameters : NULL;
+            ExprList* argument = initializer->arguments;
+            int argument_count = sema_cxx_argument_count(argument);
+            bool valid = target && target != constructor &&
+                target->method && target->method->owner == cls;
+            if (!valid) {
+                initializer->constructor = NULL;
+                rcc_error(loc,
+                          "delegating constructor target is not safely lowerable");
+                continue;
+            }
+            while (parameter && argument) {
+                sema_bind_cxx_constructor_expression(
+                    constructor, argument->expr);
+                sema_expr(argument->expr);
+                if (cxx_conversion_rank(argument->expr, parameter->type) < 0) {
+                    valid = false;
+                    break;
+                }
+                parameter = parameter->next;
+                argument = argument->next;
+            }
+            if (!valid || argument ||
+                (parameter && !sema_cxx_constructor_arity_has_defaults(
+                    target, argument_count))) {
+                initializer->constructor = NULL;
+                rcc_error(loc,
+                          "delegating constructor arguments are not safely lowerable");
+                continue;
+            }
+            if (parameter && !sema_append_cxx_constructor_default_arguments(
+                    &initializer->arguments, target, argument_count)) {
+                initializer->constructor = NULL;
+                rcc_error(loc,
+                          "delegating constructor defaults are not safely lowerable");
+                continue;
+            }
+            if (argument_count < target->parameter_count) {
+                for (argument = initializer->arguments; argument;
+                     argument = argument->next) {
+                    sema_bind_cxx_constructor_expression(
+                        constructor, argument->expr);
+                    sema_expr(argument->expr);
+                }
+            }
+            sema_resolve_cxx_constructor_initializers(target, loc);
+            continue;
+        }
         int base_index = sema_cxx_constructor_base_index(
             cls, initializer->field);
         if (base_index >= 0) {
@@ -5208,6 +5276,7 @@ static void sema_resolve_cxx_constructor_initializers(
             }
         }
     }
+    --sema_constructor_resolution_depth;
 }
 
 /* Array new initializers are a sequence of element initializers, rather than
