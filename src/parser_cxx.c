@@ -4959,6 +4959,7 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     bool is_auto = false;
     bool auto_const = false;
     bool auto_reference = false;
+    bool auto_rvalue_reference = false;
     const char* item_name = NULL;
     Expr* range;
     Type* range_type = NULL;
@@ -4982,7 +4983,16 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
         auto_const = match(TOK_CONST);
         match(TOK_AUTO);
         is_auto = true;
-        auto_reference = match(TOK_AMP);
+        if (match(TOK_AMP)) {
+            auto_reference = true;
+        } else if (match(TOK_AND)) {
+            /* An array identifier is an lvalue range.  `auto&&` therefore
+             * deduces an lvalue reference to its element, while retaining
+             * the spelling here lets us reject the cv-qualified form that
+             * cannot bind to this range. */
+            auto_reference = true;
+            auto_rvalue_reference = true;
+        }
         {
             Token* name = expect(TOK_IDENT, "range variable name");
             if (name) item_name = name->value.str_val;
@@ -5009,6 +5019,10 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
                       "RinOS range-for requires a complete array identifier range");
         }
         if (auto_reference && range_type && range_type->base) {
+            if (auto_rvalue_reference && auto_const) {
+                rcc_error(loc,
+                          "const auto&& range variable cannot bind to an array lvalue");
+            }
             Type* referred_type = range_type->base;
             if (auto_const) {
                 Type* qualified = ast_arena_alloc(sizeof(*qualified));

@@ -44,4 +44,12 @@ extern "C" {
         }
         return total;
     }
+
+    int probe_range_for_forward_reference(void) {
+        int values[3] = { 2, 4, 6 };
+        for (auto&& value : values) {
+            value += 1;
+        }
+        return values[0] + values[1] + values[2];
+    }
 }

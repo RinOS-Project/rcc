@@ -1182,6 +1182,14 @@ test-cxx-range-for: $(RCXX_TARGET)
 		tests/cxx_range_for_run_test.c \
 		$(TEST_OUT)/cxx-range-for/x64.o
 	$(TEST_OUT)/cxx-range-for/x64
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-range-for/invalid.ro \
+		tests/cxx_range_for_invalid.cpp \
+		>$(TEST_OUT)/cxx-range-for/invalid.log 2>&1; then \
+		echo "const auto&& range-for unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "const auto&& range variable cannot bind to an array lvalue" \
+		$(TEST_OUT)/cxx-range-for/invalid.log
 	@echo "C++ array range-for tests completed"
 
 test-cxx-lambda-function-pointer: $(RCXX_TARGET)

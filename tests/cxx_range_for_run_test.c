@@ -5,6 +5,7 @@ extern int probe_range_for(void);
 extern int probe_range_for_explicit(void);
 extern int probe_range_for_reference(void);
 extern int probe_range_for_const_reference(void);
+extern int probe_range_for_forward_reference(void);
 
 int main(void)
 {
@@ -13,5 +14,6 @@ int main(void)
     assert(probe_range_for_explicit() == 9);
     assert(probe_range_for_reference() == 36);
     assert(probe_range_for_const_reference() == 21);
+    assert(probe_range_for_forward_reference() == 15);
     return 0;
 }
