@@ -815,6 +815,11 @@ struct Decl {
             bool func_is_consteval;
             bool func_is_auto_return;
             bool func_is_decltype_auto_return;
+            /* Defining namespace retained for deferred template-body
+             * semantic analysis.  Ordinary C++ declarations already encode
+             * this in their qualified name; instantiated function templates
+             * keep the source name for ABI mangling and need this sideband. */
+            const char* func_cxx_namespace;
             Decl* func_overload_next;
         };
 

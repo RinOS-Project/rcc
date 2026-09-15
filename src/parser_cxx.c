@@ -3452,6 +3452,9 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
 
     if (!declaration) return;
     set_cxx_link_name(declaration, ns, false);
+    if (declaration->kind == DECL_FUNC && ns) {
+        declaration->func_cxx_namespace = cxx_namespace_qualified_name(ns);
+    }
     qualified_name = namespace_qualified_decl_name(
         ns, declaration->name, declaration->loc);
     declaration->name = qualified_name;

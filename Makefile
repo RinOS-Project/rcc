@@ -158,7 +158,8 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
-	test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces
+	test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
+	test-cxx-template-two-phase-namespace
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
@@ -1431,6 +1432,34 @@ test-cxx-using-overload-namespaces: $(RCXX_TARGET)
 	grep -q "ambiguous overload for 'choose'" \
 		$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.log
 	@echo "C++ using-namespace overload tests completed"
+
+test-cxx-template-two-phase-namespace: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-namespace)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-two-phase-namespace/x86.s \
+		tests/cxx_template_two_phase_namespace.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-two-phase-namespace/x86.o \
+		$(TEST_OUT)/cxx-template-two-phase-namespace/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-two-phase-namespace/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-two-phase-namespace/x86 \
+		$(TEST_OUT)/cxx-template-two-phase-namespace/start-x86.o \
+		$(TEST_OUT)/cxx-template-two-phase-namespace/x86.o
+	$(TEST_OUT)/cxx-template-two-phase-namespace/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-two-phase-namespace/x64.s \
+		tests/cxx_template_two_phase_namespace.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-template-two-phase-namespace/x64.o \
+		$(TEST_OUT)/cxx-template-two-phase-namespace/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-template-two-phase-namespace/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-two-phase-namespace/x64 \
+		$(TEST_OUT)/cxx-template-two-phase-namespace/start-x64.o \
+		$(TEST_OUT)/cxx-template-two-phase-namespace/x64.o
+	$(TEST_OUT)/cxx-template-two-phase-namespace/x64
+	@echo "C++ template defining-namespace lookup tests completed"
 
 test-cxx-constexpr-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
