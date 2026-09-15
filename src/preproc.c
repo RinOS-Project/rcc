@@ -229,7 +229,10 @@ static const char* skip_to_eol(const char* p) {
 /* Read identifier */
 static const char* read_ident(const char* p, char* buf, size_t buf_size) {
     size_t i = 0;
-    while ((isalnum(*p) || *p == '_') && i < buf_size - 1) {
+    while (isalnum((unsigned char)*p) || *p == '_') {
+        if (i + 1u >= buf_size) {
+            rcc_fatal("preprocessor identifier is too long");
+        }
         buf[i++] = *p++;
     }
     buf[i] = '\0';
@@ -237,14 +240,22 @@ static const char* read_ident(const char* p, char* buf, size_t buf_size) {
 }
 
 /* Read string literal (for #include) */
-static const char* read_string(const char* p, char* buf, size_t buf_size, char delim) {
+static const char* read_string(const char* p, char* buf, size_t buf_size,
+                               char delim, bool* closed) {
     size_t i = 0;
+    if (closed) *closed = false;
     p++; /* Skip opening delimiter */
-    while (*p && *p != delim && *p != '\n' && i < buf_size - 1) {
+    while (*p && *p != delim && *p != '\n') {
+        if (i + 1u >= buf_size) {
+            rcc_fatal("preprocessor string literal is too long");
+        }
         buf[i++] = *p++;
     }
     buf[i] = '\0';
-    if (*p == delim) p++;
+    if (*p == delim) {
+        if (closed) *closed = true;
+        p++;
+    }
     return p;
 }
 
@@ -282,18 +293,34 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
                           bool is_system, char* resolved, size_t resolved_size) {
     char path[RCC_MAX_PATH];
 
+    if (!resolved || resolved_size == 0u) {
+        rcc_fatal("preprocessor include path has no output buffer");
+    }
+
+#define WRITE_RESOLVED_PATH(value)                                                \
+    do {                                                                           \
+        int path_written__ = snprintf(resolved, resolved_size, "%s", (value));   \
+        if (path_written__ < 0 || (size_t)path_written__ >= resolved_size) {      \
+            rcc_fatal("resolved include path is too long");                       \
+        }                                                                          \
+    } while (0)
+
     /* For quoted includes, first search relative to current file */
     if (!is_system && current_file) {
         const char* last_sep = strrchr(current_file, '/');
         if (!last_sep) last_sep = strrchr(current_file, '\\');
         if (last_sep) {
             size_t dir_len = last_sep - current_file + 1;
-            strncpy(path, current_file, dir_len);
-            path[dir_len] = '\0';
-            strncat(path, name, RCC_MAX_PATH - dir_len - 1);
+            size_t name_len = strlen(name);
+            if (dir_len >= sizeof(path) ||
+                name_len > sizeof(path) - dir_len - 1u) {
+                rcc_fatal("relative include path is too long");
+            }
+            memcpy(path, current_file, dir_len);
+            memcpy(path + dir_len, name, name_len + 1u);
             char* content = read_file(path);
             if (content) {
-                snprintf(resolved, resolved_size, "%s", path);
+                WRITE_RESOLVED_PATH(path);
                 return content;
             }
         }
@@ -301,21 +328,33 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
 
     /* Search include paths */
     for (int i = 0; i < pp->include_path_count; i++) {
-        snprintf(path, RCC_MAX_PATH, "%s/%s", pp->include_paths[i], name);
+        size_t dir_len = strlen(pp->include_paths[i]);
+        size_t name_len = strlen(name);
+        if (dir_len >= sizeof(path) - 1u ||
+            name_len > sizeof(path) - dir_len - 2u) {
+            rcc_fatal("include search path is too long");
+        }
+        memcpy(path, pp->include_paths[i], dir_len);
+        path[dir_len] = '/';
+        memcpy(path + dir_len + 1u, name, name_len + 1u);
         char* content = read_file(path);
         if (content) {
-            snprintf(resolved, resolved_size, "%s", path);
+            WRITE_RESOLVED_PATH(path);
             return content;
         }
     }
 
     /* Try current directory */
+    if (strlen(name) >= sizeof(path)) {
+        rcc_fatal("include path is too long");
+    }
     char* content = read_file(name);
     if (content) {
-        snprintf(resolved, resolved_size, "%s", name);
+        WRITE_RESOLVED_PATH(name);
         return content;
     }
 
+#undef WRITE_RESOLVED_PATH
     return NULL;
 }
 
@@ -859,12 +898,17 @@ static const char* read_macro_body(const char* p, char* body, size_t body_size) 
         bool continued = logical_end > p && logical_end[-1] == '\\';
         if (continued) logical_end--;
         size_t part = (size_t)(logical_end - p);
-        if (part > body_size - used - 1u) part = body_size - used - 1u;
+        if (used >= body_size || part > body_size - used - 1u) {
+            rcc_fatal("preprocessor macro replacement list is too long");
+        }
         if (part != 0u) memcpy(body + used, p, part);
         used += part;
-        if (!continued || *eol == '\0' || used + 1u >= body_size) {
+        if (!continued || *eol == '\0') {
             body[used] = '\0';
             return eol;
+        }
+        if (used + 1u >= body_size) {
+            rcc_fatal("preprocessor macro replacement list is too long");
         }
         body[used++] = ' ';
         p = eol + 1;
@@ -950,6 +994,15 @@ static void buf_append_macro_argument(PPBuffer* result, Preprocessor* pp,
             buf_append_trimmed_macro_argument(result, args[argument]);
         }
     }
+}
+
+static void pp_copy_macro_argument(char* destination, size_t capacity,
+                                   const char* start, size_t length) {
+    if (length >= capacity) {
+        rcc_fatal("preprocessor macro argument is too long");
+    }
+    memcpy(destination, start, length);
+    destination[length] = '\0';
 }
 
 static void buf_append_macro_raw_spelling(PPBuffer* result, const Macro* macro,
@@ -1232,9 +1285,10 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
                                     /* End of args */
                                     if (arg_count < PP_MAX_PARAMS) {
                                         size_t len = args_start - arg_start;
-                                        if (len > 1023) len = 1023;
-                                        strncpy(arg_bufs[arg_count], arg_start, len);
-                                        arg_bufs[arg_count][len] = '\0';
+                                        pp_copy_macro_argument(
+                                            arg_bufs[arg_count],
+                                            sizeof(arg_bufs[arg_count]),
+                                            arg_start, len);
                                         args[arg_count] = arg_bufs[arg_count];
                                         arg_count++;
                                     }
@@ -1243,9 +1297,10 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
                                 /* Argument separator */
                                 if (arg_count < PP_MAX_PARAMS) {
                                     size_t len = args_start - arg_start;
-                                    if (len > 1023) len = 1023;
-                                    strncpy(arg_bufs[arg_count], arg_start, len);
-                                    arg_bufs[arg_count][len] = '\0';
+                                    pp_copy_macro_argument(
+                                        arg_bufs[arg_count],
+                                        sizeof(arg_bufs[arg_count]),
+                                        arg_start, len);
                                     args[arg_count] = arg_bufs[arg_count];
                                     arg_count++;
                                 }
@@ -1304,7 +1359,14 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         bool is_system = (*p == '<');
         char inc_name[256];
         char delim = (*p == '<') ? '>' : '"';
-        p = read_string(p, inc_name, sizeof(inc_name), delim);
+        bool include_closed = false;
+        p = read_string(p, inc_name, sizeof(inc_name), delim,
+                        &include_closed);
+        if (!include_closed) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "unterminated #include path");
+            return skip_to_eol(p);
+        }
 
         char resolved[RCC_MAX_PATH];
         char* content = find_include(pp, inc_name, filename, is_system,
@@ -1324,8 +1386,12 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         buf_append_char(output, '\n');
         {
             char return_line[256];
-            snprintf(return_line, sizeof(return_line), "#line %d \"%s\"\n",
-                     source_line + 1, filename);
+            int written = snprintf(return_line, sizeof(return_line),
+                                   "#line %d \"%s\"\n",
+                                   source_line + 1, filename);
+            if (written < 0 || (size_t)written >= sizeof(return_line)) {
+                rcc_fatal("#line include filename is too long");
+            }
             buf_append_str(output, return_line);
         }
 
@@ -1539,12 +1605,12 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         if (pp_is_active(pp)) {
             const char* msg_start = p;
             p = skip_to_eol(p);
-            char msg[256];
             size_t len = p - msg_start;
-            if (len > sizeof(msg) - 1) len = sizeof(msg) - 1;
-            strncpy(msg, msg_start, len);
+            char* msg = rcc_alloc(len + 1u);
+            memcpy(msg, msg_start, len);
             msg[len] = '\0';
             rcc_error((SourceLoc){filename, 0, 0}, "#error %s", msg);
+            rcc_free(msg);
         }
         return skip_to_eol(p);
     }
@@ -1553,12 +1619,12 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         if (pp_is_active(pp)) {
             const char* msg_start = p;
             p = skip_to_eol(p);
-            char msg[256];
             size_t len = p - msg_start;
-            if (len > sizeof(msg) - 1) len = sizeof(msg) - 1;
-            strncpy(msg, msg_start, len);
+            char* msg = rcc_alloc(len + 1u);
+            memcpy(msg, msg_start, len);
             msg[len] = '\0';
             rcc_warning((SourceLoc){filename, 0, 0}, "#warning %s", msg);
+            rcc_free(msg);
         }
         return skip_to_eol(p);
     }
@@ -1601,7 +1667,11 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
     /* Emit #line directive for debugging */
     char line_dir[256];
-    snprintf(line_dir, sizeof(line_dir), "#line 1 \"%s\"\n", filename);
+    int line_written = snprintf(line_dir, sizeof(line_dir),
+                                "#line 1 \"%s\"\n", filename);
+    if (line_written < 0 || (size_t)line_written >= sizeof(line_dir)) {
+        rcc_fatal("#line filename is too long");
+    }
     buf_append_str(&output, line_dir);
 
     while (*p) {
@@ -1635,7 +1705,7 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
         const char* eol = skip_to_eol(p);
         size_t line_len = eol - line_start;
         char* line_buf = rcc_alloc(line_len + 1);
-        strncpy(line_buf, line_start, line_len);
+        memcpy(line_buf, line_start, line_len);
         line_buf[line_len] = '\0';
 
         /* Expand macros */
