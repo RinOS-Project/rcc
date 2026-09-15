@@ -106,6 +106,7 @@ static struct {
     {"mutable", TOK_MUTABLE},
     {"constexpr", TOK_CONSTEXPR},
     {"consteval", TOK_CONSTEVAL},
+    {"decltype", TOK_DECLTYPE},
     {"requires", TOK_REQUIRES},
     {"thread_local", TOK_THREAD_LOCAL},
     {"noexcept", TOK_NOEXCEPT},

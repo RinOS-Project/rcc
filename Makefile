@@ -153,7 +153,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
 .PHONY: test-cxx-constexpr-pointer
-.PHONY: test-cxx-auto-return
+.PHONY: test-cxx-auto-return test-cxx-decltype
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1295,6 +1295,32 @@ test-cxx-auto-return: $(RCXX_TARGET)
 	grep -q "auto return type requires a function definition" \
 		$(TEST_OUT)/cxx-auto-return/invalid.log
 	@echo "C++ auto return deduction tests completed"
+
+test-cxx-decltype: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-decltype/x86.s tests/cxx_decltype.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-decltype/x86.o \
+		$(TEST_OUT)/cxx-decltype/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-decltype/x86 \
+		tests/cxx_decltype_run_test.c $(TEST_OUT)/cxx-decltype/x86.o
+	$(TEST_OUT)/cxx-decltype/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-decltype/x64.s tests/cxx_decltype.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-decltype/x64.o \
+		$(TEST_OUT)/cxx-decltype/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-decltype/x64 \
+		tests/cxx_decltype_run_test.c $(TEST_OUT)/cxx-decltype/x64.o
+	$(TEST_OUT)/cxx-decltype/x64
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-decltype/invalid.ro \
+		tests/cxx_decltype_invalid.cpp \
+		>$(TEST_OUT)/cxx-decltype/invalid.log 2>&1; then \
+		echo "unsupported decltype expression unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "unsupported operator in decltype expression" \
+		$(TEST_OUT)/cxx-decltype/invalid.log
+	@echo "C++ decltype tests completed"
 
 test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)

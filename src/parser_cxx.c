@@ -4661,6 +4661,157 @@ Expr* rcc_parse_cxx_template_call(void) {
     return initializer;
 }
 
+static Type* cxx_decltype_member_type(Type* object_type,
+                                      const char* member_name,
+                                      SourceLoc loc) {
+    TypeField* field;
+    if (!object_type || !member_name) return NULL;
+    if (object_type->kind == TYPE_PTR && object_type->is_reference) {
+        object_type = object_type->base;
+    }
+    if (object_type->kind == TYPE_PTR) object_type = object_type->base;
+    if (!object_type || (object_type->kind != TYPE_STRUCT &&
+                         object_type->kind != TYPE_UNION)) {
+        rcc_error(loc, "decltype member expression requires an aggregate object");
+        return NULL;
+    }
+    for (field = object_type->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, member_name) == 0) {
+            if (field->cxx_access != ACCESS_PUBLIC) {
+                rcc_error(loc, "decltype cannot name a non-public member '%s'",
+                          member_name);
+                return NULL;
+            }
+            return field->type;
+        }
+    }
+    rcc_error(loc, "unknown member '%s' in decltype expression", member_name);
+    return NULL;
+}
+
+static void cxx_skip_decltype_expression(void) {
+    int depth = 0;
+    while (!at_end()) {
+        if (check(TOK_LPAREN)) {
+            ++depth;
+            advance();
+        } else if (check(TOK_RPAREN)) {
+            if (depth == 0) {
+                advance();
+                return;
+            }
+            --depth;
+            advance();
+        } else {
+            advance();
+        }
+    }
+}
+
+/* Parse the expression forms for which the parser already has an exact
+ * source-level type.  `decltype` is intentionally not an integer fallback:
+ * an unsupported dependent or side-effecting expression is diagnosed at its
+ * grammar boundary rather than being assigned a guessed type. */
+static Type* parse_cxx_decltype_type(SourceLoc loc) {
+    Type* result = NULL;
+    bool extra_parentheses = false;
+    bool valid = true;
+    bool dereference = false;
+    bool address = false;
+
+    expect(TOK_DECLTYPE, "decltype");
+    expect(TOK_LPAREN, "(");
+    if (match(TOK_LPAREN)) extra_parentheses = true;
+    if (match(TOK_STAR)) {
+        dereference = true;
+    } else if (match(TOK_AMP)) {
+        address = true;
+    }
+
+    if (check(TOK_IDENT)) {
+        const char* name = advance()->value.str_val;
+        result = cxx_parser_value_type(name);
+        if (!result) {
+            Type* named_type = rcc_parser_lookup_type(name);
+            if (named_type) {
+                rcc_error(loc,
+                          "decltype requires an expression, not a type name");
+            } else {
+                rcc_error(loc, "unknown identifier '%s' in decltype expression",
+                          name);
+            }
+            valid = false;
+        }
+        if (result && (check(TOK_DOT) || check(TOK_ARROW))) {
+            bool through_pointer = match(TOK_ARROW);
+            if (!through_pointer) expect(TOK_DOT, ".");
+            if (!check(TOK_IDENT)) {
+                rcc_error(peek()->loc, "expected member name in decltype expression");
+                valid = false;
+            } else {
+                const char* member_name = advance()->value.str_val;
+                if (through_pointer && result->kind != TYPE_PTR) {
+                    rcc_error(loc,
+                              "decltype '->' expression requires a pointer object");
+                    valid = false;
+                } else {
+                    result = cxx_decltype_member_type(result, member_name, loc);
+                    if (!result) valid = false;
+                }
+            }
+        }
+    } else if (match(TOK_INT_LIT) || match(TOK_CHAR_LIT)) {
+        result = type_int;
+    } else if (match(TOK_FLOAT_LIT)) {
+        result = previous()->float_suffix ? type_float : type_double;
+    } else if (match(TOK_TRUE) || match(TOK_FALSE)) {
+        result = type_bool;
+    } else if (match(TOK_NULLPTR)) {
+        result = type_nullptr;
+    } else {
+        rcc_error(loc,
+                  "unsupported expression in decltype; expected a simple value expression");
+        valid = false;
+    }
+
+    if (extra_parentheses) {
+        if (!check(TOK_RPAREN)) {
+            rcc_error(peek()->loc, "expected ')' in decltype expression");
+            valid = false;
+            cxx_skip_decltype_expression();
+        } else {
+            advance();
+        }
+    } else if (!check(TOK_RPAREN)) {
+        rcc_error(peek()->loc,
+                  "unsupported operator in decltype expression");
+        valid = false;
+        cxx_skip_decltype_expression();
+    }
+    if (extra_parentheses && !check(TOK_RPAREN)) {
+        cxx_skip_decltype_expression();
+    } else {
+        expect(TOK_RPAREN, ")");
+    }
+
+    if (!valid || !result) return type_int;
+    if (address) return type_ptr(result);
+    if (dereference) {
+        if (result->kind != TYPE_PTR || !result->base) {
+            rcc_error(loc, "decltype dereference requires a pointer expression");
+            return type_int;
+        }
+        result = result->base;
+        extra_parentheses = true;
+    }
+    if (extra_parentheses) {
+        Type* reference = type_ptr(result);
+        reference->is_reference = true;
+        return reference;
+    }
+    return result;
+}
+
 static Type* parse_cxx_type_spec(void) {
     SourceLoc loc = peek()->loc;
     Type* t = NULL;
@@ -4689,7 +4840,9 @@ static Type* parse_cxx_type_spec(void) {
     }
 
     /* Base type */
-    if (match(TOK_VOID)) {
+    if (check(TOK_DECLTYPE)) {
+        t = parse_cxx_decltype_type(loc);
+    } else if (match(TOK_VOID)) {
         t = type_void;
     } else if (match(TOK_BOOL)) {
         t = type_bool;

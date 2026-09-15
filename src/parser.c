@@ -1444,6 +1444,8 @@ static bool is_type_start(void) {
     if (parser_cxx_mode && rcc_parse_cxx_type_start &&
         rcc_parse_cxx_type_start()) return true;
     switch (peek()->type) {
+        case TOK_DECLTYPE:
+            return parser_cxx_mode;
         case TOK_TYPEDEF:
         case TOK_VOID:
         case TOK_CHAR:
@@ -2099,8 +2101,9 @@ static Type* parse_type_spec(void) {
         if (parser_cxx_mode && tag) {
             parser_define_type(tag->value.str_val, t);
         }
-    } else if (parser_cxx_mode && rcc_parse_cxx_type_start &&
-               rcc_parse_cxx_type_start() && rcc_parse_cxx_type_name) {
+    } else if (parser_cxx_mode && rcc_parse_cxx_type_name &&
+               (check(TOK_DECLTYPE) ||
+                (rcc_parse_cxx_type_start && rcc_parse_cxx_type_start()))) {
         t = rcc_parse_cxx_type_name();
     } else if (check(TOK_IDENT)) {
         const char* name = peek()->value.str_val;

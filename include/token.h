@@ -102,6 +102,7 @@ typedef enum {
     TOK_MUTABLE,        /* mutable */
     TOK_CONSTEXPR,      /* constexpr */
     TOK_CONSTEVAL,      /* consteval */
+    TOK_DECLTYPE,       /* decltype */
     TOK_REQUIRES,       /* requires */
     TOK_NOEXCEPT,       /* noexcept */
     TOK_STATIC_CAST,    /* static_cast */
