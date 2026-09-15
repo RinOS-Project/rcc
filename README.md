@@ -27,7 +27,8 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
 - `-E`, `-S`, `-c`, `-shared`, `-driver`, `-MMD`, `-MF`
 - `-I`, `-D`, `-U`, `-nostdinc`, `-ffreestanding`
 - 両target tripleと矛盾する`-m32/-m64`指定の拒否
-- nested include、function-like/variadic macro、条件付きpreprocess
+- nested include、function-like/variadic macro、`#`/`##` replacement-list
+  operators、C++20 `__VA_OPT__`、条件付きpreprocess
 - C17 `_Static_assert`の整数定数式評価と失敗diagnostic
 - x86_64 SysVの整数引数、基本scalar/aggregate load-store、global data
 - direct RIN/NDRVとobject linkでのDATA/CODE/BSS symbol relocation、関数ポインタ
