@@ -167,7 +167,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
 .PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime
 .PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
-.PHONY: test-cxx-qualified-class-initialization
+.PHONY: test-cxx-qualified-class-initialization test-cxx-static-member-tls
 .PHONY: test-cxx-constructor-general
 .PHONY: test-cxx-auto-non-type-template
 
@@ -2273,6 +2273,26 @@ test-cxx-static-data-members: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-data-members/x64.o
 	$(TEST_OUT)/cxx-static-data-members/x64
 	@echo "RCC++ static data member tests completed"
+
+test-cxx-static-member-tls: $(RCXX_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-member-tls)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-static-member-tls/x86.ro \
+		tests/cxx_static_member_tls.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/cxx-static-member-tls/x86.rin \
+		tests/cxx_static_member_tls.cpp
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-static-member-tls/x86.rin
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-static-member-tls/x64.ro \
+		tests/cxx_static_member_tls.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 --emit-unsigned-v3 \
+		-o $(TEST_OUT)/cxx-static-member-tls/x64.rin \
+		tests/cxx_static_member_tls.cpp
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-static-member-tls/x64.rin
+	@echo "RCC++ static thread-local data member tests completed"
 
 test-cxx-class-template-static-data: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-static-data)

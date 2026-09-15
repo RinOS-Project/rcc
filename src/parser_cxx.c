@@ -3177,6 +3177,8 @@ static void register_instantiated_class_static_fields(
             source ? source->loc : (SourceLoc){"<template>", 0, 0});
         declaration->link_name = rcc_intern(cxx_mangle_name(
             field->name, instance->ns, instance));
+        declaration->var_is_thread_local = source &&
+                                           source->var_is_thread_local;
         declaration->var_is_inline = source && source->var_is_inline;
         declaration->var_is_constexpr = source && source->var_is_constexpr;
         declaration->storage = STORAGE_NONE;
@@ -3198,11 +3200,13 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     bool is_constexpr = false;
     bool is_consteval = false;
     bool is_explicit = false;
+    bool is_thread_local = false;
 
     /* C++ declaration specifiers can be combined in either order. */
     for (;;) {
         if (match(TOK_VIRTUAL)) is_virtual = true;
         else if (match(TOK_STATIC)) is_static = true;
+        else if (match(TOK_THREAD_LOCAL)) is_thread_local = true;
         else if (match(TOK_CONSTEXPR)) is_constexpr = true;
         else if (match(TOK_CONSTEVAL)) {
             is_constexpr = true;
@@ -3470,6 +3474,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             init = rcc_parser_parse_initializer();
         }
         if (init && !is_static) cls->has_field_initializer = true;
+        if (is_thread_local && !is_static) {
+            rcc_error(loc,
+                      "thread-local storage is only valid on static C++ data members");
+        }
         if (current_access != ACCESS_PUBLIC) {
             cls->has_nonpublic_field = true;
         }
@@ -3482,6 +3490,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                                          is_bitfield, bit_width, is_static);
         if (is_static && name) {
             Decl* declaration = decl_var(name, type, init, loc);
+            declaration->var_is_thread_local = is_thread_local;
             declaration->var_is_inline = is_inline;
             cxx_class_add_member(cls, declaration, current_access, true);
         }
@@ -4831,10 +4840,7 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
         parser.prev = saved_prev;
         return NULL;
     }
-    if (is_thread_local) {
-        rcc_error(loc,
-                  "thread-local static data member definitions are not supported");
-    }
+    if (is_thread_local) declaration->var_is_thread_local = true;
     if (!base_type || !declaration->type ||
         !type_is_compatible(base_type, declaration->type)) {
         rcc_error(loc, "static data member definition type does not match '%s'",
