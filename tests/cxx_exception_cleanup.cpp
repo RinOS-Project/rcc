@@ -2,6 +2,7 @@ extern "C" int cxx_exception_cleanup_close(int* value);
 extern "C" int cxx_exception_cleanup_callee(int value);
 extern "C" int cxx_exception_cleanup_total = 0;
 extern "C" int cxx_exception_destructor_total = 0;
+extern "C" int cxx_exception_array_order = 0;
 
 class ExceptionGuard final {
 public:
@@ -122,6 +123,19 @@ private:
     NestedSecondExceptionGuard second_;
 };
 
+class ArrayDeleteThrowing final {
+public:
+    explicit ArrayDeleteThrowing(int value) : value_(value) {}
+
+    ~ArrayDeleteThrowing() {
+        if (value_ == 3) throw 43;
+        cxx_exception_array_order = cxx_exception_array_order * 10 + value_;
+    }
+
+private:
+    int value_;
+};
+
 extern "C" int cxx_exception_cleanup_callee(int value) {
     throw value;
 }
@@ -159,6 +173,18 @@ extern "C" int cxx_exception_cleanup_delete_throw() {
     }
 }
 
+extern "C" int cxx_exception_cleanup_array_delete_throw() {
+    cxx_exception_array_order = 0;
+    try {
+        ArrayDeleteThrowing* values =
+            new ArrayDeleteThrowing[3]{1, 2, 3};
+        delete[] values;
+    } catch (int caught) {
+        return caught + cxx_exception_array_order * 1000;
+    }
+    return -1;
+}
+
 extern "C" int main() {
     return cxx_exception_cleanup_direct() == 141 &&
                    cxx_exception_cleanup_handler() == 7 &&
@@ -168,7 +194,8 @@ extern "C" int main() {
                    cxx_exception_cleanup_across_call() == 21223 &&
                    cxx_exception_destructor_total == 2 &&
                    cxx_exception_cleanup_nested_members() == 21029 &&
-                   cxx_exception_cleanup_delete_throw() == 21037
+                   cxx_exception_cleanup_delete_throw() == 21037 &&
+                   cxx_exception_cleanup_array_delete_throw() == 21043
                ? 0
                : 1;
 }

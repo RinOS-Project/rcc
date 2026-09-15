@@ -5335,7 +5335,8 @@ static void gen_cxx_register_delete_object32(Module* mod, Type* object_type,
     if (!destructor || !destructor->func_body || !destructor->link_name) {
         return;
     }
-    emit_push_reg(mod, EAX);
+    emit_push_reg(mod, EAX); /* preserve object across symbol lookup/call */
+    emit_push_reg(mod, EAX); /* third cdecl argument */
     gen_symbol_address(mod, decl_link_name(destructor), 0u);
     emit_push_reg(mod, EAX);
     emit_mov_reg_reg(mod, EAX, EBP);
@@ -5387,7 +5388,8 @@ static void gen_cxx_unregister_delete_object32(Module* mod, Type* object_type,
     if (!destructor || !destructor->func_body || !destructor->link_name) {
         return;
     }
-    emit_push_reg(mod, EAX);
+    emit_push_reg(mod, EAX); /* preserve object across symbol lookup/call */
+    emit_push_reg(mod, EAX); /* third cdecl argument */
     gen_symbol_address(mod, decl_link_name(destructor), 0u);
     emit_push_reg(mod, EAX);
     emit_mov_reg_reg(mod, EAX, EBP);
@@ -5401,6 +5403,63 @@ static void gen_cxx_unregister_delete_object32(Module* mod, Type* object_type,
     }
     emit_add_reg_imm(mod, ESP, 12);
     emit_pop_reg(mod, EAX);
+}
+
+/* During delete[] the current element's destructor is already in flight when
+ * it can transfer through the active exception frame.  Register the earlier
+ * elements first, then the current element's direct members last, so the
+ * runtime LIFO cleanup order is current-members, previous-element destructor
+ * and members, ... .  The caller removes this registration set after a
+ * normal destructor return before performing the ordinary member walk. */
+static void gen_cxx_register_delete_array32(Module* mod, Type* object_type,
+                                            Decl* destructor,
+                                            int frame_offset) {
+    int previous_done;
+    int previous_loop;
+    if (!object_type || !object_type->cxx_class) return;
+    if (destructor) {
+        previous_done = new_label();
+        previous_loop = new_label();
+        emit_mov_reg_mem(mod, ECX, ESP, 12); /* first element */
+        emit_label(mod, previous_loop);
+        emit_mov_reg_mem(mod, EDX, ESP, 0);
+        emit_cmp_reg_reg(mod, ECX, EDX);
+        emit_jcc_label(mod, CC_GE, previous_done);
+        emit_mov_reg_reg(mod, EAX, ECX);
+        emit_push_reg(mod, ECX);
+        gen_cxx_register_delete_object32(mod, object_type, frame_offset);
+        emit_pop_reg(mod, ECX);
+        emit_add_reg_imm(mod, ECX, (uint32_t)object_type->size);
+        emit_jmp_label(mod, previous_loop);
+        emit_label(mod, previous_done);
+    }
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    gen_cxx_register_delete_members32(mod, object_type, frame_offset);
+}
+
+static void gen_cxx_unregister_delete_array32(Module* mod, Type* object_type,
+                                              Decl* destructor,
+                                              int frame_offset) {
+    int previous_done;
+    int previous_loop;
+    if (!object_type || !object_type->cxx_class) return;
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    gen_cxx_unregister_delete_members32(mod, object_type, frame_offset);
+    if (!destructor) return;
+    previous_done = new_label();
+    previous_loop = new_label();
+    emit_mov_reg_mem(mod, ECX, ESP, 12);
+    emit_label(mod, previous_loop);
+    emit_mov_reg_mem(mod, EDX, ESP, 0);
+    emit_cmp_reg_reg(mod, ECX, EDX);
+    emit_jcc_label(mod, CC_GE, previous_done);
+    emit_mov_reg_reg(mod, EAX, ECX);
+    emit_push_reg(mod, ECX);
+    gen_cxx_unregister_delete_object32(mod, object_type, frame_offset);
+    emit_pop_reg(mod, ECX);
+    emit_add_reg_imm(mod, ECX, (uint32_t)object_type->size);
+    emit_jmp_label(mod, previous_loop);
+    emit_label(mod, previous_done);
 }
 
 /* Destroy direct class members in declaration order as represented by the
@@ -5652,6 +5711,16 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
     emit_scale_reg(mod, ECX, (uint32_t)object_type->size);
     emit_add_reg_reg(mod, EAX, ECX);
     emit_mov_mem_reg(mod, ESP, 0, EAX);
+
+    if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+        if (!destructor) {
+            rcc_error(expr->loc,
+                      "exception-aware delete[] requires an explicit element destructor");
+        }
+        gen_cxx_register_delete_array32(
+            mod, object_type, destructor,
+            active_cxx_exception_cleanup_frame_offset);
+    }
     emit_label(mod, loop);
     if (destructor) {
         emit_mov_reg_mem(mod, EAX, ESP, 0);
@@ -5665,6 +5734,11 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
         }
         emit_add_reg_imm(mod, ESP, 4);
         emit_pop_reg(mod, EAX);
+        if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+            gen_cxx_unregister_delete_array32(
+                mod, object_type, destructor,
+                active_cxx_exception_cleanup_frame_offset);
+        }
         gen_cxx_destroy_members32(mod, object_type);
     } else if (!cleanup || !field) {
         emit_mov_reg_mem(mod, EAX, ESP, 0);
@@ -5707,6 +5781,11 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
         }
         emit_label(mod, skip_cleanup);
         emit_mov_reg_mem(mod, EAX, ESP, 0);
+        if (active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+            gen_cxx_unregister_delete_array32(
+                mod, object_type, destructor,
+                active_cxx_exception_cleanup_frame_offset);
+        }
         gen_cxx_destroy_members32(mod, object_type);
     }
     emit_mov_reg_mem(mod, ECX, ESP, 0);
