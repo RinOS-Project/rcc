@@ -90,6 +90,19 @@ void rcc_parser_cxx_end_function_parameters(void) {
         saved_value_bindings[--saved_value_binding_depth];
 }
 
+void rcc_parser_cxx_add_value_binding(const char* name, Type* type) {
+    CxxParserValueBinding* binding;
+    if (!name || !*name || !type) return;
+    for (binding = active_value_bindings; binding; binding = binding->next) {
+        if (binding->name && strcmp(binding->name, name) == 0) return;
+    }
+    binding = ast_arena_alloc(sizeof(*binding));
+    binding->name = name;
+    binding->type = type;
+    binding->next = active_value_bindings;
+    active_value_bindings = binding;
+}
+
 static Type* cxx_parser_value_type(const char* name) {
     for (CxxParserValueBinding* binding = active_value_bindings;
          binding; binding = binding->next) {
@@ -2689,10 +2702,9 @@ static bool cxx_lambda_has_return(Stmt* statement) {
     }
 }
 
-/* Lower a non-capturing lambda to a real internal function declaration.  A
- * lambda with captures needs a closure object and an environment ABI, so it
- * is diagnosed at the grammar boundary rather than being converted to a
- * function with silently missing state. */
+/* Lower an immediately-invoked lambda to a real internal function
+ * declaration. Captures are explicit leading parameters, so this lowering
+ * never drops captured state. */
 Expr* rcc_parse_cxx_lambda(void) {
     SourceLoc loc = peek()->loc;
     DeclList* capture_params = NULL;
@@ -2707,9 +2719,51 @@ Expr* rcc_parse_cxx_lambda(void) {
     int written;
     int capture_count = 0;
     CxxReferenceCapture* lambda_reference_captures = NULL;
+    bool default_capture = false;
+    bool default_reference = false;
 
     expect(TOK_LBRACKET, "[");
-    if (!match(TOK_RBRACKET)) {
+    if (check(TOK_ASSIGN) && check_next(TOK_RBRACKET)) {
+        advance();
+        default_capture = true;
+    } else if (check(TOK_AMP) && check_next(TOK_RBRACKET)) {
+        advance();
+        default_capture = true;
+        default_reference = true;
+    }
+    if (default_capture) {
+        if (!match(TOK_RBRACKET)) {
+            rcc_error(peek()->loc,
+                      "lambda default capture cannot be combined with an explicit capture in this ABI");
+            while (!check(TOK_RBRACKET) && !at_end()) advance();
+            expect(TOK_RBRACKET, "]");
+            return NULL;
+        }
+        for (CxxParserValueBinding* binding = active_value_bindings;
+             binding; binding = binding->next) {
+            Type* capture_type = binding->type;
+            if (!capture_type) {
+                rcc_error(loc, "lambda capture has no semantic type");
+                continue;
+            }
+            if (default_reference) {
+                CxxReferenceCapture* reference =
+                    ast_arena_alloc(sizeof(*reference));
+                reference->name = binding->name;
+                reference->next = lambda_reference_captures;
+                lambda_reference_captures = reference;
+                capture_type = type_ptr(capture_type);
+                exprlist_append(&captures, expr_unary(
+                    EXPR_ADDR, expr_ident(binding->name, loc), loc));
+            } else {
+                exprlist_append(&captures,
+                                expr_ident(binding->name, loc));
+            }
+            decllist_append(&capture_params,
+                            decl_param(binding->name, capture_type,
+                                       capture_count++, loc));
+        }
+    } else if (!match(TOK_RBRACKET)) {
         do {
             Token* capture;
             Type* capture_type;
@@ -4860,6 +4914,7 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     expect(TOK_SEMICOLON, ";");
     Decl* declaration = decl_var(name->value.str_val, type, initializer, loc);
     declaration->var_is_auto = is_auto;
+    rcc_parser_cxx_add_value_binding(declaration->name, declaration->type);
     return stmt_decl(declaration, loc);
 }
 
@@ -4905,6 +4960,7 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     declaration = decl_var(name->value.str_val, base_type, initializer, loc);
     declaration->storage = (StorageClass)storage;
     declaration->var_is_thread_local = is_thread_local;
+    rcc_parser_cxx_add_value_binding(declaration->name, declaration->type);
     return stmt_decl(declaration, loc);
 }
 

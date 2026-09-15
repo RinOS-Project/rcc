@@ -43,6 +43,8 @@ extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_end_function_parameters(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_add_value_binding(const char* name, Type* type)
+    RCC_OPTIONAL_CXX;
 
 typedef struct ParserTypeName {
     const char* name;
@@ -2828,6 +2830,9 @@ Stmt* parse_declaration(void) {
     declaration->var_is_constexpr = is_constexpr;
     if (is_consteval) {
         rcc_error(loc, "consteval declaration must declare a function");
+    }
+    if (parser_cxx_mode && rcc_parser_cxx_add_value_binding) {
+        rcc_parser_cxx_add_value_binding(declaration_name, type);
     }
     return stmt_decl(declaration, loc);
 }
