@@ -445,6 +445,7 @@ struct Expr {
             bool call_new_is_array;
             bool call_new_brace_init;
             bool call_new_array_cookie;
+            bool call_new_default_member_initializers;
             Type* call_new_type;
             Expr* call_new_count;
             ExprList* call_new_args;

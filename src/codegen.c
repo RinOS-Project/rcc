@@ -4960,6 +4960,21 @@ static void gen_cxx_zero_object32(Module* mod, Type* object_type,
     }
 }
 
+static void gen_cxx_initialize_default_members32(Module* mod, Type* object_type) {
+    if (!mod || !object_type) return;
+    for (TypeField* field = object_type->fields; field; field = field->next) {
+        if (!field->initializer) continue;
+        emit_push_reg(mod, ECX);
+        gen_expr_as_type(mod, field->initializer, field->type);
+        emit_pop_reg(mod, ECX);
+        if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(mod, EAX, field->initializer->type,
+                                       field->type);
+        }
+        emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
+    }
+}
+
 static TypeField* gen_cxx_constructor_field32(Type* object_type,
                                                const char* name) {
     for (TypeField* field = object_type ? object_type->fields : NULL;
@@ -5711,12 +5726,21 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     }
     argument = expr->call_new_args;
     initialize = expr->call_new_value_init ||
+                 expr->call_new_default_member_initializers ||
                  expr->call_new_constructor != NULL ||
                  argument != NULL;
     if (!initialize) return;
 
     emit_push_reg(mod, EAX); /* retain the allocation across initializers */
     emit_mov_reg_mem(mod, ECX, ESP, 0);
+    if (expr->call_new_default_member_initializers) {
+        if (expr->call_new_value_init) {
+            gen_cxx_zero_object32(mod, object_type, ECX);
+        }
+        gen_cxx_initialize_default_members32(mod, object_type);
+        emit_pop_reg(mod, EAX);
+        return;
+    }
     if (expr->call_new_constructor) {
         gen_cxx_initialize_object32(mod, object_type,
                                      expr->call_new_constructor,

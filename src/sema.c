@@ -4554,6 +4554,34 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
 
 static Decl* sema_cxx_destructor_function(Type* object_type);
 
+static bool sema_cxx_validate_default_member_initializers(
+    Type* object_type, SourceLoc loc) {
+    if (!object_type || !object_type->cxx_class ||
+        !object_type->cxx_class->has_field_initializer) {
+        return false;
+    }
+    for (TypeField* field = object_type->fields; field; field = field->next) {
+        int64_t value;
+        if (!field->initializer) continue;
+        if (!field->type || field->type->size <= 0 ||
+            !(type_is_integer(field->type) || field->type->kind == TYPE_ENUM ||
+              field->type->kind == TYPE_PTR ||
+              field->type->kind == TYPE_NULLPTR) ||
+            !expr_eval_integer_constant(field->initializer, &value)) {
+            rcc_error(loc,
+                      "new requires scalar integer constant default member initializers");
+            return false;
+        }
+        if (!sema_expr(field->initializer) ||
+            !implicit_cast(field->initializer, field->type)) {
+            rcc_error(field->initializer->loc,
+                      "default member initializer is incompatible with its field");
+            return false;
+        }
+    }
+    return true;
+}
+
 /* A non-trivial exception object needs one additional runtime operation: the
  * owned byte copy must be destroyed when the handler releases the payload.
  * Keep this first ABI extension deliberately bounded.  It is valid for a
@@ -6696,6 +6724,12 @@ static Type* sema_expr(Expr* expr) {
                 }
                 argument_count = sema_cxx_argument_count(expr->call_new_args);
                 if (expr->call_new_is_array) {
+                    if (cls && !cls->constructors &&
+                        cls->has_field_initializer) {
+                        rcc_error(expr->loc,
+                                  "array new with default member initializers is not supported");
+                        return expr->type;
+                    }
                     int64_t element_count = 0;
                     if (expr->call_new_args && !expr->call_new_brace_init) {
                         rcc_error(expr->loc,
@@ -6779,7 +6813,18 @@ static Type* sema_expr(Expr* expr) {
                     }
                     return expr->type;
                 }
+                if (cls && !cls->constructors &&
+                    cls->has_field_initializer &&
+                    !sema_cxx_validate_default_member_initializers(
+                        object_type, expr->loc)) {
+                    return expr->type;
+                }
+                if (cls && !cls->constructors &&
+                    cls->has_field_initializer) {
+                    expr->call_new_default_member_initializers = true;
+                }
                 if (object_type->cxx_nontrivial &&
+                    !expr->call_new_default_member_initializers &&
                     (!cls || !rcc_parser_cxx_constructor_arity_mask(object_type)) &&
                     !(expr->call_new_is_array &&
                       cls && !cls->constructors &&

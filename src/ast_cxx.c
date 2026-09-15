@@ -1271,6 +1271,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_is_new = expression->call_is_new;
             copy->call_new_value_init = expression->call_new_value_init;
             copy->call_new_is_array = expression->call_new_is_array;
+            copy->call_new_default_member_initializers = false;
             copy->call_new_type = template_substitute_type(
                 tmpl, expression->call_new_type, args, arg_count,
                 value_args, value_present);

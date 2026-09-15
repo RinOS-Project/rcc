@@ -573,6 +573,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_new_is_array = false;
     e->call_new_brace_init = false;
     e->call_new_array_cookie = false;
+    e->call_new_default_member_initializers = false;
     e->call_new_type = NULL;
     e->call_new_count = NULL;
     e->call_new_args = NULL;

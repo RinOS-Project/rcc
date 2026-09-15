@@ -2649,6 +2649,21 @@ static void gen64_cxx_zero_object(Module* mod, Type* object_type,
     }
 }
 
+static void gen64_cxx_initialize_default_members(
+    Module* mod, Type* object_type) {
+    if (!mod || !object_type) return;
+    for (TypeField* field = object_type->fields; field; field = field->next) {
+        if (!field->initializer) continue;
+        emit64_push_reg(mod, RCX);
+        gen64_expr(mod, field->initializer);
+        emit64_pop_reg(mod, RCX);
+        if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
+            emit64_normalize_atomic_value(mod, RAX, field->type);
+        }
+        emit64_store_typed(mod, RCX, field->offset, RAX, field->type);
+    }
+}
+
 static TypeField* gen64_cxx_constructor_field(Type* object_type,
                                                const char* name) {
     for (TypeField* field = object_type ? object_type->fields : NULL;
@@ -3326,12 +3341,21 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     }
     argument = expr->call_new_args;
     initialize = expr->call_new_value_init ||
+                 expr->call_new_default_member_initializers ||
                  expr->call_new_constructor != NULL ||
                  argument != NULL;
     if (!initialize) return;
 
     emit64_push_reg(mod, RAX);
     emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    if (expr->call_new_default_member_initializers) {
+        if (expr->call_new_value_init) {
+            gen64_cxx_zero_object(mod, object_type, RCX);
+        }
+        gen64_cxx_initialize_default_members(mod, object_type);
+        emit64_pop_reg(mod, RAX);
+        return;
+    }
     if (expr->call_new_constructor) {
         gen64_cxx_initialize_object(mod, object_type,
                                      expr->call_new_constructor,
