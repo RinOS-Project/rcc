@@ -154,7 +154,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-x86-wide-scalar test-language-boundaries test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts
 .PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
-.PHONY: test-cxx-nontrivial-object-exceptions
+.PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
@@ -2385,6 +2385,104 @@ test-cxx-object-exceptions: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-object-exceptions/x64-verified.ro \
 		tests/cxx_object_exceptions.cpp
 	@echo "RCC++ trivially-copyable object exception tests completed"
+
+test-cxx-cross-library-exceptions: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-cross-library-exceptions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.s \
+		tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.s \
+		tests/cxx_exception_consumer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.s
+	$(OBJCOPY) --redefine-sym _rcc_entry=provider_rcc_entry \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-library-exceptions/start-x86.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/native-x86 \
+		$(TEST_OUT)/cxx-cross-library-exceptions/start-x86.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.o
+	$(TEST_OUT)/cxx-cross-library-exceptions/native-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.s \
+		tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.s \
+		tests/cxx_exception_consumer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.s
+	$(OBJCOPY) --redefine-sym _rcc_entry=provider_rcc_entry \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o
+	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/start-x64.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/native-x64 \
+		$(TEST_OUT)/cxx-cross-library-exceptions/start-x64.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.o
+	$(TEST_OUT)/cxx-cross-library-exceptions/native-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.ro \
+		tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.ro \
+		tests/cxx_exception_consumer.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.ro \
+		tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.ro \
+		tests/cxx_exception_consumer.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --shared --emit-unsigned-v3 \
+		--dep rincrt.rll \
+		--import rin_cpp_exception_throw_object=rincrt.rll@function \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.rll \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --shared --emit-unsigned-v3 \
+		--dep rincrt.rll \
+		--import rin_cpp_exception_throw_object=rincrt.rll@function \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.rll \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.ro
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		--dep provider-x86.rll --dep rincrt.rll \
+		--import cxx_exception_provider_throw=provider-x86.rll@function \
+		--import setjmp=rincrt.rll@function \
+		--import rin_cpp_exception_install=rincrt.rll@function \
+		--import rin_cpp_exception_leave=rincrt.rll@function \
+		--import rin_cpp_exception_rethrow_frame=rincrt.rll@function \
+		--import rin_cpp_exception_release_frame=rincrt.rll@function \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.rin \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		--dep provider-x64.rll --dep rincrt.rll \
+		--import cxx_exception_provider_throw=provider-x64.rll@function \
+		--import setjmp=rincrt.rll@function \
+		--import rin_cpp_exception_install=rincrt.rll@function \
+		--import rin_cpp_exception_leave=rincrt.rll@function \
+		--import rin_cpp_exception_rethrow_frame=rincrt.rll@function \
+		--import rin_cpp_exception_release_frame=rincrt.rll@function \
+		-o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.rin \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.ro
+	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.rll
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.rll
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.rin
+	@echo "RCC++ cross-translation-unit and RLL exception ABI tests completed"
 
 test-cxx-exception-cleanup: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-exception-cleanup
