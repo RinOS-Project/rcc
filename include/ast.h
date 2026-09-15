@@ -430,6 +430,7 @@ struct Expr {
             bool call_is_delete;
             bool call_delete_is_array;
             Decl* call_delete_cleanup;
+            Decl* call_delete_destructor;
             TypeField* call_delete_cleanup_field;
             int64_t call_delete_cleanup_invalid;
         };

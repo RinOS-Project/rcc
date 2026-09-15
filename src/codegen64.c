@@ -2643,11 +2643,44 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
 }
 
 static void gen64_cxx_delete(Module* mod, Expr* expr) {
+    Decl* destructor = expr ? expr->call_delete_destructor : NULL;
     Decl* cleanup = expr ? expr->call_delete_cleanup : NULL;
     TypeField* field = expr ? expr->call_delete_cleanup_field : NULL;
     int skip_cleanup;
     int done;
 
+    if (destructor) {
+        if (!expr->call_args || !expr->call_args->expr ||
+            !destructor->link_name) {
+            rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
+                      "C++ delete destructor metadata is incomplete");
+            emit64_mov_reg_imm32(mod, RAX, 0);
+            return;
+        }
+        done = new_label64();
+        gen64_expr(mod, expr->call_args->expr);
+        emit64_cmp_reg_imm(mod, RAX, 0);
+        emit64_jcc_label(mod, CC64_E, done);
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RDI, RSP, 0);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0);
+            add_func_call_ref64(decl_link_name(destructor), call_offset);
+        }
+        emit64_mov_reg_mem(mod, RDI, RSP, 0);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t free_offset = code_offset(mod);
+            emit_dword(mod, 0);
+            add_func_call_ref64("rin_free", free_offset);
+        }
+        emit64_add_reg_imm(mod, RSP, 8);
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        emit64_label(mod, done);
+        return;
+    }
     if (!cleanup || !field || !expr->call_args ||
         !expr->call_args->expr) {
         return;
@@ -3277,7 +3310,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 gen64_cxx_new(mod, expr);
                 break;
             }
-            if (expr->call_is_delete && expr->call_delete_cleanup) {
+            if (expr->call_is_delete &&
+                (expr->call_delete_cleanup || expr->call_delete_destructor)) {
                 gen64_cxx_delete(mod, expr);
                 break;
             }

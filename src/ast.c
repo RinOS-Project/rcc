@@ -574,6 +574,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_is_delete = false;
     e->call_delete_is_array = false;
     e->call_delete_cleanup = NULL;
+    e->call_delete_destructor = NULL;
     e->call_delete_cleanup_field = NULL;
     e->call_delete_cleanup_invalid = 0;
     e->type = NULL;

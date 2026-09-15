@@ -2848,6 +2848,48 @@ static Decl* sema_cxx_cleanup_function(Type* object_type, SourceLoc loc) {
     return function;
 }
 
+static Decl* sema_cxx_destructor_function(Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    CxxMethod* method = cls ? cls->destructor_method : NULL;
+    if (!method || !method->decl || !method->decl->func_body ||
+        !method->decl->link_name || !method->decl->func_this_param) {
+        return NULL;
+    }
+    return method->decl;
+}
+
+static Expr* sema_cxx_destructor_cleanup(Decl* declaration) {
+    Decl* destructor;
+    Expr* object;
+    Expr* address;
+    Expr* function;
+    Expr* call;
+    if (!declaration || !declaration->type) return NULL;
+    destructor = sema_cxx_destructor_function(declaration->type);
+    if (!destructor) return NULL;
+    object = expr_ident(declaration->name, declaration->loc);
+    object->ident_decl = declaration;
+    object->type = declaration->type;
+    address = expr_unary(EXPR_ADDR, object, declaration->loc);
+    address->type = type_ptr(declaration->type);
+    function = expr_ident(destructor->name, declaration->loc);
+    function->ident_decl = destructor;
+    function->type = destructor->type;
+    call = expr_call(function, exprlist_new(address), declaration->loc);
+    call->type = type_void;
+    return call;
+}
+
+static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
+    if (!rcc_parser_is_cxx_mode() || !declaration ||
+        !declaration->type || declaration->type->kind != TYPE_STRUCT ||
+        declaration->type->cleanup_function || declaration->var_cleanup ||
+        !declaration->var_init) {
+        return;
+    }
+    declaration->var_cleanup = sema_cxx_destructor_cleanup(declaration);
+}
+
 static CxxConstructorInfo* sema_select_cxx_new_constructor(
     Type* object_type, ExprList* arguments, SourceLoc loc) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
@@ -4474,18 +4516,23 @@ static Type* sema_expr(Expr* expr) {
                     }
                     if (!object_type->cleanup_function ||
                         !object_type->cleanup_field) {
-                        rcc_error(expr->loc,
-                                  "delete requires C++ destructor lowering for a non-trivial object");
-                        return expr->type;
-                    }
-                    cleanup_function = sema_cxx_cleanup_function(
-                        object_type, expr->loc);
-                    if (cleanup_function) {
-                        expr->call_delete_cleanup = cleanup_function;
-                        expr->call_delete_cleanup_field =
-                            object_type->cleanup_field;
-                        expr->call_delete_cleanup_invalid =
-                            object_type->cleanup_invalid;
+                        expr->call_delete_destructor =
+                            sema_cxx_destructor_function(object_type);
+                        if (!expr->call_delete_destructor) {
+                            rcc_error(expr->loc,
+                                      "delete requires C++ destructor lowering for a non-trivial object");
+                            return expr->type;
+                        }
+                    } else {
+                        cleanup_function = sema_cxx_cleanup_function(
+                            object_type, expr->loc);
+                        if (cleanup_function) {
+                            expr->call_delete_cleanup = cleanup_function;
+                            expr->call_delete_cleanup_field =
+                                object_type->cleanup_field;
+                            expr->call_delete_cleanup_invalid =
+                                object_type->cleanup_invalid;
+                        }
                     }
                 }
                 return expr->type;
@@ -6648,6 +6695,7 @@ static void sema_decl(Decl* decl) {
                           "constexpr variable requires an initializer");
             }
             sema_prepare_variable_cleanup(decl, is_global);
+            sema_prepare_variable_destructor_cleanup(decl);
             current_cxx_namespace = saved_cxx_namespace;
             break;
         }

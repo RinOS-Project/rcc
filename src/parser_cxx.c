@@ -669,7 +669,9 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     if (!cls || !cls->type->is_complete || cls->base_count != 0 ||
         cls->has_static_field || cls->has_field_initializer ||
         class_has_virtual_member(cls) ||
-        (class_has_destructor(cls) && !cls->type->cleanup_function)) {
+        (class_has_destructor(cls) && !cls->type->cleanup_function &&
+         (!cls->destructor_method || !cls->destructor_method->decl ||
+          !cls->destructor_method->decl->func_body))) {
         return 0u;
     }
     if (!cls->constructors) return 0u;
@@ -1841,7 +1843,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
             ? constructor_info_for_method(cls, method) : NULL;
         if (!method || !method->decl || !method->decl->func_body ||
             method->is_pure_virtual || method->is_deleted ||
-            method->is_defaulted || method->is_destructor ||
+            method->is_defaulted ||
             (method->is_constructor &&
              (!constructor || constructor->body_is_empty))) {
             continue;
@@ -1922,7 +1924,8 @@ static void register_ordinary_class_methods(CxxClass* cls) {
 
 static void diagnose_unlowered_destructors(CxxClass* cls) {
     struct CxxMember* member;
-    if (!cls || !cls->type || cls->type->cleanup_function || active_template) {
+    if (!cls || !cls->type || cls->type->cleanup_function ||
+        cls->destructor_method || active_template) {
         return;
     }
     for (member = cls->members; member; member = member->next) {

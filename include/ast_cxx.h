@@ -87,6 +87,7 @@ struct CxxClass {
     CxxVtableEntry* vtable;
     CxxSecondaryVtable* secondary_vtables;
     int secondary_vtable_count;
+    CxxMethod* destructor_method;
 
     /* Type info */
     Type* type;

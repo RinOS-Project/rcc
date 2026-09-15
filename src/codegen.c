@@ -4913,11 +4913,46 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
 }
 
 static void gen_cxx_delete32(Module* mod, Expr* expr) {
+    Decl* destructor = expr ? expr->call_delete_destructor : NULL;
     Decl* cleanup = expr ? expr->call_delete_cleanup : NULL;
     TypeField* field = expr ? expr->call_delete_cleanup_field : NULL;
     int skip_cleanup;
     int done;
 
+    if (destructor) {
+        if (!expr->call_args || !expr->call_args->expr ||
+            !destructor->link_name) {
+            rcc_error(expr ? expr->loc : (SourceLoc){"<delete>", 0, 0},
+                      "C++ delete destructor metadata is incomplete");
+            emit_mov_reg_imm(mod, EAX, 0);
+            return;
+        }
+        done = new_label();
+        gen_expr(mod, expr->call_args->expr);
+        emit_cmp_reg_imm(mod, EAX, 0);
+        emit_jcc_label(mod, CC_E, done);
+        emit_push_reg(mod, EAX);
+        emit_push_reg(mod, EAX);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0);
+            add_func_call_ref(decl_link_name(destructor), call_offset);
+        }
+        emit_add_reg_imm(mod, ESP, 4);
+        emit_pop_reg(mod, EAX);
+        emit_push_reg(mod, EAX);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t free_offset = code_offset(mod);
+            emit_dword(mod, 0);
+            add_func_call_ref("rin_free", free_offset);
+        }
+        emit_add_reg_imm(mod, ESP, 4);
+        emit_mov_reg_imm(mod, EAX, 0);
+        emit_label(mod, done);
+        return;
+    }
     if (!cleanup || !field || !expr->call_args ||
         !expr->call_args->expr) {
         return;
@@ -4983,7 +5018,8 @@ static void gen_call(Module* mod, Expr* expr) {
         gen_cxx_new32(mod, expr);
         return;
     }
-    if (expr->call_is_delete && expr->call_delete_cleanup) {
+    if (expr->call_is_delete &&
+        (expr->call_delete_cleanup || expr->call_delete_destructor)) {
         gen_cxx_delete32(mod, expr);
         return;
     }

@@ -239,6 +239,13 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         }
         buf[pos++] = 'C';
         buf[pos++] = '1';
+    } else if (func && func->func_is_cxx_destructor && cls) {
+        mangle_nested_prefix(buf, &pos, ns, cls);
+        if (pos + 2u >= sizeof(buf)) {
+            rcc_fatal("C++ destructor name is too long");
+        }
+        buf[pos++] = 'D';
+        buf[pos++] = '1';
     } else if (func && func->name &&
         strcmp(func->name, "operator conversion") == 0) {
         char* return_type;
@@ -358,6 +365,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->vtable_size = 0;
     cls->secondary_vtables = NULL;
     cls->secondary_vtable_count = 0;
+    cls->destructor_method = NULL;
     cls->type = type_struct(name);
     cls->type->cxx_class = cls;
     cls->size = 0;
@@ -1154,6 +1162,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_new_constructor = NULL;
             copy->call_is_delete = expression->call_is_delete;
             copy->call_delete_is_array = expression->call_delete_is_array;
+            copy->call_delete_destructor = NULL;
             /* Destructor lookup is semantic and must be redone for the
              * substituted class specialization. */
             copy->call_delete_cleanup = NULL;
@@ -1705,6 +1714,10 @@ void cxx_class_add_method(CxxClass* cls, CxxMethod* method) {
     member->is_override = method->is_override;
     member->is_final = method->is_final;
     member->next = NULL;
+
+    if (method->is_destructor && !cls->destructor_method) {
+        cls->destructor_method = method;
+    }
 
     /* Append to member list */
     if (!cls->members) {
