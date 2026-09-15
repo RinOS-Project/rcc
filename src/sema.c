@@ -5059,8 +5059,9 @@ static bool sema_append_cxx_constructor_default_arguments(
     return true;
 }
 
-static CxxConstructorInfo* sema_select_cxx_new_constructor(
-    Type* object_type, ExprList** arguments, SourceLoc loc) {
+static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
+    Type* object_type, ExprList** arguments, SourceLoc loc,
+    bool allow_explicit) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     CxxConstructorInfo* candidate;
     CxxConstructorInfo* best = NULL;
@@ -5084,6 +5085,7 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
         int worst = 0;
         bool viable = true;
         if (!candidate->method || candidate->access != ACCESS_PUBLIC ||
+            (!allow_explicit && candidate->method->is_explicit) ||
             candidate->is_deleted || candidate->is_defaulted ||
             candidate->parameter_count < argument_count ||
             (candidate->parameter_count != argument_count &&
@@ -5138,6 +5140,12 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
         return NULL;
     }
     return best;
+}
+
+static CxxConstructorInfo* sema_select_cxx_new_constructor(
+    Type* object_type, ExprList** arguments, SourceLoc loc) {
+    return sema_select_cxx_new_constructor_ex(
+        object_type, arguments, loc, true);
 }
 
 static void sema_resolve_cxx_constructor_initializers(
@@ -8589,8 +8597,13 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 sema_expr(item->expr);
             }
         }
-        initializer->compound_constructor = sema_select_cxx_new_constructor(
-            type, &constructor_arguments, initializer->loc);
+        initializer->compound_constructor = sema_select_cxx_new_constructor_ex(
+            type, &constructor_arguments, initializer->loc,
+            !initializer->compound_copy_init);
+        if (!initializer->compound_constructor) {
+            rcc_error(initializer->loc,
+                      "no safely lowerable constructor accepts the C++ initializer");
+        }
         if (constructor_arguments != initializer->compound_init) {
             initializer->compound_init = constructor_arguments;
             initializer->compound_value_init = constructor_arguments == NULL;
@@ -9282,6 +9295,23 @@ static void sema_cxx_synthesize_default_constructor_initializer(
     declaration->var_init = initializer;
 }
 
+static void sema_cxx_wrap_copy_constructor_initializer(Decl* declaration) {
+    Type* type = declaration ? declaration->type : NULL;
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    Expr* source;
+    Expr* initializer;
+    if (!declaration || !type || !cls || !cls->has_user_constructor ||
+        !declaration->var_init ||
+        declaration->var_init->kind == EXPR_COMPOUND) {
+        return;
+    }
+    source = declaration->var_init;
+    initializer = expr_initializer_list(exprlist_new(source), source->loc);
+    initializer->compound_type = type;
+    initializer->compound_copy_init = true;
+    declaration->var_init = initializer;
+}
+
 static Type* sema_decltype_auto_return_type(Expr* expression) {
     Type* result;
     if (!expression) return type_void;
@@ -9498,6 +9528,7 @@ static void sema_decl(Decl* decl) {
             }
             if (rcc_parser_is_cxx_mode()) {
                 sema_cxx_synthesize_default_constructor_initializer(decl);
+                sema_cxx_wrap_copy_constructor_initializer(decl);
             }
             if (decl->var_is_thread_local && !is_global &&
                 decl->storage != STORAGE_STATIC &&

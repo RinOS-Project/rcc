@@ -696,6 +696,7 @@ Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
     e->compound_init = items;
     e->compound_offset = 0;
     e->compound_value_init = false;
+    e->compound_copy_init = false;
     e->compound_static_symbol = NULL;
     e->compound_constructor = NULL;
     e->type = NULL;

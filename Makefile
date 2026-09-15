@@ -161,7 +161,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
-.PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor
+.PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -2067,6 +2067,36 @@ test-cxx-delegating-constructor: $(RCXX_TARGET)
 	grep -q "cyclic C++ delegating constructor" \
 		$(TEST_OUT)/cxx-delegating-constructor/invalid-x64.log
 	@echo "C++ delegating constructor tests completed"
+
+test-cxx-converting-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-converting-constructor)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-converting-constructor/x86.s \
+		tests/cxx_converting_constructor.cpp
+	$(CC) -m32 -o $(TEST_OUT)/cxx-converting-constructor/x86 \
+		tests/cxx_converting_constructor_run_test.c \
+		$(TEST_OUT)/cxx-converting-constructor/x86.s
+	$(TEST_OUT)/cxx-converting-constructor/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-converting-constructor/x64.s \
+		tests/cxx_converting_constructor.cpp
+	$(CC) -o $(TEST_OUT)/cxx-converting-constructor/x64 \
+		tests/cxx_converting_constructor_run_test.c \
+		$(TEST_OUT)/cxx-converting-constructor/x64.s
+	$(TEST_OUT)/cxx-converting-constructor/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-converting-constructor/invalid-x86.ro \
+		tests/cxx_explicit_copy_initialization_invalid.cpp \
+		>$(TEST_OUT)/cxx-converting-constructor/invalid-x86.log 2>&1
+	grep -q "no safely lowerable constructor accepts the C++ initializer" \
+		$(TEST_OUT)/cxx-converting-constructor/invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-converting-constructor/invalid-x64.ro \
+		tests/cxx_explicit_copy_initialization_invalid.cpp \
+		>$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log 2>&1
+	grep -q "no safely lowerable constructor accepts the C++ initializer" \
+		$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
+	@echo "C++ converting constructor tests completed"
 
 test-aggregate-union-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-union-abi)

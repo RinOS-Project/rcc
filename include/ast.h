@@ -494,6 +494,7 @@ struct Expr {
             ExprList* compound_init;
             int compound_offset;     /* Assigned automatic-storage slot. */
             bool compound_value_init; /* Spelled as an empty C++ {} list. */
+            bool compound_copy_init;  /* C++ copy-initialization (`T t = x`). */
             const char* compound_static_symbol;
             struct CxxConstructorInfo* compound_constructor;
         };
