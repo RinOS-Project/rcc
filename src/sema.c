@@ -664,7 +664,8 @@ static bool atomic_allows_pointer_value(const char* name) {
 static bool is_lvalue(Expr* e) {
     if (e && e->kind == EXPR_CAST && e->type && e->type->is_reference &&
         (e->cxx_cast_kind == CXX_CAST_NONE ||
-         e->cxx_cast_kind == CXX_CAST_CONST)) {
+         e->cxx_cast_kind == CXX_CAST_CONST ||
+         e->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
         return is_lvalue(e->cast_expr);
     }
     switch (e->kind) {
@@ -809,6 +810,21 @@ static Type* implicit_cast(Expr* e, Type* target) {
         if ((source->is_const && !referred->is_const) ||
             (source->is_volatile && !referred->is_volatile)) {
             return NULL;
+        }
+        if (rcc_parser_is_cxx_mode() &&
+            (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
+            (referred->kind == TYPE_STRUCT || referred->kind == TYPE_UNION)) {
+            int adjustment = 0;
+            if (sema_cxx_public_base(source, referred, &adjustment, 0)) {
+                /* Reference binding keeps the source lvalue address but uses
+                 * the same fixed public-base displacement as a pointer
+                 * conversion.  Record it on the initializer expression so
+                 * local/global reference storage receives the subobject
+                 * address rather than the complete-object address. */
+                e->cxx_pointer_adjustment_valid = adjustment != 0;
+                e->cxx_pointer_adjustment = adjustment;
+                return target;
+            }
         }
         return cxx_reference_object_compatible(source, referred)
             ? target : NULL;
@@ -6777,6 +6793,23 @@ static Type* sema_expr(Expr* expr) {
                     supported = sema_cxx_public_base(
                         source, expr->cast_type->base, &adjustment, 0);
                     source_polymorphic = sema_cxx_is_polymorphic(source);
+                    if (!supported && source_polymorphic &&
+                        expr->cast_type->base->kind == TYPE_STRUCT &&
+                        expr->cast_type->base->cxx_class &&
+                        expr->cast_type->base->cxx_class->type &&
+                        expr->cast_type->base->cxx_class->type->is_complete &&
+                        expr->cast_type->base->cxx_class->type
+                            ->cxx_typeinfo_symbol) {
+                        /* Reference dynamic_cast has the same complete-object
+                         * relationship search as the pointer form.  A
+                         * failed search is not a null reference: codegen
+                         * transfers through the RinOS exception ABI. */
+                        supported = true;
+                        expr->cxx_dynamic_cast_runtime = true;
+                        expr->cxx_dynamic_cast_typeinfo_symbol =
+                            expr->cast_type->base->cxx_class->type
+                                ->cxx_typeinfo_symbol;
+                    }
                 }
                 if (supported && !source_polymorphic) supported = false;
                 if (!supported) {

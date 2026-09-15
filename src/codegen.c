@@ -2787,6 +2787,7 @@ static void resolve_labels(Module* mod) {
 /* Forward declaration */
 static void gen_expr(Module* mod, Expr* expr);
 static void gen_expr_raw(Module* mod, Expr* expr);
+static void gen_cxx_dynamic_cast_runtime32(Module* mod, Expr* expr);
 static void emit_test_scalar_value(Module* mod, const Type* type);
 static void gen_expr64_pair(Module* mod, Expr* expr);
 static void gen_expr_as_integer64(Module* mod, Expr* expr);
@@ -4341,6 +4342,9 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                  expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 gen_lvalue(mod, expr->cast_expr);
                 if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
+                    expr->cxx_dynamic_cast_runtime) {
+                    gen_cxx_dynamic_cast_runtime32(mod, expr);
+                } else if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
                     expr->cxx_pointer_adjustment_valid &&
                     expr->cxx_pointer_adjustment != 0) {
                     emit_add_reg_imm(mod, EAX,
@@ -8136,7 +8140,15 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CAST:
-            if (gen_is_floating(expr->type) ||
+            if (expr->type && expr->type->is_reference &&
+                (expr->cxx_cast_kind == CXX_CAST_NONE ||
+                 expr->cxx_cast_kind == CXX_CAST_CONST ||
+                 expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
+                /* Reference expressions use the pointer ABI.  Loading the
+                 * first word of an aggregate here would pass its vptr as an
+                 * object address to RTTI instead of the lvalue address. */
+                gen_lvalue(mod, expr->cast_expr);
+            } else if (gen_is_floating(expr->type) ||
                 gen_is_floating(expr->cast_expr->type)) {
                 gen_expr_as_type(mod, expr->cast_expr, expr->type);
             } else {
@@ -9064,6 +9076,11 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     if (type->kind == TYPE_PTR && type->is_reference) {
         gen_lvalue(mod, initializer);
+        if (initializer->cxx_pointer_adjustment_valid &&
+            initializer->cxx_pointer_adjustment != 0) {
+            emit_add_reg_imm(mod, EAX,
+                             initializer->cxx_pointer_adjustment);
+        }
         emit_store_typed32(mod, EBP, displacement, EAX, type);
         return true;
     }
@@ -9306,62 +9323,7 @@ static void gen_expr(Module* mod, Expr* expr) {
         }
         emit_label(mod, end_label);
     } else if (expr->cxx_dynamic_cast_runtime) {
-        int null_label = new_label();
-        int not_found_label = new_label();
-        int found_label = new_label();
-        int done_label = new_label();
-        if (!expr->cxx_dynamic_cast_typeinfo_symbol) {
-            rcc_error(expr->loc,
-                      "dynamic_cast has no validated target typeinfo");
-            return;
-        }
-        emit_test_reg_reg(mod, EAX, EAX);
-        emit_jcc_label(mod, CC_E, null_label);
-        emit_mov_reg_mem(mod, ECX, EAX, 0); /* source subobject vptr */
-        emit_mov_reg_mem(mod, EDX, ECX, -4); /* vptr[-1] RTTI metadata */
-        emit_mov_reg_mem(mod, ECX, EDX, 0); /* source offset */
-        emit_sub_reg_reg(mod, EAX, ECX);   /* complete object address */
-        emit_push_reg(mod, EAX);
-        emit_mov_reg_mem(mod, ECX, EDX, 4); /* target-entry count */
-        emit_push_reg(mod, ECX);
-        emit_add_reg_imm(mod, EDX, 8);      /* first type/offset pair */
-        emit_push_reg(mod, EDX);            /* preserve table across lookup */
-        gen_symbol_address(mod, expr->cxx_dynamic_cast_typeinfo_symbol, 0u);
-        emit_mov_reg_reg(mod, ECX, EAX);    /* target typeinfo identity */
-        emit_pop_reg(mod, EDX);
-        emit_mov_reg_mem(mod, EAX, ESP, 0);
-        emit_test_reg_reg(mod, EAX, EAX);
-        emit_jcc_label(mod, CC_E, not_found_label);
-
-        {
-            int loop_label = new_label();
-            emit_label(mod, loop_label);
-            emit_mov_reg_mem(mod, EAX, EDX, 0);
-            emit_cmp_reg_reg(mod, EAX, ECX);
-            emit_jcc_label(mod, CC_E, found_label);
-            emit_add_reg_imm(mod, EDX, 8);
-            emit_mov_reg_mem(mod, EAX, ESP, 0);
-            emit_dec_reg(mod, EAX);
-            emit_mov_mem_reg(mod, ESP, 0, EAX);
-            emit_test_reg_reg(mod, EAX, EAX);
-            emit_jcc_label(mod, CC_NE, loop_label);
-        }
-        emit_jmp_label(mod, not_found_label);
-
-        emit_label(mod, found_label);
-        emit_mov_reg_mem(mod, EAX, EDX, 4); /* target offset */
-        emit_mov_reg_mem(mod, ECX, ESP, 4); /* complete object */
-        emit_add_reg_reg(mod, EAX, ECX);
-        emit_add_reg_imm(mod, ESP, 8);
-        emit_jmp_label(mod, done_label);
-
-        emit_label(mod, not_found_label);
-        emit_add_reg_imm(mod, ESP, 8);
-        emit_xor_reg_reg(mod, EAX, EAX);
-        emit_jmp_label(mod, done_label);
-        emit_label(mod, null_label);
-        emit_xor_reg_reg(mod, EAX, EAX);
-        emit_label(mod, done_label);
+        gen_cxx_dynamic_cast_runtime32(mod, expr);
     } else if (expr->cxx_dynamic_cast_checked) {
         int fail_label;
         int done_label;
@@ -9616,6 +9578,89 @@ static void gen_cxx_exception_register_cleanup32(
 static void gen_cxx_exception_unwind_cleanup32(Module* mod) {
     gen_cxx_exception_cleanups_until_throw32(
         mod, active_cxx_exception_cleanup_marker);
+}
+
+/* The expression and lvalue paths both need the same complete-object RTTI
+ * search.  Keep it in one lowering routine so a reference result cannot
+ * accidentally bypass the runtime relationship check.  A pointer result
+ * follows the normal null-on-failure rule; a reference result transfers
+ * through the real RinOS exception ABI because C++ references cannot encode
+ * a failed cast as null. */
+static void gen_cxx_dynamic_cast_runtime32(Module* mod, Expr* expr) {
+    int null_label = new_label();
+    int not_found_label = new_label();
+    int found_label = new_label();
+    int bad_cast_label = new_label();
+    int done_label = new_label();
+    bool reference_result = expr && expr->type && expr->type->is_reference;
+    if (!expr || !expr->cxx_dynamic_cast_typeinfo_symbol) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<dynamic-cast>", 0, 0},
+                  "dynamic_cast has no validated target typeinfo");
+        return;
+    }
+
+    emit_test_reg_reg(mod, EAX, EAX);
+    emit_jcc_label(mod, CC_E, reference_result ? bad_cast_label : null_label);
+    emit_mov_reg_mem(mod, ECX, EAX, 0); /* source subobject vptr */
+    emit_mov_reg_mem(mod, EDX, ECX, -4); /* vptr[-1] RTTI metadata */
+    emit_mov_reg_mem(mod, ECX, EDX, 0); /* source offset */
+    emit_sub_reg_reg(mod, EAX, ECX);   /* complete object address */
+    emit_push_reg(mod, EAX);
+    emit_mov_reg_mem(mod, ECX, EDX, 4); /* target-entry count */
+    emit_push_reg(mod, ECX);
+    emit_add_reg_imm(mod, EDX, 8);      /* first type/offset pair */
+    emit_push_reg(mod, EDX);            /* preserve table across lookup */
+    gen_symbol_address(mod, expr->cxx_dynamic_cast_typeinfo_symbol, 0u);
+    emit_mov_reg_reg(mod, ECX, EAX);    /* target typeinfo identity */
+    emit_pop_reg(mod, EDX);
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_test_reg_reg(mod, EAX, EAX);
+    emit_jcc_label(mod, CC_E, not_found_label);
+
+    {
+        int loop_label = new_label();
+        emit_label(mod, loop_label);
+        emit_mov_reg_mem(mod, EAX, EDX, 0);
+        emit_cmp_reg_reg(mod, EAX, ECX);
+        emit_jcc_label(mod, CC_E, found_label);
+        emit_add_reg_imm(mod, EDX, 8);
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_dec_reg(mod, EAX);
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_NE, loop_label);
+    }
+    emit_jmp_label(mod, not_found_label);
+
+    emit_label(mod, found_label);
+    emit_mov_reg_mem(mod, EAX, EDX, 4); /* target offset */
+    emit_mov_reg_mem(mod, ECX, ESP, 4); /* complete object */
+    emit_add_reg_reg(mod, EAX, ECX);
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_jmp_label(mod, done_label);
+
+    emit_label(mod, not_found_label);
+    emit_add_reg_imm(mod, ESP, 8);
+    if (reference_result) {
+        emit_jmp_label(mod, bad_cast_label);
+    } else {
+        emit_xor_reg_reg(mod, EAX, EAX);
+        emit_jmp_label(mod, done_label);
+    }
+
+    emit_label(mod, null_label);
+    emit_xor_reg_reg(mod, EAX, EAX);
+    emit_jmp_label(mod, done_label);
+
+    emit_label(mod, bad_cast_label);
+    gen_cxx_exception_unwind_cleanup32(mod);
+    emit_mov_reg_imm(mod, EAX, 0u); /* no object payload for bad_cast */
+    emit_push_reg(mod, EAX);         /* value */
+    emit_mov_reg_imm(mod, EAX, (uint32_t)RCC_CXX_BAD_CAST_TYPE_TAG);
+    emit_push_reg(mod, EAX);         /* type */
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_throw");
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_label(mod, done_label);
 }
 
 static void gen_cxx_exception_release_frame32(Module* mod, int offset) {

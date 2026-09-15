@@ -14,6 +14,13 @@
  * without depending on a host pointer. */
 #define RCC_CXX_EXCEPTION_OBJECT_FLAG UINT64_C(0x80000000)
 
+/* `dynamic_cast<T&>` reports an unsuccessful relationship by throwing a
+ * bad-cast exception.  RinOS keeps the compact exception ABI independent of
+ * a hosted C++ library, so reserve a stable scalar tag for this runtime
+ * condition.  Catch-all handlers can observe it without depending on a
+ * host pointer or a process-local RTTI object. */
+#define RCC_CXX_BAD_CAST_TYPE_TAG UINT64_C(0x6badca57)
+
 static inline const Type* rcc_cxx_exception_match_type(const Type* type) {
     while (type && type->kind == TYPE_PTR && type->is_reference) {
         type = type->base;

@@ -165,7 +165,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
-.PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime
+.PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime test-cxx-dynamic-cast-reference
 .PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
 .PHONY: test-cxx-qualified-class-initialization test-cxx-static-member-tls
 .PHONY: test-cxx-constructor-general
@@ -3605,6 +3605,34 @@ test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o
 	$(TEST_OUT)/cxx-dynamic-cast-runtime/x64
 	@echo "C++ virtual-base dynamic_cast RTTI tests completed"
+
+test-cxx-dynamic-cast-reference: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-reference)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x86.s \
+		tests/cxx_dynamic_cast_reference.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/x86.o \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/start-x86.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x86 \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/start-x86.o \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/x86.o
+	$(TEST_OUT)/cxx-dynamic-cast-reference/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.s \
+		tests/cxx_dynamic_cast_reference.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.o \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/start-x64.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x64 \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/start-x64.o \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/x64.o
+	$(TEST_OUT)/cxx-dynamic-cast-reference/x64
+	@echo "C++ reference dynamic_cast success and bad_cast tests completed"
 
 test-integer-literals: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/integer-literals
