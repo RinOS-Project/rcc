@@ -8604,7 +8604,15 @@ static void normalize_brace_elided_initializer(Type* type,
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     if (!type || type->cxx_dependent || !initializer) return;
-    normalize_brace_elided_initializer(type, initializer);
+    /* In C++ a parenthesized constructor argument list is stored in the
+     * same compound node as a braced aggregate initializer.  Brace elision
+     * must not rewrite that list into nested class objects before overload
+     * resolution; doing so changes `Outer(&value, &value)` into two aggregate
+     * initializers and loses the original argument types. */
+    if (!(rcc_parser_is_cxx_mode() && type->cxx_class &&
+          type->cxx_class->has_user_constructor)) {
+        normalize_brace_elided_initializer(type, initializer);
+    }
     string = initializer_character_string(type, initializer);
     if (string) {
         sema_expr(string);
