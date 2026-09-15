@@ -2934,6 +2934,7 @@ Stmt* parse_declaration(void) {
     declaration->storage = storage;
     declaration->var_is_thread_local = is_thread_local;
     declaration->var_is_constexpr = is_constexpr;
+    declaration->var_is_inline = is_inline;
     if (is_consteval) {
         rcc_error(loc, "consteval declaration must declare a function");
     }

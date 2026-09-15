@@ -779,6 +779,7 @@ struct Decl {
             bool var_is_auto_pointer;
             bool var_is_auto_const;
             bool var_is_constexpr;  /* C++ constexpr variable declaration. */
+            bool var_is_inline;     /* C++17 inline variable definition. */
             Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
         };
 

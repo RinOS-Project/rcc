@@ -2047,6 +2047,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
     bool is_virtual = false;
     bool is_static = false;
+    bool is_inline = false;
     bool is_constexpr = false;
     bool is_consteval = false;
     bool is_explicit = false;
@@ -2061,7 +2062,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             is_consteval = true;
         }
         else if (match(TOK_EXPLICIT)) is_explicit = true;
-        else if (match(TOK_INLINE) || match(TOK___INLINE__)) { }
+        else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else if (match(TOK_FRIEND) || match(TOK_MUTABLE)) { }
         else break;
     }
@@ -2333,6 +2334,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                                          is_bitfield, bit_width, is_static);
         if (is_static && name) {
             Decl* declaration = decl_var(name, type, init, loc);
+            declaration->var_is_inline = is_inline;
             cxx_class_add_member(cls, declaration, current_access, true);
         }
     }
@@ -3582,6 +3584,7 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
         }
     }
     if (storage == STORAGE_EXTERN) declaration->storage = STORAGE_EXTERN;
+    if (is_inline) declaration->var_is_inline = true;
     return stmt_null(loc);
 }
 

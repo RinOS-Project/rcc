@@ -1377,6 +1377,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_TLS,
                               declaration->storage != STORAGE_STATIC);
+            if (declaration->var_is_inline) {
+                module_mark_symbol_weak(mod, decl_link_name(declaration));
+            }
             continue;
         }
         if (declaration->storage == STORAGE_EXTERN &&
@@ -1406,6 +1409,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_DATA,
                               declaration->storage != STORAGE_STATIC);
+            if (declaration->var_is_inline) {
+                module_mark_symbol_weak(mod, decl_link_name(declaration));
+            }
             continue;
         }
         if (!declaration->var_init) {
@@ -1422,6 +1428,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_BSS,
                               declaration->storage != STORAGE_STATIC);
+            if (declaration->var_is_inline) {
+                module_mark_symbol_weak(mod, decl_link_name(declaration));
+            }
             continue;
         }
         while ((mod->data.size & (alignment - 1u)) != 0u) {
@@ -1452,6 +1461,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
                           MODULE_SYMBOL_DATA,
                           declaration->storage != STORAGE_STATIC);
+        if (declaration->var_is_inline) {
+            module_mark_symbol_weak(mod, decl_link_name(declaration));
+        }
     }
     for (DeclList* item = ast->decls; item; item = item->next) {
         if (item->decl && item->decl->kind == DECL_FUNC &&
