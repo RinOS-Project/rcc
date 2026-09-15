@@ -2271,6 +2271,38 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 		fi; \
 		grep -q "$$message" $(TEST_OUT)/language-boundaries/$$fixture-x64.log; \
 	done
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/language-boundaries/dynamic-cast-x86.ro \
+		tests/unsupported_dynamic_cast.cpp \
+		>$(TEST_OUT)/language-boundaries/dynamic-cast-x86.log 2>&1; then \
+		echo "C++ dynamic_cast fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "dynamic_cast requires the unavailable RinOS RTTI ABI" \
+		$(TEST_OUT)/language-boundaries/dynamic-cast-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/language-boundaries/dynamic-cast-x64.ro \
+		tests/unsupported_dynamic_cast.cpp \
+		>$(TEST_OUT)/language-boundaries/dynamic-cast-x64.log 2>&1; then \
+		echo "C++ dynamic_cast fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "dynamic_cast requires the unavailable RinOS RTTI ABI" \
+		$(TEST_OUT)/language-boundaries/dynamic-cast-x64.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/language-boundaries/const-cast-x86.ro \
+		tests/unsupported_const_cast.cpp \
+		>$(TEST_OUT)/language-boundaries/const-cast-x86.log 2>&1; then \
+		echo "C++ const_cast fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "const_cast is not supported by the RinOS cv-qualified object ABI" \
+		$(TEST_OUT)/language-boundaries/const-cast-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/language-boundaries/const-cast-x64.ro \
+		tests/unsupported_const_cast.cpp \
+		>$(TEST_OUT)/language-boundaries/const-cast-x64.log 2>&1; then \
+		echo "C++ const_cast fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "const_cast is not supported by the RinOS cv-qualified object ABI" \
+		$(TEST_OUT)/language-boundaries/const-cast-x64.log
 	@echo "RCC/RCC++ unsupported language and floating-point boundary diagnostics completed"
 
 test-integer-literals: $(RCC_TARGET)

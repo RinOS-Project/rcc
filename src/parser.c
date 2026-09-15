@@ -1112,6 +1112,27 @@ static Expr* parse_postfix(void) {
 static Expr* parse_unary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (parser_cxx_mode && rcc_parse_cxx_type_name &&
+        (check(TOK_DYNAMIC_CAST) || check(TOK_CONST_CAST))) {
+        TokenType cast_token = advance()->type;
+        Type* cast_type;
+        Expr* operand;
+        expect(TOK_LT, "<");
+        cast_type = rcc_parse_cxx_type_name();
+        if (!cast_type) {
+            rcc_error(peek()->loc, "C++ named cast requires a type name");
+            cast_type = type_int;
+        }
+        expect(TOK_GT, ">");
+        expect(TOK_LPAREN, "(");
+        operand = parse_expression();
+        expect(TOK_RPAREN, ")");
+        rcc_error(loc, cast_token == TOK_DYNAMIC_CAST
+                      ? "dynamic_cast requires the unavailable RinOS RTTI ABI"
+                      : "const_cast is not supported by the RinOS cv-qualified object ABI");
+        return parse_postfix_tail(expr_cast(cast_type, operand, loc));
+    }
+
     /* The SDK's fixed-width wrappers only need value-preserving static and
      * reinterpret casts.  Lower both named forms to the existing typed cast
      * node so the 32/64-bit semantic and code-generation paths stay shared. */
