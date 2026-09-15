@@ -2721,6 +2721,36 @@ static TypeField* gen64_cxx_constructor_field(Type* object_type,
     return NULL;
 }
 
+static int gen64_cxx_constructor_base(Type* object_type, const char* name,
+                                      Type** base_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    const char* name_tail = name;
+    const char* separator;
+    if (base_type) *base_type = NULL;
+    if (!cls || !name) return -1;
+    separator = strrchr(name, ':');
+    if (separator && separator > name && separator[-1] == ':') {
+        name_tail = separator + 1;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        const char* base_tail = base ? base->name : NULL;
+        separator = base_tail ? strrchr(base_tail, ':') : NULL;
+        if (separator && separator > base_tail && separator[-1] == ':') {
+            base_tail = separator + 1;
+        }
+        if ((cls->bases[index].base_name &&
+             strcmp(cls->bases[index].base_name, name) == 0) ||
+            (base && base->name && strcmp(base->name, name) == 0) ||
+            (base_tail && strcmp(base_tail, name_tail) == 0)) {
+            if (base_type) *base_type = base ? base->type : NULL;
+            return cls->base_offsets && cls->base_offsets[index] >= 0
+                ? cls->base_offsets[index] : -1;
+        }
+    }
+    return -1;
+}
+
 static void gen64_cxx_call_constructor(Module* mod,
                                         CxxConstructorInfo* constructor,
                                         ExprList* arguments) {
@@ -2850,6 +2880,35 @@ static void gen64_cxx_initialize_member_initializers(
     if (!mod || !object_type || !constructor) return;
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
+        if (initializer->is_base_initializer) {
+            Type* base_type = NULL;
+            int base_offset = gen64_cxx_constructor_base(
+                object_type, initializer->field, &base_type);
+            if (base_offset < 0 || !base_type) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ base initializer is incomplete");
+                return;
+            }
+            emit64_push_reg(mod, RCX);
+            if (base_offset != 0) {
+                emit64_add_reg_imm(mod, RCX, (uint32_t)base_offset);
+            }
+            if (initializer->constructor) {
+                gen64_cxx_initialize_object(
+                    mod, base_type, initializer->constructor,
+                    gen64_cxx_bind_constructor_arguments(
+                        constructor, initializer->arguments, arguments));
+            } else if (initializer->arguments) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "base initializer has no matching constructor");
+                emit64_pop_reg(mod, RCX);
+                return;
+            } else {
+                gen64_cxx_zero_object(mod, base_type, RCX);
+            }
+            emit64_pop_reg(mod, RCX);
+            continue;
+        }
         TypeField* field = gen64_cxx_constructor_field(
             object_type, initializer->field);
         if (!field || (!initializer->value && !initializer->arguments)) {
@@ -2909,6 +2968,38 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
     if (constructor->initializers) {
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {
+            if (initializer->is_base_initializer) {
+                Type* base_type = NULL;
+                int base_offset = gen64_cxx_constructor_base(
+                    object_type, initializer->field, &base_type);
+                if (base_offset < 0 || !base_type) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "validated C++ base initializer is incomplete");
+                    return;
+                }
+                emit64_push_reg(mod, address_reg);
+                if (base_offset != 0) {
+                    emit64_add_reg_imm(mod, address_reg,
+                                       (uint32_t)base_offset);
+                }
+                if (initializer->constructor) {
+                    ExprList* bound_arguments =
+                        gen64_cxx_bind_constructor_arguments(
+                            constructor, initializer->arguments, arguments);
+                    gen64_cxx_initialize_object(
+                        mod, base_type, initializer->constructor,
+                        bound_arguments);
+                } else if (initializer->arguments) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "base initializer has no matching constructor");
+                    emit64_pop_reg(mod, address_reg);
+                    return;
+                } else {
+                    gen64_cxx_zero_object(mod, base_type, address_reg);
+                }
+                emit64_pop_reg(mod, address_reg);
+                continue;
+            }
             field = gen64_cxx_constructor_field(
                 object_type, initializer->field);
             if (!field || (!initializer->value && !initializer->arguments)) {

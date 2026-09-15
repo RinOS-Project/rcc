@@ -4676,6 +4676,31 @@ static TypeField* sema_cxx_object_field(Type* object_type,
     return NULL;
 }
 
+static const char* sema_cxx_unqualified_name(const char* name) {
+    const char* separator;
+    if (!name) return NULL;
+    separator = strrchr(name, ':');
+    return separator && separator > name && separator[-1] == ':'
+        ? separator + 1 : name;
+}
+
+static int sema_cxx_constructor_base_index(CxxClass* cls,
+                                            const char* name) {
+    const char* name_tail = sema_cxx_unqualified_name(name);
+    if (!cls || !name || !name_tail) return -1;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if ((cls->bases[index].base_name &&
+             strcmp(cls->bases[index].base_name, name) == 0) ||
+            (base && base->name && strcmp(base->name, name) == 0) ||
+            (base && base->name &&
+             strcmp(sema_cxx_unqualified_name(base->name), name_tail) == 0)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static Expr* sema_cxx_object_member(Expr* object, TypeField* field) {
     Expr* member;
     if (!object || !field || !field->name) return NULL;
@@ -4944,6 +4969,41 @@ static void sema_resolve_cxx_constructor_initializers(
     cls = constructor->method->owner;
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
+        int base_index = sema_cxx_constructor_base_index(
+            cls, initializer->field);
+        if (base_index >= 0) {
+            CxxClass* base = cls->bases[base_index].base;
+            Type* base_type = base ? base->type : NULL;
+            if (!base_type || !type_is_complete(base_type) ||
+                cls->bases[base_index].is_virtual ||
+                cls->bases[base_index].access != ACCESS_PUBLIC) {
+                rcc_error(loc,
+                          "base constructor initializer is not safely lowerable");
+                continue;
+            }
+            for (ExprList* argument = initializer->arguments; argument;
+                 argument = argument->next) {
+                Decl* parameter = argument->expr &&
+                    argument->expr->kind == EXPR_IDENT
+                    ? sema_cxx_constructor_parameter(
+                        constructor, argument->expr->ident_name) : NULL;
+                if (parameter) {
+                    argument->expr->ident_decl = parameter;
+                    argument->expr->type = parameter->type;
+                } else if (argument->expr) {
+                    sema_expr(argument->expr);
+                }
+            }
+            if (base->constructors || initializer->arguments) {
+                initializer->constructor = sema_select_cxx_new_constructor(
+                    base_type, initializer->arguments, loc);
+                if (!initializer->constructor) {
+                    rcc_error(loc,
+                              "no safely lowerable constructor accepts the base initializer");
+                }
+            }
+            continue;
+        }
         TypeField* field = sema_cxx_object_field(
             cls->type, initializer->field);
         if (!field || !field->type) {
