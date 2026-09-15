@@ -114,6 +114,9 @@ static bool lower_abi_parameter_layout(
 static RccIrLowerValue lower_load_aggregate_chunk(
     RccIrLowerContext* context, RccIrLowerValue base,
     const Type* aggregate_type, size_t offset);
+static RccIrLowerValue lower_load_address(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const Type* ast_type);
 
 enum {
     LOWER_ABI_RETURN_SCALAR = 0,
@@ -143,7 +146,7 @@ static RccIrLowerValue lower_value(RccIrValue id, RccIrType type,
 }
 
 static bool lower_type(const Type* type, RccIrType* result) {
-    if (!type || !result || type->is_reference || type->cleanup_function ||
+    if (!type || !result || type->cleanup_function ||
         type->is_volatile) {
         return false;
     }
@@ -527,6 +530,13 @@ static RccIrLowerValue lower_lvalue_address(
             rcc_ir_set_callee(address, decl_link_name(declaration));
             return lower_value(
                 address->result, rcc_ir_type_pointer(0u), true);
+        }
+        if (expression->ident_decl && expression->ident_decl->type &&
+            expression->ident_decl->type->is_reference) {
+            return lower_load_address(
+                context,
+                lower_value(local->address, rcc_ir_type_pointer(0u), true),
+                expression->ident_decl->type);
         }
         return lower_value(local->address, rcc_ir_type_pointer(0u), true);
     }
@@ -1026,7 +1036,17 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     parameter = function_type->params;
     for (argument = expression->call_args; argument;
          argument = argument->next) {
-        RccIrLowerValue value = lower_expression(context, argument->expr);
+        RccIrLowerValue value;
+        if (parameter && parameter->type &&
+            parameter->type->kind == TYPE_PTR &&
+            parameter->type->is_reference) {
+            /* A reference parameter is an address in the target ABI.  Keep
+             * the argument as an lvalue address so a reference local is not
+             * accidentally loaded as its pointee value. */
+            value = lower_lvalue_address(context, argument->expr);
+        } else {
+            value = lower_expression(context, argument->expr);
+        }
         if (parameter && lower_abi_is_aggregate(parameter->type)) {
             size_t units = ((size_t)parameter->type->size +
                             chunk_size - 1u) / chunk_size;
@@ -2981,9 +3001,20 @@ static bool lower_declaration(RccIrLowerContext* context,
             declaration->type, declaration->var_init);
     }
     if (declaration->var_init) {
-        RccIrLowerValue initializer = lower_expression(
-            context, declaration->var_init);
+        RccIrLowerValue initializer;
         Expr target;
+        if (declaration->type->is_reference) {
+            initializer = lower_lvalue_address(context, declaration->var_init);
+            if (!initializer.valid || initializer.type.kind !=
+                    RCC_IR_TYPE_POINTER ||
+                !lower_store_address(
+                    context,
+                    lower_value(allocation->result,
+                                rcc_ir_type_pointer(0u), true),
+                    initializer)) return false;
+            return true;
+        }
+        initializer = lower_expression(context, declaration->var_init);
         if (!initializer.valid) return false;
         initializer = lower_cast(context, initializer, declaration->type);
         memset(&target, 0, sizeof(target));
@@ -3107,6 +3138,16 @@ static RccIrLowerValue lower_cxx_exception_payload_address(
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
+    if (handler->type && handler->type->kind == TYPE_PTR &&
+        handler->type->is_reference && handler->type->base &&
+        handler->type->base->kind != TYPE_STRUCT &&
+        handler->type->base->kind != TYPE_UNION) {
+        /* Scalar and pointer throws keep the value inline in the frame.  A
+         * reference catch aliases that inline word, rather than treating the
+         * word as an object address. */
+        return lower_byte_offset_address(
+            context, frame, value_offset);
+    }
     payload_word = lower_load_address(
         context, lower_byte_offset_address(context, frame, value_offset),
         type_ulong);
@@ -3161,8 +3202,16 @@ static bool lower_cxx_catch_body(RccIrLowerContext* context,
             return false;
         }
         if (handler->parameter->type &&
-            (handler->parameter->type->kind == TYPE_STRUCT ||
-             handler->parameter->type->kind == TYPE_UNION)) {
+            handler->parameter->type->kind == TYPE_PTR &&
+            handler->parameter->type->is_reference) {
+            if (!lower_store_address(
+                    context,
+                    lower_value(local->address,
+                                rcc_ir_type_pointer(0u), true),
+                    value)) return false;
+        } else if (handler->parameter->type &&
+                   (handler->parameter->type->kind == TYPE_STRUCT ||
+                    handler->parameter->type->kind == TYPE_UNION)) {
             RccIrLowerValue source = lower_cast(
                 context, value, type_ptr(type_void));
             bool copied = source.valid &&

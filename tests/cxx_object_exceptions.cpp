@@ -20,6 +20,17 @@ struct OffsetDerivedException : public PrefixException,
     int extra;
 };
 
+static int cxx_reference_parameter_increment(int& value) {
+    value += 2;
+    return value;
+}
+
+extern "C" int cxx_reference_parameter_call() {
+    int value = 5;
+    return cxx_reference_parameter_increment(value) == 7 && value == 7
+               ? value : 0;
+}
+
 extern "C" int cxx_object_exception_roundtrip() {
     try {
         ExceptionPair value{17, 25};
@@ -116,7 +127,8 @@ extern "C" int main() {
                    cxx_scalar_exception_reference() == 23 &&
                    cxx_const_scalar_exception_reference() == 29 &&
                    cxx_derived_object_exception_reference() == 37 &&
-                   cxx_object_exception_rvalue_reference() == 30
+                   cxx_object_exception_rvalue_reference() == 30 &&
+                   cxx_reference_parameter_call() == 7
                ? 0
                : 1;
 }

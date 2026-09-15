@@ -1044,7 +1044,30 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
                 }
             }
             if (!arguments_have_side_effect) {
-                propagate_constant_expr_list(value->call_args, state);
+                Type* function_type = value->call_func
+                    ? value->call_func->type : NULL;
+                TypeParam* parameter;
+                ExprList* argument;
+                if (function_type && function_type->kind == TYPE_PTR) {
+                    function_type = function_type->base;
+                }
+                parameter = function_type && function_type->kind == TYPE_FUNC
+                    ? function_type->params : NULL;
+                for (argument = value->call_args; argument;
+                     argument = argument->next) {
+                    /* Constant propagation must preserve the address of an
+                     * argument bound to T&, const T&, or T&&.  Replacing
+                     * that lvalue with its known scalar value would make a
+                     * later backend diagnose a valid reference call as a
+                     * non-lvalue (and would change the ABI argument). */
+                    if (parameter && parameter->type &&
+                        parameter->type->is_reference) {
+                        propagate_constant_lvalue(argument->expr, state);
+                    } else {
+                        propagate_constant_expr(&argument->expr, state);
+                    }
+                    if (parameter) parameter = parameter->next;
+                }
             }
             clear_local_constants(state);
             return;
