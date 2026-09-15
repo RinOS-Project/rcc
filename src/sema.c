@@ -309,11 +309,35 @@ static void sema_cxx_adl_collect_namespace(
     }
 }
 
-static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
-    SemaCxxAdlCandidates candidates = {0};
+static Symbol* sema_cxx_make_function_symbol(
+    const char* name, const SemaCxxAdlCandidates* candidates) {
     Symbol* result;
     Decl* head = NULL;
     Decl* tail = NULL;
+
+    if (!name || !candidates || candidates->count == 0) return NULL;
+    /* Keep the source declarations owned by the AST.  The linked copies are
+     * an analysis-only overload view; each copy retains the original ABI
+     * spelling, body, and lifetime metadata for the selected call. */
+    for (int index = 0; index < candidates->count; ++index) {
+        Decl* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *candidates->declarations[index];
+        copy->func_overload_next = NULL;
+        if (tail) tail->func_overload_next = copy;
+        else head = copy;
+        tail = copy;
+    }
+    result = ast_arena_alloc(sizeof(*result));
+    memset(result, 0, sizeof(*result));
+    result->name = name;
+    result->kind = SYM_FUNC;
+    result->type = head ? head->type : NULL;
+    result->decl = head;
+    return result;
+}
+
+static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
+    SemaCxxAdlCandidates candidates = {0};
 
     if (!rcc_parser_is_cxx_mode() || !name) return NULL;
     for (ExprList* item = arguments; item; item = item->next) {
@@ -334,27 +358,7 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
                   "associated ADL overload set exceeds compiler limits");
         return NULL;
     }
-    if (candidates.count == 0) return NULL;
-
-    /* ADL can associate more than one namespace with a call.  Keep the
-     * original declarations untouched: semantic overload selection needs a
-     * linked candidate list, while code generation must continue to refer to
-     * the declarations owned by the AST. */
-    for (int index = 0; index < candidates.count; ++index) {
-        Decl* copy = ast_arena_alloc(sizeof(*copy));
-        *copy = *candidates.declarations[index];
-        copy->func_overload_next = NULL;
-        if (tail) tail->func_overload_next = copy;
-        else head = copy;
-        tail = copy;
-    }
-    result = ast_arena_alloc(sizeof(*result));
-    memset(result, 0, sizeof(*result));
-    result->name = name;
-    result->kind = SYM_FUNC;
-    result->type = head ? head->type : NULL;
-    result->decl = head;
-    return result;
+    return sema_cxx_make_function_symbol(name, &candidates);
 }
 
 static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
@@ -363,6 +367,8 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
                                           int visited_count) {
     char qualified[512];
     Symbol* result = NULL;
+    Symbol* non_function = NULL;
+    SemaCxxAdlCandidates function_candidates = {0};
     const char* namespace_name;
 
     if (!ns || !name || !*name || visited_count >= 32) return NULL;
@@ -389,14 +395,32 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
         final_component = final_component ? final_component + 1 : target;
         if (strcmp(final_component, name) != 0) continue;
         result = symtab_lookup(g_symtab, target);
-        if (result) return result;
+        if (!result) continue;
+        if (result->kind == SYM_FUNC) {
+            sema_cxx_adl_collect_symbol(result, &function_candidates);
+        } else if (!non_function) {
+            non_function = result;
+        }
     }
     for (int index = 0; index < ns->using_namespace_count; ++index) {
         result = sema_cxx_lookup_namespace(ns->using_namespaces[index], name,
                                            visited, visited_count);
-        if (result) return result;
+        if (!result) continue;
+        if (result->kind == SYM_FUNC) {
+            sema_cxx_adl_collect_symbol(result, &function_candidates);
+        } else if (!non_function) {
+            non_function = result;
+        }
     }
-    return NULL;
+    if (function_candidates.overflow) {
+        rcc_error((SourceLoc){"<sema>", 0, 0},
+                  "using-namespace overload set exceeds compiler limits");
+        return NULL;
+    }
+    if (function_candidates.count > 0) {
+        return sema_cxx_make_function_symbol(name, &function_candidates);
+    }
+    return non_function;
 }
 
 static Symbol* sema_cxx_lookup_name(const char* name) {
