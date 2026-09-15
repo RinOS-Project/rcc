@@ -6,6 +6,9 @@
 .globl rin_cpp_exception_leave
 .globl rin_cpp_exception_throw
 .globl rin_cpp_exception_rethrow
+.globl rin_cpp_exception_throw_object
+.globl rin_cpp_exception_rethrow_frame
+.globl rin_cpp_exception_release_frame
 .extern _rcc_entry
 
 .bss
@@ -16,6 +19,10 @@ rin_cpp_exception_current_value:
     .quad 0
 rin_cpp_exception_current_type:
     .quad 0
+rin_cpp_exception_object_used:
+    .quad 0
+rin_cpp_exception_object_storage:
+    .space 4096
 
 .text
 setjmp:
@@ -88,6 +95,55 @@ rin_cpp_exception_rethrow:
     mov rin_cpp_exception_current_value(%rip), %rdi
     mov rin_cpp_exception_current_type(%rip), %rsi
     jmp rin_cpp_exception_throw
+
+rin_cpp_exception_throw_object:
+    test %rsi, %rsi
+    jz 5f
+    mov rin_cpp_exception_object_used(%rip), %rax
+    mov %rax, %r10
+    add %rsi, %r10
+    jc 5f
+    cmp $4096, %r10
+    ja 5f
+    lea rin_cpp_exception_object_storage(%rip), %r8
+    add %rax, %r8
+    mov %rdi, %r9
+    test %r9, %r9
+    jz 5f
+    mov %rsi, %rcx
+    mov %r9, %rsi
+    mov %r8, %rdi
+    cld
+    rep movsb
+    mov %r10, rin_cpp_exception_object_used(%rip)
+    mov %r8, %rdi
+    mov %rdx, %rsi
+    call rin_cpp_exception_throw
+    ud2
+
+rin_cpp_exception_rethrow_frame:
+    mov 72(%rdi), %rax
+    mov 80(%rdi), %rsi
+    mov %rax, %rdi
+    jmp rin_cpp_exception_throw
+
+rin_cpp_exception_release_frame:
+    test %rdi, %rdi
+    jz 6f
+    mov 80(%rdi), %edx
+    test $0x80000000, %edx
+    jz 6f
+    movq $0, 72(%rdi)
+    movq $0, 80(%rdi)
+    movq $0, rin_cpp_exception_object_used(%rip)
+6:
+    ret
+
+5:
+    mov $134, %edi
+    mov $60, %eax
+    syscall
+    ud2
 
 _start:
     call _rcc_entry

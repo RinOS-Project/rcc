@@ -51,6 +51,7 @@ typedef struct {
     RccIrBlockId break_target;
     RccIrBlockId continue_target;
     RccIrValue aggregate_return_address;
+    RccIrValue active_exception_frame;
     int aggregate_return_kind;
     bool terminated;
     bool unsupported;
@@ -3031,6 +3032,15 @@ static bool lower_cxx_exception_leave(RccIrLowerContext* context,
     return !context->unsupported;
 }
 
+static bool lower_cxx_exception_release_frame(RccIrLowerContext* context,
+                                               RccIrValue frame) {
+    if (!context || frame == RCC_IR_VALUE_NONE) return true;
+    (void)lower_cxx_runtime_call(
+        context, "rin_cpp_exception_release_frame", rcc_ir_type_void(),
+        &frame, 1u);
+    return !context->unsupported;
+}
+
 static RccIrLowerValue lower_cxx_exception_type_compare(
     RccIrLowerContext* context, RccIrLowerValue actual, uint64_t expected) {
     RccIrLowerValue constant;
@@ -3075,13 +3085,32 @@ static bool lower_cxx_catch_body(RccIrLowerContext* context,
                 context, frame,
                 (uint64_t)(g_opts.target_arch == ARCH_X64 ? 72u : 28u)),
             type_ulong);
-        value = lower_cast(context, value, handler->parameter->type);
-        if (!local || !value.valid ||
-            !lower_store_address(
-                context, lower_value(local->address, local->type, true),
-                value)) {
+        if (!local || !value.valid) {
             context->unsupported = true;
             return false;
+        }
+        if (handler->parameter->type &&
+            (handler->parameter->type->kind == TYPE_STRUCT ||
+             handler->parameter->type->kind == TYPE_UNION)) {
+            RccIrLowerValue source = lower_cast(
+                context, value, type_ptr(type_void));
+            bool copied = source.valid &&
+                (handler->parameter->type->kind == TYPE_STRUCT
+                    ? lower_copy_struct_storage(
+                          context, local->address, source.value,
+                          handler->parameter->type)
+                    : lower_copy_union_storage(
+                          context, local->address, source.value,
+                          handler->parameter->type));
+            if (!copied) return false;
+        } else {
+            value = lower_cast(context, value, handler->parameter->type);
+            if (!value.valid || !lower_store_address(
+                    context, lower_value(local->address, local->type, true),
+                    value)) {
+                context->unsupported = true;
+                return false;
+            }
         }
         item = handler->body->block_stmts->next;
         for (; item; item = item->next) {
@@ -3097,14 +3126,23 @@ static bool lower_cxx_throw(RccIrLowerContext* context,
     RccIrLowerValue value;
     RccIrLowerValue word;
     RccIrLowerValue tag;
-    RccIrValue operands[2];
+    RccIrLowerValue size;
+    RccIrValue operands[3];
     if (!statement) {
         if (context) context->unsupported = true;
         return false;
     }
     if (!statement->throw_expr) {
-        (void)lower_cxx_runtime_call(context, "rin_cpp_exception_rethrow",
-                                     rcc_ir_type_void(), NULL, 0u);
+        if (context->active_exception_frame != RCC_IR_VALUE_NONE) {
+            RccIrValue operand = context->active_exception_frame;
+            (void)lower_cxx_runtime_call(
+                context, "rin_cpp_exception_rethrow_frame",
+                rcc_ir_type_void(), &operand, 1u);
+        } else {
+            (void)lower_cxx_runtime_call(
+                context, "rin_cpp_exception_rethrow", rcc_ir_type_void(),
+                NULL, 0u);
+        }
         if (context->unsupported ||
             !lower_append(context, RCC_IR_UNREACHABLE, rcc_ir_type_void(),
                           NULL, 0u, NULL, 0u)) return false;
@@ -3112,15 +3150,38 @@ static bool lower_cxx_throw(RccIrLowerContext* context,
         return true;
     }
     value = lower_expression(context, statement->throw_expr);
-    word = lower_cast(context, value, type_ulong);
     tag = lower_integer_constant(context, lower_cxx_exception_word_type(),
                                  true, lower_cxx_exception_type_tag(
                                      statement->throw_expr->type));
-    if (!word.valid || !tag.valid) return false;
-    operands[0] = word.value;
-    operands[1] = tag.value;
-    (void)lower_cxx_runtime_call(context, "rin_cpp_exception_throw",
-                                 rcc_ir_type_void(), operands, 2u);
+    if (!value.valid || !tag.valid) return false;
+    if (statement->throw_expr->type &&
+        (statement->throw_expr->type->kind == TYPE_STRUCT ||
+         statement->throw_expr->type->kind == TYPE_UNION)) {
+        size = lower_integer_constant(
+            context, lower_cxx_exception_word_type(), true,
+            (uint64_t)statement->throw_expr->type->size);
+        if (!size.valid || value.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return false;
+        }
+        if (!lower_cxx_exception_release_frame(
+                context, context->active_exception_frame)) return false;
+        operands[0] = value.value;
+        operands[1] = size.value;
+        operands[2] = tag.value;
+        (void)lower_cxx_runtime_call(
+            context, "rin_cpp_exception_throw_object", rcc_ir_type_void(),
+            operands, 3u);
+    } else {
+        word = lower_cast(context, value, type_ulong);
+        if (!word.valid) return false;
+        if (!lower_cxx_exception_release_frame(
+                context, context->active_exception_frame)) return false;
+        operands[0] = word.value;
+        operands[1] = tag.value;
+        (void)lower_cxx_runtime_call(context, "rin_cpp_exception_throw",
+                                     rcc_ir_type_void(), operands, 2u);
+    }
     if (context->unsupported ||
         !lower_append(context, RCC_IR_UNREACHABLE, rcc_ir_type_void(),
                       NULL, 0u, NULL, 0u)) return false;
@@ -3176,6 +3237,7 @@ static bool lower_cxx_try(RccIrLowerContext* context,
     RccIrBlock* end_block;
     RccIrBlock* unmatched_block;
     RccIrBlock** handler_blocks;
+    RccIrValue old_active_exception_frame;
     bool end_reachable;
     bool has_ellipsis = false;
     size_t typed_handler_count;
@@ -3186,6 +3248,7 @@ static bool lower_cxx_try(RccIrLowerContext* context,
         if (context) context->unsupported = true;
         return false;
     }
+    old_active_exception_frame = context->active_exception_frame;
     for (const CxxCatch* handler = statement->try_catches; handler;
          handler = handler->next) ++handler_count;
     for (const CxxCatch* handler = statement->try_catches; handler;
@@ -3321,27 +3384,15 @@ static bool lower_cxx_try(RccIrLowerContext* context,
         context->current = unmatched_block;
         context->terminated = false;
         {
-            RccIrLowerValue value = lower_load_address(
-                context,
-                lower_byte_offset_address(
-                    context, frame,
-                    (uint64_t)(g_opts.target_arch == ARCH_X64 ? 72u : 28u)),
-                type_ulong);
-            RccIrLowerValue type = lower_load_address(
-                context,
-                lower_byte_offset_address(
-                    context, frame,
-                    (uint64_t)(g_opts.target_arch == ARCH_X64 ? 80u : 32u)),
-                type_ulong);
-            RccIrValue operands[2];
-            if (!value.valid || !type.valid) {
+            RccIrValue operand = frame.value;
+            if (!lower_cxx_exception_release_frame(
+                    context, old_active_exception_frame)) {
                 rcc_free(handler_blocks);
                 return false;
             }
-            operands[0] = value.value;
-            operands[1] = type.value;
-            (void)lower_cxx_runtime_call(context, "rin_cpp_exception_throw",
-                                         rcc_ir_type_void(), operands, 2u);
+            (void)lower_cxx_runtime_call(
+                context, "rin_cpp_exception_rethrow_frame",
+                rcc_ir_type_void(), &operand, 1u);
             if (context->unsupported ||
                 !lower_append(context, RCC_IR_UNREACHABLE, rcc_ir_type_void(),
                               NULL, 0u, NULL, 0u)) {
@@ -3357,19 +3408,28 @@ static bool lower_cxx_try(RccIrLowerContext* context,
     index = 0u;
     for (const CxxCatch* handler = statement->try_catches; handler;
          handler = handler->next, ++index) {
+        RccIrValue handler_previous_frame = context->active_exception_frame;
         context->current = handler_blocks[index];
         context->terminated = false;
-        if (!lower_cxx_exception_leave(context, frame) ||
-            !lower_cxx_catch_body(context, handler, frame)) {
+        if (!lower_cxx_exception_leave(context, frame)) {
+            rcc_free(handler_blocks);
+            return false;
+        }
+        context->active_exception_frame = frame.value;
+        if (!lower_cxx_catch_body(context, handler, frame)) {
+            context->active_exception_frame = handler_previous_frame;
             rcc_free(handler_blocks);
             return false;
         }
         if (!context->terminated) {
-            if (!end_reachable || !lower_branch(context, end_block->id)) {
+            if (!lower_cxx_exception_release_frame(context, frame.value) ||
+                !end_reachable || !lower_branch(context, end_block->id)) {
+                context->active_exception_frame = handler_previous_frame;
                 rcc_free(handler_blocks);
                 return false;
             }
         }
+        context->active_exception_frame = handler_previous_frame;
     }
     rcc_free(handler_blocks);
     if (!end_reachable) {
@@ -3450,6 +3510,8 @@ static bool lower_statement(RccIrLowerContext* context,
                 }
                 if (!result.valid ||
                     (return_count == 2u && !high.valid)) return false;
+                if (!lower_cxx_exception_release_frame(
+                        context, context->active_exception_frame)) return false;
                 return_values[0] = result.value;
                 return_values[1] = high.value;
                 return_instruction = lower_append(
@@ -3472,6 +3534,8 @@ static bool lower_statement(RccIrLowerContext* context,
                     (void)lower_expression(context, statement->return_val);
                     if (context->unsupported) return false;
                 }
+                if (!lower_cxx_exception_release_frame(
+                        context, context->active_exception_frame)) return false;
                 if (!lower_append(context, RCC_IR_RETURN,
                                   rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
                     return false;
@@ -3483,6 +3547,8 @@ static bool lower_statement(RccIrLowerContext* context,
                 result = lower_cast(context, result,
                                     context->ast_return_type);
                 if (!result.valid) return false;
+                if (!lower_cxx_exception_release_frame(
+                        context, context->active_exception_frame)) return false;
                 if (!lower_append(context, RCC_IR_RETURN,
                                   rcc_ir_type_void(), &result.value, 1u,
                                   NULL, 0u)) {
@@ -3674,6 +3740,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     context.aggregate_return_address =
         aggregate_return_kind == LOWER_ABI_RETURN_SRET
             ? function->parameters[0] : RCC_IR_VALUE_NONE;
+    context.active_exception_frame = RCC_IR_VALUE_NONE;
     context.current = entry;
     context.break_target = RCC_IR_BLOCK_NONE;
     context.continue_target = RCC_IR_BLOCK_NONE;

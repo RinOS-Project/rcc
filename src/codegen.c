@@ -7516,6 +7516,9 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
 static int break_label = -1;
 static int continue_label = -1;
 static Type* current_function_return_type = NULL;
+/* The active handler still owns the transferred payload until its body has
+ * completed.  INT_MAX means that code is not being emitted inside a catch. */
+static int active_cxx_exception_frame_offset = INT_MAX;
 
 typedef struct SwitchCaseCodegen {
     Stmt* statement;
@@ -7683,6 +7686,14 @@ static void gen_cxx_exception_call32(Module* mod, const char* name) {
     add_func_call_ref(name, call_offset);
 }
 
+static void gen_cxx_exception_release_frame32(Module* mod, int offset) {
+    if (offset == INT_MAX) return;
+    gen_cxx_exception_frame_address32(mod, offset);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_release_frame");
+    emit_add_reg_imm(mod, ESP, 4);
+}
+
 static uint32_t gen_cxx_exception_type_tag32(const Type* type) {
     return (uint32_t)rcc_cxx_exception_type_tag(type);
 }
@@ -7691,17 +7702,41 @@ static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
     Type* type;
     if (!stmt) rcc_fatal("validated C++ throw is missing");
     if (!stmt->throw_expr) {
-        gen_cxx_exception_call32(mod, "rin_cpp_exception_rethrow");
+        if (active_cxx_exception_frame_offset != INT_MAX) {
+            gen_cxx_exception_frame_address32(
+                mod, active_cxx_exception_frame_offset);
+            emit_push_reg(mod, EAX);
+            gen_cxx_exception_call32(mod, "rin_cpp_exception_rethrow_frame");
+            emit_add_reg_imm(mod, ESP, 4);
+        } else {
+            gen_cxx_exception_call32(mod, "rin_cpp_exception_rethrow");
+        }
         return;
     }
     type = stmt->throw_expr->type;
-    gen_expr(mod, stmt->throw_expr);
-    emit_mov_reg_reg(mod, EDX, EAX); /* preserve value while loading tag */
-    emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));
-    emit_push_reg(mod, EAX); /* type tag */
-    emit_push_reg(mod, EDX); /* value; cdecl argument 1 is at the top */
-    gen_cxx_exception_call32(mod, "rin_cpp_exception_throw");
-    emit_add_reg_imm(mod, ESP, 8);
+    /* The caught payload is owned by the active handler.  Evaluate an
+     * explicit replacement after releasing it so caller-saved registers do
+     * not have to carry a borrowed value across the release call. */
+    gen_cxx_exception_release_frame32(mod, active_cxx_exception_frame_offset);
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        gen_lvalue(mod, stmt->throw_expr);
+        emit_mov_reg_reg(mod, ECX, EAX); /* preserve source object */
+        emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));
+        emit_push_reg(mod, EAX); /* type tag */
+        emit_mov_reg_imm(mod, EAX, (uint32_t)type->size);
+        emit_push_reg(mod, EAX); /* object size */
+        emit_push_reg(mod, ECX); /* source object; cdecl argument 1 */
+        gen_cxx_exception_call32(mod, "rin_cpp_exception_throw_object");
+        emit_add_reg_imm(mod, ESP, 12);
+    } else {
+        gen_expr(mod, stmt->throw_expr);
+        emit_mov_reg_reg(mod, EDX, EAX); /* preserve value while loading tag */
+        emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));
+        emit_push_reg(mod, EAX); /* type tag */
+        emit_push_reg(mod, EDX); /* value; cdecl argument 1 is at the top */
+        gen_cxx_exception_call32(mod, "rin_cpp_exception_throw");
+        emit_add_reg_imm(mod, ESP, 8);
+    }
 }
 
 static void gen_cxx_try32(Module* mod, Stmt* stmt) {
@@ -7709,6 +7744,7 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
     const int type_offset = 32;
     int dispatch_label = new_label();
     int end_label = new_label();
+    int old_active_frame_offset = active_cxx_exception_frame_offset;
 
     gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
     emit_push_reg(mod, EAX);
@@ -7744,8 +7780,27 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
         if (handler->parameter) {
             gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
             emit_mov_reg_mem(mod, EDX, EAX, value_offset);
-            emit_store_typed32(mod, EBP, handler->parameter->var_offset,
-                               EDX, handler->parameter->type);
+            if (handler->parameter->type &&
+                (handler->parameter->type->kind == TYPE_STRUCT ||
+                 handler->parameter->type->kind == TYPE_UNION)) {
+                int offset = 0;
+                emit_mov_reg_reg(mod, ECX, EDX);
+                emit_mov_reg_reg(mod, EDX, EBP);
+                emit_add_reg_imm(mod, EDX, handler->parameter->var_offset);
+                while (offset + 4 <= handler->parameter->type->size) {
+                    emit_mov_reg_mem(mod, EAX, ECX, offset);
+                    emit_mov_mem_reg(mod, EDX, offset, EAX);
+                    offset += 4;
+                }
+                while (offset < handler->parameter->type->size) {
+                    emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
+                    emit_store_typed32(mod, EDX, offset, EAX, type_uchar);
+                    ++offset;
+                }
+            } else {
+                emit_store_typed32(mod, EBP, handler->parameter->var_offset,
+                                   EDX, handler->parameter->type);
+            }
         }
         /* A handler owns the transfer out of the protected region.  Remove
          * this frame before its body so return and rethrow cannot leave a
@@ -7754,23 +7809,23 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
         emit_push_reg(mod, EAX);
         gen_cxx_exception_call32(mod, "rin_cpp_exception_leave");
         emit_add_reg_imm(mod, ESP, 4);
+        active_cxx_exception_frame_offset = stmt->try_frame_offset;
         gen_scoped_stmt(mod, handler->body);
+        gen_cxx_exception_release_frame32(mod, stmt->try_frame_offset);
+        active_cxx_exception_frame_offset = old_active_frame_offset;
         emit_jmp_label(mod, end_label);
         if (!handler->is_ellipsis) emit_label(mod, next_handler);
     }
 
     /* The runtime has already removed this frame.  Re-submit an unmatched
      * payload so an enclosing try or the process-level handler can receive it. */
+    gen_cxx_exception_release_frame32(mod, old_active_frame_offset);
     gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
-    emit_mov_reg_mem(mod, EAX, EAX, value_offset);
-    emit_mov_reg_reg(mod, EDX, EAX); /* preserve value while loading tag */
-    gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
-    emit_mov_reg_mem(mod, EAX, EAX, type_offset);
-    emit_push_reg(mod, EAX); /* type tag */
-    emit_push_reg(mod, EDX); /* value; cdecl argument 1 is at the top */
-    gen_cxx_exception_call32(mod, "rin_cpp_exception_throw");
-    emit_add_reg_imm(mod, ESP, 8);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_rethrow_frame");
+    emit_add_reg_imm(mod, ESP, 4);
     emit_label(mod, end_label);
+    active_cxx_exception_frame_offset = old_active_frame_offset;
 }
 
 static bool gen_global_initializer32(Module* mod, Decl* declaration) {
@@ -8318,6 +8373,18 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                         current_function_return_type);
                 }
             }
+            if (active_cxx_exception_frame_offset != INT_MAX) {
+                if (stmt->return_val) {
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EDX);
+                }
+                gen_cxx_exception_release_frame32(
+                    mod, active_cxx_exception_frame_offset);
+                if (stmt->return_val) {
+                    emit_pop_reg(mod, EDX);
+                    emit_pop_reg(mod, EAX);
+                }
+            }
             if (active_cleanups) {
                 if (stmt->return_val) {
                     emit_push_reg(mod, EAX);
@@ -8417,6 +8484,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 static void gen_function(Module* mod, Decl* decl) {
     int stack_size;
     Type* old_return_type;
+    int old_active_frame_offset;
     CleanupCodegen* old_cleanups;
     VLAScopeCodegen* old_vla_scopes;
     VLAScopeCodegen* old_break_vla;
@@ -8444,9 +8512,11 @@ static void gen_function(Module* mod, Decl* decl) {
 
     /* Generate body */
     old_return_type = current_function_return_type;
+    old_active_frame_offset = active_cxx_exception_frame_offset;
     current_function_return_type = decl->type &&
                                    decl->type->kind == TYPE_FUNC
         ? decl->type->ret_type : NULL;
+    active_cxx_exception_frame_offset = INT_MAX;
     old_cleanups = active_cleanups;
     old_vla_scopes = active_vla_scopes;
     old_break_vla = break_vla_marker;
@@ -8465,6 +8535,7 @@ static void gen_function(Module* mod, Decl* decl) {
     continue_vla_marker = old_continue_vla;
     codegen_release_named_labels();
     current_function_return_type = old_return_type;
+    active_cxx_exception_frame_offset = old_active_frame_offset;
 
     /* Function epilogue (fallthrough return) */
     Type* return_type = decl->type && decl->type->kind == TYPE_FUNC

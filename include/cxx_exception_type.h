@@ -7,6 +7,13 @@
 
 #include "ast.h"
 
+/* Keep one bit of the target-width type word for the ownership convention
+ * used by trivially-copyable aggregate exceptions.  The remaining 31 bits
+ * carry the deterministic structural type identity on both supported x86
+ * targets, so the same exception can cross an i686/AMD64 library boundary
+ * without depending on a host pointer. */
+#define RCC_CXX_EXCEPTION_OBJECT_FLAG UINT64_C(0x80000000)
+
 /* The current RinOS exception frame carries one target-width type word.  A
  * TypeKind alone is not an exception type identity: signedness, enum identity,
  * and pointer pointee type all participate in C++ catch matching.  Keep this
@@ -59,8 +66,13 @@ static inline void rcc_cxx_exception_hash_type(uint64_t* hash,
 static inline uint64_t rcc_cxx_exception_type_tag(const Type* type) {
     uint64_t hash = UINT64_C(1469598103934665603);
     rcc_cxx_exception_hash_type(&hash, type, true, 0u);
+    hash &= UINT64_C(0x7fffffff);
     /* Zero is reserved for an absent runtime type. */
-    return hash ? hash : UINT64_C(1);
+    if (hash == 0u) hash = UINT64_C(1);
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        hash |= RCC_CXX_EXCEPTION_OBJECT_FLAG;
+    }
+    return hash;
 }
 
 #endif
