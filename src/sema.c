@@ -7017,6 +7017,26 @@ static Type* sema_deduce_auto_type(Decl* declaration) {
     }
     deduced = declaration->var_init->type;
     if (!deduced) deduced = sema_expr(declaration->var_init);
+    if (declaration->var_is_auto_pointer) {
+        Type* pointer_base = NULL;
+        if (deduced && deduced->kind == TYPE_PTR) {
+            pointer_base = deduced->base;
+        } else if (deduced && deduced->kind == TYPE_ARRAY) {
+            pointer_base = deduced->base;
+        }
+        if (!pointer_base) {
+            rcc_error(declaration->loc,
+                      "auto* initializer must be a pointer or array");
+            return type_int;
+        }
+        if (declaration->var_is_auto_const) {
+            Type* qualified = ast_arena_alloc(sizeof(*qualified));
+            *qualified = *pointer_base;
+            qualified->is_const = true;
+            pointer_base = qualified;
+        }
+        return type_ptr(pointer_base);
+    }
     if (declaration->var_is_auto_reference) {
         bool binds_lvalue = is_lvalue(declaration->var_init);
         if (!deduced || deduced->kind == TYPE_VOID) {

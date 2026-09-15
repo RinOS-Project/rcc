@@ -11,3 +11,11 @@ extern "C" int auto_local_const_probe(void) {
     const auto value = 41;
     return value + 1;
 }
+
+extern "C" int auto_local_pointer_probe(void) {
+    int value = 7;
+    auto* pointer = &value;
+    const auto* const_pointer = &value;
+    *pointer = 8;
+    return *const_pointer;
+}

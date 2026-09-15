@@ -1376,6 +1376,8 @@ test-cxx-auto-local-refs: $(RCXX_TARGET)
 	fi
 	grep -q "auto& initializer must be an lvalue" \
 		$(TEST_OUT)/cxx-auto-local-refs/invalid.log
+	grep -q "auto\* initializer must be a pointer or array" \
+		$(TEST_OUT)/cxx-auto-local-refs/invalid.log
 	@echo "C++ local auto reference tests completed"
 	grep -q "unsupported operator in decltype expression" \
 		$(TEST_OUT)/cxx-decltype/invalid.log

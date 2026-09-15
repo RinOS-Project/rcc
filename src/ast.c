@@ -912,6 +912,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_is_auto = false;
     d->var_is_auto_reference = false;
     d->var_is_auto_rvalue_reference = false;
+    d->var_is_auto_pointer = false;
     d->var_is_auto_const = false;
     d->var_is_constexpr = false;
     d->var_cleanup = NULL;
