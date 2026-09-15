@@ -37,6 +37,7 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_STRING_LIT:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
+        case EXPR_CXX_THIS:
             return false;
         case EXPR_IDENT:
             return expression->type && expression->type->is_volatile;
@@ -885,6 +886,8 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
                 replace_integer(value, binding->value);
             }
             return;
+        case EXPR_CXX_THIS:
+            return;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -1217,6 +1220,8 @@ static void mark_address_escapes_expr(const Expr* expression,
                                   locals);
     }
     switch (expression->kind) {
+        case EXPR_CXX_THIS:
+            return;
         case EXPR_ADDR:
             mark_reference_escape(expression->unary_operand, locals);
             mark_address_escapes_expr(expression->unary_operand, locals);
@@ -1455,6 +1460,8 @@ static void mark_dead_store_reads(const Expr* expression,
         case EXPR_IDENT:
             local = find_dead_store_local(locals, expression->ident_decl);
             if (local) local->live = true;
+            return;
+        case EXPR_CXX_THIS:
             return;
         case EXPR_NEG:
         case EXPR_NOT:

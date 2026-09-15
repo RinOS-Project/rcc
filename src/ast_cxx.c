@@ -232,7 +232,14 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[1024];
     size_t pos = 0;
 
-    if (func && func->name &&
+    if (func && func->func_is_cxx_constructor && cls) {
+        mangle_nested_prefix(buf, &pos, ns, cls);
+        if (pos + 2u >= sizeof(buf)) {
+            rcc_fatal("C++ constructor name is too long");
+        }
+        buf[pos++] = 'C';
+        buf[pos++] = '1';
+    } else if (func && func->name &&
         strcmp(func->name, "operator conversion") == 0) {
         char* return_type;
         mangle_nested_prefix(buf, &pos, ns, cls);

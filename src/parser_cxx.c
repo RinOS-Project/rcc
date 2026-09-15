@@ -672,7 +672,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         (class_has_destructor(cls) && !cls->type->cleanup_function)) {
         return 0u;
     }
-    if (!cls->fields || !cls->constructors) return 0u;
+    if (!cls->constructors) return 0u;
     for (constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         unsigned arity;
@@ -681,13 +681,21 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         TypeParam* parameter = constructor->parameters;
         CxxConstructorInitializer* initializer = constructor->initializers;
         if (constructor->access != ACCESS_PUBLIC ||
-            constructor->is_deleted || constructor->is_defaulted ||
-            !constructor->initializers_are_supported ||
-            !constructor->body_is_empty) {
+            constructor->is_deleted || constructor->is_defaulted) {
             continue;
         }
         arity = (unsigned)constructor->parameter_count;
         if (arity >= 32u) continue;
+        if (!constructor->body_is_empty) {
+            if (constructor->initializer_count == 0 &&
+                constructor->method && constructor->method->decl &&
+                constructor->method->decl->func_is_cxx_method &&
+                constructor->method->decl->func_body) {
+                mask |= UINT32_C(1) << arity;
+            }
+            continue;
+        }
+        if (!constructor->initializers_are_supported) continue;
         while (field && initializer) {
             Type* parameter_value_type;
             if (!initializer->field ||
@@ -1798,6 +1806,15 @@ static void register_inherited_class_methods(CxxClass* cls,
     }
 }
 
+static CxxConstructorInfo* constructor_info_for_method(CxxClass* cls,
+                                                        CxxMethod* method) {
+    for (CxxConstructorInfo* constructor = cls ? cls->constructors : NULL;
+         constructor; constructor = constructor->next) {
+        if (constructor->method == method) return constructor;
+    }
+    return NULL;
+}
+
 /* Publish ordinary non-virtual member definitions and static member
  * definitions as real functions.  Ordinary members receive the implicit
  * object parameter; static members deliberately do not, and use the normal C
@@ -1813,6 +1830,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
     register_inherited_class_methods(cls, &tail);
     for (member = cls->members; member; member = member->next) {
         CxxMethod* method = member->method;
+        CxxConstructorInfo* constructor;
         Decl* declaration;
         TypeParam* this_type_parameter;
         Type* this_type;
@@ -1822,10 +1840,13 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         const char* source_name;
         const char* link_name;
 
+        constructor = method && method->is_constructor
+            ? constructor_info_for_method(cls, method) : NULL;
         if (!method || !method->decl || !method->decl->func_body ||
             method->is_pure_virtual || method->is_deleted ||
-            method->is_defaulted || method->is_constructor ||
-            method->is_destructor) {
+            method->is_defaulted || method->is_destructor ||
+            (method->is_constructor &&
+             (!constructor || constructor->body_is_empty))) {
             continue;
         }
 
@@ -2096,6 +2117,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_defaulted = is_defaulted;
         method->is_constructor = is_constructor;
         method->is_destructor = is_destructor;
+        method->decl->func_is_cxx_constructor = is_constructor;
+        method->decl->func_is_cxx_destructor = is_destructor;
         method->owner = cls;
 
         if (is_constructor) cls->has_user_constructor = true;
@@ -3424,6 +3447,8 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_defaulted = method->is_defaulted;
     copy->is_constructor = method->is_constructor;
     copy->is_destructor = method->is_destructor;
+    copy->decl->func_is_cxx_constructor = copy->is_constructor;
+    copy->decl->func_is_cxx_destructor = copy->is_destructor;
     copy->vtable_index = method->vtable_index;
     copy->decl->func_body = cxx_template_clone_stmt_with_values(
         tmpl, method->decl->func_body, arguments, argument_count,

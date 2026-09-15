@@ -244,6 +244,7 @@ typedef enum {
 
     /* Primary */
     EXPR_IDENT,
+    EXPR_CXX_THIS,         /* Synthetic current object for constructor calls. */
 
     /* Unary */
     EXPR_NEG,           /* -x */
@@ -361,6 +362,9 @@ struct Expr {
     CxxCloseCall* cxx_close_call;
     /* Captures for a C++ lambda that are spliced into an immediate call. */
     ExprList* cxx_lambda_captures;
+    /* Synthetic constructor this argument.  The offset is relative to the
+     * active call's temporary/argument area and is set only by codegen. */
+    int cxx_this_stack_offset;
 
     union {
         /* EXPR_INT_LIT */
@@ -456,6 +460,7 @@ struct Expr {
             int compound_offset;     /* Assigned automatic-storage slot. */
             bool compound_value_init; /* Spelled as an empty C++ {} list. */
             const char* compound_static_symbol;
+            struct CxxConstructorInfo* compound_constructor;
         };
 
         /* EXPR_GENERIC */
@@ -483,6 +488,7 @@ Expr* expr_float(double val, SourceLoc loc);
 Expr* expr_char(char val, SourceLoc loc);
 Expr* expr_string(const char* val, SourceLoc loc);
 Expr* expr_ident(const char* name, SourceLoc loc);
+Expr* expr_cxx_this(SourceLoc loc);
 Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc);
 Expr* expr_binary(ExprKind kind, Expr* lhs, Expr* rhs, SourceLoc loc);
 Expr* expr_cond(Expr* test, Expr* then_expr, Expr* else_expr, SourceLoc loc);
@@ -724,6 +730,8 @@ struct Decl {
             bool func_is_template_instance;
             bool func_has_cxx_linkage;
             bool func_is_cxx_method;
+            bool func_is_cxx_constructor;
+            bool func_is_cxx_destructor;
             bool func_is_constexpr;
             bool func_is_consteval;
             Decl* func_overload_next;

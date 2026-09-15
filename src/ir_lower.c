@@ -1156,6 +1156,9 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 return lower_lvalue_address(context, expression);
             }
             return lower_load_lvalue(context, expression);
+        case EXPR_CXX_THIS:
+            context->unsupported = true;
+            return lower_invalid_value();
         case EXPR_NEG:
             operand = lower_expression(context, expression->unary_operand);
             if (!operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER) {

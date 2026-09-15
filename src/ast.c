@@ -513,6 +513,15 @@ Expr* expr_ident(const char* name, SourceLoc loc) {
     return e;
 }
 
+Expr* expr_cxx_this(SourceLoc loc) {
+    Expr* e = rcc_alloc(sizeof(Expr));
+    e->kind = EXPR_CXX_THIS;
+    e->loc = loc;
+    e->type = NULL;
+    e->cxx_this_stack_offset = -1;
+    return e;
+}
+
 Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc) {
     Expr* e = rcc_alloc(sizeof(Expr));
     e->kind = kind;
@@ -675,6 +684,7 @@ Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
     e->compound_offset = 0;
     e->compound_value_init = false;
     e->compound_static_symbol = NULL;
+    e->compound_constructor = NULL;
     e->type = NULL;
     return e;
 }
@@ -891,6 +901,8 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_template_instance = false;
     d->func_has_cxx_linkage = false;
     d->func_is_cxx_method = false;
+    d->func_is_cxx_constructor = false;
+    d->func_is_cxx_destructor = false;
     d->func_is_constexpr = false;
     d->func_is_consteval = false;
     d->func_overload_next = NULL;

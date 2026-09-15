@@ -2874,9 +2874,14 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
         bool viable = true;
         if (!candidate->method || candidate->access != ACCESS_PUBLIC ||
             candidate->is_deleted || candidate->is_defaulted ||
-            !candidate->initializers_are_supported ||
-            !candidate->body_is_empty ||
-            candidate->parameter_count != argument_count) {
+            candidate->parameter_count != argument_count ||
+            (!candidate->body_is_empty &&
+             (candidate->initializer_count != 0 ||
+              !candidate->method->decl ||
+              !candidate->method->decl->func_is_cxx_method ||
+              !candidate->method->decl->func_body)) ||
+            (candidate->body_is_empty &&
+             !candidate->initializers_are_supported)) {
             continue;
         }
         parameter = candidate->parameters;
@@ -4158,6 +4163,11 @@ static Type* sema_expr(Expr* expr) {
             } else {
                 expr->type = expr->compound_type;
                 sema_initializer(expr->compound_type, expr);
+                if (rcc_parser_is_cxx_mode() &&
+                    expr->compound_type->cxx_class) {
+                    expr->compound_constructor = sema_select_cxx_new_constructor(
+                        expr->compound_type, expr->compound_init, expr->loc);
+                }
             }
             break;
 
@@ -5890,6 +5900,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
             sema_initializer(field->type, item->expr);
             cursor = field->next;
             ++initialized;
+        }
+        if (rcc_parser_is_cxx_mode() && type->cxx_class) {
+            initializer->compound_constructor =
+                sema_select_cxx_new_constructor(
+                    type, initializer->compound_init, initializer->loc);
         }
         return;
     }

@@ -3306,6 +3306,15 @@ static void gen_zero_local_storage(Module* mod, int32_t displacement,
                                    size_t storage);
 static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement);
+static void gen_cxx_call_constructor32(Module* mod,
+                                        CxxConstructorInfo* constructor,
+                                        ExprList* arguments);
+
+static bool gen_cxx_initializer_calls_body(const Expr* initializer) {
+    return initializer && initializer->kind == EXPR_COMPOUND &&
+           initializer->compound_constructor &&
+           !initializer->compound_constructor->body_is_empty;
+}
 
 static void gen_symbol_address(Module* mod, const char* symbol,
                                uint32_t addend) {
@@ -3383,6 +3392,12 @@ static bool gen_inline_method_integer64(Module* mod, Expr* expr);
 /* Generate lvalue address in EAX */
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
+        case EXPR_CXX_THIS:
+            if (expr->cxx_this_stack_offset < 0) {
+                rcc_fatal("constructor this argument has no saved object");
+            }
+            emit_mov_reg_mem(mod, EAX, ESP, expr->cxx_this_stack_offset);
+            break;
         case EXPR_IDENT: {
             /* Use decl set during semantic analysis */
             Decl* decl = expr->ident_decl;
@@ -3461,9 +3476,10 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 emit_mov_reg_imm(mod, EAX, 0u);
                 break;
             }
-            if (expr->compound_type->kind == TYPE_ARRAY ||
-                expr->compound_type->kind == TYPE_STRUCT ||
-                expr->compound_type->kind == TYPE_UNION) {
+            if ((expr->compound_type->kind == TYPE_ARRAY ||
+                 expr->compound_type->kind == TYPE_STRUCT ||
+                 expr->compound_type->kind == TYPE_UNION) &&
+                !gen_cxx_initializer_calls_body(expr)) {
                 gen_zero_local_storage(mod, expr->compound_offset,
                                        (size_t)expr->compound_type->size);
             }
@@ -4457,7 +4473,7 @@ static void gen_cxx_zero_object32(Module* mod, Type* object_type,
 }
 
 static TypeField* gen_cxx_constructor_field32(Type* object_type,
-                                              const char* name) {
+                                               const char* name) {
     for (TypeField* field = object_type ? object_type->fields : NULL;
          field; field = field->next) {
         if (field->name && name && strcmp(field->name, name) == 0) {
@@ -4465,6 +4481,70 @@ static TypeField* gen_cxx_constructor_field32(Type* object_type,
         }
     }
     return NULL;
+}
+
+static void gen_cxx_call_constructor32(Module* mod,
+                                        CxxConstructorInfo* constructor,
+                                        ExprList* arguments) {
+    Decl* declaration = constructor && constructor->method
+        ? constructor->method->decl : NULL;
+    ExprList* call_arguments = NULL;
+    Expr* this_argument;
+    Expr* function;
+    Expr* call;
+    TypeParam* parameter;
+    int source_argument_bytes = 0;
+    if (!declaration || !declaration->func_is_cxx_method ||
+        !declaration->func_is_cxx_constructor || !declaration->func_body) {
+        rcc_fatal("validated C++ constructor has no callable body");
+    }
+    parameter = declaration->type && declaration->type->kind == TYPE_FUNC
+        ? declaration->type->params : NULL;
+    if (parameter) parameter = parameter->next;
+    for (ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        Type* passed_type = parameter ? parameter->type : argument->expr->type;
+        int bytes;
+        if (passed_type && passed_type->is_reference) {
+            bytes = 4;
+        } else if (passed_type &&
+                   (passed_type->kind == TYPE_STRUCT ||
+                    passed_type->kind == TYPE_UNION ||
+                    passed_type->kind == TYPE_ARRAY)) {
+            bytes = (passed_type->size + 3) & ~3;
+        } else if (gen_is_floating(passed_type)) {
+            bytes = gen_float_width(passed_type);
+        } else if (gen_is_integer64(passed_type)) {
+            bytes = 8;
+        } else {
+            bytes = 4;
+        }
+        if (bytes < 0 || source_argument_bytes > INT_MAX - bytes) {
+            rcc_fatal("constructor argument area exceeds compiler limits");
+        }
+        source_argument_bytes += bytes;
+        if (parameter) parameter = parameter->next;
+    }
+    this_argument = expr_cxx_this(declaration->loc);
+    this_argument->cxx_this_stack_offset = source_argument_bytes;
+    if (!declaration->type || declaration->type->kind != TYPE_FUNC ||
+        !declaration->type->params) {
+        rcc_fatal("constructor has no implicit object parameter");
+    }
+    this_argument->type = declaration->type->params->type;
+    exprlist_append(&call_arguments, this_argument);
+    for (ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        exprlist_append(&call_arguments, argument->expr);
+    }
+    function = expr_ident(declaration->name, declaration->loc);
+    function->ident_decl = declaration;
+    function->type = declaration->type;
+    call = expr_call(function, call_arguments, declaration->loc);
+    call->type = type_void;
+    emit_push_reg(mod, ECX); /* Preserve the object while source args run. */
+    gen_expr(mod, call);
+    emit_add_reg_imm(mod, ESP, 4);
 }
 
 static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
@@ -4475,8 +4555,12 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
     ExprList* argument;
     int address_reg = ECX;
 
-    gen_cxx_zero_object32(mod, object_type, address_reg);
     if (!constructor) return;
+    if (!constructor->body_is_empty) {
+        gen_cxx_call_constructor32(mod, constructor, arguments);
+        return;
+    }
+    gen_cxx_zero_object32(mod, object_type, address_reg);
     if (constructor->parameter_count == 0) {
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {
@@ -4964,6 +5048,13 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             gen_symbol_address(mod, "__rcc_rodata_base", offset);
             break;
         }
+
+        case EXPR_CXX_THIS:
+            if (expr->cxx_this_stack_offset < 0) {
+                rcc_fatal("constructor this argument has no saved object");
+            }
+            emit_mov_reg_mem(mod, EAX, ESP, expr->cxx_this_stack_offset);
+            break;
 
         case EXPR_IDENT: {
             Decl* decl = expr->ident_decl;
@@ -6569,6 +6660,16 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement) {
     Expr* string = codegen_character_array_string(type, initializer);
     if (!type || !initializer) return false;
+    if (gen_cxx_initializer_calls_body(initializer)) {
+        emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)displacement);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        gen_cxx_call_constructor32(
+            mod, initializer->compound_constructor,
+            initializer->compound_init);
+        return true;
+    }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     if (string) {
         size_t storage = (size_t)type->size;
@@ -7453,7 +7554,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                         (d->type && d->type->cxx_vtable_size > 0))) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
-                                d->type->kind == TYPE_UNION)) {
+                                d->type->kind == TYPE_UNION) &&
+                    !gen_cxx_initializer_calls_body(d->var_init)) {
                     gen_zero_local_storage(mod, d->var_offset,
                                            (size_t)d->type->size);
                 }
