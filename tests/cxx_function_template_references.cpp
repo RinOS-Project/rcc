@@ -37,14 +37,21 @@ U default_type_copy(T value) {
     return result;
 }
 
+template<typename T>
+int read_array_element(T* value) {
+    return value[1];
+}
+
 int main() {
     const int constant = 7;
     int mutable_value = 4;
+    int values[2] = {5, 6};
     return read_const_reference(constant) == 7 &&
                    update_lvalue(mutable_value) == 7 &&
                    mutable_value == 7 &&
                    read_rvalue(9) == 9 &&
                    invoke(double_value, 6) == 12 &&
                    copy_from_const_pointer(&constant) == 8 &&
-                   default_type_copy(13) == 13 ? 0 : 1;
+                   default_type_copy(13) == 13 &&
+                   read_array_element(values) == 6 ? 0 : 1;
 }

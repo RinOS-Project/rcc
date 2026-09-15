@@ -5845,6 +5845,29 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
     return type_is_compatible(pattern, actual);
 }
 
+/* Function-call template deduction applies the by-value parameter
+ * adjustments before matching the pattern.  In particular, an array or
+ * function argument decays at the call boundary, while an array bound behind
+ * a reference pattern remains available for non-type deduction. */
+static Type* cxx_parser_template_deduction_argument(Type* pattern,
+                                                    Type* actual) {
+    Type* adjusted;
+    if (!pattern || !actual || pattern->is_reference ||
+        pattern->is_rvalue_reference) {
+        return actual;
+    }
+    if (actual->kind == TYPE_ARRAY) {
+        return type_ptr(actual->base);
+    }
+    if (actual->kind == TYPE_FUNC) return type_ptr(actual);
+    if (!actual->is_const && !actual->is_volatile) return actual;
+    adjusted = ast_arena_alloc(sizeof(*adjusted));
+    *adjusted = *actual;
+    adjusted->is_const = false;
+    adjusted->is_volatile = false;
+    return adjusted;
+}
+
 static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                ExprList* call_arguments,
                                                Type** template_arguments,
@@ -5871,7 +5894,9 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             return false;
         }
         if (!deduce_function_template_type(
-                tmpl, parameter->decl->type, actual, template_arguments,
+                tmpl, parameter->decl->type,
+                cxx_parser_template_deduction_argument(
+                    parameter->decl->type, actual), template_arguments,
                 template_values, template_value_present, specificity)) {
             if (report_errors) {
                 rcc_error(argument->expr->loc,
@@ -6228,7 +6253,9 @@ static bool prepare_cxx_function_template_match(
             if (argument) {
                 Type* actual = cxx_parser_expression_type(argument->expr);
                 if (!actual || !deduce_function_template_type(
-                        tmpl, parameter->decl->type, actual,
+                        tmpl, parameter->decl->type,
+                        cxx_parser_template_deduction_argument(
+                            parameter->decl->type, actual),
                         match->arguments, match->values,
                         match->value_present, &specificity)) {
                     return false;
