@@ -2159,8 +2159,15 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
         case EXPR_CAST:
             if (expr->type && expr->type->is_reference &&
                 (expr->cxx_cast_kind == CXX_CAST_NONE ||
-                 expr->cxx_cast_kind == CXX_CAST_CONST)) {
+                 expr->cxx_cast_kind == CXX_CAST_CONST ||
+                 expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 gen64_lvalue(mod, expr->cast_expr);
+                if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
+                    expr->cxx_pointer_adjustment_valid &&
+                    expr->cxx_pointer_adjustment != 0) {
+                    emit64_add_reg_imm(mod, RAX,
+                                       expr->cxx_pointer_adjustment);
+                }
             } else {
                 rcc_error(expr->loc, "not an lvalue");
             }
@@ -4763,7 +4770,16 @@ static void gen64_expr(Module* mod, Expr* expr) {
     gen64_expr_raw(mod, expr);
     if (expr->cxx_pointer_adjustment_valid &&
         expr->cxx_pointer_adjustment != 0) {
-        emit64_add_reg_imm(mod, RAX, expr->cxx_pointer_adjustment);
+        if (expr->type && expr->type->kind == TYPE_PTR &&
+            !expr->type->is_reference) {
+            int end_label = new_label64();
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, end_label);
+            emit64_add_reg_imm(mod, RAX, expr->cxx_pointer_adjustment);
+            emit64_label(mod, end_label);
+        } else {
+            emit64_add_reg_imm(mod, RAX, expr->cxx_pointer_adjustment);
+        }
     }
     if (type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) {
         emit64_normalize_atomic_value(mod, RAX, expr->type);

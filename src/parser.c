@@ -1134,10 +1134,6 @@ static Expr* parse_unary(void) {
         Expr* cast = expr_cast(cast_type, operand, loc);
         cast->cxx_cast_kind = cast_token == TOK_DYNAMIC_CAST
             ? CXX_CAST_DYNAMIC : CXX_CAST_CONST;
-        if (cast_token == TOK_DYNAMIC_CAST) {
-            rcc_error(loc,
-                      "dynamic_cast requires the unavailable RinOS RTTI ABI");
-        }
         return parse_postfix_tail(cast);
     }
 

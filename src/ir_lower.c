@@ -504,6 +504,45 @@ static RccIrLowerValue lower_byte_offset_address(
         address->result, rcc_ir_type_pointer(0u), true);
 }
 
+static RccIrLowerValue lower_adjusted_pointer(
+    RccIrLowerContext* context, RccIrLowerValue pointer,
+    int adjustment) {
+    RccIrType pointer_type = rcc_ir_type_pointer(0u);
+    RccIrType integer_type = rcc_ir_type_integer(
+        (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+    RccIrLowerValue adjusted;
+    RccIrLowerValue condition;
+    RccIrLowerValue zero_integer;
+    RccIrLowerValue zero_pointer;
+    RccIrInstruction* zero_cast;
+    RccIrInstruction* select;
+    RccIrValue operands[3];
+    if (!pointer.valid || pointer.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (adjustment == 0) return pointer;
+    adjusted = lower_byte_offset_address(
+        context, pointer, (uint64_t)(int64_t)adjustment);
+    condition = lower_truth(context, pointer);
+    zero_integer = lower_integer_constant(
+        context, integer_type, true, 0u);
+    if (!adjusted.valid || !condition.valid || !zero_integer.valid) {
+        return lower_invalid_value();
+    }
+    zero_cast = lower_append(context, RCC_IR_INT_TO_PTR, pointer_type,
+                             &zero_integer.value, 1u, NULL, 0u);
+    if (!zero_cast) return lower_invalid_value();
+    zero_pointer = lower_value(zero_cast->result, pointer_type, true);
+    operands[0] = condition.value;
+    operands[1] = adjusted.value;
+    operands[2] = zero_pointer.value;
+    select = lower_append(context, RCC_IR_SELECT, pointer_type,
+                          operands, 3u, NULL, 0u);
+    if (!select) return lower_invalid_value();
+    return lower_value(select->result, pointer_type, true);
+}
+
 static RccIrLowerValue lower_lvalue_address(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
@@ -543,8 +582,15 @@ static RccIrLowerValue lower_lvalue_address(
     if (expression->kind == EXPR_CAST && expression->type &&
         expression->type->is_reference &&
         (expression->cxx_cast_kind == CXX_CAST_NONE ||
-         expression->cxx_cast_kind == CXX_CAST_CONST)) {
-        return lower_lvalue_address(context, expression->cast_expr);
+         expression->cxx_cast_kind == CXX_CAST_CONST ||
+         expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
+        RccIrLowerValue address = lower_lvalue_address(
+            context, expression->cast_expr);
+        if (expression->cxx_pointer_adjustment_valid) {
+            return lower_adjusted_pointer(
+                context, address, expression->cxx_pointer_adjustment);
+        }
+        return address;
     }
     if (expression->kind == EXPR_DEREF) {
         RccIrLowerValue pointer = lower_expression(
@@ -1254,14 +1300,20 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_CAST:
             if (expression->type && expression->type->is_reference &&
                 (expression->cxx_cast_kind == CXX_CAST_NONE ||
-                 expression->cxx_cast_kind == CXX_CAST_CONST)) {
+                 expression->cxx_cast_kind == CXX_CAST_CONST ||
+                 expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 RccIrLowerValue address = lower_lvalue_address(
                     context, expression);
                 return lower_load_address(context, address,
                                           expression->type->base);
             }
             operand = lower_expression(context, expression->cast_expr);
-            return lower_cast(context, operand, expression->type);
+            operand = lower_cast(context, operand, expression->type);
+            if (expression->cxx_pointer_adjustment_valid) {
+                operand = lower_adjusted_pointer(
+                    context, operand, expression->cxx_pointer_adjustment);
+            }
+            return operand;
         case EXPR_ADD:
         case EXPR_SUB:
             if (expression->type && expression->type->kind == TYPE_PTR) {

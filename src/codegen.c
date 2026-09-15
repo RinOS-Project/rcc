@@ -3796,8 +3796,15 @@ static void gen_lvalue(Module* mod, Expr* expr) {
         case EXPR_CAST:
             if (expr->type && expr->type->is_reference &&
                 (expr->cxx_cast_kind == CXX_CAST_NONE ||
-                 expr->cxx_cast_kind == CXX_CAST_CONST)) {
+                 expr->cxx_cast_kind == CXX_CAST_CONST ||
+                 expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 gen_lvalue(mod, expr->cast_expr);
+                if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
+                    expr->cxx_pointer_adjustment_valid &&
+                    expr->cxx_pointer_adjustment != 0) {
+                    emit_add_reg_imm(mod, EAX,
+                                     expr->cxx_pointer_adjustment);
+                }
             } else {
                 rcc_error(expr->loc, "not an lvalue");
             }
@@ -8220,7 +8227,16 @@ static void gen_expr(Module* mod, Expr* expr) {
     gen_expr_raw(mod, expr);
     if (expr->cxx_pointer_adjustment_valid &&
         expr->cxx_pointer_adjustment != 0) {
-        emit_add_reg_imm(mod, EAX, expr->cxx_pointer_adjustment);
+        if (expr->type && expr->type->kind == TYPE_PTR &&
+            !expr->type->is_reference) {
+            int end_label = new_label();
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_E, end_label);
+            emit_add_reg_imm(mod, EAX, expr->cxx_pointer_adjustment);
+            emit_label(mod, end_label);
+        } else {
+            emit_add_reg_imm(mod, EAX, expr->cxx_pointer_adjustment);
+        }
     }
     if (type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) {
         emit_normalize_atomic_value(mod, EAX, expr->type);

@@ -6066,6 +6066,34 @@ static Type* sema_expr(Expr* expr) {
                                                expr->loc, false);
             expr->type = expr->cast_type;
             expr->cxx_pointer_adjustment_valid = false;
+            if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC) {
+                int adjustment = 0;
+                bool supported = false;
+                if (source && expr->cast_type &&
+                    source->kind == TYPE_PTR &&
+                    expr->cast_type->kind == TYPE_PTR &&
+                    !source->is_reference &&
+                    !expr->cast_type->is_reference && source->base &&
+                    expr->cast_type->base) {
+                    supported = sema_cxx_public_base(
+                        source->base, expr->cast_type->base,
+                        &adjustment, 0);
+                } else if (source && expr->cast_type &&
+                           expr->cast_type->kind == TYPE_PTR &&
+                           expr->cast_type->is_reference &&
+                           source->kind != TYPE_PTR &&
+                           expr->cast_type->base) {
+                    supported = sema_cxx_public_base(
+                        source, expr->cast_type->base, &adjustment, 0);
+                }
+                if (!supported) {
+                    rcc_error(expr->loc,
+                              "dynamic_cast currently supports only a statically known public upcast");
+                } else if (adjustment != 0) {
+                    expr->cxx_pointer_adjustment_valid = true;
+                    expr->cxx_pointer_adjustment = adjustment;
+                }
+            }
             if (expr->cxx_cast_kind == CXX_CAST_CONST &&
                 !cxx_const_cast_similar(source, expr->cast_type, 0u)) {
                 rcc_error(expr->loc,
