@@ -5338,31 +5338,60 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
     SourceLoc loc = peek()->loc;
-    const char* name;
+    const char* name = NULL;
     CxxTemplate* tmpl;
-    CxxClass* cls;
+    CxxClass* cls = NULL;
     Type* type;
     ExprList* arguments = NULL;
     Expr* initializer;
+    bool keyword_type = false;
 
-    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
-    name = parse_qualified_name();
-    tmpl = check(TOK_LT) ? find_class_template(name) : NULL;
-    if (tmpl) {
-        type = parse_class_template_specialization(tmpl, loc);
+    switch (peek()->type) {
+        case TOK_VOID:
+        case TOK_BOOL:
+        case TOK_CHAR:
+        case TOK_SHORT:
+        case TOK_INT:
+        case TOK_LONG:
+        case TOK_SIGNED:
+        case TOK_UNSIGNED:
+        case TOK_FLOAT:
+        case TOK_DOUBLE:
+        case TOK_CONST:
+        case TOK_VOLATILE:
+        case TOK_DECLTYPE:
+            keyword_type = true;
+            break;
+        default:
+            break;
+    }
+
+    if (keyword_type) {
+        type = parse_cxx_type_spec();
     } else {
-        cls = find_class(name);
-        type = cls ? cls->type : NULL;
+        if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+        name = parse_qualified_name();
+        tmpl = check(TOK_LT) ? find_class_template(name) : NULL;
+        if (tmpl) {
+            type = parse_class_template_specialization(tmpl, loc);
+        } else {
+            cls = find_class(name);
+            type = cls ? cls->type : NULL;
+        }
         if (!type) {
             /* Classes registered through the common aggregate path are also
              * visible in the parser type table.  The cxx_class guard keeps a
              * C aggregate or typedef from becoming a constructor expression. */
             type = rcc_parser_lookup_type(name);
-            if (!type || !type->cxx_class) type = NULL;
+            if (!type || ((type->kind == TYPE_STRUCT ||
+                           type->kind == TYPE_UNION) && !type->cxx_class)) {
+                type = NULL;
+            }
         }
     }
-    if (!type || !type->cxx_class || !check(TOK_LPAREN) ||
-        rcc_parser_cxx_constructor_arity_mask(type) == 0u) {
+    if (!type || !check(TOK_LPAREN) ||
+        (type->cxx_class &&
+         rcc_parser_cxx_constructor_arity_mask(type) == 0u)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
@@ -5375,6 +5404,17 @@ Expr* rcc_parse_cxx_functional_cast(void) {
         } while (match(TOK_COMMA));
     }
     expect(TOK_RPAREN, ")");
+
+    if (!type->cxx_class) {
+        if (!arguments) {
+            arguments = exprlist_new(expr_int(0, loc));
+        } else if (arguments->next) {
+            rcc_error(loc,
+                      "C++ functional scalar cast requires one argument");
+        }
+        initializer = expr_cast(type, arguments->expr, loc);
+        return initializer;
+    }
 
     initializer = expr_initializer_list(arguments, loc);
     initializer->compound_type = type;

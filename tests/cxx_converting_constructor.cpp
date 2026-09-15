@@ -21,9 +21,10 @@ extern "C" int cxx_converting_constructor(void) {
     Converting direct_value(5);
     Converting copied_value = direct_value;
     Converting* heap_value = new Converting(6);
+    int cast_value = int(8);
     int result = global_value.value() + local_value.value() +
                  direct_value.value() + copied_value.value() +
-                 heap_value->value() + consume(Converting(7));
+                 heap_value->value() + consume(Converting(7)) + cast_value;
     delete heap_value;
-    return result == 29 ? 0 : 1;
+    return result == 37 ? 0 : 1;
 }

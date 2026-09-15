@@ -998,8 +998,7 @@ static Expr* parse_primary(void) {
      * function call.  Let the C++ frontend claim only a parser-known class
      * spelling; unknown identifiers are restored so normal call parsing is
      * unchanged. */
-    if (parser_cxx_mode && rcc_parse_cxx_functional_cast &&
-        (check(TOK_IDENT) || check(TOK_SCOPE))) {
+    if (parser_cxx_mode && rcc_parse_cxx_functional_cast) {
         Expr* functional_cast = rcc_parse_cxx_functional_cast();
         if (functional_cast) return functional_cast;
     }
