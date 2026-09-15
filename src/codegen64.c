@@ -5098,8 +5098,28 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
         }
         if (handler->parameter) {
             if (handler->parameter->type &&
-                (handler->parameter->type->kind == TYPE_STRUCT ||
-                 handler->parameter->type->kind == TYPE_UNION)) {
+                handler->parameter->type->kind == TYPE_PTR &&
+                handler->parameter->type->is_reference) {
+                /* Bind the reference variable to the frame payload instead
+                 * of copying the object.  The frame remains the owner until
+                 * the handler's release call after its body. */
+                const Type* match_type = rcc_cxx_exception_match_type(
+                    handler->type);
+                if (match_type &&
+                    (match_type->kind == TYPE_STRUCT ||
+                     match_type->kind == TYPE_UNION)) {
+                    gen64_cxx_exception_payload_address(mod, stmt, handler);
+                } else {
+                    gen64_cxx_exception_frame_address(
+                        mod, stmt->try_frame_offset);
+                    emit64_mov_reg_reg(mod, RAX, RDI);
+                    emit64_add_reg_imm(mod, RAX, 72);
+                }
+                emit64_store_typed(mod, RBP, handler->parameter->var_offset,
+                                   RAX, handler->parameter->type);
+            } else if (handler->parameter->type &&
+                       (handler->parameter->type->kind == TYPE_STRUCT ||
+                        handler->parameter->type->kind == TYPE_UNION)) {
                 gen64_cxx_exception_payload_address(mod, stmt, handler);
                 gen64_copy_memory(mod, RBP, handler->parameter->var_offset,
                                   RAX, 0, handler->parameter->type->size);

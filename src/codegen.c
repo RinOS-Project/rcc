@@ -8565,8 +8565,29 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
         }
         if (handler->parameter) {
             if (handler->parameter->type &&
-                (handler->parameter->type->kind == TYPE_STRUCT ||
-                 handler->parameter->type->kind == TYPE_UNION)) {
+                handler->parameter->type->kind == TYPE_PTR &&
+                handler->parameter->type->is_reference) {
+                /* A reference catch aliases the live payload.  Keep the
+                 * frame storage alive until the handler releases it, so a
+                 * scalar reference and an adjusted base reference both use
+                 * the same target-width address ABI. */
+                Type* match_type = (Type*)rcc_cxx_exception_match_type(
+                    handler->type);
+                if (match_type &&
+                    (match_type->kind == TYPE_STRUCT ||
+                     match_type->kind == TYPE_UNION)) {
+                    gen_cxx_exception_payload_address32(mod, stmt, handler);
+                } else {
+                    gen_cxx_exception_frame_address32(
+                        mod, stmt->try_frame_offset);
+                    emit_mov_reg_reg(mod, EDX, EAX);
+                    emit_add_reg_imm(mod, EDX, 28);
+                }
+                emit_store_typed32(mod, EBP, handler->parameter->var_offset,
+                                   EDX, handler->parameter->type);
+            } else if (handler->parameter->type &&
+                       (handler->parameter->type->kind == TYPE_STRUCT ||
+                        handler->parameter->type->kind == TYPE_UNION)) {
                 gen_cxx_exception_payload_address32(mod, stmt, handler);
                 int offset = 0;
                 emit_mov_reg_reg(mod, ECX, EDX);

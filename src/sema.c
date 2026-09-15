@@ -152,6 +152,15 @@ static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag,
         (int32_t)adjustment;
 }
 
+static Type* sema_cxx_exception_match_type(Type* type) {
+    return (Type*)rcc_cxx_exception_match_type(type);
+}
+
+static bool sema_cxx_exception_reference_type(const Type* type) {
+    return type && type->kind == TYPE_PTR && type->is_reference &&
+           type->base != NULL;
+}
+
 static void sema_cxx_collect_exception_tags(CxxNamespace* ns, Type* target,
                                              CxxCatch* handler, unsigned depth) {
     if (!ns || !target || !handler || depth > 32u) return;
@@ -7392,45 +7401,49 @@ static void sema_stmt(Stmt* stmt) {
             }
             for (CxxCatch* handler = stmt->try_catches; handler;
                  handler = handler->next) {
+                Type* match_type = sema_cxx_exception_match_type(handler->type);
+                bool reference_type =
+                    sema_cxx_exception_reference_type(handler->type);
                 bool aggregate_object = handler->type &&
-                    sema_cxx_exception_object_copyable(handler->type, 0);
+                    match_type && sema_cxx_exception_object_copyable(
+                        match_type, 0);
                 if (seen_ellipsis) {
                     rcc_error(handler->body ? handler->body->loc : stmt->loc,
                               "C++ catch-all handler must be the last handler");
                 }
                 if (handler->is_ellipsis) seen_ellipsis = true;
                 if (!handler->is_ellipsis &&
-                    ((!handler->type ||
-                      ((!type_is_integer(handler->type) &&
-                        handler->type->kind != TYPE_ENUM &&
-                        handler->type->kind != TYPE_PTR) &&
+                    ((!match_type ||
+                      ((!type_is_integer(match_type) &&
+                        match_type->kind != TYPE_ENUM &&
+                        match_type->kind != TYPE_PTR) &&
                        !aggregate_object)) ||
                      (!aggregate_object && handler->type &&
-                      (handler->type->size <= 0 ||
-                       handler->type->size >
+                      (match_type->size <= 0 ||
+                       match_type->size >
                            (g_opts.target_arch == ARCH_X64 ? 8 : 4))))) {
                     rcc_error(stmt->loc,
                               "C++ catch requires a scalar payload no wider than the target word or a supported aggregate exception object");
                 }
                 if (handler->parameter &&
-                    (!handler->type ||
-                     ((!type_is_integer(handler->type) &&
-                       handler->type->kind != TYPE_ENUM &&
-                       handler->type->kind != TYPE_PTR) &&
-                      !aggregate_object))) {
+                    (!match_type || (!reference_type &&
+                     ((!type_is_integer(match_type) &&
+                       match_type->kind != TYPE_ENUM &&
+                       match_type->kind != TYPE_PTR) &&
+                      !aggregate_object)))) {
                     rcc_error(handler->parameter->loc,
                               "named C++ catch parameter must have a scalar type or a supported aggregate exception object");
                 }
-                if (!handler->is_ellipsis && handler->type &&
-                    handler->type->kind == TYPE_STRUCT &&
-                    handler->type->cxx_class) {
+                if (!handler->is_ellipsis && match_type &&
+                    match_type->kind == TYPE_STRUCT &&
+                    match_type->cxx_class) {
                     sema_cxx_collect_exception_tags(
-                        sema_cxx_global_namespace(), handler->type, handler, 0u);
+                        sema_cxx_global_namespace(), match_type, handler, 0u);
                 }
                 sema_stmt(handler->body);
-                if (handler->parameter && handler->type &&
-                    !sema_cxx_trivially_copyable(handler->type, 0) &&
-                    sema_cxx_exception_object_copyable(handler->type, 0)) {
+                if (handler->parameter && !reference_type && match_type &&
+                    !sema_cxx_trivially_copyable(match_type, 0) &&
+                    sema_cxx_exception_object_copyable(match_type, 0)) {
                     Expr* object = expr_ident(handler->parameter->name,
                                               handler->parameter->loc);
                     object->ident_decl = handler->parameter;

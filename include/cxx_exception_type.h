@@ -14,6 +14,13 @@
  * without depending on a host pointer. */
 #define RCC_CXX_EXCEPTION_OBJECT_FLAG UINT64_C(0x80000000)
 
+static inline const Type* rcc_cxx_exception_match_type(const Type* type) {
+    while (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    return type;
+}
+
 /* The current RinOS exception frame carries one target-width type word.  A
  * TypeKind alone is not an exception type identity: signedness, enum identity,
  * and pointer pointee type all participate in C++ catch matching.  Keep this
@@ -65,6 +72,9 @@ static inline void rcc_cxx_exception_hash_type(uint64_t* hash,
 
 static inline uint64_t rcc_cxx_exception_type_tag(const Type* type) {
     uint64_t hash = UINT64_C(1469598103934665603);
+    /* A catch reference binds to the thrown object; the reference declarator
+     * is not part of the exception's dynamic type identity. */
+    type = rcc_cxx_exception_match_type(type);
     rcc_cxx_exception_hash_type(&hash, type, true, 0u);
     hash &= UINT64_C(0x7fffffff);
     /* Zero is reserved for an absent runtime type. */
