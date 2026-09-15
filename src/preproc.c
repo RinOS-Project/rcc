@@ -329,92 +329,431 @@ static void pp_add_dependency(Preprocessor* pp, const char* path) {
 }
 
 static const char* pp_expr_skip(const char* p) {
-    while (*p == ' ' || *p == '\t') p++;
+    while (*p && isspace((unsigned char)*p)) p++;
     return p;
 }
 
-static int pp_eval_or(Preprocessor* pp, const char** input);
+/* Expand macros in a string (declared here because #if needs the same
+ * replacement-list machinery as ordinary source lines). */
+static char* expand_macros(Preprocessor* pp, const char* input);
 
-static int pp_eval_primary(Preprocessor* pp, const char** input) {
-    const char* p = pp_expr_skip(*input);
-    int value = 0;
-    if (*p == '!') {
+typedef struct {
+    uint64_t bits;
+    bool is_unsigned;
+} PPExprValue;
+
+typedef struct {
+    const char* input;
+    bool invalid;
+} PPExprParser;
+
+static PPExprValue pp_expr_signed(int64_t value) {
+    PPExprValue result = {(uint64_t)value, false};
+    return result;
+}
+
+static PPExprValue pp_expr_unsigned(uint64_t value) {
+    PPExprValue result = {value, true};
+    return result;
+}
+
+static PPExprValue pp_expr_bool(bool value) {
+    return pp_expr_signed(value ? 1 : 0);
+}
+
+static bool pp_expr_truth(PPExprValue value) {
+    return value.bits != 0u;
+}
+
+static int64_t pp_expr_as_signed(PPExprValue value) {
+    return (int64_t)value.bits;
+}
+
+static PPExprValue pp_expr_arithmetic(PPExprValue left, PPExprValue right,
+                                      char operation, PPExprParser* parser) {
+    uint64_t result;
+    if (operation == '/' || operation == '%') {
+        if (right.bits == 0u) {
+            parser->invalid = true;
+            return pp_expr_signed(0);
+        }
+        if (!left.is_unsigned && !right.is_unsigned &&
+            pp_expr_as_signed(left) == INT64_MIN &&
+            pp_expr_as_signed(right) == -1) {
+            return pp_expr_signed(INT64_MIN);
+        }
+    }
+
+    if (left.is_unsigned || right.is_unsigned) {
+        switch (operation) {
+        case '+': result = left.bits + right.bits; break;
+        case '-': result = left.bits - right.bits; break;
+        case '*': result = left.bits * right.bits; break;
+        case '/': result = left.bits / right.bits; break;
+        default: result = left.bits % right.bits; break;
+        }
+        return pp_expr_unsigned(result);
+    }
+
+    int64_t signed_left = pp_expr_as_signed(left);
+    int64_t signed_right = pp_expr_as_signed(right);
+    switch (operation) {
+    case '+': result = left.bits + right.bits; break;
+    case '-': result = left.bits - right.bits; break;
+    case '*': result = left.bits * right.bits; break;
+    case '/': return pp_expr_signed(signed_left / signed_right);
+    default: return pp_expr_signed(signed_left % signed_right);
+    }
+    return pp_expr_signed((int64_t)result);
+}
+
+static bool pp_expr_match(PPExprParser* parser, const char* spelling) {
+    const char* p = pp_expr_skip(parser->input);
+    size_t length = strlen(spelling);
+    if (strncmp(p, spelling, length) != 0) return false;
+    parser->input = p + length;
+    return true;
+}
+
+static bool pp_expr_starts_with(const PPExprParser* parser,
+                                const char* spelling) {
+    const char* p = pp_expr_skip(parser->input);
+    return strncmp(p, spelling, strlen(spelling)) == 0;
+}
+
+static PPExprValue pp_expr_conditional(PPExprParser* parser);
+
+static uint64_t pp_expr_escape(const char** input, PPExprParser* parser) {
+    const char* p = *input;
+    unsigned int value = 0;
+    if (*p == 'a') return (*input = p + 1), '\a';
+    if (*p == 'b') return (*input = p + 1), '\b';
+    if (*p == 'f') return (*input = p + 1), '\f';
+    if (*p == 'n') return (*input = p + 1), '\n';
+    if (*p == 'r') return (*input = p + 1), '\r';
+    if (*p == 't') return (*input = p + 1), '\t';
+    if (*p == 'v') return (*input = p + 1), '\v';
+    if (*p == 'x') {
         p++;
-        *input = p;
-        return !pp_eval_primary(pp, input);
-    }
-    if (*p == '(') {
-        p++;
-        value = pp_eval_or(pp, &p);
-        p = pp_expr_skip(p);
-        if (*p == ')') p++;
-        *input = p;
-        return value;
-    }
-    if (strncmp(p, "defined", 7) == 0 &&
-        !(isalnum((unsigned char)p[7]) || p[7] == '_')) {
-        char name[256];
-        p = pp_expr_skip(p + 7);
-        bool parenthesized = (*p == '(');
-        if (parenthesized) p = pp_expr_skip(p + 1);
-        p = read_ident(p, name, sizeof(name));
-        p = pp_expr_skip(p);
-        if (parenthesized && *p == ')') p++;
-        *input = p;
-        return pp_is_defined(pp, name) ? 1 : 0;
-    }
-    if (isdigit((unsigned char)*p)) {
-        char* end = NULL;
-        unsigned long long number = strtoull(p, &end, 0);
-        while (*end == 'u' || *end == 'U' || *end == 'l' || *end == 'L') end++;
-        *input = end;
-        return number != 0u;
-    }
-    if (isalpha((unsigned char)*p) || *p == '_') {
-        char name[256];
-        p = read_ident(p, name, sizeof(name));
-        Macro* macro = pp_get_macro(pp, name);
-        if (macro && macro->param_count < 0 && macro->value) {
-            char* end = NULL;
-            unsigned long long number = strtoull(macro->value, &end, 0);
-            value = end != macro->value && number != 0u;
+        while (isxdigit((unsigned char)*p)) {
+            value = value * 16u + (unsigned int)(isdigit((unsigned char)*p)
+                ? *p - '0' : tolower((unsigned char)*p) - 'a' + 10);
+            p++;
         }
         *input = p;
         return value;
     }
-    if (*p) p++; /* Invalid tokens are false, but always make progress. */
-    *input = p;
-    return 0;
+    if (*p >= '0' && *p <= '7') {
+        int count = 0;
+        while (count < 3 && *p >= '0' && *p <= '7') {
+            value = value * 8u + (unsigned int)(*p++ - '0');
+            count++;
+        }
+        *input = p;
+        return value;
+    }
+    if (*p == '\0') {
+        parser->invalid = true;
+        return 0;
+    }
+    *input = p + 1;
+    return (unsigned char)*p;
 }
 
-static int pp_eval_and(Preprocessor* pp, const char** input) {
-    int value = pp_eval_primary(pp, input);
-    const char* p = pp_expr_skip(*input);
-    while (p[0] == '&' && p[1] == '&') {
-        p += 2;
-        int right = pp_eval_primary(pp, &p);
-        value = value && right;
-        p = pp_expr_skip(p);
+static PPExprValue pp_expr_primary(PPExprParser* parser) {
+    const char* p = pp_expr_skip(parser->input);
+    if (*p == '(') {
+        parser->input = p + 1;
+        PPExprValue value = pp_expr_conditional(parser);
+        p = pp_expr_skip(parser->input);
+        if (*p != ')') {
+            parser->invalid = true;
+            return value;
+        }
+        parser->input = p + 1;
+        return value;
     }
-    *input = p;
+    if (*p == '\'') {
+        uint64_t value = 0;
+        p++;
+        while (*p && *p != '\'') {
+            uint64_t character;
+            if (*p == '\\') {
+                p++;
+                character = pp_expr_escape(&p, parser);
+            } else {
+                character = (uint64_t)(unsigned char)*p++;
+            }
+            value = (value << 8) | (character & 0xffu);
+        }
+        if (*p != '\'') {
+            parser->invalid = true;
+        } else {
+            p++;
+        }
+        parser->input = p;
+        return pp_expr_signed((int64_t)value);
+    }
+    if (isdigit((unsigned char)*p)) {
+        const char* start = p;
+        char* end = NULL;
+        uint64_t value;
+        bool is_unsigned = false;
+        if (p[0] == '0' && (p[1] == 'b' || p[1] == 'B')) {
+            p += 2;
+            if (*p != '0' && *p != '1') {
+                parser->invalid = true;
+                return pp_expr_signed(0);
+            }
+            value = 0u;
+            while (*p == '0' || *p == '1') value = value * 2u + (uint64_t)(*p++ - '0');
+            end = (char*)p;
+        } else {
+            value = strtoull(start, &end, 0);
+            if (end == start) {
+                parser->invalid = true;
+                return pp_expr_signed(0);
+            }
+            p = end;
+        }
+        while (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L') {
+            if (*p == 'u' || *p == 'U') is_unsigned = true;
+            p++;
+        }
+        parser->input = p;
+        if (is_unsigned || value > (uint64_t)INT64_MAX) return pp_expr_unsigned(value);
+        return pp_expr_signed((int64_t)value);
+    }
+    if (isalpha((unsigned char)*p) || *p == '_') {
+        char name[256];
+        p = read_ident(p, name, sizeof(name));
+        parser->input = p;
+        /* Macro expansion turns unresolved identifiers into zero per C17. */
+        return pp_expr_signed(0);
+    }
+    parser->invalid = true;
+    parser->input = *p ? p + 1 : p;
+    return pp_expr_signed(0);
+}
+
+static PPExprValue pp_expr_unary(PPExprParser* parser) {
+    if (pp_expr_match(parser, "!")) return pp_expr_bool(!pp_expr_truth(pp_expr_unary(parser)));
+    if (pp_expr_match(parser, "~")) {
+        PPExprValue value = pp_expr_unary(parser);
+        value.bits = ~value.bits;
+        return value;
+    }
+    if (pp_expr_match(parser, "+")) return pp_expr_unary(parser);
+    if (pp_expr_match(parser, "-")) {
+        PPExprValue value = pp_expr_unary(parser);
+        value.bits = 0u - value.bits;
+        return value;
+    }
+    return pp_expr_primary(parser);
+}
+
+static PPExprValue pp_expr_multiplicative(PPExprParser* parser) {
+    PPExprValue value = pp_expr_unary(parser);
+    for (;;) {
+        char operation = 0;
+        if (pp_expr_match(parser, "*")) operation = '*';
+        else if (pp_expr_match(parser, "/")) operation = '/';
+        else if (pp_expr_match(parser, "%")) operation = '%';
+        else break;
+        value = pp_expr_arithmetic(value, pp_expr_unary(parser), operation, parser);
+    }
     return value;
 }
 
-static int pp_eval_or(Preprocessor* pp, const char** input) {
-    int value = pp_eval_and(pp, input);
-    const char* p = pp_expr_skip(*input);
-    while (p[0] == '|' && p[1] == '|') {
-        p += 2;
-        int right = pp_eval_and(pp, &p);
-        value = value || right;
-        p = pp_expr_skip(p);
+static PPExprValue pp_expr_additive(PPExprParser* parser) {
+    PPExprValue value = pp_expr_multiplicative(parser);
+    for (;;) {
+        char operation = 0;
+        if (pp_expr_match(parser, "+")) operation = '+';
+        else if (pp_expr_match(parser, "-")) operation = '-';
+        else break;
+        value = pp_expr_arithmetic(value, pp_expr_multiplicative(parser), operation, parser);
     }
-    *input = p;
     return value;
 }
 
-static bool pp_eval_expression(Preprocessor* pp, const char* expression) {
-    return pp_eval_or(pp, &expression) != 0;
+static PPExprValue pp_expr_shift(PPExprParser* parser) {
+    PPExprValue value = pp_expr_additive(parser);
+    for (;;) {
+        bool left = pp_expr_match(parser, "<<");
+        bool right = !left && pp_expr_match(parser, ">>");
+        if (!left && !right) break;
+        PPExprValue amount = pp_expr_additive(parser);
+        if (amount.bits >= 64u) {
+            parser->invalid = true;
+            value = pp_expr_signed(0);
+        } else if (left) {
+            value.bits <<= amount.bits;
+        } else if (value.is_unsigned || (value.bits & (1ull << 63)) == 0u) {
+            value.bits >>= amount.bits;
+        } else if (amount.bits != 0u) {
+            value.bits = (value.bits >> amount.bits) | (~0ull << (64u - amount.bits));
+        }
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_relational(PPExprParser* parser) {
+    PPExprValue value = pp_expr_shift(parser);
+    for (;;) {
+        int operation = 0;
+        if (pp_expr_match(parser, "<=")) operation = 1;
+        else if (pp_expr_match(parser, ">=")) operation = 2;
+        else if (pp_expr_match(parser, "<")) operation = 3;
+        else if (pp_expr_match(parser, ">")) operation = 4;
+        else break;
+        PPExprValue right = pp_expr_shift(parser);
+        bool result;
+        if (value.is_unsigned || right.is_unsigned) {
+            result = operation == 1 ? value.bits <= right.bits
+                : operation == 2 ? value.bits >= right.bits
+                : operation == 3 ? value.bits < right.bits : value.bits > right.bits;
+        } else {
+            int64_t left_signed = pp_expr_as_signed(value);
+            int64_t right_signed = pp_expr_as_signed(right);
+            result = operation == 1 ? left_signed <= right_signed
+                : operation == 2 ? left_signed >= right_signed
+                : operation == 3 ? left_signed < right_signed : left_signed > right_signed;
+        }
+        value = pp_expr_bool(result);
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_equality(PPExprParser* parser) {
+    PPExprValue value = pp_expr_relational(parser);
+    for (;;) {
+        bool equal = pp_expr_match(parser, "==");
+        bool not_equal = !equal && pp_expr_match(parser, "!=");
+        if (!equal && !not_equal) break;
+        PPExprValue right = pp_expr_relational(parser);
+        bool result = value.is_unsigned || right.is_unsigned
+            ? value.bits == right.bits
+            : pp_expr_as_signed(value) == pp_expr_as_signed(right);
+        value = pp_expr_bool(not_equal ? !result : result);
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_bitand(PPExprParser* parser) {
+    PPExprValue value = pp_expr_equality(parser);
+    while (!pp_expr_starts_with(parser, "&&") && pp_expr_match(parser, "&")) {
+        PPExprValue right = pp_expr_equality(parser);
+        value.bits &= right.bits;
+        value.is_unsigned = value.is_unsigned || right.is_unsigned;
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_bitxor(PPExprParser* parser) {
+    PPExprValue value = pp_expr_bitand(parser);
+    while (pp_expr_match(parser, "^")) {
+        PPExprValue right = pp_expr_bitand(parser);
+        value.bits ^= right.bits;
+        value.is_unsigned = value.is_unsigned || right.is_unsigned;
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_bitor(PPExprParser* parser) {
+    PPExprValue value = pp_expr_bitxor(parser);
+    while (!pp_expr_starts_with(parser, "||") && pp_expr_match(parser, "|")) {
+        PPExprValue right = pp_expr_bitxor(parser);
+        value.bits |= right.bits;
+        value.is_unsigned = value.is_unsigned || right.is_unsigned;
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_logical_and(PPExprParser* parser) {
+    PPExprValue value = pp_expr_bitor(parser);
+    while (pp_expr_match(parser, "&&")) {
+        PPExprValue right = pp_expr_bitor(parser);
+        value = pp_expr_bool(pp_expr_truth(value) && pp_expr_truth(right));
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_logical_or(PPExprParser* parser) {
+    PPExprValue value = pp_expr_logical_and(parser);
+    while (pp_expr_match(parser, "||")) {
+        PPExprValue right = pp_expr_logical_and(parser);
+        value = pp_expr_bool(pp_expr_truth(value) || pp_expr_truth(right));
+    }
+    return value;
+}
+
+static PPExprValue pp_expr_conditional(PPExprParser* parser) {
+    PPExprValue condition = pp_expr_logical_or(parser);
+    if (!pp_expr_match(parser, "?")) return condition;
+    PPExprValue when_true = pp_expr_conditional(parser);
+    if (!pp_expr_match(parser, ":")) {
+        parser->invalid = true;
+        return when_true;
+    }
+    PPExprValue when_false = pp_expr_conditional(parser);
+    return pp_expr_truth(condition) ? when_true : when_false;
+}
+
+static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
+                                      bool* valid) {
+    PPBuffer protected;
+    buf_init(&protected);
+    const char* p = expression;
+    *valid = true;
+    while (*p && *p != '\n') {
+        if (*p == '"' || *p == '\'') {
+            p = buf_append_quoted_token(&protected, p);
+            continue;
+        }
+        if (isalpha((unsigned char)*p) || *p == '_') {
+            char ident[256];
+            const char* end = read_ident(p, ident, sizeof(ident));
+            if (strcmp(ident, "defined") == 0) {
+                const char* operand = pp_expr_skip(end);
+                bool parenthesized = *operand == '(';
+                if (parenthesized) operand = pp_expr_skip(operand + 1);
+                char name[256];
+                const char* name_end = read_ident(operand, name, sizeof(name));
+                if (name_end == operand ||
+                    (parenthesized && *pp_expr_skip(name_end) != ')')) {
+                    *valid = false;
+                    buf_append_str(&protected, "0");
+                    p = end;
+                    continue;
+                }
+                buf_append_str(&protected, pp_is_defined(pp, name) ? "1" : "0");
+                p = parenthesized ? pp_expr_skip(name_end) + 1 : name_end;
+                continue;
+            }
+            buf_append(&protected, p, (size_t)(end - p));
+            p = end;
+            continue;
+        }
+        buf_append_char(&protected, *p++);
+    }
+    char* expanded = expand_macros(pp, protected.data);
+    rcc_free(protected.data);
+    return expanded;
+}
+
+static bool pp_eval_expression(Preprocessor* pp, const char* expression,
+                               bool* valid) {
+    char* expanded = pp_prepare_if_expression(pp, expression, valid);
+    PPExprParser parser = {expanded, !*valid};
+    PPExprValue value = pp_expr_conditional(&parser);
+    parser.input = pp_expr_skip(parser.input);
+    if (*parser.input && *parser.input != '\r' && *parser.input != '\n') {
+        parser.invalid = true;
+    }
+    *valid = !parser.invalid;
+    rcc_free(expanded);
+    return *valid && pp_expr_truth(value);
 }
 
 /* C17 translation phase 2 removes every backslash-newline pair before
@@ -1115,7 +1454,12 @@ static const char* process_directive(Preprocessor* pp, const char* p,
 
     if (strcmp(directive, "if") == 0) {
         bool parent_active = pp_is_active(pp);
-        bool cond = pp_eval_expression(pp, p);
+        bool expression_valid = true;
+        bool cond = pp_eval_expression(pp, p, &expression_valid);
+        if (!expression_valid) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "invalid #if expression");
+        }
         if (pp->cond_depth >= (int)(sizeof(pp->cond_stack) / sizeof(pp->cond_stack[0]))) {
             rcc_error((SourceLoc){filename, 0, 0}, "conditional nesting too deep");
             return skip_to_eol(p);
@@ -1143,7 +1487,12 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         bool parent_active = (pp->cond_depth > 1) ? pp->cond_stack[pp->cond_depth - 2].active : true;
         bool had_true = pp->cond_stack[pp->cond_depth - 1].had_true;
 
-        bool cond = pp_eval_expression(pp, p);
+        bool expression_valid = true;
+        bool cond = pp_eval_expression(pp, p, &expression_valid);
+        if (!expression_valid) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "invalid #elif expression");
+        }
 
         pp->cond_stack[pp->cond_depth - 1].active = parent_active && !had_true && cond;
         if (cond) {
