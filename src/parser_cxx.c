@@ -457,6 +457,8 @@ static Type* cxx_function_type_from_parameters(Type* return_type,
         TypeParam* parameter = ast_arena_alloc(sizeof(*parameter));
         parameter->name = item->decl ? item->decl->name : NULL;
         parameter->type = item->decl ? item->decl->type : NULL;
+        parameter->is_bitfield = false;
+        parameter->bit_width = 0u;
         parameter->initializer = item->decl ? item->decl->param_default : NULL;
         parameter->cxx_access = ACCESS_PUBLIC;
         parameter->next = NULL;
@@ -1905,6 +1907,8 @@ static void register_ordinary_class_methods(CxxClass* cls) {
             this_type_parameter = ast_arena_alloc(sizeof(*this_type_parameter));
             this_type_parameter->name = "this";
             this_type_parameter->type = this_type;
+            this_type_parameter->is_bitfield = false;
+            this_type_parameter->bit_width = 0u;
             this_type_parameter->cxx_access = ACCESS_PUBLIC;
             this_type_parameter->next = declaration->type->params;
             declaration->type->params = this_type_parameter;
@@ -2019,7 +2023,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         }
     }
 
-    if (!name) {
+    if (!name && !check(TOK_COLON)) {
         rcc_error(loc, "expected member name");
         return;
     }
@@ -2175,6 +2179,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         cxx_class_add_method(cls, method);
     } else {
         /* Field */
+        bool is_bitfield = false;
+        unsigned bit_width = 0u;
         /* Array suffix? */
         if (match(TOK_LBRACKET)) {
             int len = -1;
@@ -2204,6 +2210,34 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             type->array_bound = bound_expression;
         }
 
+        if (match(TOK_COLON)) {
+            Expr* width_expression = parse_assignment_expression();
+            int64_t width_value = 0;
+            is_bitfield = true;
+            if (!type || (!type_is_integer(type) &&
+                          type->kind != TYPE_ENUM)) {
+                rcc_error(loc,
+                          "C++ bit-field type must be an integer or enum type");
+            } else if (type->size <= 0 || type->size > 4) {
+                rcc_error(loc,
+                          "C++ bit-field type width of %d bytes is not supported",
+                          type->size);
+            }
+            if (!width_expression ||
+                !expr_eval_integer_constant(width_expression, &width_value) ||
+                width_value < 0 ||
+                (type && type->size > 0 &&
+                 (uint64_t)width_value > (uint64_t)type->size * 8u)) {
+                rcc_error(width_expression ? width_expression->loc : loc,
+                          "C++ bit-field width is not a valid storage-unit constant");
+            } else {
+                bit_width = (unsigned)width_value;
+                if (bit_width == 0u && name) {
+                    rcc_error(loc, "named C++ bit-field cannot have zero width");
+                }
+            }
+        }
+
         /* Initializer? */
         Expr* init = NULL;
         if (match(TOK_ASSIGN)) {
@@ -2220,7 +2254,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         expect(TOK_SEMICOLON, ";");
 
         /* Add field to class */
-        cxx_class_add_field_initializer(cls, name, type, current_access, init);
+        cxx_class_add_field_initializer(cls, name, type, current_access, init,
+                                         is_bitfield, bit_width);
     }
 }
 
@@ -2620,6 +2655,8 @@ static Type* cxx_lambda_function_type(Type* return_type, DeclList* params) {
         TypeParam* parameter = ast_arena_alloc(sizeof(*parameter));
         parameter->name = item->decl ? item->decl->name : NULL;
         parameter->type = item->decl ? item->decl->type : NULL;
+        parameter->is_bitfield = false;
+        parameter->bit_width = 0u;
         parameter->initializer = item->decl ? item->decl->param_default : NULL;
         parameter->next = NULL;
         *tail = parameter;
@@ -3612,7 +3649,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             (AccessSpec)field->cxx_access,
             cxx_template_clone_expr_with_values(
                 tmpl, field->initializer, arguments, argument_count,
-                value_args, value_present));
+                value_args, value_present),
+            field->is_bitfield, field->bit_width);
     }
     for (struct CxxMember* member = definition->members; member;
          member = member->next) {
@@ -4544,7 +4582,7 @@ static Type* parse_cxx_type_spec(void) {
         t = type_bool;
     } else if (match(TOK_CHAR)) {
         t = is_unsigned ? type_uchar : type_char;
-    } else if (match(TOK_INT) || long_count > 0 || is_short) {
+    } else if (match(TOK_INT) || long_count > 0 || is_short || saw_sign) {
         if (is_short) {
             t = is_unsigned ? type_ushort : type_short;
         } else if (long_count > 1) {

@@ -46,6 +46,11 @@ typedef struct TypeField {
     const char* name;
     Type* type;
     int offset;
+    /* C bit-field storage metadata.  An unnamed bit-field is represented by
+     * layout only and is intentionally absent from the named field list. */
+    bool is_bitfield;
+    unsigned bit_width;
+    unsigned bit_offset;
     /* C++ default member initializer, if one was declared in the class. */
     Expr* initializer;
     /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
@@ -57,6 +62,8 @@ typedef struct TypeField {
 typedef struct TypeParam {
     const char* name;
     Type* type;
+    bool is_bitfield;
+    unsigned bit_width;
     /* Used by C++ class fields; function parameters leave this NULL. */
     Expr* initializer;
     unsigned char cxx_access;

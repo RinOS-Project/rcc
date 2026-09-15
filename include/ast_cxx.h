@@ -309,7 +309,8 @@ void cxx_class_add_field(CxxClass* cls, const char* name, Type* type, AccessSpec
 /* Add a field together with its C++ default member initializer. */
 void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Type* type, AccessSpec access,
-                                     Expr* initializer);
+                                     Expr* initializer, bool is_bitfield,
+                                     unsigned bit_width);
 
 /* Add method to class */
 void cxx_class_add_method(CxxClass* cls, CxxMethod* method);

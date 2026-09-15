@@ -4003,6 +4003,11 @@ static Type* sema_expr(Expr* expr) {
             if (!is_lvalue(expr->unary_operand)) {
                 rcc_error(expr->loc, "cannot take address of rvalue");
             }
+            if (expr->unary_operand &&
+                expr->unary_operand->member_field &&
+                expr->unary_operand->member_field->is_bitfield) {
+                rcc_error(expr->loc, "cannot take address of a bit-field");
+            }
             expr->type = type_ptr(t);
             break;
         }

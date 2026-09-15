@@ -873,6 +873,38 @@ static TypeField* codegen_initializer_field(Type* type, const char* name) {
     return NULL;
 }
 
+static bool codegen_pack_static_bitfield(uint8_t* data, size_t data_size,
+                                         const TypeField* field,
+                                         Expr* initializer,
+                                         uint32_t offset) {
+    uint32_t mask;
+    uint32_t shifted_mask;
+    uint32_t storage = 0u;
+    int64_t value;
+    size_t width;
+    if (!data || !field || !field->is_bitfield || !field->type ||
+        !initializer || field->type->size <= 0 || field->type->size > 4) {
+        return false;
+    }
+    width = (size_t)field->type->size;
+    if ((size_t)offset > data_size || width > data_size - (size_t)offset ||
+        !codegen_static_integer(initializer, &value)) {
+        return false;
+    }
+    mask = field->bit_width >= 32u
+        ? UINT32_MAX : (UINT32_C(1) << field->bit_width) - 1u;
+    shifted_mask = mask << field->bit_offset;
+    for (size_t byte = 0u; byte < width; ++byte) {
+        storage |= (uint32_t)data[offset + byte] << (byte * 8u);
+    }
+    storage = (storage & ~shifted_mask) |
+              (((uint32_t)value & mask) << field->bit_offset);
+    for (size_t byte = 0u; byte < width; ++byte) {
+        data[offset + byte] = (uint8_t)(storage >> (byte * 8u));
+    }
+    return true;
+}
+
 static bool codegen_aggregate_zero_initializer(Type* type,
                                                Expr* initializer) {
     ExprList* item;
@@ -953,9 +985,13 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
                 }
                 field_offset = (uint64_t)offset + (uint64_t)field->offset;
                 if (field_offset > UINT32_MAX ||
-                    !codegen_emit_static_initializer(
-                        mod, field->type, item->expr,
-                        (uint32_t)field_offset)) {
+                    (field->is_bitfield
+                         ? !codegen_pack_static_bitfield(
+                               mod->data.data, mod->data.size, field,
+                               item->expr, (uint32_t)field_offset)
+                         : !codegen_emit_static_initializer(
+                               mod, field->type, item->expr,
+                               (uint32_t)field_offset))) {
                     return false;
                 }
                 cursor = field->next;
@@ -1075,9 +1111,13 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
                                    INIT_DESIGNATOR_NONE)) return false;
                 field_offset = (uint64_t)offset + (uint64_t)field->offset;
                 if (field_offset > UINT32_MAX ||
-                    !codegen_emit_tls_initializer(
-                        mod, field->type, item->expr,
-                        (uint32_t)field_offset)) return false;
+                    (field->is_bitfield
+                         ? !codegen_pack_static_bitfield(
+                               mod->tls.data, mod->tls.size, field,
+                               item->expr, (uint32_t)field_offset)
+                         : !codegen_emit_tls_initializer(
+                               mod, field->type, item->expr,
+                               (uint32_t)field_offset))) return false;
                 cursor = field->next;
                 ++initialized;
             }
@@ -1719,6 +1759,30 @@ static void emit_shr_reg_cl(Module* mod, int reg) {
 static void emit_sar_reg_cl(Module* mod, int reg) {
     emit_byte(mod, 0xD3);
     emit_byte(mod, modrm(3, 7, reg));
+}
+
+static void emit_shl_reg_imm(Module* mod, int reg, uint8_t amount) {
+    emit_byte(mod, 0xC1);
+    emit_byte(mod, modrm(3, 4, reg));
+    emit_byte(mod, amount);
+}
+
+static void emit_shr_reg_imm(Module* mod, int reg, uint8_t amount) {
+    emit_byte(mod, 0xC1);
+    emit_byte(mod, modrm(3, 5, reg));
+    emit_byte(mod, amount);
+}
+
+static void emit_sar_reg_imm(Module* mod, int reg, uint8_t amount) {
+    emit_byte(mod, 0xC1);
+    emit_byte(mod, modrm(3, 7, reg));
+    emit_byte(mod, amount);
+}
+
+static void emit_and_reg_imm(Module* mod, int reg, uint32_t immediate) {
+    emit_byte(mod, 0x81);
+    emit_byte(mod, modrm(3, 4, reg));
+    emit_dword(mod, immediate);
 }
 
 static void emit_cmp_reg_reg(Module* mod, int r1, int r2) {
@@ -3515,6 +3579,86 @@ static void gen_local_vtable_init(Module* mod, Type* type,
         gen_symbol_address(mod, base_vtable_symbol, 0u);
         emit_mov_mem_reg(mod, EBP, (int32_t)base_displacement, EAX);
     }
+}
+
+static const Type* codegen_bitfield_storage_type(const TypeField* field) {
+    if (!field || !field->type) return type_uint;
+    switch (field->type->size) {
+        case 1: return type_uchar;
+        case 2: return type_ushort;
+        default: return type_uint;
+    }
+}
+
+static uint32_t codegen_bitfield_mask(const TypeField* field) {
+    if (!field || field->bit_width >= 32u) return UINT32_MAX;
+    return (UINT32_C(1) << field->bit_width) - 1u;
+}
+
+/* EAX contains the unsigned storage unit loaded from a bit-field address. */
+static void emit_bitfield_extract32(Module* mod, const TypeField* field) {
+    uint32_t mask = codegen_bitfield_mask(field);
+    if (field->bit_offset != 0u) {
+        emit_shr_reg_imm(mod, EAX, (uint8_t)field->bit_offset);
+    }
+    if (field->bit_width < 32u) emit_and_reg_imm(mod, EAX, mask);
+    if (field->type && !field->type->is_unsigned && field->bit_width < 32u) {
+        uint8_t extension = (uint8_t)(32u - field->bit_width);
+        emit_shl_reg_imm(mod, EAX, extension);
+        emit_sar_reg_imm(mod, EAX, extension);
+    }
+}
+
+/* EAX contains the address, and leaves the converted field value in EAX. */
+static void gen_bitfield_load32(Module* mod, const TypeField* field) {
+    const Type* storage_type = codegen_bitfield_storage_type(field);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_load_typed32(mod, EAX, ECX, 0, storage_type);
+    emit_bitfield_extract32(mod, field);
+}
+
+/* EDX contains the storage address and ECX contains the source value.  The
+ * read-modify-write preserves neighboring fields in the same allocation
+ * unit, while the final extraction gives assignment its C value. */
+static void emit_bitfield_store32(Module* mod, const TypeField* field) {
+    const Type* storage_type = codegen_bitfield_storage_type(field);
+    uint32_t field_mask = codegen_bitfield_mask(field);
+    uint32_t shifted_mask = field_mask << field->bit_offset;
+
+    emit_normalize_atomic_value(mod, ECX, field->type);
+    emit_mov_reg_imm(mod, EAX, field_mask);
+    emit_and_reg_reg(mod, ECX, EAX);
+    if (field->bit_offset != 0u) {
+        emit_shl_reg_imm(mod, ECX, (uint8_t)field->bit_offset);
+    }
+    emit_push_reg(mod, ECX);
+    emit_load_typed32(mod, EAX, EDX, 0, storage_type);
+    emit_mov_reg_imm(mod, ECX, ~shifted_mask);
+    emit_and_reg_reg(mod, EAX, ECX);
+    emit_pop_reg(mod, ECX);
+    emit_or_reg_reg(mod, EAX, ECX);
+    emit_store_typed32(mod, EDX, 0, EAX, storage_type);
+    if (field->bit_offset != 0u) {
+        emit_shr_reg_imm(mod, ECX, (uint8_t)field->bit_offset);
+    }
+    emit_mov_reg_reg(mod, EAX, ECX);
+    if (field->type && !field->type->is_unsigned && field->bit_width < 32u) {
+        uint8_t extension = (uint8_t)(32u - field->bit_width);
+        emit_shl_reg_imm(mod, EAX, extension);
+        emit_sar_reg_imm(mod, EAX, extension);
+    }
+}
+
+static bool gen_bitfield_initializer32(Module* mod, const TypeField* field,
+                                       Expr* initializer,
+                                       int32_t displacement) {
+    if (!field || !field->is_bitfield || !initializer) return false;
+    gen_expr(mod, initializer);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_mov_reg_reg(mod, EDX, EBP);
+    emit_add_reg_imm(mod, EDX, displacement);
+    emit_bitfield_store32(mod, field);
+    return true;
 }
 
 static void gen_tls_address(Module* mod, const char* symbol) {
@@ -5580,6 +5724,21 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_PREINC:
         case EXPR_PREDEC:
+            if (expr->unary_operand && expr->unary_operand->member_field &&
+                expr->unary_operand->member_field->is_bitfield) {
+                gen_lvalue(mod, expr->unary_operand);
+                emit_push_reg(mod, EAX);
+                gen_bitfield_load32(mod, expr->unary_operand->member_field);
+                if (expr->kind == EXPR_PREINC) {
+                    emit_add_reg_imm(mod, EAX, 1);
+                } else {
+                    emit_sub_reg_imm(mod, EAX, 1);
+                }
+                emit_pop_reg(mod, EDX);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_bitfield_store32(mod, expr->unary_operand->member_field);
+                break;
+            }
             if (gen_is_floating(expr->type)) {
                 gen_lvalue(mod, expr->unary_operand);
                 emit_push_reg(mod, EAX); /* address */
@@ -5606,6 +5765,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+            if (expr->unary_operand && expr->unary_operand->member_field &&
+                expr->unary_operand->member_field->is_bitfield) {
+                gen_lvalue(mod, expr->unary_operand);
+                emit_push_reg(mod, EAX);
+                gen_bitfield_load32(mod, expr->unary_operand->member_field);
+                emit_push_reg(mod, EAX); /* post-expression value */
+                if (expr->kind == EXPR_POSTINC) {
+                    emit_add_reg_imm(mod, EAX, 1);
+                } else {
+                    emit_sub_reg_imm(mod, EAX, 1);
+                }
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EAX);
+                emit_pop_reg(mod, EDX);
+                emit_push_reg(mod, EAX);
+                emit_bitfield_store32(mod, expr->unary_operand->member_field);
+                emit_pop_reg(mod, EAX);
+                break;
+            }
             if (gen_is_floating(expr->type)) {
                 gen_lvalue(mod, expr->unary_operand);
                 emit_push_reg(mod, EAX); /* address */
@@ -5941,6 +6119,21 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_ASSIGN:
             if (gen_cxx_move_assignment(mod, expr)) break;
+            if (expr->binary_lhs && expr->binary_lhs->member_field &&
+                expr->binary_lhs->member_field->is_bitfield) {
+                gen_expr(mod, expr->binary_rhs);
+                if (type_is_integer(expr->binary_lhs->type) ||
+                    expr->binary_lhs->type->kind == TYPE_ENUM) {
+                    emit_convert_integer_value(mod, EAX,
+                                               expr->binary_rhs->type,
+                                               expr->binary_lhs->type);
+                }
+                emit_mov_reg_reg(mod, ECX, EAX);
+                gen_lvalue(mod, expr->binary_lhs);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_bitfield_store32(mod, expr->binary_lhs->member_field);
+                break;
+            }
             if (gen_is_floating(expr->binary_lhs->type)) {
                 Type* type = expr->binary_lhs->type;
                 gen_expr_as_type(mod, expr->binary_rhs, type);
@@ -6010,6 +6203,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: {
+            if (expr->binary_lhs && expr->binary_lhs->member_field &&
+                expr->binary_lhs->member_field->is_bitfield) {
+                gen_lvalue(mod, expr->binary_lhs);
+                emit_push_reg(mod, EAX);
+                gen_bitfield_load32(mod, expr->binary_lhs->member_field);
+                emit_push_reg(mod, EAX);
+                gen_expr(mod, expr->binary_rhs);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_pop_reg(mod, EAX);
+                if (expr->kind == EXPR_ADD_ASSIGN) {
+                    emit_add_reg_reg(mod, EAX, EDX);
+                } else {
+                    emit_sub_reg_reg(mod, EAX, EDX);
+                }
+                emit_pop_reg(mod, EDX);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_bitfield_store32(mod, expr->binary_lhs->member_field);
+                break;
+            }
             if (gen_is_floating(expr->binary_lhs->type)) {
                 gen_floating_compound_assignment(
                     mod, expr,
@@ -6050,6 +6262,53 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_RSHIFT_ASSIGN: {
             Type* operation_type = type_common(expr->binary_lhs->type,
                                                expr->binary_rhs->type);
+            if (expr->binary_lhs && expr->binary_lhs->member_field &&
+                expr->binary_lhs->member_field->is_bitfield) {
+                if (gen_is_integer64(operation_type)) {
+                    rcc_error(expr->loc,
+                              "64-bit compound operation on a bit-field is not supported");
+                    break;
+                }
+                gen_lvalue(mod, expr->binary_lhs);
+                emit_push_reg(mod, EAX);
+                gen_bitfield_load32(mod, expr->binary_lhs->member_field);
+                emit_push_reg(mod, EAX);
+                gen_expr(mod, expr->binary_rhs);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EAX);
+                if (expr->kind == EXPR_MUL_ASSIGN) {
+                    emit_imul_reg_reg(mod, EAX, ECX);
+                } else if (expr->kind == EXPR_DIV_ASSIGN ||
+                           expr->kind == EXPR_MOD_ASSIGN) {
+                    if (operation_type && operation_type->is_unsigned) {
+                        emit_xor_reg_reg(mod, EDX, EDX);
+                        emit_div_reg(mod, ECX);
+                    } else {
+                        emit_cdq(mod);
+                        emit_idiv_reg(mod, ECX);
+                    }
+                    if (expr->kind == EXPR_MOD_ASSIGN) {
+                        emit_mov_reg_reg(mod, EAX, EDX);
+                    }
+                } else if (expr->kind == EXPR_AND_ASSIGN) {
+                    emit_and_reg_reg(mod, EAX, ECX);
+                } else if (expr->kind == EXPR_OR_ASSIGN) {
+                    emit_or_reg_reg(mod, EAX, ECX);
+                } else if (expr->kind == EXPR_XOR_ASSIGN) {
+                    emit_xor_reg_reg(mod, EAX, ECX);
+                } else if (expr->kind == EXPR_LSHIFT_ASSIGN) {
+                    emit_shl_reg_cl(mod, EAX);
+                } else if (expr->binary_lhs->type &&
+                           expr->binary_lhs->type->is_unsigned) {
+                    emit_shr_reg_cl(mod, EAX);
+                } else {
+                    emit_sar_reg_cl(mod, EAX);
+                }
+                emit_pop_reg(mod, EDX);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_bitfield_store32(mod, expr->binary_lhs->member_field);
+                break;
+            }
             if (gen_is_floating(expr->binary_lhs->type)) {
                 if (expr->kind == EXPR_MUL_ASSIGN ||
                     expr->kind == EXPR_DIV_ASSIGN) {
@@ -6225,7 +6484,9 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
             gen_lvalue(mod, expr);
-            if (!expr->type || expr->type->kind != TYPE_ARRAY) {
+            if (expr->member_field && expr->member_field->is_bitfield) {
+                gen_bitfield_load32(mod, expr->member_field);
+            } else if (!expr->type || expr->type->kind != TYPE_ARRAY) {
                 if (gen_is_floating(expr->type)) {
                     emit_load_floating_raw(mod, expr->type, EAX, 0);
                 } else {
@@ -7194,8 +7455,13 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                 }
                 field_offset = (int64_t)displacement + field->offset;
                 if (field_offset < INT32_MIN || field_offset > INT32_MAX ||
-                    !gen_local_initializer(mod, field->type, item->expr,
-                                           (int32_t)field_offset)) {
+                    (field->is_bitfield
+                         ? !gen_bitfield_initializer32(
+                               mod, field, item->expr,
+                               (int32_t)field_offset)
+                         : !gen_local_initializer(
+                               mod, field->type, item->expr,
+                               (int32_t)field_offset))) {
                     return false;
                 }
                 cursor = field->next;

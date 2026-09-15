@@ -145,7 +145,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-tool-relative-includes test-preprocessor-continuation test-atomic-builtins test-x86-wide-scalar test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -2654,6 +2654,86 @@ test-pragma-pack: $(RCC_TARGET)
 		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/x64.ro \
 		tests/pragma_pack.c
 	@echo "Dual-architecture pragma-pack and offsetof tests completed"
+
+test-bitfields: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/bitfields
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/bitfields/x86.s tests/bitfields.c
+	$(CC) -m32 -c -o $(TEST_OUT)/bitfields/x86.o \
+		$(TEST_OUT)/bitfields/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/bitfields/start-x86.o \
+		tests/bitfields_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/bitfields/x86 \
+		$(TEST_OUT)/bitfields/start-x86.o $(TEST_OUT)/bitfields/x86.o
+	$(TEST_OUT)/bitfields/x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/bitfields/x64.s tests/bitfields.c
+	$(CC) -c -o $(TEST_OUT)/bitfields/x64.o \
+		$(TEST_OUT)/bitfields/x64.s
+	$(CC) -c -o $(TEST_OUT)/bitfields/start-x64.o \
+		tests/bitfields_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/bitfields/x64 \
+		$(TEST_OUT)/bitfields/start-x64.o $(TEST_OUT)/bitfields/x64.o
+	$(TEST_OUT)/bitfields/x64
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/bitfields/invalid.ro tests/invalid_bitfields.c \
+		>$(TEST_OUT)/bitfields/invalid.log 2>&1; then \
+		echo "invalid bit-field fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "bit-field width" $(TEST_OUT)/bitfields/invalid.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/bitfields/invalid-address.ro \
+		tests/invalid_bitfield_address.c \
+		>$(TEST_OUT)/bitfields/invalid-address.log 2>&1; then \
+		echo "invalid bit-field address fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "cannot take address of a bit-field" \
+		$(TEST_OUT)/bitfields/invalid-address.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/bitfields/invalid-offsetof.ro \
+		tests/invalid_bitfield_offsetof.c \
+		>$(TEST_OUT)/bitfields/invalid-offsetof.log 2>&1; then \
+		echo "invalid bit-field offsetof fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "cannot compute offsetof for a bit-field" \
+		$(TEST_OUT)/bitfields/invalid-offsetof.log
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/bitfields/tls-x86.ro tests/bitfields_tls.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/bitfields/tls-x64.ro tests/bitfields_tls.c
+	@echo "Dual-architecture C17 bit-field tests completed"
+
+test-cxx-bitfields: $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/cxx-bitfields
+	$(RCXX_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-bitfields/x86.s tests/cxx_bitfields.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-bitfields/x86.o \
+		$(TEST_OUT)/cxx-bitfields/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-bitfields/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-bitfields/x86 \
+		$(TEST_OUT)/cxx-bitfields/start-x86.o $(TEST_OUT)/cxx-bitfields/x86.o
+	$(TEST_OUT)/cxx-bitfields/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-bitfields/x64.s tests/cxx_bitfields.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-bitfields/x64.o \
+		$(TEST_OUT)/cxx-bitfields/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-bitfields/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-bitfields/x64 \
+		$(TEST_OUT)/cxx-bitfields/start-x64.o $(TEST_OUT)/cxx-bitfields/x64.o
+	$(TEST_OUT)/cxx-bitfields/x64
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-bitfields/invalid.ro tests/invalid_cxx_bitfields.cpp \
+		>$(TEST_OUT)/cxx-bitfields/invalid.log 2>&1; then \
+		echo "invalid C++ bit-field fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "C++ bit-field width" $(TEST_OUT)/cxx-bitfields/invalid.log
+	@echo "Dual-architecture C++ bit-field tests completed"
 
 test-compound-assignment: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/compound-assignment

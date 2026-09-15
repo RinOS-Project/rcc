@@ -415,6 +415,11 @@ void cxx_class_compute_layout(CxxClass* cls) {
     int offset = 0;
     int max_align = 1;
     bool layout_complete = true;
+    bool bitfield_active = false;
+    int bitfield_offset = 0;
+    int bitfield_size = 0;
+    int bitfield_alignment = 0;
+    unsigned bitfield_used = 0u;
     TypeField** field_tail;
     int* base_offsets = NULL;
     bool nontrivial = cls->has_user_constructor || cls->has_field_initializer ||
@@ -496,12 +501,53 @@ void cxx_class_compute_layout(CxxClass* cls) {
         align = type->align;
         size = type->size;
 
+        if (f->is_bitfield) {
+            unsigned storage_bits = (unsigned)size * 8u;
+            if (f->bit_width == 0u) {
+                bitfield_active = false;
+                offset = (offset + align - 1) & ~(align - 1);
+                if (align > max_align) max_align = align;
+                continue;
+            }
+            if (!bitfield_active || bitfield_size != size ||
+                bitfield_alignment != align ||
+                bitfield_used + f->bit_width > storage_bits) {
+                bitfield_active = true;
+                bitfield_offset = (offset + align - 1) & ~(align - 1);
+                bitfield_size = size;
+                bitfield_alignment = align;
+                bitfield_used = 0u;
+                offset = bitfield_offset + size;
+            }
+            if (f->name) {
+                field = ast_arena_alloc(sizeof(*field));
+                field->name = f->name;
+                field->type = type;
+                field->offset = bitfield_offset;
+                field->is_bitfield = true;
+                field->bit_width = f->bit_width;
+                field->bit_offset = bitfield_used;
+                field->initializer = f->initializer;
+                field->cxx_access = f->cxx_access;
+                field->next = NULL;
+                *field_tail = field;
+                field_tail = &field->next;
+            }
+            bitfield_used += f->bit_width;
+            if (align > max_align) max_align = align;
+            continue;
+        }
+        bitfield_active = false;
+
         /* Align */
         offset = (offset + align - 1) & ~(align - 1);
         field = ast_arena_alloc(sizeof(*field));
         field->name = f->name;
         field->type = type;
         field->offset = offset;
+        field->is_bitfield = false;
+        field->bit_width = 0u;
+        field->bit_offset = 0u;
         field->initializer = f->initializer;
         field->cxx_access = f->cxx_access;
         field->next = NULL;
@@ -532,6 +578,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->name = base_field->name;
             field->type = base_field->type;
             field->offset = base_offsets[i] + base_field->offset;
+            field->is_bitfield = base_field->is_bitfield;
+            field->bit_width = base_field->bit_width;
+            field->bit_offset = base_field->bit_offset;
             field->initializer = base_field->initializer;
             field->cxx_access = access;
             field->next = NULL;
@@ -585,6 +634,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->name = base_field->name;
             field->type = base_field->type;
             field->offset = base_offsets[i] + base_field->offset;
+            field->is_bitfield = base_field->is_bitfield;
+            field->bit_width = base_field->bit_width;
+            field->bit_offset = base_field->bit_offset;
             field->initializer = base_field->initializer;
             field->cxx_access = access;
             field->next = NULL;
@@ -1522,6 +1574,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             TypeParam* type_parameter = ast_arena_alloc(sizeof(*type_parameter));
             type_parameter->name = parameter->name;
             type_parameter->type = parameter_type;
+            type_parameter->is_bitfield = false;
+            type_parameter->bit_width = 0u;
             type_parameter->cxx_access = ACCESS_PUBLIC;
             type_parameter->next = NULL;
             *type_tail = type_parameter;
@@ -1707,11 +1761,14 @@ void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access)
 /* Add field to class */
 void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Type* type, AccessSpec access,
-                                     Expr* initializer) {
+                                     Expr* initializer, bool is_bitfield,
+                                     unsigned bit_width) {
     /* Create field as TypeParam (reusing existing structure) */
     TypeParam* field = rcc_alloc(sizeof(TypeParam));
     field->name = name ? rcc_strdup(name) : NULL;
     field->type = type;
+    field->is_bitfield = is_bitfield;
+    field->bit_width = bit_width;
     field->initializer = initializer;
     field->cxx_access = (unsigned char)access;
     field->next = NULL;
@@ -1728,7 +1785,7 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
 
 void cxx_class_add_field(CxxClass* cls, const char* name, Type* type,
                          AccessSpec access) {
-    cxx_class_add_field_initializer(cls, name, type, access, NULL);
+    cxx_class_add_field_initializer(cls, name, type, access, NULL, false, 0u);
 }
 
 /* Add method to class */
@@ -1770,6 +1827,8 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
         TypeParam* tp = rcc_alloc(sizeof(TypeParam));
         tp->name = p->decl->name;
         tp->type = p->decl->type;
+        tp->is_bitfield = false;
+        tp->bit_width = 0u;
         tp->cxx_access = ACCESS_PUBLIC;
         tp->next = NULL;
         *parameter_tail = tp;

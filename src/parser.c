@@ -773,6 +773,10 @@ static Expr* parse_builtin_offsetof(SourceLoc loc) {
                 current = type_int;
             } else {
                 offset += field->offset;
+                if (field->is_bitfield) {
+                    rcc_error(previous()->loc,
+                              "cannot compute offsetof for a bit-field");
+                }
                 current = field->type;
             }
         } else if (match(TOK_LBRACKET)) {
@@ -1609,6 +1613,9 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     }
     field->name = name;
     field->type = type;
+    field->is_bitfield = false;
+    field->bit_width = 0u;
+    field->bit_offset = 0u;
     field->cxx_access = 0u;
     field->next = NULL;
     while (*tail) tail = &(*tail)->next;
@@ -1621,6 +1628,117 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     }
     if (alignment > aggregate->align) aggregate->align = alignment;
     *tail = field;
+}
+
+typedef struct ParserBitfieldLayout {
+    bool active;
+    int offset;
+    int size;
+    int alignment;
+    unsigned used;
+} ParserBitfieldLayout;
+
+static void parser_reset_bitfield_layout(ParserBitfieldLayout* layout) {
+    layout->active = false;
+    layout->offset = 0;
+    layout->size = 0;
+    layout->alignment = 0;
+    layout->used = 0u;
+}
+
+static void parser_append_bitfield(Type* aggregate,
+                                   ParserBitfieldLayout* layout,
+                                   const char* name,
+                                   Type* type,
+                                   int64_t width_value,
+                                   SourceLoc loc) {
+    TypeField* field;
+    TypeField** tail;
+    int alignment;
+    int size;
+    unsigned storage_bits;
+    unsigned width;
+
+    if (!type || (!type_is_integer(type) && type->kind != TYPE_ENUM)) {
+        rcc_error(loc, "bit-field type must be an integer or enum type");
+        parser_reset_bitfield_layout(layout);
+        return;
+    }
+    size = type->size;
+    if (size <= 0 || size > 4) {
+        rcc_error(loc,
+                  "bit-field type width of %d bytes is not supported",
+                  size);
+        parser_reset_bitfield_layout(layout);
+        return;
+    }
+    storage_bits = (unsigned)size * 8u;
+    if (width_value < 0 || (uint64_t)width_value > storage_bits) {
+        rcc_error(loc,
+                  "bit-field width %lld exceeds its %u-bit storage unit",
+                  (long long)width_value, storage_bits);
+        parser_reset_bitfield_layout(layout);
+        return;
+    }
+    width = (unsigned)width_value;
+    if (width == 0u) {
+        if (name) {
+            rcc_error(loc, "named bit-field cannot have zero width");
+        }
+        parser_reset_bitfield_layout(layout);
+        if (aggregate->kind == TYPE_STRUCT) {
+            alignment = type->align > 0 ? type->align : 1;
+            if (parser_pack_alignment > 0 &&
+                alignment > parser_pack_alignment) {
+                alignment = parser_pack_alignment;
+            }
+            aggregate->size = parser_align_up(aggregate->size, alignment);
+            if (alignment > aggregate->align) aggregate->align = alignment;
+        }
+        return;
+    }
+
+    alignment = type->align > 0 ? type->align : 1;
+    if (parser_pack_alignment > 0 && alignment > parser_pack_alignment) {
+        alignment = parser_pack_alignment;
+    }
+    if (aggregate->kind == TYPE_UNION) {
+        parser_reset_bitfield_layout(layout);
+        layout->offset = 0;
+        layout->size = size;
+        layout->alignment = alignment;
+        layout->used = width;
+        if (size > aggregate->size) aggregate->size = size;
+    } else if (!layout->active || layout->size != size ||
+               layout->alignment != alignment || layout->used + width > storage_bits) {
+        layout->active = true;
+        layout->offset = parser_align_up(aggregate->size, alignment);
+        layout->size = size;
+        layout->alignment = alignment;
+        layout->used = 0u;
+        aggregate->size = layout->offset + size;
+    }
+    if (alignment > aggregate->align) aggregate->align = alignment;
+
+    /* Unnamed non-zero fields still consume storage, but cannot be selected
+     * by a member expression or by an initializer designator. */
+    if (!name) {
+        layout->used += width;
+        return;
+    }
+    field = ast_arena_alloc(sizeof(*field));
+    field->name = name;
+    field->type = type;
+    field->offset = layout->offset;
+    field->is_bitfield = true;
+    field->bit_width = width;
+    field->bit_offset = layout->used;
+    field->cxx_access = 0u;
+    field->next = NULL;
+    tail = &aggregate->fields;
+    while (*tail) tail = &(*tail)->next;
+    *tail = field;
+    layout->used += width;
 }
 
 /* C17 does not permit a variably modified type as a struct or union member.
@@ -1721,6 +1839,9 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
         field->name = source->name;
         field->type = source->type;
         field->offset = base_offset + source->offset;
+        field->is_bitfield = source->is_bitfield;
+        field->bit_width = source->bit_width;
+        field->bit_offset = source->bit_offset;
         field->cxx_access = source->cxx_access;
         field->next = NULL;
         *tail = field;
@@ -1735,9 +1856,11 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
 }
 
 static void parse_aggregate_body(Type* aggregate) {
+    ParserBitfieldLayout bitfield_layout;
     aggregate->size = 0;
     aggregate->align = 1;
     aggregate->fields = NULL;
+    parser_reset_bitfield_layout(&bitfield_layout);
     while (!check(TOK_RBRACE) && !at_end()) {
         Type* field_base;
         if (match(TOK_PRAGMA_PACK)) {
@@ -1762,6 +1885,19 @@ static void parse_aggregate_body(Type* aggregate) {
                 rcc_error(previous()->loc,
                           "variably modified type is not allowed for struct/union member");
             }
+            if (match(TOK_COLON)) {
+                Expr* width_expression = parse_assignment();
+                int64_t width_value = 0;
+                if (!eval_integer_constant(width_expression, &width_value)) {
+                    rcc_error(width_expression ? width_expression->loc : previous()->loc,
+                              "bit-field width must be an integer constant");
+                }
+                parser_append_bitfield(aggregate, &bitfield_layout,
+                                       field_name, field_type, width_value,
+                                       width_expression ? width_expression->loc
+                                                        : previous()->loc);
+                continue;
+            }
             if (!field_name) {
                 if ((field_type->kind == TYPE_STRUCT ||
                      field_type->kind == TYPE_UNION) &&
@@ -1772,6 +1908,7 @@ static void parse_aggregate_body(Type* aggregate) {
                 }
                 break;
             }
+            parser_reset_bitfield_layout(&bitfield_layout);
             parser_append_field(aggregate, field_name, field_type);
         } while (match(TOK_COMMA));
         expect(TOK_SEMICOLON, ";");
@@ -1931,6 +2068,8 @@ static TypeParam* parser_type_params(DeclList* parameters, bool* variadic) {
         TypeParam* param = ast_arena_alloc(sizeof(*param));
         param->name = item->decl->name;
         param->type = item->decl->type;
+        param->is_bitfield = false;
+        param->bit_width = 0u;
         param->cxx_access = 0u;
         param->next = NULL;
         *tail = param;
