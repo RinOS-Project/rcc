@@ -157,7 +157,8 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-lambda-function-pointer
-.PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template
+.PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
+	test-cxx-adl-multiple-namespaces
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
@@ -1362,6 +1363,34 @@ test-cxx-if-constexpr-template: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-if-constexpr-template/x64.o
 	$(TEST_OUT)/cxx-if-constexpr-template/x64
 	@echo "C++ dependent if constexpr template tests completed"
+
+test-cxx-adl-multiple-namespaces: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-multiple-namespaces)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-adl-multiple-namespaces/x86.s \
+		tests/cxx_adl_multiple_namespaces.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-adl-multiple-namespaces/x86.o \
+		$(TEST_OUT)/cxx-adl-multiple-namespaces/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-adl-multiple-namespaces/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-adl-multiple-namespaces/x86 \
+		$(TEST_OUT)/cxx-adl-multiple-namespaces/start-x86.o \
+		$(TEST_OUT)/cxx-adl-multiple-namespaces/x86.o
+	$(TEST_OUT)/cxx-adl-multiple-namespaces/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-adl-multiple-namespaces/x64.s \
+		tests/cxx_adl_multiple_namespaces.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-adl-multiple-namespaces/x64.o \
+		$(TEST_OUT)/cxx-adl-multiple-namespaces/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-adl-multiple-namespaces/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-adl-multiple-namespaces/x64 \
+		$(TEST_OUT)/cxx-adl-multiple-namespaces/start-x64.o \
+		$(TEST_OUT)/cxx-adl-multiple-namespaces/x64.o
+	$(TEST_OUT)/cxx-adl-multiple-namespaces/x64
+	@echo "C++ multiple-namespace ADL tests completed"
 
 test-cxx-constexpr-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)

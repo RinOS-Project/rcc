@@ -239,8 +239,82 @@ static Symbol* sema_cxx_runtime_function(const char* name, SourceLoc loc) {
     return symbol;
 }
 
-static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
+typedef struct SemaCxxAdlCandidates {
+    Decl* declarations[128];
+    int count;
+    bool overflow;
+} SemaCxxAdlCandidates;
+
+static bool sema_cxx_adl_contains(const SemaCxxAdlCandidates* candidates,
+                                  Decl* declaration) {
+    if (!candidates || !declaration) return false;
+    for (int index = 0; index < candidates->count; ++index) {
+        if (candidates->declarations[index] == declaration) return true;
+    }
+    return false;
+}
+
+static void sema_cxx_adl_collect_symbol(
+    Symbol* symbol, SemaCxxAdlCandidates* candidates) {
+    if (!symbol || symbol->kind != SYM_FUNC || !symbol->decl || !candidates) {
+        return;
+    }
+    for (Decl* declaration = symbol->decl; declaration;
+         declaration = declaration->func_overload_next) {
+        if (declaration->kind != DECL_FUNC ||
+            sema_cxx_adl_contains(candidates, declaration)) {
+            continue;
+        }
+        if (candidates->count == (int)(sizeof(candidates->declarations) /
+                                       sizeof(candidates->declarations[0]))) {
+            candidates->overflow = true;
+            return;
+        }
+        candidates->declarations[candidates->count++] = declaration;
+    }
+}
+
+static void sema_cxx_adl_collect_namespace(
+    const char* namespace_name, const char* name,
+    SemaCxxAdlCandidates* candidates) {
     char qualified[512];
+    size_t length;
+
+    if (!namespace_name || !*namespace_name || !name || !candidates) return;
+    length = strlen(namespace_name);
+    if (length + strlen(name) + 3u >= sizeof(qualified)) {
+        rcc_error((SourceLoc){"<sema>", 0, 0},
+                  "ADL namespace qualification exceeds compiler limits");
+        return;
+    }
+    strcpy(qualified, namespace_name);
+    for (;;) {
+        Symbol* symbol;
+        size_t separator;
+
+        strcpy(qualified + length, "::");
+        strcpy(qualified + length + 2u, name);
+        symbol = symtab_lookup(g_symtab, qualified);
+        sema_cxx_adl_collect_symbol(symbol, candidates);
+
+        separator = length;
+        while (separator >= 2u &&
+               !(qualified[separator - 2u] == ':' &&
+                 qualified[separator - 1u] == ':')) {
+            --separator;
+        }
+        if (separator < 2u) break;
+        length = separator - 2u;
+        qualified[length] = '\0';
+    }
+}
+
+static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
+    SemaCxxAdlCandidates candidates = {0};
+    Symbol* result;
+    Decl* head = NULL;
+    Decl* tail = NULL;
+
     if (!rcc_parser_is_cxx_mode() || !name) return NULL;
     for (ExprList* item = arguments; item; item = item->next) {
         Type* type = item->expr ? item->expr->type : NULL;
@@ -249,20 +323,38 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
         }
         if (!type || (type->kind != TYPE_STRUCT &&
                       type->kind != TYPE_UNION) ||
-            !type->cxx_namespace ||
-            strlen(type->cxx_namespace) + strlen(name) + 3u >=
-                sizeof(qualified)) {
+            !type->cxx_namespace) {
             continue;
         }
-        strcpy(qualified, type->cxx_namespace);
-        strcat(qualified, "::");
-        strcat(qualified, name);
-        Symbol* symbol = symtab_lookup(g_symtab, qualified);
-        if (symbol && symbol->kind == SYM_FUNC && symbol->decl) {
-            return symbol;
-        }
+        sema_cxx_adl_collect_namespace(type->cxx_namespace, name,
+                                       &candidates);
     }
-    return NULL;
+    if (candidates.overflow) {
+        rcc_error((SourceLoc){"<sema>", 0, 0},
+                  "associated ADL overload set exceeds compiler limits");
+        return NULL;
+    }
+    if (candidates.count == 0) return NULL;
+
+    /* ADL can associate more than one namespace with a call.  Keep the
+     * original declarations untouched: semantic overload selection needs a
+     * linked candidate list, while code generation must continue to refer to
+     * the declarations owned by the AST. */
+    for (int index = 0; index < candidates.count; ++index) {
+        Decl* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *candidates.declarations[index];
+        copy->func_overload_next = NULL;
+        if (tail) tail->func_overload_next = copy;
+        else head = copy;
+        tail = copy;
+    }
+    result = ast_arena_alloc(sizeof(*result));
+    memset(result, 0, sizeof(*result));
+    result->name = name;
+    result->kind = SYM_FUNC;
+    result->type = head ? head->type : NULL;
+    result->decl = head;
+    return result;
 }
 
 static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
