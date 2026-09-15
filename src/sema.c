@@ -4420,6 +4420,36 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     return -1;
 }
 
+/* const_cast changes cv-qualification only; it is not a general pointer or
+ * reference conversion.  Keep the structural check independent of the
+ * ordinary compatibility predicate so a cast cannot silently change the
+ * pointed-to object type or an ABI-relevant integer signedness. */
+static bool cxx_const_cast_similar(const Type* source, const Type* target,
+                                   unsigned depth) {
+    if (!source || !target || depth >= 32u) return false;
+    if (source->is_reference || target->is_reference) {
+        if (!source->is_reference || !target->is_reference ||
+            source->is_rvalue_reference != target->is_rvalue_reference) {
+            return false;
+        }
+        return cxx_const_cast_similar(source->base, target->base,
+                                      depth + 1u);
+    }
+    if (source->kind != target->kind || source->is_unsigned != target->is_unsigned ||
+        source->size != target->size) return false;
+    if (source->kind == TYPE_PTR || source->kind == TYPE_ARRAY) {
+        return cxx_const_cast_similar(source->base, target->base,
+                                      depth + 1u);
+    }
+    if (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) {
+        return type_is_compatible((Type*)source, (Type*)target);
+    }
+    if (source->kind == TYPE_ENUM) {
+        return type_is_compatible((Type*)source, (Type*)target);
+    }
+    return true;
+}
+
 static int sema_cxx_argument_count(ExprList* arguments) {
     int count = 0;
     for (; arguments; arguments = arguments->next) {
@@ -6009,9 +6039,15 @@ static Type* sema_expr(Expr* expr) {
                                                expr->loc, false);
             expr->type = expr->cast_type;
             expr->cxx_pointer_adjustment_valid = false;
+            if (expr->cxx_cast_kind == CXX_CAST_CONST &&
+                !cxx_const_cast_similar(source, expr->cast_type, 0u)) {
+                rcc_error(expr->loc,
+                          "const_cast requires the same object type with only cv qualification changes");
+            }
             if (source && expr->cast_type &&
                 source->kind == TYPE_PTR &&
                 expr->cast_type->kind == TYPE_PTR &&
+                expr->cxx_cast_kind != CXX_CAST_CONST &&
                 !type_is_compatible(source, expr->cast_type)) {
                 int adjustment;
                 if (sema_cxx_pointer_conversion(source, expr->cast_type,

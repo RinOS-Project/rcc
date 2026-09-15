@@ -323,6 +323,14 @@ typedef enum {
 } ExprKind;
 
 typedef enum {
+    CXX_CAST_NONE,
+    CXX_CAST_STATIC,
+    CXX_CAST_REINTERPRET,
+    CXX_CAST_CONST,
+    CXX_CAST_DYNAMIC,
+} CxxCastKind;
+
+typedef enum {
     INIT_DESIGNATOR_NONE,
     INIT_DESIGNATOR_INDEX,
     INIT_DESIGNATOR_FIELD,
@@ -476,6 +484,7 @@ struct Expr {
         struct {
             Expr* cast_expr;
             Type* cast_type;
+            CxxCastKind cxx_cast_kind;
         };
 
         /* EXPR_COMPOUND */

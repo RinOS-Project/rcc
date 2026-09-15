@@ -160,7 +160,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-if-constexpr
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
-	test-cxx-auto-local-refs
+	test-cxx-auto-local-refs test-cxx-const-cast
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -2835,7 +2835,7 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/language-boundaries/const-cast-x86.log 2>&1; then \
 		echo "C++ const_cast fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "const_cast is not supported by the RinOS cv-qualified object ABI" \
+	grep -q "const_cast requires the same object type" \
 		$(TEST_OUT)/language-boundaries/const-cast-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/language-boundaries/const-cast-x64.ro \
@@ -2843,9 +2843,35 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/language-boundaries/const-cast-x64.log 2>&1; then \
 		echo "C++ const_cast fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "const_cast is not supported by the RinOS cv-qualified object ABI" \
+	grep -q "const_cast requires the same object type" \
 		$(TEST_OUT)/language-boundaries/const-cast-x64.log
 	@echo "RCC/RCC++ unsupported language and floating-point boundary diagnostics completed"
+
+test-cxx-const-cast: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-const-cast)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-const-cast/x86.s tests/cxx_const_cast.cpp
+	$(CC) -m32 -no-pie -o $(TEST_OUT)/cxx-const-cast/x86 \
+		$(TEST_OUT)/cxx-const-cast/x86.s
+	$(TEST_OUT)/cxx-const-cast/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-const-cast/x64.s tests/cxx_const_cast.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-const-cast/x64 \
+		$(TEST_OUT)/cxx-const-cast/x64.s
+	$(TEST_OUT)/cxx-const-cast/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-const-cast/x86.ro tests/cxx_const_cast.cpp \
+		>$(TEST_OUT)/cxx-const-cast/x86.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-const-cast/x64.ro tests/cxx_const_cast.cpp \
+		>$(TEST_OUT)/cxx-const-cast/x64.log 2>&1
+	grep -q "Verified backend: 1 function(s) emitted" \
+		$(TEST_OUT)/cxx-const-cast/x86.log
+	grep -q "Verified backend: 1 function(s) emitted" \
+		$(TEST_OUT)/cxx-const-cast/x64.log
+	@echo "C++ cv-only const_cast tests completed"
 
 test-integer-literals: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/integer-literals

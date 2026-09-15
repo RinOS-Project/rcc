@@ -1131,10 +1131,14 @@ static Expr* parse_unary(void) {
         expect(TOK_LPAREN, "(");
         operand = parse_expression();
         expect(TOK_RPAREN, ")");
-        rcc_error(loc, cast_token == TOK_DYNAMIC_CAST
-                      ? "dynamic_cast requires the unavailable RinOS RTTI ABI"
-                      : "const_cast is not supported by the RinOS cv-qualified object ABI");
-        return parse_postfix_tail(expr_cast(cast_type, operand, loc));
+        Expr* cast = expr_cast(cast_type, operand, loc);
+        cast->cxx_cast_kind = cast_token == TOK_DYNAMIC_CAST
+            ? CXX_CAST_DYNAMIC : CXX_CAST_CONST;
+        if (cast_token == TOK_DYNAMIC_CAST) {
+            rcc_error(loc,
+                      "dynamic_cast requires the unavailable RinOS RTTI ABI");
+        }
+        return parse_postfix_tail(cast);
     }
 
     /* The SDK's fixed-width wrappers only need value-preserving static and
@@ -1142,7 +1146,7 @@ static Expr* parse_unary(void) {
      * node so the 32/64-bit semantic and code-generation paths stay shared. */
     if (parser_cxx_mode && rcc_parse_cxx_type_name &&
         (check(TOK_STATIC_CAST) || check(TOK_REINTERPRET_CAST))) {
-        advance();
+        TokenType cast_token = advance()->type;
         expect(TOK_LT, "<");
         Type* cast_type;
         if (parser_cxx_mode) {
@@ -1162,7 +1166,10 @@ static Expr* parse_unary(void) {
         expect(TOK_LPAREN, "(");
         Expr* operand = parse_expression();
         expect(TOK_RPAREN, ")");
-        return parse_postfix_tail(expr_cast(cast_type, operand, loc));
+        Expr* cast = expr_cast(cast_type, operand, loc);
+        cast->cxx_cast_kind = cast_token == TOK_STATIC_CAST
+            ? CXX_CAST_STATIC : CXX_CAST_REINTERPRET;
+        return parse_postfix_tail(cast);
     }
 
     if (check(TOK_LPAREN) && parser.cur->next) {
