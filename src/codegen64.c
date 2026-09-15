@@ -2156,6 +2156,16 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             gen64_expr(mod, expr->unary_operand);
             break;
 
+        case EXPR_CAST:
+            if (expr->type && expr->type->is_reference &&
+                (expr->cxx_cast_kind == CXX_CAST_NONE ||
+                 expr->cxx_cast_kind == CXX_CAST_CONST)) {
+                gen64_lvalue(mod, expr->cast_expr);
+            } else {
+                rcc_error(expr->loc, "not an lvalue");
+            }
+            break;
+
         case EXPR_INDEX:
             gen64_expr(mod, expr->index_base);
             emit64_push_reg(mod, RAX);

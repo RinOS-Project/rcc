@@ -540,6 +540,12 @@ static RccIrLowerValue lower_lvalue_address(
         }
         return lower_value(local->address, rcc_ir_type_pointer(0u), true);
     }
+    if (expression->kind == EXPR_CAST && expression->type &&
+        expression->type->is_reference &&
+        (expression->cxx_cast_kind == CXX_CAST_NONE ||
+         expression->cxx_cast_kind == CXX_CAST_CONST)) {
+        return lower_lvalue_address(context, expression->cast_expr);
+    }
     if (expression->kind == EXPR_DEREF) {
         RccIrLowerValue pointer = lower_expression(
             context, expression->unary_operand);
@@ -1246,6 +1252,14 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_POSTDEC:
             return lower_increment(context, expression);
         case EXPR_CAST:
+            if (expression->type && expression->type->is_reference &&
+                (expression->cxx_cast_kind == CXX_CAST_NONE ||
+                 expression->cxx_cast_kind == CXX_CAST_CONST)) {
+                RccIrLowerValue address = lower_lvalue_address(
+                    context, expression);
+                return lower_load_address(context, address,
+                                          expression->type->base);
+            }
             operand = lower_expression(context, expression->cast_expr);
             return lower_cast(context, operand, expression->type);
         case EXPR_ADD:

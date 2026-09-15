@@ -502,6 +502,11 @@ static bool atomic_allows_pointer_value(const char* name) {
  * ═══════════════════════════════════════ */
 
 static bool is_lvalue(Expr* e) {
+    if (e && e->kind == EXPR_CAST && e->type && e->type->is_reference &&
+        (e->cxx_cast_kind == CXX_CAST_NONE ||
+         e->cxx_cast_kind == CXX_CAST_CONST)) {
+        return is_lvalue(e->cast_expr);
+    }
     switch (e->kind) {
         case EXPR_IDENT:
         case EXPR_DEREF:
@@ -599,6 +604,24 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     return result;
 }
 
+static bool cxx_reference_object_compatible(const Type* source,
+                                            const Type* target) {
+    Type source_unqualified;
+    Type target_unqualified;
+    if (!source || !target) return false;
+    /* Adding top-level cv is permitted when binding an lvalue reference.  Do
+     * not recurse while removing qualifiers: pointee cv is part of the
+     * pointed-to object type and must still be checked by the normal type
+     * compatibility predicate. */
+    source_unqualified = *source;
+    target_unqualified = *target;
+    source_unqualified.is_const = false;
+    source_unqualified.is_volatile = false;
+    target_unqualified.is_const = false;
+    target_unqualified.is_volatile = false;
+    return type_is_compatible(&source_unqualified, &target_unqualified);
+}
+
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
@@ -613,14 +636,18 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     if (target->is_reference) {
         Type* referred = target->base;
+        Type* source = e->type;
         /* Reference arguments are passed as addresses by the backend, so the
          * supported subset deliberately requires addressable expressions. */
         if (!referred || !is_lvalue(e)) return NULL;
-        if ((e->type->is_const && !referred->is_const) ||
-            (e->type->is_volatile && !referred->is_volatile)) {
+        if (source && source->is_reference) source = source->base;
+        if (!source) return NULL;
+        if ((source->is_const && !referred->is_const) ||
+            (source->is_volatile && !referred->is_volatile)) {
             return NULL;
         }
-        return type_is_compatible(e->type, referred) ? target : NULL;
+        return cxx_reference_object_compatible(source, referred)
+            ? target : NULL;
     }
 
     /* Same type */
@@ -4427,14 +4454,14 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
 static bool cxx_const_cast_similar(const Type* source, const Type* target,
                                    unsigned depth) {
     if (!source || !target || depth >= 32u) return false;
-    if (source->is_reference || target->is_reference) {
-        if (!source->is_reference || !target->is_reference ||
-            source->is_rvalue_reference != target->is_rvalue_reference) {
-            return false;
-        }
-        return cxx_const_cast_similar(source->base, target->base,
-                                      depth + 1u);
-    }
+    /* The expression type of a reference is its referred-to object type in
+     * sema, while a named cast target retains the reference wrapper.  Strip
+     * those wrappers before comparing the cv-qualified object shape; the
+     * reference category is part of the cast syntax, not the object type
+     * being cv-adjusted. */
+    if (source->is_reference) source = source->base;
+    if (target->is_reference) target = target->base;
+    if (!source || !target) return false;
     if (source->kind != target->kind || source->is_unsigned != target->is_unsigned ||
         source->size != target->size) return false;
     if (source->kind == TYPE_PTR || source->kind == TYPE_ARRAY) {

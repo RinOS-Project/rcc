@@ -1108,7 +1108,18 @@ static void propagate_block_constants(Stmt* statement) {
         switch (current->kind) {
             case STMT_DECL:
                 if (current->decl && current->decl->kind == DECL_VAR) {
-                    propagate_constant_expr(&current->decl->var_init, &state);
+                    if (current->decl->type &&
+                        current->decl->type->is_reference) {
+                        /* A reference initializer is an address-bearing
+                         * lvalue.  Propagating the pointee's known integer
+                         * value would turn a valid binding into a literal and
+                         * lose the target ABI address. */
+                        propagate_constant_lvalue(
+                            current->decl->var_init, &state);
+                    } else {
+                        propagate_constant_expr(&current->decl->var_init,
+                                                &state);
+                    }
                     optimize_expr(&current->decl->var_init);
                     declare_local_constant(&state, current->decl);
                 }
