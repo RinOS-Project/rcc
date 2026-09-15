@@ -4708,6 +4708,50 @@ static void cxx_skip_decltype_expression(void) {
     }
 }
 
+static void cxx_skip_decltype_call(void) {
+    int depth = 0;
+    if (!match(TOK_LPAREN)) return;
+    while (!at_end()) {
+        if (check(TOK_LPAREN)) {
+            ++depth;
+        } else if (check(TOK_RPAREN)) {
+            if (depth == 0) {
+                advance();
+                return;
+            }
+            --depth;
+        }
+        advance();
+    }
+}
+
+static Type* cxx_decltype_function_return(const char* name, SourceLoc loc) {
+    Type* result = NULL;
+    const char* suffix = name ? strrchr(name, ':') : NULL;
+    suffix = suffix && suffix > name && suffix[-1] == ':' ? suffix + 1 : name;
+    for (DeclList* item = active_ast ? active_ast->decls : NULL;
+         item; item = item->next) {
+        Decl* declaration = item->decl;
+        bool matches;
+        if (!declaration || declaration->kind != DECL_FUNC ||
+            !declaration->type || declaration->type->kind != TYPE_FUNC) {
+            continue;
+        }
+        matches = name && declaration->name &&
+            (strcmp(declaration->name, name) == 0 ||
+             strcmp(declaration->name, suffix) == 0);
+        if (!matches) continue;
+        if (result && !type_is_compatible(result,
+                                          declaration->type->ret_type)) {
+            rcc_error(loc,
+                      "decltype call names overloaded functions with different return types");
+            return NULL;
+        }
+        result = declaration->type->ret_type;
+    }
+    return result;
+}
+
 /* Parse the expression forms for which the parser already has an exact
  * source-level type.  `decltype` is intentionally not an integer fallback:
  * an unsupported dependent or side-effecting expression is diagnosed at its
@@ -4718,6 +4762,8 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
     bool valid = true;
     bool dereference = false;
     bool address = false;
+    bool expression_is_lvalue = false;
+    bool needs_lvalue_reference = false;
 
     expect(TOK_DECLTYPE, "decltype");
     expect(TOK_LPAREN, "(");
@@ -4731,6 +4777,9 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
     if (check(TOK_IDENT)) {
         const char* name = advance()->value.str_val;
         result = cxx_parser_value_type(name);
+        if (!result && check(TOK_LPAREN)) {
+            result = cxx_decltype_function_return(name, loc);
+        }
         if (!result) {
             Type* named_type = rcc_parser_lookup_type(name);
             if (named_type) {
@@ -4741,6 +4790,26 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
                           name);
             }
             valid = false;
+        }
+        expression_is_lvalue = result != NULL;
+        if (result && check(TOK_LPAREN)) {
+            Type* function_type = result;
+            if (function_type->kind == TYPE_PTR && function_type->base) {
+                function_type = function_type->base;
+            }
+            if (function_type->kind != TYPE_FUNC) {
+                function_type = cxx_decltype_function_return(name, loc);
+            } else {
+                function_type = function_type->ret_type;
+            }
+            cxx_skip_decltype_call();
+            result = function_type;
+            expression_is_lvalue = false;
+            if (!result) {
+                rcc_error(loc, "unknown function '%s' in decltype expression",
+                          name);
+                valid = false;
+            }
         }
         if (result && (check(TOK_DOT) || check(TOK_ARROW))) {
             bool through_pointer = match(TOK_ARROW);
@@ -4757,6 +4826,8 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
                 } else {
                     result = cxx_decltype_member_type(result, member_name, loc);
                     if (!result) valid = false;
+                    expression_is_lvalue = result != NULL;
+                    needs_lvalue_reference = expression_is_lvalue;
                 }
             }
         }
@@ -4802,10 +4873,16 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
             return type_int;
         }
         result = result->base;
-        extra_parentheses = true;
+        expression_is_lvalue = true;
+        needs_lvalue_reference = true;
     }
-    if (extra_parentheses) {
-        Type* reference = type_ptr(result);
+    if ((extra_parentheses || needs_lvalue_reference) &&
+        expression_is_lvalue) {
+        Type* reference;
+        if (result->kind == TYPE_PTR && result->is_reference) {
+            result = result->base;
+        }
+        reference = type_ptr(result);
         reference->is_reference = true;
         return reference;
     }
