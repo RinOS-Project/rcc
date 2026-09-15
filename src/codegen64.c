@@ -997,16 +997,25 @@ static int gen64_aggregate_storage(const Type* type) {
 static void gen64_copy_memory(Module* mod, int destination_base,
                               int32_t destination_offset, int source_base,
                               int32_t source_offset, int size) {
+    int source_address_base = source_base;
     int offset = 0;
+    /* The byte tail uses RAX as its load scratch.  Preserve an aggregate
+     * address that is already in RAX before that loop; otherwise the first
+     * byte load changes the address used by every following byte. */
+    if (source_base == RAX) {
+        source_address_base = destination_base == R11 ? R10 : R11;
+        emit64_mov_reg_reg(mod, source_address_base, RAX);
+    }
     while (offset + 8 <= size) {
-        emit64_mov_reg_mem(mod, RAX, source_base, source_offset + offset);
+        emit64_mov_reg_mem(mod, RAX, source_address_base,
+                           source_offset + offset);
         emit64_mov_mem_reg(mod, destination_base,
                            destination_offset + offset, RAX);
         offset += 8;
     }
     while (offset < size) {
-        emit64_load_typed(mod, RAX, source_base, source_offset + offset,
-                          type_uchar);
+        emit64_load_typed(mod, RAX, source_address_base,
+                          source_offset + offset, type_uchar);
         emit64_store_typed(mod, destination_base,
                            destination_offset + offset, RAX, type_uchar);
         ++offset;
@@ -4617,13 +4626,23 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
          handler = handler->next) {
         int next_handler = new_label64();
         if (!handler->is_ellipsis) {
+            int matching_handler = new_label64();
             gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);
             emit64_mov_reg_mem(mod, RAX, RDI, type_offset);
             emit64_mov_reg_imm64(mod, RCX,
                                  gen64_cxx_exception_type_tag(
                                      handler->type));
             emit64_cmp_reg_reg(mod, RAX, RCX);
-            emit64_jcc_label(mod, CC64_NE, next_handler);
+            emit64_jcc_label(mod, CC64_E, matching_handler);
+            for (size_t tag_index = 0u;
+                 tag_index < handler->compatible_tag_count; ++tag_index) {
+                emit64_mov_reg_imm64(
+                    mod, RCX, handler->compatible_tags[tag_index]);
+                emit64_cmp_reg_reg(mod, RAX, RCX);
+                emit64_jcc_label(mod, CC64_E, matching_handler);
+            }
+            emit64_jmp_label(mod, next_handler);
+            emit64_label(mod, matching_handler);
         }
         if (handler->parameter) {
             gen64_cxx_exception_frame_address(mod, stmt->try_frame_offset);

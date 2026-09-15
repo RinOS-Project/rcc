@@ -8020,12 +8020,22 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
          handler = handler->next) {
         int next_handler = new_label();
         if (!handler->is_ellipsis) {
+            int matching_handler = new_label();
             gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);
             emit_mov_reg_mem(mod, EAX, EAX, type_offset);
             emit_cmp_reg_imm(mod, EAX,
                              (int32_t)gen_cxx_exception_type_tag32(
                                  handler->type));
-            emit_jcc_label(mod, CC_NE, next_handler);
+            emit_jcc_label(mod, CC_E, matching_handler);
+            for (size_t tag_index = 0u;
+                 tag_index < handler->compatible_tag_count; ++tag_index) {
+                emit_cmp_reg_imm(
+                    mod, EAX,
+                    (int32_t)(uint32_t)handler->compatible_tags[tag_index]);
+                emit_jcc_label(mod, CC_E, matching_handler);
+            }
+            emit_jmp_label(mod, next_handler);
+            emit_label(mod, matching_handler);
         }
         if (handler->parameter) {
             gen_cxx_exception_frame_address32(mod, stmt->try_frame_offset);

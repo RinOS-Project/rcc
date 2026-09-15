@@ -3062,6 +3062,35 @@ static RccIrLowerValue lower_cxx_exception_type_compare(
     return lower_value(compare->result, rcc_ir_type_integer(1u), true);
 }
 
+static RccIrLowerValue lower_cxx_exception_type_match(
+    RccIrLowerContext* context, RccIrLowerValue actual,
+    const CxxCatch* handler) {
+    RccIrLowerValue condition;
+    if (!handler || !handler->type) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    condition = lower_cxx_exception_type_compare(
+        context, actual, lower_cxx_exception_type_tag(handler->type));
+    if (!condition.valid) return lower_invalid_value();
+    for (size_t index = 0u; index < handler->compatible_tag_count; ++index) {
+        RccIrLowerValue candidate = lower_cxx_exception_type_compare(
+            context, actual, handler->compatible_tags[index]);
+        RccIrInstruction* combined;
+        RccIrValue operands[2];
+        if (!candidate.valid) return lower_invalid_value();
+        operands[0] = condition.value;
+        operands[1] = candidate.value;
+        combined = lower_append(context, RCC_IR_OR,
+                                rcc_ir_type_integer(1u), operands, 2u,
+                                NULL, 0u);
+        if (!combined) return lower_invalid_value();
+        condition = lower_value(combined->result,
+                                rcc_ir_type_integer(1u), true);
+    }
+    return condition;
+}
+
 static bool lower_cxx_catch_body(RccIrLowerContext* context,
                                  const CxxCatch* handler,
                                  RccIrLowerValue frame) {
@@ -3356,9 +3385,8 @@ static bool lower_cxx_try(RccIrLowerContext* context,
                         context, frame,
                         (uint64_t)(g_opts.target_arch == ARCH_X64 ? 80u : 32u)),
                     type_ulong);
-                condition = lower_cxx_exception_type_compare(
-                    context, actual,
-                    lower_cxx_exception_type_tag(handler->type));
+                condition = lower_cxx_exception_type_match(
+                    context, actual, handler);
                 if (!condition.valid ||
                     !lower_conditional_branch(context, condition,
                                               handler_blocks[index]->id,

@@ -6,6 +6,7 @@
 #include "rcc.h"
 #include "ast.h"
 #include "ast_cxx.h"
+#include "cxx_exception_type.h"
 #include "symtab.h"
 #include <float.h>
 #include <limits.h>
@@ -84,12 +85,37 @@ static bool sema_cxx_public_base(Type* derived, Type* target,
         return true;
     }
     cls = derived->cxx_class;
-    if (!cls || !cls->base_offsets) return false;
+    if (!cls) return false;
+
+    /* A virtual base is owned by the most-derived object.  Its offset cannot
+     * be composed from the intermediate base subobjects: a diamond must use
+     * the one shared virtual-base entry recorded by the layout pass. */
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[virtual_index];
+        Type* virtual_type = virtual_base->base
+            ? virtual_base->base->type : NULL;
+        int nested_adjustment;
+        if (!virtual_base->public_path || virtual_base->offset < 0 ||
+            !virtual_type) {
+            continue;
+        }
+        if (sema_cxx_public_base(virtual_type, target,
+                                 &nested_adjustment, depth + 1)) {
+            if (adjustment) {
+                *adjustment = virtual_base->offset + nested_adjustment;
+            }
+            return true;
+        }
+    }
+
+    if (!cls->base_offsets) return false;
     for (int index = 0; index < cls->base_count; ++index) {
         Type* base_type = cls->bases[index].base
             ? cls->bases[index].base->type : NULL;
         int nested_adjustment;
-        if (cls->bases[index].access != ACCESS_PUBLIC || !base_type ||
+        if (cls->bases[index].is_virtual ||
+            cls->bases[index].access != ACCESS_PUBLIC || !base_type ||
             cls->base_offsets[index] < 0) {
             continue;
         }
@@ -102,6 +128,37 @@ static bool sema_cxx_public_base(Type* derived, Type* target,
         }
     }
     return false;
+}
+
+static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag) {
+    if (!handler || tag == 0u) return;
+    for (size_t index = 0u; index < handler->compatible_tag_count; ++index) {
+        if (handler->compatible_tags[index] == tag) return;
+    }
+    handler->compatible_tags = ast_arena_grow(
+        handler->compatible_tags,
+        sizeof(*handler->compatible_tags) * handler->compatible_tag_count,
+        sizeof(*handler->compatible_tags) *
+            (handler->compatible_tag_count + 1u));
+    handler->compatible_tags[handler->compatible_tag_count++] = tag;
+}
+
+static void sema_cxx_collect_exception_tags(CxxNamespace* ns, Type* target,
+                                             CxxCatch* handler, unsigned depth) {
+    if (!ns || !target || !handler || depth > 32u) return;
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* candidate = ns->classes[index];
+        int adjustment;
+        if (!candidate || !candidate->type || candidate->type == target ||
+            !sema_cxx_public_base(candidate->type, target, &adjustment, 0)) {
+            continue;
+        }
+        sema_cxx_add_exception_tag(
+            handler, rcc_cxx_exception_type_tag(candidate->type));
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        sema_cxx_collect_exception_tags(child, target, handler, depth + 1u);
+    }
 }
 
 static bool sema_cxx_pointer_conversion(Type* source, Type* target,
@@ -4369,14 +4426,29 @@ static bool sema_cxx_trivially_destructible(Type* type, int depth) {
  * user-defined lifetime state; such objects can be copied and destroyed
  * without invoking a constructor, destructor, or hidden ownership hook. */
 static bool sema_cxx_trivially_copyable(Type* type, int depth) {
+    CxxClass* cls;
     if (!type || depth > 32) return false;
     if (type->kind == TYPE_ARRAY) {
         return type->array_len >= 0 && type->base &&
                sema_cxx_trivially_copyable(type->base, depth + 1);
     }
     if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
-    if (!type_is_complete(type) || type->size <= 0 || type->cxx_nontrivial) {
+    if (!type_is_complete(type) || type->size <= 0) {
         return false;
+    }
+    cls = type->cxx_class;
+    if (cls && (cls->has_user_constructor || cls->has_field_initializer ||
+                cls->vtable_size > 0 || cls->destructor_method)) {
+        return false;
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_trivially_copyable(base->type, depth + 1)) {
+                return false;
+            }
+        }
     }
     for (TypeField* field = type->fields; field; field = field->next) {
         if (!sema_cxx_trivially_copyable(field->type, depth + 1)) {
@@ -6997,6 +7069,12 @@ static void sema_stmt(Stmt* stmt) {
                       !aggregate_object))) {
                     rcc_error(handler->parameter->loc,
                               "named C++ catch parameter must have a scalar type or a trivially-copyable aggregate");
+                }
+                if (!handler->is_ellipsis && handler->type &&
+                    handler->type->kind == TYPE_STRUCT &&
+                    handler->type->cxx_class) {
+                    sema_cxx_collect_exception_tags(
+                        sema_cxx_global_namespace(), handler->type, handler, 0u);
                 }
                 sema_stmt(handler->body);
                 if (sema_exception_body_has_vla(handler->body)) {

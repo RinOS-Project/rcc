@@ -3,6 +3,14 @@ struct ExceptionPair {
     int second;
 };
 
+struct BaseException {
+    int base;
+};
+
+struct DerivedException : public BaseException {
+    int extra;
+};
+
 extern "C" int cxx_object_exception_roundtrip() {
     try {
         ExceptionPair value{17, 25};
@@ -25,9 +33,23 @@ extern "C" int cxx_object_exception_rethrow() {
     }
 }
 
+extern "C" int cxx_derived_object_exception() {
+    try {
+        DerivedException value;
+        value.base = 29;
+        value.extra = 13;
+        throw value;
+    } catch (BaseException caught) {
+        return caught.base;
+    } catch (...) {
+        return 0;
+    }
+}
+
 extern "C" int main() {
     return cxx_object_exception_roundtrip() == 42 &&
-                   cxx_object_exception_rethrow() == 31
+                   cxx_object_exception_rethrow() == 31 &&
+                   cxx_derived_object_exception() == 29
                ? 0
                : 1;
 }

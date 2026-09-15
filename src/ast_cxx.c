@@ -358,6 +358,9 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->bases = NULL;
     cls->base_count = 0;
     cls->base_offsets = NULL;
+    cls->virtual_bases = NULL;
+    cls->virtual_base_count = 0;
+    cls->nonvirtual_size = 1;
     cls->members = NULL;
     cls->vtable = NULL;
     cls->vtable_size = 0;
@@ -408,6 +411,10 @@ void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_
         m->next = member;
     }
 }
+
+static int cxx_virtual_base_index(CxxClass* cls, CxxClass* base);
+static void cxx_add_virtual_base(CxxClass* cls, CxxClass* base,
+                                 bool public_path);
 
 void cxx_class_compute_layout(CxxClass* cls) {
     int offset = 0;
@@ -466,7 +473,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
         if (base && !cls->bases[i].is_virtual) {
             if (base == primary_vtable_base) {
                 base_offsets[i] = 0;
-                if (offset < base->size) offset = base->size;
+                if (offset < base->nonvirtual_size) {
+                    offset = base->nonvirtual_size;
+                }
                 if (base->align > max_align) max_align = base->align;
                 continue;
             }
@@ -475,11 +484,33 @@ void cxx_class_compute_layout(CxxClass* cls) {
             offset = (offset + align - 1) & ~(align - 1);
             base_offsets[i] = offset;
             /* Base subobject */
-            offset += base->size;
+            offset += base->nonvirtual_size;
             if (align > max_align) max_align = align;
         } else if (!base) {
             base_offsets[i] = -1;
             layout_complete = false;
+        } else {
+            base_offsets[i] = -1;
+        }
+    }
+
+    /* Collect the virtual-base closure before assigning offsets.  A
+     * most-derived object owns one subobject for each distinct virtual base,
+     * including virtual bases reached through a non-virtual intermediate. */
+    cls->virtual_bases = NULL;
+    cls->virtual_base_count = 0;
+    for (int i = 0; i < cls->base_count; ++i) {
+        CxxClass* base = cls->bases[i].base;
+        if (!base) continue;
+        if (cls->bases[i].is_virtual) {
+            cxx_add_virtual_base(
+                cls, base, cls->bases[i].access == ACCESS_PUBLIC);
+        }
+        for (int nested = 0; nested < base->virtual_base_count; ++nested) {
+            cxx_add_virtual_base(
+                cls, base->virtual_bases[nested].base,
+                cls->bases[i].access == ACCESS_PUBLIC &&
+                base->virtual_bases[nested].public_path);
         }
     }
 
@@ -525,6 +556,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 field->is_bitfield = true;
                 field->bit_width = f->bit_width;
                 field->bit_offset = bitfield_used;
+                field->from_virtual_base = false;
                 field->initializer = f->initializer;
                 field->cxx_access = f->cxx_access;
                 field->next = NULL;
@@ -546,6 +578,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->is_bitfield = false;
         field->bit_width = 0u;
         field->bit_offset = 0u;
+        field->from_virtual_base = false;
         field->initializer = f->initializer;
         field->cxx_access = f->cxx_access;
         field->next = NULL;
@@ -565,6 +598,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         }
         for (TypeField* base_field = base->type->fields;
              base_field; base_field = base_field->next) {
+            if (base_field->from_virtual_base) continue;
             TypeField* field = ast_arena_alloc(sizeof(*field));
             unsigned char access = base_field->cxx_access;
             if (cls->bases[i].access == ACCESS_PRIVATE) {
@@ -579,6 +613,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->is_bitfield = base_field->is_bitfield;
             field->bit_width = base_field->bit_width;
             field->bit_offset = base_field->bit_offset;
+            field->from_virtual_base = false;
             field->initializer = base_field->initializer;
             field->cxx_access = access;
             field->next = NULL;
@@ -603,43 +638,58 @@ void cxx_class_compute_layout(CxxClass* cls) {
         }
     }
 
-    /* Represent each direct virtual base as a concrete trailing subobject.
-     * Its offset is then shared by field lookup and public-base conversion,
-     * rather than silently treating a virtual base as the complete object. */
-    for (int i = 0; i < cls->base_count; ++i) {
-        CxxClass* base = cls->bases[i].base;
-        if (!base || !cls->bases[i].is_virtual) continue;
-        if (!type_is_complete(base->type) || base->size <= 0 ||
-            base->align <= 0) {
-            base_offsets[i] = -1;
+    /* Save the size used when this class is embedded as a non-virtual base;
+     * virtual subobjects belong to the final most-derived object. */
+    cls->nonvirtual_size = (offset + max_align - 1) & ~(max_align - 1);
+    if (cls->nonvirtual_size == 0) cls->nonvirtual_size = 1;
+
+    /* Materialize every distinct reachable virtual base once.  Only the
+     * non-virtual portion is copied here; nested virtual bases have their own
+     * entries in this table. */
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxClass* base = cls->virtual_bases[virtual_index].base;
+        if (!base || !type_is_complete(base->type) ||
+            base->nonvirtual_size <= 0 || base->align <= 0) {
             layout_complete = false;
             continue;
         }
         offset = (offset + base->align - 1) & ~(base->align - 1);
-        base_offsets[i] = offset;
-        offset += base->size;
+        cls->virtual_bases[virtual_index].offset = offset;
+        offset += base->nonvirtual_size;
         if (base->align > max_align) max_align = base->align;
         for (TypeField* base_field = base->type->fields;
              base_field; base_field = base_field->next) {
+            if (base_field->from_virtual_base) continue;
             TypeField* field = ast_arena_alloc(sizeof(*field));
             unsigned char access = base_field->cxx_access;
-            if (cls->bases[i].access == ACCESS_PRIVATE) {
+            if (!cls->virtual_bases[virtual_index].public_path) {
                 access = ACCESS_PRIVATE;
-            } else if (cls->bases[i].access == ACCESS_PROTECTED &&
-                       access == ACCESS_PUBLIC) {
-                access = ACCESS_PROTECTED;
             }
             field->name = base_field->name;
             field->type = base_field->type;
-            field->offset = base_offsets[i] + base_field->offset;
+            field->offset = cls->virtual_bases[virtual_index].offset +
+                            base_field->offset;
             field->is_bitfield = base_field->is_bitfield;
             field->bit_width = base_field->bit_width;
             field->bit_offset = base_field->bit_offset;
+            field->from_virtual_base = true;
             field->initializer = base_field->initializer;
             field->cxx_access = access;
             field->next = NULL;
             *field_tail = field;
             field_tail = &field->next;
+        }
+    }
+
+    /* Direct virtual-base entries use the same shared offset as the closure
+     * table.  This keeps conversions and field layout on one source of truth. */
+    for (int i = 0; i < cls->base_count; ++i) {
+        if (cls->bases[i].is_virtual && cls->bases[i].base) {
+            int virtual_index = cxx_virtual_base_index(
+                cls, cls->bases[i].base);
+            base_offsets[i] = virtual_index >= 0
+                ? cls->virtual_bases[virtual_index].offset : -1;
         }
     }
 
@@ -1658,6 +1708,41 @@ CxxNamespace* cxx_namespace_find(CxxNamespace* root, const char* qualified_name)
         if (!next) return current;
         component = next + 2;
     }
+}
+
+static int cxx_virtual_base_index(CxxClass* cls, CxxClass* base) {
+    if (!cls || !base) return -1;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        if (cls->virtual_bases[index].base == base) return index;
+    }
+    return -1;
+}
+
+static void cxx_add_virtual_base(CxxClass* cls, CxxClass* base,
+                                 bool public_path) {
+    int existing;
+    if (!cls || !base) return;
+    existing = cxx_virtual_base_index(cls, base);
+    if (existing >= 0) {
+        if (public_path) cls->virtual_bases[existing].public_path = true;
+        return;
+    }
+    cls->virtual_bases = ast_arena_grow(
+        cls->virtual_bases,
+        sizeof(*cls->virtual_bases) * (size_t)cls->virtual_base_count,
+        sizeof(*cls->virtual_bases) * (size_t)(cls->virtual_base_count + 1));
+    cls->virtual_bases[cls->virtual_base_count].base = base;
+    cls->virtual_bases[cls->virtual_base_count].offset = -1;
+    cls->virtual_bases[cls->virtual_base_count].public_path = public_path;
+    ++cls->virtual_base_count;
+}
+
+bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
+                                   int* offset) {
+    int index = cxx_virtual_base_index(cls, base);
+    if (index < 0 || cls->virtual_bases[index].offset < 0) return false;
+    if (offset) *offset = cls->virtual_bases[index].offset;
+    return true;
 }
 
 /* Return the longest namespace prefix of a qualified declaration.  This also

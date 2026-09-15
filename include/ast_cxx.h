@@ -18,6 +18,12 @@ typedef struct CxxConstructorInitializer CxxConstructorInitializer;
 typedef struct CxxVtableEntry CxxVtableEntry;
 typedef struct CxxSecondaryVtable CxxSecondaryVtable;
 
+typedef struct CxxVirtualBaseInfo {
+    CxxClass* base;
+    int offset;
+    bool public_path;
+} CxxVirtualBaseInfo;
+
 /* Access specifier */
 typedef enum {
     ACCESS_PUBLIC,
@@ -68,6 +74,11 @@ struct CxxClass {
     int base_count;
     /* Byte offsets of non-virtual base subobjects after layout. */
     int* base_offsets;
+    /* One shared subobject for every virtual base reachable from this class. */
+    CxxVirtualBaseInfo* virtual_bases;
+    int virtual_base_count;
+    /* Size excluding virtual-base subobjects, used for embedding. */
+    int nonvirtual_size;
 
     /* Members */
     struct CxxMember {
@@ -247,6 +258,8 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static);
 void cxx_class_compute_layout(CxxClass* cls);
+bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
+                                   int* offset);
 void cxx_class_build_vtable(CxxClass* cls);
 
 /* Namespace operations (core API) */

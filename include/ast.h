@@ -51,6 +51,8 @@ typedef struct TypeField {
     bool is_bitfield;
     unsigned bit_width;
     unsigned bit_offset;
+    /* True when this field is exposed from a virtual-base subobject. */
+    bool from_virtual_base;
     /* C++ default member initializer, if one was declared in the class. */
     Expr* initializer;
     /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
@@ -540,6 +542,11 @@ struct CxxCatch {
     Decl* parameter;            /* Synthetic catch parameter, if named */
     Stmt* body;
     bool is_ellipsis;
+    /* Additional class tags known in this translation unit that publicly
+     * derive from the handler type.  Lowering ORs these exact tags into the
+     * dispatch condition; no handler is silently widened. */
+    uint64_t* compatible_tags;
+    size_t compatible_tag_count;
     CxxCatch* next;
 };
 
