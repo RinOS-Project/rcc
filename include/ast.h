@@ -127,6 +127,8 @@ struct Type {
     const char* cxx_namespace;
     int cxx_vtable_size;
     const char* cxx_vtable_symbol;
+    /* Stable translation-unit identity used by the bounded C++ RTTI table. */
+    const char* cxx_typeinfo_symbol;
     /* Structurally validated C++ scope cleanup.  NULL for ordinary types. */
     const char* cleanup_function;
     TypeField* cleanup_field;
@@ -381,6 +383,9 @@ struct Expr {
      * source subobject does not contain that exact table. */
     bool cxx_dynamic_cast_checked;
     const char* cxx_dynamic_cast_vtable_symbol;
+    /* Runtime RTTI search for public downcast/cross-cast relationships. */
+    bool cxx_dynamic_cast_runtime;
+    const char* cxx_dynamic_cast_typeinfo_symbol;
     /* Non-NULL only for a semantically validated C++ ownership transfer. */
     CxxMoveAssignment* cxx_move_assignment;
     /* Non-NULL only for the structurally validated SDK close operation. */

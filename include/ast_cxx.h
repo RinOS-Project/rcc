@@ -169,6 +169,8 @@ struct CxxVtableEntry {
 struct CxxSecondaryVtable {
     CxxClass* base;
     int base_index;
+    bool is_virtual_base;
+    int virtual_base_index;
     const char* symbol;
     int size;
     CxxVtableEntry* entries;

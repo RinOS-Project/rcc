@@ -2106,6 +2106,52 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
         gen64_symbol_address(mod, base_vtable_symbol, 0u);
         emit64_mov_mem_reg(mod, RBP, (int32_t)base_displacement, RAX);
     }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[virtual_index];
+        const char* virtual_vtable_symbol = NULL;
+        int64_t virtual_displacement;
+        bool direct_virtual = false;
+        if (!virtual_base->base || virtual_base->base->vtable_size <= 0 ||
+            virtual_base->offset < 0) {
+            continue;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            if (cls->bases[index].is_virtual &&
+                cls->bases[index].base == virtual_base->base &&
+                cls->base_offsets &&
+                cls->base_offsets[index] == virtual_base->offset) {
+                direct_virtual = true;
+                break;
+            }
+        }
+        if (direct_virtual) continue;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->is_virtual_base &&
+                secondary->virtual_base_index == virtual_index) {
+                virtual_vtable_symbol = secondary->symbol;
+                break;
+            }
+        }
+        if (!virtual_vtable_symbol) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "virtual base has no most-derived vtable");
+            continue;
+        }
+        virtual_displacement = (int64_t)displacement + virtual_base->offset;
+        if (virtual_displacement < INT32_MIN ||
+            virtual_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "virtual base vtable pointer exceeds stack limits");
+            continue;
+        }
+        gen64_symbol_address(mod, virtual_vtable_symbol, 0u);
+        emit64_mov_mem_reg(mod, RBP, (int32_t)virtual_displacement, RAX);
+    }
 }
 
 static void gen64_tls_address(Module* mod, const char* symbol) {
@@ -5115,7 +5161,64 @@ static void codegen64_release_named_labels(void) {
 static void gen64_expr(Module* mod, Expr* expr) {
     if (!expr) return;
     gen64_expr_raw(mod, expr);
-    if (expr->cxx_dynamic_cast_checked) {
+    if (expr->cxx_dynamic_cast_runtime) {
+        int null_label = new_label64();
+        int not_found_label = new_label64();
+        int found_label = new_label64();
+        int done_label = new_label64();
+        if (!expr->cxx_dynamic_cast_typeinfo_symbol) {
+            rcc_error(expr->loc,
+                      "dynamic_cast has no validated target typeinfo");
+            return;
+        }
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, null_label);
+        emit64_mov_reg_mem(mod, RCX, RAX, 0); /* source subobject vptr */
+        emit64_mov_reg_mem(mod, RDX, RCX, -8); /* vptr[-1] RTTI metadata */
+        emit64_mov_reg_mem(mod, RCX, RDX, 0); /* source offset */
+        emit64_sub_reg_reg(mod, RAX, RCX);   /* complete object address */
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RCX, RDX, 8); /* target-entry count */
+        emit64_push_reg(mod, RCX);
+        emit64_add_reg_imm(mod, RDX, 16);     /* first type/offset pair */
+        emit64_push_reg(mod, RDX);            /* preserve table across lookup */
+        gen64_symbol_address(mod, expr->cxx_dynamic_cast_typeinfo_symbol, 0u);
+        emit64_mov_reg_reg(mod, RCX, RAX);    /* target typeinfo identity */
+        emit64_pop_reg(mod, RDX);
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, not_found_label);
+
+        {
+            int loop_label = new_label64();
+            emit64_label(mod, loop_label);
+            emit64_mov_reg_mem(mod, RAX, RDX, 0);
+            emit64_cmp_reg_reg(mod, RAX, RCX);
+            emit64_jcc_label(mod, CC64_E, found_label);
+            emit64_add_reg_imm(mod, RDX, 16);
+            emit64_mov_reg_mem(mod, RAX, RSP, 0);
+            emit64_sub_reg_imm(mod, RAX, 1);
+            emit64_mov_mem_reg(mod, RSP, 0, RAX);
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_NE, loop_label);
+        }
+        emit64_jmp_label(mod, not_found_label);
+
+        emit64_label(mod, found_label);
+        emit64_mov_reg_mem(mod, RAX, RDX, 8); /* target offset */
+        emit64_mov_reg_mem(mod, RCX, RSP, 8); /* complete object */
+        emit64_add_reg_reg(mod, RAX, RCX);
+        emit64_add_reg_imm(mod, RSP, 16);
+        emit64_jmp_label(mod, done_label);
+
+        emit64_label(mod, not_found_label);
+        emit64_add_reg_imm(mod, RSP, 16);
+        emit64_xor_reg_reg(mod, RAX, RAX);
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, null_label);
+        emit64_xor_reg_reg(mod, RAX, RAX);
+        emit64_label(mod, done_label);
+    } else if (expr->cxx_dynamic_cast_checked) {
         int fail_label;
         int done_label;
         if (!expr->cxx_dynamic_cast_vtable_symbol) {
@@ -6870,13 +6973,25 @@ static void codegen_emit_cxx_vtable_thunks64_in_namespace(
              table_index < cls->secondary_vtable_count; ++table_index) {
             CxxSecondaryVtable* table = &cls->secondary_vtables[table_index];
             int base_offset;
-            if (!table->entries || table->size <= 0 ||
-                table->base_index < 0 ||
-                !cls->base_offsets ||
-                table->base_index >= cls->base_count) {
+            if (!table->entries || table->size <= 0) {
                 continue;
             }
-            base_offset = cls->base_offsets[table->base_index];
+            if (table->is_virtual_base) {
+                if (table->virtual_base_index < 0 ||
+                    table->virtual_base_index >= cls->virtual_base_count ||
+                    !cls->virtual_bases ||
+                    cls->virtual_bases[table->virtual_base_index].offset < 0) {
+                    continue;
+                }
+                base_offset =
+                    cls->virtual_bases[table->virtual_base_index].offset;
+            } else {
+                if (table->base_index < 0 || !cls->base_offsets ||
+                    table->base_index >= cls->base_count) {
+                    continue;
+                }
+                base_offset = cls->base_offsets[table->base_index];
+            }
             for (int slot = 0; slot < table->size; ++slot) {
                 CxxVtableEntry* entry = &table->entries[slot];
                 uint32_t jump_offset;

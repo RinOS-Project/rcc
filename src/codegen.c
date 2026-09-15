@@ -2115,6 +2115,136 @@ static uint32_t emit_rodata(Module* mod, const void* data, size_t len) {
     return offset;
 }
 
+typedef struct CxxRttiEntry {
+    CxxClass* cls;
+    int offset;
+    bool ambiguous;
+} CxxRttiEntry;
+
+#define CXX_RTTI_MAX_ENTRIES 128
+
+static const char* codegen_cxx_rtti_symbol(const char* vtable_symbol) {
+    char buffer[1200];
+    if (!vtable_symbol) return NULL;
+    if (snprintf(buffer, sizeof(buffer), "__rcc_rtti_%s", vtable_symbol) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ RTTI metadata symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
+static bool codegen_cxx_rtti_add(CxxRttiEntry* entries, int* count,
+                                 CxxClass* cls, int offset) {
+    if (!entries || !count || !cls) return false;
+    for (int index = 0; index < *count; ++index) {
+        if (entries[index].cls != cls) continue;
+        if (entries[index].offset != offset) entries[index].ambiguous = true;
+        return true;
+    }
+    if (*count >= CXX_RTTI_MAX_ENTRIES) {
+        rcc_error((SourceLoc){"<cxx-rtti>", 0, 0},
+                  "public C++ hierarchy has too many RTTI entries");
+        return false;
+    }
+    entries[*count].cls = cls;
+    entries[*count].offset = offset;
+    entries[*count].ambiguous = false;
+    ++*count;
+    return true;
+}
+
+static bool codegen_cxx_rtti_collect_nonvirtual(
+    CxxClass* cls, int base_offset, CxxRttiEntry* entries, int* count,
+    int depth) {
+    if (!cls || !entries || !count) return false;
+    if (depth > 64) {
+        rcc_error((SourceLoc){"<cxx-rtti>", 0, 0},
+                  "C++ RTTI hierarchy exceeds compiler depth limits");
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        int64_t offset;
+        if (!base || cls->bases[index].is_virtual ||
+            cls->bases[index].access != ACCESS_PUBLIC ||
+            !cls->base_offsets || cls->base_offsets[index] < 0) {
+            continue;
+        }
+        offset = (int64_t)base_offset + cls->base_offsets[index];
+        if (offset < INT_MIN || offset > INT_MAX) {
+            rcc_error((SourceLoc){"<cxx-rtti>", 0, 0},
+                      "C++ RTTI base offset exceeds compiler limits");
+            return false;
+        }
+        if (!codegen_cxx_rtti_add(entries, count, base, (int)offset) ||
+            !codegen_cxx_rtti_collect_nonvirtual(
+                base, (int)offset, entries, count, depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool codegen_cxx_rtti_collect(CxxClass* cls, CxxRttiEntry* entries,
+                                     int* count) {
+    if (!cls || !entries || !count ||
+        !codegen_cxx_rtti_add(entries, count, cls, 0)) {
+        return false;
+    }
+    if (!codegen_cxx_rtti_collect_nonvirtual(cls, 0, entries, count, 0)) {
+        return false;
+    }
+    /* The layout pass has already deduplicated the complete object's virtual
+     * bases.  Their offsets are therefore relative to the same complete
+     * object, not to an intermediate base subobject. */
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
+        if (!virtual_base->base || !virtual_base->public_path ||
+            virtual_base->offset < 0) {
+            continue;
+        }
+        if (!codegen_cxx_rtti_add(entries, count, virtual_base->base,
+                                  virtual_base->offset) ||
+            !codegen_cxx_rtti_collect_nonvirtual(
+                virtual_base->base, virtual_base->offset,
+                entries, count, 0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void codegen_emit_pointer_rodata(Module* mod, uint32_t value,
+                                        uint32_t pointer_size) {
+    uint64_t wide = value;
+    emit_rodata(mod, &wide, pointer_size);
+}
+
+static void codegen_emit_signed_rodata(Module* mod, int64_t value,
+                                       uint32_t pointer_size) {
+    uint64_t wide = (uint64_t)value;
+    emit_rodata(mod, &wide, pointer_size);
+}
+
+static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
+    static const uint8_t zero[8] = {0};
+    uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    uint32_t offset;
+    if (!mod || !cls || !cls->type) return;
+    if (!cls->type->cxx_typeinfo_symbol) {
+        rcc_error((SourceLoc){"<cxx-rtti>", 0, 0},
+                  "C++ class has no typeinfo identity");
+        return;
+    }
+    while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
+        emit_rodata(mod, zero, 1u);
+    }
+    offset = (uint32_t)mod->rodata.size;
+    emit_rodata(mod, zero, pointer_size);
+    module_add_symbol(mod, cls->type->cxx_typeinfo_symbol, offset, true,
+                      MODULE_SYMBOL_RODATA, true);
+}
+
 static void codegen_add_vtable_pointer(Module* mod,
                                        ModuleSymbolSection source_section,
                                        uint32_t offset, Type* type) {
@@ -2170,20 +2300,114 @@ static void codegen_add_vtable_pointer(Module* mod,
         add_reloc(mod, source_section, (uint32_t)base_offset,
                   width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     }
+
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[virtual_index];
+        const char* virtual_vtable_symbol = NULL;
+        uint64_t virtual_offset;
+        bool direct_virtual = false;
+        if (!virtual_base->base || virtual_base->base->vtable_size <= 0 ||
+            virtual_base->offset < 0) {
+            continue;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            if (cls->bases[index].is_virtual &&
+                cls->bases[index].base == virtual_base->base &&
+                cls->base_offsets &&
+                cls->base_offsets[index] == virtual_base->offset) {
+                direct_virtual = true;
+                break;
+            }
+        }
+        if (direct_virtual) continue;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->is_virtual_base &&
+                secondary->virtual_base_index == virtual_index) {
+                virtual_vtable_symbol = secondary->symbol;
+                break;
+            }
+        }
+        if (!virtual_vtable_symbol) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "virtual base has no most-derived vtable");
+            continue;
+        }
+        virtual_offset = (uint64_t)offset +
+                         (uint32_t)virtual_base->offset;
+        if (virtual_offset > UINT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "virtual base vtable pointer exceeds data limits");
+            continue;
+        }
+        module_add_relocation(mod, source_section, (uint32_t)virtual_offset,
+                              0u, false, width == 8u,
+                              virtual_vtable_symbol);
+        add_reloc(mod, source_section, (uint32_t)virtual_offset,
+                  width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    }
 }
 
 static void codegen_emit_cxx_vtable_storage(Module* mod,
                                             const char* symbol,
                                             int size,
                                             CxxVtableEntry* entries,
-                                            const char* owner) {
+                                            CxxClass* owner,
+                                            int source_offset) {
     static const uint8_t zero[16] = {0};
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     uint32_t offset;
-    if (!mod || !symbol || size <= 0 || !entries) return;
+    uint32_t metadata_offset;
+    uint32_t header_offset;
+    CxxRttiEntry rtti_entries[CXX_RTTI_MAX_ENTRIES];
+    int rtti_count = 0;
+    const char* metadata_symbol;
+    if (!mod || !symbol || size <= 0 || !entries || !owner ||
+        source_offset < 0 ||
+        !codegen_cxx_rtti_collect(owner, rtti_entries, &rtti_count)) return;
+    metadata_symbol = codegen_cxx_rtti_symbol(symbol);
     while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
         emit_rodata(mod, zero, 1u);
     }
+    metadata_offset = (uint32_t)mod->rodata.size;
+    codegen_emit_signed_rodata(mod, source_offset, pointer_size);
+    codegen_emit_pointer_rodata(mod, (uint32_t)rtti_count, pointer_size);
+    for (int index = 0; index < rtti_count; ++index) {
+        CxxRttiEntry* item = &rtti_entries[index];
+        if (item->ambiguous || !item->cls->type ||
+            !item->cls->type->cxx_typeinfo_symbol) {
+            /* Keep the pair in the table so the count remains exact.  A null
+             * identity can never match a valid target, while an ambiguous
+             * repeated base is correctly rejected at runtime. */
+            if (!item->ambiguous) {
+                rcc_error((SourceLoc){"<cxx-rtti>", 0, 0},
+                          "C++ RTTI entry has no typeinfo identity");
+            }
+            emit_rodata(mod, zero, pointer_size);
+            codegen_emit_signed_rodata(mod, 0, pointer_size);
+            continue;
+        }
+        offset = (uint32_t)mod->rodata.size;
+        emit_rodata(mod, zero, pointer_size);
+        module_add_relocation(mod, MODULE_SYMBOL_RODATA, offset, 0u, false,
+                              pointer_size == 8u,
+                              item->cls->type->cxx_typeinfo_symbol);
+        add_reloc(mod, MODULE_SYMBOL_RODATA, offset,
+                  pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+        codegen_emit_signed_rodata(mod, item->offset, pointer_size);
+    }
+    module_add_symbol(mod, metadata_symbol, metadata_offset, true,
+                      MODULE_SYMBOL_RODATA, true);
+    header_offset = (uint32_t)mod->rodata.size;
+    emit_rodata(mod, zero, pointer_size);
+    module_add_relocation(mod, MODULE_SYMBOL_RODATA, header_offset, 0u, false,
+                          pointer_size == 8u, metadata_symbol);
+    add_reloc(mod, MODULE_SYMBOL_RODATA, header_offset,
+              pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     offset = (uint32_t)mod->rodata.size;
     for (int slot = 0; slot < size; ++slot) {
         emit_rodata(mod, zero, pointer_size);
@@ -2196,7 +2420,7 @@ static void codegen_emit_cxx_vtable_storage(Module* mod,
         if (!method || !method->decl || !method->decl->link_name) {
             rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
                       "virtual table entry %d of '%s' has no function body",
-                      slot, owner ? owner : "<anonymous>");
+                      slot, owner->name ? owner->name : "<anonymous>");
             continue;
         }
         module_add_relocation(
@@ -2216,20 +2440,36 @@ static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
     for (int index = 0; index < ns->class_count; ++index) {
         CxxClass* cls = ns->classes[index];
         if (!cls || !cls->type) continue;
+        codegen_emit_cxx_typeinfo(mod, cls);
+    }
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* cls = ns->classes[index];
+        if (!cls || !cls->type) continue;
         if (cls->type->cxx_vtable_size > 0 &&
             cls->type->cxx_vtable_symbol && cls->vtable) {
             codegen_emit_cxx_vtable_storage(
                 mod, cls->type->cxx_vtable_symbol, cls->vtable_size,
-                cls->vtable, cls->name);
+                cls->vtable, cls, 0);
         }
         for (int secondary_index = 0;
              secondary_index < cls->secondary_vtable_count;
              ++secondary_index) {
             CxxSecondaryVtable* secondary =
                 &cls->secondary_vtables[secondary_index];
+            int source_offset = -1;
+            if (secondary->is_virtual_base && cls->virtual_bases &&
+                secondary->virtual_base_index >= 0 &&
+                secondary->virtual_base_index < cls->virtual_base_count) {
+                source_offset =
+                    cls->virtual_bases[secondary->virtual_base_index].offset;
+            } else if (!secondary->is_virtual_base && cls->base_offsets &&
+                       secondary->base_index >= 0 &&
+                       secondary->base_index < cls->base_count) {
+                source_offset = cls->base_offsets[secondary->base_index];
+            }
             codegen_emit_cxx_vtable_storage(
                 mod, secondary->symbol, secondary->size, secondary->entries,
-                cls->name);
+                cls, source_offset);
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
@@ -2247,13 +2487,25 @@ static void codegen_emit_cxx_vtable_thunks32_in_namespace(
              table_index < cls->secondary_vtable_count; ++table_index) {
             CxxSecondaryVtable* table = &cls->secondary_vtables[table_index];
             int base_offset;
-            if (!table->entries || table->size <= 0 ||
-                table->base_index < 0 ||
-                !cls->base_offsets ||
-                table->base_index >= cls->base_count) {
+            if (!table->entries || table->size <= 0) {
                 continue;
             }
-            base_offset = cls->base_offsets[table->base_index];
+            if (table->is_virtual_base) {
+                if (table->virtual_base_index < 0 ||
+                    table->virtual_base_index >= cls->virtual_base_count ||
+                    !cls->virtual_bases ||
+                    cls->virtual_bases[table->virtual_base_index].offset < 0) {
+                    continue;
+                }
+                base_offset =
+                    cls->virtual_bases[table->virtual_base_index].offset;
+            } else {
+                if (table->base_index < 0 || !cls->base_offsets ||
+                    table->base_index >= cls->base_count) {
+                    continue;
+                }
+                base_offset = cls->base_offsets[table->base_index];
+            }
             for (int slot = 0; slot < table->size; ++slot) {
                 CxxVtableEntry* entry = &table->entries[slot];
                 uint32_t jump_offset;
@@ -3638,6 +3890,52 @@ static void gen_local_vtable_init(Module* mod, Type* type,
         }
         gen_symbol_address(mod, base_vtable_symbol, 0u);
         emit_mov_mem_reg(mod, EBP, (int32_t)base_displacement, EAX);
+    }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[virtual_index];
+        const char* virtual_vtable_symbol = NULL;
+        int64_t virtual_displacement;
+        bool direct_virtual = false;
+        if (!virtual_base->base || virtual_base->base->vtable_size <= 0 ||
+            virtual_base->offset < 0) {
+            continue;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            if (cls->bases[index].is_virtual &&
+                cls->bases[index].base == virtual_base->base &&
+                cls->base_offsets &&
+                cls->base_offsets[index] == virtual_base->offset) {
+                direct_virtual = true;
+                break;
+            }
+        }
+        if (direct_virtual) continue;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->is_virtual_base &&
+                secondary->virtual_base_index == virtual_index) {
+                virtual_vtable_symbol = secondary->symbol;
+                break;
+            }
+        }
+        if (!virtual_vtable_symbol) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "virtual base has no most-derived vtable");
+            continue;
+        }
+        virtual_displacement = (int64_t)displacement + virtual_base->offset;
+        if (virtual_displacement < INT32_MIN ||
+            virtual_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "virtual base vtable pointer exceeds stack limits");
+            continue;
+        }
+        gen_symbol_address(mod, virtual_vtable_symbol, 0u);
+        emit_mov_mem_reg(mod, EBP, (int32_t)virtual_displacement, EAX);
     }
 }
 
@@ -8587,7 +8885,64 @@ static void gen_expr(Module* mod, Expr* expr) {
         return;
     }
     gen_expr_raw(mod, expr);
-    if (expr->cxx_dynamic_cast_checked) {
+    if (expr->cxx_dynamic_cast_runtime) {
+        int null_label = new_label();
+        int not_found_label = new_label();
+        int found_label = new_label();
+        int done_label = new_label();
+        if (!expr->cxx_dynamic_cast_typeinfo_symbol) {
+            rcc_error(expr->loc,
+                      "dynamic_cast has no validated target typeinfo");
+            return;
+        }
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, null_label);
+        emit_mov_reg_mem(mod, ECX, EAX, 0); /* source subobject vptr */
+        emit_mov_reg_mem(mod, EDX, ECX, -4); /* vptr[-1] RTTI metadata */
+        emit_mov_reg_mem(mod, ECX, EDX, 0); /* source offset */
+        emit_sub_reg_reg(mod, EAX, ECX);   /* complete object address */
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ECX, EDX, 4); /* target-entry count */
+        emit_push_reg(mod, ECX);
+        emit_add_reg_imm(mod, EDX, 8);      /* first type/offset pair */
+        emit_push_reg(mod, EDX);            /* preserve table across lookup */
+        gen_symbol_address(mod, expr->cxx_dynamic_cast_typeinfo_symbol, 0u);
+        emit_mov_reg_reg(mod, ECX, EAX);    /* target typeinfo identity */
+        emit_pop_reg(mod, EDX);
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, not_found_label);
+
+        {
+            int loop_label = new_label();
+            emit_label(mod, loop_label);
+            emit_mov_reg_mem(mod, EAX, EDX, 0);
+            emit_cmp_reg_reg(mod, EAX, ECX);
+            emit_jcc_label(mod, CC_E, found_label);
+            emit_add_reg_imm(mod, EDX, 8);
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            emit_dec_reg(mod, EAX);
+            emit_mov_mem_reg(mod, ESP, 0, EAX);
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_NE, loop_label);
+        }
+        emit_jmp_label(mod, not_found_label);
+
+        emit_label(mod, found_label);
+        emit_mov_reg_mem(mod, EAX, EDX, 4); /* target offset */
+        emit_mov_reg_mem(mod, ECX, ESP, 4); /* complete object */
+        emit_add_reg_reg(mod, EAX, ECX);
+        emit_add_reg_imm(mod, ESP, 8);
+        emit_jmp_label(mod, done_label);
+
+        emit_label(mod, not_found_label);
+        emit_add_reg_imm(mod, ESP, 8);
+        emit_xor_reg_reg(mod, EAX, EAX);
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, null_label);
+        emit_xor_reg_reg(mod, EAX, EAX);
+        emit_label(mod, done_label);
+    } else if (expr->cxx_dynamic_cast_checked) {
         int fail_label;
         int done_label;
         if (!expr->cxx_dynamic_cast_vtable_symbol) {

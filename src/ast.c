@@ -95,7 +95,7 @@ char* ast_arena_strdup(const char* text) {
       .is_volatile = false, .cxx_is_class = false, \
       .cxx_nontrivial = false, .cxx_class = NULL, \
       .cxx_namespace = NULL, .cxx_vtable_size = 0, \
-      .cxx_vtable_symbol = NULL }
+      .cxx_vtable_symbol = NULL, .cxx_typeinfo_symbol = NULL }
 
 static Type builtin_void   = BUILTIN_TYPE(TYPE_VOID,   0, 1, false);
 static Type builtin_bool   = BUILTIN_TYPE(TYPE_BOOL,   1, 1, true);
@@ -164,6 +164,7 @@ Type* type_ptr(Type* base) {
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
+    t->cxx_typeinfo_symbol = NULL;
     return t;
 }
 
@@ -187,6 +188,7 @@ Type* type_array(Type* base, int len) {
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
+    t->cxx_typeinfo_symbol = NULL;
     return t;
 }
 
@@ -206,6 +208,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
+    t->cxx_typeinfo_symbol = NULL;
     return t;
 }
 
@@ -224,6 +227,7 @@ Type* type_struct(const char* tag) {
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
+    t->cxx_typeinfo_symbol = NULL;
     return t;
 }
 
@@ -242,6 +246,7 @@ Type* type_union(const char* tag) {
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
+    t->cxx_typeinfo_symbol = NULL;
     return t;
 }
 
@@ -258,6 +263,7 @@ Type* type_enum(const char* tag) {
     t->cxx_namespace = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
+    t->cxx_typeinfo_symbol = NULL;
     return t;
 }
 

@@ -69,6 +69,11 @@ static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 
+static bool sema_cxx_is_polymorphic(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    return cls && (cls->vtable_size > 0 || cls->secondary_vtable_count > 0);
+}
+
 static void sema_validate_static_integer_expression(Expr* expression);
 static bool sema_atomic_builtin_call(Expr* expr);
 static void sema_vla_bounds(Type* type, SourceLoc loc);
@@ -187,52 +192,6 @@ static bool sema_cxx_pointer_conversion(Type* source, Type* target,
     }
     return sema_cxx_public_base(source->base, target->base,
                                 adjustment, 0);
-}
-
-/* Return the vtable that is visible through a direct non-virtual base
- * subobject of `target`.  This is the bounded dynamic_cast downcast profile:
- * the source pointer identifies one fixed base subobject, so a vtable
- * identity check is sufficient to distinguish an exact target object.  More
- * general RTTI graphs (further-derived objects, virtual-base and cross-cast
- * searches) remain explicitly outside this profile. */
-static const char* sema_cxx_exact_downcast_vtable(
-    Type* source, Type* target, int* adjustment) {
-    CxxClass* source_class;
-    CxxClass* target_class;
-    if (!source || !target || !source->cxx_class || !target->cxx_class ||
-        source->cxx_class == target->cxx_class) {
-        return NULL;
-    }
-    source_class = source->cxx_class;
-    target_class = target->cxx_class;
-    if (target_class->vtable_size <= 0 ||
-        !target_class->type->cxx_vtable_symbol ||
-        !target_class->base_offsets) {
-        return NULL;
-    }
-    for (int index = 0; index < target_class->base_count; ++index) {
-        CxxClass* base = target_class->bases[index].base;
-        if (!base || base != source_class ||
-            target_class->bases[index].is_virtual ||
-            target_class->bases[index].access != ACCESS_PUBLIC ||
-            target_class->base_offsets[index] < 0) {
-            continue;
-        }
-        if (adjustment) *adjustment = target_class->base_offsets[index];
-        if (target_class->base_offsets[index] == 0) {
-            return target_class->type->cxx_vtable_symbol;
-        }
-        for (int secondary = 0;
-             secondary < target_class->secondary_vtable_count; ++secondary) {
-            CxxSecondaryVtable* table =
-                &target_class->secondary_vtables[secondary];
-            if (table->base_index == index && table->symbol) {
-                return table->symbol;
-            }
-        }
-        return NULL;
-    }
-    return NULL;
 }
 
 /* C++ new/delete are language expressions, so they do not require a source
@@ -6626,7 +6585,6 @@ static Type* sema_expr(Expr* expr) {
             if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC) {
                 int adjustment = 0;
                 bool supported = false;
-                const char* downcast_vtable = NULL;
                 bool source_polymorphic = false;
                 if (source && expr->cast_type &&
                     source->kind == TYPE_PTR &&
@@ -6637,18 +6595,21 @@ static Type* sema_expr(Expr* expr) {
                     supported = sema_cxx_public_base(
                         source->base, expr->cast_type->base,
                         &adjustment, 0);
-                    source_polymorphic = source->base->cxx_class &&
-                        source->base->cxx_class->vtable_size > 0;
-                    if (!supported && source_polymorphic) {
-                        downcast_vtable = sema_cxx_exact_downcast_vtable(
-                            source->base, expr->cast_type->base, &adjustment);
-                        supported = downcast_vtable != NULL;
-                        if (supported) {
-                            expr->cxx_dynamic_cast_checked = true;
-                            expr->cxx_dynamic_cast_vtable_symbol =
-                                downcast_vtable;
-                            adjustment = -adjustment;
-                        }
+                    source_polymorphic = sema_cxx_is_polymorphic(source->base);
+                    if (!supported && source_polymorphic &&
+                        expr->cast_type->base->cxx_class &&
+                        expr->cast_type->base->cxx_class->type &&
+                        expr->cast_type->base->cxx_class->type->is_complete &&
+                        expr->cast_type->base->cxx_class->type->cxx_typeinfo_symbol) {
+                        /* The source is polymorphic and the target is a
+                         * complete class.  Defer the relationship search to
+                         * the complete-object RTTI table emitted with each
+                         * vtable; this covers public downcasts, cross-casts,
+                         * virtual bases, and further-derived objects. */
+                        supported = true;
+                        expr->cxx_dynamic_cast_runtime = true;
+                        expr->cxx_dynamic_cast_typeinfo_symbol =
+                            expr->cast_type->base->cxx_class->type->cxx_typeinfo_symbol;
                     }
                 } else if (source && expr->cast_type &&
                            expr->cast_type->kind == TYPE_PTR &&
@@ -6657,8 +6618,7 @@ static Type* sema_expr(Expr* expr) {
                            expr->cast_type->base) {
                     supported = sema_cxx_public_base(
                         source, expr->cast_type->base, &adjustment, 0);
-                    source_polymorphic = source->cxx_class &&
-                        source->cxx_class->vtable_size > 0;
+                    source_polymorphic = sema_cxx_is_polymorphic(source);
                 }
                 if (supported && !source_polymorphic) supported = false;
                 if (!supported) {

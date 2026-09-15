@@ -829,6 +829,18 @@ static const char* cxx_vtable_name(CxxClass* cls) {
     return rcc_intern(buffer);
 }
 
+static const char* cxx_typeinfo_name(CxxClass* cls) {
+    char buffer[1024];
+    char* class_name;
+    if (!cls || !cls->name) return NULL;
+    class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
+    if (snprintf(buffer, sizeof(buffer), "__rcc_typeinfo_%s", class_name) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ typeinfo symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
 static const char* cxx_secondary_vtable_name(CxxClass* cls,
                                              int base_index) {
     char buffer[1024];
@@ -843,6 +855,20 @@ static const char* cxx_secondary_vtable_name(CxxClass* cls,
     return rcc_intern(buffer);
 }
 
+static const char* cxx_virtual_secondary_vtable_name(CxxClass* cls,
+                                                     int virtual_base_index) {
+    char buffer[1024];
+    char* class_name;
+    if (!cls || !cls->name) return NULL;
+    class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
+    if (snprintf(buffer, sizeof(buffer), "__rcc_vtable_%s_vbase%d",
+                 class_name, virtual_base_index) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ virtual-base vtable symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
 static const char* cxx_secondary_thunk_name(CxxClass* cls,
                                             int base_index, int slot) {
     char buffer[1024];
@@ -853,6 +879,21 @@ static const char* cxx_secondary_thunk_name(CxxClass* cls,
                  class_name, base_index, slot) < 0 ||
         strlen(buffer) >= sizeof(buffer) - 1u) {
         rcc_fatal("C++ secondary vtable thunk symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
+static const char* cxx_virtual_secondary_thunk_name(
+    CxxClass* cls, int virtual_base_index, int slot) {
+    char buffer[1024];
+    char* class_name;
+    if (!cls || !cls->name) return NULL;
+    class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
+    if (snprintf(buffer, sizeof(buffer),
+                 "__rcc_thunk_%s_vbase%d_slot%d", class_name,
+                 virtual_base_index, slot) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ virtual-base thunk symbol is too long");
     }
     return rcc_intern(buffer);
 }
@@ -873,6 +914,11 @@ void cxx_class_build_vtable(CxxClass* cls) {
     CxxClass* primary_base;
     int vtable_size;
     if (!cls || !cls->type) return;
+
+    /* Type identities are useful even for non-polymorphic target classes in
+     * a dynamic_cast<T*>(source) search.  Allocate the symbol while the
+     * namespace and specialization identity are still attached to the class. */
+    cls->type->cxx_typeinfo_symbol = cxx_typeinfo_name(cls);
 
     primary_base = cxx_primary_vtable_base(cls);
     vtable_size = primary_base ? primary_base->vtable_size : 0;
@@ -939,6 +985,9 @@ void cxx_class_build_vtable(CxxClass* cls) {
         secondary = &cls->secondary_vtables[cls->secondary_vtable_count++];
         secondary->base = base;
         secondary->base_index = base_index;
+        secondary->is_virtual_base = cls->bases[base_index].is_virtual;
+        secondary->virtual_base_index = secondary->is_virtual_base
+            ? cxx_virtual_base_index(cls, base) : -1;
         secondary->symbol = cxx_secondary_vtable_name(cls, base_index);
         secondary->size = base->vtable_size;
         secondary->entries = ast_arena_alloc(
@@ -963,6 +1012,64 @@ void cxx_class_build_vtable(CxxClass* cls) {
             secondary->entries[slot].method = method;
             secondary->entries[slot].entry_symbol =
                 cxx_secondary_thunk_name(cls, base_index, slot);
+        }
+    }
+
+    /* A virtual base reached through a non-virtual intermediate base still
+     * owns a vptr in the complete object.  Give it a most-derived table so
+     * RTTI can recover the complete object and virtual calls can dispatch
+     * through the same fixed layout. */
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxClass* base = cls->virtual_bases[virtual_index].base;
+        CxxSecondaryVtable* secondary;
+        bool already_present = false;
+        if (!base || base->vtable_size <= 0 || !base->vtable) continue;
+        for (int index = 0; index < cls->secondary_vtable_count; ++index) {
+            CxxSecondaryVtable* existing = &cls->secondary_vtables[index];
+            if (existing->is_virtual_base &&
+                existing->virtual_base_index == virtual_index) {
+                already_present = true;
+                break;
+            }
+        }
+        if (already_present) continue;
+        cls->secondary_vtables = ast_arena_grow(
+            cls->secondary_vtables,
+            sizeof(*cls->secondary_vtables) *
+                (size_t)cls->secondary_vtable_count,
+            sizeof(*cls->secondary_vtables) *
+                (size_t)(cls->secondary_vtable_count + 1));
+        secondary = &cls->secondary_vtables[cls->secondary_vtable_count++];
+        secondary->base = base;
+        secondary->base_index = -1;
+        secondary->is_virtual_base = true;
+        secondary->virtual_base_index = virtual_index;
+        secondary->symbol = cxx_virtual_secondary_vtable_name(
+            cls, virtual_index);
+        secondary->size = base->vtable_size;
+        secondary->entries = ast_arena_alloc(
+            sizeof(*secondary->entries) * (size_t)secondary->size);
+        for (int slot = 0; slot < secondary->size; ++slot) {
+            secondary->entries[slot] = base->vtable[slot];
+            secondary->entries[slot].entry_symbol = NULL;
+        }
+        for (struct CxxMember* member = cls->members; member;
+             member = member->next) {
+            CxxMethod* method = member->method;
+            int slot;
+            if (!method || !method->decl || method->is_static ||
+                method->is_constructor || method->is_destructor) {
+                continue;
+            }
+            slot = cxx_vtable_find_slot(secondary->entries, secondary->size,
+                                        method->decl->name);
+            if (slot < 0) continue;
+            method->is_virtual = true;
+            member->is_virtual = true;
+            secondary->entries[slot].method = method;
+            secondary->entries[slot].entry_symbol =
+                cxx_virtual_secondary_thunk_name(cls, virtual_index, slot);
         }
     }
 
