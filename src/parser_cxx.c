@@ -736,7 +736,8 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         arity = (unsigned)constructor->parameter_count;
         if (arity >= 32u) continue;
         if (!constructor->body_is_empty) {
-            if (constructor->initializer_count == 0 &&
+            if ((constructor->initializer_count == 0 ||
+                 constructor->initializers_are_supported) &&
                 constructor->method && constructor->method->decl &&
                 constructor->method->decl->func_is_cxx_method &&
                 constructor->method->decl->func_body) {

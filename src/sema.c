@@ -4865,7 +4865,8 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
             candidate->is_deleted || candidate->is_defaulted ||
             candidate->parameter_count != argument_count ||
             (!candidate->body_is_empty &&
-             (candidate->initializer_count != 0 ||
+             ((candidate->initializer_count != 0 &&
+               !candidate->initializers_are_supported) ||
               !candidate->method->decl ||
               !candidate->method->decl->func_is_cxx_method ||
               !candidate->method->decl->func_body)) ||

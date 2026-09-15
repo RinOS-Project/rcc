@@ -5071,6 +5071,90 @@ static ExprList* gen_cxx_bind_constructor_arguments32(
 
 static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
+                                         ExprList* arguments);
+
+static CxxConstructorInfo* gen_cxx_constructor_for_decl32(Decl* declaration) {
+    CxxClass* cls = declaration && declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+    if (!cls) return NULL;
+    for (CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        if (constructor->method && constructor->method->decl == declaration) {
+            return constructor;
+        }
+    }
+    return NULL;
+}
+
+static ExprList* gen_cxx_constructor_function_arguments32(Decl* declaration) {
+    ExprList* arguments = NULL;
+    if (!declaration) return NULL;
+    for (DeclList* item = declaration->func_params; item;
+         item = item->next) {
+        Decl* parameter = item->decl;
+        Expr* expression;
+        if (!parameter || !parameter->name) continue;
+        expression = expr_ident(parameter->name, parameter->loc);
+        expression->ident_decl = parameter;
+        expression->type = parameter->type;
+        exprlist_append(&arguments, expression);
+    }
+    return arguments;
+}
+
+/* Execute a validated mem-initializer list before a non-empty constructor
+ * body.  The ordinary constructor function owns this prologue, so direct
+ * objects, new-expressions, and static initialization all share the same
+ * order and argument evaluation. */
+static void gen_cxx_initialize_member_initializers32(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments) {
+    if (!mod || !object_type || !constructor) return;
+    for (CxxConstructorInitializer* initializer = constructor->initializers;
+         initializer; initializer = initializer->next) {
+        TypeField* field = gen_cxx_constructor_field32(
+            object_type, initializer->field);
+        if (!field || (!initializer->value && !initializer->arguments)) {
+            rcc_error((SourceLoc){"<constructor>", 0, 0},
+                      "validated C++ member initializer is incomplete");
+            return;
+        }
+        if (field->type && field->type->cxx_class) {
+            if (!initializer->constructor) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ member constructor is missing");
+                return;
+            }
+            emit_push_reg(mod, ECX);
+            emit_add_reg_imm(mod, ECX, (uint32_t)field->offset);
+            gen_cxx_initialize_object32(
+                mod, field->type, initializer->constructor,
+                gen_cxx_bind_constructor_arguments32(
+                    constructor, initializer->arguments, arguments));
+            emit_pop_reg(mod, ECX);
+            continue;
+        }
+        if (!initializer->value ||
+            (initializer->arguments && initializer->arguments->next)) {
+            rcc_error((SourceLoc){"<constructor>", 0, 0},
+                      "scalar member initializer has unsupported arity");
+            return;
+        }
+        emit_push_reg(mod, ECX);
+        gen_expr_as_type(mod, gen_cxx_bind_constructor_argument32(
+                             constructor, initializer->value, arguments),
+                         field->type);
+        emit_pop_reg(mod, ECX);
+        if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(
+                mod, EAX, initializer->value->type, field->type);
+        }
+        emit_store_typed32(mod, ECX, field->offset, EAX, field->type);
+    }
+}
+
+static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
+                                         CxxConstructorInfo* constructor,
                                          ExprList* arguments) {
     TypeField* field;
     CxxConstructorInitializer* initializer;
@@ -5083,6 +5167,8 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
         return;
     }
     if (!constructor->body_is_empty) {
+        gen_cxx_initialize_member_initializers32(
+            mod, object_type, constructor, arguments);
         gen_cxx_call_constructor32(mod, constructor, arguments);
         return;
     }
@@ -9413,6 +9499,21 @@ static void gen_function(Module* mod, Decl* decl) {
     break_vla_marker = NULL;
     continue_vla_marker = NULL;
     named_codegen_labels = NULL;
+    if (decl->func_is_cxx_constructor) {
+        CxxConstructorInfo* constructor =
+            gen_cxx_constructor_for_decl32(decl);
+        if (constructor && constructor->initializers) {
+            Expr* this_expression = expr_ident("this", decl->loc);
+            this_expression->ident_decl = decl->func_this_param;
+            this_expression->type = decl->func_this_param
+                ? decl->func_this_param->type : NULL;
+            gen_expr(mod, this_expression);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            gen_cxx_initialize_member_initializers32(
+                mod, decl->func_method_owner, constructor,
+                gen_cxx_constructor_function_arguments32(decl));
+        }
+    }
     gen_stmt(mod, decl->func_body);
     discard_cleanups_until(NULL);
     discard_vla_scopes_until(NULL);

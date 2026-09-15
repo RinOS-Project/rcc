@@ -1773,7 +1773,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
+.PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-specialization-ambiguous
@@ -1970,6 +1970,24 @@ test-cxx-constructor-body: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-constructor-body/run-x64
 	@echo "Dual-architecture C++ constructor-body lowering tests completed"
 endif
+
+test-cxx-constructor-initializer-body: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-initializer-body)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constructor-initializer-body/x86.s \
+		tests/cxx_constructor_initializer_body.cpp
+	$(CC) -m32 -o $(TEST_OUT)/cxx-constructor-initializer-body/x86 \
+		tests/cxx_constructor_initializer_body_run_test.c \
+		$(TEST_OUT)/cxx-constructor-initializer-body/x86.s
+	$(TEST_OUT)/cxx-constructor-initializer-body/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constructor-initializer-body/x64.s \
+		tests/cxx_constructor_initializer_body.cpp
+	$(CC) -o $(TEST_OUT)/cxx-constructor-initializer-body/x64 \
+		tests/cxx_constructor_initializer_body_run_test.c \
+		$(TEST_OUT)/cxx-constructor-initializer-body/x64.s
+	$(TEST_OUT)/cxx-constructor-initializer-body/x64
+	@echo "C++ constructor mem-initializer plus body tests completed"
 
 test-aggregate-union-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-union-abi)
