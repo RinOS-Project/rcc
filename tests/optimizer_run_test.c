@@ -10,6 +10,11 @@
 #include <unistd.h>
 #endif
 
+static bool is_internal_label(const char* name)
+{
+    return name && strstr(name, "__rcc_label_") != NULL;
+}
+
 static ObjSection* code_section(ObjectFile* object)
 {
     for (ObjSection* section = object->sections; section;
@@ -35,6 +40,7 @@ static uint64_t function_extent(ObjectFile* object, const char* name)
     uint64_t end = code->size;
     for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
         if (symbol->binding == BIND_CODE &&
+            !is_internal_label(symbol->name) &&
             symbol->section == function->section &&
             symbol->value > function->value && symbol->value < end) {
             end = symbol->value;
