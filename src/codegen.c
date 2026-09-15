@@ -8473,6 +8473,12 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             break;
 
         default:
+            /* Sema owns the StmtKind invariant.  Reaching this point means
+             * an AST extension was added without a corresponding i686
+             * lowering; silently emitting no code would produce a valid-
+             * looking but semantically corrupt image. */
+            rcc_error(stmt ? stmt->loc : (SourceLoc){"<statement>", 0, 0},
+                      "unsupported statement kind in i686 code generation");
             break;
     }
 }

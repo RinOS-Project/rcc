@@ -5360,6 +5360,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             break;
 
         default:
+            /* Keep the backend total over the AST instead of treating a new
+             * statement kind as an empty statement. */
+            rcc_error(stmt ? stmt->loc : (SourceLoc){"<statement>", 0, 0},
+                      "unsupported statement kind in AMD64 code generation");
             break;
     }
 }
