@@ -15,6 +15,8 @@ typedef struct CxxTemplate CxxTemplate;
 typedef struct CxxMethod CxxMethod;
 typedef struct CxxConstructorInfo CxxConstructorInfo;
 typedef struct CxxConstructorInitializer CxxConstructorInitializer;
+typedef struct CxxVtableEntry CxxVtableEntry;
+typedef struct CxxSecondaryVtable CxxSecondaryVtable;
 
 /* Access specifier */
 typedef enum {
@@ -82,11 +84,9 @@ struct CxxClass {
 
     /* Virtual table info */
     int vtable_size;
-    struct {
-        const char* name;
-        CxxMethod* method;
-        int offset;
-    } *vtable;
+    CxxVtableEntry* vtable;
+    CxxSecondaryVtable* secondary_vtables;
+    int secondary_vtable_count;
 
     /* Type info */
     Type* type;
@@ -131,6 +131,21 @@ struct CxxNamespace {
     int using_namespace_count;
     const char** using_declarations;
     int using_declaration_count;
+};
+
+struct CxxVtableEntry {
+    const char* name;
+    CxxMethod* method;
+    int offset;
+    const char* entry_symbol;
+};
+
+struct CxxSecondaryVtable {
+    CxxClass* base;
+    int base_index;
+    const char* symbol;
+    int size;
+    CxxVtableEntry* entries;
 };
 
 /* Template parameter */

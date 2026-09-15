@@ -143,6 +143,8 @@ typedef struct Module {
     uint32_t compound_literal_count;
 } Module;
 
+struct CxxNamespace;
+
 /* Code generation functions */
 Module* codegen_new(void);
 void codegen_free(Module* mod);
@@ -178,6 +180,10 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                           const char* symbol_name);
 void module_add_got_relocation(Module* mod, ModuleSymbolSection source_section,
                                uint32_t offset, const char* symbol_name);
+void codegen_emit_cxx_vtable_thunks32(Module* mod,
+                                      struct CxxNamespace* ns);
+void codegen_emit_cxx_vtable_thunks64(Module* mod,
+                                      struct CxxNamespace* ns);
 void module_add_tls_relocation(Module* mod,
                                ModuleSymbolSection source_section,
                                uint32_t offset, const char* symbol_name);

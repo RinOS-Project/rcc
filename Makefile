@@ -464,19 +464,31 @@ test-cxx-multiple-inheritance-virtual: $(RCXX_TARGET)
 
 test-cxx-secondary-virtual-override: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-secondary-virtual-override)
-	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-secondary-virtual-override/x86.ro \
-		tests/cxx_secondary_virtual_override_invalid.cpp \
-		>$(TEST_OUT)/cxx-secondary-virtual-override/x86.log 2>&1
-	grep -q "secondary base.*this-adjusting thunk" \
-		$(TEST_OUT)/cxx-secondary-virtual-override/x86.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-secondary-virtual-override/x64.ro \
-		tests/cxx_secondary_virtual_override_invalid.cpp \
-		>$(TEST_OUT)/cxx-secondary-virtual-override/x64.log 2>&1
-	grep -q "secondary base.*this-adjusting thunk" \
-		$(TEST_OUT)/cxx-secondary-virtual-override/x64.log
-	@echo "C++ secondary virtual override diagnostic completed"
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-secondary-virtual-override/test-x86.s \
+		tests/cxx_secondary_virtual_override.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-secondary-virtual-override/test-x86.o \
+		$(TEST_OUT)/cxx-secondary-virtual-override/test-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-secondary-virtual-override/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-secondary-virtual-override/test-x86 \
+		$(TEST_OUT)/cxx-secondary-virtual-override/start-x86.o \
+		$(TEST_OUT)/cxx-secondary-virtual-override/test-x86.o
+	$(TEST_OUT)/cxx-secondary-virtual-override/test-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-secondary-virtual-override/test-x64.s \
+		tests/cxx_secondary_virtual_override.cpp
+	gcc -c -o $(TEST_OUT)/cxx-secondary-virtual-override/test-x64.o \
+		$(TEST_OUT)/cxx-secondary-virtual-override/test-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-secondary-virtual-override/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-secondary-virtual-override/test-x64 \
+		$(TEST_OUT)/cxx-secondary-virtual-override/start-x64.o \
+		$(TEST_OUT)/cxx-secondary-virtual-override/test-x64.o
+	$(TEST_OUT)/cxx-secondary-virtual-override/test-x64
+	@echo "C++ secondary virtual override execution test completed"
 
 test-cxx-virtual-base: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base)

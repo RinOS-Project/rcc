@@ -1906,12 +1906,24 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
     if (!cls || !cls->base_offsets) return;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
+        const char* base_vtable_symbol;
         int64_t base_displacement;
         if (cls->bases[index].is_virtual || !base ||
             base->vtable_size <= 0 || !base->type ||
             !base->type->cxx_vtable_symbol ||
             cls->base_offsets[index] <= 0) {
             continue;
+        }
+        base_vtable_symbol = base->type->cxx_vtable_symbol;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->base_index == index && secondary->symbol) {
+                base_vtable_symbol = secondary->symbol;
+                break;
+            }
         }
         base_displacement = (int64_t)displacement +
                             cls->base_offsets[index];
@@ -1921,7 +1933,7 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
                       "secondary vtable pointer exceeds stack limits");
             continue;
         }
-        gen64_symbol_address(mod, base->type->cxx_vtable_symbol, 0u);
+        gen64_symbol_address(mod, base_vtable_symbol, 0u);
         emit64_mov_mem_reg(mod, RBP, (int32_t)base_displacement, RAX);
     }
 }
@@ -5032,6 +5044,57 @@ static void gen64_function(Module* mod, Decl* decl) {
     emit64_mov_reg_imm32(mod, RAX, 0);
     emit64_leave(mod);
     emit64_ret(mod);
+}
+
+static void codegen_emit_cxx_vtable_thunks64_in_namespace(
+    Module* mod, CxxNamespace* ns) {
+    if (!mod || !ns) return;
+    for (int class_index = 0; class_index < ns->class_count; ++class_index) {
+        CxxClass* cls = ns->classes[class_index];
+        if (!cls) continue;
+        for (int table_index = 0;
+             table_index < cls->secondary_vtable_count; ++table_index) {
+            CxxSecondaryVtable* table = &cls->secondary_vtables[table_index];
+            int base_offset;
+            if (!table->entries || table->size <= 0 ||
+                table->base_index < 0 ||
+                !cls->base_offsets ||
+                table->base_index >= cls->base_count) {
+                continue;
+            }
+            base_offset = cls->base_offsets[table->base_index];
+            for (int slot = 0; slot < table->size; ++slot) {
+                CxxVtableEntry* entry = &table->entries[slot];
+                uint32_t jump_offset;
+                uint32_t start;
+                if (!entry->entry_symbol || !entry->method ||
+                    !entry->method->decl ||
+                    !entry->method->decl->link_name) {
+                    continue;
+                }
+                start = code_offset(mod);
+                add_func_def64(entry->entry_symbol, start);
+                module_add_symbol(mod, entry->entry_symbol, start, true,
+                                  MODULE_SYMBOL_CODE, true);
+                /* SysV passes the secondary-base pointer in RDI.  Adjust it
+                 * to the complete derived object and tail-jump to the real
+                 * override, preserving all other argument registers. */
+                emit64_sub_reg_imm(mod, RDI, (int32_t)base_offset);
+                emit_byte(mod, 0xE9);
+                jump_offset = code_offset(mod);
+                emit_dword(mod, 0u);
+                add_func_call_ref64(decl_link_name(entry->method->decl),
+                                    jump_offset);
+            }
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        codegen_emit_cxx_vtable_thunks64_in_namespace(mod, child);
+    }
+}
+
+void codegen_emit_cxx_vtable_thunks64(Module* mod, CxxNamespace* ns) {
+    codegen_emit_cxx_vtable_thunks64_in_namespace(mod, ns);
 }
 
 /* ═══════════════════════════════════════

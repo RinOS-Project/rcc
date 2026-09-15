@@ -2002,12 +2002,24 @@ static void codegen_add_vtable_pointer(Module* mod,
     if (!cls || !cls->base_offsets) return;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
+        const char* base_vtable_symbol;
         uint64_t base_offset;
         if (cls->bases[index].is_virtual || !base ||
             base->vtable_size <= 0 || !base->type ||
             !base->type->cxx_vtable_symbol ||
             cls->base_offsets[index] <= 0) {
             continue;
+        }
+        base_vtable_symbol = base->type->cxx_vtable_symbol;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->base_index == index && secondary->symbol) {
+                base_vtable_symbol = secondary->symbol;
+                break;
+            }
         }
         base_offset = (uint64_t)offset +
                       (uint32_t)cls->base_offsets[index];
@@ -2018,7 +2030,7 @@ static void codegen_add_vtable_pointer(Module* mod,
         }
         module_add_relocation(mod, source_section, (uint32_t)base_offset,
                               0u, false, width == 8u,
-                              base->type->cxx_vtable_symbol);
+                              base_vtable_symbol);
         add_reloc(mod, source_section, (uint32_t)base_offset,
                   width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     }
@@ -2045,6 +2057,7 @@ static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
                           MODULE_SYMBOL_RODATA, true);
         for (int slot = 0; slot < cls->vtable_size; ++slot) {
             CxxMethod* method = cls->vtable[slot].method;
+            const char* entry_symbol = cls->vtable[slot].entry_symbol;
             if (!method || !method->decl || !method->decl->link_name) {
                 rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
                           "virtual table entry %d of '%s' has no function body",
@@ -2054,10 +2067,57 @@ static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
             module_add_relocation(
                 mod, MODULE_SYMBOL_RODATA,
                 offset + (uint32_t)slot * pointer_size, 0u, false,
-                pointer_size == 8u, decl_link_name(method->decl));
+                pointer_size == 8u,
+                entry_symbol ? entry_symbol : decl_link_name(method->decl));
             add_reloc(mod, MODULE_SYMBOL_RODATA,
                       offset + (uint32_t)slot * pointer_size,
                       pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+        }
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            uint32_t secondary_offset;
+            if (!secondary->symbol || secondary->size <= 0 ||
+                !secondary->entries) {
+                continue;
+            }
+            while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
+                emit_rodata(mod, zero, 1u);
+            }
+            secondary_offset = (uint32_t)mod->rodata.size;
+            for (int secondary_slot = 0;
+                 secondary_slot < secondary->size; ++secondary_slot) {
+                emit_rodata(mod, zero, pointer_size);
+            }
+            module_add_symbol(mod, secondary->symbol, secondary_offset, true,
+                              MODULE_SYMBOL_RODATA, true);
+            for (int secondary_slot = 0;
+                 secondary_slot < secondary->size; ++secondary_slot) {
+                CxxVtableEntry* entry = &secondary->entries[secondary_slot];
+                CxxMethod* secondary_method = entry->method;
+                const char* entry_symbol = entry->entry_symbol;
+                if (!secondary_method || !secondary_method->decl ||
+                    !secondary_method->decl->link_name) {
+                    rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                              "secondary virtual table entry %d of '%s' "
+                              "has no function body",
+                              secondary_slot,
+                              cls->name ? cls->name : "<anonymous>");
+                    continue;
+                }
+                module_add_relocation(
+                    mod, MODULE_SYMBOL_RODATA,
+                    secondary_offset + (uint32_t)secondary_slot * pointer_size,
+                    0u, false, pointer_size == 8u,
+                    entry_symbol ? entry_symbol
+                                 : decl_link_name(secondary_method->decl));
+                add_reloc(
+                    mod, MODULE_SYMBOL_RODATA,
+                    secondary_offset + (uint32_t)secondary_slot * pointer_size,
+                    pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+            }
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
@@ -2065,9 +2125,78 @@ static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
     }
 }
 
+static void codegen_emit_cxx_vtable_thunks32_in_namespace(
+    Module* mod, CxxNamespace* ns) {
+    if (!mod || !ns) return;
+    for (int class_index = 0; class_index < ns->class_count; ++class_index) {
+        CxxClass* cls = ns->classes[class_index];
+        if (!cls) continue;
+        for (int table_index = 0;
+             table_index < cls->secondary_vtable_count; ++table_index) {
+            CxxSecondaryVtable* table = &cls->secondary_vtables[table_index];
+            int base_offset;
+            if (!table->entries || table->size <= 0 ||
+                table->base_index < 0 ||
+                !cls->base_offsets ||
+                table->base_index >= cls->base_count) {
+                continue;
+            }
+            base_offset = cls->base_offsets[table->base_index];
+            for (int slot = 0; slot < table->size; ++slot) {
+                CxxVtableEntry* entry = &table->entries[slot];
+                uint32_t jump_offset;
+                uint32_t start;
+                if (!entry->entry_symbol || !entry->method ||
+                    !entry->method->decl ||
+                    !entry->method->decl->link_name) {
+                    continue;
+                }
+                start = code_offset(mod);
+                add_func_def(entry->entry_symbol, start);
+                module_add_symbol(mod, entry->entry_symbol, start, true,
+                                  MODULE_SYMBOL_CODE, true);
+                /* The ABI supplies the secondary-base pointer at [ESP+4].
+                 * Mutate that argument in place and tail-jump so every
+                 * remaining argument and the caller's return address retain
+                 * their original ABI positions. */
+                if (base_offset >= -128 && base_offset <= 127) {
+                    emit_byte(mod, 0x83);
+                    emit_byte(mod, 0x6C);
+                    emit_byte(mod, 0x24);
+                    emit_byte(mod, 0x04);
+                    emit_byte(mod, (uint8_t)base_offset);
+                } else {
+                    emit_byte(mod, 0x81);
+                    emit_byte(mod, 0x6C);
+                    emit_byte(mod, 0x24);
+                    emit_byte(mod, 0x04);
+                    emit_dword(mod, (uint32_t)base_offset);
+                }
+                emit_byte(mod, 0xE9);
+                jump_offset = code_offset(mod);
+                emit_dword(mod, 0u);
+                add_func_call_ref(decl_link_name(entry->method->decl),
+                                  jump_offset);
+            }
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        codegen_emit_cxx_vtable_thunks32_in_namespace(mod, child);
+    }
+}
+
+void codegen_emit_cxx_vtable_thunks32(Module* mod, CxxNamespace* ns) {
+    codegen_emit_cxx_vtable_thunks32_in_namespace(mod, ns);
+}
+
 void codegen_emit_cxx_vtables(Module* mod) {
     CxxNamespace* global_namespace = codegen_cxx_global_namespace();
     if (mod && global_namespace) {
+        if (g_opts.target_arch == ARCH_X64) {
+            codegen_emit_cxx_vtable_thunks64(mod, global_namespace);
+        } else {
+            codegen_emit_cxx_vtable_thunks32(mod, global_namespace);
+        }
         codegen_emit_cxx_vtables_in_namespace(mod, global_namespace);
     }
 }
@@ -3352,12 +3481,24 @@ static void gen_local_vtable_init(Module* mod, Type* type,
     if (!cls || !cls->base_offsets) return;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
+        const char* base_vtable_symbol;
         int64_t base_displacement;
         if (cls->bases[index].is_virtual || !base ||
             base->vtable_size <= 0 || !base->type ||
             !base->type->cxx_vtable_symbol ||
             cls->base_offsets[index] <= 0) {
             continue;
+        }
+        base_vtable_symbol = base->type->cxx_vtable_symbol;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->base_index == index && secondary->symbol) {
+                base_vtable_symbol = secondary->symbol;
+                break;
+            }
         }
         base_displacement = (int64_t)displacement +
                             cls->base_offsets[index];
@@ -3367,7 +3508,7 @@ static void gen_local_vtable_init(Module* mod, Type* type,
                       "secondary vtable pointer exceeds stack limits");
             continue;
         }
-        gen_symbol_address(mod, base->type->cxx_vtable_symbol, 0u);
+        gen_symbol_address(mod, base_vtable_symbol, 0u);
         emit_mov_mem_reg(mod, EBP, (int32_t)base_displacement, EAX);
     }
 }

@@ -1905,9 +1905,15 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         lowered->is_explicit = method->is_explicit;
         lowered->this_owner = method->is_static ? NULL : cls->type;
         lowered->this_adjustment = 0;
-        lowered->is_virtual = method->is_virtual;
+        /* A method can override a secondary base slot without occupying a
+         * slot in the class's primary table.  Calls through the complete
+         * derived type can use the real body directly; calls through the
+         * secondary base use that base's emitted adjusting thunk. */
+        lowered->is_virtual = method->is_virtual &&
+                              method->vtable_index >= 0 &&
+                              cls->type->cxx_vtable_symbol != NULL;
         lowered->vtable_index = method->vtable_index;
-        lowered->vtable_symbol = method->is_virtual
+        lowered->vtable_symbol = lowered->is_virtual
             ? cls->type->cxx_vtable_symbol : NULL;
         lowered->next = NULL;
         *tail = lowered;
@@ -2271,8 +2277,8 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
      * routine returns, but vtable names/layout metadata are built here. */
     cls->ns = active_namespace ? active_namespace : g_global_namespace;
     resolve_class_bases(cls, loc);
-    cxx_class_build_vtable(cls);
     cxx_class_compute_layout(cls);
+    cxx_class_build_vtable(cls);
     register_inline_class_accessors(cls);
     register_inline_class_bool_delegates(cls);
     register_inline_class_cleanup(cls);
@@ -3635,8 +3641,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         }
     }
 
-    cxx_class_build_vtable(instance);
     cxx_class_compute_layout(instance);
+    cxx_class_build_vtable(instance);
     diagnose_unlowered_destructors(instance);
     register_ordinary_class_methods(instance);
     register_inline_class_accessors(instance);

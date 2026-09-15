@@ -356,6 +356,8 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->members = NULL;
     cls->vtable = NULL;
     cls->vtable_size = 0;
+    cls->secondary_vtables = NULL;
+    cls->secondary_vtable_count = 0;
     cls->type = type_struct(name);
     cls->type->cxx_class = cls;
     cls->size = 0;
@@ -580,6 +582,46 @@ static const char* cxx_vtable_name(CxxClass* cls) {
     return rcc_intern(buffer);
 }
 
+static const char* cxx_secondary_vtable_name(CxxClass* cls,
+                                             int base_index) {
+    char buffer[1024];
+    char* class_name;
+    if (!cls || !cls->name) return NULL;
+    class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
+    if (snprintf(buffer, sizeof(buffer), "__rcc_vtable_%s_base%d",
+                 class_name, base_index) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ secondary vtable symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
+static const char* cxx_secondary_thunk_name(CxxClass* cls,
+                                            int base_index, int slot) {
+    char buffer[1024];
+    char* class_name;
+    if (!cls || !cls->name) return NULL;
+    class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
+    if (snprintf(buffer, sizeof(buffer), "__rcc_thunk_%s_base%d_slot%d",
+                 class_name, base_index, slot) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ secondary vtable thunk symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
+static int cxx_vtable_find_slot(const CxxVtableEntry* entries, int count,
+                                const char* name) {
+    if (!entries || !name) return -1;
+    for (int index = 0; index < count; ++index) {
+        if (entries[index].name &&
+            strcmp(entries[index].name, name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 void cxx_class_build_vtable(CxxClass* cls) {
     CxxClass* primary_base;
     int vtable_size;
@@ -593,37 +635,7 @@ void cxx_class_build_vtable(CxxClass* cls) {
         cls->vtable[index] = primary_base->vtable[index];
     }
 
-    /* A secondary base has its own vptr and therefore cannot use the
-     * derived class's primary table.  Until this backend can emit a
-     * this-adjusting thunk and a secondary derived table, reject an override
-     * here rather than silently retaining the base implementation. */
-    for (struct CxxMember* member = cls->members; member;
-         member = member->next) {
-        CxxMethod* method = member->method;
-        if (!method || !method->decl || method->is_static ||
-            method->is_constructor || method->is_destructor) continue;
-        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
-            CxxClass* base = cls->bases[base_index].base;
-            if (!base || base == primary_base ||
-                cls->bases[base_index].is_virtual || base->vtable_size <= 0 ||
-                !base->vtable) continue;
-            for (int slot = 0; slot < base->vtable_size; ++slot) {
-                if (base->vtable[slot].name && method->decl->name &&
-                    strcmp(base->vtable[slot].name,
-                           method->decl->name) == 0) {
-                    rcc_error(method->decl->loc,
-                              "virtual override '%s' for secondary base '%s' "
-                              "requires a this-adjusting thunk",
-                              method->decl->name,
-                              base->name ? base->name : "<anonymous>");
-                    break;
-                }
-            }
-        }
-    }
-
-    /* Build one Itanium-style primary table.  The current object model has a
-     * single vptr; secondary and virtual-base tables remain separate work. */
+    /* Build the Itanium-style primary table. */
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
         CxxMethod* method = member->method;
@@ -656,6 +668,55 @@ void cxx_class_build_vtable(CxxClass* cls) {
         cls->vtable[slot].method = method;
         cls->vtable[slot].offset = slot *
             (g_opts.target_arch == ARCH_X64 ? 8 : 4);
+        cls->vtable[slot].entry_symbol = NULL;
+    }
+
+    /* A fixed-offset polymorphic secondary base owns a distinct vptr in the
+     * complete object.  Copy its slots and replace only overridden entries;
+     * each replacement is entered through a real adjusting thunk emitted by
+     * the target-specific backend. */
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        CxxSecondaryVtable* secondary;
+        if (!base || base == primary_base ||
+            cls->bases[base_index].is_virtual || base->vtable_size <= 0 ||
+            !base->vtable) {
+            continue;
+        }
+        cls->secondary_vtables = ast_arena_grow(
+            cls->secondary_vtables,
+            sizeof(*cls->secondary_vtables) *
+                (size_t)cls->secondary_vtable_count,
+            sizeof(*cls->secondary_vtables) *
+                (size_t)(cls->secondary_vtable_count + 1));
+        secondary = &cls->secondary_vtables[cls->secondary_vtable_count++];
+        secondary->base = base;
+        secondary->base_index = base_index;
+        secondary->symbol = cxx_secondary_vtable_name(cls, base_index);
+        secondary->size = base->vtable_size;
+        secondary->entries = ast_arena_alloc(
+            sizeof(*secondary->entries) * (size_t)secondary->size);
+        for (int slot = 0; slot < secondary->size; ++slot) {
+            secondary->entries[slot] = base->vtable[slot];
+            secondary->entries[slot].entry_symbol = NULL;
+        }
+        for (struct CxxMember* member = cls->members; member;
+             member = member->next) {
+            CxxMethod* method = member->method;
+            int slot;
+            if (!method || !method->decl || method->is_static ||
+                method->is_constructor || method->is_destructor) {
+                continue;
+            }
+            slot = cxx_vtable_find_slot(secondary->entries, secondary->size,
+                                        method->decl->name);
+            if (slot < 0) continue;
+            method->is_virtual = true;
+            member->is_virtual = true;
+            secondary->entries[slot].method = method;
+            secondary->entries[slot].entry_symbol =
+                cxx_secondary_thunk_name(cls, base_index, slot);
+        }
     }
 
     cls->vtable_size = vtable_size;
