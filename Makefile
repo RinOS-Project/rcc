@@ -163,6 +163,7 @@ test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl
 .PHONY: test-cxx-constexpr-pointer
+.PHONY: test-cxx-constexpr-pointer-mutation
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
 .PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime test-cxx-dynamic-cast-reference
@@ -1760,6 +1761,28 @@ test-cxx-constexpr-pointer: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr-pointer/x64.o
 	$(TEST_OUT)/cxx-constexpr-pointer/x64
 	@echo "C++ constexpr pointer tests completed"
+
+test-cxx-constexpr-pointer-mutation: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-mutation)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-mutation/x86.s \
+		tests/cxx_constexpr_pointer_mutation.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constexpr-pointer-mutation/x86.o \
+		$(TEST_OUT)/cxx-constexpr-pointer-mutation/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-constexpr-pointer-mutation/x86 \
+		tests/cxx_constexpr_pointer_mutation_run_test.c \
+		$(TEST_OUT)/cxx-constexpr-pointer-mutation/x86.o
+	$(TEST_OUT)/cxx-constexpr-pointer-mutation/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-mutation/x64.s \
+		tests/cxx_constexpr_pointer_mutation.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-constexpr-pointer-mutation/x64.o \
+		$(TEST_OUT)/cxx-constexpr-pointer-mutation/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-constexpr-pointer-mutation/x64 \
+		tests/cxx_constexpr_pointer_mutation_run_test.c \
+		$(TEST_OUT)/cxx-constexpr-pointer-mutation/x64.o
+	$(TEST_OUT)/cxx-constexpr-pointer-mutation/x64
+	@echo "C++ constexpr local aggregate pointer mutation tests completed"
 
 test-cxx-auto-return: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-return)
