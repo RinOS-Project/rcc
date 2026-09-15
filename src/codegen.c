@@ -8587,7 +8587,34 @@ static void gen_expr(Module* mod, Expr* expr) {
         return;
     }
     gen_expr_raw(mod, expr);
-    if (expr->cxx_pointer_adjustment_valid &&
+    if (expr->cxx_dynamic_cast_checked) {
+        int fail_label;
+        int done_label;
+        if (!expr->cxx_dynamic_cast_vtable_symbol) {
+            rcc_error(expr->loc,
+                      "dynamic_cast has no validated vtable identity");
+            return;
+        }
+        fail_label = new_label();
+        done_label = new_label();
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, fail_label);
+        emit_push_reg(mod, EAX);
+        gen_symbol_address(mod, expr->cxx_dynamic_cast_vtable_symbol, 0u);
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_pop_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ECX, EAX, 0);
+        emit_cmp_reg_reg(mod, ECX, EDX);
+        emit_jcc_label(mod, CC_NE, fail_label);
+        if (expr->cxx_pointer_adjustment_valid &&
+            expr->cxx_pointer_adjustment != 0) {
+            emit_add_reg_imm(mod, EAX, expr->cxx_pointer_adjustment);
+        }
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, fail_label);
+        emit_xor_reg_reg(mod, EAX, EAX);
+        emit_label(mod, done_label);
+    } else if (expr->cxx_pointer_adjustment_valid &&
         expr->cxx_pointer_adjustment != 0) {
         if (expr->type && expr->type->kind == TYPE_PTR &&
             !expr->type->is_reference) {

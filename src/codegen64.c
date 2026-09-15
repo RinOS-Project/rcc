@@ -5115,7 +5115,34 @@ static void codegen64_release_named_labels(void) {
 static void gen64_expr(Module* mod, Expr* expr) {
     if (!expr) return;
     gen64_expr_raw(mod, expr);
-    if (expr->cxx_pointer_adjustment_valid &&
+    if (expr->cxx_dynamic_cast_checked) {
+        int fail_label;
+        int done_label;
+        if (!expr->cxx_dynamic_cast_vtable_symbol) {
+            rcc_error(expr->loc,
+                      "dynamic_cast has no validated vtable identity");
+            return;
+        }
+        fail_label = new_label64();
+        done_label = new_label64();
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, fail_label);
+        emit64_push_reg(mod, RAX);
+        gen64_symbol_address(mod, expr->cxx_dynamic_cast_vtable_symbol, 0u);
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_pop_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RCX, RAX, 0);
+        emit64_cmp_reg_reg(mod, RCX, RDX);
+        emit64_jcc_label(mod, CC64_NE, fail_label);
+        if (expr->cxx_pointer_adjustment_valid &&
+            expr->cxx_pointer_adjustment != 0) {
+            emit64_add_reg_imm(mod, RAX, expr->cxx_pointer_adjustment);
+        }
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, fail_label);
+        emit64_xor_reg_reg(mod, RAX, RAX);
+        emit64_label(mod, done_label);
+    } else if (expr->cxx_pointer_adjustment_valid &&
         expr->cxx_pointer_adjustment != 0) {
         if (expr->type && expr->type->kind == TYPE_PTR &&
             !expr->type->is_reference) {

@@ -376,6 +376,11 @@ struct Expr {
      * pointer value. */
     bool cxx_pointer_adjustment_valid;
     int32_t cxx_pointer_adjustment;
+    /* A bounded dynamic_cast downcast carries the expected complete-object
+     * vtable identity.  Code generation returns a null pointer when the
+     * source subobject does not contain that exact table. */
+    bool cxx_dynamic_cast_checked;
+    const char* cxx_dynamic_cast_vtable_symbol;
     /* Non-NULL only for a semantically validated C++ ownership transfer. */
     CxxMoveAssignment* cxx_move_assignment;
     /* Non-NULL only for the structurally validated SDK close operation. */

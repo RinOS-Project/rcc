@@ -164,7 +164,9 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
+.PHONY: test-cxx-dynamic-cast-downcast
 .PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
+.PHONY: test-cxx-qualified-class-initialization
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1531,6 +1533,34 @@ test-cxx-template-two-phase-adl: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-template-two-phase-adl/x64.o
 	$(TEST_OUT)/cxx-template-two-phase-adl/x64
 	@echo "C++ template instantiation-time ADL tests completed"
+
+test-cxx-qualified-class-initialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-qualified-class-initialization)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-qualified-class-initialization/x86.s \
+		tests/cxx_qualified_class_initialization.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-qualified-class-initialization/x86.o \
+		$(TEST_OUT)/cxx-qualified-class-initialization/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-qualified-class-initialization/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-qualified-class-initialization/x86 \
+		$(TEST_OUT)/cxx-qualified-class-initialization/start-x86.o \
+		$(TEST_OUT)/cxx-qualified-class-initialization/x86.o
+	$(TEST_OUT)/cxx-qualified-class-initialization/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-qualified-class-initialization/x64.s \
+		tests/cxx_qualified_class_initialization.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-qualified-class-initialization/x64.o \
+		$(TEST_OUT)/cxx-qualified-class-initialization/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-qualified-class-initialization/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-qualified-class-initialization/x64 \
+		$(TEST_OUT)/cxx-qualified-class-initialization/start-x64.o \
+		$(TEST_OUT)/cxx-qualified-class-initialization/x64.o
+	$(TEST_OUT)/cxx-qualified-class-initialization/x64
+	@echo "C++ qualified class initialization tests completed"
 
 test-cxx-constexpr-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
@@ -3250,6 +3280,34 @@ test-cxx-dynamic-cast: $(RCXX_TARGET)
 	grep -q "Verified backend: 3 function(s) emitted" \
 		$(TEST_OUT)/cxx-dynamic-cast/x64.log
 	@echo "C++ statically known public-upcast dynamic_cast tests completed"
+
+test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-downcast)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.s \
+		tests/cxx_dynamic_cast_downcast.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86 \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/start-x86.o \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o
+	$(TEST_OUT)/cxx-dynamic-cast-downcast/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s \
+		tests/cxx_dynamic_cast_downcast.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64 \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/start-x64.o \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o
+	$(TEST_OUT)/cxx-dynamic-cast-downcast/x64
+	@echo "C++ exact public-downcast dynamic_cast tests completed"
 
 test-integer-literals: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/integer-literals
