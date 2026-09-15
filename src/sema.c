@@ -7533,6 +7533,82 @@ static Expr* sema_cxx_default_member_initializer(Decl* declaration) {
     }
 }
 
+static bool sema_deduce_auto_return_stmt(Stmt* statement, Type** deduced,
+                                         bool* saw_return) {
+    if (!statement || !deduced || !saw_return) return true;
+    switch (statement->kind) {
+        case STMT_RETURN: {
+            Type* result_type = NULL;
+            if (statement->return_val) {
+                result_type = generic_selection_type(
+                    sema_expr(statement->return_val));
+                if (!result_type || result_type->kind == TYPE_VOID) {
+                    rcc_error(statement->loc,
+                              "auto return expression has no value");
+                    return false;
+                }
+            } else {
+                result_type = type_void;
+            }
+            if (!*saw_return) {
+                *deduced = result_type;
+                *saw_return = true;
+                return true;
+            }
+            if (!type_is_compatible(*deduced, result_type)) {
+                rcc_error(statement->loc,
+                          "inconsistent deduction for auto return type");
+                return false;
+            }
+            return true;
+        }
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!sema_deduce_auto_return_stmt(item->stmt, deduced,
+                                                  saw_return)) return false;
+            }
+            return true;
+        case STMT_IF:
+            return sema_deduce_auto_return_stmt(statement->if_then, deduced,
+                                                saw_return) &&
+                   sema_deduce_auto_return_stmt(statement->if_else, deduced,
+                                                saw_return);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_deduce_auto_return_stmt(statement->while_body, deduced,
+                                                saw_return);
+        case STMT_FOR:
+            return sema_deduce_auto_return_stmt(statement->for_init, deduced,
+                                                saw_return) &&
+                   sema_deduce_auto_return_stmt(statement->for_body, deduced,
+                                                saw_return);
+        case STMT_SWITCH:
+            return sema_deduce_auto_return_stmt(statement->switch_body, deduced,
+                                                saw_return);
+        case STMT_CASE:
+            return sema_deduce_auto_return_stmt(statement->case_stmt, deduced,
+                                                saw_return);
+        case STMT_DEFAULT:
+            return sema_deduce_auto_return_stmt(statement->default_stmt,
+                                                deduced, saw_return);
+        case STMT_LABEL:
+            return sema_deduce_auto_return_stmt(statement->label_stmt, deduced,
+                                                saw_return);
+        case STMT_TRY:
+            if (!sema_deduce_auto_return_stmt(statement->try_body, deduced,
+                                              saw_return)) return false;
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!sema_deduce_auto_return_stmt(handler->body, deduced,
+                                                  saw_return)) return false;
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
@@ -7739,6 +7815,10 @@ static void sema_decl(Decl* decl) {
             if (rcc_parser_is_cxx_mode()) {
                 current_cxx_namespace = sema_decl_namespace(decl);
             }
+            if (decl->func_is_auto_return && !decl->func_body) {
+                rcc_error(decl->loc,
+                          "auto return type requires a function definition");
+            }
             Symbol* sym = symtab_lookup(g_symtab, decl->name);
             bool cxx_overload_set = false;
             bool cxx_defaults_merged = false;
@@ -7854,6 +7934,18 @@ static void sema_decl(Decl* decl) {
                         param_offset += (parameter_size + 3) & ~3;
                     }
                 }
+                current_cxx_method_owner = decl->func_method_owner;
+                current_cxx_this_param = decl->func_this_param;
+                if (decl->func_is_auto_return) {
+                    Type* deduced_return = NULL;
+                    bool saw_return = false;
+                    if (sema_deduce_auto_return_stmt(
+                            decl->func_body, &deduced_return, &saw_return)) {
+                        if (!saw_return) deduced_return = type_void;
+                        decl->type->ret_type = deduced_return;
+                    }
+                }
+                current_func_ret = decl->type->ret_type;
                 for (DeclList* p = decl->func_params; p; p = p->next) {
                     if (p->decl && p->decl->param_array_type) {
                         sema_validate_array_parameter_type(
@@ -7864,8 +7956,6 @@ static void sema_decl(Decl* decl) {
                 }
 
                 /* Analyze body */
-                current_cxx_method_owner = decl->func_method_owner;
-                current_cxx_this_param = decl->func_this_param;
                 loop_depth = 0;
                 current_switch = NULL;
                 sema_stmt(decl->func_body);

@@ -779,6 +779,7 @@ struct Decl {
             bool func_is_cxx_destructor;
             bool func_is_constexpr;
             bool func_is_consteval;
+            bool func_is_auto_return;
             Decl* func_overload_next;
         };
 

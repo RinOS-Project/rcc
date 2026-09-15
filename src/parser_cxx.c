@@ -2614,6 +2614,18 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
             add_namespace_statement(ast, ns, statement);
+        } else if (check(TOK_AUTO) && parser.cur->next &&
+                   parser.cur->next->type == TOK_IDENT &&
+                   parser.cur->next->next &&
+                   parser.cur->next->next->type == TOK_LPAREN) {
+            bool is_constexpr = false;
+            bool is_noexcept = false;
+            bool is_consteval = false;
+            Decl* declaration = parse_cxx_function_declaration(
+                true, &is_constexpr, &is_noexcept, &is_consteval);
+            if (declaration) {
+                add_namespace_declaration(ast, ns, declaration);
+            }
         } else if (check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL) ||
                    check(TOK_INLINE) ||
                    check(TOK___INLINE__)) {
@@ -2934,6 +2946,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     DeclList* params;
     Stmt* body = NULL;
     bool is_inline = false;
+    bool is_auto_return = false;
 
     *is_constexpr = false;
     *is_noexcept = false;
@@ -2949,7 +2962,14 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
     }
-    return_type = parse_cxx_type_spec();
+    if (match(TOK_AUTO)) {
+        is_auto_return = true;
+        /* The final return type is resolved after the body has been parsed
+         * and its expressions have entered the function scope. */
+        return_type = type_int;
+    } else {
+        return_type = parse_cxx_type_spec();
+    }
     name = expect(TOK_IDENT, "function name");
     if (!name) return NULL;
     expect(TOK_LPAREN, "(");
@@ -2990,6 +3010,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     function->decl->func_is_inline = is_inline;
     function->decl->func_is_constexpr = *is_constexpr;
     function->decl->func_is_consteval = *is_consteval;
+    function->decl->func_is_auto_return = is_auto_return;
     return function->decl;
 }
 
@@ -3595,6 +3616,7 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_destructor = method->is_destructor;
     copy->decl->func_is_cxx_constructor = copy->is_constructor;
     copy->decl->func_is_cxx_destructor = copy->is_destructor;
+    copy->decl->func_is_auto_return = method->decl->func_is_auto_return;
     copy->vtable_index = method->vtable_index;
     copy->decl->func_body = cxx_template_clone_stmt_with_values(
         tmpl, method->decl->func_body, arguments, argument_count,
@@ -5303,6 +5325,19 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             Stmt* statement = parse_cxx_statement();
             if (statement && statement->kind == STMT_DECL) {
                 add_cxx_declaration(ast, statement, false);
+            }
+        } else if (check(TOK_AUTO) && parser.cur->next &&
+                   parser.cur->next->type == TOK_IDENT &&
+                   parser.cur->next->next &&
+                   parser.cur->next->next->type == TOK_LPAREN) {
+            bool is_constexpr = false;
+            bool is_noexcept = false;
+            bool is_consteval = false;
+            Decl* declaration = parse_cxx_function_declaration(
+                true, &is_constexpr, &is_noexcept, &is_consteval);
+            if (g_global_namespace && declaration) {
+                add_namespace_declaration(ast, g_global_namespace,
+                                          declaration);
             }
         } else if (check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL) ||
                    check(TOK_INLINE) ||

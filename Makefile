@@ -153,6 +153,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
 .PHONY: test-cxx-constexpr-pointer
+.PHONY: test-cxx-auto-return
 
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
@@ -1255,6 +1256,37 @@ test-cxx-constexpr-pointer: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr-pointer/x64.o
 	$(TEST_OUT)/cxx-constexpr-pointer/x64
 	@echo "C++ constexpr pointer tests completed"
+
+test-cxx-auto-return: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-return)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-auto-return/x86.s \
+		tests/cxx_template_identity.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-auto-return/x86.o \
+		$(TEST_OUT)/cxx-auto-return/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-auto-return/x86 \
+		tests/cxx_template_identity_run_test.c \
+		$(TEST_OUT)/cxx-auto-return/x86.o
+	$(TEST_OUT)/cxx-auto-return/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-auto-return/x64.s \
+		tests/cxx_template_identity.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-auto-return/x64.o \
+		$(TEST_OUT)/cxx-auto-return/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-auto-return/x64 \
+		tests/cxx_template_identity_run_test.c \
+		$(TEST_OUT)/cxx-auto-return/x64.o
+	$(TEST_OUT)/cxx-auto-return/x64
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-auto-return/invalid.ro \
+		tests/cxx_auto_return_invalid.cpp \
+		>$(TEST_OUT)/cxx-auto-return/invalid.log 2>&1; \
+		status=$$?; set -e; test $$status -ne 0
+	grep -q "inconsistent deduction for auto return type" \
+		$(TEST_OUT)/cxx-auto-return/invalid.log
+	grep -q "auto return type requires a function definition" \
+		$(TEST_OUT)/cxx-auto-return/invalid.log
+	@echo "C++ auto return deduction tests completed"
 
 test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)
