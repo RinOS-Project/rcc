@@ -57,4 +57,13 @@ template<typename T>
 T passthrough(T value) {
     return value;
 }
+
+template<typename T>
+int type_only_template() {
+    return sizeof(T);
+}
+
+int use_type_only_template() {
+    return type_only_template<int>() + type_only_template<long>();
+}
 }

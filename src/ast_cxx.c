@@ -298,24 +298,83 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     return buf;
 }
 
+static bool cxx_type_uses_template_parameter(CxxTemplate* tmpl, Type* type,
+                                             int parameter_index) {
+    if (!tmpl || !type || parameter_index < 0 ||
+        parameter_index >= tmpl->param_count) {
+        return false;
+    }
+    if (type->kind == TYPE_STRUCT && type->tag &&
+        tmpl->params[parameter_index].kind == TPARAM_TYPE &&
+        tmpl->params[parameter_index].name &&
+        strcmp(type->tag, tmpl->params[parameter_index].name) == 0) {
+        return true;
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        return cxx_type_uses_template_parameter(tmpl, type->base,
+                                                 parameter_index);
+    }
+    if (type->kind == TYPE_FUNC) {
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_type_uses_template_parameter(tmpl, parameter->type,
+                                                 parameter_index)) {
+                return true;
+            }
+        }
+        return cxx_type_uses_template_parameter(tmpl, type->ret_type,
+                                                 parameter_index);
+    }
+    return false;
+}
+
+static bool cxx_function_template_parameter_is_in_signature(
+    CxxTemplate* tmpl, Decl* func, int parameter_index) {
+    Decl* signature;
+    if (!tmpl || !func || !func->type || func->type->kind != TYPE_FUNC) {
+        return false;
+    }
+    /* `func` is the substituted instance by the time it is mangled.  Its
+     * concrete parameter types no longer identify which template parameters
+     * were present, so inspect the original definition when available. */
+    signature = tmpl->func_def ? tmpl->func_def : func;
+    if (!signature->type || signature->type->kind != TYPE_FUNC) return false;
+    for (TypeParam* parameter = signature->type->params; parameter;
+         parameter = parameter->next) {
+        if (cxx_type_uses_template_parameter(tmpl, parameter->type,
+                                              parameter_index)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                                            CxxClass* cls, CxxTemplate* tmpl,
+                                           Type** type_args,
                                            const int64_t* value_args,
                                            const bool* value_present) {
     static char buf[1024];
     char* base;
     size_t pos;
     bool has_value_argument = false;
+    bool has_type_argument = false;
 
     if (!func || !tmpl) return cxx_mangle_function(func, ns, cls);
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (tmpl->params[index].kind == TPARAM_NONTYPE && value_present &&
             value_present[index]) {
             has_value_argument = true;
-            break;
+        } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
+                   type_args[index] &&
+                   !cxx_function_template_parameter_is_in_signature(
+                       tmpl, func, index)) {
+            has_type_argument = true;
         }
     }
-    if (!has_value_argument) return cxx_mangle_function(func, ns, cls);
+    if (!has_value_argument && !has_type_argument) {
+        return cxx_mangle_function(func, ns, cls);
+    }
 
     base = cxx_mangle_name(func->name, ns, cls);
     strcpy(buf, base);
@@ -323,27 +382,44 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     buf[pos++] = 'I';
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
-        if (parameter->kind != TPARAM_NONTYPE || !value_present[index]) {
-            continue;
-        }
-        buf[pos++] = 'L';
-        {
-            char* type_mangled = cxx_mangle_type(parameter->type);
-            size_t type_length = strlen(type_mangled);
+        if (parameter->kind == TPARAM_TYPE) {
+            const char* type_mangled;
+            size_t type_length;
+            if (!type_args || !type_args[index] ||
+                cxx_function_template_parameter_is_in_signature(
+                    tmpl, func, index)) {
+                continue;
+            }
+            type_mangled = cxx_mangle_type(type_args[index]);
+            type_length = strlen(type_mangled);
             if (pos + type_length >= sizeof(buf) - 32u) {
                 rcc_fatal("C++ template function name is too long");
             }
             memcpy(buf + pos, type_mangled, type_length);
             pos += type_length;
+            continue;
         }
-        if (value_args[index] < 0) {
-            uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
-            pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
-                                    "n%lluE",
-                                    (unsigned long long)magnitude);
-        } else {
-            pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "%lldE",
-                                    (long long)value_args[index]);
+        if (parameter->kind == TPARAM_NONTYPE && value_present &&
+            value_present[index]) {
+            buf[pos++] = 'L';
+            {
+                char* type_mangled = cxx_mangle_type(parameter->type);
+                size_t type_length = strlen(type_mangled);
+                if (pos + type_length >= sizeof(buf) - 32u) {
+                    rcc_fatal("C++ template function name is too long");
+                }
+                memcpy(buf + pos, type_mangled, type_length);
+                pos += type_length;
+            }
+            if (value_args[index] < 0) {
+                uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
+                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
+                                        "n%lluE",
+                                        (unsigned long long)magnitude);
+            } else {
+                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "%lldE",
+                                        (long long)value_args[index]);
+            }
         }
     }
     buf[pos++] = 'E';
@@ -1682,7 +1758,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_template_instance = true;
         instance->func_has_cxx_linkage = true;
         instance->link_name = rcc_intern(cxx_mangle_function_template(
-            instance, tmpl->ns, NULL, tmpl, value_args, value_present));
+            instance, tmpl->ns, NULL, tmpl, args, value_args,
+            value_present));
 
         tmpl->instances = ast_arena_grow(
             tmpl->instances,

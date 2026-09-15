@@ -884,6 +884,16 @@ test-cxx-function-templates: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-templates/x64.ro \
 		tests/cxx_function_templates.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-function-templates/x86.s \
+		tests/cxx_function_templates.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-function-templates/x86.o \
+		$(TEST_OUT)/cxx-function-templates/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-function-templates/x64.s \
+		tests/cxx_function_templates.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-function-templates/x64.o \
+		$(TEST_OUT)/cxx-function-templates/x64.s
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
 		grep -F -x -q '_ZN8identityEi'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
@@ -891,7 +901,11 @@ test-cxx-function-templates: $(RCXX_TARGET)
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
 		grep -F -x -q '_ZN6detail16pointer_identityEPi'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		grep -F -x -q '_ZN6detail15default_deducedEi'
+		grep -F -x -q '_ZN6detail15default_deducedEIlEi'
+	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
+		grep -F -x -q '_ZN6detail18type_only_templateEIiEv'
+	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
+		grep -F -x -q '_ZN6detail18type_only_templateEIlEv'
 	@echo "RCC++ function template syntax tests completed"
 
 test-cxx-function-template-overloads: $(RCXX_TARGET)
