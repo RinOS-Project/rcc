@@ -9268,6 +9268,20 @@ static Expr* sema_cxx_default_member_initializer(Decl* declaration) {
     }
 }
 
+static void sema_cxx_synthesize_default_constructor_initializer(
+    Decl* declaration) {
+    Type* type = declaration ? declaration->type : NULL;
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    Expr* initializer;
+    if (!declaration || !type || !cls || !cls->has_user_constructor ||
+        declaration->var_init || declaration->storage == STORAGE_EXTERN) {
+        return;
+    }
+    initializer = expr_initializer_list(NULL, declaration->loc);
+    initializer->compound_type = type;
+    declaration->var_init = initializer;
+}
+
 static Type* sema_decltype_auto_return_type(Expr* expression) {
     Type* result;
     if (!expression) return type_void;
@@ -9481,6 +9495,9 @@ static void sema_decl(Decl* decl) {
                 Expr* default_initializer =
                     sema_cxx_default_member_initializer(decl);
                 if (default_initializer) decl->var_init = default_initializer;
+            }
+            if (rcc_parser_is_cxx_mode()) {
+                sema_cxx_synthesize_default_constructor_initializer(decl);
             }
             if (decl->var_is_thread_local && !is_global &&
                 decl->storage != STORAGE_STATIC &&

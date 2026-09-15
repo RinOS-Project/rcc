@@ -12,7 +12,7 @@ private:
 };
 
 extern "C" int cxx_delegating_constructor(void) {
-    Delegating direct{};
+    Delegating direct;
     Delegating explicit_value(3);
     Delegating* heap = new Delegating();
     int result = direct.value() + explicit_value.value() + heap->value();
