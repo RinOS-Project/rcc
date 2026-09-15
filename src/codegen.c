@@ -5146,13 +5146,74 @@ static Expr* gen_cxx_bind_constructor_argument32(
     return expression;
 }
 
+static Expr* gen_cxx_bind_constructor_expression32(
+    CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
+    Expr* copy;
+    if (!expression || expression->kind == EXPR_IDENT ||
+        expression->kind == EXPR_INT_LIT ||
+        expression->kind == EXPR_CHAR_LIT ||
+        expression->kind == EXPR_FLOAT_LIT) {
+        return gen_cxx_bind_constructor_argument32(
+            constructor, expression, arguments);
+    }
+    copy = rcc_alloc(sizeof(*copy));
+    *copy = *expression;
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            copy->unary_operand = gen_cxx_bind_constructor_expression32(
+                constructor, expression->unary_operand, arguments);
+            break;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            copy->binary_lhs = gen_cxx_bind_constructor_expression32(
+                constructor, expression->binary_lhs, arguments);
+            copy->binary_rhs = gen_cxx_bind_constructor_expression32(
+                constructor, expression->binary_rhs, arguments);
+            break;
+        case EXPR_COND:
+            copy->cond_test = gen_cxx_bind_constructor_expression32(
+                constructor, expression->cond_test, arguments);
+            copy->cond_then = gen_cxx_bind_constructor_expression32(
+                constructor, expression->cond_then, arguments);
+            copy->cond_else = gen_cxx_bind_constructor_expression32(
+                constructor, expression->cond_else, arguments);
+            break;
+        case EXPR_CAST:
+            copy->cast_expr = gen_cxx_bind_constructor_expression32(
+                constructor, expression->cast_expr, arguments);
+            break;
+        default:
+            rcc_free(copy);
+            return expression;
+    }
+    return copy;
+}
+
 static ExprList* gen_cxx_bind_constructor_arguments32(
     CxxConstructorInfo* constructor, ExprList* member_arguments,
     ExprList* arguments) {
     ExprList* bound = NULL;
     for (ExprList* member = member_arguments; member; member = member->next) {
         exprlist_append(&bound,
-                        gen_cxx_bind_constructor_argument32(
+                        gen_cxx_bind_constructor_expression32(
                             constructor, member->expr, arguments));
     }
     return bound;
@@ -5259,7 +5320,7 @@ static void gen_cxx_initialize_member_initializers32(
             return;
         }
         emit_push_reg(mod, ECX);
-        gen_expr_as_type(mod, gen_cxx_bind_constructor_argument32(
+        gen_expr_as_type(mod, gen_cxx_bind_constructor_expression32(
                              constructor, initializer->value, arguments),
                          field->type);
         emit_pop_reg(mod, ECX);
@@ -5350,7 +5411,7 @@ static void gen_cxx_initialize_object32(Module* mod, Type* object_type,
                     bound_arguments);
                 emit_pop_reg(mod, address_reg);
             } else {
-                Expr* value = gen_cxx_bind_constructor_argument32(
+                Expr* value = gen_cxx_bind_constructor_expression32(
                     constructor, initializer->value, arguments);
                 if (!value || (initializer->arguments &&
                                initializer->arguments->next)) {

@@ -1012,10 +1012,19 @@ static Type* cxx_constructor_value_type(Type* type) {
     return type;
 }
 
-static bool cxx_base_argument_is_lowerable(CxxConstructorInfo* constructor,
-                                            Expr* expression,
-                                            Type* target_type) {
-    if (!expression || !target_type) return false;
+static bool cxx_constructor_scalar_type(Type* type) {
+    return type && (type_is_integer(type) || type->kind == TYPE_ENUM ||
+                    type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
+                    type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
+}
+
+static bool cxx_constructor_expression_is_lowerable(
+    CxxConstructorInfo* constructor, Expr* expression, Type* target_type,
+    bool* parameter_used, unsigned parameter_count) {
+    if (!expression || (target_type &&
+                        !cxx_constructor_scalar_type(target_type))) {
+        return false;
+    }
     if (expression->kind == EXPR_IDENT) {
         int index = cxx_constructor_parameter_index(
             constructor, expression->ident_name);
@@ -1023,21 +1032,77 @@ static bool cxx_base_argument_is_lowerable(CxxConstructorInfo* constructor,
         for (int step = 0; parameter && step < index; ++step) {
             parameter = parameter->next;
         }
-        return index >= 0 && parameter &&
-            type_is_compatible(cxx_constructor_value_type(parameter->type),
-                               cxx_constructor_value_type(target_type));
+        if (index < 0 || !parameter ||
+            !cxx_constructor_scalar_type(parameter->type) ||
+            (target_type &&
+             !type_is_compatible(cxx_constructor_value_type(parameter->type),
+                                 cxx_constructor_value_type(target_type)))) {
+            return false;
+        }
+        if (parameter_used && index < (int)parameter_count) {
+            parameter_used[index] = true;
+        }
+        return true;
     }
-    if (type_is_integer(target_type) || target_type->kind == TYPE_ENUM ||
-        target_type->kind == TYPE_NULLPTR) {
-        int64_t value;
-        return expr_eval_integer_constant(expression, &value);
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_FLOAT_LIT:
+            return !target_type || cxx_constructor_scalar_type(target_type);
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_constructor_expression_is_lowerable(
+                constructor, expression->unary_operand, NULL,
+                parameter_used, parameter_count);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_constructor_expression_is_lowerable(
+                       constructor, expression->binary_lhs, NULL,
+                       parameter_used, parameter_count) &&
+                   cxx_constructor_expression_is_lowerable(
+                       constructor, expression->binary_rhs, NULL,
+                       parameter_used, parameter_count);
+        case EXPR_COND:
+            return cxx_constructor_expression_is_lowerable(
+                       constructor, expression->cond_test, NULL,
+                       parameter_used, parameter_count) &&
+                   cxx_constructor_expression_is_lowerable(
+                       constructor, expression->cond_then, NULL,
+                       parameter_used, parameter_count) &&
+                   cxx_constructor_expression_is_lowerable(
+                       constructor, expression->cond_else, NULL,
+                       parameter_used, parameter_count);
+        case EXPR_CAST:
+            return cxx_constructor_scalar_type(expression->cast_type) &&
+                   cxx_constructor_expression_is_lowerable(
+                       constructor, expression->cast_expr, NULL,
+                       parameter_used, parameter_count);
+        default:
+            return false;
     }
-    return false;
 }
 
 static bool cxx_base_initializer_is_lowerable(
     CxxConstructorInfo* derived_constructor,
-    CxxConstructorInitializer* initializer) {
+    CxxConstructorInitializer* initializer, bool* parameter_used,
+    unsigned parameter_count) {
     CxxConstructorInfo* base_constructor = initializer
         ? initializer->constructor : NULL;
     ExprList* argument = initializer ? initializer->arguments : NULL;
@@ -1046,8 +1111,9 @@ static bool cxx_base_initializer_is_lowerable(
     if (!base_constructor) return argument_count == 0;
     if (argument_count != base_constructor->parameter_count) return false;
     while (argument && parameter) {
-        if (!cxx_base_argument_is_lowerable(
-                derived_constructor, argument->expr, parameter->type)) {
+        if (!cxx_constructor_expression_is_lowerable(
+                derived_constructor, argument->expr, parameter->type,
+                parameter_used, parameter_count)) {
             return false;
         }
         argument = argument->next;
@@ -1081,11 +1147,8 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
          constructor = constructor->next) {
         unsigned arity;
         bool supported = true;
-        int argument_initializer_count = 0;
         bool parameter_used[32] = {false};
-        int parameter_index = 0;
         TypeParam* field = cls->fields;
-        TypeParam* parameter = constructor->parameters;
         CxxConstructorInitializer* initializer = constructor->initializers;
         if (constructor->access != ACCESS_PUBLIC ||
             constructor->is_deleted || constructor->is_defaulted) {
@@ -1105,28 +1168,15 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         }
         if (!constructor->initializers_are_supported) continue;
         while (initializer && initializer->is_base_initializer) {
-            if (!cxx_base_initializer_is_lowerable(constructor, initializer)) {
+            if (!cxx_base_initializer_is_lowerable(
+                    constructor, initializer, parameter_used, arity)) {
                 supported = false;
                 break;
             }
-            for (ExprList* argument = initializer->arguments; argument;
-                 argument = argument->next) {
-                if (argument->expr && argument->expr->kind == EXPR_IDENT) {
-                    int used_index = cxx_constructor_parameter_index(
-                        constructor, argument->expr->ident_name);
-                    if (used_index < 0 || used_index >= (int)arity) {
-                        supported = false;
-                        break;
-                    }
-                    parameter_used[used_index] = true;
-                }
-            }
-            if (!supported) break;
             initializer = initializer->next;
         }
         if (!supported) continue;
         while (field && initializer) {
-            Type* parameter_value_type;
             if (!initializer->field ||
                 strcmp(initializer->field, field->name) != 0 ||
                 (!initializer->value && !initializer->arguments &&
@@ -1140,19 +1190,18 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
              * one-to-one parameter shape needed by this storage lowering. */
             if (field->type && field->type->cxx_class) {
                 if (arity != 0u) {
-                    ++argument_initializer_count;
                     ExprList* argument = initializer->arguments;
-                    if (!parameter || !argument || argument->next ||
+                    int used_index = argument && argument->expr &&
+                        argument->expr->kind == EXPR_IDENT
+                        ? cxx_constructor_parameter_index(
+                            constructor, argument->expr->ident_name) : -1;
+                    if (used_index < 0 || !argument || argument->next ||
                         !argument->expr ||
-                        argument->expr->kind != EXPR_IDENT ||
-                        !parameter->name ||
-                        strcmp(argument->expr->ident_name,
-                               parameter->name) != 0) {
+                        used_index >= (int)arity) {
                         supported = false;
                         break;
                     }
-                    parameter_used[parameter_index++] = true;
-                    parameter = parameter->next;
+                    parameter_used[used_index] = true;
                 }
                 field = field->next;
                 initializer = initializer->next;
@@ -1179,7 +1228,6 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 initializer = initializer->next;
                 continue;
             }
-            ++argument_initializer_count;
             if (arity == 0u) {
                 int64_t constant_value = 0;
                 if (!expr_eval_integer_constant(
@@ -1196,34 +1244,17 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                     break;
                 }
             } else {
-                if (!parameter || !parameter->name ||
-                    initializer->value->kind != EXPR_IDENT ||
-                    strcmp(initializer->value->ident_name,
-                           parameter->name) != 0) {
+                if (!cxx_constructor_expression_is_lowerable(
+                        constructor, initializer->value, field->type,
+                        parameter_used, arity)) {
                     supported = false;
                     break;
                 }
-                parameter_value_type = parameter->type;
-                if (parameter_value_type &&
-                    parameter_value_type->kind == TYPE_PTR &&
-                    parameter_value_type->is_reference) {
-                    parameter_value_type = parameter_value_type->base;
-                }
-                if (!type_is_compatible(field->type,
-                                        parameter_value_type)) {
-                    supported = false;
-                    break;
-                }
-                parameter_used[parameter_index++] = true;
-                parameter = parameter->next;
             }
             field = field->next;
             initializer = initializer->next;
         }
-        if (!supported || field || initializer ||
-            (cls->base_count == 0 && parameter) ||
-            (arity != 0u &&
-             argument_initializer_count != (int)arity)) {
+        if (!supported || field || initializer) {
             continue;
         }
         if (arity != 0u) {

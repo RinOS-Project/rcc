@@ -13,7 +13,7 @@ private:
 class DerivedConstructor : public BaseConstructor {
 public:
     explicit DerivedConstructor(int value)
-        : BaseConstructor(value), own_(value) {}
+        : BaseConstructor(value + 1), own_(value + 2) {}
 
     int total() const {
         return base() + own_;
@@ -28,5 +28,5 @@ extern "C" int cxx_base_constructor_initializer() {
     DerivedConstructor* heap = new DerivedConstructor(6);
     int result = direct.total() + heap->total();
     delete heap;
-    return result == 20 ? 0 : 1;
+    return result == 26 ? 0 : 1;
 }

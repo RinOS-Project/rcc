@@ -4891,6 +4891,105 @@ static Decl* sema_cxx_constructor_parameter(
     return NULL;
 }
 
+static void sema_bind_cxx_constructor_expression(
+    CxxConstructorInfo* constructor, Expr* expression) {
+    if (!expression) return;
+    if (expression->kind == EXPR_IDENT) {
+        Decl* parameter = sema_cxx_constructor_parameter(
+            constructor, expression->ident_name);
+        if (parameter) {
+            expression->ident_decl = parameter;
+            expression->type = parameter->type;
+        }
+        return;
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->unary_operand);
+            return;
+        case EXPR_CAST:
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->cast_expr);
+            return;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->binary_lhs);
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->binary_rhs);
+            return;
+        case EXPR_COND:
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->cond_test);
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->cond_then);
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->cond_else);
+            return;
+        case EXPR_INDEX:
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->index_base);
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->index_expr);
+            return;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->member_base);
+            return;
+        case EXPR_CALL:
+            sema_bind_cxx_constructor_expression(
+                constructor, expression->call_func);
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                sema_bind_cxx_constructor_expression(
+                    constructor, argument->expr);
+            }
+            return;
+        default:
+            return;
+    }
+}
+
 static CxxConstructorInfo* sema_select_cxx_new_constructor(
     Type* object_type, ExprList* arguments, SourceLoc loc) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
@@ -4983,16 +5082,9 @@ static void sema_resolve_cxx_constructor_initializers(
             }
             for (ExprList* argument = initializer->arguments; argument;
                  argument = argument->next) {
-                Decl* parameter = argument->expr &&
-                    argument->expr->kind == EXPR_IDENT
-                    ? sema_cxx_constructor_parameter(
-                        constructor, argument->expr->ident_name) : NULL;
-                if (parameter) {
-                    argument->expr->ident_decl = parameter;
-                    argument->expr->type = parameter->type;
-                } else if (argument->expr) {
-                    sema_expr(argument->expr);
-                }
+                sema_bind_cxx_constructor_expression(
+                    constructor, argument->expr);
+                sema_expr(argument->expr);
             }
             if (base->constructors || initializer->arguments) {
                 initializer->constructor = sema_select_cxx_new_constructor(
@@ -5014,16 +5106,9 @@ static void sema_resolve_cxx_constructor_initializers(
         }
         for (ExprList* argument = initializer->arguments; argument;
              argument = argument->next) {
-            Decl* parameter = argument->expr &&
-                argument->expr->kind == EXPR_IDENT
-                ? sema_cxx_constructor_parameter(
-                    constructor, argument->expr->ident_name) : NULL;
-            if (parameter) {
-                argument->expr->ident_decl = parameter;
-                argument->expr->type = parameter->type;
-            } else if (argument->expr) {
-                sema_expr(argument->expr);
-            }
+            sema_bind_cxx_constructor_expression(
+                constructor, argument->expr);
+            sema_expr(argument->expr);
         }
         if (initializer->is_default_member_initializer &&
             initializer->value) {
