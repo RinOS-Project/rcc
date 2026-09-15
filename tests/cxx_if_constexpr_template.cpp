@@ -16,9 +16,19 @@ int select_nonpositive(int value) {
     }
 }
 
+template<typename T>
+int select_sized(T value) {
+    if constexpr (sizeof(T) == sizeof(int)) {
+        return value;
+    } else {
+        return missing_size_branch(value);
+    }
+}
+
 int main(void) {
     return select_positive<3>(4) == 7 &&
-                   select_nonpositive<-2>(5) == 7
+                   select_nonpositive<-2>(5) == 7 &&
+                   select_sized(9) == 9
                ? 0
                : 1;
 }
