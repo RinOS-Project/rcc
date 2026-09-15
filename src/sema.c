@@ -2222,6 +2222,7 @@ static bool sema_eval_constexpr_scalar_expr(
     SemaConstexprScalar left;
     SemaConstexprScalar right;
     Type* result_type;
+    Type* measured;
     int64_t integer;
     int binding_index;
 
@@ -2433,13 +2434,16 @@ static bool sema_eval_constexpr_scalar_expr(
             return true;
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
-            if (expression->sizeof_type == NULL ||
+            measured = expression->sizeof_type
+                ? expression->sizeof_type
+                : (expression->unary_operand
+                    ? expression->unary_operand->type : NULL);
+            if (measured == NULL ||
                 (expression->kind == EXPR_SIZEOF
-                    ? expression->sizeof_type->size <= 0
-                    : expression->sizeof_type->align <= 0)) return false;
+                    ? measured->size <= 0 : measured->align <= 0)) return false;
             value->type = type_ulong;
             value->integer_value = expression->kind == EXPR_SIZEOF
-                ? expression->sizeof_type->size : expression->sizeof_type->align;
+                ? measured->size : measured->align;
             return true;
         case EXPR_COND:
             if (!sema_eval_constexpr_scalar_expr(expression->cond_test,

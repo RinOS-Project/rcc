@@ -559,6 +559,110 @@ static char* expand_macro_recursive(Preprocessor* pp, Macro* macro,
     return expanded;
 }
 
+static const char* skip_macro_space(const char* p) {
+    while (*p && isspace((unsigned char)*p)) p++;
+    return p;
+}
+
+static int macro_param_index(const Macro* macro, const char* name) {
+    for (int i = 0; i < macro->param_count; i++) {
+        if (strcmp(name, macro->params[i]) == 0) return i;
+    }
+    return -1;
+}
+
+static void buf_trim_macro_space(PPBuffer* buffer) {
+    while (buffer->size != 0u &&
+           isspace((unsigned char)buffer->data[buffer->size - 1u])) {
+        buffer->data[--buffer->size] = '\0';
+    }
+}
+
+static void buf_append_trimmed_macro_argument(PPBuffer* result,
+                                              const char* argument) {
+    const char* start = argument;
+    while (*start && isspace((unsigned char)*start)) start++;
+    const char* end = start + strlen(start);
+    while (end != start && isspace((unsigned char)end[-1])) end--;
+    buf_append(result, start, (size_t)(end - start));
+}
+
+static void buf_append_macro_argument(PPBuffer* result, Preprocessor* pp,
+                                      const Macro* macro, const char** args,
+                                      int arg_count, int parameter,
+                                      bool expand) {
+    if (parameter >= arg_count) return;
+
+    int last = parameter;
+    bool variadic = strcmp(macro->params[parameter], "__VA_ARGS__") == 0;
+    if (variadic) last = arg_count - 1;
+
+    for (int argument = parameter; argument <= last; argument++) {
+        if (argument != parameter) buf_append_char(result, ',');
+        if (expand) {
+            char* expanded = expand_macros(pp, args[argument]);
+            buf_append_str(result, expanded);
+            rcc_free(expanded);
+        } else {
+            buf_append_trimmed_macro_argument(result, args[argument]);
+        }
+    }
+}
+
+static void buf_append_macro_raw_spelling(PPBuffer* result, const Macro* macro,
+                                          const char** args, int arg_count,
+                                          int parameter) {
+    if (parameter >= arg_count) return;
+    int last = strcmp(macro->params[parameter], "__VA_ARGS__") == 0
+        ? arg_count - 1 : parameter;
+    for (int argument = parameter; argument <= last; argument++) {
+        if (argument != parameter) buf_append_char(result, ',');
+        buf_append_str(result, args[argument]);
+    }
+}
+
+static void buf_append_stringized_argument(PPBuffer* result,
+                                           const char* argument) {
+    bool pending_space = false;
+    bool emitted = false;
+    buf_append_char(result, '"');
+
+    for (const char* p = argument; *p; p++) {
+        unsigned char current = (unsigned char)*p;
+        if (isspace(current)) {
+            if (emitted) pending_space = true;
+            continue;
+        }
+        if (pending_space) {
+            buf_append_char(result, ' ');
+            pending_space = false;
+        }
+        if (*p == '\\' || *p == '"') buf_append_char(result, '\\');
+        buf_append_char(result, *p);
+        emitted = true;
+    }
+    buf_append_char(result, '"');
+}
+
+static const char* macro_item_end(const char* p) {
+    if (*p == '"' || *p == '\'') {
+        char quote = *p++;
+        while (*p) {
+            if (*p == '\\' && p[1]) {
+                p += 2;
+                continue;
+            }
+            if (*p++ == quote) break;
+        }
+        return p;
+    }
+    if (isalpha((unsigned char)*p) || *p == '_') {
+        char ident[256];
+        return read_ident(p, ident, sizeof(ident));
+    }
+    return p + (*p ? 1 : 0);
+}
+
 /* Expand a single macro invocation */
 static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int arg_count) {
     if (macro->param_count < 0) {
@@ -566,43 +670,106 @@ static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int
         return rcc_strdup(macro->value);
     }
 
-    /* Function-like macro - substitute parameters */
+    /*
+     * Function-like macro substitution.  The old implementation treated the
+     * replacement list as a plain string, which made the two C preprocessing
+     * replacement operators impossible to implement correctly.  Keep the
+     * source spelling here so # sees the raw argument and ## can paste raw
+     * tokens, while ordinary parameters receive their required prescan.
+     */
     PPBuffer result;
     buf_init(&result);
 
     const char* p = macro->body;
+    bool paste_pending = false;
     while (*p) {
-        if (*p == '"' || *p == '\'') {
-            p = buf_append_quoted_token(&result, p);
-        } else if (isalpha(*p) || *p == '_') {
-            char ident[256];
-            const char* end = read_ident(p, ident, sizeof(ident));
+        if (isspace((unsigned char)*p)) {
+            const char* end = skip_macro_space(p);
+            if (!paste_pending) buf_append(&result, p, (size_t)(end - p));
+            p = end;
+            continue;
+        }
 
-            /* Check if it's a parameter */
-            bool is_param = false;
-            for (int i = 0; i < macro->param_count; i++) {
-                if (strcmp(ident, macro->params[i]) == 0) {
-                    if (i < arg_count) {
-                        if (strcmp(macro->params[i], "__VA_ARGS__") == 0) {
-                            for (int argument = i; argument < arg_count; argument++) {
-                                if (argument != i) buf_append_char(&result, ',');
-                                buf_append_str(&result, args[argument]);
-                            }
-                        } else {
-                            buf_append_str(&result, args[i]);
-                        }
+        if (*p == '#' && p[1] == '#') {
+            buf_trim_macro_space(&result);
+            paste_pending = true;
+            p += 2;
+            continue;
+        }
+
+        if (*p == '#') {
+            const char* parameter_start = skip_macro_space(p + 1);
+            if (isalpha((unsigned char)*parameter_start) ||
+                *parameter_start == '_') {
+                char ident[256];
+                const char* end = read_ident(parameter_start, ident,
+                                             sizeof(ident));
+                int parameter = macro_param_index(macro, ident);
+                if (parameter >= 0) {
+                    if (strcmp(macro->params[parameter], "__VA_ARGS__") == 0) {
+                        PPBuffer raw_arguments;
+                        buf_init(&raw_arguments);
+                        buf_append_macro_raw_spelling(&raw_arguments, macro,
+                                                       args, arg_count,
+                                                       parameter);
+                        buf_append_stringized_argument(&result,
+                                                       raw_arguments.data);
+                        rcc_free(raw_arguments.data);
+                    } else {
+                        buf_append_stringized_argument(&result,
+                                                       parameter < arg_count
+                                                           ? args[parameter]
+                                                           : "");
                     }
-                    is_param = true;
-                    break;
+                    p = end;
+                    paste_pending = false;
+                    continue;
                 }
             }
+            /* Keep malformed/non-parameter '#' text visible for the parser. */
+            buf_append_char(&result, *p++);
+            paste_pending = false;
+            continue;
+        }
 
-            if (!is_param) {
+        const char* end = p;
+        bool paste_after = false;
+        if (*p == '"' || *p == '\'') {
+            end = macro_item_end(p);
+            buf_append(&result, p, (size_t)(end - p));
+            p = end;
+        } else if (isalpha((unsigned char)*p) || *p == '_') {
+            char ident[256];
+            end = read_ident(p, ident, sizeof(ident));
+
+            /* Check if it's a parameter */
+            int parameter = macro_param_index(macro, ident);
+            const char* paste = skip_macro_space(end);
+            paste_after = paste[0] == '#' && paste[1] == '#';
+            if (parameter >= 0) {
+                /* A parameter next to # or ## is substituted without prescan. */
+                buf_append_macro_argument(&result, pp, macro, args, arg_count,
+                                          parameter, !paste_pending &&
+                                                         !paste_after);
+            } else {
                 buf_append(&result, p, end - p);
             }
             p = end;
         } else {
             buf_append_char(&result, *p++);
+            end = p;
+        }
+
+        if (!paste_after) {
+            const char* paste = skip_macro_space(end);
+            paste_after = paste[0] == '#' && paste[1] == '#';
+        }
+        if (paste_after) {
+            buf_trim_macro_space(&result);
+            p = skip_macro_space(end) + 2;
+            paste_pending = true;
+        } else {
+            paste_pending = false;
         }
     }
 
