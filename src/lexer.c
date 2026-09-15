@@ -402,6 +402,11 @@ static Token* lex_number(Lexer* lex) {
 
     Token* tok;
     if (is_float) {
+        if (suffix_start < lex->pos &&
+            (*suffix_start == 'l' || *suffix_start == 'L')) {
+            rcc_error(loc,
+                      "long double literals are not supported by the RinOS floating-point ABI");
+        }
         tok = token_new(TOK_FLOAT_LIT, loc);
         tok->value.float_val = strtod(str, NULL);
         tok->float_suffix = suffix_start < lex->pos &&

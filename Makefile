@@ -2189,6 +2189,14 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x86.log
+	@if $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/language-boundaries/c-literal-x86.ro \
+		tests/unsupported_long_double_literal.c \
+		>$(TEST_OUT)/language-boundaries/c-literal-x86.log 2>&1; then \
+		echo "C long double literal fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+		$(TEST_OUT)/language-boundaries/c-literal-x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/language-boundaries/c-x64.ro \
 		tests/unsupported_long_double.c \
@@ -2197,6 +2205,14 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x64.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/language-boundaries/c-literal-x64.ro \
+		tests/unsupported_long_double_literal.c \
+		>$(TEST_OUT)/language-boundaries/c-literal-x64.log 2>&1; then \
+		echo "C long double literal fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+		$(TEST_OUT)/language-boundaries/c-literal-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/language-boundaries/cxx-x86.ro \
 		tests/unsupported_long_double.c \
@@ -2205,6 +2221,14 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-x86.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/language-boundaries/cxx-literal-x86.ro \
+		tests/unsupported_long_double_literal.c \
+		>$(TEST_OUT)/language-boundaries/cxx-literal-x86.log 2>&1; then \
+		echo "C++ long double literal fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+		$(TEST_OUT)/language-boundaries/cxx-literal-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/language-boundaries/cxx-x64.ro \
 		tests/unsupported_long_double.c \
@@ -2213,6 +2237,14 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-x64.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/language-boundaries/cxx-literal-x64.ro \
+		tests/unsupported_long_double_literal.c \
+		>$(TEST_OUT)/language-boundaries/cxx-literal-x64.log 2>&1; then \
+		echo "C++ long double literal fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+		$(TEST_OUT)/language-boundaries/cxx-literal-x64.log
 	@echo "RCC/RCC++ unsupported long double boundary diagnostics completed"
 
 test-integer-literals: $(RCC_TARGET)
