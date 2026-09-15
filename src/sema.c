@@ -83,8 +83,7 @@ static bool sema_cxx_public_base(Type* derived, Type* target,
         Type* base_type = cls->bases[index].base
             ? cls->bases[index].base->type : NULL;
         int nested_adjustment;
-        if (cls->bases[index].is_virtual ||
-            cls->bases[index].access != ACCESS_PUBLIC || !base_type ||
+        if (cls->bases[index].access != ACCESS_PUBLIC || !base_type ||
             cls->base_offsets[index] < 0) {
             continue;
         }

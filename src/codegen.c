@@ -1129,6 +1129,12 @@ static void codegen_add_vtable_pointer(Module* mod,
                                        ModuleSymbolSection source_section,
                                        uint32_t offset, Type* type);
 
+static bool codegen_type_has_vtable_storage(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    return type && (type->cxx_vtable_size > 0 ||
+                    (cls && cls->secondary_vtable_count > 0));
+}
+
 static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     uint8_t zero[32] = {0};
     uint32_t size;
@@ -1322,7 +1328,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                               MODULE_SYMBOL_DATA, true);
             continue;
         }
-        if (!declaration->var_init && declaration->type->cxx_vtable_size > 0) {
+        if (!declaration->var_init &&
+            codegen_type_has_vtable_storage(declaration->type)) {
             uint64_t aligned = ((uint64_t)mod->data.size + alignment - 1u) &
                                ~((uint64_t)alignment - 1u);
             if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
@@ -1985,29 +1992,30 @@ static void codegen_add_vtable_pointer(Module* mod,
                                        uint32_t offset, Type* type) {
     CxxClass* cls;
     uint32_t width;
-    if (!mod || !type || type->cxx_vtable_size <= 0 ||
-        !type->cxx_vtable_symbol) return;
+    if (!mod || !type || !codegen_type_has_vtable_storage(type)) return;
     width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
-    module_add_relocation(mod, source_section, offset, 0u, false,
-                          width == 8u, type->cxx_vtable_symbol);
-    add_reloc(mod, source_section, offset,
-              width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
+        module_add_relocation(mod, source_section, offset, 0u, false,
+                              width == 8u, type->cxx_vtable_symbol);
+        add_reloc(mod, source_section, offset,
+                  width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    }
 
     /* Each non-virtual polymorphic base is a distinct subobject and owns a
-     * vptr.  The primary base reuses the object's first word; secondary
-     * bases retain their own base vtable until a thunk-capable override
-     * model is available.  Never leave those words zero-initialized: a call
-     * through a secondary base must observe a real, ABI-compatible table. */
+     * vptr.  The primary base reuses the object's first word; each other
+     * fixed-layout polymorphic base receives its derived table.  Never leave
+     * those words zero-initialized: a virtual call must observe a real,
+     * ABI-compatible table. */
     cls = type->cxx_class;
     if (!cls || !cls->base_offsets) return;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
         const char* base_vtable_symbol;
         uint64_t base_offset;
-        if (cls->bases[index].is_virtual || !base ||
-            base->vtable_size <= 0 || !base->type ||
+        if (!base || base->vtable_size <= 0 || !base->type ||
             !base->type->cxx_vtable_symbol ||
-            cls->base_offsets[index] <= 0) {
+            (!cls->bases[index].is_virtual &&
+             cls->base_offsets[index] <= 0)) {
             continue;
         }
         base_vtable_symbol = base->type->cxx_vtable_symbol;
@@ -2036,88 +2044,64 @@ static void codegen_add_vtable_pointer(Module* mod,
     }
 }
 
-static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
-                                                   CxxNamespace* ns) {
+static void codegen_emit_cxx_vtable_storage(Module* mod,
+                                            const char* symbol,
+                                            int size,
+                                            CxxVtableEntry* entries,
+                                            const char* owner) {
     static const uint8_t zero[16] = {0};
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    uint32_t offset;
+    if (!mod || !symbol || size <= 0 || !entries) return;
+    while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
+        emit_rodata(mod, zero, 1u);
+    }
+    offset = (uint32_t)mod->rodata.size;
+    for (int slot = 0; slot < size; ++slot) {
+        emit_rodata(mod, zero, pointer_size);
+    }
+    module_add_symbol(mod, symbol, offset, true, MODULE_SYMBOL_RODATA, true);
+    for (int slot = 0; slot < size; ++slot) {
+        CxxVtableEntry* entry = &entries[slot];
+        CxxMethod* method = entry->method;
+        const char* entry_symbol = entry->entry_symbol;
+        if (!method || !method->decl || !method->decl->link_name) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "virtual table entry %d of '%s' has no function body",
+                      slot, owner ? owner : "<anonymous>");
+            continue;
+        }
+        module_add_relocation(
+            mod, MODULE_SYMBOL_RODATA,
+            offset + (uint32_t)slot * pointer_size, 0u, false,
+            pointer_size == 8u,
+            entry_symbol ? entry_symbol : decl_link_name(method->decl));
+        add_reloc(mod, MODULE_SYMBOL_RODATA,
+                  offset + (uint32_t)slot * pointer_size,
+                  pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    }
+}
+
+static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
+                                                   CxxNamespace* ns) {
     if (!mod || !ns) return;
     for (int index = 0; index < ns->class_count; ++index) {
         CxxClass* cls = ns->classes[index];
-        uint32_t offset;
-        if (!cls || !cls->type || cls->type->cxx_vtable_size <= 0 ||
-            !cls->type->cxx_vtable_symbol || !cls->vtable) continue;
-        while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
-            emit_rodata(mod, zero, 1u);
-        }
-        offset = (uint32_t)mod->rodata.size;
-        for (int slot = 0; slot < cls->vtable_size; ++slot) {
-            emit_rodata(mod, zero, pointer_size);
-        }
-        module_add_symbol(mod, cls->type->cxx_vtable_symbol, offset, true,
-                          MODULE_SYMBOL_RODATA, true);
-        for (int slot = 0; slot < cls->vtable_size; ++slot) {
-            CxxMethod* method = cls->vtable[slot].method;
-            const char* entry_symbol = cls->vtable[slot].entry_symbol;
-            if (!method || !method->decl || !method->decl->link_name) {
-                rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
-                          "virtual table entry %d of '%s' has no function body",
-                          slot, cls->name ? cls->name : "<anonymous>");
-                continue;
-            }
-            module_add_relocation(
-                mod, MODULE_SYMBOL_RODATA,
-                offset + (uint32_t)slot * pointer_size, 0u, false,
-                pointer_size == 8u,
-                entry_symbol ? entry_symbol : decl_link_name(method->decl));
-            add_reloc(mod, MODULE_SYMBOL_RODATA,
-                      offset + (uint32_t)slot * pointer_size,
-                      pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+        if (!cls || !cls->type) continue;
+        if (cls->type->cxx_vtable_size > 0 &&
+            cls->type->cxx_vtable_symbol && cls->vtable) {
+            codegen_emit_cxx_vtable_storage(
+                mod, cls->type->cxx_vtable_symbol, cls->vtable_size,
+                cls->vtable, cls->name);
         }
         for (int secondary_index = 0;
              secondary_index < cls->secondary_vtable_count;
              ++secondary_index) {
             CxxSecondaryVtable* secondary =
                 &cls->secondary_vtables[secondary_index];
-            uint32_t secondary_offset;
-            if (!secondary->symbol || secondary->size <= 0 ||
-                !secondary->entries) {
-                continue;
-            }
-            while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
-                emit_rodata(mod, zero, 1u);
-            }
-            secondary_offset = (uint32_t)mod->rodata.size;
-            for (int secondary_slot = 0;
-                 secondary_slot < secondary->size; ++secondary_slot) {
-                emit_rodata(mod, zero, pointer_size);
-            }
-            module_add_symbol(mod, secondary->symbol, secondary_offset, true,
-                              MODULE_SYMBOL_RODATA, true);
-            for (int secondary_slot = 0;
-                 secondary_slot < secondary->size; ++secondary_slot) {
-                CxxVtableEntry* entry = &secondary->entries[secondary_slot];
-                CxxMethod* secondary_method = entry->method;
-                const char* entry_symbol = entry->entry_symbol;
-                if (!secondary_method || !secondary_method->decl ||
-                    !secondary_method->decl->link_name) {
-                    rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
-                              "secondary virtual table entry %d of '%s' "
-                              "has no function body",
-                              secondary_slot,
-                              cls->name ? cls->name : "<anonymous>");
-                    continue;
-                }
-                module_add_relocation(
-                    mod, MODULE_SYMBOL_RODATA,
-                    secondary_offset + (uint32_t)secondary_slot * pointer_size,
-                    0u, false, pointer_size == 8u,
-                    entry_symbol ? entry_symbol
-                                 : decl_link_name(secondary_method->decl));
-                add_reloc(
-                    mod, MODULE_SYMBOL_RODATA,
-                    secondary_offset + (uint32_t)secondary_slot * pointer_size,
-                    pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
-            }
+            codegen_emit_cxx_vtable_storage(
+                mod, secondary->symbol, secondary->size, secondary->entries,
+                cls->name);
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
@@ -3472,10 +3456,11 @@ static void gen_symbol_address(Module* mod, const char* symbol,
 static void gen_local_vtable_init(Module* mod, Type* type,
                                   int32_t displacement) {
     CxxClass* cls;
-    if (!mod || !type || type->cxx_vtable_size <= 0 ||
-        !type->cxx_vtable_symbol) return;
-    gen_symbol_address(mod, type->cxx_vtable_symbol, 0u);
-    emit_mov_mem_reg(mod, EBP, displacement, EAX);
+    if (!mod || !type || !codegen_type_has_vtable_storage(type)) return;
+    if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
+        gen_symbol_address(mod, type->cxx_vtable_symbol, 0u);
+        emit_mov_mem_reg(mod, EBP, displacement, EAX);
+    }
 
     cls = type->cxx_class;
     if (!cls || !cls->base_offsets) return;
@@ -3483,10 +3468,10 @@ static void gen_local_vtable_init(Module* mod, Type* type,
         CxxClass* base = cls->bases[index].base;
         const char* base_vtable_symbol;
         int64_t base_displacement;
-        if (cls->bases[index].is_virtual || !base ||
-            base->vtable_size <= 0 || !base->type ||
+        if (!base || base->vtable_size <= 0 || !base->type ||
             !base->type->cxx_vtable_symbol ||
-            cls->base_offsets[index] <= 0) {
+            (!cls->bases[index].is_virtual &&
+             cls->base_offsets[index] <= 0)) {
             continue;
         }
         base_vtable_symbol = base->type->cxx_vtable_symbol;
@@ -7692,7 +7677,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 record_vla_scope(d);
             } else if (d->kind == DECL_VAR &&
                        (d->var_init ||
-                        (d->type && d->type->cxx_vtable_size > 0))) {
+                        (d->type &&
+                         codegen_type_has_vtable_storage(d->type)))) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION) &&

@@ -1758,11 +1758,9 @@ static bool class_declares_method_name(CxxClass* cls, const char* name) {
     return false;
 }
 
-/* Publish non-virtual methods of accessible non-virtual bases on the derived
- * class.  The layout pass records the exact base-subobject offset, so the
- * alias can carry the real base method declaration and an explicit byte
- * adjustment without inventing a guessed thunk.  Virtual bases remain out of
- * scope because their address is not a fixed compile-time offset. */
+/* Publish methods of accessible bases on the derived class.  The layout pass
+ * records the concrete offset used by this backend, so the alias can carry
+ * the real base declaration and an explicit byte adjustment. */
 static void register_inherited_class_methods(CxxClass* cls,
                                              TypeMethod*** tail) {
     if (!cls || !tail || !*tail || !cls->base_offsets) {
@@ -1771,8 +1769,7 @@ static void register_inherited_class_methods(CxxClass* cls,
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* base = cls->bases[base_index].base;
         TypeMethod* method;
-        if (cls->bases[base_index].is_virtual ||
-            cls->bases[base_index].access == ACCESS_PRIVATE ||
+        if (cls->bases[base_index].access == ACCESS_PRIVATE ||
             !base || !base->type || !base->type->is_complete ||
             cls->base_offsets[base_index] < 0) {
             continue;
@@ -2233,10 +2230,6 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
             cxx_class_add_base(cls, base_name, inherit_access);
             if (is_virtual) {
                 cls->bases[cls->base_count - 1].is_virtual = true;
-                rcc_error(loc,
-                          "C++ virtual base '%s' requires virtual-base layout "
-                          "and ABI support",
-                          base_name ? base_name : "<anonymous>");
             }
         } while (match(TOK_COMMA));
     }

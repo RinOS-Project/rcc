@@ -492,19 +492,51 @@ test-cxx-secondary-virtual-override: $(RCXX_TARGET)
 
 test-cxx-virtual-base: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base)
-	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-virtual-base/x86.ro \
-		tests/cxx_virtual_base_invalid.cpp \
-		>$(TEST_OUT)/cxx-virtual-base/x86.log 2>&1
-	grep -q "virtual base.*virtual-base layout" \
-		$(TEST_OUT)/cxx-virtual-base/x86.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-virtual-base/x64.ro \
-		tests/cxx_virtual_base_invalid.cpp \
-		>$(TEST_OUT)/cxx-virtual-base/x64.log 2>&1
-	grep -q "virtual base.*virtual-base layout" \
-		$(TEST_OUT)/cxx-virtual-base/x64.log
-	@echo "C++ virtual-base diagnostic completed"
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-virtual-base/test-x86.s \
+		tests/cxx_virtual_base.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-virtual-base/test-x86.o \
+		$(TEST_OUT)/cxx-virtual-base/test-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-virtual-base/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-virtual-base/test-x86 \
+		$(TEST_OUT)/cxx-virtual-base/start-x86.o \
+		$(TEST_OUT)/cxx-virtual-base/test-x86.o
+	$(TEST_OUT)/cxx-virtual-base/test-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-virtual-base/test-x64.s \
+		tests/cxx_virtual_base.cpp
+	gcc -c -o $(TEST_OUT)/cxx-virtual-base/test-x64.o \
+		$(TEST_OUT)/cxx-virtual-base/test-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-virtual-base/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-virtual-base/test-x64 \
+		$(TEST_OUT)/cxx-virtual-base/start-x64.o \
+		$(TEST_OUT)/cxx-virtual-base/test-x64.o
+	$(TEST_OUT)/cxx-virtual-base/test-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-virtual-base/test-virtual-x86.s \
+		tests/cxx_virtual_base_virtual.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-virtual-base/test-virtual-x86.o \
+		$(TEST_OUT)/cxx-virtual-base/test-virtual-x86.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-virtual-base/test-virtual-x86 \
+		$(TEST_OUT)/cxx-virtual-base/start-x86.o \
+		$(TEST_OUT)/cxx-virtual-base/test-virtual-x86.o
+	$(TEST_OUT)/cxx-virtual-base/test-virtual-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-virtual-base/test-virtual-x64.s \
+		tests/cxx_virtual_base_virtual.cpp
+	gcc -c -o $(TEST_OUT)/cxx-virtual-base/test-virtual-x64.o \
+		$(TEST_OUT)/cxx-virtual-base/test-virtual-x64.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-virtual-base/test-virtual-x64 \
+		$(TEST_OUT)/cxx-virtual-base/start-x64.o \
+		$(TEST_OUT)/cxx-virtual-base/test-virtual-x64.o
+	$(TEST_OUT)/cxx-virtual-base/test-virtual-x64
+	@echo "C++ direct virtual-base layout and dispatch tests completed"
 
 test-cxx-constexpr: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr)

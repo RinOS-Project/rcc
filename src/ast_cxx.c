@@ -466,7 +466,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
             /* Base subobject */
             offset += base->size;
             if (align > max_align) max_align = align;
-        } else {
+        } else if (!base) {
             base_offsets[i] = -1;
             layout_complete = false;
         }
@@ -548,6 +548,43 @@ void cxx_class_compute_layout(CxxClass* cls) {
         }
     }
 
+    /* Represent each direct virtual base as a concrete trailing subobject.
+     * Its offset is then shared by field lookup and public-base conversion,
+     * rather than silently treating a virtual base as the complete object. */
+    for (int i = 0; i < cls->base_count; ++i) {
+        CxxClass* base = cls->bases[i].base;
+        if (!base || !cls->bases[i].is_virtual) continue;
+        if (!type_is_complete(base->type) || base->size <= 0 ||
+            base->align <= 0) {
+            base_offsets[i] = -1;
+            layout_complete = false;
+            continue;
+        }
+        offset = (offset + base->align - 1) & ~(base->align - 1);
+        base_offsets[i] = offset;
+        offset += base->size;
+        if (base->align > max_align) max_align = base->align;
+        for (TypeField* base_field = base->type->fields;
+             base_field; base_field = base_field->next) {
+            TypeField* field = ast_arena_alloc(sizeof(*field));
+            unsigned char access = base_field->cxx_access;
+            if (cls->bases[i].access == ACCESS_PRIVATE) {
+                access = ACCESS_PRIVATE;
+            } else if (cls->bases[i].access == ACCESS_PROTECTED &&
+                       access == ACCESS_PUBLIC) {
+                access = ACCESS_PROTECTED;
+            }
+            field->name = base_field->name;
+            field->type = base_field->type;
+            field->offset = base_offsets[i] + base_field->offset;
+            field->initializer = base_field->initializer;
+            field->cxx_access = access;
+            field->next = NULL;
+            *field_tail = field;
+            field_tail = &field->next;
+        }
+    }
+
     /* Final size with alignment padding */
     cls->size = (offset + max_align - 1) & ~(max_align - 1);
     if (cls->size == 0) cls->size = 1;  /* Empty class has size 1 */
@@ -567,6 +604,7 @@ static CxxClass* cxx_primary_vtable_base(CxxClass* cls) {
             return base;
         }
     }
+
     return NULL;
 }
 
@@ -679,7 +717,7 @@ void cxx_class_build_vtable(CxxClass* cls) {
         CxxClass* base = cls->bases[base_index].base;
         CxxSecondaryVtable* secondary;
         if (!base || base == primary_base ||
-            cls->bases[base_index].is_virtual || base->vtable_size <= 0 ||
+            base->vtable_size <= 0 ||
             !base->vtable) {
             continue;
         }

@@ -1897,10 +1897,15 @@ static void gen64_symbol_address(Module* mod, const char* symbol,
 static void gen64_local_vtable_init(Module* mod, Type* type,
                                     int32_t displacement) {
     CxxClass* cls;
-    if (!mod || !type || type->cxx_vtable_size <= 0 ||
-        !type->cxx_vtable_symbol) return;
-    gen64_symbol_address(mod, type->cxx_vtable_symbol, 0u);
-    emit64_mov_mem_reg(mod, RBP, displacement, RAX);
+    if (!mod || !type ||
+        !(type->cxx_vtable_size > 0 ||
+          (type->cxx_class && type->cxx_class->secondary_vtable_count > 0))) {
+        return;
+    }
+    if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
+        gen64_symbol_address(mod, type->cxx_vtable_symbol, 0u);
+        emit64_mov_mem_reg(mod, RBP, displacement, RAX);
+    }
 
     cls = type->cxx_class;
     if (!cls || !cls->base_offsets) return;
@@ -1908,10 +1913,10 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
         CxxClass* base = cls->bases[index].base;
         const char* base_vtable_symbol;
         int64_t base_displacement;
-        if (cls->bases[index].is_virtual || !base ||
-            base->vtable_size <= 0 || !base->type ||
+        if (!base || base->vtable_size <= 0 || !base->type ||
             !base->type->cxx_vtable_symbol ||
-            cls->base_offsets[index] <= 0) {
+            (!cls->bases[index].is_virtual &&
+             cls->base_offsets[index] <= 0)) {
             continue;
         }
         base_vtable_symbol = base->type->cxx_vtable_symbol;
@@ -4698,7 +4703,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 record64_vla_scope(d);
             } else if (d->kind == DECL_VAR &&
                        (d->var_init ||
-                        (d->type && d->type->cxx_vtable_size > 0))) {
+                        (d->type &&
+                         (d->type->cxx_vtable_size > 0 ||
+                          (d->type->cxx_class &&
+                           d->type->cxx_class->secondary_vtable_count > 0))))) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION) &&
