@@ -7,6 +7,7 @@
 .globl rin_cpp_exception_throw
 .globl rin_cpp_exception_rethrow
 .globl rin_cpp_exception_throw_object
+.globl rin_cpp_exception_throw_object_with_cleanup
 .globl rin_cpp_exception_rethrow_frame
 .globl rin_cpp_exception_release_frame
 .globl rin_cpp_exception_register_cleanup
@@ -23,6 +24,8 @@ rin_cpp_exception_top:
 rin_cpp_exception_current_value:
     .long 0
 rin_cpp_exception_current_type:
+    .long 0
+rin_cpp_exception_current_cleanup:
     .long 0
 rin_cpp_exception_object_used:
     .long 0
@@ -174,6 +177,14 @@ rin_cpp_exception_leave:
     ret
 
 rin_cpp_exception_throw:
+    mov 4(%esp), %eax
+    mov 8(%esp), %ecx
+    xor %esi, %esi
+    jmp rin_cpp_exception_throw_owned
+
+rin_cpp_exception_throw_owned:
+    push %eax
+    push %ecx
     mov rin_cpp_exception_top, %edx
     test %edx, %edx
     jz 3f
@@ -184,12 +195,13 @@ rin_cpp_exception_throw:
     call rin_cpp_exception_unwind_cleanups
     add $4, %esp
     pop %edx
-    mov 4(%esp), %eax
+    pop %ecx
+    pop %eax
     mov %eax, 28(%edx)
     mov %eax, rin_cpp_exception_current_value
-    mov 8(%esp), %eax
-    mov %eax, 32(%edx)
-    mov %eax, rin_cpp_exception_current_type
+    mov %ecx, 32(%edx)
+    mov %ecx, rin_cpp_exception_current_type
+    mov %esi, rin_cpp_exception_current_cleanup
     push $1
     push %edx
     call longjmp
@@ -197,10 +209,9 @@ rin_cpp_exception_throw:
 
 rin_cpp_exception_rethrow:
     mov rin_cpp_exception_current_value, %eax
-    push rin_cpp_exception_current_type
-    push %eax
-    call rin_cpp_exception_throw
-    ud2
+    mov rin_cpp_exception_current_type, %ecx
+    mov rin_cpp_exception_current_cleanup, %esi
+    jmp rin_cpp_exception_throw_owned
 
 rin_cpp_exception_throw_object:
     mov 8(%esp), %ecx
@@ -229,13 +240,44 @@ rin_cpp_exception_throw_object:
     add $8, %esp
     ud2
 
+rin_cpp_exception_throw_object_with_cleanup:
+    mov 8(%esp), %edx
+    test %edx, %edx
+    jz 5f
+    mov 16(%esp), %esi
+    test %esi, %esi
+    jz 5f
+    mov rin_cpp_exception_object_used, %eax
+    mov %eax, %ecx
+    add %edx, %ecx
+    jc 5f
+    cmp $4096, %ecx
+    ja 5f
+    lea rin_cpp_exception_object_storage(%eax), %edi
+    mov 4(%esp), %ebp
+    test %ebp, %ebp
+    jz 5f
+    push %esi
+    push %edx
+    mov %edx, %ecx
+    mov %ebp, %esi
+    cld
+    rep movsb
+    pop %edx
+    pop %esi
+    mov %eax, %ecx
+    add %edx, %ecx
+    mov %ecx, rin_cpp_exception_object_used
+    lea rin_cpp_exception_object_storage(%eax), %eax
+    mov 12(%esp), %ecx
+    jmp rin_cpp_exception_throw_owned
+
 rin_cpp_exception_rethrow_frame:
     mov 4(%esp), %edx
     mov 28(%edx), %eax
-    push 32(%edx)
-    push %eax
-    call rin_cpp_exception_throw
-    ud2
+    mov 32(%edx), %ecx
+    mov rin_cpp_exception_current_cleanup, %esi
+    jmp rin_cpp_exception_throw_owned
 
 rin_cpp_exception_release_frame:
     mov 4(%esp), %eax
@@ -244,6 +286,22 @@ rin_cpp_exception_release_frame:
     mov 32(%eax), %edx
     test $0x80000000, %edx
     jz 6f
+    mov 28(%eax), %edx
+    cmp rin_cpp_exception_current_value, %edx
+    jne 7f
+    mov 32(%eax), %edx
+    cmp rin_cpp_exception_current_type, %edx
+    jne 7f
+    mov rin_cpp_exception_current_cleanup, %ecx
+    test %ecx, %ecx
+    jz 7f
+    movl $0, rin_cpp_exception_current_cleanup
+    push %eax
+    push %edx
+    call *%ecx
+    add $4, %esp
+    pop %eax
+7:
     movl $0, 28(%eax)
     movl $0, 32(%eax)
     movl $0, rin_cpp_exception_object_used

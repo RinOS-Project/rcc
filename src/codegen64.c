@@ -4958,6 +4958,17 @@ static uint64_t gen64_cxx_exception_type_tag(const Type* type) {
     return rcc_cxx_exception_type_tag(type);
 }
 
+static Decl* gen64_cxx_exception_object_destructor(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!destructor || !destructor->func_body || !destructor->link_name ||
+        !destructor->func_this_param) {
+        return NULL;
+    }
+    return destructor;
+}
+
 static void gen64_cxx_exception_payload_address(
     Module* mod, Stmt* stmt, CxxCatch* handler) {
     int payload_ready;
@@ -5001,6 +5012,7 @@ static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
     }
     type = stmt->throw_expr->type;
     if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        Decl* destructor = gen64_cxx_exception_object_destructor(type);
         gen64_lvalue(mod, stmt->throw_expr);
         emit64_push_reg(mod, RAX); /* preserve source across cleanup/release */
         gen64_cxx_exception_unwind_cleanup(mod);
@@ -5009,7 +5021,13 @@ static void gen64_cxx_throw(Module* mod, Stmt* stmt) {
         emit64_pop_reg(mod, RDI); /* source object */
         emit64_mov_reg_imm64(mod, RSI, (uint64_t)type->size);
         emit64_mov_reg_imm64(mod, RDX, gen64_cxx_exception_type_tag(type));
-        gen64_cxx_exception_call(mod, "rin_cpp_exception_throw_object");
+        if (destructor) {
+            gen64_symbol_address(mod, decl_link_name(destructor), 0u);
+            emit64_mov_reg_reg(mod, RCX, RAX); /* payload destructor */
+        }
+        gen64_cxx_exception_call(
+            mod, destructor ? "rin_cpp_exception_throw_object_with_cleanup"
+                            : "rin_cpp_exception_throw_object");
     } else {
         gen64_expr(mod, stmt->throw_expr);
         emit64_push_reg(mod, RAX); /* preserve value across cleanup/release */

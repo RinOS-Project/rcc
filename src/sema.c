@@ -4486,6 +4486,37 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
     return true;
 }
 
+static Decl* sema_cxx_destructor_function(Type* object_type);
+
+/* A non-trivial exception object needs one additional runtime operation: the
+ * owned byte copy must be destroyed when the handler releases the payload.
+ * Keep this first ABI extension deliberately bounded.  It is valid for a
+ * complete class with an available non-throwing-by-construction destructor,
+ * no constructor/initializer/base/vtable state, and only trivially-copyable
+ * fields.  Such a class has no hidden ownership to duplicate, while its
+ * explicit destructor still gives the runtime a complete-object cleanup
+ * callback. */
+static bool sema_cxx_exception_object_copyable(Type* type, int depth) {
+    CxxClass* cls;
+    if (!type || depth > 32 || type->kind != TYPE_STRUCT ||
+        !type_is_complete(type) || type->size <= 0) {
+        return false;
+    }
+    if (sema_cxx_trivially_copyable(type, depth + 1)) return true;
+    cls = type->cxx_class;
+    if (!cls || cls->has_user_constructor || cls->has_field_initializer ||
+        cls->base_count != 0 || cls->vtable_size != 0 ||
+        !sema_cxx_destructor_function(type)) {
+        return false;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!sema_cxx_trivially_copyable(field->type, depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static Decl* sema_cxx_cleanup_function(Type* object_type, SourceLoc loc) {
     Symbol* symbol;
     Decl* function;
@@ -7362,7 +7393,7 @@ static void sema_stmt(Stmt* stmt) {
             for (CxxCatch* handler = stmt->try_catches; handler;
                  handler = handler->next) {
                 bool aggregate_object = handler->type &&
-                    sema_cxx_trivially_copyable(handler->type, 0);
+                    sema_cxx_exception_object_copyable(handler->type, 0);
                 if (seen_ellipsis) {
                     rcc_error(handler->body ? handler->body->loc : stmt->loc,
                               "C++ catch-all handler must be the last handler");
@@ -7379,7 +7410,7 @@ static void sema_stmt(Stmt* stmt) {
                        handler->type->size >
                            (g_opts.target_arch == ARCH_X64 ? 8 : 4))))) {
                     rcc_error(stmt->loc,
-                              "C++ catch requires a scalar payload no wider than the target word or a trivially-copyable aggregate");
+                              "C++ catch requires a scalar payload no wider than the target word or a supported aggregate exception object");
                 }
                 if (handler->parameter &&
                     (!handler->type ||
@@ -7388,7 +7419,7 @@ static void sema_stmt(Stmt* stmt) {
                        handler->type->kind != TYPE_PTR) &&
                       !aggregate_object))) {
                     rcc_error(handler->parameter->loc,
-                              "named C++ catch parameter must have a scalar type or a trivially-copyable aggregate");
+                              "named C++ catch parameter must have a scalar type or a supported aggregate exception object");
                 }
                 if (!handler->is_ellipsis && handler->type &&
                     handler->type->kind == TYPE_STRUCT &&
@@ -7397,6 +7428,20 @@ static void sema_stmt(Stmt* stmt) {
                         sema_cxx_global_namespace(), handler->type, handler, 0u);
                 }
                 sema_stmt(handler->body);
+                if (handler->parameter && handler->type &&
+                    !sema_cxx_trivially_copyable(handler->type, 0) &&
+                    sema_cxx_exception_object_copyable(handler->type, 0)) {
+                    Expr* object = expr_ident(handler->parameter->name,
+                                              handler->parameter->loc);
+                    object->ident_decl = handler->parameter;
+                    object->type = handler->type;
+                    if (!sema_cxx_append_object_cleanups(
+                            handler->parameter, handler->type, object,
+                            &handler->parameter->var_cleanups, 0)) {
+                        rcc_error(handler->parameter->loc,
+                                  "C++ catch object lifetime cleanup metadata is incomplete");
+                    }
+                }
                 if (sema_exception_body_has_vla(handler->body)) {
                     rcc_error(handler->body ? handler->body->loc : stmt->loc,
                               "C++ exception unwinding cannot bypass VLA lifetime");
@@ -7421,7 +7466,7 @@ static void sema_stmt(Stmt* stmt) {
             }
             thrown_type = sema_expr(stmt->throw_expr);
             aggregate_object = thrown_type &&
-                sema_cxx_trivially_copyable(thrown_type, 0);
+                sema_cxx_exception_object_copyable(thrown_type, 0);
             if (!thrown_type ||
                 (((!type_is_integer(thrown_type) &&
                    thrown_type->kind != TYPE_ENUM &&
@@ -7432,7 +7477,7 @@ static void sema_stmt(Stmt* stmt) {
                    thrown_type->size >
                        (g_opts.target_arch == ARCH_X64 ? 8 : 4))))) {
                 rcc_error(stmt->loc,
-                          "C++ throw requires a scalar payload no wider than the target word or a trivially-copyable aggregate");
+                          "C++ throw requires a scalar payload no wider than the target word or a supported aggregate exception object");
             }
             break;
         }

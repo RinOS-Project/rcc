@@ -43,6 +43,7 @@ typedef struct RccBootstrapExceptionFrame {
 static __thread RccBootstrapExceptionFrame* bootstrap_exception_top;
 static __thread uintptr_t bootstrap_exception_value;
 static __thread uintptr_t bootstrap_exception_type;
+static __thread RccBootstrapCleanup bootstrap_exception_cleanup;
 
 #if defined(__x86_64__)
 __attribute__((naked, returns_twice))
@@ -197,7 +198,8 @@ void rin_cpp_exception_leave(RccBootstrapExceptionFrame* frame)
 }
 
 __attribute__((noreturn))
-void rin_cpp_exception_throw(uintptr_t value, uintptr_t type)
+static void bootstrap_exception_throw_owned(
+    uintptr_t value, uintptr_t type, RccBootstrapCleanup cleanup)
 {
     RccBootstrapExceptionFrame* frame = bootstrap_exception_top;
     if (!frame) exit(1);
@@ -207,7 +209,14 @@ void rin_cpp_exception_throw(uintptr_t value, uintptr_t type)
     frame->type = type;
     bootstrap_exception_value = value;
     bootstrap_exception_type = type;
+    bootstrap_exception_cleanup = cleanup;
     rcc_bootstrap_longjmp(frame->env, 1);
+}
+
+__attribute__((noreturn))
+void rin_cpp_exception_throw(uintptr_t value, uintptr_t type)
+{
+    bootstrap_exception_throw_owned(value, type, NULL);
 }
 
 __attribute__((noreturn))
@@ -221,13 +230,36 @@ void rin_cpp_exception_throw_object(const void* object, uintptr_t size,
     copy = malloc((size_t)size);
     if (!copy) exit(134);
     memcpy(copy, object, (size_t)size);
-    rin_cpp_exception_throw((uintptr_t)copy, type);
+    bootstrap_exception_throw_owned((uintptr_t)copy, type, NULL);
+}
+
+__attribute__((noreturn))
+void rin_cpp_exception_throw_object_with_cleanup(
+    const void* object, uintptr_t size, uintptr_t type,
+    RccBootstrapCleanup cleanup)
+{
+    unsigned char* copy;
+    if (!object || size == 0u || !cleanup ||
+        (type & RCC_BOOTSTRAP_OBJECT_FLAG) == 0u) {
+        exit(134);
+    }
+    copy = malloc((size_t)size);
+    if (!copy) exit(134);
+    memcpy(copy, object, (size_t)size);
+    bootstrap_exception_throw_owned((uintptr_t)copy, type, cleanup);
 }
 
 void rin_cpp_exception_release_frame(RccBootstrapExceptionFrame* frame)
 {
     if (!frame || (frame->type & RCC_BOOTSTRAP_OBJECT_FLAG) == 0u ||
         frame->value == 0u) return;
+    if (frame->value == bootstrap_exception_value &&
+        frame->type == bootstrap_exception_type &&
+        bootstrap_exception_cleanup) {
+        RccBootstrapCleanup cleanup = bootstrap_exception_cleanup;
+        bootstrap_exception_cleanup = NULL;
+        cleanup((void*)frame->value);
+    }
     free((void*)frame->value);
     frame->value = 0u;
     frame->type = 0u;
@@ -237,14 +269,19 @@ __attribute__((noreturn))
 void rin_cpp_exception_rethrow_frame(RccBootstrapExceptionFrame* frame)
 {
     if (!frame || frame->type == 0u) exit(134);
-    rin_cpp_exception_throw(frame->value, frame->type);
+    bootstrap_exception_throw_owned(
+        frame->value, frame->type,
+        frame->value == bootstrap_exception_value &&
+                frame->type == bootstrap_exception_type
+            ? bootstrap_exception_cleanup : NULL);
 }
 
 __attribute__((noreturn))
 void rin_cpp_exception_rethrow(void)
 {
-    rin_cpp_exception_throw(bootstrap_exception_value,
-                            bootstrap_exception_type);
+    bootstrap_exception_throw_owned(bootstrap_exception_value,
+                                    bootstrap_exception_type,
+                                    bootstrap_exception_cleanup);
 }
 
 static void fail(const char* message)
@@ -305,6 +342,13 @@ static uintptr_t symbol_address(const char* name)
     if (strcmp(name, "rin_cpp_exception_throw_object") == 0) {
         uintptr_t result = 0u;
         void (*function)(void) = (void (*)(void))rin_cpp_exception_throw_object;
+        memcpy(&result, &function, sizeof(function));
+        return result;
+    }
+    if (strcmp(name, "rin_cpp_exception_throw_object_with_cleanup") == 0) {
+        uintptr_t result = 0u;
+        void (*function)(void) =
+            (void (*)(void))rin_cpp_exception_throw_object_with_cleanup;
         memcpy(&result, &function, sizeof(function));
         return result;
     }

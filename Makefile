@@ -84,6 +84,7 @@ BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
                               rin_cpp_exception_install rin_cpp_exception_leave \
                               rin_cpp_exception_throw rin_cpp_exception_rethrow \
                               rin_cpp_exception_throw_object \
+                              rin_cpp_exception_throw_object_with_cleanup \
                               rin_cpp_exception_rethrow_frame \
                               rin_cpp_exception_release_frame \
                               rin_cpp_exception_register_cleanup \
@@ -153,6 +154,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-x86-wide-scalar test-language-boundaries test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts
 .PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
+.PHONY: test-cxx-nontrivial-object-exceptions
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr
@@ -2425,6 +2427,34 @@ test-cxx-exception-cleanup: $(RCXX_TARGET)
 	grep -q "C++ exception cleanup requires a call-free protected body" \
 		$(TEST_OUT)/cxx-exception-cleanup/call-x64.log
 	@echo "RCC++ same-function exception cleanup tests completed"
+
+test-cxx-nontrivial-object-exceptions: $(RCXX_TARGET)
+	mkdir -p $(TEST_OUT)/cxx-nontrivial-object-exceptions
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s \
+		tests/cxx_nontrivial_object_exceptions.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.s \
+		tests/cxx_nontrivial_object_exceptions.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.o \
+		$(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s
+	$(CC) -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.o \
+		$(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-start.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-start.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86 \
+		$(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-start.o \
+		$(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.o
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64 \
+		$(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-start.o \
+		$(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.o
+	$(TEST_OUT)/cxx-nontrivial-object-exceptions/x86
+	$(TEST_OUT)/cxx-nontrivial-object-exceptions/x64
+	@echo "RCC++ non-trivial object exception ownership tests completed"
 
 test-cxx-const-member-overload: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-const-member-overload

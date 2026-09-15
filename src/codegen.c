@@ -8440,6 +8440,17 @@ static uint32_t gen_cxx_exception_type_tag32(const Type* type) {
     return (uint32_t)rcc_cxx_exception_type_tag(type);
 }
 
+static Decl* gen_cxx_exception_object_destructor32(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!destructor || !destructor->func_body || !destructor->link_name ||
+        !destructor->func_this_param) {
+        return NULL;
+    }
+    return destructor;
+}
+
 static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
     Type* type;
     if (!stmt) rcc_fatal("validated C++ throw is missing");
@@ -8458,18 +8469,25 @@ static void gen_cxx_throw32(Module* mod, Stmt* stmt) {
     }
     type = stmt->throw_expr->type;
     if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        Decl* destructor = gen_cxx_exception_object_destructor32(type);
         gen_lvalue(mod, stmt->throw_expr);
         emit_push_reg(mod, EAX); /* preserve source across cleanup/release */
         gen_cxx_exception_unwind_cleanup32(mod);
         gen_cxx_exception_release_frame32(mod, active_cxx_exception_frame_offset);
         emit_pop_reg(mod, ECX); /* source object */
+        if (destructor) {
+            gen_symbol_address(mod, decl_link_name(destructor), 0u);
+            emit_push_reg(mod, EAX); /* payload destructor */
+        }
         emit_mov_reg_imm(mod, EAX, gen_cxx_exception_type_tag32(type));
         emit_push_reg(mod, EAX); /* type tag */
         emit_mov_reg_imm(mod, EAX, (uint32_t)type->size);
         emit_push_reg(mod, EAX); /* object size */
         emit_push_reg(mod, ECX); /* source object; cdecl argument 1 */
-        gen_cxx_exception_call32(mod, "rin_cpp_exception_throw_object");
-        emit_add_reg_imm(mod, ESP, 12);
+        gen_cxx_exception_call32(
+            mod, destructor ? "rin_cpp_exception_throw_object_with_cleanup"
+                            : "rin_cpp_exception_throw_object");
+        emit_add_reg_imm(mod, ESP, destructor ? 16 : 12);
     } else {
         gen_expr(mod, stmt->throw_expr);
         emit_push_reg(mod, EAX); /* preserve value across cleanup/release */
