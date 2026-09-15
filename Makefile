@@ -1989,6 +1989,18 @@ test-cxx-exceptions: $(RCXX_TARGET)
 		-fverified-backend -c \
 		-o $(TEST_OUT)/cxx-exceptions/x64-verified.ro \
 		tests/cxx_exceptions_rejected.cpp
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-exceptions/invalid-order-x86.ro \
+		tests/cxx_exceptions_invalid.cpp \
+		>$(TEST_OUT)/cxx-exceptions/invalid-order-x86.log 2>&1
+	grep -q "C++ catch-all handler must be the last handler" \
+		$(TEST_OUT)/cxx-exceptions/invalid-order-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-exceptions/invalid-order-x64.ro \
+		tests/cxx_exceptions_invalid.cpp \
+		>$(TEST_OUT)/cxx-exceptions/invalid-order-x64.log 2>&1
+	grep -q "C++ catch-all handler must be the last handler" \
+		$(TEST_OUT)/cxx-exceptions/invalid-order-x64.log
 	@echo "RCC++ exception propagation and nested handler tests completed"
 
 test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
