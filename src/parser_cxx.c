@@ -1839,13 +1839,23 @@ static void register_inherited_class_methods(CxxClass* cls,
                 inherited->cxx_access = ACCESS_PROTECTED;
             }
             if (method->this_owner) {
+                int this_adjustment = cls->base_offsets[base_index];
+                CxxClass* owner_class = method->this_owner->cxx_class;
+                if (cls->bases[base_index].is_virtual && owner_class &&
+                    !cxx_class_virtual_base_offset(cls, owner_class,
+                                                   &this_adjustment)) {
+                    this_adjustment = cls->base_offsets[base_index];
+                }
                 inherited->this_owner = method->this_owner;
-                inherited->this_adjustment =
-                    cls->base_offsets[base_index] +
-                    method->this_adjustment;
+                inherited->this_adjustment = this_adjustment +
+                                             method->this_adjustment;
             } else if (method->function_decl->func_this_param) {
+                int this_adjustment = cls->base_offsets[base_index];
+                if (cls->bases[base_index].is_virtual) {
+                    cxx_class_virtual_base_offset(cls, base, &this_adjustment);
+                }
                 inherited->this_owner = base->type;
-                inherited->this_adjustment = cls->base_offsets[base_index];
+                inherited->this_adjustment = this_adjustment;
             }
             inherited->next = NULL;
             **tail = inherited;

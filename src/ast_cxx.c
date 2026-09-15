@@ -229,6 +229,17 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
 char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[1024];
     size_t pos = 0;
+    bool is_const_method = false;
+
+    if (func && cls) {
+        for (struct CxxMember* member = cls->members; member;
+             member = member->next) {
+            if (member->method && member->method->decl == func) {
+                is_const_method = member->method->is_const;
+                break;
+            }
+        }
+    }
 
     if (func && func->func_is_cxx_constructor && cls) {
         mangle_nested_prefix(buf, &pos, ns, cls);
@@ -248,6 +259,7 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         strcmp(func->name, "operator conversion") == 0) {
         char* return_type;
         mangle_nested_prefix(buf, &pos, ns, cls);
+        if (is_const_method) buf[pos++] = 'K';
         buf[pos++] = 'c';
         buf[pos++] = 'v';
         return_type = cxx_mangle_type(func->type ? func->type->ret_type : NULL);
@@ -258,10 +270,17 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         pos += strlen(return_type);
         buf[pos++] = 'E';
     } else {
-        /* Get base mangled name */
-        char* base = cxx_mangle_name(func->name, ns, cls);
-        strcpy(buf, base);
-        pos = strlen(buf);
+        if (is_const_method && cls) {
+            mangle_nested_prefix(buf, &pos, ns, cls);
+            buf[pos++] = 'K';
+            mangle_name(buf, &pos, func->name);
+            buf[pos++] = 'E';
+        } else {
+            /* Get base mangled name */
+            char* base = cxx_mangle_name(func->name, ns, cls);
+            strcpy(buf, base);
+            pos = strlen(buf);
+        }
     }
 
     /* Add parameter types */

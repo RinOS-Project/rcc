@@ -4892,6 +4892,41 @@ static Decl* sema_select_cxx_overload(Expr* call) {
     return best;
 }
 
+/* The cv-qualification of a non-static member function belongs to its
+ * implicit object parameter.  It is therefore part of overload viability and
+ * ranking even though it is not present in the explicit argument list. */
+static int cxx_member_object_conversion_rank(Type* object_type,
+                                             TypeMethod* method) {
+    Type* this_type;
+    Type* this_object;
+
+    if (!method || !method->function_decl ||
+        !method->function_decl->func_is_cxx_method ||
+        !method->function_decl->func_this_param) {
+        return 0;
+    }
+    this_type = method->function_decl->func_this_param
+        ? method->function_decl->func_this_param->type : NULL;
+    if (!this_type || this_type->kind != TYPE_PTR || !this_type->base) {
+        return -1;
+    }
+    if (!object_type ||
+        (object_type->kind != TYPE_STRUCT &&
+         object_type->kind != TYPE_UNION)) {
+        return -1;
+    }
+    this_object = this_type->base;
+    if ((object_type->is_const && !this_object->is_const) ||
+        (object_type->is_volatile && !this_object->is_volatile)) {
+        return -1;
+    }
+    /* Binding a mutable object to a const member is a qualification
+     * conversion.  The mutable overload is the better match when both are
+     * viable. */
+    if (this_object->is_const && !object_type->is_const) return 1;
+    return 0;
+}
+
 /* Member functions are kept on the owning TypeMethod list rather than in the
  * global symbol table because ordinary members use their ABI spelling as the
  * declaration key.  Apply the same conversion ranking used by free-function
@@ -4913,12 +4948,17 @@ static TypeMethod* sema_select_cxx_member_method(
         int total = 0;
         int worst = 0;
         bool viable = true;
+        int object_rank;
 
         if (method->kind != TYPE_METHOD_FUNCTION || !method->function_decl ||
             strcmp(method->name, name) != 0) {
             continue;
         }
         function = method->function_decl;
+        object_rank = cxx_member_object_conversion_rank(aggregate, method);
+        if (object_rank < 0) continue;
+        total += object_rank;
+        if (object_rank > worst) worst = object_rank;
         parameter = function->type ? function->type->params : NULL;
         declared_parameter = function->func_params;
         if (function->func_this_param && parameter) parameter = parameter->next;
