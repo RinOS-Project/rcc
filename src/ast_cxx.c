@@ -997,6 +997,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->specializations = NULL;
     tmpl->specialization_count = 0;
     tmpl->specialization_args = NULL;
+    tmpl->specialization_value_args = NULL;
     tmpl->specialization_arg_count = 0;
     tmpl->instances = NULL;
     tmpl->instance_count = 0;

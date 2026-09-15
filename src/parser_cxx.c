@@ -4230,7 +4230,8 @@ CxxTemplate* parse_cxx_template(void) {
         bool is_struct = match(TOK_STRUCT);
         Token* name_token;
         CxxTemplate* primary;
-        Type* arguments[32];
+        Type* arguments[32] = { NULL };
+        Expr* value_arguments[32] = { NULL };
         int argument_count = 0;
         CxxClass* specialized_class;
         CxxTemplate* outer_template = active_template;
@@ -4249,7 +4250,16 @@ CxxTemplate* parse_cxx_template(void) {
                     while (!check(TOK_GT) && !at_end()) advance();
                     break;
                 }
-                arguments[argument_count++] = parse_cxx_type_spec();
+                if (primary && argument_count < primary->param_count &&
+                    primary->params[argument_count].kind == TPARAM_NONTYPE) {
+                    rcc_parser_set_cxx_template_default_mode(true);
+                    value_arguments[argument_count] =
+                        parse_assignment_expression();
+                    rcc_parser_set_cxx_template_default_mode(false);
+                } else {
+                    arguments[argument_count] = parse_cxx_type_spec();
+                }
+                ++argument_count;
             } while (match(TOK_COMMA));
         }
         expect(TOK_GT, ">");
@@ -4276,6 +4286,10 @@ CxxTemplate* parse_cxx_template(void) {
                     sizeof(Type*) * (size_t)argument_count);
                 memcpy(tmpl->specialization_args, arguments,
                        sizeof(Type*) * (size_t)argument_count);
+                tmpl->specialization_value_args = ast_arena_alloc(
+                    sizeof(Expr*) * (size_t)argument_count);
+                memcpy(tmpl->specialization_value_args, value_arguments,
+                       sizeof(Expr*) * (size_t)argument_count);
                 tmpl->specialization_arg_count = argument_count;
                 primary->specializations = ast_arena_grow(
                     primary->specializations,
@@ -4880,12 +4894,14 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         for (int argument_index = 0;
              argument_index < tmpl->specialization_arg_count;
              ++argument_index) {
-            const char* mangled = cxx_mangle_type(
-                tmpl->specialization_args[argument_index]);
+            const char* mangled = tmpl->specialization_value_args &&
+                    tmpl->specialization_value_args[argument_index]
+                ? "v"
+                : cxx_mangle_type(tmpl->specialization_args[argument_index]);
             int written = snprintf(
                 specialization_suffix + suffix_length,
                 sizeof(specialization_suffix) - suffix_length,
-                "%s%s", argument_index == 0 ? "" : ",",
+                "%s%s", argument_index == 0 ? "" : "_",
                 mangled ? mangled : "?");
             if (written < 0 || (size_t)written >=
                                    sizeof(specialization_suffix) -
@@ -5038,6 +5054,36 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     tmpl->instances[tmpl->instance_count].instantiated = instance;
     ++tmpl->instance_count;
     return instance->type;
+}
+
+static bool deduce_class_specialization_value(
+    CxxTemplate* tmpl, Expr* pattern, int64_t actual, int64_t* values,
+    bool* value_present, int* specificity) {
+    int parameter_index;
+    int64_t constant;
+    if (!tmpl || !pattern || !values || !value_present) return false;
+    parameter_index = -1;
+    if (pattern->kind == EXPR_IDENT && pattern->ident_name) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                strcmp(parameter->name, pattern->ident_name) == 0) {
+                parameter_index = index;
+                break;
+            }
+        }
+    }
+    if (parameter_index >= 0) {
+        if (value_present[parameter_index]) {
+            return values[parameter_index] == actual;
+        }
+        values[parameter_index] = actual;
+        value_present[parameter_index] = true;
+        return true;
+    }
+    if (!expr_eval_integer_constant(pattern, &constant)) return false;
+    if (specificity) *specificity += 16;
+    return constant == actual;
 }
 
 static bool deduce_class_specialization_type(CxxTemplate* tmpl,
@@ -5206,20 +5252,35 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
     }
     CxxTemplate* selected = NULL;
     Type* selected_arguments[32] = { NULL };
+    int64_t selected_values[32] = { 0 };
+    bool selected_value_present[32] = { false };
     int selected_specificity = -1;
     for (int index = 0; index < tmpl->specialization_count; ++index) {
         CxxTemplate* specialization = tmpl->specializations[index];
         bool matches = specialization &&
             specialization->specialization_arg_count == argument_count;
         Type* specialization_arguments[32] = { NULL };
+        int64_t specialization_values[32] = { 0 };
+        bool specialization_value_present[32] = { false };
         int specificity = specialization && specialization->param_count == 0
             ? 100000 : 0;
         for (int argument_index = 0; matches &&
              argument_index < argument_count; ++argument_index) {
-            if (specialization->param_count == 0) {
-                matches = type_is_compatible(
-                    specialization->specialization_args[argument_index],
-                    arguments[argument_index]);
+            if (tmpl->params[argument_index].kind == TPARAM_NONTYPE) {
+                matches = specialization->specialization_value_args &&
+                    specialization->specialization_value_args[argument_index] &&
+                    deduce_class_specialization_value(
+                        specialization,
+                        specialization->specialization_value_args[
+                            argument_index],
+                        values[argument_index],
+                        specialization_values,
+                        specialization_value_present, &specificity);
+            } else if (specialization->param_count == 0) {
+                matches = specialization->specialization_args &&
+                    type_is_compatible(
+                        specialization->specialization_args[argument_index],
+                        arguments[argument_index]);
             } else if (specialization->param_count <=
                        (int)(sizeof(specialization_arguments) /
                              sizeof(specialization_arguments[0]))) {
@@ -5247,6 +5308,10 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                     selected_specificity = specificity;
                     memcpy(selected_arguments, specialization_arguments,
                            sizeof(selected_arguments));
+                    memcpy(selected_values, specialization_values,
+                           sizeof(selected_values));
+                    memcpy(selected_value_present, specialization_value_present,
+                           sizeof(selected_value_present));
                 } else if (specificity == selected_specificity) {
                     rcc_error(loc,
                               "ambiguous class template partial specialization "
@@ -5260,7 +5325,8 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
     if (selected) {
         if (selected->param_count == 0) return selected->templated_class->type;
         return instantiate_class_template(
-            selected, selected_arguments, NULL, NULL,
+            selected, selected_arguments, selected_values,
+            selected_value_present,
             selected->param_count, loc);
     }
     return instantiate_class_template(tmpl, arguments, values, value_present,

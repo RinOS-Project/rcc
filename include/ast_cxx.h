@@ -227,6 +227,10 @@ struct CxxTemplate {
     CxxTemplate** specializations;
     int specialization_count;
     Type** specialization_args;
+    /* Non-type arguments in a class-specialization pattern.  The parallel
+     * array is indexed by the primary template's argument position; NULL
+     * entries denote type arguments. */
+    Expr** specialization_value_args;
     int specialization_arg_count;
 
     /* Instantiations */
