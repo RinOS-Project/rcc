@@ -157,7 +157,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-lambda-function-pointer
-.PHONY: test-cxx-if-constexpr
+.PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
@@ -1334,6 +1334,34 @@ test-cxx-if-constexpr: $(RCXX_TARGET)
 	grep -q "if constexpr condition is not a constant expression" \
 		$(TEST_OUT)/cxx-if-constexpr/nonconstant.log
 	@echo "C++ if constexpr selection and diagnostics tests completed"
+
+test-cxx-if-constexpr-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr-template)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-if-constexpr-template/x86.s \
+		tests/cxx_if_constexpr_template.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-if-constexpr-template/x86.o \
+		$(TEST_OUT)/cxx-if-constexpr-template/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-if-constexpr-template/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-if-constexpr-template/x86 \
+		$(TEST_OUT)/cxx-if-constexpr-template/start-x86.o \
+		$(TEST_OUT)/cxx-if-constexpr-template/x86.o
+	$(TEST_OUT)/cxx-if-constexpr-template/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-if-constexpr-template/x64.s \
+		tests/cxx_if_constexpr_template.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-if-constexpr-template/x64.o \
+		$(TEST_OUT)/cxx-if-constexpr-template/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-if-constexpr-template/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-if-constexpr-template/x64 \
+		$(TEST_OUT)/cxx-if-constexpr-template/start-x64.o \
+		$(TEST_OUT)/cxx-if-constexpr-template/x64.o
+	$(TEST_OUT)/cxx-if-constexpr-template/x64
+	@echo "C++ dependent if constexpr template tests completed"
 
 test-cxx-constexpr-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
