@@ -156,6 +156,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-shared-virtual-base
+.PHONY: test-cxx-shared-virtual-base-method
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 	test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
@@ -585,6 +586,34 @@ test-cxx-shared-virtual-base: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-shared-virtual-base/test-x64.o
 	$(TEST_OUT)/cxx-shared-virtual-base/test-x64
 	@echo "C++ shared virtual-base diamond test completed"
+
+test-cxx-shared-virtual-base-method: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-shared-virtual-base-method)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-shared-virtual-base-method/test-x86.s \
+		tests/cxx_shared_virtual_base_method.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-shared-virtual-base-method/test-x86.o \
+		$(TEST_OUT)/cxx-shared-virtual-base-method/test-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-shared-virtual-base-method/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-shared-virtual-base-method/test-x86 \
+		$(TEST_OUT)/cxx-shared-virtual-base-method/start-x86.o \
+		$(TEST_OUT)/cxx-shared-virtual-base-method/test-x86.o
+	$(TEST_OUT)/cxx-shared-virtual-base-method/test-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-shared-virtual-base-method/test-x64.s \
+		tests/cxx_shared_virtual_base_method.cpp
+	gcc -c -o $(TEST_OUT)/cxx-shared-virtual-base-method/test-x64.o \
+		$(TEST_OUT)/cxx-shared-virtual-base-method/test-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-shared-virtual-base-method/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-shared-virtual-base-method/test-x64 \
+		$(TEST_OUT)/cxx-shared-virtual-base-method/start-x64.o \
+		$(TEST_OUT)/cxx-shared-virtual-base-method/test-x64.o
+	$(TEST_OUT)/cxx-shared-virtual-base-method/test-x64
+	@echo "C++ shared virtual-base member dispatch test completed"
 
 test-cxx-destructor-body: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-destructor-body)

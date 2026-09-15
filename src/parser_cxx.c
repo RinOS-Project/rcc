@@ -2710,6 +2710,27 @@ static bool class_uses_base_member(CxxClass* cls, CxxClass* base,
     return false;
 }
 
+static bool class_has_method_declaration(CxxClass* cls, Decl* declaration) {
+    if (!cls || !declaration) return false;
+    for (TypeMethod* method = cls->type ? cls->type->methods : NULL;
+         method; method = method->next) {
+        if (method->function_decl == declaration) return true;
+    }
+    return false;
+}
+
+static bool class_method_declares_shared_virtual_base(
+    CxxClass* cls, Decl* declaration) {
+    CxxClass* owner;
+    if (!cls || !declaration || !declaration->func_method_owner) return false;
+    owner = declaration->func_method_owner->cxx_class;
+    if (!owner) return false;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        if (cls->virtual_bases[index].base == owner) return true;
+    }
+    return false;
+}
+
 /* Publish methods of accessible bases on the derived class.  The layout pass
  * records the concrete offset used by this backend, so the alias can carry
  * the real base declaration and an explicit byte adjustment. */
@@ -2730,6 +2751,9 @@ static void register_inherited_class_methods(CxxClass* cls,
             TypeMethod* inherited;
             if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
                 !method->function_decl ||
+                (class_has_method_declaration(cls, method->function_decl) &&
+                 class_method_declares_shared_virtual_base(
+                     cls, method->function_decl)) ||
                 (class_declares_method_name(cls, method->name) &&
                  !class_uses_base_member(cls, base, method->name))) {
                 continue;
@@ -2743,14 +2767,17 @@ static void register_inherited_class_methods(CxxClass* cls,
             if (method->this_owner) {
                 int this_adjustment = cls->base_offsets[base_index];
                 CxxClass* owner_class = method->this_owner->cxx_class;
-                if (cls->bases[base_index].is_virtual && owner_class &&
-                    !cxx_class_virtual_base_offset(cls, owner_class,
-                                                   &this_adjustment)) {
+                if (owner_class && cxx_class_virtual_base_offset(
+                        cls, owner_class, &this_adjustment)) {
+                    /* A method inherited through a virtual-base path must
+                     * use the one shared subobject in the complete object;
+                     * the intermediate branch offset is not sufficient. */
+                } else {
                     this_adjustment = cls->base_offsets[base_index];
+                    this_adjustment += method->this_adjustment;
                 }
                 inherited->this_owner = method->this_owner;
-                inherited->this_adjustment = this_adjustment +
-                                             method->this_adjustment;
+                inherited->this_adjustment = this_adjustment;
             } else if (method->function_decl->func_this_param) {
                 int this_adjustment = cls->base_offsets[base_index];
                 if (cls->bases[base_index].is_virtual) {
