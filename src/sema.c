@@ -210,6 +210,9 @@ static Symbol* sema_cxx_runtime_function(const char* name, SourceLoc loc) {
     type_parameter = ast_arena_alloc(sizeof(*type_parameter));
     type_parameter->name = "value";
     type_parameter->type = parameter_type;
+    type_parameter->is_bitfield = false;
+    type_parameter->bit_width = 0u;
+    type_parameter->is_static = false;
     type_parameter->cxx_access = 0u; /* ACCESS_PUBLIC without C++ header. */
     type_parameter->next = NULL;
     parameter = decl_param("value", parameter_type, 0, loc);
@@ -5564,6 +5567,27 @@ static Type* sema_expr(Expr* expr) {
                 break;
             }
             Symbol* sym = sema_cxx_lookup_name(expr->ident_name);
+            if (!sym && current_cxx_method_owner && expr->ident_name) {
+                CxxClass* owner = current_cxx_method_owner->cxx_class;
+                for (struct CxxMember* member = owner ? owner->members : NULL;
+                     member; member = member->next) {
+                    Decl* declaration = member->decl;
+                    const char* separator;
+                    if (!member->is_static || member->method || !declaration ||
+                        declaration->kind != DECL_VAR ||
+                        !declaration->name) {
+                        continue;
+                    }
+                    separator = strrchr(declaration->name, ':');
+                    separator = separator ? separator + 1 : declaration->name;
+                    if (strcmp(separator, expr->ident_name) != 0) continue;
+                    expr->ident_decl = declaration;
+                    expr->ident_name = declaration->name;
+                    expr->type = declaration->type;
+                    sym = symtab_lookup(g_symtab, declaration->name);
+                    break;
+                }
+            }
             if (!sym && current_cxx_method_owner &&
                 current_cxx_this_param && expr->ident_name) {
                 TypeField* field;

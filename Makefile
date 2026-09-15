@@ -1743,7 +1743,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
 
-.PHONY: test-cxx-static-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
+.PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-specialization-ambiguous
@@ -1782,6 +1782,34 @@ test-cxx-static-members: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-members/x64.o
 	$(TEST_OUT)/cxx-static-members/x64
 	@echo "RCC++ static C++ member method tests completed"
+
+test-cxx-static-data-members: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-data-members)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-data-members/x86.s \
+		tests/cxx_static_data_member.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-data-members/x64.s \
+		tests/cxx_static_data_member.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-data-members/x86.o \
+		$(TEST_OUT)/cxx-static-data-members/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-data-members/start.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-data-members/x86 \
+		$(TEST_OUT)/cxx-static-data-members/start.o \
+		$(TEST_OUT)/cxx-static-data-members/x86.o
+	$(TEST_OUT)/cxx-static-data-members/x86
+	$(CC) -c -o $(TEST_OUT)/cxx-static-data-members/x64.o \
+		$(TEST_OUT)/cxx-static-data-members/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-static-data-members/start64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-data-members/x64 \
+		$(TEST_OUT)/cxx-static-data-members/start64.o \
+		$(TEST_OUT)/cxx-static-data-members/x64.o
+	$(TEST_OUT)/cxx-static-data-members/x64
+	@echo "RCC++ static data member tests completed"
 
 test-cxx-static-locals: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-locals)

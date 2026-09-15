@@ -495,6 +495,7 @@ static Type* cxx_function_type_from_parameters(Type* return_type,
         parameter->type = item->decl ? item->decl->type : NULL;
         parameter->is_bitfield = false;
         parameter->bit_width = 0u;
+        parameter->is_static = false;
         parameter->initializer = item->decl ? item->decl->param_default : NULL;
         parameter->cxx_access = ACCESS_PUBLIC;
         parameter->next = NULL;
@@ -1955,6 +1956,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
             this_type_parameter->type = this_type;
             this_type_parameter->is_bitfield = false;
             this_type_parameter->bit_width = 0u;
+            this_type_parameter->is_static = false;
             this_type_parameter->cxx_access = ACCESS_PUBLIC;
             this_type_parameter->next = declaration->type->params;
             declaration->type->params = this_type_parameter;
@@ -2007,6 +2009,33 @@ static void diagnose_unlowered_destructors(CxxClass* cls) {
                       "non-trivial C++ destructor body cannot be lowered "
                       "without object-lifetime support");
         }
+    }
+}
+
+/* Publish in-class static data members as real global declarations.  They
+ * retain a qualified source lookup name while their link name follows the
+ * Itanium data-symbol spelling.  Static data members do not use the C
+ * STORAGE_STATIC linkage rule: the `static` keyword belongs to the class
+ * member, not to translation-unit visibility. */
+static void register_class_static_fields(CxxClass* cls) {
+    struct CxxMember* member;
+
+    if (!cls || !active_ast || active_template) return;
+    for (member = cls->members; member; member = member->next) {
+        Decl* declaration = member->decl;
+        const char* source_name;
+
+        if (!member->is_static || member->method || !declaration ||
+            declaration->kind != DECL_VAR || !declaration->name) {
+            continue;
+        }
+        source_name = declaration->name;
+        declaration->link_name = rcc_intern(cxx_mangle_name(
+            source_name, active_namespace, cls));
+        declaration->name = cxx_class_method_source_name(
+            cls, source_name, declaration->loc);
+        declaration->storage = STORAGE_NONE;
+        ast_add_decl(active_ast, declaration);
     }
 }
 
@@ -2291,7 +2320,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         } else if (check(TOK_LBRACE)) {
             init = rcc_parser_parse_initializer();
         }
-        if (init) cls->has_field_initializer = true;
+        if (init && !is_static) cls->has_field_initializer = true;
         if (current_access != ACCESS_PUBLIC) {
             cls->has_nonpublic_field = true;
         }
@@ -2301,7 +2330,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Add field to class */
         cxx_class_add_field_initializer(cls, name, type, current_access, init,
-                                         is_bitfield, bit_width);
+                                         is_bitfield, bit_width, is_static);
+        if (is_static && name) {
+            Decl* declaration = decl_var(name, type, init, loc);
+            cxx_class_add_member(cls, declaration, current_access, true);
+        }
     }
 }
 
@@ -2385,6 +2418,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     register_inline_class_move_constructor(cls);
     register_inline_class_move_assignment(cls);
     diagnose_unlowered_destructors(cls);
+    register_class_static_fields(cls);
     register_ordinary_class_methods(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
@@ -2716,6 +2750,7 @@ static Type* cxx_lambda_function_type(Type* return_type, DeclList* params) {
         parameter->type = item->decl ? item->decl->type : NULL;
         parameter->is_bitfield = false;
         parameter->bit_width = 0u;
+        parameter->is_static = false;
         parameter->initializer = item->decl ? item->decl->param_default : NULL;
         parameter->next = NULL;
         *tail = parameter;
@@ -3809,7 +3844,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             cxx_template_clone_expr_with_values(
                 tmpl, field->initializer, arguments, argument_count,
                 value_args, value_present),
-            field->is_bitfield, field->bit_width);
+            field->is_bitfield, field->bit_width, field->is_static);
     }
     for (struct CxxMember* member = definition->members; member;
          member = member->next) {

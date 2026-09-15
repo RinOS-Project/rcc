@@ -540,6 +540,10 @@ void cxx_class_compute_layout(CxxClass* cls) {
         int size;
         TypeField* field;
 
+        /* Static data members have storage independent of every object and
+         * are materialized as translation-unit declarations. */
+        if (f->is_static) continue;
+
         if (!type || !type_is_complete(type) || type->kind == TYPE_FUNC ||
             type->kind == TYPE_VOID) {
             layout_complete = false;
@@ -1643,6 +1647,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             type_parameter->type = parameter_type;
             type_parameter->is_bitfield = false;
             type_parameter->bit_width = 0u;
+            type_parameter->is_static = false;
             type_parameter->cxx_access = ACCESS_PUBLIC;
             type_parameter->next = NULL;
             *type_tail = type_parameter;
@@ -1867,13 +1872,14 @@ void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access)
 void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Type* type, AccessSpec access,
                                      Expr* initializer, bool is_bitfield,
-                                     unsigned bit_width) {
+                                     unsigned bit_width, bool is_static) {
     /* Create field as TypeParam (reusing existing structure) */
     TypeParam* field = rcc_alloc(sizeof(TypeParam));
     field->name = name ? rcc_strdup(name) : NULL;
     field->type = type;
     field->is_bitfield = is_bitfield;
     field->bit_width = bit_width;
+    field->is_static = is_static;
     field->initializer = initializer;
     field->cxx_access = (unsigned char)access;
     field->next = NULL;
@@ -1890,7 +1896,8 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
 
 void cxx_class_add_field(CxxClass* cls, const char* name, Type* type,
                          AccessSpec access) {
-    cxx_class_add_field_initializer(cls, name, type, access, NULL, false, 0u);
+    cxx_class_add_field_initializer(
+        cls, name, type, access, NULL, false, 0u, false);
 }
 
 /* Add method to class */
@@ -1934,6 +1941,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
         tp->type = p->decl->type;
         tp->is_bitfield = false;
         tp->bit_width = 0u;
+        tp->is_static = false;
         tp->cxx_access = ACCESS_PUBLIC;
         tp->next = NULL;
         *parameter_tail = tp;

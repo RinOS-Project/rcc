@@ -66,7 +66,8 @@ typedef struct TypeParam {
     Type* type;
     bool is_bitfield;
     unsigned bit_width;
-    /* Used by C++ class fields; function parameters leave this NULL. */
+    bool is_static;
+    /* Used by C++ class fields; function parameters set this to false. */
     Expr* initializer;
     unsigned char cxx_access;
     struct TypeParam* next;

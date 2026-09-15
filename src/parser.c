@@ -2158,6 +2158,7 @@ static TypeParam* parser_type_params(DeclList* parameters, bool* variadic) {
         param->type = item->decl->type;
         param->is_bitfield = false;
         param->bit_width = 0u;
+        param->is_static = false;
         param->cxx_access = 0u;
         param->next = NULL;
         *tail = param;
