@@ -131,6 +131,31 @@ static int parse_args(int argc, char** argv) {
             g_opts.nostdinc = true;
         } else if (strcmp(arg, "-ffreestanding") == 0) {
             g_opts.freestanding = true;
+        } else if (strcmp(arg, "-std=c17") == 0 ||
+                   strcmp(arg, "--std=c17") == 0 ||
+                   strcmp(arg, "-std=gnu17") == 0 ||
+                   strcmp(arg, "--std=gnu17") == 0) {
+            /* C17 is the RCC language contract.  Keep the accepted spelling
+             * compatible with common build systems without pretending that
+             * another language revision has different semantics. */
+        } else if (strcmp(arg, "-std") == 0 || strcmp(arg, "--std") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "rcc: error: %s requires an argument\n", arg);
+                return -1;
+            }
+            if (strcmp(argv[++i], "c17") != 0 &&
+                strcmp(argv[i], "gnu17") != 0) {
+                fprintf(stderr,
+                        "rcc: error: unsupported C standard '%s'; use c17 or gnu17\n",
+                        argv[i]);
+                return -1;
+            }
+        } else if (strncmp(arg, "-std=", 5) == 0 ||
+                   strncmp(arg, "--std=", 6) == 0) {
+            fprintf(stderr,
+                    "rcc: error: unsupported C standard '%s'; use c17 or gnu17\n",
+                    strchr(arg, '=') + 1);
+            return -1;
         } else if (strcmp(arg, "-fPIC") == 0 ||
                    strcmp(arg, "-fpic") == 0) {
             g_opts.pic = true;

@@ -2189,6 +2189,8 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x86.log
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/language-boundaries/c17-x86.ro tests/integer_literal.c
 	@if $(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/language-boundaries/c-literal-x86.ro \
 		tests/unsupported_long_double_literal.c \
@@ -2205,6 +2207,8 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x64.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos --std=gnu17 -c \
+		-o $(TEST_OUT)/language-boundaries/c17-x64.ro tests/integer_literal.c
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/language-boundaries/c-literal-x64.ro \
 		tests/unsupported_long_double_literal.c \
