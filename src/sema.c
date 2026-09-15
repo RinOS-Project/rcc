@@ -4990,12 +4990,68 @@ static void sema_bind_cxx_constructor_expression(
     }
 }
 
+/* Constructor calls use the same trailing-default rule as ordinary C++
+ * functions, but their arguments are consumed by the constructor lowering
+ * helpers rather than by the ordinary call expression.  Materialize the
+ * omitted values before code generation so every constructor ABI call has
+ * its complete parameter list. */
+static bool sema_cxx_constructor_arity_has_defaults(
+    CxxConstructorInfo* constructor, int supplied_count) {
+    TypeParam* parameter;
+    DeclList* declaration;
+    int index;
+    if (!constructor || supplied_count < 0 ||
+        supplied_count > constructor->parameter_count) return false;
+    parameter = constructor->parameters;
+    declaration = constructor->method && constructor->method->decl
+        ? constructor->method->decl->func_params : NULL;
+    for (index = 0; index < supplied_count; ++index) {
+        if (!parameter || !declaration) return false;
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    while (parameter && declaration) {
+        if (!declaration->decl || !declaration->decl->param_default) {
+            return false;
+        }
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    return !parameter && !declaration;
+}
+
+static bool sema_append_cxx_constructor_default_arguments(
+    ExprList** arguments, CxxConstructorInfo* constructor,
+    int supplied_count) {
+    TypeParam* parameter;
+    DeclList* declaration;
+    int index;
+    if (!arguments || !constructor ||
+        !sema_cxx_constructor_arity_has_defaults(constructor, supplied_count)) {
+        return false;
+    }
+    parameter = constructor->parameters;
+    declaration = constructor->method && constructor->method->decl
+        ? constructor->method->decl->func_params : NULL;
+    for (index = 0; index < supplied_count; ++index) {
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    while (parameter && declaration) {
+        exprlist_append(arguments, declaration->decl->param_default);
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    return true;
+}
+
 static CxxConstructorInfo* sema_select_cxx_new_constructor(
-    Type* object_type, ExprList* arguments, SourceLoc loc) {
+    Type* object_type, ExprList** arguments, SourceLoc loc) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     CxxConstructorInfo* candidate;
     CxxConstructorInfo* best = NULL;
-    int argument_count = sema_cxx_argument_count(arguments);
+    ExprList* supplied_arguments = arguments ? *arguments : NULL;
+    int argument_count = sema_cxx_argument_count(supplied_arguments);
     int best_total = INT_MAX;
     int best_worst = INT_MAX;
     bool ambiguous = false;
@@ -5015,7 +5071,10 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
         bool viable = true;
         if (!candidate->method || candidate->access != ACCESS_PUBLIC ||
             candidate->is_deleted || candidate->is_defaulted ||
-            candidate->parameter_count != argument_count ||
+            candidate->parameter_count < argument_count ||
+            (candidate->parameter_count != argument_count &&
+             !sema_cxx_constructor_arity_has_defaults(
+                 candidate, argument_count)) ||
             (!candidate->body_is_empty &&
              ((candidate->initializer_count != 0 &&
                !candidate->initializers_are_supported) ||
@@ -5027,7 +5086,7 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
             continue;
         }
         parameter = candidate->parameters;
-        argument = arguments;
+        argument = supplied_arguments;
         while (parameter && argument) {
             int rank = cxx_conversion_rank(argument->expr, parameter->type);
             if (rank < 0) {
@@ -5039,7 +5098,9 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
             parameter = parameter->next;
             argument = argument->next;
         }
-        if (!viable || parameter || argument) continue;
+        if (!viable || argument ||
+            (parameter && !sema_cxx_constructor_arity_has_defaults(
+                candidate, argument_count))) continue;
         if (!best || total < best_total ||
             (total == best_total && worst < best_worst)) {
             best = candidate;
@@ -5055,6 +5116,13 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
         return NULL;
     }
     sema_resolve_cxx_constructor_initializers(best, loc);
+    if (best && arguments && argument_count < best->parameter_count &&
+        !sema_append_cxx_constructor_default_arguments(
+            arguments, best, argument_count)) {
+        rcc_error(loc,
+                  "constructor default arguments are not safely lowerable");
+        return NULL;
+    }
     return best;
 }
 
@@ -5088,7 +5156,7 @@ static void sema_resolve_cxx_constructor_initializers(
             }
             if (base->constructors || initializer->arguments) {
                 initializer->constructor = sema_select_cxx_new_constructor(
-                    base_type, initializer->arguments, loc);
+                    base_type, &initializer->arguments, loc);
                 if (!initializer->constructor) {
                     rcc_error(loc,
                               "no safely lowerable constructor accepts the base initializer");
@@ -5121,7 +5189,7 @@ static void sema_resolve_cxx_constructor_initializers(
         }
         if (field->type->cxx_class) {
             initializer->constructor = sema_select_cxx_new_constructor(
-                field->type, initializer->arguments, initializer->value
+                field->type, &initializer->arguments, initializer->value
                     ? initializer->value->loc : loc);
             if (!initializer->constructor) {
                 rcc_error(initializer->value ? initializer->value->loc : loc,
@@ -5142,20 +5210,31 @@ static CxxConstructorInfo* sema_select_cxx_array_constructor(
     Type* object_type, ExprList* initializers, SourceLoc loc) {
     CxxConstructorInfo* constructor;
     ExprList one;
+    ExprList* selected_arguments = NULL;
+    ExprList* one_arguments = NULL;
     TypeParam* parameter;
 
     if (!object_type || !object_type->cxx_class) return NULL;
     if (!initializers) {
-        return sema_select_cxx_new_constructor(object_type, NULL, loc);
+        constructor = sema_select_cxx_new_constructor(
+            object_type, &selected_arguments, loc);
+        /* The array backend has one flat initializer list and no per-element
+         * argument list for an omitted constructor argument.  Reject that
+         * shape explicitly instead of emitting a short ABI call in the
+         * default-constructor loop. */
+        return constructor && constructor->parameter_count == 0
+            ? constructor : NULL;
     }
     if (initializers->next) {
         one = *initializers;
         one.next = NULL;
+        one_arguments = &one;
         constructor = sema_select_cxx_new_constructor(
-            object_type, &one, loc);
+            object_type, &one_arguments, loc);
     } else {
+        selected_arguments = initializers;
         constructor = sema_select_cxx_new_constructor(
-            object_type, initializers, loc);
+            object_type, &selected_arguments, loc);
     }
     if (!constructor || constructor->parameter_count != 1 ||
         !constructor->parameters) {
@@ -6488,8 +6567,16 @@ static Type* sema_expr(Expr* expr) {
                 sema_initializer(expr->compound_type, expr);
                 if (rcc_parser_is_cxx_mode() &&
                     expr->compound_type->cxx_class) {
-                    expr->compound_constructor = sema_select_cxx_new_constructor(
-                        expr->compound_type, expr->compound_init, expr->loc);
+                    ExprList* constructor_arguments =
+                        expr->compound_value_init ? NULL : expr->compound_init;
+                    expr->compound_constructor =
+                        sema_select_cxx_new_constructor(
+                            expr->compound_type, &constructor_arguments,
+                            expr->loc);
+                    if (constructor_arguments != expr->compound_init) {
+                        expr->compound_init = constructor_arguments;
+                        expr->compound_value_init = constructor_arguments == NULL;
+                    }
                 }
             }
             break;
@@ -6989,7 +7076,7 @@ static Type* sema_expr(Expr* expr) {
                 }
                 if (cls && cls->constructors && !expr->call_new_is_array) {
                     constructor = sema_select_cxx_new_constructor(
-                        object_type, expr->call_new_args, expr->loc);
+                        object_type, &expr->call_new_args, expr->loc);
                     if (argument_count != 0 || expr->call_new_value_init ||
                         object_type->cxx_nontrivial) {
                         if (!constructor &&
@@ -8423,7 +8510,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
             }
         }
         initializer->compound_constructor = sema_select_cxx_new_constructor(
-            type, constructor_arguments, initializer->loc);
+            type, &constructor_arguments, initializer->loc);
+        if (constructor_arguments != initializer->compound_init) {
+            initializer->compound_init = constructor_arguments;
+            initializer->compound_value_init = constructor_arguments == NULL;
+        }
         return;
     }
     if (initializer_is_aggregate_zero(type, initializer)) {
@@ -8505,7 +8596,7 @@ static void sema_initializer(Type* type, Expr* initializer) {
         if (rcc_parser_is_cxx_mode() && type->cxx_class) {
             initializer->compound_constructor =
                 sema_select_cxx_new_constructor(
-                    type, initializer->compound_init, initializer->loc);
+                    type, &initializer->compound_init, initializer->loc);
         }
         return;
     }

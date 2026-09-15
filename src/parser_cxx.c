@@ -721,6 +721,78 @@ static int cxx_constructor_argument_count(ExprList* arguments) {
     return count;
 }
 
+/* Constructor default arguments are stored on both the declaration
+ * parameters and the function type parameters.  Keep the parser-side
+ * arity checks independent from semantic analysis so direct initialization
+ * can be recognized before the AST is walked. */
+static unsigned cxx_constructor_required_parameter_count(
+    CxxConstructorInfo* constructor) {
+    unsigned required = 0u;
+    TypeParam* parameter = constructor ? constructor->parameters : NULL;
+    DeclList* declaration = constructor && constructor->method &&
+        constructor->method->decl ? constructor->method->decl->func_params : NULL;
+    for (; parameter; parameter = parameter->next) {
+        if (!declaration || !declaration->decl ||
+            !declaration->decl->param_default) {
+            ++required;
+        } else {
+            break;
+        }
+        declaration = declaration->next;
+    }
+    return required;
+}
+
+static bool cxx_constructor_arity_has_defaults(
+    CxxConstructorInfo* constructor, int supplied_count) {
+    TypeParam* parameter;
+    DeclList* declaration;
+    int index;
+    if (!constructor || supplied_count < 0 ||
+        supplied_count > constructor->parameter_count) return false;
+    parameter = constructor->parameters;
+    declaration = constructor->method && constructor->method->decl
+        ? constructor->method->decl->func_params : NULL;
+    for (index = 0; index < supplied_count; ++index) {
+        if (!parameter || !declaration) return false;
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    while (parameter && declaration) {
+        if (!declaration->decl || !declaration->decl->param_default) {
+            return false;
+        }
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    return !parameter && !declaration;
+}
+
+static bool cxx_append_constructor_default_arguments(
+    ExprList** arguments, CxxConstructorInfo* constructor,
+    int supplied_count) {
+    TypeParam* parameter;
+    DeclList* declaration;
+    int index;
+    if (!arguments || !constructor ||
+        !cxx_constructor_arity_has_defaults(constructor, supplied_count)) {
+        return false;
+    }
+    parameter = constructor->parameters;
+    declaration = constructor->method && constructor->method->decl
+        ? constructor->method->decl->func_params : NULL;
+    for (index = 0; index < supplied_count; ++index) {
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    while (parameter && declaration) {
+        exprlist_append(arguments, declaration->decl->param_default);
+        parameter = parameter->next;
+        declaration = declaration->next;
+    }
+    return true;
+}
+
 static CxxConstructorInfo* cxx_find_base_constructor(CxxClass* base,
                                                       int argument_count) {
     if (!base) return NULL;
@@ -730,7 +802,9 @@ static CxxConstructorInfo* cxx_find_base_constructor(CxxClass* base,
             constructor->method->decl->func_body;
         if (constructor->access != ACCESS_PUBLIC || constructor->is_deleted ||
             constructor->is_defaulted ||
-            constructor->parameter_count != argument_count ||
+            constructor->parameter_count < argument_count ||
+            (constructor->parameter_count != argument_count &&
+             !cxx_constructor_arity_has_defaults(constructor, argument_count)) ||
             !constructor->initializers_are_supported ||
             (!constructor->body_is_empty && !callable_body)) {
             continue;
@@ -828,6 +902,14 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                     valid = false;
                     continue;
                 }
+                if (base_constructor &&
+                    argument_count != base_constructor->parameter_count &&
+                    !cxx_append_constructor_default_arguments(
+                        &item->arguments, base_constructor, argument_count)) {
+                    valid = false;
+                    continue;
+                }
+                item->value = item->arguments ? item->arguments->expr : NULL;
                 item->constructor = base_constructor;
                 item->is_base_initializer = true;
                 item->is_default_member_initializer = false;
@@ -867,6 +949,13 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item = cxx_copy_constructor_initializer(
                     NULL, base && base->name ? base->name : NULL, true,
                     base_constructor, false);
+                if (base_constructor &&
+                    !cxx_append_constructor_default_arguments(
+                        &item->arguments, base_constructor, 0)) {
+                    valid = false;
+                    break;
+                }
+                item->value = item->arguments ? item->arguments->expr : NULL;
             } else {
                 item = cxx_copy_constructor_initializer(
                     item, item->field, true, item->constructor, false);
@@ -1146,6 +1235,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     for (constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         unsigned arity;
+        unsigned minimum_arity;
         bool supported = true;
         bool parameter_used[32] = {false};
         TypeParam* field = cls->fields;
@@ -1155,14 +1245,20 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             continue;
         }
         arity = (unsigned)constructor->parameter_count;
-        if (arity >= 32u) continue;
+        minimum_arity = cxx_constructor_required_parameter_count(constructor);
+        if (arity >= 32u || minimum_arity > arity || minimum_arity >= 32u) {
+            continue;
+        }
         if (!constructor->body_is_empty) {
             if ((cls->base_count == 0 ||
                  constructor->initializers_are_supported) &&
                 constructor->method && constructor->method->decl &&
                 constructor->method->decl->func_is_cxx_method &&
                 constructor->method->decl->func_body) {
-                mask |= UINT32_C(1) << arity;
+                for (unsigned invocation_arity = minimum_arity;
+                     invocation_arity <= arity; ++invocation_arity) {
+                    mask |= UINT32_C(1) << invocation_arity;
+                }
             }
             continue;
         }
@@ -1267,7 +1363,10 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             }
             if (!all_parameters_used) continue;
         }
-        mask |= UINT32_C(1) << arity;
+        for (unsigned invocation_arity = minimum_arity;
+             invocation_arity <= arity; ++invocation_arity) {
+            mask |= UINT32_C(1) << invocation_arity;
+        }
     }
     return mask;
 }
