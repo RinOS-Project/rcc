@@ -1200,7 +1200,8 @@ static void codegen_add_vtable_pointer(Module* mod,
 static bool codegen_type_has_vtable_storage(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     return type && (type->cxx_vtable_size > 0 ||
-                    (cls && cls->secondary_vtable_count > 0));
+                    (cls && (cls->secondary_vtable_count > 0 ||
+                             cls->virtual_base_count > 0)));
 }
 
 static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
@@ -2226,6 +2227,97 @@ static void codegen_emit_signed_rodata(Module* mod, int64_t value,
     emit_rodata(mod, &wide, pointer_size);
 }
 
+static const char* codegen_cxx_vbase_variant_symbol(CxxClass* owner,
+                                                     bool is_virtual_base,
+                                                     int index) {
+    char buffer[1200];
+    const char* base;
+    if (!owner || !owner->virtual_base_table_symbol || index < 0) {
+        return NULL;
+    }
+    base = owner->virtual_base_table_symbol;
+    if (snprintf(buffer, sizeof(buffer), "%s_%s%d", base,
+                 is_virtual_base ? "vbase" : "base", index) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ virtual-base variant table symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
+static void codegen_emit_cxx_vbase_table(Module* mod, const char* symbol,
+                                         CxxClass* owner, CxxClass* source,
+                                         int source_offset) {
+    static const uint8_t zero[8] = {0};
+    uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    uint32_t offset;
+    if (!mod || !symbol || !owner || !source ||
+        source->virtual_base_count <= 0 || source_offset < 0) {
+        return;
+    }
+    while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
+        emit_rodata(mod, zero, 1u);
+    }
+    offset = (uint32_t)mod->rodata.size;
+    for (int index = 0; index < source->virtual_base_count; ++index) {
+        CxxVirtualBaseInfo* source_base = &source->virtual_bases[index];
+        int owner_offset;
+        int64_t relative;
+        if (!source_base->base ||
+            !cxx_class_virtual_base_offset(owner, source_base->base,
+                                           &owner_offset) ||
+            owner_offset < 0) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "virtual-base table for '%s' has no owner offset",
+                      owner->name ? owner->name : "<anonymous>");
+            codegen_emit_signed_rodata(mod, 0, pointer_size);
+            continue;
+        }
+        relative = (int64_t)owner_offset - source_offset;
+        codegen_emit_signed_rodata(mod, relative, pointer_size);
+    }
+    module_add_symbol(mod, symbol, offset, true, MODULE_SYMBOL_RODATA, true);
+}
+
+static void codegen_emit_cxx_vbase_tables_in_namespace(Module* mod,
+                                                        CxxNamespace* ns) {
+    if (!mod || !ns) return;
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* cls = ns->classes[index];
+        if (!cls || cls->virtual_base_count <= 0 ||
+            !cls->virtual_base_table_symbol) {
+            continue;
+        }
+        codegen_emit_cxx_vbase_table(
+            mod, cls->virtual_base_table_symbol, cls, cls, 0);
+        for (int base_index = 0; base_index < cls->base_count;
+             ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            if (!base || base->virtual_base_count <= 0 ||
+                !cls->base_offsets || cls->base_offsets[base_index] < 0) {
+                continue;
+            }
+            codegen_emit_cxx_vbase_table(
+                mod, codegen_cxx_vbase_variant_symbol(cls, false, base_index),
+                cls, base, cls->base_offsets[base_index]);
+        }
+        for (int virtual_index = 0;
+             virtual_index < cls->virtual_base_count; ++virtual_index) {
+            CxxClass* base = cls->virtual_bases[virtual_index].base;
+            if (!base || base->virtual_base_count <= 0 ||
+                cls->virtual_bases[virtual_index].offset < 0) {
+                continue;
+            }
+            codegen_emit_cxx_vbase_table(
+                mod,
+                codegen_cxx_vbase_variant_symbol(cls, true, virtual_index),
+                cls, base, cls->virtual_bases[virtual_index].offset);
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        codegen_emit_cxx_vbase_tables_in_namespace(mod, child);
+    }
+}
+
 static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
     static const uint8_t zero[8] = {0};
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
@@ -2265,7 +2357,24 @@ static void codegen_add_vtable_pointer(Module* mod,
      * those words zero-initialized: a virtual call must observe a real,
      * ABI-compatible table. */
     cls = type->cxx_class;
-    if (!cls || !cls->base_offsets) return;
+    if (!cls) return;
+    if (cls->virtual_base_count > 0 &&
+        cls->virtual_base_pointer_offset >= 0 &&
+        cls->virtual_base_table_symbol) {
+        uint64_t pointer_offset = (uint64_t)offset +
+                                  (uint32_t)cls->virtual_base_pointer_offset;
+        if (pointer_offset > UINT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "virtual-base pointer exceeds data limits");
+        } else {
+            module_add_relocation(
+                mod, source_section, (uint32_t)pointer_offset, 0u, false,
+                width == 8u, cls->virtual_base_table_symbol);
+            add_reloc(mod, source_section, (uint32_t)pointer_offset,
+                      width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+        }
+    }
+    if (!cls->base_offsets) return;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
         const char* base_vtable_symbol;
@@ -2348,6 +2457,62 @@ static void codegen_add_vtable_pointer(Module* mod,
                               0u, false, width == 8u,
                               virtual_vtable_symbol);
         add_reloc(mod, source_section, (uint32_t)virtual_offset,
+                  width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    }
+
+    /* Initialize the hidden table pointer in every virtual-base-bearing
+     * subobject.  A non-virtual base needs an owner-relative table because
+     * the shared virtual base can be at a different offset for each path. */
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        const char* table_symbol;
+        uint64_t pointer_offset;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            !cls->base_offsets || cls->base_offsets[index] < 0) {
+            continue;
+        }
+        table_symbol = codegen_cxx_vbase_variant_symbol(cls, false, index);
+        /* Direct virtual bases are initialized by the virtual-base loop
+         * below; this branch handles only non-virtual base subobjects. */
+        if (cls->bases[index].is_virtual || !table_symbol) continue;
+        pointer_offset = (uint64_t)offset +
+                         (uint32_t)cls->base_offsets[index] +
+                         (uint32_t)base->virtual_base_pointer_offset;
+        if (pointer_offset > UINT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "base virtual-base pointer exceeds data limits");
+            continue;
+        }
+        module_add_relocation(mod, source_section, (uint32_t)pointer_offset,
+                              0u, false, width == 8u, table_symbol);
+        add_reloc(mod, source_section, (uint32_t)pointer_offset,
+                  width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
+    }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxClass* base = cls->virtual_bases[virtual_index].base;
+        const char* table_symbol;
+        uint64_t pointer_offset;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            cls->virtual_bases[virtual_index].offset < 0) {
+            continue;
+        }
+        table_symbol = codegen_cxx_vbase_variant_symbol(
+            cls, true, virtual_index);
+        if (!table_symbol) continue;
+        pointer_offset = (uint64_t)offset +
+                         (uint32_t)cls->virtual_bases[virtual_index].offset +
+                         (uint32_t)base->virtual_base_pointer_offset;
+        if (pointer_offset > UINT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "nested virtual-base pointer exceeds data limits");
+            continue;
+        }
+        module_add_relocation(mod, source_section, (uint32_t)pointer_offset,
+                              0u, false, width == 8u, table_symbol);
+        add_reloc(mod, source_section, (uint32_t)pointer_offset,
                   width == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     }
 }
@@ -2556,6 +2721,7 @@ void codegen_emit_cxx_vtable_thunks32(Module* mod, CxxNamespace* ns) {
 void codegen_emit_cxx_vtables(Module* mod) {
     CxxNamespace* global_namespace = codegen_cxx_global_namespace();
     if (mod && global_namespace) {
+        codegen_emit_cxx_vbase_tables_in_namespace(mod, global_namespace);
         if (g_opts.target_arch == ARCH_X64) {
             codegen_emit_cxx_vtable_thunks64(mod, global_namespace);
         } else {
@@ -3858,7 +4024,22 @@ static void gen_local_vtable_init(Module* mod, Type* type,
     }
 
     cls = type->cxx_class;
-    if (!cls || !cls->base_offsets) return;
+    if (!cls) return;
+    if (cls->virtual_base_count > 0 &&
+        cls->virtual_base_pointer_offset >= 0 &&
+        cls->virtual_base_table_symbol) {
+        int64_t pointer_displacement = (int64_t)displacement +
+                                       cls->virtual_base_pointer_offset;
+        if (pointer_displacement < INT32_MIN ||
+            pointer_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "virtual-base pointer exceeds stack limits");
+        } else {
+            gen_symbol_address(mod, cls->virtual_base_table_symbol, 0u);
+            emit_mov_mem_reg(mod, EBP, (int32_t)pointer_displacement, EAX);
+        }
+    }
+    if (!cls->base_offsets) return;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
         const char* base_vtable_symbol;
@@ -3936,6 +4117,54 @@ static void gen_local_vtable_init(Module* mod, Type* type,
         }
         gen_symbol_address(mod, virtual_vtable_symbol, 0u);
         emit_mov_mem_reg(mod, EBP, (int32_t)virtual_displacement, EAX);
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        const char* table_symbol;
+        int64_t pointer_displacement;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            cls->bases[index].is_virtual || cls->base_offsets[index] < 0) {
+            continue;
+        }
+        table_symbol = codegen_cxx_vbase_variant_symbol(cls, false, index);
+        if (!table_symbol) continue;
+        pointer_displacement = (int64_t)displacement +
+                               cls->base_offsets[index] +
+                               base->virtual_base_pointer_offset;
+        if (pointer_displacement < INT32_MIN ||
+            pointer_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "base virtual-base pointer exceeds stack limits");
+            continue;
+        }
+        gen_symbol_address(mod, table_symbol, 0u);
+        emit_mov_mem_reg(mod, EBP, (int32_t)pointer_displacement, EAX);
+    }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxClass* base = cls->virtual_bases[virtual_index].base;
+        const char* table_symbol;
+        int64_t pointer_displacement;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            cls->virtual_bases[virtual_index].offset < 0) {
+            continue;
+        }
+        table_symbol = codegen_cxx_vbase_variant_symbol(
+            cls, true, virtual_index);
+        if (!table_symbol) continue;
+        pointer_displacement = (int64_t)displacement +
+                               cls->virtual_bases[virtual_index].offset +
+                               base->virtual_base_pointer_offset;
+        if (pointer_displacement < INT32_MIN ||
+            pointer_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "nested virtual-base pointer exceeds stack limits");
+            continue;
+        }
+        gen_symbol_address(mod, table_symbol, 0u);
+        emit_mov_mem_reg(mod, EBP, (int32_t)pointer_displacement, EAX);
     }
 }
 
@@ -8885,7 +9114,31 @@ static void gen_expr(Module* mod, Expr* expr) {
         return;
     }
     gen_expr_raw(mod, expr);
-    if (expr->cxx_dynamic_cast_runtime) {
+    if (expr->cxx_virtual_base_adjustment) {
+        int end_label;
+        if (!expr->cxx_virtual_base_source_class ||
+            expr->cxx_virtual_base_pointer_offset < 0 ||
+            expr->cxx_virtual_base_index < 0 ||
+            expr->cxx_virtual_base_index >=
+                expr->cxx_virtual_base_source_class->virtual_base_count) {
+            rcc_error(expr->loc,
+                      "virtual-base conversion has incomplete vbtable metadata");
+            return;
+        }
+        end_label = new_label();
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, end_label);
+        emit_mov_reg_mem(mod, EDX, EAX,
+                         expr->cxx_virtual_base_pointer_offset);
+        emit_mov_reg_mem(mod, ECX, EDX,
+                         expr->cxx_virtual_base_index * 4);
+        emit_add_reg_reg(mod, EAX, ECX);
+        if (expr->cxx_virtual_base_nested_adjustment != 0) {
+            emit_add_reg_imm(mod, EAX,
+                             expr->cxx_virtual_base_nested_adjustment);
+        }
+        emit_label(mod, end_label);
+    } else if (expr->cxx_dynamic_cast_runtime) {
         int null_label = new_label();
         int not_found_label = new_label();
         int found_label = new_label();

@@ -387,6 +387,13 @@ struct Expr {
     /* Runtime RTTI search for public downcast/cross-cast relationships. */
     bool cxx_dynamic_cast_runtime;
     const char* cxx_dynamic_cast_typeinfo_symbol;
+    /* A static/implicit conversion through a virtual base reads the
+     * most-derived offset from the source subobject's hidden vbptr. */
+    bool cxx_virtual_base_adjustment;
+    int cxx_virtual_base_index;
+    int32_t cxx_virtual_base_nested_adjustment;
+    int32_t cxx_virtual_base_pointer_offset;
+    struct CxxClass* cxx_virtual_base_source_class;
     /* Non-NULL only for a semantically validated C++ ownership transfer. */
     CxxMoveAssignment* cxx_move_assignment;
     /* Non-NULL only for the structurally validated SDK close operation. */

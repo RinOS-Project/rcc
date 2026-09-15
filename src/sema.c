@@ -194,6 +194,56 @@ static bool sema_cxx_pointer_conversion(Type* source, Type* target,
                                 adjustment, 0);
 }
 
+/* Return the first virtual-base edge in a public pointer conversion.  The
+ * hidden table belongs to the source subobject, so the remaining conversion
+ * inside the virtual base can still use its ordinary fixed layout offset. */
+static bool sema_cxx_virtual_base_conversion(Type* source, Type* target,
+                                             int* virtual_index,
+                                             int* nested_adjustment) {
+    CxxClass* cls;
+    if (!source || !target || source->kind != TYPE_PTR ||
+        target->kind != TYPE_PTR || source->is_reference ||
+        target->is_reference || !source->base || !target->base) {
+        return false;
+    }
+    cls = source->base->cxx_class;
+    if (!cls) return false;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxVirtualBaseInfo* item = &cls->virtual_bases[index];
+        int nested = 0;
+        if (!item->base || !item->public_path ||
+            !item->base->type ||
+            !sema_cxx_public_base(item->base->type, target->base,
+                                  &nested, 0)) {
+            continue;
+        }
+        if (virtual_index) *virtual_index = index;
+        if (nested_adjustment) *nested_adjustment = nested;
+        return true;
+    }
+    return false;
+}
+
+static bool sema_cxx_set_pointer_conversion(Expr* expression, Type* source,
+                                            Type* target, int* adjustment) {
+    int virtual_index;
+    int nested_adjustment;
+    if (!expression || !source || !target) return false;
+    expression->cxx_virtual_base_adjustment = false;
+    expression->cxx_virtual_base_source_class = NULL;
+    if (sema_cxx_virtual_base_conversion(source, target, &virtual_index,
+                                         &nested_adjustment)) {
+        expression->cxx_virtual_base_adjustment = true;
+        expression->cxx_virtual_base_index = virtual_index;
+        expression->cxx_virtual_base_nested_adjustment = nested_adjustment;
+        expression->cxx_virtual_base_source_class = source->base->cxx_class;
+        expression->cxx_virtual_base_pointer_offset =
+            source->base->cxx_class->virtual_base_pointer_offset;
+        return true;
+    }
+    return sema_cxx_pointer_conversion(source, target, adjustment);
+}
+
 /* C++ new/delete are language expressions, so they do not require a source
  * declaration for the RinOS allocation ABI.  Materialize the two C-linkage
  * declarations lazily in the semantic symbol table, while respecting a real
@@ -847,9 +897,12 @@ static Type* implicit_cast(Expr* e, Type* target) {
         }
         {
             int adjustment;
-            if (sema_cxx_pointer_conversion(e->type, target, &adjustment)) {
-                e->cxx_pointer_adjustment_valid = adjustment != 0;
-                e->cxx_pointer_adjustment = adjustment;
+            if (sema_cxx_set_pointer_conversion(e, e->type, target,
+                                                &adjustment)) {
+                if (!e->cxx_virtual_base_adjustment) {
+                    e->cxx_pointer_adjustment_valid = adjustment != 0;
+                    e->cxx_pointer_adjustment = adjustment;
+                }
                 return target;
             }
         }
@@ -6596,6 +6649,23 @@ static Type* sema_expr(Expr* expr) {
                         source->base, expr->cast_type->base,
                         &adjustment, 0);
                     source_polymorphic = sema_cxx_is_polymorphic(source->base);
+                    if (sema_cxx_virtual_base_conversion(
+                            source, expr->cast_type, NULL, NULL) &&
+                        source_polymorphic &&
+                        expr->cast_type->base->cxx_class &&
+                        expr->cast_type->base->cxx_class->type &&
+                        expr->cast_type->base->cxx_class->type
+                            ->cxx_typeinfo_symbol) {
+                        /* A virtual-base adjustment depends on the
+                         * complete object.  Use the same RTTI search as a
+                         * downcast/cross-cast instead of baking in the
+                         * layout of the static source type. */
+                        supported = true;
+                        expr->cxx_dynamic_cast_runtime = true;
+                        expr->cxx_dynamic_cast_typeinfo_symbol =
+                            expr->cast_type->base->cxx_class->type
+                                ->cxx_typeinfo_symbol;
+                    }
                     if (!supported && source_polymorphic &&
                         expr->cast_type->base->cxx_class &&
                         expr->cast_type->base->cxx_class->type &&
@@ -6640,10 +6710,12 @@ static Type* sema_expr(Expr* expr) {
                 expr->cxx_cast_kind != CXX_CAST_CONST &&
                 !type_is_compatible(source, expr->cast_type)) {
                 int adjustment;
-                if (sema_cxx_pointer_conversion(source, expr->cast_type,
-                                                 &adjustment)) {
-                    expr->cxx_pointer_adjustment_valid = adjustment != 0;
-                    expr->cxx_pointer_adjustment = adjustment;
+                if (sema_cxx_set_pointer_conversion(
+                        expr, source, expr->cast_type, &adjustment)) {
+                    if (!expr->cxx_virtual_base_adjustment) {
+                        expr->cxx_pointer_adjustment_valid = adjustment != 0;
+                        expr->cxx_pointer_adjustment = adjustment;
+                    }
                 }
             }
             break;

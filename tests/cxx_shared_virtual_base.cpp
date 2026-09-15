@@ -19,7 +19,8 @@ public:
     int own;
 };
 
-static_assert(sizeof(VirtualDiamond) == 16);
+static_assert(sizeof(VirtualDiamond) ==
+              (sizeof(void*) == 4 ? 28 : 56));
 
 int main() {
     VirtualDiamond object;

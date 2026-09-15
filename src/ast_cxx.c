@@ -524,6 +524,8 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->virtual_bases = NULL;
     cls->virtual_base_count = 0;
     cls->nonvirtual_size = 1;
+    cls->virtual_base_pointer_offset = -1;
+    cls->virtual_base_table_symbol = NULL;
     cls->members = NULL;
     cls->vtable = NULL;
     cls->vtable_size = 0;
@@ -812,6 +814,20 @@ void cxx_class_compute_layout(CxxClass* cls) {
         }
     }
 
+    /* Every class with a virtual-base closure carries a hidden pointer to a
+     * table of offsets for the current most-derived object.  Keep it in the
+     * non-virtual portion so a polymorphic class can retain its primary vptr
+     * at offset zero.  A derived object initializes one table pointer for
+     * itself and one for each virtual-base-bearing subobject. */
+    cls->virtual_base_pointer_offset = -1;
+    if (cls->virtual_base_count > 0) {
+        int pointer_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+        offset = (offset + pointer_size - 1) & ~(pointer_size - 1);
+        cls->virtual_base_pointer_offset = offset;
+        offset += pointer_size;
+        if (pointer_size > max_align) max_align = pointer_size;
+    }
+
     /* Save the size used when this class is embedded as a non-virtual base;
      * virtual subobjects belong to the final most-derived object. */
     cls->nonvirtual_size = (offset + max_align - 1) & ~(max_align - 1);
@@ -914,6 +930,18 @@ static const char* cxx_typeinfo_name(CxxClass* cls) {
     return rcc_intern(buffer);
 }
 
+static const char* cxx_virtual_base_table_name(CxxClass* cls) {
+    char buffer[1024];
+    char* class_name;
+    if (!cls || !cls->name) return NULL;
+    class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
+    if (snprintf(buffer, sizeof(buffer), "__rcc_vbtable_%s", class_name) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ virtual-base table symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
 static const char* cxx_secondary_vtable_name(CxxClass* cls,
                                              int base_index) {
     char buffer[1024];
@@ -992,6 +1020,8 @@ void cxx_class_build_vtable(CxxClass* cls) {
      * a dynamic_cast<T*>(source) search.  Allocate the symbol while the
      * namespace and specialization identity are still attached to the class. */
     cls->type->cxx_typeinfo_symbol = cxx_typeinfo_name(cls);
+    cls->virtual_base_table_symbol = cls->virtual_base_count > 0
+        ? cxx_virtual_base_table_name(cls) : NULL;
 
     primary_base = cxx_primary_vtable_base(cls);
     vtable_size = primary_base ? primary_base->vtable_size : 0;

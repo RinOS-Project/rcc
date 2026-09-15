@@ -93,6 +93,11 @@ struct CxxClass {
     int virtual_base_count;
     /* Size excluding virtual-base subobjects, used for embedding. */
     int nonvirtual_size;
+    /* Hidden pointer used by conversions through a virtual-base path.  It is
+     * placed at the end of the non-virtual portion so the existing primary
+     * vptr ABI remains unchanged for polymorphic classes. */
+    int virtual_base_pointer_offset;
+    const char* virtual_base_table_symbol;
 
     /* Members */
     struct CxxMember {

@@ -17,6 +17,23 @@
 /* Label management */
 static int label_counter64 = 0;
 
+static const char* codegen_cxx_vbase_variant_symbol(CxxClass* owner,
+                                                     bool is_virtual_base,
+                                                     int index) {
+    char buffer[1200];
+    const char* base;
+    if (!owner || !owner->virtual_base_table_symbol || index < 0) {
+        return NULL;
+    }
+    base = owner->virtual_base_table_symbol;
+    if (snprintf(buffer, sizeof(buffer), "%s_%s%d", base,
+                 is_virtual_base ? "vbase" : "base", index) < 0 ||
+        strlen(buffer) >= sizeof(buffer) - 1u) {
+        rcc_fatal("C++ virtual-base variant table symbol is too long");
+    }
+    return rcc_intern(buffer);
+}
+
 static void codegen64_expr_loc(SourceLoc* location, const Expr* expression) {
     if (!location) return;
     location->filename = NULL;
@@ -2064,7 +2081,9 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
     CxxClass* cls;
     if (!mod || !type ||
         !(type->cxx_vtable_size > 0 ||
-          (type->cxx_class && type->cxx_class->secondary_vtable_count > 0))) {
+          (type->cxx_class &&
+           (type->cxx_class->secondary_vtable_count > 0 ||
+            type->cxx_class->virtual_base_count > 0)))) {
         return;
     }
     if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
@@ -2073,7 +2092,23 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
     }
 
     cls = type->cxx_class;
-    if (!cls || !cls->base_offsets) return;
+    if (!cls) return;
+    if (cls->virtual_base_count > 0 &&
+        cls->virtual_base_pointer_offset >= 0 &&
+        cls->virtual_base_table_symbol) {
+        int64_t pointer_displacement = (int64_t)displacement +
+                                       cls->virtual_base_pointer_offset;
+        if (pointer_displacement < INT32_MIN ||
+            pointer_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "virtual-base pointer exceeds stack limits");
+        } else {
+            gen64_symbol_address(mod, cls->virtual_base_table_symbol, 0u);
+            emit64_mov_mem_reg(mod, RBP, (int32_t)pointer_displacement,
+                               RAX);
+        }
+    }
+    if (!cls->base_offsets) return;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
         const char* base_vtable_symbol;
@@ -2151,6 +2186,54 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
         }
         gen64_symbol_address(mod, virtual_vtable_symbol, 0u);
         emit64_mov_mem_reg(mod, RBP, (int32_t)virtual_displacement, RAX);
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        const char* table_symbol;
+        int64_t pointer_displacement;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            cls->bases[index].is_virtual || cls->base_offsets[index] < 0) {
+            continue;
+        }
+        table_symbol = codegen_cxx_vbase_variant_symbol(cls, false, index);
+        if (!table_symbol) continue;
+        pointer_displacement = (int64_t)displacement +
+                               cls->base_offsets[index] +
+                               base->virtual_base_pointer_offset;
+        if (pointer_displacement < INT32_MIN ||
+            pointer_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "base virtual-base pointer exceeds stack limits");
+            continue;
+        }
+        gen64_symbol_address(mod, table_symbol, 0u);
+        emit64_mov_mem_reg(mod, RBP, (int32_t)pointer_displacement, RAX);
+    }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        CxxClass* base = cls->virtual_bases[virtual_index].base;
+        const char* table_symbol;
+        int64_t pointer_displacement;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            cls->virtual_bases[virtual_index].offset < 0) {
+            continue;
+        }
+        table_symbol = codegen_cxx_vbase_variant_symbol(
+            cls, true, virtual_index);
+        if (!table_symbol) continue;
+        pointer_displacement = (int64_t)displacement +
+                               cls->virtual_bases[virtual_index].offset +
+                               base->virtual_base_pointer_offset;
+        if (pointer_displacement < INT32_MIN ||
+            pointer_displacement > INT32_MAX) {
+            rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
+                      "nested virtual-base pointer exceeds stack limits");
+            continue;
+        }
+        gen64_symbol_address(mod, table_symbol, 0u);
+        emit64_mov_mem_reg(mod, RBP, (int32_t)pointer_displacement, RAX);
     }
 }
 
@@ -5161,7 +5244,31 @@ static void codegen64_release_named_labels(void) {
 static void gen64_expr(Module* mod, Expr* expr) {
     if (!expr) return;
     gen64_expr_raw(mod, expr);
-    if (expr->cxx_dynamic_cast_runtime) {
+    if (expr->cxx_virtual_base_adjustment) {
+        int end_label;
+        if (!expr->cxx_virtual_base_source_class ||
+            expr->cxx_virtual_base_pointer_offset < 0 ||
+            expr->cxx_virtual_base_index < 0 ||
+            expr->cxx_virtual_base_index >=
+                expr->cxx_virtual_base_source_class->virtual_base_count) {
+            rcc_error(expr->loc,
+                      "virtual-base conversion has incomplete vbtable metadata");
+            return;
+        }
+        end_label = new_label64();
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, end_label);
+        emit64_mov_reg_mem(mod, RDX, RAX,
+                           expr->cxx_virtual_base_pointer_offset);
+        emit64_mov_reg_mem(mod, RCX, RDX,
+                           expr->cxx_virtual_base_index * 8);
+        emit64_add_reg_reg(mod, RAX, RCX);
+        if (expr->cxx_virtual_base_nested_adjustment != 0) {
+            emit64_add_reg_imm(mod, RAX,
+                               expr->cxx_virtual_base_nested_adjustment);
+        }
+        emit64_label(mod, end_label);
+    } else if (expr->cxx_dynamic_cast_runtime) {
         int null_label = new_label64();
         int not_found_label = new_label64();
         int found_label = new_label64();
@@ -6530,10 +6637,11 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 record64_vla_scope(d);
             } else if (d->kind == DECL_VAR &&
                        (d->var_init ||
-                        (d->type &&
-                         (d->type->cxx_vtable_size > 0 ||
-                          (d->type->cxx_class &&
-                           d->type->cxx_class->secondary_vtable_count > 0))))) {
+                       (d->type &&
+                        (d->type->cxx_vtable_size > 0 ||
+                         (d->type->cxx_class &&
+                          (d->type->cxx_class->secondary_vtable_count > 0 ||
+                           d->type->cxx_class->virtual_base_count > 0)))))) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION) &&
