@@ -6726,9 +6726,16 @@ static Type* sema_expr(Expr* expr) {
                 if (expr->call_new_is_array) {
                     if (cls && !cls->constructors &&
                         cls->has_field_initializer) {
-                        rcc_error(expr->loc,
-                                  "array new with default member initializers is not supported");
-                        return expr->type;
+                        if (expr->call_new_args ||
+                            !sema_cxx_validate_default_member_initializers(
+                                object_type, expr->loc)) {
+                            if (expr->call_new_args) {
+                                rcc_error(expr->loc,
+                                          "array new with default member initializers requires an empty initializer list");
+                            }
+                            return expr->type;
+                        }
+                        expr->call_new_default_member_initializers = true;
                     }
                     int64_t element_count = 0;
                     if (expr->call_new_args && !expr->call_new_brace_init) {

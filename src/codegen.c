@@ -4975,6 +4975,50 @@ static void gen_cxx_initialize_default_members32(Module* mod, Type* object_type)
     }
 }
 
+static void gen_cxx_init_default_member_array32(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    int loop;
+    int done;
+    if (!object_type || object_type->size <= 0 ||
+        !expr || !expr->call_new_count) {
+        SourceLoc location;
+        codegen_expr_loc(&location, expr);
+        rcc_error(location,
+                  "array new default member initializer has invalid storage");
+        return;
+    }
+    gen_expr(mod, expr->call_new_count);
+    emit_push_reg(mod, EAX);              /* count */
+    emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("rin_malloc", call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_push_reg(mod, EAX);              /* base */
+    emit_mov_reg_mem(mod, ECX, ESP, 0);   /* current */
+    emit_mov_reg_mem(mod, EDX, ESP, 4);   /* remaining count */
+    loop = new_label();
+    done = new_label();
+    emit_cmp_reg_imm(mod, EDX, 0);
+    emit_jcc_label(mod, CC_E, done);
+    emit_label(mod, loop);
+    if (expr->call_new_value_init) {
+        gen_cxx_zero_object32(mod, object_type, ECX);
+    }
+    gen_cxx_initialize_default_members32(mod, object_type);
+    emit_add_reg_imm(mod, ECX, (uint32_t)object_type->size);
+    emit_sub_reg_imm(mod, EDX, 1);
+    emit_cmp_reg_imm(mod, EDX, 0);
+    emit_jcc_label(mod, CC_NE, loop);
+    emit_label(mod, done);
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
 static TypeField* gen_cxx_constructor_field32(Type* object_type,
                                                const char* name) {
     for (TypeField* field = object_type ? object_type->fields : NULL;
@@ -5702,6 +5746,11 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     if (expr->call_new_is_array && expr->call_new_constructor &&
         !expr->call_new_args) {
         gen_cxx_init_default_class_array32(mod, expr);
+        return;
+    }
+    if (expr->call_new_is_array &&
+        expr->call_new_default_member_initializers) {
+        gen_cxx_init_default_member_array32(mod, expr);
         return;
     }
     if (expr->call_new_is_array && expr->call_new_value_init) {

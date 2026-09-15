@@ -2664,6 +2664,52 @@ static void gen64_cxx_initialize_default_members(
     }
 }
 
+static void gen64_cxx_init_default_member_array(Module* mod, Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    int loop;
+    int done;
+    if (!object_type || object_type->size <= 0 ||
+        !expr || !expr->call_new_count) {
+        SourceLoc location;
+        codegen64_expr_loc(&location, expr);
+        rcc_error(location,
+                  "array new default member initializer has invalid storage");
+        return;
+    }
+    gen64_expr(mod, expr->call_new_count);
+    emit64_sub_reg_imm(mod, RSP, 16);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX);  /* count */
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
+    emit64_imul_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("rin_malloc", call_offset);
+    }
+    emit64_mov_mem_reg(mod, RSP, 8, RAX);  /* base */
+    emit64_mov_reg_mem(mod, RCX, RSP, 8);  /* current */
+    emit64_mov_reg_mem(mod, RDX, RSP, 0);  /* remaining count */
+    loop = new_label64();
+    done = new_label64();
+    emit64_cmp_reg_imm(mod, RDX, 0);
+    emit64_jcc_label(mod, CC64_E, done);
+    emit64_label(mod, loop);
+    if (expr->call_new_value_init) {
+        gen64_cxx_zero_object(mod, object_type, RCX);
+    }
+    gen64_cxx_initialize_default_members(mod, object_type);
+    emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
+    emit64_sub_reg_imm(mod, RDX, 1);
+    emit64_cmp_reg_imm(mod, RDX, 0);
+    emit64_jcc_label(mod, CC64_NE, loop);
+    emit64_label(mod, done);
+    emit64_mov_reg_mem(mod, RAX, RSP, 8);
+    emit64_add_reg_imm(mod, RSP, 16);
+}
+
 static TypeField* gen64_cxx_constructor_field(Type* object_type,
                                                const char* name) {
     for (TypeField* field = object_type ? object_type->fields : NULL;
@@ -3317,6 +3363,11 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     if (expr->call_new_is_array && expr->call_new_constructor &&
         !expr->call_new_args) {
         gen64_cxx_init_default_class_array(mod, expr);
+        return;
+    }
+    if (expr->call_new_is_array &&
+        expr->call_new_default_member_initializers) {
+        gen64_cxx_init_default_member_array(mod, expr);
         return;
     }
     if (expr->call_new_is_array && expr->call_new_value_init) {

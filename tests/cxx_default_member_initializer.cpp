@@ -37,12 +37,26 @@ extern "C" int cxx_default_member_initializer() {
         new ImplicitDefaultMemberInitializer();
     ImplicitDefaultMemberInitializer* implicit_plain =
         new ImplicitDefaultMemberInitializer;
+    ImplicitDefaultMemberInitializer* implicit_array =
+        new ImplicitDefaultMemberInitializer[2];
+    ImplicitDefaultMemberInitializer* implicit_value_array =
+        new ImplicitDefaultMemberInitializer[2]{};
+    ImplicitDefaultMemberInitializer* implicit_paren_array =
+        new ImplicitDefaultMemberInitializer[2]();
     int result = explicit_value.total() + default_value.total() +
                  heap->total() + implicit->total() + implicit_paren->total() +
-                 implicit_plain->total();
+                 implicit_plain->total() + implicit_array[0].total() +
+                 implicit_array[1].total() +
+                 implicit_value_array[0].total() +
+                 implicit_value_array[1].total() +
+                 implicit_paren_array[0].total() +
+                 implicit_paren_array[1].total();
     delete heap;
     delete implicit;
     delete implicit_paren;
     delete implicit_plain;
-    return result == 78 ? 0 : 1;
+    delete[] implicit_array;
+    delete[] implicit_value_array;
+    delete[] implicit_paren_array;
+    return result == 138 ? 0 : 1;
 }
