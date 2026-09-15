@@ -721,6 +721,8 @@ static int cxx_constructor_argument_count(ExprList* arguments) {
     return count;
 }
 
+static bool cxx_constructor_scalar_constant(Expr* expression);
+
 /* Constructor default arguments are stored on both the declaration
  * parameters and the function type parameters.  Keep the parser-side
  * arity checks independent from semantic analysis so direct initialization
@@ -974,13 +976,16 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
             item = cxx_find_constructor_initializer(
                 constructor, field->name, NULL);
             if (!item && field->initializer) {
-                int64_t value;
                 Type* type = field->type;
                 if (!type || type->size <= 0 ||
                     !(type_is_integer(type) || type->kind == TYPE_ENUM ||
                       type->kind == TYPE_PTR ||
-                      type->kind == TYPE_NULLPTR) ||
-                    !expr_eval_integer_constant(field->initializer, &value)) {
+                      type->kind == TYPE_NULLPTR ||
+                      type->kind == TYPE_FLOAT ||
+                      type->kind == TYPE_DOUBLE) ||
+                    !cxx_constructor_scalar_constant(field->initializer) ||
+                    (g_opts.target_arch == ARCH_X86 && type->size > 4) ||
+                    (g_opts.target_arch == ARCH_X64 && type->size > 8)) {
                     valid = false;
                     break;
                 }
@@ -1105,6 +1110,17 @@ static bool cxx_constructor_scalar_type(Type* type) {
     return type && (type_is_integer(type) || type->kind == TYPE_ENUM ||
                     type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
                     type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
+}
+
+static bool cxx_constructor_scalar_constant(Expr* expression) {
+    int64_t integer_value;
+    if (!expression) return false;
+    if (expr_eval_integer_constant(expression, &integer_value)) return true;
+    if (expression->kind == EXPR_FLOAT_LIT) return true;
+    if (expression->kind == EXPR_NEG) {
+        return cxx_constructor_scalar_constant(expression->unary_operand);
+    }
+    return false;
 }
 
 static bool cxx_constructor_expression_is_lowerable(
@@ -1304,14 +1320,14 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 continue;
             }
             if (initializer->is_default_member_initializer) {
-                int64_t default_value;
-                if (!expr_eval_integer_constant(initializer->value,
-                                                &default_value) ||
+                if (!cxx_constructor_scalar_constant(initializer->value) ||
                     !field->type ||
                     !(type_is_integer(field->type) ||
                       field->type->kind == TYPE_ENUM ||
                       field->type->kind == TYPE_PTR ||
-                      field->type->kind == TYPE_NULLPTR) ||
+                      field->type->kind == TYPE_NULLPTR ||
+                      field->type->kind == TYPE_FLOAT ||
+                      field->type->kind == TYPE_DOUBLE) ||
                     field->type->size <= 0 ||
                     (g_opts.target_arch == ARCH_X86 &&
                      field->type->size > 4) ||
@@ -1325,14 +1341,14 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 continue;
             }
             if (arity == 0u) {
-                int64_t constant_value = 0;
-                if (!expr_eval_integer_constant(
-                        initializer->value, &constant_value) ||
+                if (!cxx_constructor_scalar_constant(initializer->value) ||
                     !field->type ||
                     !(type_is_integer(field->type) ||
                       field->type->kind == TYPE_ENUM ||
                       field->type->kind == TYPE_PTR ||
-                      field->type->kind == TYPE_NULLPTR) ||
+                      field->type->kind == TYPE_NULLPTR ||
+                      field->type->kind == TYPE_FLOAT ||
+                      field->type->kind == TYPE_DOUBLE) ||
                     field->type->size <= 0 ||
                     (g_opts.target_arch == ARCH_X86 && field->type->size > 4) ||
                     (g_opts.target_arch == ARCH_X64 && field->type->size > 8)) {

@@ -4554,6 +4554,27 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
 
 static Decl* sema_cxx_destructor_function(Type* object_type);
 
+static bool sema_cxx_default_member_constant(Type* field_type,
+                                             Expr* initializer) {
+    SemaConstexprScalar value;
+    if (!field_type || !initializer ||
+        !(type_is_arithmetic(field_type) ||
+          field_type->kind == TYPE_ENUM || field_type->kind == TYPE_PTR ||
+          field_type->kind == TYPE_NULLPTR) ||
+        field_type->size <= 0 ||
+        (g_opts.target_arch == ARCH_X86 && field_type->size > 4) ||
+        (g_opts.target_arch == ARCH_X64 && field_type->size > 8)) {
+        return false;
+    }
+    if (!sema_expr(initializer) ||
+        cxx_conversion_rank(initializer, field_type) < 0 ||
+        !sema_eval_constexpr_scalar_expr(initializer, NULL, 0, &value) ||
+        !sema_constexpr_scalar_convert(&value, field_type, &value)) {
+        return false;
+    }
+    return true;
+}
+
 static bool sema_cxx_validate_default_member_initializers(
     Type* object_type, SourceLoc loc) {
     if (!object_type || !object_type->cxx_class ||
@@ -4561,21 +4582,11 @@ static bool sema_cxx_validate_default_member_initializers(
         return false;
     }
     for (TypeField* field = object_type->fields; field; field = field->next) {
-        int64_t value;
         if (!field->initializer) continue;
-        if (!field->type || field->type->size <= 0 ||
-            !(type_is_integer(field->type) || field->type->kind == TYPE_ENUM ||
-              field->type->kind == TYPE_PTR ||
-              field->type->kind == TYPE_NULLPTR) ||
-            !expr_eval_integer_constant(field->initializer, &value)) {
+        if (!sema_cxx_default_member_constant(
+                field->type, field->initializer)) {
             rcc_error(loc,
-                      "new requires scalar integer constant default member initializers");
-            return false;
-        }
-        if (!sema_expr(field->initializer) ||
-            !implicit_cast(field->initializer, field->type)) {
-            rcc_error(field->initializer->loc,
-                      "default member initializer is incompatible with its field");
+                      "new requires scalar constant default member initializers");
             return false;
         }
     }
