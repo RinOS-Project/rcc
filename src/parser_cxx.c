@@ -5696,6 +5696,8 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                                           int64_t* values,
                                           bool* value_present,
                                           int* specificity) {
+    TypeParam* pattern_parameter;
+    TypeParam* actual_parameter;
     if (!tmpl || !pattern || !actual || !arguments) return false;
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
@@ -5719,11 +5721,46 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                                              arguments, values,
                                              value_present, specificity);
     }
+    if (pattern->kind == TYPE_PTR && !pattern->is_reference &&
+        actual->kind == TYPE_FUNC && pattern->base &&
+        pattern->base->kind == TYPE_FUNC) {
+        /* A function designator undergoes the standard function-to-pointer
+         * conversion when it is passed to a function-pointer parameter. */
+        if (specificity) *specificity += 4;
+        return deduce_function_template_type(
+            tmpl, pattern->base, actual, arguments, values, value_present,
+            specificity);
+    }
     if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR) {
         if (specificity) *specificity += 8;
         return deduce_function_template_type(tmpl, pattern->base,
                                              actual->base, arguments, values,
                                              value_present, specificity);
+    }
+    if (pattern->kind == TYPE_FUNC && actual->kind == TYPE_FUNC) {
+        if (pattern->variadic != actual->variadic ||
+            pattern->has_prototype != actual->has_prototype) {
+            return false;
+        }
+        if (!deduce_function_template_type(
+                tmpl, pattern->ret_type, actual->ret_type, arguments, values,
+                value_present, specificity)) {
+            return false;
+        }
+        pattern_parameter = pattern->params;
+        actual_parameter = actual->params;
+        while (pattern_parameter && actual_parameter) {
+            if (!deduce_function_template_type(
+                    tmpl, pattern_parameter->type, actual_parameter->type,
+                    arguments, values, value_present, specificity)) {
+                return false;
+            }
+            pattern_parameter = pattern_parameter->next;
+            actual_parameter = actual_parameter->next;
+        }
+        if (pattern_parameter || actual_parameter) return false;
+        if (specificity) *specificity += 16;
+        return true;
     }
     if (pattern->kind == TYPE_ARRAY && actual->kind == TYPE_ARRAY) {
         if (specificity) *specificity += 8;
@@ -6001,7 +6038,9 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
     if (!source) return -1;
 
     if (target->is_reference) {
-        if (!cxx_parser_expression_is_lvalue(argument) || !target->base) {
+        bool is_lvalue = cxx_parser_expression_is_lvalue(argument);
+        if ((!target->is_rvalue_reference && !is_lvalue) ||
+            (target->is_rvalue_reference && is_lvalue) || !target->base) {
             return -1;
         }
         target = target->base;
@@ -6016,6 +6055,10 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
              target_base->kind == TYPE_VOID)) {
             return 1;
         }
+    }
+    if (source->kind == TYPE_FUNC && target->kind == TYPE_PTR &&
+        target->base && target->base->kind == TYPE_FUNC) {
+        return type_is_compatible(source, target->base) ? 1 : -1;
     }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
         source_base = source->base;

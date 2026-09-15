@@ -889,9 +889,11 @@ static Gen64AggregateClass gen64_empty_aggregate_class(void) {
 typedef struct {
     Gen64AggregateClass aggregate;
     bool is_aggregate;
+    bool materialize_rvalue_reference;
     bool memory;
     int storage;
     int temp_offset;
+    int value_temp_offset;
     int stack_offset;
     int gp_start;
     int fp_start;
@@ -4920,6 +4922,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 call_arguments[i - 1].memory = false;
                 call_arguments[i - 1].storage = call_arguments[i - 1].is_aggregate
                     ? gen64_aggregate_storage(argument_types[i - 1]) : 8;
+                call_arguments[i - 1].materialize_rvalue_reference =
+                    argument_types[i - 1] &&
+                    argument_types[i - 1]->is_reference &&
+                    argument_types[i - 1]->is_rvalue_reference;
             }
             gp_cursor = register_base;
             fp_cursor = 0;
@@ -4971,8 +4977,21 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     argument->stack_offset = stack_bytes;
                     stack_bytes += argument->storage;
                 }
-                call_arguments[i].temp_offset = temp_bytes;
-                temp_bytes += argument->storage;
+                if (argument->materialize_rvalue_reference) {
+                    Type* value_type = argument_types[i]->base;
+                    if (!value_type || gen64_is_aggregate(value_type)) {
+                        rcc_error(args[i]->expr->loc,
+                                  "rvalue reference temporary requires a scalar type");
+                    }
+                    argument->value_temp_offset = temp_bytes;
+                    temp_bytes += 8;
+                    argument->temp_offset = temp_bytes;
+                    temp_bytes += 8;
+                } else {
+                    argument->temp_offset = temp_bytes;
+                    argument->value_temp_offset = -1;
+                    temp_bytes += argument->storage;
+                }
             }
             /* A generated function keeps RSP 16-byte aligned after its
              * prologue.  The SysV ABI requires the same alignment immediately
@@ -4999,8 +5018,28 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     gen64_copy_memory(mod, RSP, layout->temp_offset,
                                       R11, 0, passed_type->size);
                 } else if (passed_type && passed_type->is_reference) {
-                    gen64_lvalue(mod, argument);
-                    emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
+                    if (layout->materialize_rvalue_reference) {
+                        Type* value_type = passed_type->base;
+                        gen64_expr(mod, argument);
+                        if (gen64_is_floating(value_type)) {
+                            gen64_convert_to_float(mod, argument->type,
+                                                   value_type);
+                        } else if (type_is_integer(value_type) ||
+                                   (value_type &&
+                                    value_type->kind == TYPE_ENUM)) {
+                            emit64_normalize_atomic_value(mod, RAX,
+                                                          value_type);
+                        }
+                        emit64_store_typed(mod, RSP,
+                                           layout->value_temp_offset, RAX,
+                                           value_type);
+                        emit64_lea(mod, RAX, RSP,
+                                   layout->value_temp_offset);
+                        emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
+                    } else {
+                        gen64_lvalue(mod, argument);
+                        emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
+                    }
                 } else {
                     gen64_expr(mod, argument);
                     if (gen64_is_floating(passed_type)) {

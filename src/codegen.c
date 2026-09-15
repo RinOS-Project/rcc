@@ -7032,6 +7032,50 @@ static void gen_call(Module* mod, Expr* expr) {
         Expr* argument = args[i]->expr;
         Type* passed_type = argument_types[i];
         if (passed_type && passed_type->is_reference) {
+            if (passed_type->is_rvalue_reference) {
+                Type* value_type = passed_type->base;
+                int value_bytes;
+                if (!value_type || gen_aggregate_type32(value_type)) {
+                    rcc_error(argument->loc,
+                              "rvalue reference temporary requires a scalar type");
+                    continue;
+                }
+                if (gen_is_floating(value_type)) {
+                    gen_expr_as_type(mod, argument, value_type);
+                    value_bytes = gen_float_width(value_type);
+                    if (value_bytes == 4) {
+                        emit_push_reg(mod, EAX);
+                    } else {
+                        emit_push_reg(mod, EDX);
+                        emit_push_reg(mod, EAX);
+                    }
+                } else {
+                    gen_expr_as_type(mod, argument, value_type);
+                    if (gen_is_integer64(value_type)) {
+                        if (!gen_is_integer64(argument->type)) {
+                            emit_extend_eax_to_integer64(mod, argument->type);
+                        }
+                        emit_push_reg(mod, EDX);
+                        emit_push_reg(mod, EAX);
+                        value_bytes = 8;
+                    } else {
+                        if (type_is_integer(value_type) ||
+                            value_type->kind == TYPE_ENUM) {
+                            emit_convert_integer_value(mod, EAX,
+                                                       argument->type,
+                                                       value_type);
+                        }
+                        emit_push_reg(mod, EAX);
+                        value_bytes = 4;
+                    }
+                }
+                /* The value just pushed is the lifetime-extended temporary.
+                 * Pass its address through the normal reference ABI. */
+                emit_mov_reg_reg(mod, EAX, ESP);
+                emit_push_reg(mod, EAX);
+                argument_bytes += value_bytes + 4;
+                continue;
+            }
             gen_lvalue(mod, argument);
             emit_push_reg(mod, EAX);
             argument_bytes += 4;

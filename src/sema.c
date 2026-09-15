@@ -799,7 +799,11 @@ static Type* implicit_cast(Expr* e, Type* target) {
         Type* source = e->type;
         /* Reference arguments are passed as addresses by the backend, so the
          * supported subset deliberately requires addressable expressions. */
-        if (!referred || !is_lvalue(e)) return NULL;
+        if (!referred ||
+            (!target->is_rvalue_reference && !is_lvalue(e)) ||
+            (target->is_rvalue_reference && is_lvalue(e))) {
+            return NULL;
+        }
         if (source && source->is_reference) source = source->base;
         if (!source) return NULL;
         if ((source->is_const && !referred->is_const) ||
@@ -4569,7 +4573,11 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     }
     if (target->is_reference) {
         target_base = target->base;
-        if (!target_base || !is_lvalue(argument)) return -1;
+        if (!target_base ||
+            (!target->is_rvalue_reference && !is_lvalue(argument)) ||
+            (target->is_rvalue_reference && is_lvalue(argument))) {
+            return -1;
+        }
         if ((source->is_const && !target_base->is_const) ||
             (source->is_volatile && !target_base->is_volatile)) {
             return -1;
