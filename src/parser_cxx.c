@@ -4406,10 +4406,12 @@ static void recognize_versioned_function_template(CxxTemplate* tmpl) {
 
 CxxTemplate* parse_cxx_template(void) {
     SourceLoc loc = previous()->loc;
+    CxxTemplate* parameter_outer_template = active_template;
 
     expect(TOK_LT, "<");
 
     CxxTemplate* tmpl = cxx_template_new(loc);
+    active_template = tmpl;
 
     /* Parse template parameters */
     if (!check(TOK_GT)) {
@@ -4481,6 +4483,7 @@ CxxTemplate* parse_cxx_template(void) {
             rcc_error(loc, "requires-clause requires a constraint expression");
         }
     }
+    active_template = parameter_outer_template;
 
     /* Template body */
     if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
@@ -4957,6 +4960,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     parameter_index = template_parameter_index(tmpl, type);
     if (parameter_index >= 0 && parameter_index < argument_count) {
         substituted = arguments[parameter_index];
+        if (substituted != type && substituted->cxx_dependent) {
+            Type* resolved = substitute_template_type(
+                tmpl, substituted, arguments, argument_count, value_args,
+                value_present);
+            if (resolved) substituted = resolved;
+        }
         if ((type->is_const && !substituted->is_const) ||
             (type->is_volatile && !substituted->is_volatile)) {
             Type* qualified = ast_arena_alloc(sizeof(*qualified));
@@ -5001,6 +5010,32 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     ? base->size * substituted->array_len : 0;
                 substituted->align = base->align;
             }
+            return substituted;
+        }
+    } else if (type->kind == TYPE_FUNC) {
+        Type* return_type = substitute_template_type(
+            tmpl, type->ret_type, arguments, argument_count, value_args,
+            value_present);
+        TypeParam* parameters = NULL;
+        TypeParam** tail = &parameters;
+        bool changed = return_type != type->ret_type;
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            TypeParam* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *parameter;
+            copy->type = substitute_template_type(
+                tmpl, parameter->type, arguments, argument_count, value_args,
+                value_present);
+            copy->next = NULL;
+            if (copy->type != parameter->type) changed = true;
+            *tail = copy;
+            tail = &copy->next;
+        }
+        if (changed) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *type;
+            substituted->ret_type = return_type;
+            substituted->params = parameters;
             return substituted;
         }
     }
@@ -5704,6 +5739,13 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
             TemplateParam* parameter = &tmpl->params[index];
             if (parameter->kind == TPARAM_TYPE && parameter->name &&
                 strcmp(parameter->name, pattern->tag) == 0) {
+                if (pattern->is_const || pattern->is_volatile) {
+                    Type* unqualified = ast_arena_alloc(sizeof(*unqualified));
+                    *unqualified = *actual;
+                    unqualified->is_const = false;
+                    unqualified->is_volatile = false;
+                    actual = unqualified;
+                }
                 if (!arguments[index]) {
                     arguments[index] = actual;
                     return true;

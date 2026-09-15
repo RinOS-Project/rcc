@@ -1336,6 +1336,12 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     index = template_type_parameter_index(tmpl, type);
     if (index >= 0 && index < arg_count && args[index]) {
         replacement = args[index];
+        if (replacement != type && replacement->cxx_dependent) {
+            Type* resolved = template_substitute_type(
+                tmpl, replacement, args, arg_count, value_args,
+                value_present);
+            if (resolved) replacement = resolved;
+        }
         if ((type->is_const && !replacement->is_const) ||
             (type->is_volatile && !replacement->is_volatile)) {
             Type* qualified = ast_arena_alloc(sizeof(*qualified));
@@ -1407,6 +1413,32 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             *copy = *type;
             copy->ret_type = return_type;
             copy->params = params;
+            return copy;
+        }
+    } else if (type->kind == TYPE_FUNC) {
+        Type* return_type = template_substitute_type(
+            tmpl, type->ret_type, args, arg_count, value_args,
+            value_present);
+        TypeParam* parameters = NULL;
+        TypeParam** tail = &parameters;
+        bool changed = return_type != type->ret_type;
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            TypeParam* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *parameter;
+            copy->type = template_substitute_type(
+                tmpl, parameter->type, args, arg_count, value_args,
+                value_present);
+            copy->next = NULL;
+            if (copy->type != parameter->type) changed = true;
+            *tail = copy;
+            tail = &copy->next;
+        }
+        if (changed) {
+            Type* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *type;
+            copy->ret_type = return_type;
+            copy->params = parameters;
             return copy;
         }
     }
