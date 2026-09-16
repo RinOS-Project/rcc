@@ -3545,6 +3545,16 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             /* Parse method body */
             StmtList* stmts = NULL;
             rcc_parser_cxx_begin_function_parameters(params);
+            if (!is_static) {
+                Type* this_type = type_ptr(cls->type);
+                if (is_const) {
+                    Type* const_owner = ast_arena_alloc(sizeof(*const_owner));
+                    *const_owner = *cls->type;
+                    const_owner->is_const = true;
+                    this_type = type_ptr(const_owner);
+                }
+                rcc_parser_cxx_add_value_binding("this", this_type);
+            }
             while (!check(TOK_RBRACE) && !at_end()) {
                 Token* statement_start = parser.cur;
                 int errors_before = g_error_count;
@@ -4337,12 +4347,22 @@ Expr* rcc_parse_cxx_lambda(void) {
         do {
             Token* capture;
             bool reference_capture = match(TOK_AMP) || match(TOK_AND);
-            capture = expect(TOK_IDENT, "lambda capture name");
+            if (check(TOK_THIS)) {
+                capture = advance();
+                if (reference_capture) {
+                    rcc_error(capture->loc,
+                              "lambda cannot capture this by reference");
+                    reference_capture = false;
+                }
+            } else {
+                capture = expect(TOK_IDENT, "lambda capture name");
+            }
             if (!capture) break;
             {
                 CxxLambdaCaptureSpec* spec =
                     ast_arena_alloc(sizeof(*spec));
-                spec->name = capture->value.str_val;
+                spec->name = capture->type == TOK_THIS
+                    ? rcc_intern("this") : capture->value.str_val;
                 spec->loc = capture->loc;
                 spec->reference = reference_capture;
                 spec->next = NULL;
@@ -4398,7 +4418,7 @@ Expr* rcc_parse_cxx_lambda(void) {
                 rcc_error(loc, "lambda capture has no semantic type");
                 continue;
             }
-            if (default_reference) {
+            if (default_reference && strcmp(binding->name, "this") != 0) {
                 CxxReferenceCapture* reference =
                     ast_arena_alloc(sizeof(*reference));
                 reference->name = binding->name;
