@@ -1460,6 +1460,14 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
         base = template_substitute_type(
             tmpl, type->base, args, arg_count, value_args, value_present);
+        /* Reference collapsing is part of substitution, not a later ABI
+         * repair.  A forwarding-reference pattern such as `T&&` deduces T as
+         * `U&` for an lvalue argument, so substituting the placeholder must
+         * produce U& rather than the impossible nested `U& &&` carrier. */
+        if (type->kind == TYPE_PTR && type->is_reference && base &&
+            base->kind == TYPE_PTR && base->is_reference) {
+            return base;
+        }
         array_len = type->array_len;
         array_bound = type->array_bound;
         if (type->kind == TYPE_ARRAY && value_args && value_present &&

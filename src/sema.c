@@ -6855,6 +6855,20 @@ static Type* sema_cxx_lambda_deduction_type(Expr* argument,
             type = type->base;
         }
     }
+    /* A generic `auto&&` parameter is a forwarding reference.  For an
+     * lvalue argument the deduced T is itself an lvalue reference; the
+     * substitution layer collapses it with the outer `&&`.  Keep this as a
+     * real type rather than allowing the call checker to reject the lvalue
+     * as if the lambda had a fixed rvalue-reference parameter. */
+    if (parameter_pattern && parameter_pattern->kind == TYPE_PTR &&
+        parameter_pattern->is_reference &&
+        parameter_pattern->is_rvalue_reference && argument &&
+        is_lvalue(argument)) {
+        Type* reference = type_ptr(type);
+        reference->is_reference = true;
+        reference->is_rvalue_reference = false;
+        return reference;
+    }
     /* Function parameters declared by value apply the standard array/function
      * decay before deduction.  References retain the expression's exact
      * referred type because sema_expr has already removed the ABI carrier. */
