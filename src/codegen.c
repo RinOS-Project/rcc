@@ -19,6 +19,8 @@
  * point. */
 #if defined(__GNUC__) || defined(__clang__)
 extern CxxNamespace* cxx_namespace_global(void) __attribute__((weak));
+extern bool cxx_class_virtual_base_offset(
+    CxxClass*, CxxClass*, int*) __attribute__((weak));
 #endif
 
 static CxxNamespace* codegen_cxx_global_namespace(void) {
@@ -26,6 +28,20 @@ static CxxNamespace* codegen_cxx_global_namespace(void) {
     return cxx_namespace_global ? cxx_namespace_global() : NULL;
 #else
     return NULL;
+#endif
+}
+
+static bool codegen_cxx_virtual_base_offset(CxxClass* owner,
+                                             CxxClass* base,
+                                             int* offset) {
+#if defined(__GNUC__) || defined(__clang__)
+    return cxx_class_virtual_base_offset != NULL &&
+           cxx_class_virtual_base_offset(owner, base, offset);
+#else
+    (void)owner;
+    (void)base;
+    (void)offset;
+    return false;
 #endif
 }
 
@@ -2308,8 +2324,8 @@ static void codegen_emit_cxx_vbase_table(Module* mod, const char* symbol,
         int owner_offset;
         int64_t relative;
         if (!source_base->base ||
-            !cxx_class_virtual_base_offset(owner, source_base->base,
-                                           &owner_offset) ||
+            !codegen_cxx_virtual_base_offset(owner, source_base->base,
+                                             &owner_offset) ||
             owner_offset < 0) {
             rcc_error((SourceLoc){"<cxx-vbase>", 0, 0},
                       "virtual-base table for '%s' has no owner offset",
