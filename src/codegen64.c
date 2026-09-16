@@ -1715,25 +1715,11 @@ static bool gen64_bitfield_initializer(Module* mod, const TypeField* field,
                                         Expr* initializer,
                                         int32_t displacement);
 
-static bool gen64_cxx_initializer_calls_body(const Expr* initializer) {
-    return initializer && initializer->kind == EXPR_COMPOUND &&
-           initializer->compound_constructor &&
-           !initializer->compound_constructor->body_is_empty;
-}
-
 static bool gen64_local_initializer(Module* mod, Type* type,
                                     Expr* initializer,
                                     int32_t displacement) {
     Expr* string = gen64_character_array_string(type, initializer);
     if (!type || !initializer) return false;
-    if (gen64_cxx_initializer_calls_body(initializer)) {
-        emit64_lea(mod, RAX, RBP, displacement);
-        emit64_mov_reg_reg(mod, RCX, RAX);
-        gen64_cxx_call_constructor(
-            mod, initializer->compound_constructor,
-            initializer->compound_value_init ? NULL : initializer->compound_init);
-        return true;
-    }
     if (initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor && type->cxx_class) {
         emit64_lea(mod, RAX, RBP, displacement);
@@ -2362,10 +2348,9 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                           "compound literal has no automatic storage slot");
                 return;
             }
-            if ((expr->compound_type->kind == TYPE_ARRAY ||
-                 expr->compound_type->kind == TYPE_STRUCT ||
-                 expr->compound_type->kind == TYPE_UNION) &&
-                !gen64_cxx_initializer_calls_body(expr)) {
+            if (expr->compound_type->kind == TYPE_ARRAY ||
+                expr->compound_type->kind == TYPE_STRUCT ||
+                expr->compound_type->kind == TYPE_UNION) {
                 gen64_zero_local_storage(mod, expr->compound_offset,
                                          (size_t)expr->compound_type->size);
             }
@@ -3078,35 +3063,6 @@ static void gen64_cxx_initialize_object_mode(
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
                                          ExprList* arguments);
-
-static CxxConstructorInfo* gen64_cxx_constructor_for_decl(Decl* declaration) {
-    CxxClass* cls = declaration && declaration->func_method_owner
-        ? declaration->func_method_owner->cxx_class : NULL;
-    if (!cls) return NULL;
-    for (CxxConstructorInfo* constructor = cls->constructors;
-         constructor; constructor = constructor->next) {
-        if (constructor->method && constructor->method->decl == declaration) {
-            return constructor;
-        }
-    }
-    return NULL;
-}
-
-static ExprList* gen64_cxx_constructor_function_arguments(Decl* declaration) {
-    ExprList* arguments = NULL;
-    if (!declaration) return NULL;
-    for (DeclList* item = declaration->func_params; item;
-         item = item->next) {
-        Decl* parameter = item->decl;
-        Expr* expression;
-        if (!parameter || !parameter->name) continue;
-        expression = expr_ident(parameter->name, parameter->loc);
-        expression->ident_decl = parameter;
-        expression->type = parameter->type;
-        exprlist_append(&arguments, expression);
-    }
-    return arguments;
-}
 
 /* Execute a validated mem-initializer list before a non-empty constructor
  * body.  The constructor function owns this prologue, keeping automatic,
@@ -6860,8 +6816,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                            d->type->cxx_class->virtual_base_count > 0)))))) {
                 if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
-                                d->type->kind == TYPE_UNION) &&
-                    !gen64_cxx_initializer_calls_body(d->var_init)) {
+                                d->type->kind == TYPE_UNION)) {
                     gen64_zero_local_storage(mod, d->var_offset,
                                              (size_t)d->type->size);
                 }
@@ -7246,21 +7201,11 @@ static void gen64_function(Module* mod, Decl* decl) {
     break_vla_marker64 = NULL;
     continue_vla_marker64 = NULL;
     named_codegen_labels64 = NULL;
-    if (decl->func_is_cxx_constructor) {
-        CxxConstructorInfo* constructor =
-            gen64_cxx_constructor_for_decl(decl);
-        if (constructor && constructor->initializers) {
-            Expr* this_expression = expr_ident("this", decl->loc);
-            this_expression->ident_decl = decl->func_this_param;
-            this_expression->type = decl->func_this_param
-                ? decl->func_this_param->type : NULL;
-            gen64_expr(mod, this_expression);
-            emit64_mov_reg_reg(mod, RCX, RAX);
-            gen64_cxx_initialize_member_initializers(
-                mod, decl->func_method_owner, constructor,
-                gen64_cxx_constructor_function_arguments(decl), true);
-        }
-    }
+    /* Constructor storage initialization is emitted by the complete-object
+     * caller.  The constructor symbol itself contains only the user body;
+     * this lets a derived constructor invoke a base constructor without
+     * reconstructing virtual bases that the most-derived caller already
+     * initialized. */
     gen64_stmt(mod, decl->func_body);
     discard64_cleanups_until(NULL);
     discard64_vla_scopes_until(NULL);

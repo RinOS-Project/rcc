@@ -668,21 +668,25 @@ void cxx_class_compute_layout(CxxClass* cls) {
 
     /* Collect the virtual-base closure before assigning offsets.  A
      * most-derived object owns one subobject for each distinct virtual base,
-     * including virtual bases reached through a non-virtual intermediate. */
+     * including virtual bases reached through a non-virtual intermediate.
+     * C++ constructs virtual bases in depth-first, left-to-right order: a
+     * base's virtual closure is visited before that base itself.  Keeping the
+     * same order in the layout table also makes constructor side effects and
+     * target offsets agree for intermediate virtual bases. */
     cls->virtual_bases = NULL;
     cls->virtual_base_count = 0;
     for (int i = 0; i < cls->base_count; ++i) {
         CxxClass* base = cls->bases[i].base;
         if (!base) continue;
-        if (cls->bases[i].is_virtual) {
-            cxx_add_virtual_base(
-                cls, base, cls->bases[i].access == ACCESS_PUBLIC);
-        }
         for (int nested = 0; nested < base->virtual_base_count; ++nested) {
             cxx_add_virtual_base(
                 cls, base->virtual_bases[nested].base,
                 cls->bases[i].access == ACCESS_PUBLIC &&
                 base->virtual_bases[nested].public_path);
+        }
+        if (cls->bases[i].is_virtual) {
+            cxx_add_virtual_base(
+                cls, base, cls->bases[i].access == ACCESS_PUBLIC);
         }
     }
 
