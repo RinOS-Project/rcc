@@ -1,10 +1,26 @@
 int constexpr_pointer_target = 7;
 constexpr int constexpr_pointer_values[2] = {11, 13};
 
+struct ConstexprPointerObject {
+    int first;
+    int second;
+};
+
+constexpr ConstexprPointerObject constexpr_pointer_object = {17, 19};
 constexpr int* first_pointer = &constexpr_pointer_target;
 constexpr int* second_pointer = first_pointer + 1;
 constexpr const int* array_pointer = &constexpr_pointer_values[1];
 constexpr int dereferenced_value = *array_pointer;
+
+constexpr int read_global_pointer_index() {
+    const int* pointer = &constexpr_pointer_values[0];
+    return pointer[1];
+}
+
+constexpr int read_global_pointer_member() {
+    const ConstexprPointerObject* pointer = &constexpr_pointer_object;
+    return pointer->second;
+}
 
 constexpr bool pointer_present(int* value) {
     return value != nullptr;
@@ -21,11 +37,17 @@ static_assert(pointer_present(first_pointer),
               "pointer values must survive constexpr function bindings");
 static_assert(dereferenced_value == 13,
               "pointer dereference must read constant aggregate storage");
+static_assert(read_global_pointer_index() == 13,
+              "pointer indexing must read global constant storage");
+static_assert(read_global_pointer_member() == 19,
+              "pointer member access must read global constant storage");
 
 extern "C" int probe_constexpr_pointer(void) {
     return first_pointer == &constexpr_pointer_target &&
                    second_pointer == first_pointer + 1 &&
-                   *array_pointer == 13
+                   *array_pointer == 13 &&
+                   read_global_pointer_index() == 13 &&
+                   read_global_pointer_member() == 19
                ? 0
                : 1;
 }

@@ -4770,12 +4770,58 @@ static bool sema_eval_constexpr_scalar_expr(
                 expression->member_field->type, initializer,
                 bindings, binding_count, value);
         }
-        case EXPR_PTR_MEMBER:
+        case EXPR_PTR_MEMBER: {
+            Decl* declaration;
+            SemaConstexprScalar pointer_value;
+            unsigned char* storage;
+            size_t offset;
+            Type* target_type = expression->type;
             if (bindings && sema_constexpr_load_binding_scalar(
                     expression, bindings, binding_count, value)) {
                 return true;
             }
-            return false;
+            if (!expression->member_base || !expression->member_field ||
+                !sema_eval_constexpr_scalar_expr(
+                    expression->member_base, bindings, binding_count,
+                    &pointer_value) ||
+                !pointer_value.is_pointer ||
+                !pointer_value.pointer_declaration ||
+                pointer_value.pointer_declaration->kind != DECL_VAR ||
+                !pointer_value.pointer_declaration->var_init ||
+                (!pointer_value.pointer_declaration->var_is_global &&
+                 !pointer_value.pointer_declaration->var_is_static_local) ||
+                pointer_value.pointer_offset < 0 ||
+                expression->member_field->offset < 0 ||
+                !target_type || !sema_constexpr_scalar_type(target_type)) {
+                return false;
+            }
+            declaration = pointer_value.pointer_declaration;
+            if (!declaration->type || declaration->type->size <= 0 ||
+                (uint64_t)pointer_value.pointer_offset > SIZE_MAX ||
+                (size_t)pointer_value.pointer_offset >
+                    (size_t)declaration->type->size ||
+                (size_t)expression->member_field->offset >
+                    (size_t)declaration->type->size -
+                    (size_t)pointer_value.pointer_offset ||
+                (size_t)target_type->size >
+                    (size_t)declaration->type->size -
+                    (size_t)pointer_value.pointer_offset -
+                    (size_t)expression->member_field->offset) {
+                return false;
+            }
+            offset = (size_t)pointer_value.pointer_offset +
+                     (size_t)expression->member_field->offset;
+            storage = ast_arena_alloc((size_t)declaration->type->size);
+            if (!sema_constexpr_materialize_object(
+                    declaration->type, declaration->var_init, NULL, 0,
+                    storage, (size_t)declaration->type->size)) {
+                return false;
+            }
+            return sema_constexpr_load_scalar_bytes(
+                storage + offset,
+                (size_t)declaration->type->size - offset,
+                target_type, value);
+        }
         case EXPR_INDEX: {
             SemaConstexprScalar index_value;
             Expr* initializer;
@@ -4786,6 +4832,53 @@ static bool sema_eval_constexpr_scalar_expr(
             if (bindings && sema_constexpr_load_binding_scalar(
                     expression, bindings, binding_count, value)) {
                 return true;
+            }
+            if (base_type && base_type->kind == TYPE_PTR) {
+                Decl* declaration;
+                SemaConstexprScalar pointer_value;
+                unsigned char* storage;
+                size_t offset;
+                int64_t pointer_offset;
+                Type* element_type = base_type->base;
+                if (!element_type || element_type->size <= 0 ||
+                    !sema_eval_constexpr_scalar_expr(
+                        expression->index_base, bindings, binding_count,
+                        &pointer_value) ||
+                    !pointer_value.is_pointer ||
+                    !pointer_value.pointer_declaration ||
+                    pointer_value.pointer_declaration->kind != DECL_VAR ||
+                    !pointer_value.pointer_declaration->var_init ||
+                    (!pointer_value.pointer_declaration->var_is_global &&
+                     !pointer_value.pointer_declaration->var_is_static_local) ||
+                    pointer_value.pointer_offset < 0 ||
+                    !sema_eval_constexpr_scalar_expr(
+                        expression->index_expr, bindings, binding_count,
+                        &index_value) ||
+                    index_value.is_floating ||
+                    !sema_constexpr_pointer_offset(
+                        pointer_value.pointer_offset, index_value.integer_value,
+                        element_type->size, &pointer_offset) ||
+                    pointer_offset < 0) {
+                    return false;
+                }
+                declaration = pointer_value.pointer_declaration;
+                offset = (size_t)pointer_offset;
+                if (!declaration->type || declaration->type->size <= 0 ||
+                    (uint64_t)offset > SIZE_MAX ||
+                    offset > (size_t)declaration->type->size ||
+                    (size_t)element_type->size >
+                        (size_t)declaration->type->size - offset) {
+                    return false;
+                }
+                storage = ast_arena_alloc((size_t)declaration->type->size);
+                if (!sema_constexpr_materialize_object(
+                        declaration->type, declaration->var_init, NULL, 0,
+                        storage, (size_t)declaration->type->size)) {
+                    return false;
+                }
+                return sema_constexpr_load_scalar_bytes(
+                    storage + offset, (size_t)declaration->type->size - offset,
+                    element_type, value);
             }
             if (!base_type || base_type->kind != TYPE_ARRAY ||
                 !base_type->base ||
