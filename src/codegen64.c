@@ -2847,6 +2847,19 @@ static void gen64_cxx_initialize_default_members(
     if (!mod || !object_type) return;
     for (TypeField* field = object_type->fields; field; field = field->next) {
         if (!field->initializer) continue;
+        if (gen64_is_aggregate(field->type)) {
+            emit64_push_reg(mod, RCX);
+            gen64_expr(mod, field->initializer);
+            emit64_push_reg(mod, RAX);
+            emit64_mov_reg_mem(mod, RCX, RSP, 8);
+            emit64_mov_reg_mem(mod, RDX, RSP, 0);
+            if (field->offset > 0) {
+                emit64_add_reg_imm(mod, RCX, (uint32_t)field->offset);
+            }
+            gen64_copy_memory(mod, RCX, 0, RDX, 0, field->type->size);
+            emit64_pop_reg(mod, RDX);
+            continue;
+        }
         emit64_push_reg(mod, RCX);
         gen64_expr(mod, field->initializer);
         emit64_pop_reg(mod, RCX);

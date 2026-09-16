@@ -27,6 +27,21 @@ private:
     int second_ = 4;
 };
 
+struct DefaultMemberPair {
+    int first;
+    int second;
+};
+
+class AggregateDefaultMemberInitializer {
+public:
+    int total() const {
+        return pair_.first + pair_.second;
+    }
+
+private:
+    DefaultMemberPair pair_ = DefaultMemberPair{3, 4};
+};
+
 extern "C" int cxx_default_member_initializer() {
     DefaultMemberInitializer explicit_value(4);
     DefaultMemberInitializer default_value{};
@@ -43,6 +58,9 @@ extern "C" int cxx_default_member_initializer() {
         new ImplicitDefaultMemberInitializer[2]{};
     ImplicitDefaultMemberInitializer* implicit_paren_array =
         new ImplicitDefaultMemberInitializer[2]();
+    AggregateDefaultMemberInitializer aggregate{};
+    AggregateDefaultMemberInitializer* aggregate_heap =
+        new AggregateDefaultMemberInitializer{};
     int result = explicit_value.total() + default_value.total() +
                  heap->total() + implicit->total() + implicit_paren->total() +
                  implicit_plain->total() + implicit_array[0].total() +
@@ -50,7 +68,8 @@ extern "C" int cxx_default_member_initializer() {
                  implicit_value_array[0].total() +
                  implicit_value_array[1].total() +
                  implicit_paren_array[0].total() +
-                 implicit_paren_array[1].total();
+                 implicit_paren_array[1].total() + aggregate.total() +
+                 aggregate_heap->total();
     delete heap;
     delete implicit;
     delete implicit_paren;
@@ -58,5 +77,6 @@ extern "C" int cxx_default_member_initializer() {
     delete[] implicit_array;
     delete[] implicit_value_array;
     delete[] implicit_paren_array;
-    return result == 138 ? 0 : 1;
+    delete aggregate_heap;
+    return result == 152 ? 0 : 1;
 }

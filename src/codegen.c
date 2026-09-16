@@ -5628,6 +5628,20 @@ static void gen_cxx_initialize_default_members32(Module* mod, Type* object_type)
     if (!mod || !object_type) return;
     for (TypeField* field = object_type->fields; field; field = field->next) {
         if (!field->initializer) continue;
+        if (gen_aggregate_type32(field->type)) {
+            emit_push_reg(mod, ECX);
+            gen_expr(mod, field->initializer);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_mem(mod, ECX, ESP, 4);
+            emit_mov_reg_mem(mod, EDX, ESP, 0);
+            if (field->offset > 0) {
+                emit_add_reg_imm(mod, ECX, field->offset);
+            }
+            gen_copy_aggregate_to_address32(
+                mod, ECX, EDX, field->type->size);
+            emit_pop_reg(mod, EDX);
+            continue;
+        }
         emit_push_reg(mod, ECX);
         gen_expr_as_type(mod, field->initializer, field->type);
         emit_pop_reg(mod, ECX);
@@ -8970,6 +8984,15 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                          stack_alignment);
             break;
         case EXPR_CALL:
+            if (expression->call_new_type &&
+                (expression->call_new_type->kind == TYPE_STRUCT ||
+                 expression->call_new_type->kind == TYPE_UNION)) {
+                for (TypeField* field = expression->call_new_type->fields;
+                     field; field = field->next) {
+                    codegen_assign_compound_expr(field->initializer, bytes,
+                                                 stack_alignment);
+                }
+            }
             codegen_assign_compound_expr(expression->call_func, bytes,
                                          stack_alignment);
             for (ExprList* argument = expression->call_args; argument;
@@ -8995,6 +9018,15 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                          stack_alignment);
             break;
         case EXPR_COMPOUND:
+            if (expression->compound_type &&
+                (expression->compound_type->kind == TYPE_STRUCT ||
+                 expression->compound_type->kind == TYPE_UNION)) {
+                for (TypeField* field = expression->compound_type->fields;
+                     field; field = field->next) {
+                    codegen_assign_compound_expr(field->initializer, bytes,
+                                                 stack_alignment);
+                }
+            }
             for (ExprList* initializer = expression->compound_init;
                  initializer; initializer = initializer->next) {
                 codegen_assign_compound_expr(initializer->expr, bytes,

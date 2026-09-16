@@ -5674,6 +5674,23 @@ static Decl* sema_cxx_destructor_function(Type* object_type);
 static bool sema_cxx_default_member_constant(Type* field_type,
                                              Expr* initializer) {
     SemaConstexprScalar value;
+    unsigned char* object_bytes;
+    if (field_type && initializer &&
+        (field_type->kind == TYPE_STRUCT ||
+         field_type->kind == TYPE_UNION ||
+         field_type->kind == TYPE_ARRAY) &&
+        !field_type->cxx_nontrivial && type_is_complete(field_type) &&
+        field_type->size > 0) {
+        if (!sema_expr(initializer) ||
+            !initializer->type ||
+            !type_is_compatible(field_type, initializer->type)) {
+            return false;
+        }
+        object_bytes = ast_arena_alloc((size_t)field_type->size);
+        return sema_constexpr_materialize_object(
+            field_type, initializer, NULL, 0, object_bytes,
+            (size_t)field_type->size);
+    }
     if (!field_type || !initializer ||
         !(type_is_arithmetic(field_type) ||
           field_type->kind == TYPE_ENUM || field_type->kind == TYPE_PTR ||
