@@ -22,6 +22,11 @@ int value_size() {
     return sizeof...(Ns);
 }
 
+template<int... Ns>
+struct value_pack_class {
+    inline static int value = (0 + ... + Ns);
+};
+
 template<typename... Ts>
 int sum(Ts... args) {
     return (... + args);
@@ -58,6 +63,8 @@ int main(void) {
            forward_three(1, 2, 3) == 6 &&
            value_sum<>() == 10 && value_sum<1, 2, 3>() == 16 &&
            value_size<1, 2, 3>() == 3 && value_size<>() == 0 &&
+           value_pack_class<>::value == 0 &&
+           value_pack_class<1, 2, 3>::value == 6 &&
            sum_right(1, 2, 3) == 6 && all(1, 1, 1) == 1 &&
            all() == 1 && any(0, 0, 1) == 1 && any() == 0 &&
            sum_left_seed() == 10 && sum_left_seed(1, 2, 3) == 16 &&

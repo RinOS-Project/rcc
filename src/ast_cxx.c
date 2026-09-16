@@ -126,6 +126,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     int template_arg_count;
     int64_t* template_value_args;
     bool* template_value_present;
+    bool single_value_pack;
     if (!cls) return;
     tmpl = cls->template_identity_tmpl
         ? cls->template_identity_tmpl : cls->templ;
@@ -137,16 +138,54 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         ? cls->template_identity_value_args : cls->template_value_args;
     template_value_present = cls->template_identity_tmpl
         ? cls->template_identity_value_present : cls->template_value_present;
-    if (!tmpl || !tmpl->name || template_arg_count != tmpl->param_count ||
-        (template_arg_count > 0 && !template_args)) {
+    single_value_pack = tmpl && tmpl->param_count == 1 &&
+        tmpl->params[0].kind == TPARAM_NONTYPE && tmpl->params[0].is_pack;
+    if (!tmpl || !tmpl->name ||
+        ((!single_value_pack && template_arg_count != tmpl->param_count) ||
+         (template_arg_count > 0 && !template_args))) {
         mangle_name(buf, pos, cls->name);
         return;
     }
     mangle_name(buf, pos, tmpl->name);
     if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
     buf[(*pos)++] = 'I';
+    if (single_value_pack) {
+        if (*pos + 1u >= 256u) {
+            rcc_fatal("C++ template class name is too long");
+        }
+        buf[(*pos)++] = 'J';
+        for (int pack_index = 0; pack_index < template_arg_count;
+             ++pack_index) {
+            int written;
+            if (!template_value_present || !template_value_present[pack_index] ||
+                !template_value_args) {
+                rcc_fatal("C++ template class value pack argument is missing");
+            }
+            if (*pos + 1u >= 256u) {
+                rcc_fatal("C++ template class name is too long");
+            }
+            buf[(*pos)++] = 'L';
+            cxx_mangle_type_append(buf, pos, tmpl->params[0].type);
+            if (template_value_args[pack_index] < 0) {
+                uint64_t magnitude =
+                    (uint64_t)(-(template_value_args[pack_index] + 1)) + 1u;
+                written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
+                                   (unsigned long long)magnitude);
+            } else {
+                written = snprintf(buf + *pos, 256u - *pos, "%lldE",
+                                   (long long)template_value_args[pack_index]);
+            }
+            if (written < 0 || (size_t)written >= 256u - *pos) {
+                rcc_fatal("C++ template class name is too long");
+            }
+            *pos += (size_t)written;
+        }
+        if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
+        buf[(*pos)++] = 'E';
+    }
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
+        if (single_value_pack) break;
         if (parameter->kind == TPARAM_TYPE) {
             cxx_mangle_type_append(buf, pos, template_args[index]);
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -596,6 +635,9 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->template_arg_count = 0;
     cls->template_value_args = NULL;
     cls->template_value_present = NULL;
+    cls->template_pack_count = 0;
+    cls->template_pack_values = NULL;
+    cls->template_pack_value_present = NULL;
     cls->template_identity_tmpl = NULL;
     cls->template_identity_args = NULL;
     cls->template_identity_arg_count = 0;
@@ -1528,7 +1570,7 @@ static Expr* template_clone_pack_fold(
             tmpl, expression->cxx_fold_init, args, arg_count,
             value_args, value_present);
     }
-    if (tmpl->kind == TMPL_FUNCTION && tmpl->params) {
+    if (tmpl->params) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
             if (parameter->kind == TPARAM_NONTYPE && parameter->is_pack &&

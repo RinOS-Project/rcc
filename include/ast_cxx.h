@@ -137,6 +137,13 @@ struct CxxClass {
     int template_arg_count;
     int64_t* template_value_args;
     bool* template_value_present;
+    /* Expanded integral non-type parameter-pack arguments for the bounded
+     * class-template lowering.  The ordinary value arrays remain indexed by
+     * declared parameters; these arrays preserve the complete argument
+     * sequence when a class has `template<int... Ns>`. */
+    int template_pack_count;
+    int64_t* template_pack_values;
+    bool* template_pack_value_present;
     CxxTemplate* template_identity_tmpl;
     Type** template_identity_args;
     int template_identity_arg_count;
