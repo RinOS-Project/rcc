@@ -13,10 +13,17 @@ struct type_pack_prefix {
     inline static int count = sizeof...(Tail) + 1;
 };
 
+template<int Seed, int... Ns>
+struct value_pack_prefix {
+    inline static int value = Seed + sizeof...(Ns);
+};
+
 int main() {
     return type_pack_class<>::count == 0 &&
            type_pack_class<int, long, char>::count == 3 &&
            sizeof(type_pack_storage<int, long>) == 12 &&
            type_pack_prefix<int>::count == 1 &&
-           type_pack_prefix<int, long, char>::count == 3 ? 0 : 1;
+           type_pack_prefix<int, long, char>::count == 3 &&
+           value_pack_prefix<7>::value == 7 &&
+           value_pack_prefix<7, 1, 2>::value == 9 ? 0 : 1;
 }
