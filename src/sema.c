@@ -5625,15 +5625,15 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
             valid = false;
         }
     }
-    if (object_type->cleanup_function && object_type->cleanup_field) {
-        Expr* cleanup = sema_cxx_wrapper_cleanup_for_object(
-            object_type, object, declaration ? declaration->loc : object->loc);
-        if (cleanup) exprlist_append(cleanups, cleanup);
-        else valid = false;
-    } else if (sema_cxx_destructor_function(object_type)) {
+    if (sema_cxx_destructor_function(object_type)) {
         Expr* destructor = sema_cxx_destructor_call_for_object(
             object_type, object, declaration ? declaration->loc : object->loc);
         if (destructor) exprlist_append(cleanups, destructor);
+        else valid = false;
+    } else if (object_type->cleanup_function && object_type->cleanup_field) {
+        Expr* cleanup = sema_cxx_wrapper_cleanup_for_object(
+            object_type, object, declaration ? declaration->loc : object->loc);
+        if (cleanup) exprlist_append(cleanups, cleanup);
         else valid = false;
     }
     if (fields) rcc_free(fields);
@@ -5644,8 +5644,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
     if (!rcc_parser_is_cxx_mode() || !declaration ||
         !declaration->type || declaration->type->kind != TYPE_STRUCT ||
-        declaration->type->cleanup_function || declaration->var_cleanup ||
-        declaration->var_cleanups ||
+        declaration->var_cleanup || declaration->var_cleanups ||
         !declaration->var_init) {
         return;
     }
@@ -8272,17 +8271,11 @@ static Type* sema_expr(Expr* expr) {
                         }
                         return expr->type;
                     }
-                    if (!object_type->cleanup_function ||
-                        !object_type->cleanup_field) {
-                        expr->call_delete_destructor =
-                            sema_cxx_destructor_function(object_type);
-                        if (!expr->call_delete_destructor &&
-                            !has_member_cleanup) {
-                            rcc_error(expr->loc,
-                                      "delete requires C++ destructor lowering for a non-trivial object");
-                            return expr->type;
-                        }
-                    } else {
+                    expr->call_delete_destructor =
+                        sema_cxx_destructor_function(object_type);
+                    if (!expr->call_delete_destructor &&
+                        object_type->cleanup_function &&
+                        object_type->cleanup_field) {
                         cleanup_function = sema_cxx_cleanup_function(
                             object_type, expr->loc);
                         if (cleanup_function) {
@@ -8292,6 +8285,12 @@ static Type* sema_expr(Expr* expr) {
                             expr->call_delete_cleanup_invalid =
                                 object_type->cleanup_invalid;
                         }
+                    }
+                    if (!expr->call_delete_destructor &&
+                        !expr->call_delete_cleanup && !has_member_cleanup) {
+                        rcc_error(expr->loc,
+                                  "delete requires C++ destructor lowering for a non-trivial object");
+                        return expr->type;
                     }
                 }
                 return expr->type;
@@ -10113,6 +10112,11 @@ static void sema_prepare_variable_cleanup(Decl* declaration,
         !declaration->type->cleanup_field) {
         return;
     }
+    /* An explicit destructor is the complete-object cleanup callback.  It
+     * already contains the validated wrapper operation and can therefore be
+     * registered in the runtime exception frame; the compiler-side wrapper
+     * expression is only the fallback for classes without such a body. */
+    if (sema_cxx_destructor_function(declaration->type)) return;
     /* Static-storage cleanup expressions are registered in the module's
      * .fini_array callback after this validation completes.  Keep the same
      * structural restrictions as automatic RAII objects. */

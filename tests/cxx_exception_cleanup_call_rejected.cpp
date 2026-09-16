@@ -1,5 +1,10 @@
 extern "C" int cxx_exception_cleanup_call_close(int* value);
 
+extern "C" int cxx_exception_cleanup_call_close(int* value) {
+    ++*value;
+    return 0;
+}
+
 class ExceptionCallGuard final {
 public:
     constexpr explicit ExceptionCallGuard(int* value) noexcept : value_(value) {}
@@ -13,12 +18,17 @@ private:
     int* value_;
 };
 
-extern "C" int cxx_exception_cleanup_call_rejected(int* value) {
+extern "C" int cxx_exception_cleanup_call_registered() {
+    int value = 0;
     try {
-        auto guard = ExceptionCallGuard{value};
-        (void)cxx_exception_cleanup_call_close(value);
+        auto guard = ExceptionCallGuard{&value};
+        (void)cxx_exception_cleanup_call_close(&value);
         throw 1;
     } catch (int) {
-        return 0;
+        return value;
     }
+}
+
+extern "C" int main() {
+    return cxx_exception_cleanup_call_registered() == 2 ? 0 : 1;
 }

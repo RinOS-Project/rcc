@@ -3579,21 +3579,31 @@ test-cxx-exception-cleanup: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-exception-cleanup/x64-start.o \
 		$(TEST_OUT)/cxx-exception-cleanup/x64.o
 	$(TEST_OUT)/cxx-exception-cleanup/x64
-	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-exception-cleanup/call-x86.ro \
-		tests/cxx_exception_cleanup_call_rejected.cpp \
-		>$(TEST_OUT)/cxx-exception-cleanup/call-x86.log 2>&1; status=$$?; \
-		set -e; test $$status -ne 0
-	grep -q "C++ exception cleanup requires a call-free protected body" \
-		$(TEST_OUT)/cxx-exception-cleanup/call-x86.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-exception-cleanup/call-x64.ro \
-		tests/cxx_exception_cleanup_call_rejected.cpp \
-		>$(TEST_OUT)/cxx-exception-cleanup/call-x64.log 2>&1; status=$$?; \
-		set -e; test $$status -ne 0
-	grep -q "C++ exception cleanup requires a call-free protected body" \
-		$(TEST_OUT)/cxx-exception-cleanup/call-x64.log
-	@echo "RCC++ same-function exception cleanup tests completed"
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s \
+		tests/cxx_exception_cleanup_call_rejected.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.o \
+		$(TEST_OUT)/cxx-exception-cleanup/call-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x86-start.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-exception-cleanup/call-x86 \
+		$(TEST_OUT)/cxx-exception-cleanup/call-x86-start.o \
+		$(TEST_OUT)/cxx-exception-cleanup/call-x86.o
+	$(TEST_OUT)/cxx-exception-cleanup/call-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-exception-cleanup/call-x64.s \
+		tests/cxx_exception_cleanup_call_rejected.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.o \
+		$(TEST_OUT)/cxx-exception-cleanup/call-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64-start.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-exception-cleanup/call-x64 \
+		$(TEST_OUT)/cxx-exception-cleanup/call-x64-start.o \
+		$(TEST_OUT)/cxx-exception-cleanup/call-x64.o
+	$(TEST_OUT)/cxx-exception-cleanup/call-x64
+	@echo "RCC++ cross-call exception cleanup registration tests completed"
 
 test-cxx-nontrivial-object-exceptions: $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/cxx-nontrivial-object-exceptions
