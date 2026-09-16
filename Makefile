@@ -1400,6 +1400,14 @@ test-cxx-conversion-operator: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-conversion-operator/start-x64.o \
 		$(TEST_OUT)/cxx-conversion-operator/x64.o
 	$(TEST_OUT)/cxx-conversion-operator/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-conversion-operator/x86.ro \
+		tests/cxx_conversion_operator.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-conversion-operator/x64.ro \
+		tests/cxx_conversion_operator.cpp
 	@echo "RCC++ user-defined conversion operator tests completed"
 
 test-cxx-nonmember-operator: $(RCXX_TARGET)

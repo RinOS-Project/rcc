@@ -733,16 +733,48 @@ static Type* sema_integer_promotion(Type* type) {
     return type;
 }
 
-/* Find an ordinary public conversion function whose result is exactly the
- * requested target type.  A user-defined conversion cannot be chained with a
- * second user-defined conversion, so the exact result type is intentional.
- * The caller supplies the ambiguity result because overload ranking and the
- * final cast need to make the same decision without silently picking one. */
+/* Rank only the standard conversion that follows a user-defined conversion
+ * operator.  A second user-defined conversion is never considered here.
+ * Keeping this helper separate from cxx_conversion_rank() prevents recursive
+ * operator lookup while still allowing `operator int()` to initialize a
+ * `long` parameter and allowing an exact result to win overload resolution. */
+static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
+    Type* source_base;
+    Type* target_base;
+    if (!source || !target) return -1;
+    if (type_is_compatible(source, target)) return 0;
+    if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
+        return -1;
+    }
+    if (type_is_arithmetic(source) && type_is_arithmetic(target)) return 2;
+    if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
+        source_base = source->base;
+        target_base = target->base;
+        if (!source_base || !target_base) return -1;
+        if ((source_base->is_const && !target_base->is_const) ||
+            (source_base->is_volatile && !target_base->is_volatile)) {
+            return -1;
+        }
+        if (type_is_compatible(source_base, target_base)) return 1;
+        if (source_base->kind == TYPE_VOID || target_base->kind == TYPE_VOID) {
+            return 2;
+        }
+        return sema_cxx_pointer_conversion(source, target, NULL) ? 2 : -1;
+    }
+    return -1;
+}
+
+/* Find an ordinary public conversion function whose result can reach the
+ * requested target through one standard conversion.  A user-defined
+ * conversion cannot be chained with a second user-defined conversion.  The
+ * caller supplies the ambiguity result because overload ranking and the final
+ * cast need to make the same decision without silently picking one. */
 static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                                                    Type* target,
                                                    bool* ambiguous) {
     TypeMethod* method;
     TypeMethod* result = NULL;
+    int result_rank = INT_MAX;
     if (ambiguous) *ambiguous = false;
     if (!aggregate || !target ||
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
@@ -754,8 +786,18 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
             !method->name || strcmp(method->name, "operator conversion") != 0 ||
             method->cxx_access != ACCESS_PUBLIC || method->is_explicit ||
             method->function_decl->func_params ||
-            !type_is_compatible(method->return_type, target)) {
+            sema_cxx_conversion_result_rank(method->return_type, target) < 0) {
             continue;
+        }
+        {
+            int rank = sema_cxx_conversion_result_rank(
+                method->return_type, target);
+            if (!result || rank < result_rank) {
+                result = method;
+                result_rank = rank;
+                if (ambiguous) *ambiguous = false;
+                continue;
+            }
         }
         if (result) {
             if (ambiguous) *ambiguous = true;
@@ -864,7 +906,7 @@ static Type* implicit_cast(Expr* e, Type* target) {
             Expr* call = expr_call(member, NULL, e->loc);
             *e = *call;
             sema_expr(e);
-            return e->type && type_is_compatible(e->type, target)
+            return e->type && sema_cxx_conversion_result_rank(e->type, target) >= 0
                 ? target : NULL;
         }
     }
@@ -4764,8 +4806,11 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     if (rcc_parser_is_cxx_mode() &&
         (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
         bool ambiguous = false;
-        if (sema_find_cxx_conversion_method(source, target, &ambiguous)) {
-            return 3; /* user-defined conversion */
+        TypeMethod* conversion = sema_find_cxx_conversion_method(
+            source, target, &ambiguous);
+        if (conversion) {
+            return 3 + sema_cxx_conversion_result_rank(
+                conversion->return_type, target);
         }
         if (ambiguous) return -1;
     }
