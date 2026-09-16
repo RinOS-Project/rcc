@@ -5690,16 +5690,19 @@ static CxxMethod* instantiated_constructor_method(CxxClass* instance,
     return NULL;
 }
 
-/* The current class-template lowering can expand one integral non-type pack
- * as the complete argument list.  Keep mixed class packs explicit until the
- * class layout and member substitution machinery can preserve their declared
- * parameter ordering. */
+/* Expand one trailing class-template parameter pack while preserving any
+ * fixed parameters declared before it.  A pack in any other position remains
+ * diagnosed by the parser because its explicit argument boundary is not
+ * recoverable in this bounded lowering path. */
 static int cxx_class_pack_index(CxxTemplate* tmpl) {
-    if (!tmpl || tmpl->kind != TMPL_CLASS || tmpl->param_count != 1 ||
-        !tmpl->params[0].is_pack) {
-        return -1;
+    int pack_index = -1;
+    if (!tmpl || tmpl->kind != TMPL_CLASS) return -1;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (!tmpl->params[index].is_pack) continue;
+        if (pack_index >= 0 || index != tmpl->param_count - 1) return -1;
+        pack_index = index;
     }
-    return 0;
+    return pack_index;
 }
 
 static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
@@ -5717,12 +5720,13 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->templated_class ||
         (pack_index < 0 && argument_count != tmpl->param_count) ||
         (pack_index >= 0 &&
-         (argument_count < 0 || argument_count > 32))) {
+         (argument_count < pack_index || argument_count > 32))) {
         rcc_error(loc, "class template argument count mismatch");
         return type_struct(tmpl && tmpl->name ? tmpl->name : "template");
     }
     for (index = 0; index < argument_count; ++index) {
-        int parameter_index = pack_index >= 0 ? pack_index : index;
+        int parameter_index = pack_index >= 0 && index >= pack_index
+            ? pack_index : index;
         TemplateParam* parameter = &tmpl->params[parameter_index];
         if (parameter->kind == TPARAM_NONTYPE) {
             has_value_parameters = true;
@@ -5756,8 +5760,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         bool matches = tmpl->instances[index].arg_count == argument_count;
         for (argument_index = 0; matches &&
              argument_index < argument_count; ++argument_index) {
-        int parameter_index = pack_index >= 0
-                ? pack_index : argument_index;
+        int parameter_index = pack_index >= 0 &&
+                argument_index >= pack_index
+            ? pack_index : argument_index;
             if (tmpl->params[parameter_index].kind == TPARAM_NONTYPE) {
                 matches = tmpl->instances[index].value_present &&
                     tmpl->instances[index].value_present[argument_index] &&
@@ -5857,7 +5862,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         }
     }
     if (pack_index >= 0) {
-        instance->template_pack_count = argument_count;
+        instance->template_pack_count = argument_count - pack_index;
         if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
             if (argument_count > 0) {
                 instance->template_args = ast_arena_alloc(
@@ -5922,13 +5927,13 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     bool* saved_pending_pack_value_present = tmpl->pending_pack_value_present;
     if (pack_index >= 0) {
         tmpl->pending_pack_args = tmpl->params[pack_index].kind == TPARAM_TYPE
-            ? arguments : NULL;
+            ? arguments + pack_index : NULL;
         tmpl->pending_pack_values = tmpl->params[pack_index].kind == TPARAM_NONTYPE
-            ? (int64_t*)value_args : NULL;
+            ? (int64_t*)value_args + pack_index : NULL;
         tmpl->pending_pack_value_present =
             tmpl->params[pack_index].kind == TPARAM_NONTYPE
-                ? (bool*)value_present : NULL;
-        tmpl->pending_pack_count = argument_count;
+                ? (bool*)value_present + pack_index : NULL;
+        tmpl->pending_pack_count = argument_count - pack_index;
     }
     for (TypeParam* field = definition->fields; field; field = field->next) {
         cxx_class_add_field_initializer(
@@ -6151,8 +6156,9 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
         bool matches = true;
         for (int argument_index = 0; argument_index < argument_count;
              ++argument_index) {
-            int parameter_index = pack_index >= 0
-                ? pack_index : argument_index;
+        int parameter_index = pack_index >= 0 &&
+                argument_index >= pack_index
+            ? pack_index : argument_index;
             if (tmpl->params[parameter_index].kind == TPARAM_NONTYPE) {
                 if (!tmpl->instances[index].value_present ||
                     !value_present ||
@@ -6209,7 +6215,8 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 continue;
             }
             TemplateParam* parameter = &tmpl->params[
-                pack_index >= 0 ? pack_index : argument_count];
+                pack_index >= 0 && argument_count >= pack_index
+                    ? pack_index : argument_count];
             if (parameter->kind == TPARAM_TYPE) {
                 arguments[argument_count++] = parse_cxx_type_spec();
             } else if (parameter->kind == TPARAM_NONTYPE) {

@@ -127,6 +127,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     int64_t* template_value_args;
     bool* template_value_present;
     bool expanded_pack;
+    int pack_parameter_index = -1;
     if (!cls) return;
     tmpl = cls->template_identity_tmpl
         ? cls->template_identity_tmpl : cls->templ;
@@ -138,10 +139,21 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         ? cls->template_identity_value_args : cls->template_value_args;
     template_value_present = cls->template_identity_tmpl
         ? cls->template_identity_value_present : cls->template_value_present;
-    expanded_pack = tmpl && tmpl->param_count == 1 &&
-        tmpl->params[0].is_pack;
+    if (tmpl) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            if (!tmpl->params[index].is_pack) continue;
+            if (pack_parameter_index >= 0 ||
+                index != tmpl->param_count - 1) {
+                pack_parameter_index = -2;
+                break;
+            }
+            pack_parameter_index = index;
+        }
+    }
+    expanded_pack = pack_parameter_index >= 0;
     if (!tmpl || !tmpl->name ||
         ((!expanded_pack && template_arg_count != tmpl->param_count) ||
+         (expanded_pack && template_arg_count < pack_parameter_index) ||
          (template_arg_count > 0 && !template_args))) {
         mangle_name(buf, pos, cls->name);
         return;
@@ -149,19 +161,50 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     mangle_name(buf, pos, tmpl->name);
     if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
     buf[(*pos)++] = 'I';
+    for (int index = 0; expanded_pack && index < pack_parameter_index;
+         ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_TYPE ||
+            parameter->kind == TPARAM_TEMPLATE) {
+            cxx_mangle_type_append(buf, pos, template_args[index]);
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            int written;
+            if (!template_value_present || !template_value_present[index] ||
+                !template_value_args) {
+                rcc_fatal("C++ template class value argument is missing");
+            }
+            cxx_mangle_type_char(buf, pos, 'L');
+            cxx_mangle_type_append(buf, pos, parameter->type);
+            if (template_value_args[index] < 0) {
+                uint64_t magnitude = (uint64_t)(
+                    -(template_value_args[index] + 1)) + 1u;
+                written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
+                                   (unsigned long long)magnitude);
+            } else {
+                written = snprintf(buf + *pos, 256u - *pos, "%lldE",
+                                   (long long)template_value_args[index]);
+            }
+            if (written < 0 || (size_t)written >= 256u - *pos) {
+                rcc_fatal("C++ template class name is too long");
+            }
+            *pos += (size_t)written;
+        }
+    }
     if (expanded_pack) {
         if (*pos + 1u >= 256u) {
             rcc_fatal("C++ template class name is too long");
         }
         buf[(*pos)++] = 'J';
-        for (int pack_index = 0; pack_index < template_arg_count;
+        for (int pack_index = 0;
+             pack_index < template_arg_count - pack_parameter_index;
              ++pack_index) {
             int written;
-            if (tmpl->params[0].kind == TPARAM_TYPE) {
-                cxx_mangle_type_append(buf, pos, template_args[pack_index]);
+            if (tmpl->params[pack_parameter_index].kind == TPARAM_TYPE) {
+                cxx_mangle_type_append(
+                    buf, pos, template_args[pack_parameter_index + pack_index]);
             } else {
                 if (!template_value_present ||
-                    !template_value_present[pack_index] ||
+                    !template_value_present[pack_parameter_index + pack_index] ||
                     !template_value_args) {
                     rcc_fatal("C++ template class value pack argument is missing");
                 }
@@ -169,15 +212,19 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                     rcc_fatal("C++ template class name is too long");
                 }
                 buf[(*pos)++] = 'L';
-                cxx_mangle_type_append(buf, pos, tmpl->params[0].type);
-                if (template_value_args[pack_index] < 0) {
+                cxx_mangle_type_append(
+                    buf, pos, tmpl->params[pack_parameter_index].type);
+                if (template_value_args[pack_parameter_index + pack_index] < 0) {
                     uint64_t magnitude =
-                        (uint64_t)(-(template_value_args[pack_index] + 1)) + 1u;
+                        (uint64_t)(-(
+                            template_value_args[pack_parameter_index + pack_index] +
+                            1)) + 1u;
                     written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
                                        (unsigned long long)magnitude);
                 } else {
                     written = snprintf(buf + *pos, 256u - *pos, "%lldE",
-                                       (long long)template_value_args[pack_index]);
+                        (long long)template_value_args[
+                            pack_parameter_index + pack_index]);
                 }
                 if (written < 0 || (size_t)written >= 256u - *pos) {
                     rcc_fatal("C++ template class name is too long");
@@ -190,7 +237,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
-        if (expanded_pack) break;
+        if (expanded_pack && index <= pack_parameter_index) continue;
         if (parameter->kind == TPARAM_TYPE) {
             cxx_mangle_type_append(buf, pos, template_args[index]);
         } else if (parameter->kind == TPARAM_NONTYPE) {
