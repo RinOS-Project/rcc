@@ -1484,6 +1484,7 @@ typedef struct SemaConstexprBinding {
     size_t object_size;
     bool is_object;
     bool is_constexpr_dynamic;
+    bool is_constexpr_dynamic_array;
     bool is_constexpr_initialized;
 } SemaConstexprBinding;
 
@@ -2662,7 +2663,7 @@ static bool sema_constexpr_binding_lvalue(
     size_t base_offset;
     int64_t index;
     int64_t pointer_offset;
-    size_t element_size;
+    size_t element_size = 0;
 
     if (!expression || !bindings || !binding_index || !offset || !type) {
         return false;
@@ -2900,12 +2901,16 @@ static bool sema_eval_constexpr_dynamic_call(
     Expr* expression, SemaConstexprBinding* bindings, int* binding_count,
     SemaConstexprScalar* value) {
     Type* object_type;
+    Type* storage_type;
     ExprList* initializer;
     SemaConstexprScalar initializer_value;
     Decl* allocation;
     unsigned char* object_bytes;
     int dynamic_index;
     int binding_index;
+    int64_t element_count = 1;
+    size_t element_size = 0;
+    int64_t initializer_index;
 
     if (!expression || !bindings || !binding_count || !value ||
         constexpr_eval_depth <= 0) return false;
@@ -2913,14 +2918,34 @@ static bool sema_eval_constexpr_dynamic_call(
         object_type = expression->call_new_type;
         initializer = expression->call_new_args;
         /* This evaluator owns no target heap and therefore deliberately
-         * supports only one scalar object at a time per new-expression.
-         * Arrays, class construction, and pointer-valued objects need their
-         * complete C++ lifetime model and remain ordinary runtime code. */
-        if (expression->call_new_is_array || !object_type ||
+         * supports scalar objects and fixed-size scalar arrays.  Class
+         * construction and pointer-valued objects need their complete C++
+         * lifetime model and remain ordinary runtime code. */
+        if (!object_type ||
             !sema_constexpr_scalar_type(object_type) ||
             object_type->kind == TYPE_PTR || object_type->size <= 0 ||
-            (initializer && initializer->next)) {
+            (!expression->call_new_is_array && initializer &&
+             initializer->next)) {
             return false;
+        }
+        storage_type = object_type;
+        if (expression->call_new_is_array) {
+            if (!expression->call_new_count ||
+                !sema_eval_constexpr_scalar_expr(
+                    expression->call_new_count, bindings, *binding_count,
+                    &initializer_value) || initializer_value.is_floating ||
+                initializer_value.integer_value <= 0 ||
+                initializer_value.integer_value > INT_MAX ||
+                (size_t)object_type->size > SIZE_MAX /
+                    (size_t)initializer_value.integer_value) {
+                return false;
+            }
+            element_count = initializer_value.integer_value;
+            element_size = (size_t)object_type->size;
+            storage_type = type_array(object_type, (int)element_count);
+            if (!storage_type || storage_type->size <= 0) return false;
+            if (!initializer && !expression->call_new_value_init &&
+                !expression->call_new_brace_init) return false;
         }
         binding_index = -1;
         /* Keep transient allocations above the ordinary lexical binding
@@ -2936,14 +2961,28 @@ static bool sema_eval_constexpr_dynamic_call(
             }
         }
         if (binding_index < 0) return false;
-        object_bytes = ast_arena_alloc((size_t)object_type->size);
-        memset(object_bytes, 0, (size_t)object_type->size);
-        if (initializer) {
+        object_bytes = ast_arena_alloc((size_t)storage_type->size);
+        memset(object_bytes, 0, (size_t)storage_type->size);
+        if (expression->call_new_is_array) {
+            initializer_index = 0;
+            for (ExprList* item = initializer; item; item = item->next) {
+                if (initializer_index >= element_count ||
+                    !sema_eval_constexpr_scalar_expr(
+                        item->expr, bindings, *binding_count,
+                        &initializer_value) ||
+                    !sema_constexpr_store_scalar_bytes(
+                        object_bytes + (size_t)initializer_index * element_size,
+                        element_size, object_type, &initializer_value)) {
+                    return false;
+                }
+                ++initializer_index;
+            }
+        } else if (initializer) {
             if (!sema_eval_constexpr_scalar_expr(
                     initializer->expr, bindings, *binding_count,
                     &initializer_value) ||
                 !sema_constexpr_store_scalar_bytes(
-                    object_bytes, (size_t)object_type->size, object_type,
+                    object_bytes, (size_t)storage_type->size, object_type,
                     &initializer_value)) {
                 return false;
             }
@@ -2958,17 +2997,20 @@ static bool sema_eval_constexpr_dynamic_call(
         memset(allocation, 0, sizeof(*allocation));
         allocation->kind = DECL_VAR;
         allocation->name = rcc_intern("__rcc_constexpr_heap");
-        allocation->type = object_type;
+        allocation->type = storage_type;
         memset(&bindings[binding_index], 0,
                sizeof(bindings[binding_index]));
         bindings[binding_index].declaration = allocation;
-        bindings[binding_index].type = object_type;
+        bindings[binding_index].type = storage_type;
         bindings[binding_index].object_bytes = object_bytes;
-        bindings[binding_index].object_size = (size_t)object_type->size;
+        bindings[binding_index].object_size = (size_t)storage_type->size;
         bindings[binding_index].is_object = true;
         bindings[binding_index].is_constexpr_dynamic = true;
-        bindings[binding_index].is_constexpr_initialized = initializer != NULL ||
-            expression->call_new_value_init || expression->call_new_brace_init;
+        bindings[binding_index].is_constexpr_dynamic_array =
+            expression->call_new_is_array;
+        bindings[binding_index].is_constexpr_initialized =
+            initializer != NULL || expression->call_new_value_init ||
+            expression->call_new_brace_init;
         ++constexpr_dynamic_live_count;
         memset(value, 0, sizeof(*value));
         value->type = expression->type ? expression->type : type_ptr(object_type);
@@ -2994,7 +3036,9 @@ static bool sema_eval_constexpr_dynamic_call(
     if (initializer_value.pointer_offset != 0 ||
         (dynamic_index = sema_constexpr_dynamic_binding_index(
             initializer_value.pointer_declaration, bindings, *binding_count)) < 0 ||
-        !bindings[dynamic_index].is_object) {
+        !bindings[dynamic_index].is_object ||
+        bindings[dynamic_index].is_constexpr_dynamic_array !=
+            expression->call_delete_is_array) {
         return false;
     }
     bindings[dynamic_index].is_object = false;

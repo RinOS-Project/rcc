@@ -101,6 +101,13 @@ constexpr int dynamic_value() {
     return result;
 }
 
+constexpr int dynamic_array_value() {
+    int* values = new int[3]{10, 20, 12};
+    int result = values[0] + values[1] + values[2];
+    delete[] values;
+    return result;
+}
+
 constexpr int constexpr_global = select_value(base_value);
 constexpr int constexpr_local = local_value(base_value);
 constexpr int constexpr_mutated = mutate_value(base_value);
@@ -117,6 +124,7 @@ constexpr int constexpr_consteval = force_constant(3);
 constexpr float constexpr_local_float = local_float(2);
 constexpr double constexpr_loop_float = loop_float(4);
 constexpr int constexpr_dynamic = dynamic_value();
+constexpr int constexpr_dynamic_array = dynamic_array_value();
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -128,6 +136,7 @@ int main(void) {
                    constexpr_truncated == 3 && constexpr_consteval == 7 &&
                    constexpr_local_float == 5.0f &&
                    constexpr_loop_float == 2.0 &&
-                   constexpr_dynamic == 42
+                   constexpr_dynamic == 42 &&
+                   constexpr_dynamic_array == 42
                ? 0 : 1;
 }

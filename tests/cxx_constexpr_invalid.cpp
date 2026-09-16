@@ -18,3 +18,17 @@ constexpr int invalid_constexpr_heap_read() {
 }
 
 constexpr int invalid_dynamic_read = invalid_constexpr_heap_read();
+
+constexpr int invalid_constexpr_heap_leak() {
+    int* value = new int(1);
+    return 0;
+}
+
+constexpr int invalid_dynamic_leak = invalid_constexpr_heap_leak();
+
+constexpr int invalid_constexpr_array_read() {
+    int* values = new int[2];
+    return values[0];
+}
+
+constexpr int invalid_dynamic_array = invalid_constexpr_array_read();
