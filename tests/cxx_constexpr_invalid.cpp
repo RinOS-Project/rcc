@@ -11,3 +11,10 @@ consteval int require_constant(int value) {
 int invalid_consteval_call(int value) {
     return require_constant(value);
 }
+
+constexpr int invalid_constexpr_heap_read() {
+    int* value = new int;
+    return *value;
+}
+
+constexpr int invalid_dynamic_read = invalid_constexpr_heap_read();

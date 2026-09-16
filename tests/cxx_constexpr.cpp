@@ -93,6 +93,14 @@ constexpr double loop_float(int limit) {
     return total;
 }
 
+constexpr int dynamic_value() {
+    int* value = new int;
+    *value = 41;
+    int result = *value + 1;
+    delete value;
+    return result;
+}
+
 constexpr int constexpr_global = select_value(base_value);
 constexpr int constexpr_local = local_value(base_value);
 constexpr int constexpr_mutated = mutate_value(base_value);
@@ -108,6 +116,7 @@ constexpr int constexpr_truncated = truncate_float(3.75f);
 constexpr int constexpr_consteval = force_constant(3);
 constexpr float constexpr_local_float = local_float(2);
 constexpr double constexpr_loop_float = loop_float(4);
+constexpr int constexpr_dynamic = dynamic_value();
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -118,6 +127,7 @@ int main(void) {
                    constexpr_float == 3.5f && constexpr_double == 3.75 &&
                    constexpr_truncated == 3 && constexpr_consteval == 7 &&
                    constexpr_local_float == 5.0f &&
-                   constexpr_loop_float == 2.0
+                   constexpr_loop_float == 2.0 &&
+                   constexpr_dynamic == 42
                ? 0 : 1;
 }
