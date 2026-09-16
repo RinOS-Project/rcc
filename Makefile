@@ -159,7 +159,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
-.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-multiple-inputs
+.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-template-template test-cxx-template-template-invalid test-multiple-inputs
 .PHONY: test-cxx-default-destructor
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
@@ -236,6 +236,8 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-conversion-operator \
 	test-cxx-lambda \
 	test-cxx-lambda-invalid \
+	test-cxx-template-template \
+	test-cxx-template-template-invalid \
 	test-cxx-lambda-function-pointer \
 	test-cxx-generic-lambda \
 	test-cxx-range-for \
@@ -1554,6 +1556,59 @@ endif
 	grep -q "assignment requires modifiable lvalue" \
 		$(TEST_OUT)/cxx-lambda-invalid/x64.log
 	@echo "RCC++ non-mutable lambda capture diagnostics completed"
+
+test-cxx-template-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-template/x86.s \
+		tests/cxx_template_template.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-template/x86.o \
+		$(TEST_OUT)/cxx-template-template/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-template/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-template/x86 \
+		$(TEST_OUT)/cxx-template-template/start-x86.o \
+		$(TEST_OUT)/cxx-template-template/x86.o
+	$(TEST_OUT)/cxx-template-template/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-template/x64.s \
+		tests/cxx_template_template.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-template-template/x64.o \
+		$(TEST_OUT)/cxx-template-template/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-template-template/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-template/x64 \
+		$(TEST_OUT)/cxx-template-template/start-x64.o \
+		$(TEST_OUT)/cxx-template-template/x64.o
+	$(TEST_OUT)/cxx-template-template/x64
+	@echo "RCC++ template-template parameter tests completed"
+
+test-cxx-template-template-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-invalid)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-invalid/x86.ro' tests/cxx_template_template_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-invalid/x64.ro' tests/cxx_template_template_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+else
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-template-invalid/x86.ro \
+		tests/cxx_template_template_invalid.cpp \
+		>$(TEST_OUT)/cxx-template-template-invalid/x86.log 2>&1; then \
+		echo "mismatched template-template argument unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-template-invalid/x64.ro \
+		tests/cxx_template_template_invalid.cpp \
+		>$(TEST_OUT)/cxx-template-template-invalid/x64.log 2>&1; then \
+		echo "mismatched template-template argument unexpectedly compiled on AMD64"; exit 1; \
+	fi
+endif
+	grep -q "template-template argument does not match its parameter list" \
+		$(TEST_OUT)/cxx-template-template-invalid/x86.log
+	grep -q "template-template argument does not match its parameter list" \
+		$(TEST_OUT)/cxx-template-template-invalid/x64.log
+	@echo "RCC++ template-template parameter diagnostics completed"
 
 test-cxx-conversion-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)

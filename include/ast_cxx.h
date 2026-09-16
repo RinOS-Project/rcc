@@ -207,6 +207,7 @@ typedef struct {
     Type* type;              /* For non-type parameters */
     bool is_pack;            /* `typename... Ts` / supported type pack. */
     bool has_default;
+    CxxTemplate* template_signature; /* TPARAM_TEMPLATE parameter list. */
     union {
         Type* default_type;
         Expr* default_value;

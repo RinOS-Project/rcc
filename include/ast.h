@@ -128,6 +128,10 @@ struct Type {
     bool cxx_nontrivial;
     bool cxx_dependent;
     struct CxxClass* cxx_class;
+    struct CxxTemplate* cxx_template;
+    int cxx_template_param_index;
+    Type** cxx_template_args;
+    int cxx_template_arg_count;
     /* Fully qualified namespace owning a C++ class type, or NULL for the
      * global namespace and non-class C types. */
     const char* cxx_namespace;

@@ -217,6 +217,15 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 rcc_fatal("C++ template class name is too long");
             }
             *pos += (size_t)written;
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            if (!template_args || !template_args[index] ||
+                !template_args[index]->cxx_template) {
+                rcc_fatal("C++ template class template argument is missing");
+            }
+            /* The carrier's tag is the source template name.  Including it
+             * in the instance identity keeps distinct template arguments
+             * separate without pretending that a template is an object type. */
+            cxx_mangle_type_append(buf, pos, template_args[index]);
         } else {
             rcc_fatal("unsupported C++ template class parameter");
         }
@@ -3201,6 +3210,7 @@ void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
     tmpl->params[tmpl->param_count].type = NULL;
     tmpl->params[tmpl->param_count].is_pack = false;
     tmpl->params[tmpl->param_count].has_default = false;
+    tmpl->params[tmpl->param_count].template_signature = NULL;
     tmpl->params[tmpl->param_count].default_type = NULL;
     tmpl->param_count++;
 }
@@ -3215,6 +3225,7 @@ void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* typ
     tmpl->params[tmpl->param_count].type = type;
     tmpl->params[tmpl->param_count].is_pack = false;
     tmpl->params[tmpl->param_count].has_default = false;
+    tmpl->params[tmpl->param_count].template_signature = NULL;
     tmpl->params[tmpl->param_count].default_value = NULL;
     tmpl->param_count++;
 }

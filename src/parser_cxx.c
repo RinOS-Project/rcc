@@ -533,6 +533,7 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
 static bool is_active_template_type(const char* name);
+static int active_template_template_parameter_index(const char* name);
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
                                               const int64_t* values,
@@ -4826,6 +4827,7 @@ CxxTemplate* parse_cxx_template(void) {
         do {
             bool type_parameter = false;
             bool parameter_pack = false;
+            bool template_parameter = false;
             if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
                 /* Type parameter */
                 type_parameter = true;
@@ -4836,6 +4838,62 @@ CxxTemplate* parse_cxx_template(void) {
                 }
                 cxx_template_add_type_param(tmpl, param_name);
                 tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
+            } else if (match(TOK_TEMPLATE)) {
+                /* Keep the accepted template-template profile explicit.  The
+                 * nested signature is retained so an argument cannot be
+                 * accepted merely because it happens to name a class. */
+                CxxTemplate* signature = cxx_template_new(peek()->loc);
+                const char* param_name = NULL;
+                expect(TOK_LT, "template parameter list");
+                if (!check(TOK_GT)) {
+                    do {
+                        const char* nested_name = NULL;
+                        if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
+                            if (check(TOK_IDENT)) {
+                                nested_name = advance()->value.str_val;
+                            }
+                            cxx_template_add_type_param(signature, nested_name);
+                        } else if (match(TOK_AUTO)) {
+                            if (check(TOK_IDENT)) {
+                                nested_name = advance()->value.str_val;
+                            } else {
+                                rcc_error(peek()->loc,
+                                          "template-template auto parameter "
+                                          "requires a name");
+                            }
+                            cxx_template_add_value_param(signature, nested_name,
+                                                         type_int);
+                        } else {
+                            rcc_error(peek()->loc,
+                                      "template-template parameter requires "
+                                      "typename, class, or auto");
+                            while (!check(TOK_COMMA) && !check(TOK_GT) &&
+                                   !at_end()) {
+                                advance();
+                            }
+                            cxx_template_add_type_param(signature, NULL);
+                        }
+                    } while (match(TOK_COMMA));
+                }
+                expect(TOK_GT, "template parameter list");
+                if (!match(TOK_CLASS) && !match(TOK_TYPENAME)) {
+                    rcc_error(peek()->loc,
+                              "template-template parameter requires class "
+                              "or typename");
+                }
+                if (check(TOK_IDENT)) param_name = advance()->value.str_val;
+                tmpl->params = ast_arena_grow(
+                    tmpl->params, sizeof(TemplateParam) * (size_t)tmpl->param_count,
+                    sizeof(TemplateParam) * (size_t)(tmpl->param_count + 1));
+                {
+                    TemplateParam* parameter =
+                        &tmpl->params[tmpl->param_count++];
+                    memset(parameter, 0, sizeof(*parameter));
+                    parameter->kind = TPARAM_TEMPLATE;
+                    parameter->name = param_name ? rcc_strdup(param_name) : NULL;
+                    parameter->template_signature = signature;
+                }
+                template_parameter = true;
             } else if (match(TOK_AUTO)) {
                 /* C++17 `template<auto N>` is represented by the existing
                  * integral non-type path.  The bounded RinOS profile accepts
@@ -4871,11 +4929,22 @@ CxxTemplate* parse_cxx_template(void) {
             if (match(TOK_ASSIGN)) {
                 int parameter_index = tmpl->param_count - 1;
                 if (parameter_index >= 0) {
-                    tmpl->params[parameter_index].has_default = true;
+                    if (template_parameter) {
+                        rcc_error(peek()->loc,
+                                  "template-template parameter defaults are "
+                                  "not supported");
+                        if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+                            (void)parse_qualified_name();
+                        } else {
+                            (void)parse_assignment_expression();
+                        }
+                    } else {
+                        tmpl->params[parameter_index].has_default = true;
+                    }
                     if (type_parameter) {
                         tmpl->params[parameter_index].default_type =
                             parse_cxx_type_spec();
-                    } else {
+                    } else if (!template_parameter) {
                         rcc_parser_set_cxx_template_default_mode(true);
                         tmpl->params[parameter_index].default_value =
                             parse_assignment_expression();
@@ -5332,7 +5401,11 @@ bool rcc_parse_cxx_type_start(void) {
     result = is_active_template_type(name) || find_class(name) != NULL ||
              (strstr(name, "::") == NULL &&
               rcc_parser_lookup_type(name) != NULL);
-    if (check(TOK_LT) && find_class_template(name)) result = true;
+    if (check(TOK_LT) &&
+        (find_class_template(name) ||
+         active_template_template_parameter_index(name) >= 0)) {
+        result = true;
+    }
 
     parser.cur = saved_cur;
     parser.prev = saved_prev;
@@ -5354,6 +5427,40 @@ static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
     return -1;
 }
 
+static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
+                                        const int64_t* value_args,
+                                        const bool* value_present,
+                                        int argument_count, SourceLoc loc);
+
+static int active_template_template_parameter_index(const char* name) {
+    if (!active_template || !name) return -1;
+    for (int index = 0; index < active_template->param_count; ++index) {
+        TemplateParam* parameter = &active_template->params[index];
+        if (parameter->kind == TPARAM_TEMPLATE && parameter->name &&
+            strcmp(parameter->name, name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static bool template_template_signature_matches(
+    const TemplateParam* parameter, const CxxTemplate* actual) {
+    const CxxTemplate* signature = parameter ? parameter->template_signature : NULL;
+    if (!parameter || parameter->kind != TPARAM_TEMPLATE || !signature ||
+        !actual || actual->kind != TMPL_CLASS ||
+        signature->param_count != actual->param_count) {
+        return false;
+    }
+    for (int index = 0; index < signature->param_count; ++index) {
+        if (signature->params[index].kind != actual->params[index].kind ||
+            signature->params[index].is_pack != actual->params[index].is_pack) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                       Type** arguments, int argument_count,
                                       const int64_t* value_args,
@@ -5364,6 +5471,41 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     Expr* array_bound;
     int parameter_index;
     if (!type) return NULL;
+    if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
+        type->cxx_template_arg_count > 0) {
+        Type* template_argument;
+        CxxTemplate* actual_template;
+        Type* nested_arguments[32] = { NULL };
+        Type* instantiated;
+        if (type->cxx_template_param_index >= argument_count ||
+            !arguments ||
+            !(template_argument = arguments[type->cxx_template_param_index]) ||
+            !(actual_template = template_argument->cxx_template) ||
+            type->cxx_template_arg_count >
+                (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0])) ||
+            !template_template_signature_matches(
+                tmpl && type->cxx_template_param_index < tmpl->param_count
+                    ? &tmpl->params[type->cxx_template_param_index] : NULL,
+                actual_template) ||
+            actual_template->param_count != type->cxx_template_arg_count) {
+            rcc_error(type->cxx_class ? (SourceLoc){"<template>", 0, 0}
+                                      : (SourceLoc){"<template>", 0, 0},
+                      "template-template argument cannot be instantiated");
+            return NULL;
+        }
+        for (int nested_index = 0;
+             nested_index < type->cxx_template_arg_count; ++nested_index) {
+            nested_arguments[nested_index] = substitute_template_type(
+                tmpl, type->cxx_template_args[nested_index], arguments,
+                argument_count, value_args, value_present);
+            if (!nested_arguments[nested_index]) return NULL;
+        }
+        instantiated = instantiate_class_template(
+            actual_template, nested_arguments, NULL, NULL,
+            type->cxx_template_arg_count, (SourceLoc){"<template>", 0, 0});
+        if (!instantiated) return NULL;
+        return instantiated;
+    }
     parameter_index = template_parameter_index(tmpl, type);
     if (parameter_index >= 0 && parameter_index < argument_count) {
         substituted = arguments[parameter_index];
@@ -5600,9 +5742,13 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             return NULL;
         }
         if (parameter->kind == TPARAM_TEMPLATE) {
-            rcc_error(loc,
-                      "class template template parameters are not supported");
-            return NULL;
+            if (!arguments || !arguments[index] ||
+                !arguments[index]->cxx_template ||
+                !template_template_signature_matches(
+                    parameter, arguments[index]->cxx_template)) {
+                rcc_error(loc, "class template template argument is invalid");
+                return NULL;
+            }
         }
     }
     for (index = 0; index < tmpl->instance_count; ++index) {
@@ -5618,6 +5764,12 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                     value_present[argument_index] &&
                     tmpl->instances[index].value_args[argument_index] ==
                         value_args[argument_index];
+            } else if (tmpl->params[parameter_index].kind == TPARAM_TEMPLATE) {
+                matches = tmpl->instances[index].args &&
+                    tmpl->instances[index].args[argument_index] &&
+                    arguments && arguments[argument_index] &&
+                    tmpl->instances[index].args[argument_index]->cxx_template ==
+                        arguments[argument_index]->cxx_template;
             } else {
                 matches = tmpl->instances[index].args && arguments &&
                     type_is_compatible(
@@ -6011,6 +6163,14 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
                     matches = false;
                     break;
                 }
+            } else if (tmpl->params[parameter_index].kind == TPARAM_TEMPLATE) {
+                if (!tmpl->instances[index].args[argument_index] ||
+                    !arguments[argument_index] ||
+                    tmpl->instances[index].args[argument_index]->cxx_template !=
+                        arguments[argument_index]->cxx_template) {
+                    matches = false;
+                    break;
+                }
             } else if (!type_is_compatible(
                            tmpl->instances[index].args[argument_index],
                            arguments[argument_index])) {
@@ -6071,9 +6231,30 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 value_present[argument_count] = true;
                 ++argument_count;
             } else {
-                rcc_error(peek()->loc,
-                          "class template template parameters are not supported");
-                arguments[argument_count++] = type_int;
+                const char* argument_name = NULL;
+                CxxTemplate* argument_template;
+                Type* template_carrier;
+                if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+                    argument_name = parse_qualified_name();
+                } else {
+                    rcc_error(peek()->loc,
+                              "template-template argument requires a class "
+                              "template name");
+                }
+                argument_template = argument_name
+                    ? find_class_template(argument_name) : NULL;
+                if (!argument_template ||
+                    !template_template_signature_matches(
+                        parameter, argument_template)) {
+                    rcc_error(loc,
+                              "template-template argument does not match its "
+                              "parameter list");
+                    template_carrier = type_int;
+                } else {
+                    template_carrier = type_struct(argument_name);
+                    template_carrier->cxx_template = argument_template;
+                }
+                arguments[argument_count++] = template_carrier;
             }
         } while (match(TOK_COMMA));
     }
@@ -7666,6 +7847,8 @@ static Type* parse_cxx_type_spec(void) {
         const char* name = parse_qualified_name();
         CxxTemplate* tmpl = check(TOK_LT)
             ? find_class_template(name) : NULL;
+        int template_template_index =
+            active_template_template_parameter_index(name);
         CxxClass* known_class = find_class(name);
         if (!known_class && active_class && active_class->name &&
             strcmp(name, active_class->name) == 0) {
@@ -7673,7 +7856,59 @@ static Type* parse_cxx_type_spec(void) {
         }
         Type* known_type = strstr(name, "::") == NULL
             ? rcc_parser_lookup_type(name) : NULL;
-        if (tmpl) {
+        if (template_template_index >= 0 && check(TOK_LT)) {
+            TemplateParam* parameter = &active_template->params[
+                template_template_index];
+            Type* dependent = type_struct(name);
+            int nested_count = 0;
+            dependent->cxx_dependent = true;
+            dependent->cxx_template_param_index = template_template_index;
+            expect(TOK_LT, "template-template argument list");
+            if (!check(TOK_GT)) {
+                do {
+                    if (nested_count >= 32 || !parameter->template_signature ||
+                        nested_count >=
+                            parameter->template_signature->param_count) {
+                        rcc_error(peek()->loc,
+                                  "template-template argument count exceeded");
+                        while (!check(TOK_COMMA) && !check(TOK_GT) &&
+                               !at_end()) {
+                            advance();
+                        }
+                        if (check(TOK_COMMA)) advance();
+                        continue;
+                    }
+                    if (parameter->template_signature->params[nested_count].kind !=
+                        TPARAM_TYPE) {
+                        rcc_error(peek()->loc,
+                                  "non-type template-template arguments are "
+                                  "not supported in dependent class types");
+                        (void)parse_assignment_expression();
+                        dependent->cxx_template_args = ast_arena_grow(
+                            dependent->cxx_template_args,
+                            sizeof(Type*) * (size_t)nested_count,
+                            sizeof(Type*) * (size_t)(nested_count + 1));
+                        dependent->cxx_template_args[nested_count++] = type_int;
+                    } else {
+                        dependent->cxx_template_args = ast_arena_grow(
+                            dependent->cxx_template_args,
+                            sizeof(Type*) * (size_t)nested_count,
+                            sizeof(Type*) * (size_t)(nested_count + 1));
+                        dependent->cxx_template_args[nested_count++] =
+                            parse_cxx_type_spec();
+                    }
+                } while (match(TOK_COMMA));
+            }
+            expect(TOK_GT, ">");
+            dependent->cxx_template_arg_count = nested_count;
+            if (!parameter->template_signature ||
+                nested_count != parameter->template_signature->param_count) {
+                rcc_error(loc,
+                          "template-template argument count does not match "
+                          "its parameter list");
+            }
+            t = dependent;
+        } else if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);
         } else if (known_class && active_template &&
                    active_class == known_class) {
