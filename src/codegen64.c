@@ -2782,7 +2782,8 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
     /* Keep the element count in the allocation expression only; the
      * semantic pass has already proved that this constant count covers every
      * initializer, so no second evaluation or unchecked runtime bound is
-     * needed here. */
+     * needed here.  Aggregate elements are copied bytewise after their
+     * temporary initializer has been evaluated. */
     gen64_expr(mod, expr->call_new_count);
     emit64_mov_reg_reg(mod, RCX, RAX);
     emit64_mov_reg_imm32(mod, RAX, (uint32_t)element_type->size);
@@ -2797,6 +2798,15 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
     emit64_push_reg(mod, RAX);
     for (argument = expr->call_new_args; argument;
          argument = argument->next, offset += element_type->size) {
+        if (gen64_is_aggregate(element_type)) {
+            gen64_expr(mod, argument->expr);
+            emit64_push_reg(mod, RAX);
+            emit64_mov_reg_mem(mod, RCX, RSP, 8);
+            emit64_mov_reg_mem(mod, RDX, RSP, 0);
+            gen64_copy_memory(mod, RCX, 0, RDX, 0, element_type->size);
+            emit64_pop_reg(mod, RDX);
+            continue;
+        }
         emit64_mov_reg_mem(mod, RCX, RSP, 0);
         gen64_expr(mod, argument->expr);
         if (gen64_is_floating(element_type)) {

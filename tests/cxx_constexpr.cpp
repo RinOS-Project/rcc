@@ -108,6 +108,26 @@ constexpr int dynamic_array_value() {
     return result;
 }
 
+struct DynamicPair {
+    int first;
+    int second;
+};
+
+constexpr int dynamic_aggregate_value() {
+    DynamicPair* pair = new DynamicPair{20, 22};
+    int result = pair->first + pair->second;
+    delete pair;
+    return result;
+}
+
+constexpr int dynamic_aggregate_array_value() {
+    DynamicPair* pairs = new DynamicPair[2]{
+        DynamicPair{1, 2}, DynamicPair{3, 4}};
+    int result = pairs[0].second + pairs[1].first;
+    delete[] pairs;
+    return result;
+}
+
 constexpr int constexpr_global = select_value(base_value);
 constexpr int constexpr_local = local_value(base_value);
 constexpr int constexpr_mutated = mutate_value(base_value);
@@ -125,6 +145,12 @@ constexpr float constexpr_local_float = local_float(2);
 constexpr double constexpr_loop_float = loop_float(4);
 constexpr int constexpr_dynamic = dynamic_value();
 constexpr int constexpr_dynamic_array = dynamic_array_value();
+constexpr int constexpr_dynamic_aggregate = dynamic_aggregate_value();
+constexpr int constexpr_dynamic_aggregate_array =
+    dynamic_aggregate_array_value();
+
+static_assert(constexpr_dynamic_aggregate == 42);
+static_assert(constexpr_dynamic_aggregate_array == 5);
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -137,6 +163,10 @@ int main(void) {
                    constexpr_local_float == 5.0f &&
                    constexpr_loop_float == 2.0 &&
                    constexpr_dynamic == 42 &&
-                   constexpr_dynamic_array == 42
+                   constexpr_dynamic_array == 42 &&
+                   constexpr_dynamic_aggregate == 42 &&
+                   constexpr_dynamic_aggregate_array == 5 &&
+                   dynamic_aggregate_value() == 42 &&
+                   dynamic_aggregate_array_value() == 5
                ? 0 : 1;
 }

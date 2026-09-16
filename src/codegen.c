@@ -4377,6 +4377,21 @@ static void gen_copy_aggregate32(Module* mod, int32_t destination_offset,
     }
 }
 
+static void gen_copy_aggregate_to_address32(Module* mod, int destination_register,
+                                             int source_register, int size) {
+    int offset = 0;
+    while (offset + 4 <= size) {
+        emit_mov_reg_mem(mod, EAX, source_register, offset);
+        emit_mov_mem_reg(mod, destination_register, offset, EAX);
+        offset += 4;
+    }
+    while (offset < size) {
+        emit_load_typed32(mod, EAX, source_register, offset, type_uchar);
+        emit_mov_mem_reg8(mod, destination_register, offset, EAX);
+        ++offset;
+    }
+}
+
 /* Generate lvalue address in EAX */
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -5555,8 +5570,9 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
         return;
     }
     /* Evaluate a constant element count once and retain the allocation across
-     * each initializer expression.  The semantic pass limits this path to
-     * scalar elements and proves that the initializer list fits. */
+     * each initializer expression.  The semantic pass proves that the
+     * initializer list fits and that aggregate elements are trivially
+     * copyable. */
     gen_expr(mod, expr->call_new_count);
     emit_scale_reg(mod, EAX, (uint32_t)element_type->size);
     emit_push_reg(mod, EAX);
@@ -5570,6 +5586,16 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
     emit_push_reg(mod, EAX);
     for (argument = expr->call_new_args; argument;
          argument = argument->next, offset += element_type->size) {
+        if (gen_aggregate_type32(element_type)) {
+            gen_expr(mod, argument->expr);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_mem(mod, ECX, ESP, 4);
+            emit_mov_reg_mem(mod, EDX, ESP, 0);
+            gen_copy_aggregate_to_address32(
+                mod, ECX, EDX, element_type->size);
+            emit_pop_reg(mod, EDX);
+            continue;
+        }
         emit_mov_reg_mem(mod, ECX, ESP, 0);
         gen_expr_as_type(mod, argument->expr, element_type);
         if (type_is_integer(element_type) ||
@@ -8947,6 +8973,11 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             codegen_assign_compound_expr(expression->call_func, bytes,
                                          stack_alignment);
             for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                codegen_assign_compound_expr(argument->expr, bytes,
+                                             stack_alignment);
+            }
+            for (ExprList* argument = expression->call_new_args; argument;
                  argument = argument->next) {
                 codegen_assign_compound_expr(argument->expr, bytes,
                                              stack_alignment);

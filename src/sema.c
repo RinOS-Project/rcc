@@ -2911,20 +2911,25 @@ static bool sema_eval_constexpr_dynamic_call(
     int64_t element_count = 1;
     size_t element_size = 0;
     int64_t initializer_index;
+    bool aggregate_object;
 
     if (!expression || !bindings || !binding_count || !value ||
         constexpr_eval_depth <= 0) return false;
     if (expression->call_is_new) {
         object_type = expression->call_new_type;
         initializer = expression->call_new_args;
-        /* This evaluator owns no target heap and therefore deliberately
-         * supports scalar objects and fixed-size scalar arrays.  Class
-         * construction and pointer-valued objects need their complete C++
-         * lifetime model and remain ordinary runtime code. */
+        aggregate_object = object_type &&
+            (object_type->kind == TYPE_STRUCT ||
+             object_type->kind == TYPE_UNION) &&
+            !object_type->cxx_nontrivial;
+        /* This evaluator owns no target heap.  It supports scalar objects,
+         * fixed-size scalar arrays, and complete trivial aggregates whose
+         * bytes can be materialized by the existing constexpr object model.
+         * Non-trivial class lifetime remains a separate semantic path. */
         if (!object_type ||
-            !sema_constexpr_scalar_type(object_type) ||
+            (!sema_constexpr_scalar_type(object_type) && !aggregate_object) ||
             object_type->kind == TYPE_PTR || object_type->size <= 0 ||
-            (!expression->call_new_is_array && initializer &&
+            (!expression->call_new_is_array && !aggregate_object && initializer &&
              initializer->next)) {
             return false;
         }
@@ -2967,15 +2972,42 @@ static bool sema_eval_constexpr_dynamic_call(
             initializer_index = 0;
             for (ExprList* item = initializer; item; item = item->next) {
                 if (initializer_index >= element_count ||
-                    !sema_eval_constexpr_scalar_expr(
-                        item->expr, bindings, *binding_count,
-                        &initializer_value) ||
-                    !sema_constexpr_store_scalar_bytes(
-                        object_bytes + (size_t)initializer_index * element_size,
-                        element_size, object_type, &initializer_value)) {
+                    (aggregate_object
+                        ? !sema_constexpr_materialize_object(
+                              object_type, item->expr, bindings,
+                              *binding_count,
+                              object_bytes + (size_t)initializer_index *
+                                  element_size,
+                              element_size)
+                        : (!sema_eval_constexpr_scalar_expr(
+                               item->expr, bindings, *binding_count,
+                               &initializer_value) ||
+                           !sema_constexpr_store_scalar_bytes(
+                               object_bytes + (size_t)initializer_index *
+                                   element_size,
+                               element_size, object_type,
+                               &initializer_value)))) {
                     return false;
                 }
                 ++initializer_index;
+            }
+        } else if (aggregate_object) {
+            if (initializer) {
+                Expr* aggregate_initializer = expr_initializer_list(
+                    initializer, expression->loc);
+                aggregate_initializer->compound_type = object_type;
+                aggregate_initializer->type = object_type;
+                if (!sema_constexpr_materialize_object(
+                        object_type, aggregate_initializer, bindings,
+                        *binding_count, object_bytes,
+                        (size_t)storage_type->size)) {
+                    return false;
+                }
+            } else if (!expression->call_new_value_init &&
+                       !expression->call_new_brace_init) {
+                /* Default-initialized aggregate storage is not readable until
+                 * each read is preceded by a constexpr assignment. */
+                memset(object_bytes, 0, (size_t)storage_type->size);
             }
         } else if (initializer) {
             if (!sema_eval_constexpr_scalar_expr(
@@ -8723,10 +8755,19 @@ static Type* sema_expr(Expr* expr) {
                             expr->call_new_array_cookie = true;
                         }
                     } else if (object_type->kind == TYPE_STRUCT ||
-                               object_type->kind == TYPE_UNION ||
-                               object_type->kind == TYPE_ARRAY) {
+                               object_type->kind == TYPE_UNION) {
+                        for (argument = expr->call_new_args; argument;
+                             argument = argument->next) {
+                            if (cxx_conversion_rank(argument->expr,
+                                                     object_type) < 0) {
+                                rcc_error(argument->expr->loc,
+                                          "array new initializer is incompatible with the aggregate element type");
+                                return expr->type;
+                            }
+                        }
+                    } else if (object_type->kind == TYPE_ARRAY) {
                         rcc_error(expr->loc,
-                                  "array new currently requires scalar elements");
+                                  "array new currently requires scalar or class elements");
                         return expr->type;
                     } else {
                         for (argument = expr->call_new_args; argument;
