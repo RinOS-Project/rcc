@@ -95,6 +95,16 @@ AggregateBox<T> make_aggregate_box(T first, T second) {
     return AggregateBox<T>{first, second};
 }
 
+template<typename T>
+constexpr AggregateBox<T> make_constexpr_aggregate_box(T first, T second) {
+    return AggregateBox<T>{first, second};
+}
+
+constexpr AggregateBox<int> constexpr_aggregate_box =
+    make_constexpr_aggregate_box(9, 13);
+static_assert(constexpr_aggregate_box.first +
+              constexpr_aggregate_box.second == 22);
+
 template<typename T, typename U = T>
 class DefaultType {
 public:
@@ -136,7 +146,9 @@ int main() {
                    ordinary_select.kind() == 3 &&
                    specialized_select.kind() == 103 &&
                    default_type.kind() == 9 &&
-                   aggregate_box.first + aggregate_box.second == 42
+                   aggregate_box.first + aggregate_box.second == 42 &&
+                   constexpr_aggregate_box.first +
+                       constexpr_aggregate_box.second == 22
                ? 0
                : 1;
 }
