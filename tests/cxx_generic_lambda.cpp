@@ -16,6 +16,12 @@ int main() {
     int packed_with_seed = [](int seed, auto... values) {
         return (seed + ... + values);
     }(10, 1, 2);
+    int packed_count = [](auto... values) {
+        return sizeof...(values);
+    }(4, 5, 6);
+    int packed_empty_count = [](auto... values) {
+        return sizeof...(values);
+    }();
     int first_pointer = 1;
     int second_pointer = 2;
     int packed_pointers = [](auto*... values) {
@@ -47,6 +53,7 @@ int main() {
            long_value == 42 && pointer_value == 43 &&
            packed_value == 6 && packed_empty == 10 &&
            packed_with_seed == 13 &&
+           packed_count == 3 && packed_empty_count == 0 &&
            packed_pointers == 1 &&
            forwarded == 42 && forwarded_result == 41 && lvalue_result == 42 &&
            rvalue_result == 42
