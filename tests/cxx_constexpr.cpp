@@ -113,6 +113,12 @@ struct DynamicPair {
     int second;
 };
 
+template<typename T>
+struct DynamicTemplatePair {
+    T first;
+    T second;
+};
+
 constexpr int dynamic_aggregate_value() {
     DynamicPair* pair = new DynamicPair{20, 22};
     int result = pair->first + pair->second;
@@ -125,6 +131,14 @@ constexpr int dynamic_aggregate_array_value() {
         DynamicPair{1, 2}, DynamicPair{3, 4}};
     int result = pairs[0].second + pairs[1].first;
     delete[] pairs;
+    return result;
+}
+
+constexpr int dynamic_template_aggregate_value() {
+    DynamicTemplatePair<int>* pair =
+        new DynamicTemplatePair<int>{20, 22};
+    int result = pair->first + pair->second;
+    delete pair;
     return result;
 }
 
@@ -148,9 +162,12 @@ constexpr int constexpr_dynamic_array = dynamic_array_value();
 constexpr int constexpr_dynamic_aggregate = dynamic_aggregate_value();
 constexpr int constexpr_dynamic_aggregate_array =
     dynamic_aggregate_array_value();
+constexpr int constexpr_dynamic_template_aggregate =
+    dynamic_template_aggregate_value();
 
 static_assert(constexpr_dynamic_aggregate == 42);
 static_assert(constexpr_dynamic_aggregate_array == 5);
+static_assert(constexpr_dynamic_template_aggregate == 42);
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -166,6 +183,7 @@ int main(void) {
                    constexpr_dynamic_array == 42 &&
                    constexpr_dynamic_aggregate == 42 &&
                    constexpr_dynamic_aggregate_array == 5 &&
+                   constexpr_dynamic_template_aggregate == 42 &&
                    dynamic_aggregate_value() == 42 &&
                    dynamic_aggregate_array_value() == 5
                ? 0 : 1;
