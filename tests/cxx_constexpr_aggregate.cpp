@@ -10,8 +10,17 @@ struct Nested {
     int tail;
 };
 
+struct FloatPair {
+    float first;
+    double second;
+};
+
 constexpr Pair make_pair(int first, int second) {
     return Pair{first, second};
+}
+
+constexpr FloatPair make_float_pair(float first, double second) {
+    return FloatPair{first, second};
 }
 
 constexpr Pair make_mutated_pair(int value) {
@@ -25,12 +34,17 @@ constexpr Pair pair{3, 4};
 constexpr Nested nested{{5, 6}, 7};
 constexpr Pair returned_pair = make_pair(11, 13);
 constexpr Pair mutated_returned_pair = make_mutated_pair(20);
+constexpr FloatPair float_pair{1.25f, 2.5};
+constexpr FloatPair returned_float_pair = make_float_pair(1.5f, 2.25);
 constexpr int first_value = pair.first;
 constexpr int second_value = pair.second + 1;
 constexpr int nested_value = nested.pair.second + nested.tail;
 constexpr int returned_value = returned_pair.first + returned_pair.second;
 constexpr int mutated_returned_value =
     mutated_returned_pair.first + mutated_returned_pair.second;
+constexpr float float_first_value = float_pair.first;
+constexpr double float_returned_value =
+    returned_float_pair.first + returned_float_pair.second;
 constexpr int array_values[3] = {8, 9, 10};
 constexpr int array_value = array_values[1] + array_values[2];
 
@@ -68,6 +82,8 @@ int main(void) {
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
+                   float_first_value == 1.25f &&
+                   float_returned_value == 3.75 &&
                    mutated_pair_value == 56 && mutated_array_value == 18
                ? 0 : 1;
 }
