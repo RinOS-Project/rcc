@@ -533,6 +533,7 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
 static bool is_active_template_type(const char* name);
+static int active_template_type_index(const char* name);
 static int active_template_template_parameter_index(const char* name);
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
@@ -3748,6 +3749,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             Decl* declaration = decl_var(name, type, init, loc);
             declaration->var_is_thread_local = is_thread_local;
             declaration->var_is_inline = is_inline;
+            declaration->var_is_constexpr = is_constexpr;
             cxx_class_add_member(cls, declaration, current_access, true);
         }
     }
@@ -8082,6 +8084,45 @@ Expr* rcc_parse_cxx_special_expression(void) {
     return expr_int(0, loc);
 }
 
+/* Parse a member selected through a dependent type parameter, such as
+ * `T::value`.  The common qualified-name parser intentionally treats `::` as
+ * a single identifier spelling, but a type parameter's member must survive
+ * function-template cloning so the substituted class can resolve its static
+ * data member later.  Keep this hook transactional: only the exact
+ * type-parameter `::` identifier form is claimed. */
+Expr* rcc_parse_cxx_dependent_member(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    SourceLoc loc = peek()->loc;
+    const char* owner_name;
+    const char* member_name;
+    int parameter_index;
+    Type* dependent;
+    Expr* base;
+    Expr* result;
+
+    if (!check(TOK_IDENT)) return NULL;
+    owner_name = peek()->value.str_val;
+    parameter_index = active_template_type_index(owner_name);
+    if (parameter_index < 0 || !is_active_template_type(owner_name)) {
+        return NULL;
+    }
+    advance();
+    if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    member_name = advance()->value.str_val;
+    dependent = type_struct(owner_name);
+    dependent->cxx_dependent = true;
+    dependent->cxx_template_param_index = parameter_index;
+    base = expr_ident(owner_name, loc);
+    base->type = dependent;
+    result = expr_member(base, member_name, loc);
+    return result;
+}
+
 /* Parse a static member selected through a class-template specialization,
  * such as `Counter<int>::value`.  The common qualified-name parser cannot
  * consume the angle-bracket portion, so keep this narrow hook transactional:
@@ -8198,6 +8239,18 @@ static bool cxx_range_for_header(void) {
         }
     }
     return false;
+}
+
+static int active_template_type_index(const char* name) {
+    if (!active_template || !name) return -1;
+    for (int index = 0; index < active_template->param_count; ++index) {
+        TemplateParam* parameter = &active_template->params[index];
+        if (parameter->kind == TPARAM_TYPE && parameter->name &&
+            strcmp(parameter->name, name) == 0) {
+            return index;
+        }
+    }
+    return -1;
 }
 
 /* Lower the array form of a C++ range-for into the existing indexed-loop

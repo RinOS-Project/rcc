@@ -7806,6 +7806,13 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "capturing lambda must be immediately invoked");
             }
+            /* A dependent member base such as the `T` in `T::value` is
+             * deliberately pre-typed by the C++ parser.  It is not an
+             * object identifier and must wait for function-template
+             * substitution before ordinary lookup is attempted. */
+            if (expr->type && expr->type->cxx_dependent) {
+                break;
+            }
             if (expr->ident_decl && expr->ident_decl->kind == DECL_FUNC) {
                 expr->type = expr->ident_decl->type;
                 break;
@@ -9215,7 +9222,22 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER: {
-            Type* bt = sema_expr(expr->member_base);
+            Type* bt;
+            bool pretyped_class_base = expr->member_base &&
+                expr->member_base->kind == EXPR_IDENT &&
+                expr->member_base->type &&
+                (expr->member_base->type->cxx_dependent ||
+                 (expr->member_base->type->cxx_class &&
+                  !expr->member_base->ident_decl));
+
+            /* Function-template cloning substitutes the type carried by a
+             * dependent base identifier, while its source spelling remains
+             * `T`.  Use that substituted type directly; looking up `T` as a
+             * value would reject a valid static member expression before the
+             * member can be resolved. */
+            bt = pretyped_class_base
+                ? expr->member_base->type
+                : sema_expr(expr->member_base);
 
             if (expr->kind == EXPR_PTR_MEMBER) {
                 bt = get_pointer_base(bt);
@@ -9230,6 +9252,66 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "member access requires struct/union");
                 expr->type = type_int;
                 break;
+            }
+
+            if (bt->cxx_dependent) {
+                /* The member name is retained on the expression and will be
+                 * resolved after the enclosing function template is cloned.
+                 * The scalar type is sufficient for contextual-bool parsing,
+                 * but no value or declaration is fabricated here. */
+                expr->type = type_int;
+                break;
+            }
+
+            /* Static C++ data members are represented in the class field
+             * metadata and published as declarations, not as object-layout
+             * TypeFields.  Resolve the declaration on the substituted class
+             * and rewrite the expression to the same identifier form used by
+             * direct static-member lookup, which also lets constexpr folding
+             * consume its initializer. */
+            if (expr->kind == EXPR_MEMBER && bt->cxx_class) {
+                TypeParam* static_field;
+                for (static_field = bt->cxx_class->fields;
+                     static_field; static_field = static_field->next) {
+                    if (!static_field->is_static || !static_field->name ||
+                        strcmp(static_field->name, expr->member_name) != 0) {
+                        continue;
+                    }
+                    for (struct CxxMember* member = bt->cxx_class->members;
+                         member; member = member->next) {
+                        Decl* declaration = member->decl;
+                        const char* final_name;
+                        if (!member->is_static || member->method ||
+                            !declaration || declaration->kind != DECL_VAR ||
+                            !declaration->name) {
+                            continue;
+                        }
+                        final_name = strrchr(declaration->name, ':');
+                        final_name = final_name ? final_name + 1
+                                                : declaration->name;
+                        if (strcmp(final_name, expr->member_name) != 0) {
+                            continue;
+                        }
+                        if (static_field->cxx_access != 0u &&
+                            (!current_cxx_method_owner ||
+                             !current_cxx_method_owner->cxx_class ||
+                             current_cxx_method_owner->cxx_class !=
+                                 bt->cxx_class)) {
+                            rcc_error(expr->loc,
+                                      "member '%s' is not accessible",
+                                      expr->member_name);
+                        }
+                        expr->member_base = NULL;
+                        expr->member_name = NULL;
+                        expr->member_field = NULL;
+                        expr->kind = EXPR_IDENT;
+                        expr->ident_name = declaration->name;
+                        expr->ident_decl = declaration;
+                        expr->type = declaration->type;
+                        return expr->type;
+                    }
+                    break;
+                }
             }
 
             /* Find member */

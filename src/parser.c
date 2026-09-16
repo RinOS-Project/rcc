@@ -30,6 +30,7 @@ extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_dependent_member(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_qualified_template_member(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_class_local_declaration(
@@ -973,6 +974,11 @@ static Expr* parse_primary(void) {
         (check(TOK_IDENT) || check(TOK_SCOPE))) {
         Expr* template_call = rcc_parse_cxx_template_call();
         if (template_call) return template_call;
+    }
+    if (parser_cxx_mode && rcc_parse_cxx_dependent_member &&
+        check(TOK_IDENT)) {
+        Expr* dependent_member = rcc_parse_cxx_dependent_member();
+        if (dependent_member) return dependent_member;
     }
     if (parser_cxx_mode && rcc_parse_cxx_qualified_template_member &&
         (check(TOK_IDENT) || check(TOK_SCOPE))) {
