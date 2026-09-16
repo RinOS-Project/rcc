@@ -49,11 +49,14 @@ typedef enum {
 /* Maximum include paths and defines */
 #define RCC_MAX_INCLUDES 64
 #define RCC_MAX_DEFINES 128
+#define RCC_MAX_INPUTS 64
 
 /* Compiler options */
 typedef struct {
     char input_file[RCC_MAX_PATH];
     char output_file[RCC_MAX_PATH];
+    const char* input_files[RCC_MAX_INPUTS];
+    int input_count;
     OutputFormat output_format;
     bool output_format_explicit;
     TargetArch target_arch;

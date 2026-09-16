@@ -159,7 +159,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
-.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda
+.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-multiple-inputs
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
@@ -178,6 +178,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
+	test-multiple-inputs \
 	test-cxx-language-core \
 	test-cxx-enum-class \
 	test-cxx-language-linkage \
@@ -1659,6 +1660,49 @@ test-cxx-generic-lambda: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-generic-lambda/x64.o
 	$(TEST_OUT)/cxx-generic-lambda/x64
 	@echo "C++ generic lambda deduction tests completed"
+
+test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/multiple-inputs/c)
+	$(call MKDIR_P,$(TEST_OUT)/multiple-inputs/cxx)
+	cp tests/hello.c $(TEST_OUT)/multiple-inputs/c/first.c
+	cp tests/aggregate_copy.c $(TEST_OUT)/multiple-inputs/c/second.c
+	(cd $(TEST_OUT)/multiple-inputs/c && $(abspath $(RCC_TARGET)) \
+		--target x86_64-unknown-rinos -c -MMD first.c second.c)
+	test -f $(TEST_OUT)/multiple-inputs/c/first.ro
+	test -f $(TEST_OUT)/multiple-inputs/c/second.ro
+	test -f $(TEST_OUT)/multiple-inputs/c/first.d
+	test -f $(TEST_OUT)/multiple-inputs/c/second.d
+	(cd $(TEST_OUT)/multiple-inputs/c && $(abspath $(RCC_TARGET)) \
+		--target x86_64-unknown-rinos -S first.c second.c)
+	test -f $(TEST_OUT)/multiple-inputs/c/first.s
+	test -f $(TEST_OUT)/multiple-inputs/c/second.s
+	(cd $(TEST_OUT)/multiple-inputs/c && $(abspath $(RCC_TARGET)) \
+		--target x86_64-unknown-rinos -E first.c second.c > combined.i)
+	grep -q "int main" $(TEST_OUT)/multiple-inputs/c/combined.i
+	grep -q "struct Pair" $(TEST_OUT)/multiple-inputs/c/combined.i
+	cp tests/cxx_function_templates.cpp $(TEST_OUT)/multiple-inputs/cxx/first.cpp
+	cp tests/cxx_lambda.cpp $(TEST_OUT)/multiple-inputs/cxx/second.cpp
+	(cd $(TEST_OUT)/multiple-inputs/cxx && $(abspath $(RCXX_TARGET)) \
+		--target x86_64-unknown-rinos -std=c++20 -c first.cpp second.cpp)
+	test -f $(TEST_OUT)/multiple-inputs/cxx/first.ro
+	test -f $(TEST_OUT)/multiple-inputs/cxx/second.ro
+	@set +e; $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/multiple-inputs/one.ro \
+		$(TEST_OUT)/multiple-inputs/c/first.c \
+		$(TEST_OUT)/multiple-inputs/c/second.c \
+		>$(TEST_OUT)/multiple-inputs/invalid-o-c.log 2>&1; \
+	status=$$?; set -e; test $$status -ne 0
+	grep -q -- "-o cannot name one output for multiple input files" \
+		$(TEST_OUT)/multiple-inputs/invalid-o-c.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-c -o $(TEST_OUT)/multiple-inputs/one-cxx.ro \
+		$(TEST_OUT)/multiple-inputs/cxx/first.cpp \
+		$(TEST_OUT)/multiple-inputs/cxx/second.cpp \
+		>$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log 2>&1; \
+	status=$$?; set -e; test $$status -ne 0
+	grep -q -- "-o cannot name one output for multiple input files" \
+		$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log
+	@echo "RCC/RCC++ multiple-input compilation tests completed"
 
 test-cxx-if-constexpr: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr)

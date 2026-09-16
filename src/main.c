@@ -20,7 +20,7 @@ static void print_usage(void) {
     printf("RCC - RinOS C Compiler v%d.%d.%d\n",
            RCC_VERSION_MAJOR, RCC_VERSION_MINOR, RCC_VERSION_PATCH);
     printf("\n");
-    printf("Usage: rcc [options] <input.c>\n");
+    printf("Usage: rcc [options] <input.c> [more-input.c ...]\n");
     printf("\n");
     printf("Options:\n");
     printf("  -o <file>       Output file name\n");
@@ -81,6 +81,7 @@ static int parse_args(int argc, char** argv) {
     g_opts.include_count = 0;
     g_opts.define_count = 0;
     g_opts.undef_count = 0;
+    g_opts.input_count = 0;
 
     /* Manual argument parsing for better GCC compatibility */
     for (int i = 1; i < argc; i++) {
@@ -88,11 +89,14 @@ static int parse_args(int argc, char** argv) {
 
         if (arg[0] != '-') {
             /* Input file */
-            if (g_opts.input_file[0] != '\0') {
-                fprintf(stderr, "rcc: error: multiple input files not supported\n");
+            if (g_opts.input_count >= RCC_MAX_INPUTS) {
+                fprintf(stderr, "rcc: error: too many input files (maximum %d)\n",
+                        RCC_MAX_INPUTS);
                 return -1;
             }
-            if (!rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
+            g_opts.input_files[g_opts.input_count++] = arg;
+            if (g_opts.input_count == 1 &&
+                !rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
                                arg)) {
                 fprintf(stderr, "rcc: error: input path is too long (maximum %u bytes)\n",
                         (unsigned)(sizeof(g_opts.input_file) - 1u));
@@ -381,7 +385,7 @@ static int parse_args(int argc, char** argv) {
     }
 
     /* Check input file */
-    if (g_opts.input_file[0] == '\0') {
+    if (g_opts.input_count == 0) {
         fprintf(stderr, "rcc: error: no input file\n");
         return -1;
     }
@@ -393,6 +397,25 @@ static int parse_args(int argc, char** argv) {
             !rcc_manifest_apply_compiler(&manifest, &g_opts,
                                          error, sizeof(error))) {
             fprintf(stderr, "rcc: error: %s\n", error);
+            return -1;
+        }
+    }
+    if (g_opts.input_count > 1) {
+        if (g_opts.output_file[0] != '\0') {
+            fprintf(stderr,
+                    "rcc: error: -o cannot name one output for multiple input files\n");
+            return -1;
+        }
+        if (!g_opts.preprocess_only &&
+            g_opts.output_format != OUTPUT_OBJ &&
+            g_opts.output_format != OUTPUT_ASM) {
+            fprintf(stderr,
+                    "rcc: error: multiple input files require -c, -S, or -E\n");
+            return -1;
+        }
+        if (g_opts.emit_dependencies && g_opts.dependency_file[0] != '\0') {
+            fprintf(stderr,
+                    "rcc: error: -MF cannot name one dependency file for multiple input files\n");
             return -1;
         }
     }
@@ -410,7 +433,7 @@ static int parse_args(int argc, char** argv) {
         return -1;
     }
     /* Default output file */
-    if (g_opts.output_file[0] == '\0') {
+    if (g_opts.input_count == 1 && g_opts.output_file[0] == '\0') {
         const char* ext;
         switch (g_opts.output_format) {
             case OUTPUT_OBJ: ext = ".ro"; break;
@@ -434,15 +457,7 @@ static int parse_args(int argc, char** argv) {
     return 0;
 }
 
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        print_usage();
-        return 1;
-    }
-
-    if (parse_args(argc, argv) < 0) {
-        return 1;
-    }
+static int compile_current_input(char** argv) {
     type_configure_target(g_opts.target_arch);
 
     if (g_opts.verbose) {
@@ -770,5 +785,41 @@ int main(int argc, char** argv) {
     tokenlist_free(tokens);
     rcc_free(pp_source);
     pp_free(pp);
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        print_usage();
+        return 1;
+    }
+    if (parse_args(argc, argv) < 0) return 1;
+    if (g_opts.input_count == 1) return compile_current_input(argv);
+
+    for (int index = 0; index < g_opts.input_count; ++index) {
+        const char* extension;
+        if (!rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
+                           g_opts.input_files[index])) {
+            fprintf(stderr,
+                    "rcc: error: input path is too long (maximum %u bytes)\n",
+                    (unsigned)(sizeof(g_opts.input_file) - 1u));
+            return 1;
+        }
+        g_opts.output_file[0] = '\0';
+        if (g_opts.output_format == OUTPUT_OBJ) extension = ".ro";
+        else if (g_opts.output_format == OUTPUT_ASM) extension = ".s";
+        else extension = ".out";
+        if (!g_opts.preprocess_only &&
+            !rcc_derive_output_path(g_opts.input_file, extension,
+                                    g_opts.output_file,
+                                    sizeof(g_opts.output_file))) {
+            fprintf(stderr,
+                    "rcc: error: derived output path is too long (maximum %u bytes)\n",
+                    (unsigned)(sizeof(g_opts.output_file) - 1u));
+            return 1;
+        }
+        g_opts.dependency_file[0] = '\0';
+        if (compile_current_input(argv) != 0) return 1;
+    }
     return 0;
 }

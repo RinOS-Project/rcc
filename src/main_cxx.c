@@ -25,7 +25,7 @@ static void print_usage_cxx(void) {
     printf("RCC++ - RinOS C++ Compiler v%d.%d.%d\n",
            RCC_VERSION_MAJOR, RCC_VERSION_MINOR, RCC_VERSION_PATCH);
     printf("\n");
-    printf("Usage: rcc++ [options] <input.cpp>\n");
+    printf("Usage: rcc++ [options] <input.cpp> [more-input.cpp ...]\n");
     printf("\n");
     printf("Options:\n");
     printf("  -o <file>       Output file name\n");
@@ -67,6 +67,7 @@ static int parse_cxx_args(int argc, char** argv) {
     g_opts.output_format = OUTPUT_RIN;
     g_opts.target_arch = ARCH_X86;
     g_opts.opt_level = 0;
+    g_opts.input_count = 0;
 
     static struct option long_options[] = {
         {"help", no_argument, 0, 'h'},
@@ -278,17 +279,28 @@ static int parse_cxx_args(int argc, char** argv) {
         }
     }
 
-    /* Get input file */
+    /* Get input files.  Multiple inputs are independent compile jobs for
+     * -c/-S/-E; final image linking remains the responsibility of rld. */
     if (optind >= argc) {
         fprintf(stderr, "rcc++: error: no input file\n");
         return -1;
     }
-
-    if (!rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
-                       argv[optind])) {
-        fprintf(stderr, "rcc++: error: input path is too long (maximum %u bytes)\n",
-                (unsigned)(sizeof(g_opts.input_file) - 1u));
-        return -1;
+    for (int index = optind; index < argc; ++index) {
+        if (g_opts.input_count >= RCC_MAX_INPUTS) {
+            fprintf(stderr,
+                    "rcc++: error: too many input files (maximum %d)\n",
+                    RCC_MAX_INPUTS);
+            return -1;
+        }
+        g_opts.input_files[g_opts.input_count++] = argv[index];
+        if (g_opts.input_count == 1 &&
+            !rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
+                           argv[index])) {
+            fprintf(stderr,
+                    "rcc++: error: input path is too long (maximum %u bytes)\n",
+                    (unsigned)(sizeof(g_opts.input_file) - 1u));
+            return -1;
+        }
     }
 
     if (g_opts.manifest_path) {
@@ -299,6 +311,25 @@ static int parse_cxx_args(int argc, char** argv) {
             !rcc_manifest_apply_compiler(&manifest, &g_opts,
                                          error, sizeof(error))) {
             fprintf(stderr, "rcc++: error: %s\n", error);
+            return -1;
+        }
+    }
+    if (g_opts.input_count > 1) {
+        if (g_opts.output_file[0] != '\0') {
+            fprintf(stderr,
+                    "rcc++: error: -o cannot name one output for multiple input files\n");
+            return -1;
+        }
+        if (!g_opts.preprocess_only &&
+            g_opts.output_format != OUTPUT_OBJ &&
+            g_opts.output_format != OUTPUT_ASM) {
+            fprintf(stderr,
+                    "rcc++: error: multiple input files require -c, -S, or -E\n");
+            return -1;
+        }
+        if (g_opts.emit_dependencies && g_opts.dependency_file[0] != '\0') {
+            fprintf(stderr,
+                    "rcc++: error: -MF cannot name one dependency file for multiple input files\n");
             return -1;
         }
     }
@@ -317,7 +348,7 @@ static int parse_cxx_args(int argc, char** argv) {
         return -1;
     }
     /* Default output file */
-    if (g_opts.output_file[0] == '\0') {
+    if (g_opts.input_count == 1 && g_opts.output_file[0] == '\0') {
         const char* ext;
         switch (g_opts.output_format) {
             case OUTPUT_RIN: ext = ".rin"; break;
@@ -341,15 +372,7 @@ static int parse_cxx_args(int argc, char** argv) {
 }
 
 /* C++ main function */
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        print_usage_cxx();
-        return 1;
-    }
-
-    if (parse_cxx_args(argc, argv) < 0) {
-        return 1;
-    }
+static int compile_current_input(char** argv) {
     type_configure_target(g_opts.target_arch);
 
     /* Initialize C++ subsystem */
@@ -650,5 +673,41 @@ int main(int argc, char** argv) {
     tokenlist_free(tokens);
     rcc_free(pp_source);
     pp_free(pp);
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    const char* extension;
+    if (argc < 2) {
+        print_usage_cxx();
+        return 1;
+    }
+    if (parse_cxx_args(argc, argv) < 0) return 1;
+    if (g_opts.input_count == 1) return compile_current_input(argv);
+
+    for (int index = 0; index < g_opts.input_count; ++index) {
+        if (!rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
+                           g_opts.input_files[index])) {
+            fprintf(stderr,
+                    "rcc++: error: input path is too long (maximum %u bytes)\n",
+                    (unsigned)(sizeof(g_opts.input_file) - 1u));
+            return 1;
+        }
+        g_opts.output_file[0] = '\0';
+        if (g_opts.output_format == OUTPUT_OBJ) extension = ".ro";
+        else if (g_opts.output_format == OUTPUT_ASM) extension = ".s";
+        else extension = ".out";
+        if (!g_opts.preprocess_only &&
+            !rcc_derive_output_path(g_opts.input_file, extension,
+                                    g_opts.output_file,
+                                    sizeof(g_opts.output_file))) {
+            fprintf(stderr,
+                    "rcc++: error: derived output path is too long (maximum %u bytes)\n",
+                    (unsigned)(sizeof(g_opts.output_file) - 1u));
+            return 1;
+        }
+        g_opts.dependency_file[0] = '\0';
+        if (compile_current_input(argv) != 0) return 1;
+    }
     return 0;
 }
