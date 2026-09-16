@@ -164,6 +164,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-constexpr-pointer-mutation
+.PHONY: test-cxx-constexpr-pointer-aggregate
 .PHONY: test-cxx-noexcept-expression
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
@@ -1792,6 +1793,42 @@ test-cxx-constexpr-pointer-mutation: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr-pointer-mutation/x64.o
 	$(TEST_OUT)/cxx-constexpr-pointer-mutation/x64
 	@echo "C++ constexpr local aggregate pointer mutation tests completed"
+
+test-cxx-constexpr-pointer-aggregate: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-aggregate)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/x86.s \
+		tests/cxx_constexpr_pointer_aggregate.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/x86.o \
+		$(TEST_OUT)/cxx-constexpr-pointer-aggregate/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/x86 \
+		$(TEST_OUT)/cxx-constexpr-pointer-aggregate/start-x86.o \
+		$(TEST_OUT)/cxx-constexpr-pointer-aggregate/x86.o
+	$(TEST_OUT)/cxx-constexpr-pointer-aggregate/x86
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/verified-x86.ro \
+		tests/cxx_constexpr_pointer_aggregate.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/x64.s \
+		tests/cxx_constexpr_pointer_aggregate.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/x64.o \
+		$(TEST_OUT)/cxx-constexpr-pointer-aggregate/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/x64 \
+		$(TEST_OUT)/cxx-constexpr-pointer-aggregate/start-x64.o \
+		$(TEST_OUT)/cxx-constexpr-pointer-aggregate/x64.o
+	$(TEST_OUT)/cxx-constexpr-pointer-aggregate/x64
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/verified-x64.ro \
+		tests/cxx_constexpr_pointer_aggregate.cpp
+	@echo "C++ constexpr aggregate pointer provenance tests completed"
 
 test-cxx-noexcept-expression: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-noexcept-expression)

@@ -2078,6 +2078,106 @@ typedef struct SemaConstexprScalar {
     int64_t pointer_offset;
 } SemaConstexprScalar;
 
+/* Aggregate constant evaluation uses target-layout bytes so the evaluator
+ * never has to manufacture a host pointer.  Keep the corresponding pointer
+ * provenance beside those bytes rather than encoding a process-local address
+ * into the buffer.  The side table is compiler-lifetime storage, which is
+ * appropriate because every evaluator buffer comes from the AST arena. */
+typedef struct SemaConstexprPointerSlot {
+    unsigned char* storage;
+    Type* type;
+    Decl* declaration;
+    int64_t offset;
+    struct SemaConstexprPointerSlot* next;
+} SemaConstexprPointerSlot;
+
+static SemaConstexprPointerSlot* constexpr_pointer_slots;
+
+static bool sema_constexpr_address_in_range(
+    const unsigned char* base, size_t size,
+    const unsigned char* address, size_t address_size) {
+    uintptr_t base_value;
+    uintptr_t address_value;
+    if (!base || !address || address_size > size) return false;
+    base_value = (uintptr_t)base;
+    address_value = (uintptr_t)address;
+    return address_value >= base_value &&
+           address_value - base_value <= size - address_size;
+}
+
+static SemaConstexprPointerSlot* sema_constexpr_pointer_slot_find(
+    const unsigned char* storage) {
+    for (SemaConstexprPointerSlot* slot = constexpr_pointer_slots;
+         slot; slot = slot->next) {
+        if (slot->storage == storage) return slot;
+    }
+    return NULL;
+}
+
+static void sema_constexpr_pointer_slots_clear(
+    unsigned char* storage, size_t size) {
+    SemaConstexprPointerSlot** link = &constexpr_pointer_slots;
+    while (*link) {
+        SemaConstexprPointerSlot* slot = *link;
+        if (sema_constexpr_address_in_range(
+                storage, size, slot->storage,
+                slot->type && slot->type->size > 0
+                    ? (size_t)slot->type->size : 0u)) {
+            *link = slot->next;
+        } else {
+            link = &slot->next;
+        }
+    }
+}
+
+static void sema_constexpr_pointer_slot_record(
+    unsigned char* storage, Type* type, const SemaConstexprScalar* value) {
+    SemaConstexprPointerSlot* slot;
+    if (!storage || !type || type->kind != TYPE_PTR || !value) return;
+    sema_constexpr_pointer_slots_clear(storage, (size_t)type->size);
+    slot = ast_arena_alloc(sizeof(*slot));
+    slot->storage = storage;
+    slot->type = type;
+    slot->declaration = value->pointer_declaration;
+    slot->offset = value->pointer_offset;
+    slot->next = constexpr_pointer_slots;
+    constexpr_pointer_slots = slot;
+}
+
+static void sema_constexpr_copy_object_bytes(
+    unsigned char* destination, const unsigned char* source, size_t size) {
+    SemaConstexprPointerSlot* snapshot = NULL;
+    SemaConstexprPointerSlot* tail = NULL;
+    uintptr_t source_value = (uintptr_t)source;
+
+    if (!destination || !source || size == 0u) return;
+    for (SemaConstexprPointerSlot* item = constexpr_pointer_slots;
+         item; item = item->next) {
+        if (sema_constexpr_address_in_range(
+                source, size, item->storage,
+                item->type && item->type->size > 0
+                    ? (size_t)item->type->size : 0u)) {
+            SemaConstexprPointerSlot* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *item;
+            copy->next = NULL;
+            if (tail) tail->next = copy;
+            else snapshot = copy;
+            tail = copy;
+        }
+    }
+    sema_constexpr_pointer_slots_clear(destination, size);
+    memcpy(destination, source, size);
+    for (SemaConstexprPointerSlot* item = snapshot;
+         item; item = item->next) {
+        SemaConstexprPointerSlot* copy = ast_arena_alloc(sizeof(*copy));
+        uintptr_t item_value = (uintptr_t)item->storage;
+        *copy = *item;
+        copy->storage = destination + (item_value - source_value);
+        copy->next = constexpr_pointer_slots;
+        constexpr_pointer_slots = copy;
+    }
+}
+
 /* Integer constexpr values keep their target-width bit pattern in the
  * int64_t carrier.  Never compare or calculate an unsigned value through
  * the host's signed representation: ULL literals such as UINT64_MAX would
@@ -2330,6 +2430,12 @@ static bool sema_constexpr_store_scalar_bytes(
                sizeof(converted.floating_value));
         return true;
     }
+    if (type->kind == TYPE_PTR) {
+        /* Pointer bytes are intentionally kept zero.  The side table above
+         * carries the only meaningful value and is copied with aggregates. */
+        sema_constexpr_pointer_slot_record(storage, type, &converted);
+        return true;
+    }
     bits = sema_constexpr_integer_bits(&converted);
     for (index = 0; index < (size_t)type->size; ++index) {
         storage[index] = (unsigned char)(bits >> (index * 8u));
@@ -2364,6 +2470,23 @@ static bool sema_constexpr_load_scalar_bytes(
                sizeof(value->floating_value));
         value->is_floating = true;
         return isfinite(value->floating_value);
+    }
+    if (type->kind == TYPE_PTR) {
+        SemaConstexprPointerSlot* slot =
+            sema_constexpr_pointer_slot_find(storage);
+        if (slot) {
+            value->is_pointer = true;
+            value->pointer_declaration = slot->declaration;
+            value->pointer_offset = slot->offset;
+            return true;
+        }
+        for (index = 0; index < (size_t)type->size; ++index) {
+            if (storage[index] != 0u) return false;
+        }
+        value->is_pointer = true;
+        value->pointer_declaration = NULL;
+        value->pointer_offset = 0;
+        return true;
     }
     for (index = 0; index < (size_t)type->size; ++index) {
         bits |= (uint64_t)storage[index] << (index * 8u);
@@ -2632,8 +2755,9 @@ static bool sema_constexpr_assign_object(
     if (!sema_constexpr_materialize_object(
             type, expression->binary_rhs, bindings, binding_count,
             temporary, (size_t)type->size)) return false;
-    memcpy(bindings[binding_index].object_bytes + offset, temporary,
-           (size_t)type->size);
+    sema_constexpr_copy_object_bytes(
+        bindings[binding_index].object_bytes + offset, temporary,
+        (size_t)type->size);
     return true;
 }
 
@@ -2644,6 +2768,7 @@ static bool sema_constexpr_materialize_object(
 
     if (!type || !storage || type->size <= 0 ||
         (size_t)type->size > storage_size) return false;
+    sema_constexpr_pointer_slots_clear(storage, (size_t)type->size);
     memset(storage, 0, (size_t)type->size);
     if (!initializer) return true;
     if (sema_constexpr_scalar_type(type)) {
@@ -2668,8 +2793,9 @@ static bool sema_constexpr_materialize_object(
             source_offset <= bindings[binding_index].object_size &&
             (size_t)type->size <=
                 bindings[binding_index].object_size - source_offset) {
-            memcpy(storage, bindings[binding_index].object_bytes + source_offset,
-                   (size_t)type->size);
+            sema_constexpr_copy_object_bytes(
+                storage, bindings[binding_index].object_bytes + source_offset,
+                (size_t)type->size);
             return true;
         }
     }
@@ -2714,8 +2840,9 @@ static bool sema_constexpr_materialize_object(
                 bindings[binding_index].object_size < (size_t)type->size) {
                 return false;
             }
-            memcpy(storage, bindings[binding_index].object_bytes,
-                   (size_t)type->size);
+            sema_constexpr_copy_object_bytes(
+                storage, bindings[binding_index].object_bytes,
+                (size_t)type->size);
             return true;
         }
         if (initializer->ident_decl &&
@@ -3741,10 +3868,93 @@ static bool sema_eval_constexpr_aggregate_function(
     return evaluated && statement_result == SEMA_CONSTEXPR_STMT_RETURNED;
 }
 
+static Expr* sema_constexpr_rebuild_pointer_lvalue(
+    Type* type, Expr* object, Type* target_type, int64_t offset,
+    SourceLoc loc) {
+    if (!type || !object || !target_type || offset < 0 || type->size <= 0) {
+        return NULL;
+    }
+    if (offset == 0 && type_is_compatible(type, target_type)) {
+        object->type = type;
+        return object;
+    }
+    if (type->kind == TYPE_ARRAY && type->base && type->base->size > 0) {
+        int64_t element_size = type->base->size;
+        int64_t index;
+        Expr* index_expression;
+        Expr* element;
+        if (offset > (int64_t)type->size ||
+            offset % element_size != 0) return NULL;
+        index = offset / element_size;
+        if (index < 0 || index > type->array_len) return NULL;
+        index_expression = expr_int(index, loc);
+        index_expression->type = type_int;
+        element = expr_index(object, index_expression, loc);
+        element->type = type->base;
+        return sema_constexpr_rebuild_pointer_lvalue(
+            type->base, element, target_type, 0, loc);
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            Expr* member;
+            int64_t field_end;
+            if (!field->name || field->offset < 0 || !field->type ||
+                field->type->size <= 0 ||
+                offset < (int64_t)field->offset) continue;
+            field_end = (int64_t)field->offset + field->type->size;
+            if (offset >= field_end) continue;
+            member = expr_member(object, field->name, loc);
+            member->member_field = field;
+            member->type = field->type;
+            return sema_constexpr_rebuild_pointer_lvalue(
+                field->type, member, target_type,
+                offset - (int64_t)field->offset, loc);
+        }
+    }
+    return NULL;
+}
+
+static Expr* sema_constexpr_rebuild_pointer(
+    Type* type, const SemaConstexprScalar* value, SourceLoc loc) {
+    Expr* object;
+    Expr* lvalue;
+    Expr* address;
+    Type* target_type;
+    if (!type || type->kind != TYPE_PTR || !value) return NULL;
+    target_type = type->base;
+    if (!value->pointer_declaration) {
+        object = expr_int(0, loc);
+        object->type = type;
+        return object;
+    }
+    if (!target_type || !value->pointer_declaration->name ||
+        (value->pointer_declaration->kind != DECL_FUNC &&
+         value->pointer_declaration->kind != DECL_VAR) ||
+        (value->pointer_declaration->kind == DECL_VAR &&
+         !value->pointer_declaration->var_is_global &&
+         !value->pointer_declaration->var_is_static_local) ||
+        value->pointer_offset < 0) return NULL;
+    object = expr_ident(value->pointer_declaration->name, loc);
+    object->ident_decl = value->pointer_declaration;
+    object->type = value->pointer_declaration->type;
+    if (value->pointer_declaration->kind == DECL_FUNC) {
+        if (value->pointer_offset != 0) return NULL;
+        lvalue = object;
+    } else {
+        lvalue = sema_constexpr_rebuild_pointer_lvalue(
+            value->pointer_declaration->type, object, target_type,
+            value->pointer_offset, loc);
+        if (!lvalue) return NULL;
+    }
+    address = expr_unary(EXPR_ADDR, lvalue, loc);
+    address->type = type;
+    return address;
+}
+
 /* Convert a fully evaluated aggregate back into the normal initializer AST so
  * static storage and ordinary aggregate codegen share one representation.
- * Pointer-bearing results are intentionally left to the existing relocatable
- * initializer path; no host address is ever encoded into the object bytes. */
+ * Pointer-bearing results retain symbolic provenance and are rebuilt as
+ * relocatable address expressions; no host address is ever encoded. */
 static Expr* sema_constexpr_rebuild_object(
     Type* type, const unsigned char* storage, size_t storage_size,
     SourceLoc loc) {
@@ -3754,9 +3964,11 @@ static Expr* sema_constexpr_rebuild_object(
     if (sema_constexpr_scalar_type(type)) {
         SemaConstexprScalar value;
         if (!sema_constexpr_load_scalar_bytes(
-                storage, storage_size, type, &value) || value.is_pointer) {
+                storage, storage_size, type, &value)) {
             return NULL;
         }
+        if (value.is_pointer) return sema_constexpr_rebuild_pointer(
+            type, &value, loc);
         if (value.is_floating) {
             expression = expr_float(value.floating_value, loc);
             expression->type = type;
@@ -10390,9 +10602,15 @@ static void sema_decl(Decl* decl) {
                             sema_constexpr_scalar_convert(
                                 &folded, decl->type, &folded)) {
                             if (folded.is_pointer) {
-                                /* Address constants must remain relocatable
-                                 * AST expressions; replacing them with an
-                                 * integer would lose the target symbol. */
+                                Expr* rebuilt = sema_constexpr_rebuild_pointer(
+                                    decl->type, &folded, decl->loc);
+                                /* Keep pointer constants symbolic.  This also
+                                 * turns `constexpr Holder h; constexpr int*
+                                 * p = h.field` into a normal relocatable
+                                 * address expression instead of leaving a
+                                 * byte-backed evaluator-only access in the
+                                 * static initializer. */
+                                if (rebuilt) *decl->var_init = *rebuilt;
                             } else if (folded.is_floating) {
                                 decl->var_init->kind = EXPR_FLOAT_LIT;
                                 decl->var_init->float_val =
@@ -10403,6 +10621,17 @@ static void sema_decl(Decl* decl) {
                                     folded.integer_value;
                             }
                             decl->var_init->type = decl->type;
+                        }
+                    } else if (sema_constexpr_aggregate_type(decl->type)) {
+                        unsigned char* storage = ast_arena_alloc(
+                            (size_t)decl->type->size);
+                        if (sema_constexpr_materialize_object(
+                                decl->type, decl->var_init, NULL, 0,
+                                storage, (size_t)decl->type->size)) {
+                            Expr* rebuilt = sema_constexpr_rebuild_object(
+                                decl->type, storage,
+                                (size_t)decl->type->size, decl->loc);
+                            if (rebuilt) *decl->var_init = *rebuilt;
                         }
                     }
                 }

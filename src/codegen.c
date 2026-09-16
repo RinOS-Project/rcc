@@ -714,6 +714,47 @@ static bool codegen_add_static_offset(uint32_t* addend, int64_t index,
     return true;
 }
 
+/* Resolve an address-of expression rooted in a static symbol.  Keeping the
+ * path walk recursive allows constexpr aggregate results to rebuild pointers
+ * to nested fields and array elements without turning target-layout byte
+ * offsets into host addresses. */
+static bool codegen_static_lvalue_address(
+    Module* mod, Expr* expression, const char** symbol_name,
+    uint32_t* addend) {
+    Decl* target;
+    int64_t index;
+    if (!mod || !expression || !symbol_name || !addend) return false;
+    if (expression->kind == EXPR_IDENT) {
+        target = expression->ident_decl;
+        if (!target || (target->kind != DECL_FUNC &&
+            (target->kind != DECL_VAR ||
+             (!target->var_is_global && !target->var_is_static_local)))) {
+            return false;
+        }
+        *symbol_name = decl_link_name(target);
+        return true;
+    }
+    if (expression->kind == EXPR_INDEX && expression->index_base &&
+        expression->index_expr &&
+        codegen_static_lvalue_address(
+            mod, expression->index_base, symbol_name, addend) &&
+        codegen_static_integer(expression->index_expr, &index)) {
+        return codegen_add_static_offset(
+            addend, index,
+            codegen_pointer_element_size(expression->index_base->type));
+    }
+    if (expression->kind == EXPR_MEMBER && expression->member_base &&
+        expression->member_field && expression->member_field->offset >= 0 &&
+        codegen_static_lvalue_address(
+            mod, expression->member_base, symbol_name, addend)) {
+        if ((uint64_t)expression->member_field->offset >
+            UINT32_MAX - *addend) return false;
+        *addend += (uint32_t)expression->member_field->offset;
+        return true;
+    }
+    return false;
+}
+
 static bool codegen_static_address(Module* mod, Expr* expression,
                                    const char** symbol_name,
                                    uint32_t* addend) {
@@ -774,6 +815,10 @@ static bool codegen_static_address(Module* mod, Expr* expression,
             }
             *addend += (uint32_t)addressed->member_field->offset;
             *symbol_name = addressed->member_base->compound_static_symbol;
+            return true;
+        }
+        if (codegen_static_lvalue_address(
+                mod, addressed, symbol_name, addend)) {
             return true;
         }
         if (addressed->kind == EXPR_IDENT) {
