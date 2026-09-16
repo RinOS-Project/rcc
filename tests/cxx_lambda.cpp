@@ -41,6 +41,10 @@ int main() {
     int mixed_copied = [&, base](int extra) -> int {
         return base + extra;
     }(5);
+    int mutable_captured = [base]() mutable {
+        base += 1;
+        return base;
+    }();
     double inferred_float = [](double value) {
         return value + 0.5;
     }(1.0);
@@ -53,6 +57,7 @@ int main() {
     return direct == 42 && captured == 42 && default_captured == 42 &&
            referenced == 22 && default_referenced == 25 &&
            mixed_referenced == 29 && mixed_copied == 34 && base == 29 &&
+           mutable_captured == 30 &&
            inferred_float == 1.5 &&
            point.capture_this(12) == 42 &&
            point.capture_this_by_default(2) == 42

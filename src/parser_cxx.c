@@ -4327,6 +4327,7 @@ Expr* rcc_parse_cxx_lambda(void) {
     char name[64];
     int written;
     int capture_count = 0;
+    bool lambda_mutable = false;
     CxxReferenceCapture* lambda_reference_captures = NULL;
     CxxLambdaCaptureSpec* explicit_captures = NULL;
     CxxLambdaCaptureSpec* explicit_capture_tail = NULL;
@@ -4452,7 +4453,27 @@ Expr* rcc_parse_cxx_lambda(void) {
         }
         decllist_append(&all_params, item->decl);
     }
-    (void)match(TOK_MUTABLE);
+    lambda_mutable = match(TOK_MUTABLE);
+    if (!lambda_mutable) {
+        /* A non-mutable lambda has a const call operator.  Model each
+         * by-value capture as a top-level const parameter so assignments to
+         * the captured object are diagnosed while pointer/reference captures
+         * retain their standard pointee mutability.  `this` is a pointer to
+         * the original object and is likewise intentionally not qualified. */
+        for (DeclList* item = capture_params; item; item = item->next) {
+            Type* capture_type = item->decl ? item->decl->type : NULL;
+            if (!item->decl || !capture_type ||
+                (item->decl->name &&
+                 strcmp(item->decl->name, "this") == 0) ||
+                capture_type->is_reference || capture_type->is_const) {
+                continue;
+            }
+            capture_type = ast_arena_alloc(sizeof(*capture_type));
+            *capture_type = *item->decl->type;
+            capture_type->is_const = true;
+            item->decl->type = capture_type;
+        }
+    }
     if (match(TOK_NOEXCEPT)) {
         if (check(TOK_LPAREN)) skip_balanced(TOK_LPAREN, TOK_RPAREN);
     }
