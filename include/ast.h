@@ -325,6 +325,7 @@ typedef enum {
     /* Compound literal */
     EXPR_COMPOUND,      /* (type){...} */
     EXPR_GENERIC,       /* _Generic(control, type: expression, ...) */
+    EXPR_CXX_FOLD,      /* C++ unary fold over a type function-parameter pack */
     EXPR_VA_START,      /* __builtin_va_start(list, last) */
     EXPR_VA_END,        /* __builtin_va_end(list) */
     EXPR_VA_COPY,       /* __builtin_va_copy(destination, source) */
@@ -418,6 +419,9 @@ struct Expr {
     /* C++ `sizeof...(Pack)` is retained until a function-template
      * specialization supplies the pack length. */
     const char* sizeof_pack_name;
+    const char* cxx_fold_pack_name;
+    ExprKind cxx_fold_operator;
+    bool cxx_fold_left;
     /* Automatic storage used to materialize an aggregate rvalue.  A zero
      * value means that codegen has not assigned a slot; negative values are
      * frame-relative displacements, matching the other expression spills. */
@@ -571,6 +575,8 @@ Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_type(Type* type, SourceLoc loc);
 Expr* expr_sizeof_pack(const char* name, SourceLoc loc);
+Expr* expr_cxx_fold(const char* pack_name, ExprKind operator_kind,
+                    bool left_fold, SourceLoc loc);
 Expr* expr_alignof_type(Type* type, SourceLoc loc);
 Expr* expr_initializer_list(ExprList* items, SourceLoc loc);
 Expr* expr_generic(Expr* control, GenericAssociation* associations,

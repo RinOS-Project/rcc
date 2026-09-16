@@ -664,6 +664,18 @@ Expr* expr_sizeof_pack(const char* name, SourceLoc loc) {
     return e;
 }
 
+Expr* expr_cxx_fold(const char* pack_name, ExprKind operator_kind,
+                    bool left_fold, SourceLoc loc) {
+    Expr* e = rcc_alloc(sizeof(*e));
+    e->kind = EXPR_CXX_FOLD;
+    e->loc = loc;
+    e->cxx_fold_pack_name = pack_name;
+    e->cxx_fold_operator = operator_kind;
+    e->cxx_fold_left = left_fold;
+    e->type = NULL;
+    return e;
+}
+
 Expr* expr_alignof_type(Type* type, SourceLoc loc) {
     Expr* expression = rcc_alloc(sizeof(*expression));
     expression->kind = EXPR_ALIGNOF;

@@ -318,6 +318,65 @@ static Token* expect(TokenType type, const char* msg) {
     return NULL;
 }
 
+static ExprKind cxx_fold_operator_kind(TokenType token) {
+    switch (token) {
+        case TOK_PLUS: return EXPR_ADD;
+        case TOK_MINUS: return EXPR_SUB;
+        case TOK_STAR: return EXPR_MUL;
+        case TOK_SLASH: return EXPR_DIV;
+        case TOK_PERCENT: return EXPR_MOD;
+        case TOK_AMP: return EXPR_BITAND;
+        case TOK_PIPE: return EXPR_BITOR;
+        case TOK_CARET: return EXPR_BITXOR;
+        case TOK_LSHIFT: return EXPR_LSHIFT;
+        case TOK_RSHIFT: return EXPR_RSHIFT;
+        case TOK_EQ: return EXPR_EQ;
+        case TOK_NE: return EXPR_NE;
+        case TOK_LT: return EXPR_LT;
+        case TOK_GT: return EXPR_GT;
+        case TOK_LE: return EXPR_LE;
+        case TOK_GE: return EXPR_GE;
+        case TOK_AND: return EXPR_AND;
+        case TOK_OR: return EXPR_OR;
+        case TOK_COMMA: return EXPR_COMMA;
+        default: return EXPR_INT_LIT;
+    }
+}
+
+/* Claim only the unambiguous unary left-fold spelling.  Other parenthesized
+ * expressions remain on the common precedence parser; an unsupported fold
+ * operator is diagnosed here instead of being reinterpreted as a scalar. */
+Expr* rcc_parse_cxx_fold_expression(void) {
+    SourceLoc loc;
+    ExprKind operator_kind;
+    const char* pack_name;
+
+    if (!check(TOK_LPAREN) || !parser.cur->next ||
+        parser.cur->next->type != TOK_ELLIPSIS) {
+        return NULL;
+    }
+    loc = peek()->loc;
+    advance(); /* ( */
+    advance(); /* ... */
+    operator_kind = cxx_fold_operator_kind(peek()->type);
+    if (operator_kind == EXPR_INT_LIT) {
+        rcc_error(peek()->loc,
+                  "unsupported C++ fold operator; expected a binary operator");
+    } else {
+        advance();
+    }
+    if (!check(TOK_IDENT)) {
+        rcc_error(peek()->loc,
+                  "C++ fold expression requires a parameter pack name");
+        while (!check(TOK_RPAREN) && !at_end()) advance();
+        expect(TOK_RPAREN, ")");
+        return expr_cxx_fold(NULL, EXPR_ADD, true, loc);
+    }
+    pack_name = advance()->value.str_val;
+    expect(TOK_RPAREN, ")");
+    return expr_cxx_fold(pack_name, operator_kind, true, loc);
+}
+
 /* Forward declarations */
 static Expr* parse_cxx_expression(void);
 extern Expr* parse_expression(void);

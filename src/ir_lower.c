@@ -1407,6 +1407,7 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         }
         case EXPR_FLOAT_LIT:
         case EXPR_GENERIC:
+        case EXPR_CXX_FOLD:
         case EXPR_VA_START:
         case EXPR_VA_END:
         case EXPR_VA_COPY:

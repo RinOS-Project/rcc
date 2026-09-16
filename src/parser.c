@@ -44,6 +44,7 @@ extern Expr* rcc_parser_cxx_capture_expression(
     const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_fold_expression(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
@@ -1029,12 +1030,16 @@ static Expr* parse_primary(void) {
                                         &enum_value, NULL)) {
             return expr_int(enum_value, loc);
         }
-        if (parser_cxx_mode && rcc_parser_cxx_capture_expression) {
+    if (parser_cxx_mode && rcc_parser_cxx_capture_expression) {
             Expr* capture = rcc_parser_cxx_capture_expression(
                 previous()->value.str_val, loc);
             if (capture) return capture;
         }
         return expr_ident(previous()->value.str_val, loc);
+    }
+    if (parser_cxx_mode && rcc_parse_cxx_fold_expression) {
+        Expr* fold = rcc_parse_cxx_fold_expression();
+        if (fold) return fold;
     }
     if (match(TOK_LPAREN)) {
         Expr* e = parse_expression();

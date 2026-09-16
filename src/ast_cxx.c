@@ -1475,6 +1475,47 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  const int64_t* value_args,
                                  const bool* value_present);
 
+static Expr* template_clone_pack_fold(CxxTemplate* tmpl, Expr* expression) {
+    Expr* result = NULL;
+    if (!tmpl || !expression || !expression->cxx_fold_pack_name ||
+        tmpl->pending_pack_count < 0) {
+        rcc_error(expression ? expression->loc : (SourceLoc){"<template>", 0, 0},
+                  "C++ fold expression requires a function-template pack specialization");
+        return expression;
+    }
+    if (tmpl->pending_pack_count == 0) {
+        if (expression->cxx_fold_operator == EXPR_AND) {
+            result = expr_int(1, expression->loc);
+        } else if (expression->cxx_fold_operator == EXPR_OR) {
+            result = expr_int(0, expression->loc);
+        } else {
+            rcc_error(expression->loc,
+                      "empty C++ fold has no identity for this operator");
+            return expression;
+        }
+        result->type = type_int;
+        return result;
+    }
+    for (int index = 0; index < tmpl->pending_pack_count; ++index) {
+        char name[64];
+        int written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
+        Expr* item;
+        if (written < 0 || (size_t)written >= sizeof(name)) {
+            rcc_error(expression->loc,
+                      "C++ fold parameter name is too long");
+            return expression;
+        }
+        item = expr_ident(rcc_intern(name), expression->loc);
+        if (!result) {
+            result = item;
+        } else {
+            result = expr_binary(expression->cxx_fold_operator,
+                                 result, item, expression->loc);
+        }
+    }
+    return result;
+}
+
 static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
                                            Type** args, int arg_count,
                                            const int64_t* value_args,
@@ -1518,6 +1559,9 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  const bool* value_present) {
     Expr* copy;
     if (!expression) return NULL;
+    if (expression->kind == EXPR_CXX_FOLD) {
+        return template_clone_pack_fold(tmpl, expression);
+    }
     if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name) {
         if (!tmpl || tmpl->pending_pack_count < 0) {
             rcc_error(expression->loc,

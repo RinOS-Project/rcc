@@ -7304,6 +7304,12 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
+        case EXPR_CXX_FOLD:
+            rcc_error(expr->loc,
+                      "C++ fold expression was not expanded during template instantiation");
+            expr->type = type_int;
+            break;
+
         case EXPR_CAST: {
             Type* source = sema_expr(expr->cast_expr);
             sema_validate_array_parameter_type(expr->cast_type,
