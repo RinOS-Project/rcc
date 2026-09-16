@@ -176,6 +176,94 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constructor-general
 .PHONY: test-cxx-auto-non-type-template
 
+CXX_REGRESSION_TARGETS = \
+	test-cxx-cli \
+	test-cxx-language-core \
+	test-cxx-enum-class \
+	test-cxx-language-linkage \
+	test-cxx-member-specifiers \
+	test-cxx-member-methods \
+	test-cxx-qualified-namespaces \
+	test-cxx-using \
+	test-cxx-overloads \
+	test-cxx-const-member-overload \
+	test-cxx-inline-aggregates \
+	test-cxx-multiple-inheritance-virtual \
+	test-cxx-secondary-virtual-override \
+	test-cxx-virtual-base \
+	test-cxx-shared-virtual-base \
+	test-cxx-shared-virtual-base-method \
+	test-cxx-virtual-base-conversion \
+	test-cxx-virtual-base-constructor \
+	test-cxx-virtual-base-constructor-order \
+	test-cxx-destructor-body \
+	test-cxx-member-lifetime \
+	test-cxx-array-destructor \
+	test-cxx-constructor-general \
+	test-cxx-constructor-body \
+	test-cxx-constructor-initializer-body \
+	test-cxx-base-constructor-initializer \
+	test-cxx-default-member-initializer \
+	test-cxx-delegating-constructor \
+	test-cxx-converting-constructor \
+	test-cxx-static-members \
+	test-cxx-static-data-members \
+	test-cxx-static-member-tls \
+	test-cxx-class-template-static-data \
+	test-cxx-class-template-static-data-odr \
+	test-cxx-static-locals \
+	test-cxx-function-templates \
+	test-cxx-function-template-overloads \
+	test-cxx-function-template-references \
+	test-cxx-class-template-methods \
+	test-cxx-class-template-specialization \
+	test-cxx-class-template-specialization-ambiguous \
+	test-cxx-class-template-non-type \
+	test-cxx-non-type-templates \
+	test-cxx-auto-non-type-template \
+	test-cxx-non-type-template-deduction \
+	test-cxx-constraints \
+	test-cxx-operator-overload \
+	test-cxx-member-operator-forms \
+	test-cxx-assignment-operator \
+	test-cxx-nonmember-operator \
+	test-cxx-conversion-operator \
+	test-cxx-lambda \
+	test-cxx-lambda-function-pointer \
+	test-cxx-range-for \
+	test-cxx-if-constexpr \
+	test-cxx-if-constexpr-template \
+	test-cxx-adl-multiple-namespaces \
+	test-cxx-using-overload-namespaces \
+	test-cxx-template-two-phase-namespace \
+	test-cxx-template-two-phase-adl \
+	test-cxx-template-two-phase-ordinary \
+	test-cxx-template-parameter-pack \
+	test-cxx-qualified-class-initialization \
+	test-cxx-constexpr \
+	test-cxx-constexpr-aggregate \
+	test-cxx-constexpr-pointer \
+	test-cxx-constexpr-pointer-mutation \
+	test-cxx-constexpr-pointer-aggregate \
+	test-cxx-noexcept-expression \
+	test-cxx-auto-return \
+	test-cxx-decltype \
+	test-cxx-decltype-auto \
+	test-cxx-auto-local-refs \
+	test-cxx-exceptions \
+	test-cxx-object-exceptions \
+	test-cxx-cross-library-exceptions \
+	test-cxx-cross-translation-unit-virtual \
+	test-cxx-exception-cleanup \
+	test-cxx-nontrivial-object-exceptions \
+	test-cxx-const-cast \
+	test-cxx-dynamic-cast \
+	test-cxx-dynamic-cast-downcast \
+	test-cxx-dynamic-cast-runtime \
+	test-cxx-dynamic-cast-reference \
+	test-cxx-bitfields \
+	test-cxx-global-constructor
+
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
 build-rcc: $(OBJDIR) $(RCC_TARGET)
@@ -232,7 +320,7 @@ test-aqc: $(AQC_TARGET)
 		$(RINOS_ROOT)/resources/shaders/sample_fragment.aq
 	@echo "AQC test completed"
 
-test-cxx: $(RCXX_TARGET)
+test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	mkdir -p $(TEST_OUT)
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
