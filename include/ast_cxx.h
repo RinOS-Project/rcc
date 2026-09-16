@@ -198,6 +198,7 @@ typedef struct {
     } kind;
     const char* name;
     Type* type;              /* For non-type parameters */
+    bool is_pack;            /* `typename... Ts` / supported type pack. */
     bool has_default;
     union {
         Type* default_type;
@@ -254,10 +255,19 @@ struct CxxTemplate {
         Type** args;
         int64_t* value_args;
         bool* value_present;
+        Type** pack_args;
+        int pack_count;
         int arg_count;
         void* instantiated;  /* CxxClass* or Decl* */
     } *instances;
     int instance_count;
+
+    /* The parser supplies a function-template type pack immediately before
+     * instantiation.  Keeping this transient state on the template avoids
+     * changing the public legacy instantiate API; it is consumed
+     * synchronously and copied into the instance cache. */
+    Type** pending_pack_args;
+    int pending_pack_count;
 };
 
 /* C++ Method (extends Decl) */

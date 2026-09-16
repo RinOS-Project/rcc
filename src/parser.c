@@ -1058,6 +1058,18 @@ static Expr* parse_primary(void) {
         return expr_alignof_type(type, loc);
     }
     if (match(TOK_SIZEOF)) {
+        if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
+            const char* pack_name = NULL;
+            expect(TOK_LPAREN, "'(' after sizeof...");
+            if (check(TOK_IDENT)) {
+                pack_name = advance()->value.str_val;
+            } else {
+                rcc_error(peek()->loc,
+                          "sizeof... requires a template parameter pack name");
+            }
+            expect(TOK_RPAREN, ")");
+            return expr_sizeof_pack(pack_name, loc);
+        }
         if (match(TOK_LPAREN)) {
             if (is_type_start()) {
                 Type* type = parse_type_spec();

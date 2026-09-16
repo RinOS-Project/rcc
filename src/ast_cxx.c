@@ -432,6 +432,10 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             value_present[index]) {
             has_value_argument = true;
         } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
+                   tmpl->params[index].is_pack &&
+                   tmpl->pending_pack_count >= 0) {
+            has_type_argument = true;
+        } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
                    type_args[index] &&
                    !cxx_function_template_parameter_is_in_signature(
                        tmpl, func, index)) {
@@ -449,6 +453,21 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->kind == TPARAM_TYPE) {
+            if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
+                for (int pack_index = 0;
+                     pack_index < tmpl->pending_pack_count; ++pack_index) {
+                    char* type_mangled = cxx_mangle_type(
+                        tmpl->pending_pack_args[pack_index]);
+                    size_t type_length = type_mangled
+                        ? strlen(type_mangled) : 0u;
+                    if (!type_mangled || pos + type_length >= sizeof(buf) - 32u) {
+                        rcc_fatal("C++ template function name is too long");
+                    }
+                    memcpy(buf + pos, type_mangled, type_length);
+                    pos += type_length;
+                }
+                continue;
+            }
             const char* type_mangled;
             size_t type_length;
             if (!type_args || !type_args[index] ||
@@ -1292,6 +1311,8 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->specialization_arg_count = 0;
     tmpl->instances = NULL;
     tmpl->instance_count = 0;
+    tmpl->pending_pack_args = NULL;
+    tmpl->pending_pack_count = -1;
     return tmpl;
 }
 
@@ -1497,6 +1518,16 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  const bool* value_present) {
     Expr* copy;
     if (!expression) return NULL;
+    if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name) {
+        if (!tmpl || tmpl->pending_pack_count < 0) {
+            rcc_error(expression->loc,
+                      "sizeof... requires a function-template pack specialization");
+            return expression;
+        }
+        copy = expr_int(tmpl->pending_pack_count, expression->loc);
+        copy->type = type_uint;
+        return copy;
+    }
     if (expression->kind == EXPR_IDENT && tmpl && value_present &&
         expression->ident_name) {
         for (int index = 0; index < tmpl->param_count; ++index) {
@@ -1535,6 +1566,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->sizeof_type = template_substitute_type(
                 tmpl, expression->sizeof_type, args, arg_count,
                 value_args, value_present);
+            copy->sizeof_pack_name = expression->sizeof_pack_name;
             if (expression->kind == EXPR_NOEXCEPT) {
                 /* The operand may become a different overload after
                  * substitution; recompute the value in sema. */
@@ -1900,7 +1932,22 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
     }
     for (int index = 0; index < arg_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
-        if (parameter->kind == TPARAM_NONTYPE) {
+        if (parameter->is_pack) {
+            if (tmpl->instances[instance_index].pack_count !=
+                    tmpl->pending_pack_count) {
+                return false;
+            }
+            for (int pack_index = 0;
+                 pack_index < tmpl->pending_pack_count; ++pack_index) {
+                if (!tmpl->pending_pack_args ||
+                    !tmpl->instances[instance_index].pack_args ||
+                    !type_is_compatible(
+                        tmpl->instances[instance_index].pack_args[pack_index],
+                        tmpl->pending_pack_args[pack_index])) {
+                    return false;
+                }
+            }
+        } else if (parameter->kind == TPARAM_NONTYPE) {
             if (!value_present || !value_present[index] ||
                 !tmpl->instances[instance_index].value_present ||
                 !tmpl->instances[instance_index].value_present[index] ||
@@ -1932,7 +1979,15 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
 
     for (int index = 0; index < arg_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
-        if (parameter->kind == TPARAM_NONTYPE) {
+        if (parameter->is_pack) {
+            if (tmpl->pending_pack_count < 0 ||
+                (tmpl->pending_pack_count > 0 &&
+                 !tmpl->pending_pack_args)) {
+                rcc_error(template_loc,
+                          "function template type pack arguments are missing");
+                return NULL;
+            }
+        } else if (parameter->kind == TPARAM_NONTYPE) {
             if (!value_present || !value_present[index] || !value_args ||
                 !parameter->type || !type_is_integer(parameter->type)) {
                 rcc_error(template_loc,
@@ -1974,6 +2029,59 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
 
         for (DeclList* item = definition->func_params; item;
              item = item->next) {
+            if (item->decl && item->decl->param_is_pack) {
+                int pack_index = -1;
+                for (int index = 0; index < tmpl->param_count; ++index) {
+                    TemplateParam* parameter = &tmpl->params[index];
+                    if (parameter->kind == TPARAM_TYPE &&
+                        parameter->is_pack && parameter->name &&
+                        item->decl->type && item->decl->type->tag &&
+                        strcmp(parameter->name, item->decl->type->tag) == 0) {
+                        pack_index = index;
+                        break;
+                    }
+                }
+                if (pack_index < 0) {
+                    rcc_error(item->decl->loc,
+                              "function parameter pack is not a type pack");
+                    return NULL;
+                }
+                for (int pack_value = 0;
+                     pack_value < tmpl->pending_pack_count; ++pack_value) {
+                    char generated_name[64];
+                    const char* parameter_name = NULL;
+                    Type* parameter_type = tmpl->pending_pack_args[pack_value];
+                    int written = snprintf(generated_name,
+                                           sizeof(generated_name),
+                                           "__rcc_pack_arg_%d", pack_value);
+                    if (written < 0 || (size_t)written >= sizeof(generated_name)) {
+                        rcc_error(item->decl->loc,
+                                  "function template pack parameter name is too long");
+                        return NULL;
+                    }
+                    /* A named pack is not expanded into repeated identifiers
+                     * until pack-expression lowering exists.  Generate stable
+                     * names so any unsupported body reference is diagnosed by
+                     * normal lookup instead of binding one element silently. */
+                    if (item->decl->name) parameter_name = rcc_intern(generated_name);
+                    Decl* parameter = decl_param(parameter_name, parameter_type,
+                                                 0, item->decl->loc);
+                    parameter->param_default = NULL;
+                    decllist_append(&parameters, parameter);
+                    TypeParam* type_parameter = ast_arena_alloc(sizeof(*type_parameter));
+                    type_parameter->name = parameter->name;
+                    type_parameter->type = parameter_type;
+                    type_parameter->is_bitfield = false;
+                    type_parameter->bit_width = 0u;
+                    type_parameter->is_static = false;
+                    type_parameter->cxx_access = ACCESS_PUBLIC;
+                    type_parameter->next = NULL;
+                    *type_tail = type_parameter;
+                    type_tail = &type_parameter->next;
+                }
+                (void)pack_index;
+                continue;
+            }
             Type* parameter_type = template_substitute_type(
                 tmpl, item->decl->type, args, arg_count, value_args,
                 value_present);
@@ -2034,6 +2142,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                sizeof(Type*) * (size_t)arg_count);
         tmpl->instances[tmpl->instance_count].value_args = NULL;
         tmpl->instances[tmpl->instance_count].value_present = NULL;
+        tmpl->instances[tmpl->instance_count].pack_args = NULL;
+        tmpl->instances[tmpl->instance_count].pack_count =
+            tmpl->pending_pack_count >= 0 ? tmpl->pending_pack_count : 0;
         if (arg_count > 0) {
             tmpl->instances[tmpl->instance_count].value_args =
                 ast_arena_alloc(sizeof(int64_t) * (size_t)arg_count);
@@ -2043,6 +2154,14 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                    value_args, sizeof(int64_t) * (size_t)arg_count);
             memcpy(tmpl->instances[tmpl->instance_count].value_present,
                    value_present, sizeof(bool) * (size_t)arg_count);
+        }
+        if (tmpl->pending_pack_count > 0) {
+            tmpl->instances[tmpl->instance_count].pack_args =
+                ast_arena_alloc(sizeof(Type*) *
+                                (size_t)tmpl->pending_pack_count);
+            memcpy(tmpl->instances[tmpl->instance_count].pack_args,
+                   tmpl->pending_pack_args,
+                   sizeof(Type*) * (size_t)tmpl->pending_pack_count);
         }
         tmpl->instances[tmpl->instance_count].arg_count = arg_count;
         tmpl->instances[tmpl->instance_count].instantiated = instance;
@@ -2372,6 +2491,7 @@ void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
     tmpl->params[tmpl->param_count].kind = TPARAM_TYPE;
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = NULL;
+    tmpl->params[tmpl->param_count].is_pack = false;
     tmpl->params[tmpl->param_count].has_default = false;
     tmpl->params[tmpl->param_count].default_type = NULL;
     tmpl->param_count++;
@@ -2385,6 +2505,7 @@ void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* typ
     tmpl->params[tmpl->param_count].kind = TPARAM_NONTYPE;
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = type;
+    tmpl->params[tmpl->param_count].is_pack = false;
     tmpl->params[tmpl->param_count].has_default = false;
     tmpl->params[tmpl->param_count].default_value = NULL;
     tmpl->param_count++;

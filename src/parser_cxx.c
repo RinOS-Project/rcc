@@ -3930,6 +3930,7 @@ static DeclList* parse_cxx_parameter_declarations(void) {
     while (!check(TOK_RPAREN) && !at_end()) {
         const char* name = NULL;
         Type* type = parse_cxx_type_spec();
+        bool parameter_pack = match(TOK_ELLIPSIS);
         Expr* default_argument = NULL;
         Decl* parameter;
         type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
@@ -3937,6 +3938,12 @@ static DeclList* parse_cxx_parameter_declarations(void) {
             default_argument = parse_assignment_expression();
         }
         parameter = decl_param(name, type, param_idx++, peek()->loc);
+        parameter->param_is_pack = parameter_pack;
+        if (parameter_pack && (!active_template ||
+                               active_template->kind != TMPL_FUNCTION)) {
+            rcc_error(parameter->loc,
+                      "function parameter packs require a function template");
+        }
         parameter->param_default = default_argument;
         decllist_append(&params, parameter);
         if (!match(TOK_COMMA)) break;
@@ -4296,6 +4303,12 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
 
     CxxMethod* function = cxx_method_new(name->value.str_val, return_type,
                                          params, body, loc);
+    for (DeclList* parameter = params; parameter; parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack) {
+            function->decl->type->variadic = true;
+            break;
+        }
+    }
     function->decl->func_is_inline = is_inline;
     function->decl->func_is_constexpr = *is_constexpr;
     function->decl->func_is_consteval = *is_consteval;
@@ -4445,14 +4458,17 @@ CxxTemplate* parse_cxx_template(void) {
     if (!check(TOK_GT)) {
         do {
             bool type_parameter = false;
+            bool parameter_pack = false;
             if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
                 /* Type parameter */
                 type_parameter = true;
+                parameter_pack = match(TOK_ELLIPSIS);
                 const char* param_name = NULL;
                 if (check(TOK_IDENT)) {
                     param_name = advance()->value.str_val;
                 }
                 cxx_template_add_type_param(tmpl, param_name);
+                tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
             } else if (match(TOK_AUTO)) {
                 /* C++17 `template<auto N>` is represented by the existing
                  * integral non-type path.  The bounded RinOS profile accepts
@@ -4460,6 +4476,7 @@ CxxTemplate* parse_cxx_template(void) {
                  * keeping the parameter's ABI type as int preserves the
                  * existing substitution, constraint, and mangling rules. */
                 const char* param_name = NULL;
+                parameter_pack = match(TOK_ELLIPSIS);
                 if (check(TOK_IDENT)) {
                     param_name = advance()->value.str_val;
                 } else {
@@ -4467,14 +4484,20 @@ CxxTemplate* parse_cxx_template(void) {
                               "auto non-type template parameter requires a name");
                 }
                 cxx_template_add_value_param(tmpl, param_name, type_int);
+                parameter_pack = parameter_pack || match(TOK_ELLIPSIS);
             } else {
                 /* Non-type parameter */
                 Type* param_type = parse_cxx_type_spec();
                 const char* param_name = NULL;
+                parameter_pack = match(TOK_ELLIPSIS);
                 if (check(TOK_IDENT)) {
                     param_name = advance()->value.str_val;
                 }
                 cxx_template_add_value_param(tmpl, param_name, param_type);
+            }
+
+            if (parameter_pack) {
+                tmpl->params[tmpl->param_count - 1].is_pack = true;
             }
 
             /* Default value? */
@@ -4632,6 +4655,15 @@ CxxTemplate* parse_cxx_template(void) {
             tmpl->name = ast_arena_strdup(tmpl->func_def->name);
         }
         recognize_versioned_function_template(tmpl);
+    }
+
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].is_pack &&
+            (tmpl->kind != TMPL_FUNCTION ||
+             tmpl->params[index].kind != TPARAM_TYPE)) {
+            rcc_error(loc,
+                      "only type parameter packs in function templates are supported");
+        }
     }
 
     return tmpl;
@@ -5434,6 +5466,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     tmpl->instances[tmpl->instance_count].args = instance->template_args;
     tmpl->instances[tmpl->instance_count].value_args = NULL;
     tmpl->instances[tmpl->instance_count].value_present = NULL;
+    tmpl->instances[tmpl->instance_count].pack_args = NULL;
+    tmpl->instances[tmpl->instance_count].pack_count = 0;
     if (has_value_parameters) {
         tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
             sizeof(int64_t) * (size_t)argument_count);
@@ -5891,19 +5925,61 @@ static Type* cxx_parser_template_deduction_argument(Type* pattern,
     return adjusted;
 }
 
+static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern);
+
 static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                ExprList* call_arguments,
                                                Type** template_arguments,
                                                int64_t* template_values,
                                                bool* template_value_present,
                                                int* specificity,
-                                               bool report_errors) {
+                                               bool report_errors,
+                                               Type** pack_arguments,
+                                               int* pack_count) {
     DeclList* parameter;
     ExprList* argument;
     if (!tmpl || !tmpl->func_def || !template_arguments) return false;
     parameter = tmpl->func_def->func_params;
     argument = call_arguments;
     while (parameter && argument) {
+        if (parameter->decl && parameter->decl->param_is_pack) {
+            int pack_index = cxx_parser_type_pack_index(
+                tmpl, parameter->decl->type);
+            (void)pack_index;
+            if (!pack_arguments || !pack_count || pack_index < 0) {
+                if (report_errors) {
+                    rcc_error(parameter->decl->loc,
+                              "function parameter pack is not a type pack");
+                }
+                return false;
+            }
+            while (argument) {
+                Type* actual = cxx_parser_expression_type(argument->expr);
+                if (!actual) {
+                    SourceLoc location;
+                    cxx_parser_expr_loc(&location, argument->expr,
+                                        &tmpl->func_def->loc);
+                    if (report_errors) {
+                        rcc_error(location,
+                                  "cannot deduce function template pack type from an expression without a parser-known type");
+                    }
+                    return false;
+                }
+                if (*pack_count >= 32) {
+                    if (report_errors) {
+                        rcc_error(argument->expr->loc,
+                                  "function template parameter pack exceeds compiler limits");
+                    }
+                    return false;
+                }
+                pack_arguments[(*pack_count)++] =
+                    cxx_parser_template_deduction_argument(
+                        parameter->decl->type, actual);
+                argument = argument->next;
+            }
+            parameter = parameter->next;
+            break;
+        }
         Type* actual = cxx_parser_expression_type(argument->expr);
         if (!actual) {
             SourceLoc location;
@@ -5942,6 +6018,7 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
         return false;
     }
     for (; parameter; parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack) continue;
         if (!parameter->decl->param_default) {
             if (report_errors) {
                 rcc_error(tmpl->func_def->loc,
@@ -6101,6 +6178,8 @@ typedef struct CxxParsedTemplateArgument {
 typedef struct CxxFunctionTemplateMatch {
     CxxTemplate* tmpl;
     Type* arguments[32];
+    Type* pack_arguments[32];
+    int pack_count;
     int64_t values[32];
     bool value_present[32];
     int argument_count;
@@ -6109,6 +6188,27 @@ typedef struct CxxFunctionTemplateMatch {
     int conversion_worst;
     Decl* instance;
 } CxxFunctionTemplateMatch;
+
+static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern) {
+    if (!tmpl || !pattern || pattern->kind != TYPE_STRUCT ||
+        !pattern->tag) return -1;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+            parameter->name && strcmp(parameter->name, pattern->tag) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static int cxx_parser_template_pack_parameter_index(CxxTemplate* tmpl) {
+    if (!tmpl) return -1;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].is_pack) return index;
+    }
+    return -1;
+}
 
 static bool cxx_parser_expression_is_lvalue(Expr* expression) {
     if (!expression) return false;
@@ -6221,33 +6321,55 @@ static bool prepare_cxx_function_template_match(
     int explicit_argument_count, CxxFunctionTemplateMatch* match,
     bool* constraint_invalid) {
     int specificity = 0;
+    bool has_type_pack = false;
     if (!tmpl || !match || tmpl->kind != TMPL_FUNCTION || !tmpl->func_def ||
         tmpl->param_count < 0 || tmpl->param_count > 32) return false;
     memset(match, 0, sizeof(*match));
     match->tmpl = tmpl;
     match->argument_count = tmpl->param_count;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].is_pack) has_type_pack = true;
+    }
 
     if (explicit_arguments) {
-        if (explicit_argument_count > tmpl->param_count) return false;
+        int pack_parameter_index =
+            cxx_parser_template_pack_parameter_index(tmpl);
+        if (pack_parameter_index < 0 &&
+            explicit_argument_count > tmpl->param_count) return false;
         for (int index = 0; index < explicit_argument_count; ++index) {
-            TemplateParam* parameter = &tmpl->params[index];
+            int parameter_index = pack_parameter_index >= 0 &&
+                                  index >= pack_parameter_index
+                ? pack_parameter_index : index;
+            TemplateParam* parameter;
+            if (parameter_index >= tmpl->param_count) return false;
+            parameter = &tmpl->params[parameter_index];
             if ((parameter->kind == TPARAM_TYPE) !=
                 explicit_arguments[index].is_type) {
                 return false;
             }
-            if (parameter->kind == TPARAM_TYPE) {
-                match->arguments[index] = explicit_arguments[index].type;
-                if (!match->arguments[index]) return false;
+            if (parameter->is_pack) {
+                if (!explicit_arguments[index].is_type ||
+                    !explicit_arguments[index].type ||
+                    match->pack_count >= 32) return false;
+                match->pack_arguments[match->pack_count++] =
+                    explicit_arguments[index].type;
+            } else if (parameter->kind == TPARAM_TYPE) {
+                match->arguments[parameter_index] =
+                    explicit_arguments[index].type;
+                if (!match->arguments[parameter_index]) return false;
             } else {
                 if (!explicit_arguments[index].value_valid) return false;
-                match->arguments[index] = parameter->type;
-                match->values[index] = explicit_arguments[index].value;
-                match->value_present[index] = true;
+                match->arguments[parameter_index] = parameter->type;
+                match->values[parameter_index] = explicit_arguments[index].value;
+                match->value_present[parameter_index] = true;
             }
         }
-        for (int index = explicit_argument_count;
+        int fixed_explicit_count = pack_parameter_index >= 0
+            ? pack_parameter_index : explicit_argument_count;
+        for (int index = fixed_explicit_count;
              index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack) continue;
             if (!parameter->has_default) return false;
             if (parameter->kind == TPARAM_TYPE) {
                 if (!parameter->default_type) return false;
@@ -6273,6 +6395,9 @@ static bool prepare_cxx_function_template_match(
             ExprList* argument = call_arguments;
             int index = parameter->decl ? parameter->decl->param_index : 0;
             while (argument && index-- > 0) argument = argument->next;
+            if (parameter->decl && parameter->decl->param_is_pack) {
+                continue;
+            }
             if (argument) {
                 Type* actual = cxx_parser_expression_type(argument->expr);
                 if (!actual || !deduce_function_template_type(
@@ -6285,15 +6410,30 @@ static bool prepare_cxx_function_template_match(
                 }
             }
         }
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            if (tmpl->params[index].is_pack) {
+                match->arguments[index] = match->pack_count > 0
+                    ? match->pack_arguments[0] : type_void;
+            }
+        }
     } else {
         if (!deduce_function_template_arguments(
                 tmpl, call_arguments, match->arguments, match->values,
-                match->value_present, &specificity, false)) {
+                match->value_present, &specificity, false,
+                match->pack_arguments, &match->pack_count)) {
             return false;
         }
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->kind == TPARAM_NONTYPE) {
+            if (parameter->is_pack) {
+                if (match->pack_count > 0) {
+                    match->arguments[index] = match->pack_arguments[0];
+                } else {
+                    /* The argument slot is only a cache key placeholder;
+                     * the expanded parameter list carries the actual ABI. */
+                    match->arguments[index] = type_void;
+                }
+            } else if (parameter->kind == TPARAM_NONTYPE) {
                 if (!match->value_present[index]) return false;
                 match->arguments[index] = parameter->type;
             } else if (!match->arguments[index] && parameter->has_default &&
@@ -6313,9 +6453,13 @@ static bool prepare_cxx_function_template_match(
         return false;
     }
     match->specificity = specificity;
+    tmpl->pending_pack_args = has_type_pack ? match->pack_arguments : NULL;
+    tmpl->pending_pack_count = has_type_pack ? match->pack_count : -1;
     match->instance = (Decl*)cxx_template_instantiate_with_values(
         tmpl, match->arguments, match->values, match->value_present,
         match->argument_count);
+    tmpl->pending_pack_args = NULL;
+    tmpl->pending_pack_count = -1;
     if (!cxx_function_template_instance_viable(
             match->instance, call_arguments, &match->conversion_total,
             &match->conversion_worst)) {
@@ -6550,14 +6694,19 @@ Expr* rcc_parse_cxx_template_call(void) {
         ExprList* call_arguments = NULL;
         Expr* function;
         bool explicit_template_arguments = check(TOK_LT);
+        int pack_parameter_index =
+            cxx_parser_template_pack_parameter_index(tmpl);
 
         if (explicit_template_arguments) {
             expect(TOK_LT, "<");
             if (!check(TOK_GT)) {
                 do {
-                    TemplateParam* parameter = explicit_argument_count <
-                        tmpl->param_count
-                        ? &tmpl->params[explicit_argument_count] : NULL;
+                    int parameter_index = pack_parameter_index >= 0 &&
+                                          explicit_argument_count >=
+                                              pack_parameter_index
+                        ? pack_parameter_index : explicit_argument_count;
+                    TemplateParam* parameter = parameter_index <
+                        tmpl->param_count ? &tmpl->params[parameter_index] : NULL;
                     CxxParsedTemplateArgument* parsed;
                     if (explicit_argument_count >=
                         (int)(sizeof(explicit_arguments) /
@@ -6650,9 +6799,12 @@ Expr* rcc_parse_cxx_template_call(void) {
                 Type* diagnostic_arguments[32] = { NULL };
                 int64_t diagnostic_values[32] = { 0 };
                 bool diagnostic_present[32] = { false };
+                Type* diagnostic_pack[32] = { NULL };
+                int diagnostic_pack_count = 0;
                 (void)deduce_function_template_arguments(
                     tmpl, call_arguments, diagnostic_arguments,
-                    diagnostic_values, diagnostic_present, NULL, true);
+                    diagnostic_values, diagnostic_present, NULL, true,
+                    diagnostic_pack, &diagnostic_pack_count);
                 rcc_error(loc, "no matching function template overload for '%s'",
                           name);
             } else {

@@ -653,6 +653,17 @@ Expr* expr_sizeof_type(Type* type, SourceLoc loc) {
     return e;
 }
 
+Expr* expr_sizeof_pack(const char* name, SourceLoc loc) {
+    Expr* e = rcc_alloc(sizeof(Expr));
+    e->kind = EXPR_SIZEOF;
+    e->loc = loc;
+    e->unary_operand = NULL;
+    e->sizeof_type = NULL;
+    e->sizeof_pack_name = name;
+    e->type = type_uint;
+    return e;
+}
+
 Expr* expr_alignof_type(Type* type, SourceLoc loc) {
     Expr* expression = rcc_alloc(sizeof(*expression));
     expression->kind = EXPR_ALIGNOF;
@@ -973,6 +984,7 @@ Decl* decl_param(const char* name, Type* type, int index, SourceLoc loc) {
     d->param_default = NULL;
     d->param_index = index;
     d->param_array_type = NULL;
+    d->param_is_pack = false;
     return d;
 }
 

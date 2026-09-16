@@ -7288,7 +7288,11 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_SIZEOF: {
-            if (expr->sizeof_type) {
+            if (expr->sizeof_pack_name) {
+                rcc_error(expr->loc,
+                          "sizeof... pack was not substituted during template instantiation");
+                expr->type = type_uint;
+            } else if (expr->sizeof_type) {
                 sema_validate_array_parameter_type(expr->sizeof_type,
                                                    expr->loc, false);
                 sema_vla_bounds(expr->sizeof_type, expr->loc);

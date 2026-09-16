@@ -415,6 +415,9 @@ struct Expr {
     bool cxx_call_is_noexcept;
     /* Captures for a C++ lambda that are spliced into an immediate call. */
     ExprList* cxx_lambda_captures;
+    /* C++ `sizeof...(Pack)` is retained until a function-template
+     * specialization supplies the pack length. */
+    const char* sizeof_pack_name;
     /* Automatic storage used to materialize an aggregate rvalue.  A zero
      * value means that codegen has not assigned a slot; negative values are
      * frame-relative displacements, matching the other expression spills. */
@@ -567,6 +570,7 @@ Expr* expr_member(Expr* base, const char* name, SourceLoc loc);
 Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_type(Type* type, SourceLoc loc);
+Expr* expr_sizeof_pack(const char* name, SourceLoc loc);
 Expr* expr_alignof_type(Type* type, SourceLoc loc);
 Expr* expr_initializer_list(ExprList* items, SourceLoc loc);
 Expr* expr_generic(Expr* control, GenericAssociation* associations,
@@ -805,6 +809,9 @@ struct Decl {
     Expr* param_default;
     /* Original array declarator before C parameter adjustment. */
     Type* param_array_type;
+    /* C++ function parameter pack marker.  Supported type packs are expanded
+     * during template instantiation before semantic analysis/codegen. */
+    bool param_is_pack;
 
     union {
         /* DECL_VAR */
@@ -849,7 +856,7 @@ struct Decl {
             bool func_is_noexcept;
             Expr* func_noexcept_expr;
             bool func_is_auto_return;
-            bool func_is_decltype_auto_return;
+    bool func_is_decltype_auto_return;
             /* Defining namespace retained for deferred template-body
              * semantic analysis.  Ordinary C++ declarations already encode
              * this in their qualified name; instantiated function templates

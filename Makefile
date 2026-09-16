@@ -162,7 +162,7 @@ test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
-	test-cxx-template-two-phase-ordinary
+	test-cxx-template-two-phase-ordinary test-cxx-template-parameter-pack
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-constexpr-pointer-mutation
 .PHONY: test-cxx-constexpr-pointer-aggregate
@@ -1750,6 +1750,60 @@ test-cxx-template-two-phase-ordinary: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-template-two-phase-ordinary/x64.o
 	$(TEST_OUT)/cxx-template-two-phase-ordinary/x64
 	@echo "C++ template definition-time ordinary lookup tests completed"
+
+test-cxx-template-parameter-pack: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-parameter-pack)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/x86.ro \
+		tests/cxx_template_parameter_pack.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/x64.ro \
+		tests/cxx_template_parameter_pack.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/verified-x86.ro \
+		tests/cxx_template_parameter_pack.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/verified-x64.ro \
+		tests/cxx_template_parameter_pack.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/x86.s \
+		tests/cxx_template_parameter_pack.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-parameter-pack/x86.o \
+		$(TEST_OUT)/cxx-template-parameter-pack/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-parameter-pack/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/x86 \
+		$(TEST_OUT)/cxx-template-parameter-pack/start-x86.o \
+		$(TEST_OUT)/cxx-template-parameter-pack/x86.o
+	$(TEST_OUT)/cxx-template-parameter-pack/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/x64.s \
+		tests/cxx_template_parameter_pack.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-template-parameter-pack/x64.o \
+		$(TEST_OUT)/cxx-template-parameter-pack/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-template-parameter-pack/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/x64 \
+		$(TEST_OUT)/cxx-template-parameter-pack/start-x64.o \
+		$(TEST_OUT)/cxx-template-parameter-pack/x64.o
+	$(TEST_OUT)/cxx-template-parameter-pack/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.ro \
+		tests/cxx_template_parameter_pack_invalid.cpp \
+		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log 2>&1
+	grep -q "only type parameter packs in function templates are supported" \
+		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.ro \
+		tests/cxx_template_parameter_pack_invalid.cpp \
+		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log 2>&1
+	grep -q "only type parameter packs in function templates are supported" \
+		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
+	@echo "C++ type parameter pack arity tests completed"
 
 test-cxx-qualified-class-initialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-qualified-class-initialization)
