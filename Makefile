@@ -161,7 +161,8 @@ test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
 .PHONY: test-cxx-lambda-function-pointer
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
-	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl
+	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
+	test-cxx-template-two-phase-ordinary
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-constexpr-pointer-mutation
 .PHONY: test-cxx-constexpr-pointer-aggregate
@@ -1721,6 +1722,34 @@ test-cxx-template-two-phase-adl: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-template-two-phase-adl/x64.o
 	$(TEST_OUT)/cxx-template-two-phase-adl/x64
 	@echo "C++ template instantiation-time ADL tests completed"
+
+test-cxx-template-two-phase-ordinary: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-ordinary)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-two-phase-ordinary/x86.s \
+		tests/cxx_template_two_phase_ordinary.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-two-phase-ordinary/x86.o \
+		$(TEST_OUT)/cxx-template-two-phase-ordinary/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-template-two-phase-ordinary/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-two-phase-ordinary/x86 \
+		$(TEST_OUT)/cxx-template-two-phase-ordinary/start-x86.o \
+		$(TEST_OUT)/cxx-template-two-phase-ordinary/x86.o
+	$(TEST_OUT)/cxx-template-two-phase-ordinary/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-two-phase-ordinary/x64.s \
+		tests/cxx_template_two_phase_ordinary.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-template-two-phase-ordinary/x64.o \
+		$(TEST_OUT)/cxx-template-two-phase-ordinary/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-template-two-phase-ordinary/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-template-two-phase-ordinary/x64 \
+		$(TEST_OUT)/cxx-template-two-phase-ordinary/start-x64.o \
+		$(TEST_OUT)/cxx-template-two-phase-ordinary/x64.o
+	$(TEST_OUT)/cxx-template-two-phase-ordinary/x64
+	@echo "C++ template definition-time ordinary lookup tests completed"
 
 test-cxx-qualified-class-initialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-qualified-class-initialization)
