@@ -164,7 +164,8 @@ test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
-	test-cxx-template-two-phase-ordinary test-cxx-template-parameter-pack
+	test-cxx-template-two-phase-ordinary test-cxx-template-parameter-pack \
+	test-cxx-class-type-pack
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-constexpr-pointer-mutation
 .PHONY: test-cxx-constexpr-pointer-aggregate
@@ -245,6 +246,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-template-two-phase-adl \
 	test-cxx-template-two-phase-ordinary \
 	test-cxx-template-parameter-pack \
+	test-cxx-class-type-pack \
 	test-cxx-qualified-class-initialization \
 	test-cxx-constexpr \
 	test-cxx-constexpr-aggregate \
@@ -2017,15 +2019,43 @@ test-cxx-template-parameter-pack: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.ro \
 		tests/cxx_template_parameter_pack_invalid.cpp \
 		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log 2>&1
-	grep -q "only a single integral non-type pack is supported in class templates" \
+	grep -q "only a single class-template parameter pack is supported" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.ro \
 		tests/cxx_template_parameter_pack_invalid.cpp \
 		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log 2>&1
-	grep -q "only a single integral non-type pack is supported in class templates" \
+	grep -q "only a single class-template parameter pack is supported" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
 	@echo "C++ type parameter pack arity tests completed"
+
+test-cxx-class-type-pack: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-type-pack)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-type-pack/x86.s \
+		tests/cxx_class_type_pack.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-type-pack/x86.o \
+		$(TEST_OUT)/cxx-class-type-pack/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-type-pack/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-type-pack/x86 \
+		$(TEST_OUT)/cxx-class-type-pack/start-x86.o \
+		$(TEST_OUT)/cxx-class-type-pack/x86.o
+	$(TEST_OUT)/cxx-class-type-pack/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-type-pack/x64.s \
+		tests/cxx_class_type_pack.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-class-type-pack/x64.o \
+		$(TEST_OUT)/cxx-class-type-pack/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-class-type-pack/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-type-pack/x64 \
+		$(TEST_OUT)/cxx-class-type-pack/start-x64.o \
+		$(TEST_OUT)/cxx-class-type-pack/x64.o
+	$(TEST_OUT)/cxx-class-type-pack/x64
+	@echo "C++ class type parameter-pack tests completed"
 
 test-cxx-qualified-class-initialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-qualified-class-initialization)
