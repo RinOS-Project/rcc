@@ -160,6 +160,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
 .PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-multiple-inputs
+.PHONY: test-cxx-default-destructor
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
@@ -198,6 +199,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-virtual-base-constructor \
 	test-cxx-virtual-base-constructor-order \
 	test-cxx-destructor-body \
+	test-cxx-default-destructor \
 	test-cxx-member-lifetime \
 	test-cxx-array-destructor \
 	test-cxx-constructor-general \
@@ -854,6 +856,34 @@ test-cxx-destructor-body: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-destructor-body/x64.o
 	$(TEST_OUT)/cxx-destructor-body/x64
 	@echo "C++ explicit destructor body and lifetime tests completed"
+
+test-cxx-default-destructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-default-destructor)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-default-destructor/x86.s \
+		tests/cxx_default_destructor.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-default-destructor/x86.o \
+		$(TEST_OUT)/cxx-default-destructor/x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-default-destructor/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-default-destructor/x86 \
+		$(TEST_OUT)/cxx-default-destructor/start-x86.o \
+		$(TEST_OUT)/cxx-default-destructor/x86.o
+	$(TEST_OUT)/cxx-default-destructor/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-default-destructor/x64.s \
+		tests/cxx_default_destructor.cpp
+	gcc -c -o $(TEST_OUT)/cxx-default-destructor/x64.o \
+		$(TEST_OUT)/cxx-default-destructor/x64.s
+	gcc -c -o $(TEST_OUT)/cxx-default-destructor/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-default-destructor/x64 \
+		$(TEST_OUT)/cxx-default-destructor/start-x64.o \
+		$(TEST_OUT)/cxx-default-destructor/x64.o
+	$(TEST_OUT)/cxx-default-destructor/x64
+	@echo "C++ default-constructor destructor lifetime tests completed"
 
 test-cxx-member-lifetime: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-lifetime)

@@ -1690,6 +1690,24 @@ static bool cxx_constructor_scalar_constant(Expr* expression) {
     }
 }
 
+/* A pointer member may be initialized from the address of an object with
+ * static storage.  Keep this separate from integer constant evaluation: the
+ * address must remain a relocatable symbol reference until the native object
+ * or image emitter lays it out. */
+static bool cxx_constructor_static_address(CxxConstructorInfo* constructor,
+                                            Expr* expression) {
+    Expr* operand;
+    if (!expression) return false;
+    if (expression->kind == EXPR_CAST) {
+        return cxx_constructor_static_address(constructor,
+                                              expression->cast_expr);
+    }
+    if (expression->kind != EXPR_ADDR) return false;
+    operand = expression->unary_operand;
+    return operand && operand->kind == EXPR_IDENT && operand->ident_name &&
+        cxx_constructor_parameter_index(constructor, operand->ident_name) < 0;
+}
+
 static bool cxx_constructor_expression_is_lowerable(
     CxxConstructorInfo* constructor, Expr* expression, Type* target_type,
     bool* parameter_used, unsigned parameter_count) {
@@ -1766,6 +1784,9 @@ static bool cxx_constructor_expression_is_lowerable(
                    cxx_constructor_expression_is_lowerable(
                        constructor, expression->cast_expr, NULL,
                        parameter_used, parameter_count);
+        case EXPR_ADDR:
+            return target_type && target_type->kind == TYPE_PTR &&
+                   cxx_constructor_static_address(constructor, expression);
         default:
             return false;
     }
@@ -1942,7 +1963,9 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 continue;
             }
             if (arity == 0u) {
-                if (!cxx_constructor_scalar_constant(initializer->value) ||
+                if ((!cxx_constructor_scalar_constant(initializer->value) &&
+                     !cxx_constructor_static_address(
+                         constructor, initializer->value)) ||
                     !field->type ||
                     !(type_is_integer(field->type) ||
                       field->type->kind == TYPE_ENUM ||
