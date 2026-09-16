@@ -1533,6 +1533,34 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         return replacement;
     }
 
+    /* A class-template specialization appearing in a function-template body
+     * is incomplete until the outer template arguments are substituted.  Keep
+     * the template and its argument patterns on the dependent carrier so the
+     * real class instance, including its field layout, is materialized here. */
+    if (type->cxx_dependent && type->cxx_template &&
+        type->cxx_template_arg_count > 0) {
+        Type* nested_arguments[32] = { NULL };
+        CxxClass* instantiated;
+        if (type->cxx_template_arg_count >
+            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "dependent class template argument limit exceeded");
+            return NULL;
+        }
+        for (int nested_index = 0;
+             nested_index < type->cxx_template_arg_count; ++nested_index) {
+            nested_arguments[nested_index] = template_substitute_type(
+                tmpl, type->cxx_template_args[nested_index], args, arg_count,
+                value_args, value_present);
+            if (!nested_arguments[nested_index]) return NULL;
+        }
+        instantiated = rcc_cxx_instantiate_class_template(
+            type->cxx_template, nested_arguments, NULL, NULL,
+            type->cxx_template_arg_count,
+            (SourceLoc){"<template>", 0, 0});
+        return instantiated ? instantiated->type : NULL;
+    }
+
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
         base = template_substitute_type(
             tmpl, type->base, args, arg_count, value_args, value_present);

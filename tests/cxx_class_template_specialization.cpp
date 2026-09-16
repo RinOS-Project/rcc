@@ -84,6 +84,17 @@ public:
     }
 };
 
+template<typename T>
+struct AggregateBox {
+    T first;
+    T second;
+};
+
+template<typename T>
+AggregateBox<T> make_aggregate_box(T first, T second) {
+    return AggregateBox<T>{first, second};
+}
+
 template<typename T, typename U = T>
 class DefaultType {
 public:
@@ -114,6 +125,7 @@ int main() {
     Select<long, 3> ordinary_select;
     Select<int, 3> specialized_select;
     DefaultType<int> default_type{5};
+    AggregateBox<int> aggregate_box = make_aggregate_box(20, 22);
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    pointer_pointer_pointer_value.kind() == 33 &&
@@ -123,5 +135,8 @@ int main() {
                    specialized_pair.kind() == 40 &&
                    ordinary_select.kind() == 3 &&
                    specialized_select.kind() == 103 &&
-                   default_type.kind() == 9 ? 0 : 1;
+                   default_type.kind() == 9 &&
+                   aggregate_box.first + aggregate_box.second == 42
+               ? 0
+               : 1;
 }

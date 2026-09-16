@@ -6299,6 +6299,15 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
             Type* dependent = type_struct(tmpl->name ? tmpl->name :
                                           "dependent-template");
             dependent->cxx_dependent = true;
+            dependent->cxx_template = tmpl;
+            dependent->cxx_template_param_index = -1;
+            dependent->cxx_template_arg_count = argument_count;
+            if (argument_count > 0) {
+                dependent->cxx_template_args = ast_arena_alloc(
+                    sizeof(Type*) * (size_t)argument_count);
+                memcpy(dependent->cxx_template_args, arguments,
+                       sizeof(Type*) * (size_t)argument_count);
+            }
             return dependent;
         }
     }
@@ -7227,7 +7236,9 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     expect(brace_form ? TOK_RBRACE : TOK_RPAREN,
            brace_form ? "}" : ")");
 
-    if (!type->cxx_class) {
+    if (!type->cxx_class &&
+        !(type->cxx_dependent && type->cxx_template &&
+          (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION))) {
         if (!arguments) {
             arguments = exprlist_new(expr_int(0, loc));
         } else if (arguments->next) {
@@ -7241,7 +7252,9 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     initializer = expr_initializer_list(arguments, loc);
     initializer->compound_type = type;
     initializer->compound_value_init = arguments == NULL;
-    rcc_parser_validate_cxx_constructor_initializer(type, initializer);
+    if (type->cxx_class) {
+        rcc_parser_validate_cxx_constructor_initializer(type, initializer);
+    }
     return initializer;
 }
 
