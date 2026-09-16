@@ -2396,6 +2396,12 @@ static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
     emit_rodata(mod, zero, pointer_size);
     module_add_symbol(mod, cls->type->cxx_typeinfo_symbol, offset, true,
                       MODULE_SYMBOL_RODATA, true);
+    /* A class type has one structural RTTI identity across translation units.
+     * Every TU that sees the definition may materialize the same metadata, so
+     * keep the external object weak just like an inline/COMDAT definition.
+     * This lets provider/consumer RLLs share the identity without a duplicate
+     * definition while preserving one address for runtime comparisons. */
+    module_mark_symbol_weak(mod, cls->type->cxx_typeinfo_symbol);
 }
 
 static void codegen_add_vtable_pointer(Module* mod,
