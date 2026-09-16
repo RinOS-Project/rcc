@@ -47,6 +47,21 @@ constexpr int do_value(int limit) {
     return index;
 }
 
+constexpr int switch_value(int value) {
+    int result = 0;
+    switch (value) {
+        case 1:
+            result += 2;
+        case 2:
+            result += 3;
+            break;
+        default:
+            result = 7;
+            break;
+    }
+    return result;
+}
+
 constexpr float scale_float(float value) {
     return value * 2.0f + 0.5f;
 }
@@ -84,6 +99,9 @@ constexpr int constexpr_mutated = mutate_value(base_value);
 constexpr int constexpr_loop = sum_value(5);
 constexpr int constexpr_while = while_value(8);
 constexpr int constexpr_do = do_value(5);
+constexpr int constexpr_switch_one = switch_value(1);
+constexpr int constexpr_switch_two = switch_value(2);
+constexpr int constexpr_switch_other = switch_value(9);
 constexpr float constexpr_float = scale_float(1.5f);
 constexpr double constexpr_double = half_integer(7);
 constexpr int constexpr_truncated = truncate_float(3.75f);
@@ -95,6 +113,8 @@ int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
                    constexpr_mutated == 15 && constexpr_loop == 10 &&
                    constexpr_while == 8 && constexpr_do == 5 &&
+                   constexpr_switch_one == 5 && constexpr_switch_two == 3 &&
+                   constexpr_switch_other == 7 &&
                    constexpr_float == 3.5f && constexpr_double == 3.75 &&
                    constexpr_truncated == 3 && constexpr_consteval == 7 &&
                    constexpr_local_float == 5.0f &&

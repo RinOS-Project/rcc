@@ -2061,6 +2061,77 @@ static bool sema_eval_constexpr_statement(
             }
             return false;
         }
+        case STMT_SWITCH: {
+            StmtList* item;
+            StmtList* selected = NULL;
+            StmtList* fallback = NULL;
+            int64_t selector;
+            int saved_count = *binding_count;
+            if (!statement->switch_expr ||
+                !sema_eval_constexpr_expr(statement->switch_expr, bindings,
+                                           *binding_count, &selector) ||
+                !statement->switch_body ||
+                statement->switch_body->kind != STMT_BLOCK) {
+                return false;
+            }
+            for (item = statement->switch_body->block_stmts; item;
+                 item = item->next) {
+                Stmt* label = item->stmt;
+                int64_t case_value;
+                if (!label) return false;
+                if (label->kind == STMT_DEFAULT) {
+                    if (!fallback) fallback = item;
+                    continue;
+                }
+                if (label->kind != STMT_CASE || !label->case_val ||
+                    !sema_eval_constexpr_expr(label->case_val, bindings,
+                                               *binding_count, &case_value)) {
+                    continue;
+                }
+                if (!selected && case_value == selector) selected = item;
+            }
+            if (!selected) selected = fallback;
+            if (!selected) {
+                *binding_count = saved_count;
+                return true;
+            }
+            for (item = selected; item; item = item->next) {
+                Stmt* current = item->stmt;
+                Stmt* body = current &&
+                    (current->kind == STMT_CASE ||
+                     current->kind == STMT_DEFAULT)
+                    ? (current->kind == STMT_CASE
+                        ? current->case_stmt : current->default_stmt)
+                    : current;
+                SemaConstexprStatementResult nested_result;
+                if (!body) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+                if (!sema_eval_constexpr_statement(
+                        body, bindings, binding_count, value,
+                        &nested_result)) {
+                    *binding_count = saved_count;
+                    return false;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = nested_result;
+                    *binding_count = saved_count;
+                    return true;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_BREAK) {
+                    *binding_count = saved_count;
+                    return true;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_CONTINUE) {
+                    *result = nested_result;
+                    *binding_count = saved_count;
+                    return true;
+                }
+            }
+            *binding_count = saved_count;
+            return true;
+        }
         default:
             return false;
     }
