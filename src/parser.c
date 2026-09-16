@@ -1131,6 +1131,15 @@ static Expr* parse_postfix(void) {
 static Expr* parse_unary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (parser_cxx_mode && match(TOK_NOEXCEPT)) {
+        Expr* operand;
+        expect(TOK_LPAREN, "(");
+        operand = parse_expression();
+        expect(TOK_RPAREN, ")");
+        return parse_postfix_tail(
+            expr_unary(EXPR_NOEXCEPT, operand, loc));
+    }
+
     if (parser_cxx_mode && rcc_parse_cxx_type_name &&
         (check(TOK_DYNAMIC_CAST) || check(TOK_CONST_CAST))) {
         TokenType cast_token = advance()->type;
@@ -2774,6 +2783,8 @@ Stmt* parse_declaration(void) {
     bool is_inline = false;
     bool is_constexpr = false;
     bool is_consteval = false;
+    bool is_noexcept = false;
+    Expr* noexcept_expr = NULL;
     bool is_thread_local = false;
     const char* declaration_name = NULL;
     DeclList* parameters = NULL;
@@ -2870,20 +2881,10 @@ Stmt* parse_declaration(void) {
     if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&
         match(TOK_NOEXCEPT)) {
         if (match(TOK_LPAREN)) {
-            int depth = 1;
-            while (!at_end() && depth > 0) {
-                if (match(TOK_LPAREN)) {
-                    ++depth;
-                } else if (match(TOK_RPAREN)) {
-                    --depth;
-                } else {
-                    advance();
-                }
-            }
-            if (depth != 0) {
-                rcc_error(peek()->loc,
-                          "unterminated C++ noexcept specification");
-            }
+            noexcept_expr = parse_expression();
+            expect(TOK_RPAREN, ")");
+        } else {
+            is_noexcept = true;
         }
     }
     skip_attributes();
@@ -2924,6 +2925,8 @@ Stmt* parse_declaration(void) {
         declaration->storage = storage;
         declaration->func_is_inline = is_inline;
         declaration->func_is_constexpr = is_constexpr;
+        declaration->func_is_noexcept = is_noexcept;
+        declaration->func_noexcept_expr = noexcept_expr;
         declaration->func_is_consteval = is_consteval;
         return stmt_decl(declaration, loc);
     }

@@ -538,6 +538,8 @@ Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc) {
     e->kind = kind;
     e->loc = loc;
     e->unary_operand = operand;
+    e->cxx_noexcept_value_valid = false;
+    e->cxx_noexcept_value = false;
     e->type = NULL;  /* Set during sema */
     return e;
 }
@@ -571,6 +573,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_args = args;
     e->call_result_offset = 0;
     e->call_method = NULL;
+    e->cxx_call_is_noexcept = false;
     e->call_is_virtual = false;
     e->call_virtual_index = -1;
     e->call_virtual_object = NULL;
@@ -951,6 +954,8 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_cxx_destructor = false;
     d->func_is_constexpr = false;
     d->func_is_consteval = false;
+    d->func_is_noexcept = false;
+    d->func_noexcept_expr = NULL;
     d->func_is_auto_return = false;
     d->func_is_decltype_auto_return = false;
     d->func_cxx_namespace = NULL;

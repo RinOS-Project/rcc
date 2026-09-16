@@ -1524,12 +1524,19 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         case EXPR_POSTDEC:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
             copy->unary_operand = template_clone_expr(
                 tmpl, expression->unary_operand, args, arg_count,
                 value_args, value_present);
             copy->sizeof_type = template_substitute_type(
                 tmpl, expression->sizeof_type, args, arg_count,
                 value_args, value_present);
+            if (expression->kind == EXPR_NOEXCEPT) {
+                /* The operand may become a different overload after
+                 * substitution; recompute the value in sema. */
+                copy->cxx_noexcept_value_valid = false;
+                copy->cxx_noexcept_value = false;
+            }
             break;
         case EXPR_ADD:
         case EXPR_SUB:
@@ -1689,6 +1696,11 @@ static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
     copy->param_default = template_clone_expr(
         tmpl, declaration->param_default, args, arg_count,
         value_args, value_present);
+    if (declaration->kind == DECL_FUNC) {
+        copy->func_noexcept_expr = template_clone_expr(
+            tmpl, declaration->func_noexcept_expr, args, arg_count,
+            value_args, value_present);
+    }
     if (declaration->kind == DECL_VAR) {
         copy->var_init = template_clone_expr(
             tmpl, declaration->var_init, args, arg_count,
@@ -1993,6 +2005,10 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_inline = definition->func_is_inline;
         instance->func_is_constexpr = definition->func_is_constexpr;
         instance->func_is_consteval = definition->func_is_consteval;
+        instance->func_is_noexcept = definition->func_is_noexcept;
+        instance->func_noexcept_expr = template_clone_expr(
+            tmpl, definition->func_noexcept_expr, args, arg_count,
+            value_args, value_present);
         instance->func_is_auto_return = definition->func_is_auto_return;
         instance->func_is_decltype_auto_return =
             definition->func_is_decltype_auto_return;

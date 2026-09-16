@@ -7216,6 +7216,16 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             emit_mov_reg_imm(mod, EAX, (uint32_t)expr->int_val);
             break;
 
+        case EXPR_NOEXCEPT:
+            if (!expr->cxx_noexcept_value_valid) {
+                rcc_error(expr->loc,
+                          "noexcept expression has no semantic value");
+                return;
+            }
+            emit_mov_reg_imm(mod, EAX,
+                             expr->cxx_noexcept_value ? 1u : 0u);
+            break;
+
         case EXPR_CHAR_LIT:
             emit_mov_reg_imm(mod, EAX, (uint32_t)(uint8_t)expr->char_val);
             break;

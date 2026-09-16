@@ -37,6 +37,7 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_STRING_LIT:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
         case EXPR_CXX_THIS:
             return false;
         case EXPR_IDENT:
@@ -537,6 +538,11 @@ static void optimize_expr(Expr** expression) {
     if (!expression || !*expression) return;
     value = *expression;
     switch (value->kind) {
+        case EXPR_NOEXCEPT:
+            if (value->cxx_noexcept_value_valid) {
+                replace_integer(value, value->cxx_noexcept_value ? 1 : 0);
+            }
+            return;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -892,6 +898,7 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
         case EXPR_NOT:
         case EXPR_BITNOT:
         case EXPR_DEREF:
+        case EXPR_NOEXCEPT:
             propagate_constant_expr(&value->unary_operand, state);
             optimize_expr(expression);
             return;
@@ -1264,6 +1271,10 @@ static void mark_address_escapes_expr(const Expr* expression,
     switch (expression->kind) {
         case EXPR_CXX_THIS:
             return;
+        case EXPR_NOEXCEPT:
+            /* Its operand is unevaluated and cannot make a local address
+             * escape from the containing expression. */
+            return;
         case EXPR_ADDR:
             mark_reference_escape(expression->unary_operand, locals);
             mark_address_escapes_expr(expression->unary_operand, locals);
@@ -1518,6 +1529,9 @@ static void mark_dead_store_reads(const Expr* expression,
             if (local) local->live = true;
             return;
         case EXPR_CXX_THIS:
+            return;
+        case EXPR_NOEXCEPT:
+            /* The operand is unevaluated; it does not read local storage. */
             return;
         case EXPR_NEG:
         case EXPR_NOT:

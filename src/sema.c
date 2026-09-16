@@ -68,6 +68,7 @@ static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
+static void sema_resolve_function_noexcept(Decl* declaration);
 
 static bool sema_cxx_is_polymorphic(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
@@ -4489,6 +4490,11 @@ static bool sema_eval_constexpr_scalar_expr(
             value->integer_value = expression->kind == EXPR_SIZEOF
                 ? measured->size : measured->align;
             return true;
+        case EXPR_NOEXCEPT:
+            if (!expression->cxx_noexcept_value_valid) return false;
+            value->type = type_bool;
+            value->integer_value = expression->cxx_noexcept_value ? 1 : 0;
+            return true;
         case EXPR_COND:
             if (!sema_eval_constexpr_scalar_expr(expression->cond_test,
                                                   bindings, binding_count,
@@ -6612,6 +6618,111 @@ static bool sema_prepare_cxx_close_call(Expr* expression,
  * Expression Semantic Analysis
  * ═══════════════════════════════════════ */
 
+static bool sema_noexcept_expr(Expr* expression);
+
+static bool sema_noexcept_expr_list(ExprList* list) {
+    for (; list; list = list->next) {
+        if (!sema_noexcept_expr(list->expr)) return false;
+    }
+    return true;
+}
+
+/* Determine whether an already semantically analyzed expression is
+ * potentially-throwing.  This is deliberately conservative: only direct
+ * calls carrying a real `noexcept` declaration are proven non-throwing;
+ * function pointers, unknown calls, allocation, and unsupported extension
+ * nodes remain potentially-throwing instead of receiving a guessed value. */
+static bool sema_noexcept_expr(Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_IDENT:
+        case EXPR_CXX_THIS:
+            return true;
+        case EXPR_NOEXCEPT:
+            return expression->cxx_noexcept_value_valid;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            return sema_noexcept_expr(expression->unary_operand);
+        case EXPR_CAST:
+            if (expression->cxx_cast_kind == CXX_CAST_DYNAMIC &&
+                expression->cast_type && expression->cast_type->is_reference) {
+                return false;
+            }
+            if (expression->cast_type &&
+                (expression->cast_type->kind == TYPE_STRUCT ||
+                 expression->cast_type->kind == TYPE_UNION) &&
+                expression->cast_type->cxx_nontrivial) {
+                return false;
+            }
+            return sema_noexcept_expr(expression->cast_expr);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            return sema_noexcept_expr(expression->binary_lhs) &&
+                   sema_noexcept_expr(expression->binary_rhs);
+        case EXPR_COND:
+            return sema_noexcept_expr(expression->cond_test) &&
+                   sema_noexcept_expr(expression->cond_then) &&
+                   sema_noexcept_expr(expression->cond_else);
+        case EXPR_CALL:
+            return expression->cxx_call_is_noexcept &&
+                   sema_noexcept_expr(expression->call_func) &&
+                   sema_noexcept_expr_list(expression->call_args);
+        case EXPR_INDEX:
+            return sema_noexcept_expr(expression->index_base) &&
+                   sema_noexcept_expr(expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return sema_noexcept_expr(expression->member_base);
+        case EXPR_COMPOUND:
+            if (expression->compound_type &&
+                expression->compound_type->cxx_nontrivial) return false;
+            return sema_noexcept_expr_list(expression->compound_init);
+        default:
+            return false;
+    }
+}
+
 static Type* sema_expr(Expr* expr) {
     if (!expr) return NULL;
 
@@ -6993,6 +7104,14 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_ALIGNOF:
             expr->type = type_uint;
+            break;
+
+        case EXPR_NOEXCEPT:
+            sema_expr(expr->unary_operand);
+            expr->cxx_noexcept_value =
+                sema_noexcept_expr(expr->unary_operand);
+            expr->cxx_noexcept_value_valid = true;
+            expr->type = type_bool;
             break;
 
         case EXPR_GENERIC: {
@@ -7798,6 +7917,16 @@ static Type* sema_expr(Expr* expr) {
                                   member->member_name);
                     }
                     expr->call_method = method;
+                    if (method->source_decl) {
+                        /* Inline lowerings do not enter the ordinary
+                         * function-declaration symbol path.  Resolve their
+                         * stored conditional specification lazily, once
+                         * semantic types and template substitutions exist. */
+                        sema_resolve_function_noexcept(method->source_decl);
+                        method->is_noexcept =
+                            method->source_decl->func_is_noexcept;
+                    }
+                    expr->cxx_call_is_noexcept = method->is_noexcept;
                     if (method->kind == TYPE_METHOD_FIELD_CLOSE) {
                         sema_prepare_cxx_close_call(expr, method,
                                                     member->member_base);
@@ -7946,6 +8075,8 @@ static Type* sema_expr(Expr* expr) {
                 expr->call_func->ident_decl->kind == DECL_FUNC) {
                 call_declaration = expr->call_func->ident_decl;
             }
+            expr->cxx_call_is_noexcept = call_declaration &&
+                                         call_declaration->func_is_noexcept;
 
             parameter = ft->params;
             argument = expr->call_args;
@@ -10024,6 +10155,23 @@ static bool sema_deduce_auto_return_stmt(Stmt* statement, Type** deduced,
     }
 }
 
+static void sema_resolve_function_noexcept(Decl* declaration) {
+    SemaConstexprScalar value;
+    if (!declaration || !declaration->func_noexcept_expr) return;
+    sema_expr(declaration->func_noexcept_expr);
+    if (sema_eval_constexpr_scalar_expr(
+            declaration->func_noexcept_expr, NULL, 0, &value) &&
+        !value.is_floating) {
+        declaration->func_is_noexcept = sema_constexpr_scalar_truth(&value);
+    } else {
+        /* The existing frontend accepts dependent/non-constant exception
+         * specifications for later template resolution.  Until a concrete
+         * constant value is available, retain the standard potentially-
+         * throwing interpretation rather than treating it as noexcept. */
+        declaration->func_is_noexcept = false;
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
@@ -10305,6 +10453,7 @@ static void sema_decl(Decl* decl) {
             if (!cxx_defaults_merged) {
                 sema_validate_cxx_default_suffix(decl);
             }
+            sema_resolve_function_noexcept(decl);
 
             if (decl->func_body) {
                 sym->is_defined = true;

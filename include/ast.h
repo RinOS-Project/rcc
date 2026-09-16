@@ -89,6 +89,10 @@ struct TypeMethod {
     Type* return_type;
     TypeField* field;
     Decl* function_decl; /* Non-NULL for a lowered ordinary C++ method. */
+    /* Source declaration for a validated inline lowering.  Inline accessors
+     * have no emitted function declaration, but their exception
+     * specification still has to be resolved at the call site. */
+    Decl* source_decl;
     TypeMethodKind kind;
     int64_t constant;
     const char* cleanup_function;
@@ -96,6 +100,7 @@ struct TypeMethod {
     int64_t success_constant;
     unsigned char cxx_access;
     bool is_explicit;
+    bool is_noexcept;
     /* For a lowered member function, identify the object type expected by
      * the ABI and the byte adjustment needed to reach it from the lookup
      * object's address.  Ordinary methods use adjustment zero; inherited
@@ -273,6 +278,7 @@ typedef enum {
     EXPR_POSTDEC,       /* x-- */
     EXPR_SIZEOF,        /* sizeof(x) */
     EXPR_ALIGNOF,       /* _Alignof(x) */
+    EXPR_NOEXCEPT,      /* noexcept(x) */
     EXPR_CAST,          /* (type)x */
 
     /* Binary */
@@ -398,6 +404,15 @@ struct Expr {
     CxxMoveAssignment* cxx_move_assignment;
     /* Non-NULL only for the structurally validated SDK close operation. */
     CxxCloseCall* cxx_close_call;
+    /* Semantic value of the C++ noexcept operator.  The value is kept
+     * outside the expression union so a constexpr call folded during sema
+     * cannot erase the call's exception specification before the enclosing
+     * noexcept expression is evaluated. */
+    bool cxx_noexcept_value_valid;
+    bool cxx_noexcept_value;
+    /* Set after direct call resolution; false also covers function pointers
+     * and unresolved/external calls whose exception specification is unknown. */
+    bool cxx_call_is_noexcept;
     /* Captures for a C++ lambda that are spliced into an immediate call. */
     ExprList* cxx_lambda_captures;
     /* Automatic storage used to materialize an aggregate rvalue.  A zero
@@ -831,6 +846,8 @@ struct Decl {
             bool func_is_cxx_destructor;
             bool func_is_constexpr;
             bool func_is_consteval;
+            bool func_is_noexcept;
+            Expr* func_noexcept_expr;
             bool func_is_auto_return;
             bool func_is_decltype_auto_return;
             /* Defining namespace retained for deferred template-body

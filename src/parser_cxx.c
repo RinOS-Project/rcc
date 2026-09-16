@@ -1926,9 +1926,11 @@ static void register_inline_class_accessors(CxxClass* cls) {
         lowered->return_type = method->decl->type->ret_type;
         lowered->field = field;
         lowered->function_decl = NULL;
+        lowered->source_decl = method->decl;
         lowered->kind = kind;
         lowered->constant = has_constant ? constant : 0;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->is_noexcept = method->is_noexcept;
         lowered->this_owner = NULL;
         lowered->this_adjustment = 0;
         lowered->next = NULL;
@@ -2011,6 +2013,7 @@ static void register_inline_class_bool_delegates(CxxClass* cls) {
             ? method->source_name : method->decl->name;
         lowered->return_type = method->decl->type->ret_type;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->source_decl = method->decl;
         lowered->this_owner = target->this_owner;
         lowered->this_adjustment = target->this_adjustment;
         lowered->next = NULL;
@@ -2111,9 +2114,11 @@ static void register_inline_class_releases(CxxClass* cls) {
         lowered->return_type = return_type;
         lowered->field = field;
         lowered->function_decl = NULL;
+        lowered->source_decl = method->decl;
         lowered->kind = TYPE_METHOD_FIELD_RELEASE;
         lowered->constant = invalid;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->is_noexcept = method->is_noexcept;
         lowered->this_owner = NULL;
         lowered->this_adjustment = 0;
         lowered->next = NULL;
@@ -2521,6 +2526,7 @@ static void register_inline_class_closes(CxxClass* cls) {
         lowered->return_type = return_type;
         lowered->field = field;
         lowered->function_decl = NULL;
+        lowered->source_decl = method->decl;
         lowered->kind = TYPE_METHOD_FIELD_CLOSE;
         lowered->constant = cls->type->cleanup_invalid;
         lowered->cleanup_function = cls->type->cleanup_function;
@@ -2615,6 +2621,7 @@ static void register_inline_class_close_delegates(CxxClass* cls) {
         lowered->name = cxx_method_source_name(method);
         lowered->return_type = method->decl->type->ret_type;
         lowered->cxx_access = (unsigned char)member->access;
+        lowered->source_decl = method->decl;
         lowered->this_owner = target->this_owner;
         lowered->this_adjustment = target->this_adjustment;
         lowered->next = NULL;
@@ -3262,6 +3269,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         int param_idx = 0;
         bool saw_default = false;
         ParsedConstructorInitializer constructor_initializer = {0};
+        Expr* noexcept_expr = NULL;
 
         if (!check(TOK_RPAREN)) {
             if (check(TOK_VOID) && parser.cur->next && parser.cur->next->type == TOK_RPAREN) {
@@ -3299,9 +3307,12 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             else if (match(TOK_OVERRIDE)) is_override = true;
             else if (match(TOK_FINAL)) is_final = true;
             else if (match(TOK_NOEXCEPT)) {
-                is_noexcept = true;
                 if (check(TOK_LPAREN)) {
-                    skip_balanced(TOK_LPAREN, TOK_RPAREN);
+                    advance();
+                    noexcept_expr = parse_expression();
+                    expect(TOK_RPAREN, ")");
+                } else {
+                    is_noexcept = true;
                 }
             } else break;
         }
@@ -3369,6 +3380,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_override = is_override;
         method->is_final = is_final;
         method->is_noexcept = is_noexcept;
+        method->decl->func_is_noexcept = is_noexcept;
+        method->decl->func_noexcept_expr = noexcept_expr;
         method->is_pure_virtual = is_pure;
         method->is_deleted = is_deleted;
         method->is_defaulted = is_defaulted;
@@ -4199,6 +4212,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     bool is_inline = false;
     bool is_auto_return = false;
     bool is_decltype_auto_return = false;
+    Expr* noexcept_expr = NULL;
 
     *is_constexpr = false;
     *is_noexcept = false;
@@ -4248,9 +4262,12 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         is_decltype_auto_return = false;
     }
     if (match(TOK_NOEXCEPT)) {
-        *is_noexcept = true;
         if (check(TOK_LPAREN)) {
-            skip_balanced(TOK_LPAREN, TOK_RPAREN);
+            advance();
+            noexcept_expr = parse_expression();
+            expect(TOK_RPAREN, ")");
+        } else {
+            *is_noexcept = true;
         }
     }
     /* Emit only the verified non-dependent header subset.  Incomplete class
@@ -4282,6 +4299,8 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     function->decl->func_is_inline = is_inline;
     function->decl->func_is_constexpr = *is_constexpr;
     function->decl->func_is_consteval = *is_consteval;
+    function->decl->func_is_noexcept = *is_noexcept;
+    function->decl->func_noexcept_expr = noexcept_expr;
     function->decl->func_is_auto_return = is_auto_return;
     function->decl->func_is_decltype_auto_return = is_decltype_auto_return;
     return function->decl;
@@ -5117,6 +5136,7 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_constexpr = method->is_constexpr;
     copy->is_explicit = method->is_explicit;
     copy->is_noexcept = method->is_noexcept;
+    copy->decl->func_is_noexcept = copy->is_noexcept;
     copy->is_deleted = method->is_deleted;
     copy->is_defaulted = method->is_defaulted;
     copy->is_constructor = method->is_constructor;
@@ -5126,6 +5146,9 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->decl->func_is_auto_return = method->decl->func_is_auto_return;
     copy->decl->func_is_decltype_auto_return =
         method->decl->func_is_decltype_auto_return;
+    copy->decl->func_noexcept_expr = cxx_template_clone_expr_with_values(
+        tmpl, method->decl->func_noexcept_expr, arguments, argument_count,
+        value_args, value_present);
     copy->vtable_index = method->vtable_index;
     copy->decl->func_body = cxx_template_clone_stmt_with_values(
         tmpl, method->decl->func_body, arguments, argument_count,

@@ -1214,6 +1214,16 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             return lower_integer_constant(context, type,
                                           expression->type->is_unsigned,
                                           (uint64_t)expression->int_val);
+        case EXPR_NOEXCEPT:
+            if (!expression->cxx_noexcept_value_valid ||
+                !lower_type(expression->type, &type) ||
+                type.kind != RCC_IR_TYPE_INTEGER) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            return lower_integer_constant(
+                context, type, expression->type->is_unsigned,
+                expression->cxx_noexcept_value ? 1u : 0u);
         case EXPR_CHAR_LIT:
             if (!lower_type(expression->type, &type)) {
                 context->unsupported = true;
