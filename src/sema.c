@@ -589,6 +589,16 @@ static bool sema_statement_has_current_switch_label(Stmt* statement) {
     }
 }
 
+static bool sema_decl_has_scope_cleanup(const Decl* declaration) {
+    if (!declaration || declaration->kind != DECL_VAR) return false;
+    if (declaration->var_cleanup) return true;
+    for (const ExprList* item = declaration->var_cleanups; item;
+         item = item->next) {
+        if (item->expr) return true;
+    }
+    return false;
+}
+
 static bool sema_switch_cleanup_scopes_safe(Stmt* statement,
                                             bool label_scope) {
     if (!statement) return true;
@@ -609,8 +619,7 @@ static bool sema_switch_cleanup_scopes_safe(Stmt* statement,
             return true;
         }
         case STMT_DECL:
-            return !label_scope || !statement->decl ||
-                   !statement->decl->var_cleanup;
+            return !label_scope || !sema_decl_has_scope_cleanup(statement->decl);
         case STMT_CASE:
             return sema_switch_cleanup_scopes_safe(statement->case_stmt,
                                                    label_scope);
@@ -9856,6 +9865,14 @@ static void sema_initializer(Type* type, Expr* initializer) {
     if (initializer->kind != EXPR_COMPOUND) {
         sema_expr(initializer);
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            if (rcc_parser_is_cxx_mode() && type->cxx_class &&
+                initializer->type && type_is_compatible(type, initializer->type) &&
+                !sema_cxx_trivially_copyable(type, 0) &&
+                sema_cxx_type_has_destructor_cleanup(type, 0)) {
+                rcc_error(initializer->loc,
+                          "C++ scope-cleanup object requires a validated direct constructor");
+                return;
+            }
             if (!type_is_compatible(type, initializer->type)) {
                 rcc_error(initializer->loc,
                           "incompatible aggregate copy initialization");
@@ -10213,6 +10230,8 @@ static void sema_collect_cleanup_gotos(Stmt* statement,
                                        SemaCleanupPath** active,
                                        SemaCleanupGotoContext* context) {
     SemaCleanupPath* marker;
+    Decl* declaration;
+    ExprList* cleanup_item;
     if (!statement) return;
     switch (statement->kind) {
         case STMT_BLOCK:
@@ -10271,12 +10290,25 @@ static void sema_collect_cleanup_gotos(Stmt* statement,
             break;
         }
         case STMT_DECL:
-            if (statement->decl && statement->decl->var_cleanup) {
+            declaration = statement->decl;
+            if (declaration && declaration->kind == DECL_VAR &&
+                declaration->var_cleanup) {
                 SemaCleanupPath* path = rcc_alloc(sizeof(*path));
                 path->previous = *active;
                 path->allocation_next = context->allocations;
                 context->allocations = path;
                 *active = path;
+            }
+            if (declaration && declaration->kind == DECL_VAR) {
+                for (cleanup_item = declaration->var_cleanups;
+                     cleanup_item; cleanup_item = cleanup_item->next) {
+                    if (!cleanup_item->expr) continue;
+                    SemaCleanupPath* path = rcc_alloc(sizeof(*path));
+                    path->previous = *active;
+                    path->allocation_next = context->allocations;
+                    context->allocations = path;
+                    *active = path;
+                }
             }
             break;
         default:
