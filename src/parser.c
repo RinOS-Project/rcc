@@ -1135,13 +1135,16 @@ static Expr* parse_postfix_tail(Expr* e) {
                 do {
                     Expr* arg = parse_assignment();
                     if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
-                        if (!arg || arg->kind != EXPR_IDENT ||
-                            !arg->ident_name) {
-                            rcc_error(arg ? arg->loc : loc,
-                                      "C++ pack expansion requires a named parameter pack");
-                        } else {
+                        if (!arg) {
+                            rcc_error(loc,
+                                      "C++ pack expansion requires an expression pattern");
+                        } else if (arg->kind == EXPR_IDENT &&
+                                   arg->ident_name) {
                             arg->cxx_pack_expansion = true;
                             arg->cxx_pack_expansion_name = arg->ident_name;
+                        } else {
+                            arg->cxx_pack_expansion = true;
+                            arg->cxx_pack_expansion_pattern = arg;
                         }
                     }
                     exprlist_append(&args, arg);

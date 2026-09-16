@@ -433,6 +433,10 @@ struct Expr {
      * single scalar argument. */
     bool cxx_pack_expansion;
     const char* cxx_pack_expansion_name;
+    /* The complete expression before `...` for a call-argument pack
+     * expansion such as `(args + 1)...`.  A NULL pattern means the legacy
+     * named-pack form `args...`. */
+    Expr* cxx_pack_expansion_pattern;
     /* Automatic storage used to materialize an aggregate rvalue.  A zero
      * value means that codegen has not assigned a slot; negative values are
      * frame-relative displacements, matching the other expression spills. */

@@ -12,6 +12,11 @@ int forward_three(Ts... args) {
     return add_three(args...);
 }
 
+template<typename... Ts>
+int forward_offset_three(Ts... args) {
+    return add_three((args + 1)...);
+}
+
 template<int... Ns>
 int value_sum() {
     return (10 + ... + Ns);
@@ -61,6 +66,7 @@ int main(void) {
     return arity(1, 2, 3) == 3 && arity() == 0 &&
            arity<int, long>(1, 2) == 2 && sum(1, 2, 3) == 6 &&
            forward_three(1, 2, 3) == 6 &&
+           forward_offset_three(1, 2, 3) == 9 &&
            value_sum<>() == 10 && value_sum<1, 2, 3>() == 16 &&
            value_size<1, 2, 3>() == 3 && value_size<>() == 0 &&
            value_pack_class<>::value == 0 &&

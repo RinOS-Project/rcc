@@ -1581,6 +1581,277 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  const int64_t* value_args,
                                  const bool* value_present);
 
+static bool template_expr_contains_identifier(Expr* expression,
+                                               const char* name) {
+    if (!expression || !name) return false;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            return expression->ident_name &&
+                   strcmp(expression->ident_name, name) == 0;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            return template_expr_contains_identifier(
+                expression->unary_operand, name);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            return template_expr_contains_identifier(
+                       expression->binary_lhs, name) ||
+                   template_expr_contains_identifier(
+                       expression->binary_rhs, name);
+        case EXPR_COND:
+            return template_expr_contains_identifier(
+                       expression->cond_test, name) ||
+                   template_expr_contains_identifier(
+                       expression->cond_then, name) ||
+                   template_expr_contains_identifier(
+                       expression->cond_else, name);
+        case EXPR_CALL:
+            if (template_expr_contains_identifier(expression->call_func, name)) {
+                return true;
+            }
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (template_expr_contains_identifier(argument->expr, name)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_INDEX:
+            return template_expr_contains_identifier(
+                       expression->index_base, name) ||
+                   template_expr_contains_identifier(
+                       expression->index_expr, name);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return template_expr_contains_identifier(
+                expression->member_base, name);
+        case EXPR_CAST:
+            return template_expr_contains_identifier(
+                expression->cast_expr, name);
+        case EXPR_COMPOUND:
+            for (ExprList* item = expression->compound_init; item;
+                 item = item->next) {
+                if (template_expr_contains_identifier(item->expr, name)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_GENERIC:
+            if (template_expr_contains_identifier(
+                    expression->generic_control, name)) {
+                return true;
+            }
+            for (GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                if (template_expr_contains_identifier(association->expr, name)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_CXX_FOLD:
+            return template_expr_contains_identifier(
+                expression->cxx_fold_init, name);
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return template_expr_contains_identifier(
+                       expression->va_list_operand, name) ||
+                   template_expr_contains_identifier(
+                       expression->va_second_operand, name);
+        default:
+            return false;
+    }
+}
+
+static void template_replace_pack_identifier(Expr* expression,
+                                              const char* pack_name,
+                                              const char* argument_name) {
+    if (!expression || !pack_name || !argument_name) return;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            if (expression->ident_name &&
+                strcmp(expression->ident_name, pack_name) == 0) {
+                expression->ident_name = rcc_intern(argument_name);
+                expression->ident_decl = NULL;
+            }
+            return;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            template_replace_pack_identifier(
+                expression->unary_operand, pack_name, argument_name);
+            return;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            template_replace_pack_identifier(
+                expression->binary_lhs, pack_name, argument_name);
+            template_replace_pack_identifier(
+                expression->binary_rhs, pack_name, argument_name);
+            return;
+        case EXPR_COND:
+            template_replace_pack_identifier(
+                expression->cond_test, pack_name, argument_name);
+            template_replace_pack_identifier(
+                expression->cond_then, pack_name, argument_name);
+            template_replace_pack_identifier(
+                expression->cond_else, pack_name, argument_name);
+            return;
+        case EXPR_CALL:
+            template_replace_pack_identifier(
+                expression->call_func, pack_name, argument_name);
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                template_replace_pack_identifier(
+                    argument->expr, pack_name, argument_name);
+            }
+            return;
+        case EXPR_INDEX:
+            template_replace_pack_identifier(
+                expression->index_base, pack_name, argument_name);
+            template_replace_pack_identifier(
+                expression->index_expr, pack_name, argument_name);
+            return;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            template_replace_pack_identifier(
+                expression->member_base, pack_name, argument_name);
+            return;
+        case EXPR_CAST:
+            template_replace_pack_identifier(
+                expression->cast_expr, pack_name, argument_name);
+            return;
+        case EXPR_COMPOUND:
+            for (ExprList* item = expression->compound_init; item;
+                 item = item->next) {
+                template_replace_pack_identifier(
+                    item->expr, pack_name, argument_name);
+            }
+            return;
+        case EXPR_GENERIC:
+            template_replace_pack_identifier(
+                expression->generic_control, pack_name, argument_name);
+            for (GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                template_replace_pack_identifier(
+                    association->expr, pack_name, argument_name);
+            }
+            return;
+        case EXPR_CXX_FOLD:
+            template_replace_pack_identifier(
+                expression->cxx_fold_init, pack_name, argument_name);
+            return;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            template_replace_pack_identifier(
+                expression->va_list_operand, pack_name, argument_name);
+            template_replace_pack_identifier(
+                expression->va_second_operand, pack_name, argument_name);
+            return;
+        default:
+            return;
+    }
+}
+
+static Expr* template_clone_pack_pattern(
+    CxxTemplate* tmpl, Expr* pattern, const char* pack_name, int index,
+    Type** args, int arg_count, const int64_t* value_args,
+    const bool* value_present) {
+    char name[64];
+    int written;
+    Expr* copy;
+    if (!pattern || !pack_name) return NULL;
+    written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
+    if (written < 0 || (size_t)written >= sizeof(name)) return NULL;
+    copy = template_clone_expr(tmpl, pattern, args, arg_count,
+                               value_args, value_present);
+    if (!copy) return NULL;
+    template_replace_pack_identifier(copy, pack_name, name);
+    copy->cxx_pack_expansion = false;
+    copy->cxx_pack_expansion_name = NULL;
+    copy->cxx_pack_expansion_pattern = NULL;
+    return copy;
+}
+
 static Expr* template_clone_pack_fold(
     CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present) {
@@ -1693,6 +1964,8 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
     ExprList** tail = &result;
     for (; list; list = list->next) {
         if (list->expr && list->expr->cxx_pack_expansion) {
+            const char* pack_name = list->expr->cxx_pack_expansion_name;
+            int pack_matches = 0;
             if (list->designator_kind != INIT_DESIGNATOR_NONE) {
                 rcc_error(list->expr->loc,
                           "C++ pack expansion cannot carry an initializer designator");
@@ -1704,20 +1977,39 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
                           "C++ pack expansion requires a function-template specialization");
                 continue;
             }
+            if (!pack_name && list->expr->cxx_pack_expansion_pattern) {
+                for (DeclList* parameter = tmpl->func_def->func_params;
+                     parameter; parameter = parameter->next) {
+                    if (parameter->decl && parameter->decl->param_is_pack &&
+                        parameter->decl->name &&
+                        template_expr_contains_identifier(
+                            list->expr->cxx_pack_expansion_pattern,
+                            parameter->decl->name)) {
+                        pack_name = parameter->decl->name;
+                        ++pack_matches;
+                    }
+                }
+                if (pack_matches != 1) {
+                    rcc_error(list->expr->loc,
+                              pack_matches == 0
+                                  ? "C++ pack expansion pattern does not name a parameter pack"
+                                  : "C++ pack expansion pattern names multiple parameter packs");
+                    continue;
+                }
+            }
             {
                 bool found = false;
                 for (DeclList* parameter = tmpl->func_def->func_params;
                      parameter; parameter = parameter->next) {
                     if (parameter->decl && parameter->decl->param_is_pack &&
                         parameter->decl->name &&
-                        list->expr->cxx_pack_expansion_name &&
-                        strcmp(parameter->decl->name,
-                               list->expr->cxx_pack_expansion_name) == 0) {
+                        pack_name &&
+                        strcmp(parameter->decl->name, pack_name) == 0) {
                         found = true;
                         break;
                     }
                 }
-                if (!found) {
+                if (!found || !pack_name) {
                     rcc_error(list->expr->loc,
                               "C++ pack expansion names a non-pack parameter");
                     continue;
@@ -1735,7 +2027,17 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
                 }
                 copy = ast_arena_alloc(sizeof(*copy));
                 *copy = *list;
-                copy->expr = expr_ident(rcc_intern(name), list->expr->loc);
+                copy->expr = list->expr->cxx_pack_expansion_pattern
+                    ? template_clone_pack_pattern(
+                          tmpl, list->expr->cxx_pack_expansion_pattern,
+                          pack_name, index, args, arg_count, value_args,
+                          value_present)
+                    : expr_ident(rcc_intern(name), list->expr->loc);
+                if (!copy->expr) {
+                    rcc_error(list->expr->loc,
+                              "C++ pack expansion pattern could not be cloned");
+                    break;
+                }
                 copy->next = NULL;
                 *tail = copy;
                 tail = &copy->next;
