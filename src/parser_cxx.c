@@ -343,38 +343,61 @@ static ExprKind cxx_fold_operator_kind(TokenType token) {
     }
 }
 
-/* Claim only the unambiguous unary left-fold spelling.  Other parenthesized
- * expressions remain on the common precedence parser; an unsupported fold
- * operator is diagnosed here instead of being reinterpreted as a scalar. */
+/* Claim only unary fold spellings.  Other parenthesized expressions remain on
+ * the common precedence parser; an unsupported fold operator is diagnosed
+ * here instead of being reinterpreted as a scalar. */
 Expr* rcc_parse_cxx_fold_expression(void) {
     SourceLoc loc;
     ExprKind operator_kind;
     const char* pack_name;
 
-    if (!check(TOK_LPAREN) || !parser.cur->next ||
-        parser.cur->next->type != TOK_ELLIPSIS) {
+    if (!check(TOK_LPAREN) || !parser.cur->next) return NULL;
+    if (parser.cur->next->type == TOK_ELLIPSIS) {
+        loc = peek()->loc;
+        advance(); /* ( */
+        advance(); /* ... */
+        operator_kind = cxx_fold_operator_kind(peek()->type);
+        if (operator_kind == EXPR_INT_LIT) {
+            rcc_error(peek()->loc,
+                      "unsupported C++ fold operator; expected a binary operator");
+            if (!at_end()) advance();
+        } else {
+            advance();
+        }
+        if (!check(TOK_IDENT)) {
+            rcc_error(peek()->loc,
+                      "C++ fold expression requires a parameter pack name");
+            while (!check(TOK_RPAREN) && !at_end()) advance();
+            expect(TOK_RPAREN, ")");
+            return expr_cxx_fold(NULL, EXPR_ADD, true, loc);
+        }
+        pack_name = advance()->value.str_val;
+        expect(TOK_RPAREN, ")");
+        return expr_cxx_fold(pack_name, operator_kind, true, loc);
+    }
+
+    /* A unary right fold has the spelling `(pack op ...)`.  Require the
+     * ellipsis immediately before the closing parenthesis so ordinary
+     * parenthesized expressions are left to the normal parser. */
+    if (parser.cur->next->type != TOK_IDENT ||
+        !parser.cur->next->next || !parser.cur->next->next->next ||
+        parser.cur->next->next->next->type != TOK_ELLIPSIS) {
         return NULL;
     }
     loc = peek()->loc;
     advance(); /* ( */
-    advance(); /* ... */
+    pack_name = advance()->value.str_val;
     operator_kind = cxx_fold_operator_kind(peek()->type);
     if (operator_kind == EXPR_INT_LIT) {
         rcc_error(peek()->loc,
                   "unsupported C++ fold operator; expected a binary operator");
+        if (!at_end()) advance();
     } else {
         advance();
     }
-    if (!check(TOK_IDENT)) {
-        rcc_error(peek()->loc,
-                  "C++ fold expression requires a parameter pack name");
-        while (!check(TOK_RPAREN) && !at_end()) advance();
-        expect(TOK_RPAREN, ")");
-        return expr_cxx_fold(NULL, EXPR_ADD, true, loc);
-    }
-    pack_name = advance()->value.str_val;
+    expect(TOK_ELLIPSIS, "...");
     expect(TOK_RPAREN, ")");
-    return expr_cxx_fold(pack_name, operator_kind, true, loc);
+    return expr_cxx_fold(pack_name, operator_kind, false, loc);
 }
 
 /* Forward declarations */

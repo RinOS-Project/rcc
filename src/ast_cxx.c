@@ -1496,7 +1496,27 @@ static Expr* template_clone_pack_fold(CxxTemplate* tmpl, Expr* expression) {
         result->type = type_int;
         return result;
     }
-    for (int index = 0; index < tmpl->pending_pack_count; ++index) {
+    if (expression->cxx_fold_left) {
+        for (int index = 0; index < tmpl->pending_pack_count; ++index) {
+            char name[64];
+            int written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
+            Expr* item;
+            if (written < 0 || (size_t)written >= sizeof(name)) {
+                rcc_error(expression->loc,
+                          "C++ fold parameter name is too long");
+                return expression;
+            }
+            item = expr_ident(rcc_intern(name), expression->loc);
+            if (!result) {
+                result = item;
+            } else {
+                result = expr_binary(expression->cxx_fold_operator,
+                                     result, item, expression->loc);
+            }
+        }
+        return result;
+    }
+    for (int index = tmpl->pending_pack_count - 1; index >= 0; --index) {
         char name[64];
         int written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
         Expr* item;
@@ -1506,12 +1526,9 @@ static Expr* template_clone_pack_fold(CxxTemplate* tmpl, Expr* expression) {
             return expression;
         }
         item = expr_ident(rcc_intern(name), expression->loc);
-        if (!result) {
-            result = item;
-        } else {
-            result = expr_binary(expression->cxx_fold_operator,
-                                 result, item, expression->loc);
-        }
+        if (!result) result = item;
+        else result = expr_binary(expression->cxx_fold_operator,
+                                  item, result, expression->loc);
     }
     return result;
 }
