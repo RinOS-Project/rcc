@@ -6703,6 +6703,27 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
         emit_pop_reg(mod, EAX);
         return;
     }
+    if (expr->call_new_copy_init) {
+        if (!argument || argument->next ||
+            (object_type->kind != TYPE_STRUCT &&
+             object_type->kind != TYPE_UNION)) {
+            rcc_fatal("validated C++ new copy initializer metadata is incomplete");
+        }
+        gen_lvalue(mod, argument->expr);
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        for (int offset = 0; offset + 4 <= object_type->size; offset += 4) {
+            emit_mov_reg_mem(mod, EAX, EDX, offset);
+            emit_mov_mem_reg(mod, ECX, offset, EAX);
+        }
+        for (int offset = (object_type->size / 4) * 4;
+             offset < object_type->size; ++offset) {
+            emit_load_typed32(mod, EAX, EDX, offset, type_uchar);
+            emit_mov_mem_reg8(mod, ECX, offset, EAX);
+        }
+        emit_pop_reg(mod, EAX);
+        return;
+    }
     emit_mov_reg_imm(mod, EAX, 0u);
     if (object_type->kind == TYPE_STRUCT ||
         object_type->kind == TYPE_UNION) {
@@ -9132,6 +9153,27 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         gen_cxx_initialize_object32(
             mod, type, initializer->compound_constructor,
             initializer->compound_value_init ? NULL : initializer->compound_init);
+        return true;
+    }
+    if (initializer->kind == EXPR_COMPOUND && initializer->compound_copy_init &&
+        initializer->compound_init && !initializer->compound_init->next &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->type &&
+        type_is_compatible(type, initializer->compound_init->expr->type) &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        int offset = 0;
+        gen_lvalue(mod, initializer->compound_init->expr);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        while (offset + 4 <= type->size) {
+            emit_mov_reg_mem(mod, EAX, ECX, offset);
+            emit_mov_mem_reg(mod, EBP, displacement + offset, EAX);
+            offset += 4;
+        }
+        while (offset < type->size) {
+            emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
+            emit_mov_mem_reg8(mod, EBP, displacement + offset, EAX);
+            ++offset;
+        }
         return true;
     }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;

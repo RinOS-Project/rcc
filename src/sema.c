@@ -5285,10 +5285,29 @@ static bool sema_cxx_trivially_destructible(Type* type, int depth) {
     return true;
 }
 
-/* Object exceptions use an owned byte copy in the target runtime.  Restrict
- * this ABI extension to complete aggregate types whose fields do not carry
- * user-defined lifetime state; such objects can be copied and destroyed
- * without invoking a constructor, destructor, or hidden ownership hook. */
+/* A bytewise copy is valid for a trivially copyable aggregate.  An ordinary
+ * user constructor does not make the implicit copy constructor non-trivial;
+ * only an explicitly declared copy/move constructor, a virtual layout, or a
+ * user-defined destructor changes the copy semantics represented here. */
+static bool sema_cxx_has_user_copy_constructor(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls) return false;
+    for (CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        TypeParam* parameter = constructor->parameters;
+        Type* parameter_type = parameter ? parameter->type : NULL;
+        if (constructor->parameter_count == 1 && parameter &&
+            !parameter->next && parameter_type &&
+            parameter_type->kind == TYPE_PTR && parameter_type->is_reference &&
+            parameter_type->base && type_is_compatible(parameter_type->base,
+                                                        type) &&
+            !constructor->is_defaulted) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool sema_cxx_trivially_copyable(Type* type, int depth) {
     CxxClass* cls;
     if (!type || depth > 32) return false;
@@ -5301,7 +5320,7 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
         return false;
     }
     cls = type->cxx_class;
-    if (cls && (cls->has_user_constructor || cls->has_field_initializer ||
+    if (cls && (sema_cxx_has_user_copy_constructor(type) ||
                 cls->vtable_size > 0 || cls->destructor_method)) {
         return false;
     }
@@ -8436,8 +8455,20 @@ static Type* sema_expr(Expr* expr) {
                     cls->has_field_initializer) {
                     expr->call_new_default_member_initializers = true;
                 }
+                if (object_type->cxx_class && argument_count == 1 &&
+                    expr->call_new_args && expr->call_new_args->expr &&
+                    expr->call_new_args->expr->type &&
+                    type_is_compatible(object_type,
+                                       expr->call_new_args->expr->type) &&
+                    sema_cxx_trivially_copyable(object_type, 0)) {
+                    /* A same-type argument selects the implicitly declared
+                     * copy constructor even when the class also has ordinary
+                     * converting constructors. */
+                    expr->call_new_copy_init = true;
+                }
                 if (object_type->cxx_nontrivial &&
                     !expr->call_new_default_member_initializers &&
+                    !expr->call_new_copy_init &&
                     (!cls || !rcc_parser_cxx_constructor_arity_mask(object_type)) &&
                     !(expr->call_new_is_array &&
                       cls && !cls->constructors &&
@@ -8448,7 +8479,8 @@ static Type* sema_expr(Expr* expr) {
                               "new for this C++ object requires an unsupported constructor or destructor ABI");
                     return expr->type;
                 }
-                if (cls && cls->constructors && !expr->call_new_is_array) {
+                if (cls && cls->constructors && !expr->call_new_is_array &&
+                    !expr->call_new_copy_init) {
                     constructor = sema_select_cxx_new_constructor(
                         object_type, &expr->call_new_args, expr->loc);
                     if (argument_count != 0 || expr->call_new_value_init ||
@@ -8469,6 +8501,7 @@ static Type* sema_expr(Expr* expr) {
                         expr->call_new_constructor = constructor;
                     }
                 } else if (argument_count != 0 &&
+                           !expr->call_new_copy_init &&
                            !sema_validate_cxx_new_arguments(
                                object_type, expr->call_new_args, NULL)) {
                     rcc_error(expr->loc,
@@ -9897,6 +9930,25 @@ static void sema_initializer(Type* type, Expr* initializer) {
         return;
     }
     initializer->type = type;
+    /* A class with an ordinary converting constructor still receives an
+     * implicit copy constructor.  Treat a same-type one-argument initializer
+     * as that copy only after proving the complete object is trivially
+     * copyable; otherwise the normal constructor overload path remains in
+     * charge and reports unsupported user-defined copy semantics. */
+    if (rcc_parser_is_cxx_mode() && type->cxx_class &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->compound_init &&
+        !initializer->compound_init->next &&
+        initializer->compound_init->designator_kind ==
+            INIT_DESIGNATOR_NONE && initializer->compound_init->expr) {
+        Expr* source = initializer->compound_init->expr;
+        sema_expr(source);
+        if (source->type && type_is_compatible(type, source->type) &&
+            sema_cxx_trivially_copyable(type, 0)) {
+            initializer->compound_copy_init = true;
+            return;
+        }
+    }
     if (rcc_parser_is_cxx_mode() && type->cxx_class &&
         type->cxx_class->has_user_constructor &&
         (!initializer->compound_value_init ||

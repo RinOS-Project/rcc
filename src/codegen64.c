@@ -1755,6 +1755,33 @@ static bool gen64_local_initializer(Module* mod, Type* type,
             initializer->compound_value_init ? NULL : initializer->compound_init);
         return true;
     }
+    if (initializer->kind == EXPR_COMPOUND && initializer->compound_copy_init &&
+        initializer->compound_init && !initializer->compound_init->next &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->type &&
+        type_is_compatible(type, initializer->compound_init->expr->type) &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        int offset = 0;
+        gen64_lvalue(mod, initializer->compound_init->expr);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        for (; offset + 8 <= type->size; offset += 8) {
+            emit64_mov_reg_mem(mod, RAX, RCX, offset);
+            emit64_mov_mem_reg(mod, RBP, displacement + offset, RAX);
+        }
+        if (offset + 4 <= type->size) {
+            emit64_mov_reg_mem(mod, RAX, RCX, offset);
+            emit64_store_typed(mod, RBP, displacement + offset,
+                               RAX, type_uint);
+            offset += 4;
+        }
+        while (offset < type->size) {
+            emit64_load_typed(mod, RAX, RCX, offset, type_uchar);
+            emit64_store_typed(mod, RBP, displacement + offset,
+                               RAX, type_uchar);
+            ++offset;
+        }
+        return true;
+    }
     if (gen64_aggregate_zero_initializer(type, initializer)) return true;
     if (type->kind == TYPE_PTR && type->is_reference) {
         gen64_lvalue(mod, initializer);
@@ -3840,6 +3867,33 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         gen64_cxx_initialize_object(mod, object_type,
                                      expr->call_new_constructor,
                                      argument);
+        emit64_pop_reg(mod, RAX);
+        return;
+    }
+    if (expr->call_new_copy_init) {
+        if (!argument || argument->next ||
+            (object_type->kind != TYPE_STRUCT &&
+             object_type->kind != TYPE_UNION)) {
+            rcc_fatal("validated C++ new copy initializer metadata is incomplete");
+        }
+        gen64_lvalue(mod, argument->expr);
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        int offset = 0;
+        for (; offset + 8 <= object_type->size; offset += 8) {
+            emit64_mov_reg_mem(mod, RAX, RDX, offset);
+            emit64_mov_mem_reg(mod, RCX, offset, RAX);
+        }
+        if (offset + 4 <= object_type->size) {
+            emit64_mov_reg_mem(mod, RAX, RDX, offset);
+            emit64_store_typed(mod, RCX, offset, RAX, type_uint);
+            offset += 4;
+        }
+        while (offset < object_type->size) {
+            emit64_load_typed(mod, RAX, RDX, offset, type_uchar);
+            emit64_store_typed(mod, RCX, offset, RAX, type_uchar);
+            ++offset;
+        }
         emit64_pop_reg(mod, RAX);
         return;
     }
