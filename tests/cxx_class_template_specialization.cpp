@@ -100,10 +100,19 @@ constexpr AggregateBox<T> make_constexpr_aggregate_box(T first, T second) {
     return AggregateBox<T>{first, second};
 }
 
+template<typename T>
+consteval AggregateBox<T> make_consteval_aggregate_box(T first, T second) {
+    return AggregateBox<T>{first, second};
+}
+
 constexpr AggregateBox<int> constexpr_aggregate_box =
     make_constexpr_aggregate_box(9, 13);
 static_assert(constexpr_aggregate_box.first +
               constexpr_aggregate_box.second == 22);
+constexpr AggregateBox<int> consteval_aggregate_box =
+    make_consteval_aggregate_box(14, 28);
+static_assert(consteval_aggregate_box.first +
+              consteval_aggregate_box.second == 42);
 
 template<typename T, typename U = T>
 class DefaultType {
@@ -148,7 +157,9 @@ int main() {
                    default_type.kind() == 9 &&
                    aggregate_box.first + aggregate_box.second == 42 &&
                    constexpr_aggregate_box.first +
-                       constexpr_aggregate_box.second == 22
+                       constexpr_aggregate_box.second == 22 &&
+                   consteval_aggregate_box.first +
+                       consteval_aggregate_box.second == 42
                ? 0
                : 1;
 }
