@@ -2337,6 +2337,7 @@ static void codegen_emit_cxx_vbase_table(Module* mod, const char* symbol,
         codegen_emit_signed_rodata(mod, relative, pointer_size);
     }
     module_add_symbol(mod, symbol, offset, true, MODULE_SYMBOL_RODATA, true);
+    module_mark_symbol_weak(mod, symbol);
 }
 
 static void codegen_emit_cxx_vbase_tables_in_namespace(Module* mod,
@@ -2634,6 +2635,7 @@ static void codegen_emit_cxx_vtable_storage(Module* mod,
     }
     module_add_symbol(mod, metadata_symbol, metadata_offset, true,
                       MODULE_SYMBOL_RODATA, true);
+    module_mark_symbol_weak(mod, metadata_symbol);
     header_offset = (uint32_t)mod->rodata.size;
     emit_rodata(mod, zero, pointer_size);
     module_add_relocation(mod, MODULE_SYMBOL_RODATA, header_offset, 0u, false,
@@ -2645,6 +2647,7 @@ static void codegen_emit_cxx_vtable_storage(Module* mod,
         emit_rodata(mod, zero, pointer_size);
     }
     module_add_symbol(mod, symbol, offset, true, MODULE_SYMBOL_RODATA, true);
+    module_mark_symbol_weak(mod, symbol);
     for (int slot = 0; slot < size; ++slot) {
         CxxVtableEntry* entry = &entries[slot];
         CxxMethod* method = entry->method;

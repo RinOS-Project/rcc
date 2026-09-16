@@ -3566,6 +3566,12 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_destructor = is_destructor;
         method->decl->func_is_cxx_constructor = is_constructor;
         method->decl->func_is_cxx_destructor = is_destructor;
+        /* A function defined inside a class definition is implicitly inline
+         * in C++, even without the `inline` keyword.  Preserve that linkage
+         * property so identical in-class definitions from separate
+         * translation units are weak/ODR definitions rather than strong
+         * duplicate symbols. */
+        method->decl->func_is_inline = body != NULL;
         method->owner = cls;
 
         if (is_constructor) cls->has_user_constructor = true;
