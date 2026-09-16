@@ -23,6 +23,10 @@ constexpr FloatPair make_float_pair(float first, double second) {
     return FloatPair{first, second};
 }
 
+consteval FloatPair make_consteval_float_pair(float first, double second) {
+    return FloatPair{first, second};
+}
+
 constexpr Pair make_mutated_pair(int value) {
     Pair result{value, value + 1};
     result.first += 2;
@@ -36,6 +40,7 @@ constexpr Pair returned_pair = make_pair(11, 13);
 constexpr Pair mutated_returned_pair = make_mutated_pair(20);
 constexpr FloatPair float_pair{1.25f, 2.5};
 constexpr FloatPair returned_float_pair = make_float_pair(1.5f, 2.25);
+constexpr FloatPair consteval_float_pair = make_consteval_float_pair(2.5f, 3.75);
 constexpr int first_value = pair.first;
 constexpr int second_value = pair.second + 1;
 constexpr int nested_value = nested.pair.second + nested.tail;
@@ -45,6 +50,8 @@ constexpr int mutated_returned_value =
 constexpr float float_first_value = float_pair.first;
 constexpr double float_returned_value =
     returned_float_pair.first + returned_float_pair.second;
+constexpr double consteval_float_value =
+    consteval_float_pair.first + consteval_float_pair.second;
 constexpr int array_values[3] = {8, 9, 10};
 constexpr int array_value = array_values[1] + array_values[2];
 
@@ -73,6 +80,7 @@ static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
 static_assert(mutated_returned_pair.first == 22 &&
               mutated_returned_pair.second == 22);
+static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
 static_assert(mutated_pair_value == 56);
@@ -84,6 +92,7 @@ int main(void) {
                    returned_value == 24 && mutated_returned_value == 44 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
+                   consteval_float_value == 6.25 &&
                    mutated_pair_value == 56 && mutated_array_value == 18
                ? 0 : 1;
 }
