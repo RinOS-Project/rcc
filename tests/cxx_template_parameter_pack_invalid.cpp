@@ -1,4 +1,4 @@
 template<int... Ns>
-int invalid_pack() {
-    return 0;
-}
+struct invalid_class_pack {
+    int value;
+};

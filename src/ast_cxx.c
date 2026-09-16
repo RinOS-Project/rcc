@@ -435,6 +435,10 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                    tmpl->params[index].is_pack &&
                    tmpl->pending_pack_count >= 0) {
             has_type_argument = true;
+        } else if (tmpl->params[index].kind == TPARAM_NONTYPE &&
+                   tmpl->params[index].is_pack &&
+                   tmpl->pending_pack_count >= 0) {
+            has_value_argument = true;
         } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
                    type_args[index] &&
                    !cxx_function_template_parameter_is_in_signature(
@@ -482,6 +486,36 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             }
             memcpy(buf + pos, type_mangled, type_length);
             pos += type_length;
+            continue;
+        }
+        if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
+            char* type_mangled = cxx_mangle_type(parameter->type);
+            size_t type_length = type_mangled ? strlen(type_mangled) : 0u;
+            if (!type_mangled || pos + (type_length + 32u) *
+                    (size_t)tmpl->pending_pack_count >= sizeof(buf) - 32u) {
+                rcc_fatal("C++ template function name is too long");
+            }
+            for (int pack_index = 0;
+                 pack_index < tmpl->pending_pack_count; ++pack_index) {
+                buf[pos++] = 'L';
+                memcpy(buf + pos, type_mangled, type_length);
+                pos += type_length;
+                if (!tmpl->pending_pack_value_present ||
+                    !tmpl->pending_pack_value_present[pack_index]) {
+                    rcc_fatal("C++ non-type parameter pack value is missing");
+                }
+                if (tmpl->pending_pack_values[pack_index] < 0) {
+                    uint64_t magnitude = (uint64_t)(
+                        -(tmpl->pending_pack_values[pack_index] + 1)) + 1u;
+                    pos += (size_t)snprintf(
+                        buf + pos, sizeof(buf) - pos, "n%lluE",
+                        (unsigned long long)magnitude);
+                } else {
+                    pos += (size_t)snprintf(
+                        buf + pos, sizeof(buf) - pos, "%lldE",
+                        (long long)tmpl->pending_pack_values[pack_index]);
+                }
+            }
             continue;
         }
         if (parameter->kind == TPARAM_NONTYPE && value_present &&
@@ -1312,6 +1346,8 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->instances = NULL;
     tmpl->instance_count = 0;
     tmpl->pending_pack_args = NULL;
+    tmpl->pending_pack_values = NULL;
+    tmpl->pending_pack_value_present = NULL;
     tmpl->pending_pack_count = -1;
     return tmpl;
 }
@@ -1480,6 +1516,7 @@ static Expr* template_clone_pack_fold(
     const int64_t* value_args, const bool* value_present) {
     Expr* result = NULL;
     Expr* initializer = NULL;
+    TemplateParam* value_pack = NULL;
     if (!tmpl || !expression || !expression->cxx_fold_pack_name ||
         tmpl->pending_pack_count < 0) {
         rcc_error(expression ? expression->loc : (SourceLoc){"<template>", 0, 0},
@@ -1490,6 +1527,17 @@ static Expr* template_clone_pack_fold(
         initializer = template_clone_expr(
             tmpl, expression->cxx_fold_init, args, arg_count,
             value_args, value_present);
+    }
+    if (tmpl->kind == TMPL_FUNCTION && tmpl->params) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->is_pack &&
+                parameter->name &&
+                strcmp(parameter->name, expression->cxx_fold_pack_name) == 0) {
+                value_pack = parameter;
+                break;
+            }
+        }
     }
     if (tmpl->pending_pack_count == 0) {
         if (initializer) return initializer;
@@ -1516,7 +1564,19 @@ static Expr* template_clone_pack_fold(
                           "C++ fold parameter name is too long");
                 return expression;
             }
-            item = expr_ident(rcc_intern(name), expression->loc);
+            if (value_pack) {
+                if (!tmpl->pending_pack_value_present ||
+                    !tmpl->pending_pack_value_present[index]) {
+                    rcc_error(expression->loc,
+                              "C++ non-type parameter pack value is missing");
+                    return expression;
+                }
+                item = expr_int(tmpl->pending_pack_values[index],
+                                expression->loc);
+                item->type = value_pack->type ? value_pack->type : type_int;
+            } else {
+                item = expr_ident(rcc_intern(name), expression->loc);
+            }
             if (!result) {
                 result = item;
             } else {
@@ -1536,7 +1596,18 @@ static Expr* template_clone_pack_fold(
                       "C++ fold parameter name is too long");
             return expression;
         }
-        item = expr_ident(rcc_intern(name), expression->loc);
+        if (value_pack) {
+            if (!tmpl->pending_pack_value_present ||
+                !tmpl->pending_pack_value_present[index]) {
+                rcc_error(expression->loc,
+                          "C++ non-type parameter pack value is missing");
+                return expression;
+            }
+            item = expr_int(tmpl->pending_pack_values[index], expression->loc);
+            item->type = value_pack->type ? value_pack->type : type_int;
+        } else {
+            item = expr_ident(rcc_intern(name), expression->loc);
+        }
         if (!result) result = item;
         else result = expr_binary(expression->cxx_fold_operator,
                                   item, result, expression->loc);
@@ -2060,14 +2131,30 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                     tmpl->pending_pack_count) {
                 return false;
             }
-            for (int pack_index = 0;
-                 pack_index < tmpl->pending_pack_count; ++pack_index) {
-                if (!tmpl->pending_pack_args ||
-                    !tmpl->instances[instance_index].pack_args ||
-                    !type_is_compatible(
-                        tmpl->instances[instance_index].pack_args[pack_index],
-                        tmpl->pending_pack_args[pack_index])) {
-                    return false;
+            if (parameter->kind == TPARAM_TYPE) {
+                for (int pack_index = 0;
+                     pack_index < tmpl->pending_pack_count; ++pack_index) {
+                    if (!tmpl->pending_pack_args ||
+                        !tmpl->instances[instance_index].pack_args ||
+                        !type_is_compatible(
+                            tmpl->instances[instance_index].pack_args[pack_index],
+                            tmpl->pending_pack_args[pack_index])) {
+                        return false;
+                    }
+                }
+            } else {
+                for (int pack_index = 0;
+                     pack_index < tmpl->pending_pack_count; ++pack_index) {
+                    if (!tmpl->pending_pack_value_present ||
+                        !tmpl->pending_pack_value_present[pack_index] ||
+                        !tmpl->instances[instance_index].pack_value_present ||
+                        !tmpl->instances[instance_index].pack_value_present[pack_index] ||
+                        !tmpl->instances[instance_index].pack_values ||
+                        !tmpl->pending_pack_values ||
+                        tmpl->instances[instance_index].pack_values[pack_index] !=
+                            tmpl->pending_pack_values[pack_index]) {
+                        return false;
+                    }
                 }
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -2104,10 +2191,13 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->is_pack) {
             if (tmpl->pending_pack_count < 0 ||
-                (tmpl->pending_pack_count > 0 &&
-                 !tmpl->pending_pack_args)) {
+                (tmpl->pending_pack_count > 0 && parameter->kind == TPARAM_TYPE &&
+                 !tmpl->pending_pack_args) ||
+                (tmpl->pending_pack_count > 0 && parameter->kind == TPARAM_NONTYPE &&
+                 (!tmpl->pending_pack_values ||
+                  !tmpl->pending_pack_value_present))) {
                 rcc_error(template_loc,
-                          "function template type pack arguments are missing");
+                          "function template parameter pack arguments are missing");
                 return NULL;
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -2266,6 +2356,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         tmpl->instances[tmpl->instance_count].value_args = NULL;
         tmpl->instances[tmpl->instance_count].value_present = NULL;
         tmpl->instances[tmpl->instance_count].pack_args = NULL;
+        tmpl->instances[tmpl->instance_count].pack_values = NULL;
+        tmpl->instances[tmpl->instance_count].pack_value_present = NULL;
         tmpl->instances[tmpl->instance_count].pack_count =
             tmpl->pending_pack_count >= 0 ? tmpl->pending_pack_count : 0;
         if (arg_count > 0) {
@@ -2279,12 +2371,36 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                    value_present, sizeof(bool) * (size_t)arg_count);
         }
         if (tmpl->pending_pack_count > 0) {
-            tmpl->instances[tmpl->instance_count].pack_args =
-                ast_arena_alloc(sizeof(Type*) *
-                                (size_t)tmpl->pending_pack_count);
-            memcpy(tmpl->instances[tmpl->instance_count].pack_args,
-                   tmpl->pending_pack_args,
-                   sizeof(Type*) * (size_t)tmpl->pending_pack_count);
+            bool has_type_pack = false;
+            for (int parameter_index = 0;
+                 parameter_index < tmpl->param_count; ++parameter_index) {
+                if (tmpl->params[parameter_index].is_pack &&
+                    tmpl->params[parameter_index].kind == TPARAM_TYPE) {
+                    has_type_pack = true;
+                    break;
+                }
+            }
+            if (has_type_pack) {
+                tmpl->instances[tmpl->instance_count].pack_args =
+                    ast_arena_alloc(sizeof(Type*) *
+                                    (size_t)tmpl->pending_pack_count);
+                memcpy(tmpl->instances[tmpl->instance_count].pack_args,
+                       tmpl->pending_pack_args,
+                       sizeof(Type*) * (size_t)tmpl->pending_pack_count);
+            } else {
+                tmpl->instances[tmpl->instance_count].pack_values =
+                    ast_arena_alloc(sizeof(int64_t) *
+                                    (size_t)tmpl->pending_pack_count);
+                tmpl->instances[tmpl->instance_count].pack_value_present =
+                    ast_arena_alloc(sizeof(bool) *
+                                    (size_t)tmpl->pending_pack_count);
+                memcpy(tmpl->instances[tmpl->instance_count].pack_values,
+                       tmpl->pending_pack_values,
+                       sizeof(int64_t) * (size_t)tmpl->pending_pack_count);
+                memcpy(tmpl->instances[tmpl->instance_count].pack_value_present,
+                       tmpl->pending_pack_value_present,
+                       sizeof(bool) * (size_t)tmpl->pending_pack_count);
+            }
         }
         tmpl->instances[tmpl->instance_count].arg_count = arg_count;
         tmpl->instances[tmpl->instance_count].instantiated = instance;

@@ -12,6 +12,16 @@ int forward_three(Ts... args) {
     return add_three(args...);
 }
 
+template<int... Ns>
+int value_sum() {
+    return (10 + ... + Ns);
+}
+
+template<int... Ns>
+int value_size() {
+    return sizeof...(Ns);
+}
+
 template<typename... Ts>
 int sum(Ts... args) {
     return (... + args);
@@ -46,6 +56,8 @@ int main(void) {
     return arity(1, 2, 3) == 3 && arity() == 0 &&
            arity<int, long>(1, 2) == 2 && sum(1, 2, 3) == 6 &&
            forward_three(1, 2, 3) == 6 &&
+           value_sum<>() == 10 && value_sum<1, 2, 3>() == 16 &&
+           value_size<1, 2, 3>() == 3 && value_size<>() == 0 &&
            sum_right(1, 2, 3) == 6 && all(1, 1, 1) == 1 &&
            all() == 1 && any(0, 0, 1) == 1 && any() == 0 &&
            sum_left_seed() == 10 && sum_left_seed(1, 2, 3) == 16 &&

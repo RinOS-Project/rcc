@@ -4831,10 +4831,9 @@ CxxTemplate* parse_cxx_template(void) {
 
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (tmpl->params[index].is_pack &&
-            (tmpl->kind != TMPL_FUNCTION ||
-             tmpl->params[index].kind != TPARAM_TYPE)) {
+            tmpl->kind != TMPL_FUNCTION) {
             rcc_error(loc,
-                      "only type parameter packs in function templates are supported");
+                      "parameter packs are only supported in function templates");
         }
     }
 
@@ -6351,6 +6350,8 @@ typedef struct CxxFunctionTemplateMatch {
     CxxTemplate* tmpl;
     Type* arguments[32];
     Type* pack_arguments[32];
+    int64_t pack_values[32];
+    bool pack_value_present[32];
     int pack_count;
     int64_t values[32];
     bool value_present[32];
@@ -6494,13 +6495,17 @@ static bool prepare_cxx_function_template_match(
     bool* constraint_invalid) {
     int specificity = 0;
     bool has_type_pack = false;
+    bool has_value_pack = false;
     if (!tmpl || !match || tmpl->kind != TMPL_FUNCTION || !tmpl->func_def ||
         tmpl->param_count < 0 || tmpl->param_count > 32) return false;
     memset(match, 0, sizeof(*match));
     match->tmpl = tmpl;
     match->argument_count = tmpl->param_count;
     for (int index = 0; index < tmpl->param_count; ++index) {
-        if (tmpl->params[index].is_pack) has_type_pack = true;
+        if (tmpl->params[index].is_pack) {
+            if (tmpl->params[index].kind == TPARAM_TYPE) has_type_pack = true;
+            else has_value_pack = true;
+        }
     }
 
     if (explicit_arguments) {
@@ -6520,11 +6525,20 @@ static bool prepare_cxx_function_template_match(
                 return false;
             }
             if (parameter->is_pack) {
-                if (!explicit_arguments[index].is_type ||
-                    !explicit_arguments[index].type ||
-                    match->pack_count >= 32) return false;
-                match->pack_arguments[match->pack_count++] =
-                    explicit_arguments[index].type;
+                if (match->pack_count >= 32) return false;
+                if (parameter->kind == TPARAM_TYPE) {
+                    if (!explicit_arguments[index].is_type ||
+                        !explicit_arguments[index].type) return false;
+                    match->pack_arguments[match->pack_count] =
+                        explicit_arguments[index].type;
+                } else {
+                    if (explicit_arguments[index].is_type ||
+                        !explicit_arguments[index].value_valid) return false;
+                    match->pack_values[match->pack_count] =
+                        explicit_arguments[index].value;
+                    match->pack_value_present[match->pack_count] = true;
+                }
+                ++match->pack_count;
             } else if (parameter->kind == TPARAM_TYPE) {
                 match->arguments[parameter_index] =
                     explicit_arguments[index].type;
@@ -6584,8 +6598,12 @@ static bool prepare_cxx_function_template_match(
         }
         for (int index = 0; index < tmpl->param_count; ++index) {
             if (tmpl->params[index].is_pack) {
-                match->arguments[index] = match->pack_count > 0
-                    ? match->pack_arguments[0] : type_void;
+                if (tmpl->params[index].kind == TPARAM_TYPE) {
+                    match->arguments[index] = match->pack_count > 0
+                        ? match->pack_arguments[0] : type_void;
+                } else {
+                    match->arguments[index] = tmpl->params[index].type;
+                }
             }
         }
     } else {
@@ -6626,11 +6644,17 @@ static bool prepare_cxx_function_template_match(
     }
     match->specificity = specificity;
     tmpl->pending_pack_args = has_type_pack ? match->pack_arguments : NULL;
+    tmpl->pending_pack_values = has_value_pack ? match->pack_values : NULL;
+    tmpl->pending_pack_value_present = has_value_pack
+        ? match->pack_value_present : NULL;
     tmpl->pending_pack_count = has_type_pack ? match->pack_count : -1;
+    if (has_value_pack) tmpl->pending_pack_count = match->pack_count;
     match->instance = (Decl*)cxx_template_instantiate_with_values(
         tmpl, match->arguments, match->values, match->value_present,
         match->argument_count);
     tmpl->pending_pack_args = NULL;
+    tmpl->pending_pack_values = NULL;
+    tmpl->pending_pack_value_present = NULL;
     tmpl->pending_pack_count = -1;
     if (!cxx_function_template_instance_viable(
             match->instance, call_arguments, &match->conversion_total,

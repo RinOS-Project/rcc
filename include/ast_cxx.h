@@ -256,6 +256,8 @@ struct CxxTemplate {
         int64_t* value_args;
         bool* value_present;
         Type** pack_args;
+        int64_t* pack_values;
+        bool* pack_value_present;
         int pack_count;
         int arg_count;
         void* instantiated;  /* CxxClass* or Decl* */
@@ -267,6 +269,8 @@ struct CxxTemplate {
      * changing the public legacy instantiate API; it is consumed
      * synchronously and copied into the instance cache. */
     Type** pending_pack_args;
+    int64_t* pending_pack_values;
+    bool* pending_pack_value_present;
     int pending_pack_count;
 };
 
