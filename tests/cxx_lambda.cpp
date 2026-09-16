@@ -41,12 +41,19 @@ int main() {
     int mixed_copied = [&, base](int extra) -> int {
         return base + extra;
     }(5);
+    double inferred_float = [](double value) {
+        return value + 0.5;
+    }(1.0);
+    [&]() {
+        base += 0;
+    }();
     LambdaPoint point;
     point.x = 30;
     point.y = 40;
     return direct == 42 && captured == 42 && default_captured == 42 &&
            referenced == 22 && default_referenced == 25 &&
            mixed_referenced == 29 && mixed_copied == 34 && base == 29 &&
+           inferred_float == 1.5 &&
            point.capture_this(12) == 42 &&
            point.capture_this_by_default(2) == 42
         ? 0 : 1;

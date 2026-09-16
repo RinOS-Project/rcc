@@ -4211,30 +4211,6 @@ static Type* cxx_lambda_function_type(Type* return_type, DeclList* params) {
     return type_func(return_type, type_params, false);
 }
 
-static bool cxx_lambda_has_return(Stmt* statement) {
-    if (!statement) return false;
-    switch (statement->kind) {
-        case STMT_RETURN:
-            return statement->return_val != NULL;
-        case STMT_BLOCK:
-            for (StmtList* item = statement->block_stmts; item;
-                 item = item->next) {
-                if (cxx_lambda_has_return(item->stmt)) return true;
-            }
-            return false;
-        case STMT_IF:
-            return cxx_lambda_has_return(statement->if_then) ||
-                   cxx_lambda_has_return(statement->if_else);
-        case STMT_WHILE:
-        case STMT_DO:
-            return cxx_lambda_has_return(statement->while_body);
-        case STMT_FOR:
-            return cxx_lambda_has_return(statement->for_body);
-        default:
-            return false;
-    }
-}
-
 /* Generic lambda parameters are function-template type parameters in the
  * closure's call operator.  Keep the placeholder inside the parameter type
  * (including pointer/reference layers) so the ordinary template substitution
@@ -4506,18 +4482,26 @@ Expr* rcc_parse_cxx_lambda(void) {
     active_reference_captures = saved_reference_captures[
         --saved_reference_capture_depth];
     body = stmt_block(statements, loc);
-    if (!return_type) return_type = cxx_lambda_has_return(body)
-        ? type_int : type_void;
     written = snprintf(name, sizeof(name), "__rcc_lambda_%u",
                        ++cxx_lambda_counter);
     if (written < 0 || (size_t)written >= sizeof(name)) {
         rcc_fatal("C++ lambda symbol name exceeds compiler limits");
     }
     function = decl_func(rcc_intern(name),
-                         cxx_lambda_function_type(return_type, all_params),
+                         cxx_lambda_function_type(
+                             return_type ? return_type : type_int,
+                             all_params),
                          all_params, body, loc);
     function->storage = STORAGE_STATIC;
     function->func_is_inline = true;
+    /* An omitted lambda trailing return type follows the ordinary C++
+     * placeholder-return rules.  Keep a concrete type in the pre-sema
+     * function signature so parsing and call construction remain well typed,
+     * then let sema deduce the exact return type from every return statement.
+     * This is important for `double`, pointer, aggregate, and void lambdas;
+     * treating every non-empty lambda as `int` silently changed the ABI and
+     * truncated otherwise valid results. */
+    function->func_is_auto_return = return_type == NULL;
     function->link_name = function->name;
     if (lambda_template->param_count > 0) {
         lambda_template->kind = TMPL_FUNCTION;
