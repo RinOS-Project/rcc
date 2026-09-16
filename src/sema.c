@@ -23,6 +23,9 @@ extern CxxNamespace* cxx_namespace_for_decl_name(
     CxxNamespace*, const char*) __attribute__((weak));
 extern const char* cxx_namespace_qualified_name(
     CxxNamespace*) __attribute__((weak));
+extern void* cxx_template_instantiate_with_values(
+    CxxTemplate*, Type**, const int64_t*, const bool*, int)
+    __attribute__((weak));
 #endif
 
 static CxxNamespace* sema_cxx_global_namespace(void) {
@@ -44,6 +47,7 @@ static unsigned cxx_exception_frame_counter = 0u;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
+static AST* current_ast = NULL;
 
 typedef struct SemaSwitchValue {
     uint64_t bits;
@@ -890,10 +894,12 @@ static Type* implicit_cast(Expr* e, Type* target) {
     if (target->is_reference) {
         Type* referred = target->base;
         Type* source = e->type;
-        /* Reference arguments are passed as addresses by the backend, so the
-         * supported subset deliberately requires addressable expressions. */
+        /* Reference arguments are passed as addresses by the backend.  A
+         * const lvalue reference may also bind a scalar rvalue; the backend
+         * materializes that value for the duration of the call. */
         if (!referred ||
-            (!target->is_rvalue_reference && !is_lvalue(e)) ||
+            (!target->is_rvalue_reference && !is_lvalue(e) &&
+             !referred->is_const) ||
             (target->is_rvalue_reference && is_lvalue(e))) {
             return NULL;
         }
@@ -5119,7 +5125,8 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     if (target->is_reference) {
         target_base = target->base;
         if (!target_base ||
-            (!target->is_rvalue_reference && !is_lvalue(argument)) ||
+            (!target->is_rvalue_reference && !is_lvalue(argument) &&
+             !target_base->is_const) ||
             (target->is_rvalue_reference && is_lvalue(argument))) {
             return -1;
         }
@@ -6810,6 +6817,145 @@ static void sema_expand_cxx_lambda_captures(Expr* call) {
     call->call_func->cxx_lambda_captures = NULL;
 }
 
+static Expr* sema_cxx_lambda_argument(ExprList* arguments, int index) {
+    while (arguments && index > 0) {
+        arguments = arguments->next;
+        --index;
+    }
+    return arguments ? arguments->expr : NULL;
+}
+
+static bool sema_cxx_lambda_type_uses_parameter(
+    Type* type, const char* parameter_name) {
+    if (!type || !parameter_name) return false;
+    if (type->kind == TYPE_STRUCT && type->tag &&
+        strcmp(type->tag, parameter_name) == 0) {
+        return true;
+    }
+    if (type->kind == TYPE_PTR) {
+        return sema_cxx_lambda_type_uses_parameter(type->base,
+                                                   parameter_name);
+    }
+    return false;
+}
+
+static Type* sema_cxx_lambda_deduction_type(Expr* argument,
+                                             Type* parameter_pattern) {
+    Type* type = argument ? argument->type : NULL;
+    if (!type) return NULL;
+    /* For a pointer pattern such as `auto*`, template deduction binds the
+     * placeholder to the pointee rather than to the complete argument
+     * pointer.  Reference patterns retain the referred object type. */
+    if (parameter_pattern && parameter_pattern->kind == TYPE_PTR &&
+        !parameter_pattern->is_reference) {
+        while (parameter_pattern->kind == TYPE_PTR &&
+               !parameter_pattern->is_reference &&
+               type->kind == TYPE_PTR) {
+            parameter_pattern = parameter_pattern->base;
+            type = type->base;
+        }
+    }
+    /* Function parameters declared by value apply the standard array/function
+     * decay before deduction.  References retain the expression's exact
+     * referred type because sema_expr has already removed the ABI carrier. */
+    if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
+    if (type->kind == TYPE_FUNC) return type_ptr(type);
+    return type;
+}
+
+/* Instantiate a generic lambda at the call site.  The parser intentionally
+ * retains only the dependent call operator; this routine supplies each
+ * `auto` parameter's real argument type, then hands the body to the normal
+ * template clone/sema/codegen pipeline. */
+static bool sema_instantiate_cxx_lambda(Expr* call) {
+    Expr* function_expression;
+    CxxTemplate* tmpl;
+    Type* arguments[32] = { NULL };
+    int64_t values[32] = { 0 };
+    bool value_present[32] = { false };
+    int capture_count = 0;
+    int function_parameter_index;
+
+    if (!call || !call->call_func ||
+        call->call_func->kind != EXPR_IDENT) return true;
+    function_expression = call->call_func;
+    tmpl = function_expression->cxx_lambda_template;
+    if (!tmpl) return true;
+    if (!tmpl->func_def || tmpl->param_count <= 0 ||
+        tmpl->param_count > (int)(sizeof(arguments) / sizeof(arguments[0]))) {
+        rcc_error(call->loc, "generic lambda has an invalid template shape");
+        return false;
+    }
+    for (ExprList* capture = function_expression->cxx_lambda_captures;
+         capture; capture = capture->next) {
+        ++capture_count;
+    }
+    for (int template_index = 0; template_index < tmpl->param_count;
+         ++template_index) {
+        TemplateParam* parameter = &tmpl->params[template_index];
+        Expr* argument = NULL;
+        Type* parameter_pattern = NULL;
+        function_parameter_index = 0;
+        for (DeclList* item = tmpl->func_def->func_params; item;
+             item = item->next, ++function_parameter_index) {
+            if (item->decl && sema_cxx_lambda_type_uses_parameter(
+                    item->decl->type, parameter->name)) {
+                parameter_pattern = item->decl->type;
+                argument = sema_cxx_lambda_argument(
+                    call->call_args,
+                    function_parameter_index - capture_count);
+                break;
+            }
+        }
+        if (parameter->kind != TPARAM_TYPE || !argument) {
+            rcc_error(call->loc,
+                      "generic lambda argument does not match an auto parameter");
+            return false;
+        }
+        sema_expr(argument);
+        arguments[template_index] = sema_cxx_lambda_deduction_type(
+            argument, parameter_pattern);
+        if (!arguments[template_index]) {
+            rcc_error(argument->loc,
+                      "cannot deduce generic lambda parameter type");
+            return false;
+        }
+    }
+    {
+#if defined(__GNUC__) || defined(__clang__)
+        if (!cxx_template_instantiate_with_values) {
+            rcc_error(call->loc,
+                      "generic lambda template instantiation is unavailable");
+            return false;
+        }
+#else
+        rcc_error(call->loc,
+                  "generic lambda template instantiation is unavailable");
+        return false;
+#endif
+        Decl* instance = (Decl*)cxx_template_instantiate_with_values(
+            tmpl, arguments, values, value_present, tmpl->param_count);
+        if (!instance || instance->kind != DECL_FUNC) {
+            rcc_error(call->loc, "could not instantiate generic lambda");
+            return false;
+        }
+        if (current_ast) {
+            bool present = false;
+            for (DeclList* item = current_ast->decls; item; item = item->next) {
+                if (item->decl == instance) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) ast_add_decl(current_ast, instance);
+        }
+        function_expression->ident_decl = instance;
+        function_expression->type = instance->type;
+        function_expression->cxx_lambda_template = NULL;
+    }
+    return true;
+}
+
 static Expr* sema_cxx_move_member(Expr* object, TypeField* field) {
     Expr* member = expr_member(object, field->name, object->loc);
     member->member_field = field;
@@ -7123,6 +7269,10 @@ static Type* sema_expr(Expr* expr) {
     if (expr->kind == EXPR_CALL && expr->call_func &&
         !expr->call_is_new && !expr->call_is_delete) {
         Type* object_type;
+        if (!sema_instantiate_cxx_lambda(expr)) {
+            expr->type = type_int;
+            return expr->type;
+        }
         sema_expand_cxx_lambda_captures(expr);
         if (expr->call_func->kind == EXPR_MEMBER ||
             expr->call_func->kind == EXPR_PTR_MEMBER) {
@@ -11021,6 +11171,7 @@ bool rcc_sema(AST* ast) {
     bool valid;
     /* Create symbol table */
     g_symtab = symtab_new();
+    current_ast = ast;
     current_cxx_namespace = NULL;
     current_func_template_instance = false;
     static_local_counter = 0u;
@@ -11035,5 +11186,6 @@ bool rcc_sema(AST* ast) {
     symtab_free(g_symtab);
     g_symtab = NULL;
     current_cxx_namespace = NULL;
+    current_ast = NULL;
     return valid;
 }

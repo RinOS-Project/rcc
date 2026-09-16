@@ -4335,6 +4335,32 @@ static bool gen_aggregate_type32(const Type* type) {
                     type->kind == TYPE_UNION);
 }
 
+static bool gen_expr_is_lvalue(Expr* expression) {
+    if (!expression) return false;
+    if (expression->kind == EXPR_CAST && expression->type &&
+        expression->type->is_reference &&
+        (expression->cxx_cast_kind == CXX_CAST_NONE ||
+         expression->cxx_cast_kind == CXX_CAST_CONST ||
+         expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
+        return gen_expr_is_lvalue(expression->cast_expr);
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT:
+        case EXPR_DEREF:
+        case EXPR_INDEX:
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+        case EXPR_COMPOUND:
+            return true;
+        case EXPR_CALL:
+            return expression->call_method &&
+                   expression->call_method->return_type &&
+                   expression->call_method->return_type->is_reference;
+        default:
+            return false;
+    }
+}
+
 static void gen_copy_aggregate32(Module* mod, int32_t destination_offset,
                                   int source_register, int size) {
     int offset = 0;
@@ -7070,12 +7096,13 @@ static void gen_call(Module* mod, Expr* expr) {
         Expr* argument = args[i]->expr;
         Type* passed_type = argument_types[i];
         if (passed_type && passed_type->is_reference) {
-            if (passed_type->is_rvalue_reference) {
+            if (passed_type->is_rvalue_reference ||
+                !gen_expr_is_lvalue(argument)) {
                 Type* value_type = passed_type->base;
                 int value_bytes;
                 if (!value_type || gen_aggregate_type32(value_type)) {
                     rcc_error(argument->loc,
-                              "rvalue reference temporary requires a scalar type");
+                              "reference temporary requires a scalar type");
                     continue;
                 }
                 if (gen_is_floating(value_type)) {

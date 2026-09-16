@@ -159,7 +159,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
-.PHONY: test-cxx-lambda-function-pointer
+.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
@@ -230,6 +230,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-conversion-operator \
 	test-cxx-lambda \
 	test-cxx-lambda-function-pointer \
+	test-cxx-generic-lambda \
 	test-cxx-range-for \
 	test-cxx-if-constexpr \
 	test-cxx-if-constexpr-template \
@@ -1630,6 +1631,34 @@ test-cxx-lambda-function-pointer: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-lambda-function-pointer/x64.o
 	$(TEST_OUT)/cxx-lambda-function-pointer/x64
 	@echo "C++ captureless lambda function-pointer tests completed"
+
+test-cxx-generic-lambda: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-generic-lambda)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-generic-lambda/x86.s \
+		tests/cxx_generic_lambda.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-generic-lambda/x86.o \
+		$(TEST_OUT)/cxx-generic-lambda/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-generic-lambda/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-generic-lambda/x86 \
+		$(TEST_OUT)/cxx-generic-lambda/start-x86.o \
+		$(TEST_OUT)/cxx-generic-lambda/x86.o
+	$(TEST_OUT)/cxx-generic-lambda/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-generic-lambda/x64.s \
+		tests/cxx_generic_lambda.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-generic-lambda/x64.o \
+		$(TEST_OUT)/cxx-generic-lambda/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-generic-lambda/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-generic-lambda/x64 \
+		$(TEST_OUT)/cxx-generic-lambda/start-x64.o \
+		$(TEST_OUT)/cxx-generic-lambda/x64.o
+	$(TEST_OUT)/cxx-generic-lambda/x64
+	@echo "C++ generic lambda deduction tests completed"
 
 test-cxx-if-constexpr: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr)

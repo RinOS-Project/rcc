@@ -4176,6 +4176,99 @@ static bool cxx_lambda_has_return(Stmt* statement) {
     }
 }
 
+/* Generic lambda parameters are function-template type parameters in the
+ * closure's call operator.  Keep the placeholder inside the parameter type
+ * (including pointer/reference layers) so the ordinary template substitution
+ * and target ABI lowering paths can be reused after an invocation supplies a
+ * concrete argument. */
+static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl, int parameter_index,
+                                        bool is_const, bool is_pointer,
+                                        bool is_reference,
+                                        bool is_rvalue_reference,
+                                        SourceLoc loc) {
+    char name[64];
+    int written;
+    const char* parameter_name;
+    Type* placeholder;
+
+    if (!tmpl) {
+        rcc_error(loc, "generic lambda parameter has no template context");
+        return type_int;
+    }
+    written = snprintf(name, sizeof(name), "__rcc_lambda_T%d",
+                       parameter_index);
+    if (written < 0 || (size_t)written >= sizeof(name)) {
+        rcc_error(loc, "generic lambda type parameter name is too long");
+        return type_int;
+    }
+    parameter_name = rcc_intern(name);
+    cxx_template_add_type_param(tmpl, parameter_name);
+    placeholder = type_struct(parameter_name);
+    placeholder->cxx_dependent = true;
+    placeholder->is_const = is_const;
+    if (is_pointer) placeholder = type_ptr(placeholder);
+    if (is_reference) {
+        placeholder = type_ptr(placeholder);
+        placeholder->is_reference = true;
+        placeholder->is_rvalue_reference = is_rvalue_reference;
+    }
+    return placeholder;
+}
+
+static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
+    DeclList* params = NULL;
+    int param_idx = 0;
+
+    if (check(TOK_VOID) && check_next(TOK_RPAREN)) {
+        advance();
+        return NULL;
+    }
+    while (!check(TOK_RPAREN) && !at_end()) {
+        const char* name = NULL;
+        Type* type;
+        Expr* default_argument = NULL;
+        bool is_auto = check(TOK_AUTO) ||
+            (check(TOK_CONST) && check_next(TOK_AUTO));
+
+        if (is_auto) {
+            bool is_const = match(TOK_CONST);
+            bool is_pointer = false;
+            bool is_reference = false;
+            bool is_rvalue_reference = false;
+            SourceLoc loc = peek()->loc;
+            expect(TOK_AUTO, "auto lambda parameter");
+            if (match(TOK_STAR)) {
+                is_pointer = true;
+            } else if (match(TOK_AMP)) {
+                is_reference = true;
+            } else if (match(TOK_AND)) {
+                is_reference = true;
+                is_rvalue_reference = true;
+            }
+            name = expect(TOK_IDENT, "lambda parameter name")
+                ? parser.prev->value.str_val : NULL;
+            type = parse_cxx_lambda_auto_type(
+                tmpl, tmpl ? tmpl->param_count : 0, is_const,
+                is_pointer, is_reference, is_rvalue_reference, loc);
+        } else {
+            type = parse_cxx_type_spec();
+            type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
+        }
+        if (match(TOK_ASSIGN)) default_argument = parse_assignment_expression();
+        if (match(TOK_ELLIPSIS)) {
+            rcc_error(peek()->loc,
+                      "generic lambda parameter packs are not supported");
+        }
+        {
+            Decl* parameter = decl_param(name, type, param_idx++, peek()->loc);
+            parameter->param_default = default_argument;
+            decllist_append(&params, parameter);
+        }
+        if (!match(TOK_COMMA)) break;
+    }
+    return params;
+}
+
 /* Lower an immediately-invoked lambda to a real internal function
  * declaration. Captures are explicit leading parameters, so this lowering
  * never drops captured state. */
@@ -4197,6 +4290,7 @@ Expr* rcc_parse_cxx_lambda(void) {
     CxxLambdaCaptureSpec* explicit_capture_tail = NULL;
     bool default_capture = false;
     bool default_reference = false;
+    CxxTemplate* lambda_template = cxx_template_new(loc);
 
     expect(TOK_LBRACKET, "[");
     if ((check(TOK_ASSIGN) || check(TOK_AMP)) &&
@@ -4293,7 +4387,7 @@ Expr* rcc_parse_cxx_lambda(void) {
         }
     }
     if (match(TOK_LPAREN)) {
-        params = parse_cxx_parameter_declarations();
+        params = parse_cxx_lambda_parameters(lambda_template);
         expect(TOK_RPAREN, ")");
     }
     for (DeclList* item = capture_params; item; item = item->next) {
@@ -4349,12 +4443,21 @@ Expr* rcc_parse_cxx_lambda(void) {
     function->storage = STORAGE_STATIC;
     function->func_is_inline = true;
     function->link_name = function->name;
-    if (active_ast) ast_add_decl(active_ast, function);
+    if (lambda_template->param_count > 0) {
+        lambda_template->kind = TMPL_FUNCTION;
+        lambda_template->name = function->name;
+        lambda_template->func_def = function;
+        lambda_template->ns = active_namespace;
+    } else if (active_ast) {
+        ast_add_decl(active_ast, function);
+    }
     {
         Expr* result = expr_ident(function->name, loc);
         result->ident_decl = function;
         result->type = function->type;
         result->cxx_lambda_captures = captures;
+        result->cxx_lambda_template = lambda_template->param_count > 0
+            ? lambda_template : NULL;
         return result;
     }
 }

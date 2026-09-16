@@ -18,6 +18,7 @@ typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
 struct CxxClass;
+struct CxxTemplate;
 
 /* ═══════════════════════════════════════
  * Type System
@@ -416,6 +417,10 @@ struct Expr {
     bool cxx_call_is_noexcept;
     /* Captures for a C++ lambda that are spliced into an immediate call. */
     ExprList* cxx_lambda_captures;
+    /* A generic lambda keeps its dependent call operator until the call site
+     * supplies concrete argument types.  The semantic pass replaces the
+     * expression with the cached, fully substituted function instance. */
+    struct CxxTemplate* cxx_lambda_template;
     /* C++ `sizeof...(Pack)` is retained until a function-template
      * specialization supplies the pack length. */
     const char* sizeof_pack_name;

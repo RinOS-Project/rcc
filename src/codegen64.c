@@ -692,6 +692,32 @@ static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
 static void gen64_cxx_dynamic_cast_runtime(Module* mod, Expr* expr);
 
+static bool gen64_expr_is_lvalue(Expr* expression) {
+    if (!expression) return false;
+    if (expression->kind == EXPR_CAST && expression->type &&
+        expression->type->is_reference &&
+        (expression->cxx_cast_kind == CXX_CAST_NONE ||
+         expression->cxx_cast_kind == CXX_CAST_CONST ||
+         expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
+        return gen64_expr_is_lvalue(expression->cast_expr);
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT:
+        case EXPR_DEREF:
+        case EXPR_INDEX:
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+        case EXPR_COMPOUND:
+            return true;
+        case EXPR_CALL:
+            return expression->call_method &&
+                   expression->call_method->return_type &&
+                   expression->call_method->return_type->is_reference;
+        default:
+            return false;
+    }
+}
+
 static bool gen64_type_has_vla(const Type* type) {
     return type && type->kind == TYPE_ARRAY &&
            (type->array_bound != NULL || gen64_type_has_vla(type->base));
@@ -4900,7 +4926,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 call_arguments[i - 1].materialize_rvalue_reference =
                     argument_types[i - 1] &&
                     argument_types[i - 1]->is_reference &&
-                    argument_types[i - 1]->is_rvalue_reference;
+                    (argument_types[i - 1]->is_rvalue_reference ||
+                     (!gen64_expr_is_lvalue(a->expr) &&
+                      argument_types[i - 1]->base &&
+                      argument_types[i - 1]->base->is_const));
             }
             gp_cursor = register_base;
             fp_cursor = 0;
@@ -4956,7 +4985,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     Type* value_type = argument_types[i]->base;
                     if (!value_type || gen64_is_aggregate(value_type)) {
                         rcc_error(args[i]->expr->loc,
-                                  "rvalue reference temporary requires a scalar type");
+                                  "reference temporary requires a scalar type");
                     }
                     argument->value_temp_offset = temp_bytes;
                     temp_bytes += 8;
