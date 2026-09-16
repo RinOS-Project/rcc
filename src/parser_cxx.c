@@ -5323,23 +5323,6 @@ static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
     return -1;
 }
 
-static int template_value_parameter_index(CxxTemplate* tmpl,
-                                           Expr* bound_expression) {
-    if (!tmpl || !bound_expression || bound_expression->kind != EXPR_IDENT ||
-        !bound_expression->ident_name) {
-        return -1;
-    }
-    for (int index = 0; index < tmpl->param_count; ++index) {
-        if (tmpl->params[index].kind == TPARAM_NONTYPE &&
-            tmpl->params[index].name &&
-            strcmp(tmpl->params[index].name,
-                   bound_expression->ident_name) == 0) {
-            return index;
-        }
-    }
-    return -1;
-}
-
 static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                       Type** arguments, int argument_count,
                                       const int64_t* value_args,
@@ -5376,15 +5359,14 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             value_args, value_present);
         array_len = type->array_len;
         array_bound = type->array_bound;
-        if (type->kind == TYPE_ARRAY && value_args && value_present &&
-            type->array_bound) {
-            int value_index = template_value_parameter_index(
-                tmpl, type->array_bound);
-            if (value_index >= 0 && value_present[value_index]) {
-                int64_t value = value_args[value_index];
+        if (type->kind == TYPE_ARRAY && type->array_bound) {
+            int64_t value;
+            if (eval_template_integer_expression(
+                    type->array_bound, tmpl, value_args, value_present,
+                    &value)) {
                 if (value <= 0 || value > INT_MAX) {
                     rcc_error(type->array_bound->loc,
-                              "non-type template array bound is out of range");
+                              "template array bound is out of range");
                     return NULL;
                 }
                 array_len = (int)value;
@@ -6460,6 +6442,17 @@ static bool eval_template_integer_expression(Expr* expression,
     int64_t right;
     if (!expression || !result) return false;
     if (expr_eval_integer_constant(expression, result)) return true;
+    if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name &&
+        tmpl && tmpl->pending_pack_count >= 0) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack && parameter->name &&
+                strcmp(parameter->name, expression->sizeof_pack_name) == 0) {
+                *result = tmpl->pending_pack_count;
+                return true;
+            }
+        }
+    }
     if (expression->kind == EXPR_IDENT && tmpl && values && value_present) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
