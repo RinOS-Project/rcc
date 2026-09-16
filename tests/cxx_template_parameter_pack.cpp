@@ -3,6 +3,15 @@ int arity(Ts...) {
     return sizeof...(Ts);
 }
 
+int add_three(int first, int second, int third) {
+    return first + second + third;
+}
+
+template<typename... Ts>
+int forward_three(Ts... args) {
+    return add_three(args...);
+}
+
 template<typename... Ts>
 int sum(Ts... args) {
     return (... + args);
@@ -36,6 +45,7 @@ int sum_right_seed(Ts... args) {
 int main(void) {
     return arity(1, 2, 3) == 3 && arity() == 0 &&
            arity<int, long>(1, 2) == 2 && sum(1, 2, 3) == 6 &&
+           forward_three(1, 2, 3) == 6 &&
            sum_right(1, 2, 3) == 6 && all(1, 1, 1) == 1 &&
            all() == 1 && any(0, 0, 1) == 1 && any() == 0 &&
            sum_left_seed() == 10 && sum_left_seed(1, 2, 3) == 16 &&

@@ -423,6 +423,11 @@ struct Expr {
     ExprKind cxx_fold_operator;
     bool cxx_fold_left;
     Expr* cxx_fold_init;
+    /* `args...` in a call is expanded while cloning a function-template
+     * specialization.  The marker prevents the parser from treating it as a
+     * single scalar argument. */
+    bool cxx_pack_expansion;
+    const char* cxx_pack_expansion_name;
     /* Automatic storage used to materialize an aggregate rvalue.  A zero
      * value means that codegen has not assigned a slot; negative values are
      * frame-relative displacements, matching the other expression spills. */

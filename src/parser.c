@@ -1134,6 +1134,16 @@ static Expr* parse_postfix_tail(Expr* e) {
             if (!check(TOK_RPAREN)) {
                 do {
                     Expr* arg = parse_assignment();
+                    if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
+                        if (!arg || arg->kind != EXPR_IDENT ||
+                            !arg->ident_name) {
+                            rcc_error(arg ? arg->loc : loc,
+                                      "C++ pack expansion requires a named parameter pack");
+                        } else {
+                            arg->cxx_pack_expansion = true;
+                            arg->cxx_pack_expansion_name = arg->ident_name;
+                        }
+                    }
                     exprlist_append(&args, arg);
                 } while (match(TOK_COMMA));
             }

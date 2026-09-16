@@ -1551,6 +1551,56 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
     ExprList* result = NULL;
     ExprList** tail = &result;
     for (; list; list = list->next) {
+        if (list->expr && list->expr->cxx_pack_expansion) {
+            if (list->designator_kind != INIT_DESIGNATOR_NONE) {
+                rcc_error(list->expr->loc,
+                          "C++ pack expansion cannot carry an initializer designator");
+                continue;
+            }
+            if (!tmpl || tmpl->kind != TMPL_FUNCTION ||
+                tmpl->pending_pack_count < 0 || !tmpl->func_def) {
+                rcc_error(list->expr->loc,
+                          "C++ pack expansion requires a function-template specialization");
+                continue;
+            }
+            {
+                bool found = false;
+                for (DeclList* parameter = tmpl->func_def->func_params;
+                     parameter; parameter = parameter->next) {
+                    if (parameter->decl && parameter->decl->param_is_pack &&
+                        parameter->decl->name &&
+                        list->expr->cxx_pack_expansion_name &&
+                        strcmp(parameter->decl->name,
+                               list->expr->cxx_pack_expansion_name) == 0) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    rcc_error(list->expr->loc,
+                              "C++ pack expansion names a non-pack parameter");
+                    continue;
+                }
+            }
+            for (int index = 0; index < tmpl->pending_pack_count; ++index) {
+                char name[64];
+                int written = snprintf(name, sizeof(name),
+                                       "__rcc_pack_arg_%d", index);
+                ExprList* copy;
+                if (written < 0 || (size_t)written >= sizeof(name)) {
+                    rcc_error(list->expr->loc,
+                              "C++ pack expansion parameter name is too long");
+                    break;
+                }
+                copy = ast_arena_alloc(sizeof(*copy));
+                *copy = *list;
+                copy->expr = expr_ident(rcc_intern(name), list->expr->loc);
+                copy->next = NULL;
+                *tail = copy;
+                tail = &copy->next;
+            }
+            continue;
+        }
         ExprList* copy = ast_arena_alloc(sizeof(*copy));
         *copy = *list;
         copy->expr = template_clone_expr(tmpl, list->expr, args, arg_count,

@@ -7115,6 +7115,10 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_IDENT: {
+            if (expr->cxx_pack_expansion) {
+                rcc_error(expr->loc,
+                          "C++ pack expansion was not expanded in a call argument list");
+            }
             if (expr->cxx_lambda_captures) {
                 rcc_error(expr->loc,
                           "capturing lambda must be immediately invoked");
