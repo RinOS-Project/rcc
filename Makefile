@@ -3730,7 +3730,7 @@ test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o \
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/start-x86.o \
-		tests/cxx_member_methods_i686_start.s
+		tests/cxx_exceptions_i686_start.s
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86 \
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/start-x86.o \
@@ -3742,7 +3742,7 @@ test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/start-x64.o \
-		tests/cxx_member_methods_x64_start.s
+		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64 \
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/start-x64.o \
@@ -3758,7 +3758,7 @@ test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.o \
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/start-x86.o \
-		tests/cxx_member_methods_i686_start.s
+		tests/cxx_exceptions_i686_start.s
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x86 \
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/start-x86.o \
@@ -3770,7 +3770,7 @@ test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/start-x64.o \
-		tests/cxx_member_methods_x64_start.s
+		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64 \
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/start-x64.o \
