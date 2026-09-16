@@ -43,6 +43,16 @@ int sum_right(Ts... args) {
 }
 
 template<typename... Ts>
+int sum_offset_fold(Ts... args) {
+    return ((args + 1) + ...);
+}
+
+template<int... Ns>
+int value_sum_offset() {
+    return ((Ns + 1) + ...);
+}
+
+template<typename... Ts>
 int all(Ts... args) {
     return (... && args);
 }
@@ -73,6 +83,8 @@ int main(void) {
            value_pack_class<1, 2, 3>::value == 6 &&
            sum_right(1, 2, 3) == 6 && all(1, 1, 1) == 1 &&
            all() == 1 && any(0, 0, 1) == 1 && any() == 0 &&
+           sum_offset_fold(1, 2, 3) == 9 &&
+           value_sum_offset<1, 2, 3>() == 9 &&
            sum_left_seed() == 10 && sum_left_seed(1, 2, 3) == 16 &&
            sum_right_seed() == 10 && sum_right_seed(1, 2, 3) == 16 ? 0 : 1;
 }

@@ -354,8 +354,34 @@ Expr* rcc_parse_cxx_fold_expression(void) {
     SourceLoc loc;
     ExprKind operator_kind;
     const char* pack_name;
+    Token* saved_cur;
+    Token* saved_prev;
 
     if (!check(TOK_LPAREN) || !parser.cur->next) return NULL;
+    /* A unary fold may use an expression pattern, for example
+     * `((args + 1) + ...)`.  Try the parenthesized pattern first, then restore
+     * the token cursor so ordinary parenthesized expressions keep the common
+     * parser path. */
+    if (parser.cur->next->type == TOK_LPAREN) {
+        Expr* pattern;
+        Expr* fold;
+        saved_cur = parser.cur;
+        saved_prev = parser.prev;
+        loc = peek()->loc;
+        advance(); /* outer ( */
+        pattern = rcc_parse_cxx_fold_operand();
+        operator_kind = cxx_fold_operator_kind(peek()->type);
+        if (pattern && operator_kind != EXPR_INT_LIT) {
+            advance();
+            if (match(TOK_ELLIPSIS) && match(TOK_RPAREN)) {
+                fold = expr_cxx_fold(NULL, operator_kind, false, loc);
+                fold->cxx_fold_pattern = pattern;
+                return fold;
+            }
+        }
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+    }
     if (parser.cur->next->type == TOK_ELLIPSIS) {
         loc = peek()->loc;
         advance(); /* ( */

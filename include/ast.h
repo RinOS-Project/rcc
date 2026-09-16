@@ -428,6 +428,9 @@ struct Expr {
     ExprKind cxx_fold_operator;
     bool cxx_fold_left;
     Expr* cxx_fold_init;
+    /* The pack operand before `...` for a fold pattern such as
+     * `((args + 1) + ...)`; NULL retains the identifier-only form. */
+    Expr* cxx_fold_pattern;
     /* `args...` in a call is expanded while cloning a function-template
      * specialization.  The marker prevents the parser from treating it as a
      * single scalar argument. */
