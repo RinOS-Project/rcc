@@ -422,6 +422,7 @@ struct Expr {
     const char* cxx_fold_pack_name;
     ExprKind cxx_fold_operator;
     bool cxx_fold_left;
+    Expr* cxx_fold_init;
     /* Automatic storage used to materialize an aggregate rvalue.  A zero
      * value means that codegen has not assigned a slot; negative values are
      * frame-relative displacements, matching the other expression spills. */

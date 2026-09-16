@@ -343,7 +343,9 @@ static ExprKind cxx_fold_operator_kind(TokenType token) {
     }
 }
 
-/* Claim only unary fold spellings.  Other parenthesized expressions remain on
+extern Expr* rcc_parse_cxx_fold_operand(void);
+
+/* Claim only unary and binary fold spellings.  Other parenthesized expressions remain on
  * the common precedence parser; an unsupported fold operator is diagnosed
  * here instead of being reinterpreted as a scalar. */
 Expr* rcc_parse_cxx_fold_expression(void) {
@@ -376,6 +378,55 @@ Expr* rcc_parse_cxx_fold_expression(void) {
         return expr_cxx_fold(pack_name, operator_kind, true, loc);
     }
 
+    /* A binary left fold has the spelling `(init op ... op pack)`. */
+    if (parser.cur->next->next && parser.cur->next->next->next &&
+        parser.cur->next->next->next->type == TOK_ELLIPSIS &&
+        parser.cur->next->next->next->next &&
+        parser.cur->next->next->next->next->next &&
+        parser.cur->next->next->next->next->next->type == TOK_IDENT) {
+        Expr* initializer;
+        loc = peek()->loc;
+        advance(); /* ( */
+        initializer = rcc_parse_cxx_fold_operand();
+        operator_kind = cxx_fold_operator_kind(peek()->type);
+        if (operator_kind == EXPR_INT_LIT) {
+            rcc_error(peek()->loc,
+                      "unsupported C++ fold operator; expected a binary operator");
+            if (!at_end()) advance();
+        } else {
+            advance();
+        }
+        expect(TOK_ELLIPSIS, "...");
+        {
+            ExprKind second_operator_kind = cxx_fold_operator_kind(peek()->type);
+            if (second_operator_kind == EXPR_INT_LIT) {
+                rcc_error(peek()->loc,
+                          "unsupported C++ fold operator; expected a binary operator");
+                if (!at_end()) advance();
+            } else {
+                advance();
+            }
+            if (second_operator_kind != operator_kind) {
+                rcc_error(peek()->loc,
+                          "C++ binary fold requires the same operator on both sides of ...");
+            }
+        }
+        if (!check(TOK_IDENT)) {
+            rcc_error(peek()->loc,
+                      "C++ fold expression requires a parameter pack name");
+            while (!check(TOK_RPAREN) && !at_end()) advance();
+            expect(TOK_RPAREN, ")");
+            return expr_cxx_fold(NULL, EXPR_ADD, true, loc);
+        }
+        pack_name = advance()->value.str_val;
+        expect(TOK_RPAREN, ")");
+        {
+            Expr* fold = expr_cxx_fold(pack_name, operator_kind, true, loc);
+            fold->cxx_fold_init = initializer;
+            return fold;
+        }
+    }
+
     /* A unary right fold has the spelling `(pack op ...)`.  Require the
      * ellipsis immediately before the closing parenthesis so ordinary
      * parenthesized expressions are left to the normal parser. */
@@ -384,6 +435,45 @@ Expr* rcc_parse_cxx_fold_expression(void) {
         parser.cur->next->next->next->type != TOK_ELLIPSIS) {
         return NULL;
     }
+
+    /* A binary right fold has the spelling `(pack op ... op init)`. */
+    if (parser.cur->next->next->next->next &&
+        parser.cur->next->next->next->next->type != TOK_RPAREN) {
+        Expr* initializer;
+        ExprKind second_operator_kind;
+        loc = peek()->loc;
+        advance(); /* ( */
+        pack_name = advance()->value.str_val;
+        operator_kind = cxx_fold_operator_kind(peek()->type);
+        if (operator_kind == EXPR_INT_LIT) {
+            rcc_error(peek()->loc,
+                      "unsupported C++ fold operator; expected a binary operator");
+            if (!at_end()) advance();
+        } else {
+            advance();
+        }
+        expect(TOK_ELLIPSIS, "...");
+        second_operator_kind = cxx_fold_operator_kind(peek()->type);
+        if (second_operator_kind == EXPR_INT_LIT) {
+            rcc_error(peek()->loc,
+                      "unsupported C++ fold operator; expected a binary operator");
+            if (!at_end()) advance();
+        } else {
+            advance();
+        }
+        if (second_operator_kind != operator_kind) {
+            rcc_error(peek()->loc,
+                      "C++ binary fold requires the same operator on both sides of ...");
+        }
+        initializer = rcc_parse_cxx_fold_operand();
+        expect(TOK_RPAREN, ")");
+        {
+            Expr* fold = expr_cxx_fold(pack_name, operator_kind, false, loc);
+            fold->cxx_fold_init = initializer;
+            return fold;
+        }
+    }
+
     loc = peek()->loc;
     advance(); /* ( */
     pack_name = advance()->value.str_val;

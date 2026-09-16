@@ -291,6 +291,13 @@ static Expr* parse_initializer(void);
 /* C++ field parsing reuses the complete shared initializer grammar. */
 Expr* rcc_parser_parse_initializer(void);
 static Expr* parse_unary(void);
+
+/* C++ fold parsing needs one unary operand for a binary-fold initializer,
+ * without allowing the ordinary binary-expression parser to consume the fold
+ * operator itself. */
+Expr* rcc_parse_cxx_fold_operand(void) {
+    return parse_unary();
+}
 static Stmt* parse_statement(void);
 Stmt* parse_declaration(void);  /* Exported for C++ parser */
 static Type* parse_type_spec(void);

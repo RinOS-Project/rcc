@@ -672,6 +672,7 @@ Expr* expr_cxx_fold(const char* pack_name, ExprKind operator_kind,
     e->cxx_fold_pack_name = pack_name;
     e->cxx_fold_operator = operator_kind;
     e->cxx_fold_left = left_fold;
+    e->cxx_fold_init = NULL;
     e->type = NULL;
     return e;
 }
