@@ -1,4 +1,18 @@
 int main() {
+    int captured_base = 20;
+    int captured_value = [captured_base](auto value) {
+        return captured_base + value;
+    }(22);
+    int referenced_value = [&captured_base](auto value) {
+        captured_base += value;
+        return captured_base;
+    }(1);
+    int packed_value = [](auto... values) {
+        return (... + values);
+    }(1, 2, 3);
+    int packed_empty = [](auto... values) {
+        return (10 + ... + values);
+    }();
     int integer_value = [](auto value) {
         return value + 1;
     }(41);
@@ -20,7 +34,10 @@ int main() {
     int rvalue_result = [](auto&& value) {
         return value + 1;
     }(41);
-    return integer_value == 42 && long_value == 42 && pointer_value == 43 &&
+    return captured_value == 42 && referenced_value == 21 &&
+           captured_base == 21 && integer_value == 42 &&
+           long_value == 42 && pointer_value == 43 &&
+           packed_value == 6 && packed_empty == 10 &&
            forwarded == 42 && forwarded_result == 41 && lvalue_result == 42 &&
            rvalue_result == 42
         ? 0 : 1;

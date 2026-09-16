@@ -4252,6 +4252,7 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
         Expr* default_argument = NULL;
         bool is_auto = check(TOK_AUTO) ||
             (check(TOK_CONST) && check_next(TOK_AUTO));
+        bool parameter_pack = false;
 
         if (is_auto) {
             bool is_const = match(TOK_CONST);
@@ -4268,6 +4269,7 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
                 is_reference = true;
                 is_rvalue_reference = true;
             }
+            parameter_pack = match(TOK_ELLIPSIS);
             name = expect(TOK_IDENT, "lambda parameter name")
                 ? parser.prev->value.str_val : NULL;
             type = parse_cxx_lambda_auto_type(
@@ -4276,15 +4278,20 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
         } else {
             type = parse_cxx_type_spec();
             type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
+            parameter_pack = match(TOK_ELLIPSIS);
+            if (parameter_pack) {
+                rcc_error(peek()->loc,
+                          "typed generic lambda parameter packs are not supported");
+            }
         }
         if (match(TOK_ASSIGN)) default_argument = parse_assignment_expression();
-        if (match(TOK_ELLIPSIS)) {
-            rcc_error(peek()->loc,
-                      "generic lambda parameter packs are not supported");
-        }
         {
             Decl* parameter = decl_param(name, type, param_idx++, peek()->loc);
+            parameter->param_is_pack = parameter_pack;
             parameter->param_default = default_argument;
+            if (parameter_pack && tmpl && tmpl->param_count > 0) {
+                tmpl->params[tmpl->param_count - 1].is_pack = true;
+            }
             decllist_append(&params, parameter);
         }
         if (!match(TOK_COMMA)) break;

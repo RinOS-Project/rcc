@@ -6885,10 +6885,13 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
     Expr* function_expression;
     CxxTemplate* tmpl;
     Type* arguments[32] = { NULL };
+    Type* pack_arguments[32] = { NULL };
     int64_t values[32] = { 0 };
     bool value_present[32] = { false };
     int capture_count = 0;
     int function_parameter_index;
+    int pack_count = 0;
+    bool has_pack = false;
 
     if (!call || !call->call_func ||
         call->call_func->kind != EXPR_IDENT) return true;
@@ -6904,24 +6907,89 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
          capture; capture = capture->next) {
         ++capture_count;
     }
+    {
+        bool seen_parameter_pack = false;
+        for (DeclList* item = tmpl->func_def->func_params; item;
+             item = item->next) {
+            if (seen_parameter_pack) {
+                rcc_error(call->loc,
+                          "generic lambda parameter pack must be last");
+                return false;
+            }
+            if (item->decl && item->decl->param_is_pack) {
+                seen_parameter_pack = true;
+            }
+        }
+    }
     for (int template_index = 0; template_index < tmpl->param_count;
          ++template_index) {
         TemplateParam* parameter = &tmpl->params[template_index];
         Expr* argument = NULL;
         Type* parameter_pattern = NULL;
+        bool parameter_is_pack = false;
+        int pack_first_user_index = -1;
         function_parameter_index = 0;
         for (DeclList* item = tmpl->func_def->func_params; item;
              item = item->next, ++function_parameter_index) {
             if (item->decl && sema_cxx_lambda_type_uses_parameter(
                     item->decl->type, parameter->name)) {
                 parameter_pattern = item->decl->type;
-                argument = sema_cxx_lambda_argument(
-                    call->call_args,
-                    function_parameter_index - capture_count);
+                parameter_is_pack = item->decl->param_is_pack;
+                if (parameter_is_pack) {
+                    pack_first_user_index = function_parameter_index -
+                        capture_count;
+                } else {
+                    argument = sema_cxx_lambda_argument(
+                        call->call_args,
+                        function_parameter_index - capture_count);
+                }
                 break;
             }
         }
-        if (parameter->kind != TPARAM_TYPE || !argument) {
+        if (parameter->kind != TPARAM_TYPE ||
+            (parameter_is_pack && has_pack)) {
+            rcc_error(call->loc,
+                      parameter_is_pack
+                          ? "generic lambda supports only one parameter pack"
+                          : "generic lambda argument does not match an auto parameter");
+            return false;
+        }
+        if (parameter_is_pack) {
+            ExprList* pack_argument = call->call_args;
+            if (pack_first_user_index < 0) {
+                rcc_error(call->loc,
+                          "generic lambda parameter pack cannot be a capture");
+                return false;
+            }
+            while (pack_argument && pack_first_user_index > 0) {
+                pack_argument = pack_argument->next;
+                --pack_first_user_index;
+            }
+            while (pack_argument) {
+                Type* deduced;
+                if (pack_count >= (int)(sizeof(pack_arguments) /
+                                        sizeof(pack_arguments[0]))) {
+                    rcc_error(pack_argument->expr->loc,
+                              "generic lambda parameter pack exceeds compiler limits");
+                    return false;
+                }
+                sema_expr(pack_argument->expr);
+                deduced = sema_cxx_lambda_deduction_type(
+                    pack_argument->expr, parameter_pattern);
+                if (!deduced) {
+                    rcc_error(pack_argument->expr->loc,
+                              "cannot deduce generic lambda parameter pack type");
+                    return false;
+                }
+                pack_arguments[pack_count++] = deduced;
+                pack_argument = pack_argument->next;
+            }
+            arguments[template_index] = pack_count > 0
+                ? pack_arguments[0] : type_void;
+            has_pack = true;
+            continue;
+        }
+        if (!argument) {
             rcc_error(call->loc,
                       "generic lambda argument does not match an auto parameter");
             return false;
@@ -6947,8 +7015,16 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
                   "generic lambda template instantiation is unavailable");
         return false;
 #endif
+        if (has_pack) {
+            tmpl->pending_pack_args = pack_arguments;
+            tmpl->pending_pack_count = pack_count;
+        }
         Decl* instance = (Decl*)cxx_template_instantiate_with_values(
             tmpl, arguments, values, value_present, tmpl->param_count);
+        if (has_pack) {
+            tmpl->pending_pack_args = NULL;
+            tmpl->pending_pack_count = -1;
+        }
         if (!instance || instance->kind != DECL_FUNC) {
             rcc_error(call->loc, "could not instantiate generic lambda");
             return false;
