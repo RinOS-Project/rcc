@@ -1395,9 +1395,10 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
 }
 
 static int template_type_parameter_index(CxxTemplate* tmpl, Type* type) {
-    if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag) {
+    if (!tmpl || !type) {
         return -1;
     }
+    if (type->kind != TYPE_STRUCT || !type->tag) return -1;
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (tmpl->params[index].kind == TPARAM_TYPE &&
             tmpl->params[index].name &&
@@ -1406,6 +1407,20 @@ static int template_type_parameter_index(CxxTemplate* tmpl, Type* type) {
         }
     }
     return -1;
+}
+
+/* Parameter packs may be written as a type pattern such as `auto*...`.  The
+ * ordinary substitution helper must still distinguish that pattern from a
+ * complete dependent type, so only pack-parameter discovery unwraps the
+ * pointer/array carrier. */
+static int template_type_parameter_index_nested(CxxTemplate* tmpl,
+                                                Type* type) {
+    if (!tmpl || !type) return -1;
+    while (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        type = type->base;
+        if (!type) return -1;
+    }
+    return template_type_parameter_index(tmpl, type);
 }
 
 static int template_value_parameter_index(CxxTemplate* tmpl,
@@ -2293,16 +2308,10 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         for (DeclList* item = definition->func_params; item;
              item = item->next) {
             if (item->decl && item->decl->param_is_pack) {
-                int pack_index = -1;
-                for (int index = 0; index < tmpl->param_count; ++index) {
-                    TemplateParam* parameter = &tmpl->params[index];
-                    if (parameter->kind == TPARAM_TYPE &&
-                        parameter->is_pack && parameter->name &&
-                        item->decl->type && item->decl->type->tag &&
-                        strcmp(parameter->name, item->decl->type->tag) == 0) {
-                        pack_index = index;
-                        break;
-                    }
+                int pack_index = template_type_parameter_index_nested(
+                    tmpl, item->decl->type);
+                if (pack_index >= 0 && !tmpl->params[pack_index].is_pack) {
+                    pack_index = -1;
                 }
                 if (pack_index < 0) {
                     rcc_error(item->decl->loc,
@@ -2313,13 +2322,34 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                      pack_value < tmpl->pending_pack_count; ++pack_value) {
                     char generated_name[64];
                     const char* parameter_name = NULL;
-                    Type* parameter_type = tmpl->pending_pack_args[pack_value];
+                    Type* parameter_type;
                     int written = snprintf(generated_name,
                                            sizeof(generated_name),
                                            "__rcc_pack_arg_%d", pack_value);
                     if (written < 0 || (size_t)written >= sizeof(generated_name)) {
                         rcc_error(item->decl->loc,
                                   "function template pack parameter name is too long");
+                        return NULL;
+                    }
+                    {
+                        Type* expanded_arguments[32];
+                        if (arg_count > (int)(sizeof(expanded_arguments) /
+                                              sizeof(expanded_arguments[0]))) {
+                            rcc_error(item->decl->loc,
+                                      "function template pack substitution exceeds compiler limits");
+                            return NULL;
+                        }
+                        memcpy(expanded_arguments, args,
+                               sizeof(Type*) * (size_t)arg_count);
+                        expanded_arguments[pack_index] =
+                            tmpl->pending_pack_args[pack_value];
+                        parameter_type = template_substitute_type(
+                            tmpl, item->decl->type, expanded_arguments,
+                            arg_count, value_args, value_present);
+                    }
+                    if (!parameter_type) {
+                        rcc_error(item->decl->loc,
+                                  "function template pack parameter substitution failed");
                         return NULL;
                     }
                     /* A named pack is not expanded into repeated identifiers
