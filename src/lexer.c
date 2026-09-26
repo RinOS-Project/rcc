@@ -345,6 +345,13 @@ static Token* lex_identifier(Lexer* lex) {
     return tok;
 }
 
+static bool lex_number_digit(char c, int base) {
+    if (base == 16) return isxdigit((unsigned char)c) != 0;
+    if (base == 10) return isdigit((unsigned char)c) != 0;
+    if (base == 8) return c >= '0' && c <= '7';
+    return c == '0' || c == '1';
+}
+
 static Token* lex_number(Lexer* lex, bool leading_dot) {
     SourceLoc loc = make_loc(lex);
     const char* start = lex->pos;
@@ -382,18 +389,12 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
      * that the token is floating-point. */
     while (1) {
         char c = peek(lex);
-        if (base == 16 && isxdigit(c)) {
+        if (lex_number_digit(c, base)) {
             advance(lex);
             saw_digit = true;
-        } else if (base == 10 && isdigit(c)) {
+        } else if (lexer_cxx_mode && c == '\'' && saw_digit &&
+                   lex_number_digit(lex->pos[1], base)) {
             advance(lex);
-            saw_digit = true;
-        } else if (base == 8 && c >= '0' && c <= '7') {
-            advance(lex);
-            saw_digit = true;
-        } else if (base == 2 && (c == '0' || c == '1')) {
-            advance(lex);
-            saw_digit = true;
         } else {
             break;
         }
@@ -404,9 +405,14 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
     if ((base == 10 || base == 16) && peek(lex) == '.') {
         is_float = true;
         advance(lex);
-        while (base == 16 ? isxdigit(peek(lex)) : isdigit(peek(lex))) {
+        while (lex_number_digit(peek(lex), base) ||
+               (lexer_cxx_mode && peek(lex) == '\'' &&
+                lex_number_digit(lex->pos[1], base))) {
             advance(lex);
-            saw_digit = true;
+            if (peek(lex) != '\'' ||
+                !lex_number_digit(lex->pos[1], base)) {
+                saw_digit = true;
+            }
         }
     }
 
@@ -423,6 +429,14 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
         while (isdigit(peek(lex))) {
             advance(lex);
             saw_exponent_digit = true;
+        }
+        while (lexer_cxx_mode && peek(lex) == '\'' &&
+               isdigit((unsigned char)lex->pos[1]) != 0) {
+            advance(lex);
+            while (isdigit(peek(lex))) {
+                advance(lex);
+                saw_exponent_digit = true;
+            }
         }
         if (!saw_exponent_digit) {
             rcc_error(loc, "floating literal exponent requires digits");
@@ -455,6 +469,21 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
     memcpy(str, start, len);
     str[len] = '\0';
 
+    /* C++ digit separators are part of the source spelling but not of the
+     * value accepted by strtod/strtoull.  Remove only separators that were
+     * already validated in the numeric scanner above. */
+    {
+        size_t read_index = 0;
+        size_t write_index = 0;
+        while (read_index < len) {
+            if (!lexer_cxx_mode || str[read_index] != '\'') {
+                str[write_index++] = str[read_index];
+            }
+            ++read_index;
+        }
+        str[write_index] = '\0';
+    }
+
     Token* tok;
     if (is_float) {
         if (suffix_start < lex->pos &&
@@ -473,6 +502,7 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
         bool saw_unsigned = false;
         unsigned long_suffix = 0u;
         uint64_t value;
+        const char* integer_text = str;
 
         while (suffix < lex->pos) {
             if (*suffix == 'u' || *suffix == 'U') {
@@ -502,7 +532,13 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
             rcc_error(loc, "invalid integer literal suffix");
         }
         errno = 0;
-        value = strtoull(str, NULL, base);
+        /* strtoull accepts the 0x prefix for base 16, but not the C++/GNU
+         * 0b prefix when an explicit base of 2 is supplied. */
+        if (base == 2 && str[0] == '0' &&
+            (str[1] == 'b' || str[1] == 'B')) {
+            integer_text = str + 2;
+        }
+        value = strtoull(integer_text, NULL, base);
         tok = token_new(TOK_INT_LIT, loc);
         tok->value.int_val = (int64_t)value;
         tok->int_base = (uint8_t)base;

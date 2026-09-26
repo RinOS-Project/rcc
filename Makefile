@@ -179,11 +179,13 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constructor-general
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
+.PHONY: test-cxx-numeric-separators
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-multiple-inputs \
 	test-cxx-language-core \
+	test-cxx-numeric-separators \
 	test-cxx-enum-class \
 	test-cxx-language-linkage \
 	test-cxx-member-specifiers \
@@ -3160,6 +3162,34 @@ test-cxx-using: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-using/start64.o $(TEST_OUT)/cxx-using/x64.o
 	$(TEST_OUT)/cxx-using/x64
 	@echo "RCC++ using-directive, using-declaration, and alias tests completed"
+
+test-cxx-numeric-separators: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-numeric-separators)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-numeric-separators/x86.s \
+		tests/cxx_numeric_separators.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-numeric-separators/x86.o \
+		$(TEST_OUT)/cxx-numeric-separators/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-numeric-separators/start.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-numeric-separators/x86 \
+		$(TEST_OUT)/cxx-numeric-separators/start.o \
+		$(TEST_OUT)/cxx-numeric-separators/x86.o
+	$(TEST_OUT)/cxx-numeric-separators/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-numeric-separators/x64.s \
+		tests/cxx_numeric_separators.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-numeric-separators/x64.o \
+		$(TEST_OUT)/cxx-numeric-separators/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-numeric-separators/start64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-numeric-separators/x64 \
+		$(TEST_OUT)/cxx-numeric-separators/start64.o \
+		$(TEST_OUT)/cxx-numeric-separators/x64.o
+	$(TEST_OUT)/cxx-numeric-separators/x64
+	@echo "RCC++ digit separator tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
