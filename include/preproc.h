@@ -31,6 +31,7 @@ typedef struct {
     const char** include_paths;  /* Include search paths */
     int include_path_count;
     int include_depth;           /* Current include nesting depth */
+    const char* current_file;    /* File used for relative include probes. */
 
     /* Conditional compilation stack */
     struct {

@@ -186,7 +186,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
-.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-universal-character-identifiers
+.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-universal-character-identifiers
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
@@ -195,6 +195,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
+	test-preprocessor-has-include \
 	test-preprocessor-date-time \
 	test-preprocessor-standard-macros \
 	test-preprocessor-include \
@@ -525,6 +526,42 @@ test-universal-character-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log
 	@echo "C17/C++20 universal character identifier tests completed"
+
+test-preprocessor-has-include: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/preprocessor-has-include)
+	$(RCC_TARGET) -E tests/preprocessor_has_include.c > \
+		$(TEST_OUT)/preprocessor-has-include/c.i
+	grep -F -q 'int preprocessor_has_include_c(void)' \
+		$(TEST_OUT)/preprocessor-has-include/c.i
+	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_has_include.cpp > \
+		$(TEST_OUT)/preprocessor-has-include/cxx.i
+	grep -F -q 'int preprocessor_has_include_cxx()' \
+		$(TEST_OUT)/preprocessor-has-include/cxx.i
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-has-include/c-x86.ro \
+		tests/preprocessor_has_include.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-has-include/c-x64.ro \
+		tests/preprocessor_has_include.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-has-include/cxx-x86.ro \
+		tests/preprocessor_has_include.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-has-include/cxx-x64.ro \
+		tests/preprocessor_has_include.cpp
+	! $(RCC_TARGET) -c \
+		-o $(TEST_OUT)/preprocessor-has-include/invalid-c.ro \
+		tests/invalid_preprocessor_has_include.c \
+		>$(TEST_OUT)/preprocessor-has-include/invalid-c.log 2>&1
+	grep -F -q 'invalid #if expression' \
+		$(TEST_OUT)/preprocessor-has-include/invalid-c.log
+	! $(RCXX_TARGET) -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-has-include/invalid-cxx.ro \
+		tests/invalid_preprocessor_has_include.c \
+		>$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log 2>&1
+	grep -F -q 'invalid #if expression' \
+		$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log
+	@echo "C17/C++20 __has_include tests completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
 	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)

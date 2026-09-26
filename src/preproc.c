@@ -151,6 +151,7 @@ Preprocessor* pp_new(void) {
     pp->include_paths = NULL;
     pp->include_path_count = 0;
     pp->include_depth = 0;
+    pp->current_file = NULL;
     pp->cond_depth = 0;
     pp->expansion_depth = 0;
     pp->dependencies = NULL;
@@ -452,6 +453,20 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
 
 #undef WRITE_RESOLVED_PATH
     return NULL;
+}
+
+/* Probe the same search order as #include without recording a dependency or
+ * reporting an error.  __has_include is a conditional feature probe: a
+ * missing header is a valid false result, while malformed syntax is handled
+ * by the #if expression parser below. */
+static bool pp_has_include(Preprocessor* pp, const char* name,
+                           bool is_system) {
+    char resolved[RCC_MAX_PATH];
+    char* content = find_include(pp, name, pp->current_file, is_system,
+                                 resolved, sizeof(resolved));
+    if (!content) return false;
+    rcc_free(content);
+    return true;
 }
 
 static void pp_add_dependency(Preprocessor* pp, const char* path) {
@@ -868,6 +883,58 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                 }
                 buf_append_str(&protected, pp_is_defined(pp, name) ? "1" : "0");
                 p = parenthesized ? pp_expr_skip(name_end) + 1 : name_end;
+                continue;
+            }
+            if (strcmp(ident, "__has_include") == 0) {
+                const char* cursor = pp_expr_skip(end);
+                char include_name[RCC_MAX_PATH];
+                size_t include_length = 0u;
+                bool is_system = false;
+                bool include_valid = true;
+
+                if (*cursor != '(') {
+                    include_valid = false;
+                } else {
+                    cursor = pp_expr_skip(cursor + 1);
+                    if (*cursor == '<') {
+                        is_system = true;
+                        cursor++;
+                        while (*cursor && *cursor != '>' && *cursor != '\n' &&
+                               *cursor != '\r') {
+                            if (include_length + 1u >= sizeof(include_name)) {
+                                include_valid = false;
+                                break;
+                            }
+                            include_name[include_length++] = *cursor++;
+                        }
+                        if (*cursor != '>') include_valid = false;
+                        if (include_valid) cursor++;
+                    } else if (*cursor == '"') {
+                        bool closed = false;
+                        const char* after = read_string(
+                            cursor, include_name, sizeof(include_name), '"',
+                            &closed);
+                        include_length = strlen(include_name);
+                        if (!closed) include_valid = false;
+                        cursor = after;
+                    } else {
+                        include_valid = false;
+                    }
+                    cursor = pp_expr_skip(cursor);
+                    if (*cursor != ')') include_valid = false;
+                    else cursor++;
+                }
+
+                if (!include_valid || include_length == 0u) {
+                    *valid = false;
+                    buf_append_str(&protected, "0");
+                    p = end;
+                    continue;
+                }
+                buf_append_str(&protected,
+                               pp_has_include(pp, include_name, is_system)
+                                   ? "1" : "0");
+                p = cursor;
                 continue;
             }
             buf_append(&protected, p, (size_t)(end - p));
@@ -1868,7 +1935,9 @@ static const char* process_directive(Preprocessor* pp, const char* p,
 /* Process source string */
 char* pp_process_string(Preprocessor* pp, const char* source, const char* filename) {
     PPBuffer output;
+    const char* previous_file = pp->current_file;
     buf_init(&output);
+    pp->current_file = filename;
 
     char* spliced_source = splice_source_lines(source);
     char* comment_free_source = strip_source_comments(spliced_source);
@@ -1941,6 +2010,7 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
     rcc_free(comment_free_source);
     rcc_free(spliced_source);
+    pp->current_file = previous_file;
     return output.data;
 }
 
