@@ -18,3 +18,14 @@ int atomic_language_deref(_Atomic(int)* value) {
     *value = 7;
     return *value;
 }
+
+int atomic_language_rmw(void) {
+    _Atomic(int) value;
+    value = 1;
+    if (++value != 2) return 1;
+    if (value++ != 2 || value != 3) return 2;
+    value += 4;
+    if (value != 7) return 3;
+    value -= 2;
+    return value == 5 ? 0 : 4;
+}

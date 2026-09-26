@@ -4399,6 +4399,30 @@ test-atomic-language: $(RCC_TARGET)
 	fi
 	grep -F -q "_Atomic requires an unqualified scalar object type" \
 		$(TEST_OUT)/atomic-language-x64/invalid.log
+	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/atomic-language-x86/invalid-rmw.ro \
+		tests/invalid_atomic_rmw.c \
+		>$(TEST_OUT)/atomic-language-x86/invalid-rmw.log 2>&1; then \
+		echo "invalid atomic RMW fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "atomic ++/-- requires an integer or pointer object" \
+		$(TEST_OUT)/atomic-language-x86/invalid-rmw.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/atomic-language-x64/invalid-rmw.ro \
+		tests/invalid_atomic_rmw.c \
+		>$(TEST_OUT)/atomic-language-x64/invalid-rmw.log 2>&1; then \
+		echo "invalid atomic RMW fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "atomic ++/-- requires an integer or pointer object" \
+		$(TEST_OUT)/atomic-language-x64/invalid-rmw.log
+	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/atomic-language-x86/invalid-wide-rmw.ro \
+		tests/invalid_atomic_wide_rmw.c \
+		>$(TEST_OUT)/atomic-language-x86/invalid-wide-rmw.log 2>&1; then \
+		echo "invalid i686 wide atomic RMW fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "i686 atomic 64-bit ++/-- requires a supported RMW lowering" \
+		$(TEST_OUT)/atomic-language-x86/invalid-wide-rmw.log
 	@echo "C17 language _Atomic syntax and lowering tests completed"
 
 test-x86-wide-scalar: $(RCC_TARGET)

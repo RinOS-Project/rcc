@@ -4349,6 +4349,31 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_bitfield_store(mod, expr->unary_operand->member_field);
                 break;
             }
+            if (expr->unary_operand && expr->unary_operand->type &&
+                expr->unary_operand->type->is_atomic) {
+                Type* type = expr->unary_operand->type;
+                uint32_t increment = gen64_increment_size(type);
+                if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+                    type->kind != TYPE_PTR) {
+                    rcc_error(expr->loc,
+                              "atomic ++/-- requires an integer or pointer object");
+                    break;
+                }
+                gen64_lvalue(mod, expr->unary_operand);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_mov_reg_imm64(mod, RAX, increment);
+                if (expr->kind == EXPR_PREDEC) emit64_neg_reg(mod, RAX);
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                emit64_atomic_xadd_width(mod, RAX, RCX, type);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit64_normalize_atomic_value(mod, RAX, type);
+                }
+                emit64_add_reg_reg(mod, RAX, RDX);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit64_normalize_atomic_value(mod, RAX, type);
+                }
+                break;
+            }
             if (gen64_is_floating(expr->type)) {
                 gen64_float_add_one(mod, expr,
                                     expr->kind == EXPR_PREDEC, false);
@@ -4387,6 +4412,27 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_push_reg(mod, RAX);
                 emit64_bitfield_store(mod, expr->unary_operand->member_field);
                 emit64_pop_reg(mod, RAX);
+                break;
+            }
+            if (expr->unary_operand && expr->unary_operand->type &&
+                expr->unary_operand->type->is_atomic) {
+                Type* type = expr->unary_operand->type;
+                uint32_t increment = gen64_increment_size(type);
+                if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+                    type->kind != TYPE_PTR) {
+                    rcc_error(expr->loc,
+                              "atomic ++/-- requires an integer or pointer object");
+                    break;
+                }
+                gen64_lvalue(mod, expr->unary_operand);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_mov_reg_imm64(mod, RAX, increment);
+                if (expr->kind == EXPR_POSTDEC) emit64_neg_reg(mod, RAX);
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                emit64_atomic_xadd_width(mod, RAX, RCX, type);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit64_normalize_atomic_value(mod, RAX, type);
+                }
                 break;
             }
             if (gen64_is_floating(expr->type)) {
@@ -4741,6 +4787,34 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: {
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                Type* type = expr->binary_lhs->type;
+                uint32_t scale = gen64_pointer_element_size(type);
+                if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+                    type->kind != TYPE_PTR) {
+                    rcc_error(expr->loc,
+                              "atomic +=/-= requires an integer or pointer object");
+                    break;
+                }
+                gen64_expr(mod, expr->binary_rhs);
+                emit64_scale_reg(mod, RAX, scale);
+                if (expr->kind == EXPR_SUB_ASSIGN) emit64_neg_reg(mod, RAX);
+                emit64_push_reg(mod, RAX);
+                gen64_lvalue(mod, expr->binary_lhs);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_pop_reg(mod, RDX);
+                emit64_mov_reg_reg(mod, RAX, RDX);
+                emit64_atomic_xadd_width(mod, RAX, RCX, type);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit64_normalize_atomic_value(mod, RAX, type);
+                }
+                emit64_add_reg_reg(mod, RAX, RDX);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit64_normalize_atomic_value(mod, RAX, type);
+                }
+                break;
+            }
             if (expr->binary_lhs && expr->binary_lhs->member_field &&
                 expr->binary_lhs->member_field->is_bitfield) {
                 gen64_lvalue(mod, expr->binary_lhs);
@@ -4814,6 +4888,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_RSHIFT_ASSIGN: {
             Type* operation_type = type_common(expr->binary_lhs->type,
                                                expr->binary_rhs->type);
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                rcc_error(expr->loc,
+                          "atomic compound assignment operator is not supported by the target RMW backend");
+                break;
+            }
             if (expr->binary_lhs && expr->binary_lhs->member_field &&
                 expr->binary_lhs->member_field->is_bitfield) {
                 gen64_lvalue(mod, expr->binary_lhs);

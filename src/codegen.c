@@ -4977,6 +4977,12 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC: {
+            if (expr->unary_operand && expr->unary_operand->type &&
+                expr->unary_operand->type->is_atomic) {
+                rcc_error(expr->loc,
+                          "i686 atomic 64-bit ++/-- requires a supported RMW lowering");
+                break;
+            }
             bool increment = expr->kind == EXPR_PREINC ||
                              expr->kind == EXPR_POSTINC;
             bool post = expr->kind == EXPR_POSTINC ||
@@ -5093,6 +5099,12 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_AND_ASSIGN:
         case EXPR_OR_ASSIGN:
         case EXPR_XOR_ASSIGN:
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                rcc_error(expr->loc,
+                          "i686 atomic 64-bit compound assignment requires a supported RMW lowering");
+                break;
+            }
             gen_lvalue(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             emit_mov_reg_reg(mod, ECX, EAX);
@@ -5138,6 +5150,12 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_MOD_ASSIGN:
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                rcc_error(expr->loc,
+                          "i686 atomic 64-bit compound assignment requires a supported RMW lowering");
+                break;
+            }
             gen_lvalue(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             emit_mov_reg_reg(mod, ECX, EAX);
@@ -7601,6 +7619,36 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_bitfield_store32(mod, expr->unary_operand->member_field);
                 break;
             }
+            if (expr->unary_operand && expr->unary_operand->type &&
+                expr->unary_operand->type->is_atomic) {
+                Type* type = expr->unary_operand->type;
+                uint32_t increment = codegen_increment_size(type);
+                if (type->size == 8) {
+                    rcc_error(expr->loc,
+                              "i686 atomic 64-bit ++/-- requires a supported RMW lowering");
+                    break;
+                }
+                if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+                    type->kind != TYPE_PTR) {
+                    rcc_error(expr->loc,
+                              "atomic ++/-- requires an integer or pointer object");
+                    break;
+                }
+                gen_lvalue(mod, expr->unary_operand);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_mov_reg_imm(mod, EAX, increment);
+                if (expr->kind == EXPR_PREDEC) emit_neg_reg(mod, EAX);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_atomic_xadd_width(mod, EAX, ECX, type);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit_normalize_atomic_value(mod, EAX, type);
+                }
+                emit_add_reg_reg(mod, EAX, EDX);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit_normalize_atomic_value(mod, EAX, type);
+                }
+                break;
+            }
             if (gen_is_floating(expr->type)) {
                 gen_lvalue(mod, expr->unary_operand);
                 emit_push_reg(mod, EAX); /* address */
@@ -7644,6 +7692,32 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_push_reg(mod, EAX);
                 emit_bitfield_store32(mod, expr->unary_operand->member_field);
                 emit_pop_reg(mod, EAX);
+                break;
+            }
+            if (expr->unary_operand && expr->unary_operand->type &&
+                expr->unary_operand->type->is_atomic) {
+                Type* type = expr->unary_operand->type;
+                uint32_t increment = codegen_increment_size(type);
+                if (type->size == 8) {
+                    rcc_error(expr->loc,
+                              "i686 atomic 64-bit ++/-- requires a supported RMW lowering");
+                    break;
+                }
+                if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+                    type->kind != TYPE_PTR) {
+                    rcc_error(expr->loc,
+                              "atomic ++/-- requires an integer or pointer object");
+                    break;
+                }
+                gen_lvalue(mod, expr->unary_operand);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_mov_reg_imm(mod, EAX, increment);
+                if (expr->kind == EXPR_POSTDEC) emit_neg_reg(mod, EAX);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_atomic_xadd_width(mod, EAX, ECX, type);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit_normalize_atomic_value(mod, EAX, type);
+                }
                 break;
             }
             if (gen_is_floating(expr->type)) {
@@ -8017,7 +8091,9 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                     gen_lvalue(mod, expr->binary_lhs);
                     emit_mov_reg_reg(mod, EDX, EAX);
                     emit_pop_reg(mod, ECX);
-                    emit_normalize_atomic_value(mod, ECX, type);
+                    if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                        emit_normalize_atomic_value(mod, ECX, type);
+                    }
                     emit_mov_reg_reg(mod, EAX, ECX);
                     emit_atomic_exchange_width(mod, EAX, EDX, type);
                     emit_mov_reg_reg(mod, EAX, ECX);
@@ -8093,6 +8169,39 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: {
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                Type* type = expr->binary_lhs->type;
+                uint32_t scale = codegen_pointer_element_size(type);
+                if (type->size == 8) {
+                    rcc_error(expr->loc,
+                              "i686 atomic 64-bit +=/-= requires a supported RMW lowering");
+                    break;
+                }
+                if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+                    type->kind != TYPE_PTR) {
+                    rcc_error(expr->loc,
+                              "atomic +=/-= requires an integer or pointer object");
+                    break;
+                }
+                gen_expr(mod, expr->binary_rhs);
+                emit_scale_reg(mod, EAX, scale);
+                if (expr->kind == EXPR_SUB_ASSIGN) emit_neg_reg(mod, EAX);
+                emit_push_reg(mod, EAX);
+                gen_lvalue(mod, expr->binary_lhs);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EDX);
+                emit_mov_reg_reg(mod, EAX, EDX);
+                emit_atomic_xadd_width(mod, EAX, ECX, type);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit_normalize_atomic_value(mod, EAX, type);
+                }
+                emit_add_reg_reg(mod, EAX, EDX);
+                if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                    emit_normalize_atomic_value(mod, EAX, type);
+                }
+                break;
+            }
             if (expr->binary_lhs && expr->binary_lhs->member_field &&
                 expr->binary_lhs->member_field->is_bitfield) {
                 gen_lvalue(mod, expr->binary_lhs);
@@ -8152,6 +8261,12 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_RSHIFT_ASSIGN: {
             Type* operation_type = type_common(expr->binary_lhs->type,
                                                expr->binary_rhs->type);
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                rcc_error(expr->loc,
+                          "atomic compound assignment operator is not supported by the target RMW backend");
+                break;
+            }
             if (expr->binary_lhs && expr->binary_lhs->member_field &&
                 expr->binary_lhs->member_field->is_bitfield) {
                 if (gen_is_integer64(operation_type)) {
