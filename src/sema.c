@@ -11474,8 +11474,41 @@ static void sema_decl(Decl* decl) {
                     sema_vla_dimension_count(decl->type);
             }
 
+            if (decl->var_is_constinit) {
+                bool has_static_duration =
+                    is_global || decl->var_is_thread_local ||
+                    decl->storage == STORAGE_STATIC ||
+                    decl->storage == STORAGE_EXTERN;
+                if (!has_static_duration) {
+                    rcc_error(decl->loc,
+                              "constinit variable requires static or thread storage duration");
+                }
+                if (decl->var_is_constexpr) {
+                    rcc_error(decl->loc,
+                              "constinit cannot be combined with constexpr");
+                }
+            }
+
             if (decl->var_init) {
                 sema_initializer(decl->type, decl->var_init);
+                if (decl->var_is_constinit) {
+                    bool valid_constinit = false;
+                    if (sema_constexpr_scalar_type(decl->type)) {
+                        SemaConstexprScalar value;
+                        valid_constinit =
+                            sema_eval_constexpr_scalar_object(
+                                decl->type, decl->var_init, NULL, 0, &value) &&
+                            sema_constexpr_scalar_convert(
+                                &value, decl->type, &value);
+                    } else if (sema_constexpr_aggregate_type(decl->type)) {
+                        valid_constinit = sema_validate_constexpr_object(
+                            decl->type, decl->var_init);
+                    }
+                    if (!valid_constinit) {
+                        rcc_error(decl->loc,
+                                  "constinit variable initializer is not a supported constant expression");
+                    }
+                }
                 if (decl->var_is_constexpr) {
                     bool valid_constexpr = false;
                     if (sema_constexpr_scalar_type(decl->type)) {

@@ -3504,6 +3504,7 @@ static void register_instantiated_class_static_fields(
                                            source->var_is_thread_local;
         declaration->var_is_inline = source && source->var_is_inline;
         declaration->var_is_constexpr = source && source->var_is_constexpr;
+        declaration->var_is_constinit = source && source->var_is_constinit;
         declaration->storage = STORAGE_NONE;
         cxx_class_add_member(instance, declaration,
                              (AccessSpec)field->cxx_access, true);
@@ -3522,6 +3523,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     bool is_inline = false;
     bool is_constexpr = false;
     bool is_consteval = false;
+    bool is_constinit = false;
     bool is_explicit = false;
     bool is_thread_local = false;
 
@@ -3535,6 +3537,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             is_constexpr = true;
             is_consteval = true;
         }
+        else if (match(TOK_CONSTINIT)) is_constinit = true;
         else if (match(TOK_EXPLICIT)) is_explicit = true;
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else if (match(TOK_FRIEND) || match(TOK_MUTABLE)) { }
@@ -3838,6 +3841,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             declaration->var_is_thread_local = is_thread_local;
             declaration->var_is_inline = is_inline;
             declaration->var_is_constexpr = is_constexpr;
+            declaration->var_is_constinit = is_constinit;
             cxx_class_add_member(cls, declaration, current_access, true);
         }
     }
@@ -5377,7 +5381,7 @@ static CxxClass* find_class(const char* qualified_name) {
  * declaration, avoiding duplicate data symbols in one translation unit. */
 Stmt* rcc_parse_cxx_qualified_data_definition(
     Type* base_type, int storage, bool is_inline, bool is_constexpr,
-    bool is_thread_local, SourceLoc loc) {
+    bool is_constinit, bool is_thread_local, SourceLoc loc) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
     const char* qualified;
@@ -5459,6 +5463,7 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
     } else if (initializer) {
         declaration->var_init = initializer;
         declaration->var_is_constexpr = is_constexpr;
+        declaration->var_is_constinit = is_constinit;
         for (field = cls->fields; field; field = field->next) {
             if (field->is_static && field->name &&
                 strcmp(field->name, member_name) == 0) {

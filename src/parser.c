@@ -38,7 +38,7 @@ extern Stmt* rcc_parse_cxx_class_local_declaration(
     SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_qualified_data_definition(
     Type* base_type, int storage, bool is_inline, bool is_constexpr,
-    bool is_thread_local, SourceLoc loc) RCC_OPTIONAL_CXX;
+    bool is_constinit, bool is_thread_local, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
     Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parser_cxx_capture_expression(
@@ -2876,6 +2876,7 @@ Stmt* parse_declaration(void) {
     bool is_inline = false;
     bool is_constexpr = false;
     bool is_consteval = false;
+    bool is_constinit = false;
     bool is_noexcept = false;
     Expr* noexcept_expr = NULL;
     bool is_thread_local = false;
@@ -2921,6 +2922,7 @@ Stmt* parse_declaration(void) {
         is_constexpr = true;
         is_consteval = true;
     }
+    if (parser_cxx_mode && match(TOK_CONSTINIT)) is_constinit = true;
     if (!is_type_start()) {
         return parse_statement();
     }
@@ -2936,6 +2938,12 @@ Stmt* parse_declaration(void) {
         else if (match(TOK_REGISTER)) storage = STORAGE_REGISTER;
         else if (match(TOK_AUTO)) storage = STORAGE_AUTO;
         else if (match(TOK_THREAD_LOCAL)) is_thread_local = true;
+        else if (parser_cxx_mode && match(TOK_CONSTINIT)) is_constinit = true;
+        else if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
+        else if (parser_cxx_mode && match(TOK_CONSTEVAL)) {
+            is_constexpr = true;
+            is_consteval = true;
+        }
         else if (check(TOK__ALIGNAS)) {
             int alignment = parse_explicit_alignment();
             if (alignment > explicit_alignment) explicit_alignment = alignment;
@@ -2976,7 +2984,8 @@ Stmt* parse_declaration(void) {
     if (!is_typedef && parser_cxx_mode &&
         rcc_parse_cxx_qualified_data_definition) {
         Stmt* qualified_definition = rcc_parse_cxx_qualified_data_definition(
-            base_type, storage, is_inline, is_constexpr, is_thread_local, loc);
+            base_type, storage, is_inline, is_constexpr, is_constinit,
+            is_thread_local, loc);
         if (qualified_definition) return qualified_definition;
     }
 
@@ -3002,6 +3011,9 @@ Stmt* parse_declaration(void) {
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a typedef");
         }
+        if (is_constinit) {
+            rcc_error(loc, "constinit declaration must declare a variable");
+        }
         expect(TOK_SEMICOLON, ";");
         parser_define_type(declaration_name, type);
         return stmt_decl(decl_typedef(declaration_name, type, loc), loc);
@@ -3010,6 +3022,9 @@ Stmt* parse_declaration(void) {
     /* Function declaration? */
     if (type->kind == TYPE_FUNC) {
         Stmt* body = NULL;
+        if (is_constinit) {
+            rcc_error(loc, "constinit declaration must declare a variable");
+        }
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a function");
         }
@@ -3059,6 +3074,7 @@ Stmt* parse_declaration(void) {
     declaration->storage = storage;
     declaration->var_is_thread_local = is_thread_local;
     declaration->var_is_constexpr = is_constexpr;
+    declaration->var_is_constinit = is_constinit;
     declaration->var_is_inline = is_inline;
     if (is_consteval) {
         rcc_error(loc, "consteval declaration must declare a function");

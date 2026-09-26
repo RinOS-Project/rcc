@@ -112,6 +112,7 @@ static struct {
     {"mutable", TOK_MUTABLE},
     {"constexpr", TOK_CONSTEXPR},
     {"consteval", TOK_CONSTEVAL},
+    {"constinit", TOK_CONSTINIT},
     {"decltype", TOK_DECLTYPE},
     {"alignas", TOK__ALIGNAS},
     {"alignof", TOK__ALIGNOF},
