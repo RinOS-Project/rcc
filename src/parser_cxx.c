@@ -7520,8 +7520,8 @@ Type* rcc_parse_cxx_direct_list_type(void) {
         return NULL;
     }
     type = parse_class_template_specialization(tmpl, loc);
-    if (!check(TOK_LBRACE) ||
-        rcc_parser_cxx_constructor_arity_mask(type) == 0u) {
+    if (!type || !type->cxx_class || !type_is_complete(type) ||
+        !check(TOK_LBRACE)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;

@@ -721,6 +721,7 @@ void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,
                                             uint32_t arity_mask) {
     ParserTypeName* entry;
     if (!name || !type || arity_mask == 0u) return;
+    type->cxx_constructor_arity_mask = arity_mask;
     parser_define_type(name, type);
     entry = parser_type_names;
     entry->cxx_constructor_arity_mask = arity_mask;
@@ -732,6 +733,9 @@ uint32_t rcc_parser_cxx_constructor_arity_mask(Type* type) {
         if (entry->type == type && entry->cxx_constructor_arity_mask != 0u) {
             return entry->cxx_constructor_arity_mask;
         }
+    }
+    if (type && type->cxx_constructor_arity_mask != 0u) {
+        return type->cxx_constructor_arity_mask;
     }
     return 0u;
 }

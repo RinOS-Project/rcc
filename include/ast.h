@@ -136,6 +136,9 @@ struct Type {
     bool cxx_nontrivial;
     bool cxx_dependent;
     struct CxxClass* cxx_class;
+    /* Lowerable C++ constructor arities remain attached to the type so
+     * template instances survive parser-scope restoration. */
+    uint32_t cxx_constructor_arity_mask;
     struct CxxTemplate* cxx_template;
     int cxx_template_param_index;
     Type** cxx_template_args;
