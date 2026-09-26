@@ -2374,6 +2374,30 @@ test-cxx-generic-lambda: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-generic-lambda/start-x64.o \
 		$(TEST_OUT)/cxx-generic-lambda/x64.o
 	$(TEST_OUT)/cxx-generic-lambda/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-generic-lambda/explicit-x86.s \
+		tests/cxx_lambda_explicit_template.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-generic-lambda/explicit-x86.o \
+		$(TEST_OUT)/cxx-generic-lambda/explicit-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-generic-lambda/explicit-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-generic-lambda/explicit-x86 \
+		$(TEST_OUT)/cxx-generic-lambda/explicit-start-x86.o \
+		$(TEST_OUT)/cxx-generic-lambda/explicit-x86.o
+	$(TEST_OUT)/cxx-generic-lambda/explicit-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-generic-lambda/explicit-x64.s \
+		tests/cxx_lambda_explicit_template.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-generic-lambda/explicit-x64.o \
+		$(TEST_OUT)/cxx-generic-lambda/explicit-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-generic-lambda/explicit-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-generic-lambda/explicit-x64 \
+		$(TEST_OUT)/cxx-generic-lambda/explicit-start-x64.o \
+		$(TEST_OUT)/cxx-generic-lambda/explicit-x64.o
+	$(TEST_OUT)/cxx-generic-lambda/explicit-x64
 	@echo "C++ generic lambda deduction tests completed"
 
 test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)

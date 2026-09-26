@@ -4508,6 +4508,54 @@ static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl, int parameter_index,
     return placeholder;
 }
 
+static int cxx_lambda_template_type_index(CxxTemplate* tmpl, Type* type) {
+    if (!tmpl || !type) return -1;
+    if (type->kind == TYPE_PTR) {
+        return cxx_lambda_template_type_index(tmpl, type->base);
+    }
+    if (type->kind != TYPE_STRUCT || !type->tag) return -1;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_TYPE && parameter->name &&
+            strcmp(parameter->name, type->tag) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+/* C++20 explicit lambda templates share the ordinary function-template
+ * substitution path.  Keep the type-parameter subset here and diagnose
+ * non-type/template parameters instead of silently treating them as values. */
+static bool parse_cxx_lambda_template_parameters(CxxTemplate* tmpl) {
+    if (!tmpl || !match(TOK_LT)) return false;
+    if (!check(TOK_GT)) {
+        do {
+            bool parameter_pack = false;
+            if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
+                const char* name = NULL;
+                parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) {
+                    name = advance()->value.str_val;
+                } else {
+                    rcc_error(peek()->loc,
+                              "lambda template type parameter requires a name");
+                }
+                cxx_template_add_type_param(tmpl, name);
+                tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
+            } else {
+                rcc_error(peek()->loc,
+                          "explicit lambda template supports only type parameters");
+                while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
+                    advance();
+                }
+            }
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, "lambda template parameter list");
+    return true;
+}
+
 static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
     DeclList* params = NULL;
     int param_idx = 0;
@@ -4547,11 +4595,16 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
                 is_pointer, is_reference, is_rvalue_reference, loc);
         } else {
             type = parse_cxx_type_spec();
-            type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
             parameter_pack = match(TOK_ELLIPSIS);
+            type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
             if (parameter_pack) {
-                rcc_error(peek()->loc,
-                          "typed generic lambda parameter packs are not supported");
+                int template_index = cxx_lambda_template_type_index(tmpl, type);
+                if (template_index < 0) {
+                    rcc_error(peek()->loc,
+                              "typed lambda parameter pack requires a template type parameter");
+                } else {
+                    tmpl->params[template_index].is_pack = true;
+                }
             }
         }
         if (match(TOK_ASSIGN)) default_argument = parse_assignment_expression();
@@ -4559,8 +4612,11 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
             Decl* parameter = decl_param(name, type, param_idx++, peek()->loc);
             parameter->param_is_pack = parameter_pack;
             parameter->param_default = default_argument;
-            if (parameter_pack && tmpl && tmpl->param_count > 0) {
-                tmpl->params[tmpl->param_count - 1].is_pack = true;
+            if (parameter_pack && tmpl) {
+                int template_index = cxx_lambda_template_type_index(tmpl, type);
+                if (template_index >= 0) {
+                    tmpl->params[template_index].is_pack = true;
+                }
             }
             decllist_append(&params, parameter);
         }
@@ -4591,6 +4647,8 @@ Expr* rcc_parse_cxx_lambda(void) {
     CxxLambdaCaptureSpec* explicit_capture_tail = NULL;
     bool default_capture = false;
     bool default_reference = false;
+    bool explicit_template_parameters = false;
+    CxxTemplate* lambda_outer_template = active_template;
     CxxTemplate* lambda_template = cxx_template_new(loc);
 
     expect(TOK_LBRACKET, "[");
@@ -4718,6 +4776,11 @@ Expr* rcc_parse_cxx_lambda(void) {
                                        capture_count++, loc));
         }
     }
+    if (check(TOK_LT)) {
+        active_template = lambda_template;
+        explicit_template_parameters =
+            parse_cxx_lambda_template_parameters(lambda_template);
+    }
     if (match(TOK_LPAREN)) {
         params = parse_cxx_lambda_parameters(lambda_template);
         expect(TOK_RPAREN, ")");
@@ -4783,6 +4846,9 @@ Expr* rcc_parse_cxx_lambda(void) {
     rcc_parser_cxx_end_function_parameters();
     active_reference_captures = saved_reference_captures[
         --saved_reference_capture_depth];
+    if (explicit_template_parameters) {
+        active_template = lambda_outer_template;
+    }
     body = stmt_block(statements, loc);
     written = snprintf(name, sizeof(name), "__rcc_lambda_%u",
                        ++cxx_lambda_counter);
