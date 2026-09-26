@@ -8244,6 +8244,142 @@ static Type* cxx_parser_template_deduction_argument(Type* pattern,
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target);
 
+/* C++17 adds an aggregate deduction candidate when no user-declared
+ * constructor is available.  Keep this candidate deliberately ABI-bounded:
+ * only a struct with public, named, non-static, non-bit-field members and
+ * ordinary type template parameters is materialized.  Unsupported aggregate
+ * shapes are diagnosed instead of being guessed as constructor calls. */
+static Type* deduce_class_template_from_aggregate(
+    CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc, bool brace_form,
+    bool* recognized) {
+    CxxClass* definition = tmpl ? tmpl->templated_class : NULL;
+    TypeParam* field;
+    ExprList* argument;
+    Type* template_arguments[32] = { NULL };
+    int64_t template_values[32] = { 0 };
+    bool template_value_present[32] = { false };
+    int field_count = 0;
+    int argument_count = cxx_constructor_argument_count(arguments);
+    int specificity = 0;
+
+    if (recognized) *recognized = false;
+    if (!definition || !definition->is_struct || definition->constructors ||
+        definition->has_user_constructor || definition->has_nonpublic_field ||
+        definition->has_field_initializer || definition->base_count != 0 ||
+        definition->vtable_size != 0) {
+        return NULL;
+    }
+    for (field = definition->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->name || field->is_bitfield ||
+            field->cxx_access != ACCESS_PUBLIC || !field->type) {
+            return NULL;
+        }
+        if (field_count == 32) {
+            rcc_error(loc, "aggregate class template has too many fields");
+            return NULL;
+        }
+        ++field_count;
+    }
+    if (recognized) *recognized = true;
+    if (!brace_form && !rcc_parser_cxx_standard_at_least(20)) {
+        rcc_error(loc,
+                  "aggregate class template argument deduction requires "
+                  "braced initialization before C++20");
+        return NULL;
+    }
+    if (tmpl->param_count <= 0 || tmpl->param_count > 32) {
+        rcc_error(loc,
+                  "aggregate class template argument deduction exceeds "
+                  "compiler limits");
+        return NULL;
+    }
+    if (argument_count != field_count) {
+        rcc_error(loc,
+                  "aggregate class template argument deduction requires "
+                  "one initializer for each aggregate field");
+        return NULL;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind != TPARAM_TYPE || parameter->is_pack) {
+            rcc_error(loc,
+                      "RCC++ aggregate CTAD requires non-pack type template "
+                      "parameters");
+            return NULL;
+        }
+    }
+
+    field = definition->fields;
+    argument = arguments;
+    while (field && argument) {
+        Type* actual;
+        if (field->is_static) {
+            field = field->next;
+            continue;
+        }
+        actual = cxx_parser_expression_type(argument->expr);
+        if (!actual || !deduce_function_template_type(
+                tmpl, field->type,
+                cxx_parser_template_deduction_argument(field->type, actual),
+                template_arguments, template_values, template_value_present,
+                &specificity)) {
+            rcc_error(loc,
+                      "aggregate class template argument deduction could not "
+                      "deduce a field type");
+            return NULL;
+        }
+        field = field->next;
+        argument = argument->next;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (template_arguments[index]) continue;
+        if (!parameter->has_default || !parameter->default_type) {
+            rcc_error(loc,
+                      "aggregate class template argument deduction could not "
+                      "deduce all template arguments");
+            return NULL;
+        }
+        template_arguments[index] = substitute_template_type(
+            tmpl, parameter->default_type, template_arguments,
+            tmpl->param_count, template_values, template_value_present);
+        if (!template_arguments[index] ||
+            template_arguments[index]->cxx_dependent) {
+            rcc_error(loc,
+                      "aggregate class template default argument is "
+                      "dependent");
+            return NULL;
+        }
+    }
+
+    field = definition->fields;
+    argument = arguments;
+    while (field && argument) {
+        Type* target;
+        int rank;
+        if (field->is_static) {
+            field = field->next;
+            continue;
+        }
+        target = substitute_template_type(
+            tmpl, field->type, template_arguments, tmpl->param_count,
+            template_values, template_value_present);
+        rank = cxx_parser_template_conversion_rank(argument->expr, target);
+        if (rank < 0) {
+            rcc_error(loc,
+                      "aggregate class template argument deduction has an "
+                      "invalid field conversion");
+            return NULL;
+        }
+        field = field->next;
+        argument = argument->next;
+    }
+    return instantiate_class_template(
+        tmpl, template_arguments, template_values, template_value_present,
+        tmpl->param_count, loc);
+}
+
 static Type* deduce_class_template_from_guides(
     CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc) {
     Type* best_type = NULL;
@@ -8387,7 +8523,7 @@ static Type* deduce_class_template_from_guides(
  * constructor deduction; deduction guides, non-type/template parameters,
  * and packs remain explicit diagnostics instead of guessed types. */
 static Type* deduce_class_template_from_constructor(
-    CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc) {
+    CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc, bool brace_form) {
     Type* best_arguments[32] = { NULL };
     int64_t best_values[32] = { 0 };
     bool best_value_present[32] = { false };
@@ -8396,6 +8532,7 @@ static Type* deduce_class_template_from_constructor(
     int best_specificity = -1;
     int viable_count = 0;
     int argument_count = cxx_constructor_argument_count(arguments);
+    bool aggregate_candidate = false;
 
     if (!tmpl || tmpl->kind != TMPL_CLASS || tmpl->param_count <= 0 ||
         tmpl->param_count > (int)(sizeof(best_arguments) /
@@ -8407,6 +8544,11 @@ static Type* deduce_class_template_from_constructor(
     if (tmpl->deduction_guides) {
         Type* guided = deduce_class_template_from_guides(tmpl, arguments, loc);
         if (guided) return guided;
+    }
+    {
+        Type* aggregate = deduce_class_template_from_aggregate(
+            tmpl, arguments, loc, brace_form, &aggregate_candidate);
+        if (aggregate) return aggregate;
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
@@ -8517,6 +8659,7 @@ static Type* deduce_class_template_from_constructor(
     }
 
     if (viable_count == 0) {
+        if (aggregate_candidate) return NULL;
         rcc_error(loc,
                   "no viable public constructor for class template argument "
                   "deduction of '%s'",
@@ -11244,15 +11387,16 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 
     if (is_ctad_placeholder) {
         base_type = deduce_class_template_from_constructor(
-            base_type->cxx_template, arguments, loc);
+            base_type->cxx_template, arguments, loc, brace_form);
         if (!base_type) {
             expect(TOK_SEMICOLON, ";");
             return stmt_null(loc);
         }
-        if (rcc_parser_cxx_constructor_arity_mask(base_type) == 0u) {
+        if (rcc_parser_cxx_constructor_arity_mask(base_type) == 0u &&
+            !brace_form && !rcc_parser_cxx_standard_at_least(20)) {
             rcc_error(loc,
-                      "deduced class template specialization is not "
-                      "lowerable by the RinOS C++ ABI");
+                      "aggregate class template argument deduction requires "
+                      "braced initialization before C++20");
             expect(TOK_SEMICOLON, ";");
             return stmt_null(loc);
         }

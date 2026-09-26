@@ -53,6 +53,7 @@ static void define_cxx_feature_test_macros(Preprocessor* pp) {
         pp_define(pp, "__cpp_range_based_for", "201603L");
     }
     if (standard >= 20) {
+        pp_define(pp, "__cpp_aggregate_paren_init", "201902L");
         pp_define(pp, "__cpp_consteval", "201811L");
         pp_define(pp, "__cpp_constinit", "201907L");
         pp_define(pp, "__cpp_concepts", "201907L");

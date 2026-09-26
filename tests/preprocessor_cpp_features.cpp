@@ -123,7 +123,13 @@
 #ifdef __cpp_conditional_explicit
 #error "conditional explicit must not be advertised before C++20"
 #endif
+#ifdef __cpp_aggregate_paren_init
+#error "aggregate paren initialization must not be advertised before C++20"
+#endif
 #else
+#if !defined(__cpp_aggregate_paren_init) || __cpp_aggregate_paren_init != 201902L
+#error "RCC++ must report C++20 aggregate paren initialization support"
+#endif
 #if !defined(__cpp_consteval) || __cpp_consteval != 201811L
 #error "RCC++ must report C++20 consteval support"
 #endif

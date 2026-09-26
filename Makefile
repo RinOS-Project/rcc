@@ -2641,6 +2641,22 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 	fi
 	grep -q "deduction guides require C++17 or newer" \
 		$(TEST_OUT)/cxx-class-template-deduction/guide-old-x64.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.ro \
+		tests/cxx_class_template_aggregate_deduction_invalid.cpp \
+		>$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.log 2>&1; then \
+		echo "pre-C++20 aggregate paren CTAD unexpectedly compiled on i686"; exit 1; \
+	fi
+	grep -q "aggregate class template argument deduction requires braced initialization before C++20" \
+		$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.ro \
+		tests/cxx_class_template_aggregate_deduction_invalid.cpp \
+		>$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.log 2>&1; then \
+		echo "pre-C++20 aggregate paren CTAD unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "aggregate class template argument deduction requires braced initialization before C++20" \
+		$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.log
 	@echo "C++17 class template argument deduction tests completed"
 
 test-cxx-pure-virtual: $(RCXX_TARGET)
