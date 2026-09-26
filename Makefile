@@ -152,7 +152,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
 .PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
@@ -2945,6 +2945,46 @@ test-floating-static-initializers: $(RCC_TARGET)
 	strings $(TEST_OUT)/floating-static-initializers/x64.s | grep -F -q "0x00, 0x00, 0xe0, 0x3f"
 	strings $(TEST_OUT)/floating-static-initializers/x64.s | grep -F -q "0x00, 0x00, 0xf8, 0xbf"
 	@echo "RCC C17 floating static/TLS initializer tests completed"
+
+test-numeric-literals: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/numeric-literals)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/numeric-literals/x86.s tests/numeric_literals.c
+	$(CC) -m32 -c -o $(TEST_OUT)/numeric-literals/x86.o \
+		$(TEST_OUT)/numeric-literals/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/numeric-literals/x86-run.o \
+		tests/numeric_literals_run_test.c
+	$(CC) -m32 -no-pie -o $(TEST_OUT)/numeric-literals/x86 \
+		$(TEST_OUT)/numeric-literals/x86-run.o \
+		$(TEST_OUT)/numeric-literals/x86.o
+	$(TEST_OUT)/numeric-literals/x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/numeric-literals/x64.s tests/numeric_literals.c
+	$(CC) -c -o $(TEST_OUT)/numeric-literals/x64.o \
+		$(TEST_OUT)/numeric-literals/x64.s
+	$(CC) -c -o $(TEST_OUT)/numeric-literals/x64-run.o \
+		tests/numeric_literals_run_test.c
+	$(CC) -no-pie -o $(TEST_OUT)/numeric-literals/x64 \
+		$(TEST_OUT)/numeric-literals/x64-run.o \
+		$(TEST_OUT)/numeric-literals/x64.o
+	$(TEST_OUT)/numeric-literals/x64
+	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/numeric-literals/invalid-x86.ro \
+		tests/invalid_universal_character_name.c \
+		>$(TEST_OUT)/numeric-literals/invalid-x86.log 2>&1; then \
+		echo "universal character name unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "universal character names are not supported by the RinOS byte-string ABI" \
+		$(TEST_OUT)/numeric-literals/invalid-x86.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/numeric-literals/invalid-x64.ro \
+		tests/invalid_universal_character_name.c \
+		>$(TEST_OUT)/numeric-literals/invalid-x64.log 2>&1; then \
+		echo "universal character name unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "universal character names are not supported by the RinOS byte-string ABI" \
+		$(TEST_OUT)/numeric-literals/invalid-x64.log
+	@echo "C17 decimal and hexadecimal floating literal tests completed"
 
 test-floating-runtime-x64: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/floating-runtime-x64)

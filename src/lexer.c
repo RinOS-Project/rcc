@@ -345,54 +345,76 @@ static Token* lex_identifier(Lexer* lex) {
     return tok;
 }
 
-static Token* lex_number(Lexer* lex) {
+static Token* lex_number(Lexer* lex, bool leading_dot) {
     SourceLoc loc = make_loc(lex);
     const char* start = lex->pos;
     bool is_float = false;
     int base = 10;
     const char* suffix_start;
+    bool saw_digit = false;
+    bool saw_exponent_digit = false;
+    bool saw_binary_exponent = false;
 
-    /* Check for hex/octal/binary prefix */
-    if (peek(lex) == '0') {
+    if (leading_dot) {
+        /* The caller has already established that the dot is followed by a
+         * decimal digit.  C permits a leading decimal point in a floating
+         * constant, so keep the dot as part of the numeric token. */
+        is_float = true;
         advance(lex);
+    } else if (peek(lex) == '0') {
+        advance(lex);
+        saw_digit = true;
         if (peek(lex) == 'x' || peek(lex) == 'X') {
             base = 16;
+            saw_digit = false;
             advance(lex);
         } else if (peek(lex) == 'b' || peek(lex) == 'B') {
             base = 2;
+            saw_digit = false;
             advance(lex);
         } else if (isdigit(peek(lex))) {
             base = 8;
         }
     }
 
-    /* Read digits */
+    /* Read the integral part.  Hexadecimal floating constants share this
+     * path with hexadecimal integers until a dot or binary exponent proves
+     * that the token is floating-point. */
     while (1) {
         char c = peek(lex);
         if (base == 16 && isxdigit(c)) {
             advance(lex);
+            saw_digit = true;
         } else if (base == 10 && isdigit(c)) {
             advance(lex);
+            saw_digit = true;
         } else if (base == 8 && c >= '0' && c <= '7') {
             advance(lex);
+            saw_digit = true;
         } else if (base == 2 && (c == '0' || c == '1')) {
             advance(lex);
+            saw_digit = true;
         } else {
             break;
         }
     }
 
-    /* Check for decimal point */
-    if (base == 10 && peek(lex) == '.' && isdigit(peek_next(lex))) {
+    /* Check for a fractional part.  A decimal point does not need a digit
+     * on its right (`1.` is a valid C floating constant). */
+    if ((base == 10 || base == 16) && peek(lex) == '.') {
         is_float = true;
         advance(lex);
-        while (isdigit(peek(lex))) {
+        while (base == 16 ? isxdigit(peek(lex)) : isdigit(peek(lex))) {
             advance(lex);
+            saw_digit = true;
         }
     }
 
-    /* Check for exponent */
-    if (base == 10 && (peek(lex) == 'e' || peek(lex) == 'E')) {
+    /* Decimal constants use e/E; hexadecimal floating constants use the
+     * mandatory binary p/P exponent. */
+    if ((base == 10 && (peek(lex) == 'e' || peek(lex) == 'E')) ||
+        (base == 16 && (peek(lex) == 'p' || peek(lex) == 'P'))) {
+        if (base == 16) saw_binary_exponent = true;
         is_float = true;
         advance(lex);
         if (peek(lex) == '+' || peek(lex) == '-') {
@@ -400,7 +422,19 @@ static Token* lex_number(Lexer* lex) {
         }
         while (isdigit(peek(lex))) {
             advance(lex);
+            saw_exponent_digit = true;
         }
+        if (!saw_exponent_digit) {
+            rcc_error(loc, "floating literal exponent requires digits");
+        }
+    }
+
+    if (!saw_digit) {
+        rcc_error(loc, "numeric literal requires digits");
+    }
+    if (base == 16 && is_float && !saw_binary_exponent) {
+        rcc_error(loc,
+                  "hexadecimal floating literal requires a binary exponent");
     }
 
     suffix_start = lex->pos;
@@ -492,6 +526,8 @@ static int hex_digit(char c) {
 }
 
 static char lex_escape(Lexer* lex) {
+    int value;
+    int digits;
     char c = advance(lex);
     switch (c) {
         case 'a': return '\a';
@@ -505,14 +541,53 @@ static char lex_escape(Lexer* lex) {
         case '\'': return '\'';
         case '"': return '"';
         case '?': return '?';
-        case '0': return '\0';
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+            /* C octal escape sequences consume at most three octal digits,
+             * including the first digit after the backslash. */
+            value = c - '0';
+            digits = 1;
+            while (digits < 3 && peek(lex) >= '0' && peek(lex) <= '7') {
+                value = value * 8 + (advance(lex) - '0');
+                ++digits;
+            }
+            return (char)value;
         case 'x': {
             int val = 0;
-            for (int i = 0; i < 2 && isxdigit(peek(lex)); i++) {
+            if (!isxdigit(peek(lex))) {
+                rcc_error(make_loc(lex), "hex escape requires at least one digit");
+                return '\0';
+            }
+            while (isxdigit(peek(lex))) {
                 val = val * 16 + hex_digit(advance(lex));
             }
             return (char)val;
         }
+        case 'u':
+        case 'U':
+            /* The current RinOS narrow-character representation is a byte
+             * string.  Do not reinterpret a universal character name as the
+             * literal spelling (which would silently change program data).
+             * Consume its required hex digits before reporting the bounded
+             * ABI diagnostic so parsing remains synchronized. */
+            digits = c == 'u' ? 4 : 8;
+            for (int i = 0; i < digits; ++i) {
+                if (!isxdigit(peek(lex))) {
+                    rcc_error(make_loc(lex),
+                              "universal character name requires hexadecimal digits");
+                    return '\0';
+                }
+                advance(lex);
+            }
+            rcc_error(make_loc(lex),
+                      "universal character names are not supported by the RinOS byte-string ABI");
+            return '\0';
         default:
             return c;
     }
@@ -589,9 +664,13 @@ static Token* lex_token(Lexer* lex) {
         return lex_identifier(lex);
     }
 
-    /* Number */
+    /* Number.  A leading dot followed by a digit starts a decimal floating
+     * constant (`.5`), not the member-access operator. */
     if (isdigit(c)) {
-        return lex_number(lex);
+        return lex_number(lex, false);
+    }
+    if (c == '.' && isdigit(peek_next(lex))) {
+        return lex_number(lex, true);
     }
 
     /* Character literal */
