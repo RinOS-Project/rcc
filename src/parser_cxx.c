@@ -5805,14 +5805,18 @@ CxxTemplate* parse_cxx_template(void) {
                             cxx_template_add_value_param(signature, nested_name,
                                                          type_int);
                         } else {
-                            rcc_error(peek()->loc,
-                                      "template-template parameter requires "
-                                      "typename, class, or auto");
-                            while (!check(TOK_COMMA) && !check(TOK_GT) &&
-                                   !at_end()) {
-                                advance();
+                            Type* nested_type = parse_cxx_type_spec();
+                            if (!nested_type || !type_is_integer(nested_type)) {
+                                rcc_error(peek()->loc,
+                                          "template-template non-type "
+                                          "parameter requires an integral type");
+                                nested_type = type_int;
                             }
-                            cxx_template_add_type_param(signature, NULL);
+                            if (check(TOK_IDENT)) {
+                                nested_name = advance()->value.str_val;
+                            }
+                            cxx_template_add_value_param(signature, nested_name,
+                                                         nested_type);
                         }
                     } while (match(TOK_COMMA));
                 }
@@ -6665,6 +6669,12 @@ static bool template_template_signature_matches(
     for (int index = 0; index < signature->param_count; ++index) {
         if (signature->params[index].kind != actual->params[index].kind ||
             signature->params[index].is_pack != actual->params[index].is_pack) {
+            return false;
+        }
+        if (signature->params[index].kind == TPARAM_NONTYPE &&
+            (!signature->params[index].type || !actual->params[index].type ||
+             !type_is_compatible(signature->params[index].type,
+                                 actual->params[index].type))) {
             return false;
         }
     }

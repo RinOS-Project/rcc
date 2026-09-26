@@ -1759,6 +1759,15 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                           "parameter list");
                 return NULL;
             }
+            if (signature_parameter->kind == TPARAM_NONTYPE &&
+                (!signature_parameter->type || !actual_parameter->type ||
+                 !type_is_compatible(signature_parameter->type,
+                                     actual_parameter->type))) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "template-template argument does not match its "
+                          "parameter list");
+                return NULL;
+            }
             if (actual_parameter->kind == TPARAM_NONTYPE) {
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[nested_index] : NULL;

@@ -2138,6 +2138,10 @@ endif
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
 	grep -q "dependent template-template non-type argument must be an integer constant expression" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
+	grep -q "template-template argument does not match its parameter list" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
+	grep -q "template-template argument does not match its parameter list" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
 	@echo "RCC++ dependent template-template value diagnostics completed"
 
 test-cxx-conversion-operator: $(RCXX_TARGET)
