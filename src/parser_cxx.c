@@ -774,6 +774,7 @@ static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(void);
 static Type* parse_cxx_type_spec(void);
 static bool cxx_parser_expression_is_lvalue(Expr* expression);
+static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc);
 static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl,
                                         int parameter_index,
                                         bool is_const, bool is_pointer,
@@ -5778,6 +5779,18 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
             *is_noexcept = true;
         }
     }
+    {
+        Expr* trailing_constraint = parse_cxx_trailing_requires_clause(loc);
+        if (trailing_constraint) {
+            if (active_template->constraint) {
+                active_template->constraint = expr_binary(
+                    EXPR_AND, active_template->constraint,
+                    trailing_constraint, trailing_constraint->loc);
+            } else {
+                active_template->constraint = trailing_constraint;
+            }
+        }
+    }
     /* Emit only the verified non-dependent header subset.  Incomplete class
      * and template bodies remain deferred until their object model exists. */
     if (!parse_body && is_inline && type_is_complete(return_type) &&
@@ -6592,6 +6605,33 @@ Expr* rcc_parse_cxx_concept_expression(void) {
         call->cxx_concept_template = concept;
         return call;
     }
+}
+
+/* Parse a trailing function requires-clause and attach it to the active
+ * function template.  Keeping this separate from the body parser makes the
+ * same constrained-template path serve abbreviated and explicit templates. */
+static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc) {
+    bool parenthesized;
+    Expr* constraint;
+
+    if (!match(TOK_REQUIRES)) return NULL;
+    if (!rcc_parser_cxx_standard_at_least(20)) {
+        rcc_error(loc, "requires-clauses require C++20 or newer");
+    }
+    parenthesized = match(TOK_LPAREN);
+    constraint = parse_assignment_expression();
+    if (parenthesized) expect(TOK_RPAREN, ") after trailing requires-clause");
+    if (!constraint) {
+        rcc_error(loc,
+                  "trailing requires-clause requires a constraint expression");
+        return NULL;
+    }
+    if (!active_template || active_template->kind != TMPL_FUNCTION) {
+        rcc_error(loc,
+                  "trailing requires-clause requires a function template");
+        return NULL;
+    }
+    return constraint;
 }
 
 static CxxClass* namespace_class(CxxNamespace* ns, const char* name) {
@@ -9022,6 +9062,9 @@ static bool eval_template_integer_expression(Expr* expression,
             return eval_template_integer_expression(
                 left ? expression->cond_then : expression->cond_else,
                 tmpl, values, value_present, result);
+        case EXPR_CXX_REQUIRES:
+            *result = rcc_sema_cxx_requires_satisfied(expression) ? 1 : 0;
+            return true;
         case EXPR_CAST:
             return eval_template_integer_expression(
                 expression->cast_expr, tmpl, values, value_present, result);

@@ -192,7 +192,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
 .PHONY: test-cxx-class-template-deduction
-.PHONY: test-cxx-abbreviated-function-template
+.PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -246,6 +246,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-function-templates \
 	test-cxx-abbreviated-function-template \
 	test-cxx-abbreviated-function-template-invalid \
+	test-cxx-trailing-requires \
 	test-cxx-variable-templates \
 	test-cxx-function-template-overloads \
 	test-cxx-function-template-references \
@@ -4161,6 +4162,58 @@ test-cxx-abbreviated-function-template-invalid: $(RCXX_TARGET)
 	grep -q "abbreviated function templates require C++20 or newer" \
 		$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log
 	@echo "C++20 abbreviated function-template diagnostics completed"
+
+test-cxx-trailing-requires: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-trailing-requires)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-trailing-requires/x86.s \
+		tests/cxx-abbreviated-function-template.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-trailing-requires/x86.o \
+		$(TEST_OUT)/cxx-trailing-requires/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-trailing-requires/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-trailing-requires/x86 \
+		$(TEST_OUT)/cxx-trailing-requires/start-x86.o \
+		$(TEST_OUT)/cxx-trailing-requires/x86.o
+	$(TEST_OUT)/cxx-trailing-requires/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-trailing-requires/x64.s \
+		tests/cxx-abbreviated-function-template.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-trailing-requires/x64.o \
+		$(TEST_OUT)/cxx-trailing-requires/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-trailing-requires/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-trailing-requires/x64 \
+		$(TEST_OUT)/cxx-trailing-requires/start-x64.o \
+		$(TEST_OUT)/cxx-trailing-requires/x64.o
+	$(TEST_OUT)/cxx-trailing-requires/x64
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-trailing-requires/invalid-x86.ro \
+		tests/cxx-trailing-requires-invalid.cpp \
+		>$(TEST_OUT)/cxx-trailing-requires/invalid-x86.log 2>&1; then \
+		echo "unsatisfied trailing requires-clause unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-trailing-requires/invalid-x64.ro \
+		tests/cxx-trailing-requires-invalid.cpp \
+		>$(TEST_OUT)/cxx-trailing-requires/invalid-x64.log 2>&1; then \
+		echo "unsatisfied trailing requires-clause unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "template constraints are not satisfied" \
+		$(TEST_OUT)/cxx-trailing-requires/invalid-x86.log
+	grep -q "template constraints are not satisfied" \
+		$(TEST_OUT)/cxx-trailing-requires/invalid-x64.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-trailing-requires/old-x86.ro \
+		tests/cxx-trailing-requires-invalid.cpp \
+		>$(TEST_OUT)/cxx-trailing-requires/old-x86.log 2>&1; then \
+		echo "trailing requires-clause unexpectedly compiled as C++17 on i686"; exit 1; \
+	fi
+	grep -q "requires-expressions and requires-clauses require C++20 or newer" \
+		$(TEST_OUT)/cxx-trailing-requires/old-x86.log
+	@echo "C++20 trailing requires-clause tests completed"
 
 test-initializer-brace-elision: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/initializer-brace-elision)
