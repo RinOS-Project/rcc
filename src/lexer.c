@@ -113,6 +113,8 @@ static struct {
     {"constexpr", TOK_CONSTEXPR},
     {"consteval", TOK_CONSTEVAL},
     {"decltype", TOK_DECLTYPE},
+    {"alignas", TOK__ALIGNAS},
+    {"alignof", TOK__ALIGNOF},
     {"requires", TOK_REQUIRES},
     {"thread_local", TOK_THREAD_LOCAL},
     {"noexcept", TOK_NOEXCEPT},
