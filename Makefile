@@ -155,6 +155,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
 .PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-designated-initializer
+.PHONY: test-cxx-utf8-literals
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -260,6 +261,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-generic-lambda \
 	test-cxx-range-for \
 	test-cxx-designated-initializer \
+	test-cxx-utf8-literals \
 	test-cxx-if-constexpr \
 	test-cxx-if-constexpr-template \
 	test-cxx-adl-multiple-namespaces \
@@ -2263,6 +2265,42 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 	grep -q "nested designators" \
 		$(TEST_OUT)/cxx-designated-initializer/invalid-nested-x86.log
 	@echo "C++20 designated initializer tests completed"
+
+test-cxx-utf8-literals: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-utf8-literals/x86.s \
+		tests/cxx_utf8_literals.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-utf8-literals/x86.o \
+		$(TEST_OUT)/cxx-utf8-literals/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-utf8-literals/x86 \
+		tests/cxx_utf8_literals_run_test.c \
+		$(TEST_OUT)/cxx-utf8-literals/x86.o
+	$(TEST_OUT)/cxx-utf8-literals/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-utf8-literals/x64.s \
+		tests/cxx_utf8_literals.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-utf8-literals/x64.o \
+		$(TEST_OUT)/cxx-utf8-literals/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-utf8-literals/x64 \
+		tests/cxx_utf8_literals_run_test.c \
+		$(TEST_OUT)/cxx-utf8-literals/x64.o
+	$(TEST_OUT)/cxx-utf8-literals/x64
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/invalid-x86.ro \
+		tests/cxx_prefixed_literal_invalid.cpp \
+		>$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log 2>&1; then \
+		echo "unsupported prefixed literal case unexpectedly compiled"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/invalid-x64.ro \
+		tests/cxx_prefixed_literal_invalid.cpp \
+		>$(TEST_OUT)/cxx-utf8-literals/invalid-x64.log 2>&1; then \
+		echo "unsupported prefixed literal case unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "wide, UTF-16, and UTF-32 literals are not supported" \
+		$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log
+	@echo "C++ UTF-8 literal tests completed"
 
 test-cxx-lambda-function-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda-function-pointer)

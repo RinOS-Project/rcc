@@ -5761,6 +5761,7 @@ bool rcc_parse_cxx_type_start(void) {
         result = next && next->type == TOK_IDENT;
         return result;
     }
+    if (check(TOK_CHAR8_T)) return true;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;
 
     name = parse_qualified_name();
@@ -7545,6 +7546,7 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     switch (peek()->type) {
         case TOK_VOID:
         case TOK_BOOL:
+        case TOK_CHAR8_T:
         case TOK_CHAR:
         case TOK_SHORT:
         case TOK_INT:
@@ -8202,6 +8204,8 @@ static Type* parse_cxx_type_spec(void) {
         t = type_void;
     } else if (match(TOK_BOOL)) {
         t = type_bool;
+    } else if (match(TOK_CHAR8_T)) {
+        t = type_uchar;
     } else if (match(TOK_CHAR)) {
         t = is_unsigned ? type_uchar : type_char;
     } else if (match(TOK_INT) || long_count > 0 || is_short || saw_sign) {

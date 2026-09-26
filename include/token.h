@@ -92,6 +92,7 @@ typedef enum {
     TOK_TRUE,           /* true */
     TOK_FALSE,          /* false */
     TOK_BOOL,           /* bool */
+    TOK_CHAR8_T,        /* char8_t (RinOS byte ABI) */
     TOK_THROW,          /* throw */
     TOK_TRY,            /* try */
     TOK_CATCH,          /* catch */
@@ -201,6 +202,9 @@ typedef struct Token {
     uint8_t int_long_suffix;
     bool int_unsigned_suffix;
     bool int_overflow;
+    /* C++ UTF-8 character/string literal spelling.  RinOS represents
+     * char8_t and UTF-8 strings with its bounded byte ABI. */
+    bool is_utf8_literal;
     /* TOK_FLOAT_LIT metadata.  C distinguishes unsuffixed/double and
      * `f`-suffixed/float literals; retaining the spelling keeps semantic
      * analysis and object emission from silently widening every literal. */

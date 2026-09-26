@@ -978,10 +978,16 @@ static Expr* parse_primary(void) {
         return expression;
     }
     if (match(TOK_CHAR_LIT)) {
-        return expr_char(previous()->value.char_val, loc);
+        Token* literal = previous();
+        Expr* expression = expr_char(literal->value.char_val, loc);
+        expression->is_cxx_utf8_literal = literal->is_utf8_literal;
+        return expression;
     }
     if (match(TOK_STRING_LIT)) {
-        return expr_string(previous()->value.str_val, loc);
+        Token* literal = previous();
+        Expr* expression = expr_string(literal->value.str_val, loc);
+        expression->is_cxx_utf8_literal = literal->is_utf8_literal;
+        return expression;
     }
     if (check(TOK_IDENT) &&
         strcmp(peek()->value.str_val, "__builtin_offsetof") == 0) {
@@ -2268,6 +2274,8 @@ static Type* parse_type_spec(void) {
         t = type_double;
     } else if (match(TOK_VOID)) {
         t = type_void;
+    } else if (parser_cxx_mode && match(TOK_CHAR8_T)) {
+        t = type_uchar;
     } else if (match(TOK_CHAR)) {
         t = is_unsigned ? type_uchar : type_char;
     } else if (match(TOK_INT) || long_count > 0 || is_short) {

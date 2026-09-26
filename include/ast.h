@@ -411,6 +411,8 @@ struct Expr {
     /* Marks the literal spelling of C++ nullptr so it remains excluded from
      * integer constant expressions.  Its semantic type is TYPE_NULLPTR. */
     bool is_cxx_nullptr;
+    /* C++20 u8 character/string literal mapped to the RinOS byte ABI. */
+    bool is_cxx_utf8_literal;
     /* C++ public non-virtual derived-to-base pointer conversion.  The
      * semantic pass records the fixed subobject displacement on the source
      * expression so both initializer and call lowering use the adjusted
