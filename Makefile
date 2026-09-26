@@ -165,7 +165,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
-.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-template-template test-cxx-template-template-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-cxx-using-enum test-cxx-using-enum-invalid test-multiple-inputs
+.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-template-template test-cxx-template-template-invalid test-cxx-template-template-dependent-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-cxx-using-enum test-cxx-using-enum-invalid test-multiple-inputs
 .PHONY: test-cxx-default-destructor
 .PHONY: test-cxx-pure-virtual
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
@@ -271,6 +271,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-using-enum-invalid \
 	test-cxx-template-template \
 	test-cxx-template-template-invalid \
+	test-cxx-template-template-dependent-invalid \
 	test-cxx-lambda-function-pointer \
 	test-cxx-generic-lambda \
 	test-cxx-range-for \
@@ -2113,6 +2114,31 @@ endif
 	grep -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x64.log
 	@echo "RCC++ template-template parameter diagnostics completed"
+
+test-cxx-template-template-dependent-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-dependent-invalid)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.ro' tests/cxx_template_template_dependent_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.ro' tests/cxx_template_template_dependent_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+else
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-template-dependent-invalid/x86.ro \
+		tests/cxx_template_template_dependent_invalid.cpp \
+		>$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log 2>&1; then \
+		echo "unresolved dependent template-template value unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-template-dependent-invalid/x64.ro \
+		tests/cxx_template_template_dependent_invalid.cpp \
+		>$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log 2>&1; then \
+		echo "unresolved dependent template-template value unexpectedly compiled on AMD64"; exit 1; \
+	fi
+endif
+	grep -q "dependent template-template non-type argument must be an integer constant expression" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
+	grep -q "dependent template-template non-type argument must be an integer constant expression" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
+	@echo "RCC++ dependent template-template value diagnostics completed"
 
 test-cxx-conversion-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)

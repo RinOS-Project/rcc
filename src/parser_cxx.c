@@ -6764,6 +6764,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         Type* template_argument;
         CxxTemplate* actual_template;
         Type* nested_arguments[32] = { NULL };
+        int64_t nested_values[32] = { 0 };
+        bool nested_value_present[32] = { false };
         Type* instantiated;
         if (type->cxx_template_param_index >= argument_count ||
             !arguments ||
@@ -6783,13 +6785,34 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         }
         for (int nested_index = 0;
              nested_index < type->cxx_template_arg_count; ++nested_index) {
-            nested_arguments[nested_index] = substitute_template_type(
-                tmpl, type->cxx_template_args[nested_index], arguments,
-                argument_count, value_args, value_present);
-            if (!nested_arguments[nested_index]) return NULL;
+            TemplateParam* nested_parameter =
+                &actual_template->params[nested_index];
+            if (nested_parameter->kind == TPARAM_NONTYPE) {
+                Expr* value_expression = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[nested_index] : NULL;
+                if (!value_expression ||
+                    !eval_template_integer_expression(
+                        value_expression, tmpl, value_args, value_present,
+                        &nested_values[nested_index])) {
+                    rcc_error(value_expression ? value_expression->loc
+                                                : (SourceLoc){"<template>", 0, 0},
+                              "dependent template-template non-type argument "
+                              "must be an integer constant expression");
+                    return NULL;
+                }
+                nested_arguments[nested_index] = nested_parameter->type
+                    ? nested_parameter->type : type_int;
+                nested_value_present[nested_index] = true;
+            } else {
+                nested_arguments[nested_index] = substitute_template_type(
+                    tmpl, type->cxx_template_args[nested_index], arguments,
+                    argument_count, value_args, value_present);
+                if (!nested_arguments[nested_index]) return NULL;
+            }
         }
         instantiated = instantiate_class_template(
-            actual_template, nested_arguments, NULL, NULL,
+            actual_template, nested_arguments, nested_values,
+            nested_value_present,
             type->cxx_template_arg_count, (SourceLoc){"<template>", 0, 0});
         if (!instantiated) return NULL;
         return instantiated;
@@ -9378,22 +9401,37 @@ static Type* parse_cxx_type_spec(void) {
                     }
                     if (parameter->template_signature->params[nested_count].kind !=
                         TPARAM_TYPE) {
-                        rcc_error(peek()->loc,
-                                  "non-type template-template arguments are "
-                                  "not supported in dependent class types");
-                        (void)parse_assignment_expression();
+                        Expr* value_expression;
+                        rcc_parser_set_cxx_template_default_mode(true);
+                        value_expression = parse_assignment_expression();
+                        rcc_parser_set_cxx_template_default_mode(false);
                         dependent->cxx_template_args = ast_arena_grow(
                             dependent->cxx_template_args,
                             sizeof(Type*) * (size_t)nested_count,
                             sizeof(Type*) * (size_t)(nested_count + 1));
-                        dependent->cxx_template_args[nested_count++] = type_int;
+                        dependent->cxx_template_value_args = ast_arena_grow(
+                            dependent->cxx_template_value_args,
+                            sizeof(Expr*) * (size_t)nested_count,
+                            sizeof(Expr*) * (size_t)(nested_count + 1));
+                        dependent->cxx_template_args[nested_count] =
+                            parameter->template_signature->params[nested_count].type
+                                ? parameter->template_signature->params[nested_count].type
+                                : type_int;
+                        dependent->cxx_template_value_args[nested_count++] =
+                            value_expression;
                     } else {
                         dependent->cxx_template_args = ast_arena_grow(
                             dependent->cxx_template_args,
                             sizeof(Type*) * (size_t)nested_count,
                             sizeof(Type*) * (size_t)(nested_count + 1));
+                        dependent->cxx_template_value_args = ast_arena_grow(
+                            dependent->cxx_template_value_args,
+                            sizeof(Expr*) * (size_t)nested_count,
+                            sizeof(Expr*) * (size_t)(nested_count + 1));
                         dependent->cxx_template_args[nested_count++] =
                             parse_cxx_type_spec();
+                        dependent->cxx_template_value_args[nested_count - 1] =
+                            NULL;
                     }
                 } while (match(TOK_COMMA));
             }

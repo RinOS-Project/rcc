@@ -1635,6 +1635,11 @@ static int template_parameter_index_nested(CxxTemplate* tmpl, Type* type) {
     return template_type_parameter_index(tmpl, type);
 }
 
+static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
+                                 Type** args, int arg_count,
+                                 const int64_t* value_args,
+                                 const bool* value_present);
+
 static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                       Type** args, int arg_count,
                                       const int64_t* value_args,
@@ -1715,6 +1720,83 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             type->cxx_template_arg_count,
             (SourceLoc){"<template>", 0, 0});
         return instantiated ? instantiated->type : NULL;
+    }
+    if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
+        type->cxx_template_arg_count > 0) {
+        Type* template_argument;
+        CxxTemplate* actual_template;
+        TemplateParam* outer_parameter = NULL;
+        Type* nested_arguments[32] = { NULL };
+        int64_t nested_values[32] = { 0 };
+        bool nested_value_present[32] = { false };
+        int nested_count = type->cxx_template_arg_count;
+        if (nested_count > (int)(sizeof(nested_arguments) /
+                                 sizeof(nested_arguments[0])) ||
+            type->cxx_template_param_index >= arg_count || !args ||
+            !(template_argument = args[type->cxx_template_param_index]) ||
+            !(actual_template = template_argument->cxx_template) ||
+            !tmpl || type->cxx_template_param_index >= tmpl->param_count ||
+            (outer_parameter = &tmpl->params[type->cxx_template_param_index])->kind !=
+                TPARAM_TEMPLATE ||
+            !outer_parameter->template_signature ||
+            outer_parameter->template_signature->param_count != nested_count ||
+            actual_template->kind != TMPL_CLASS ||
+            actual_template->param_count != nested_count) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument cannot be instantiated");
+            return NULL;
+        }
+        for (int nested_index = 0; nested_index < nested_count;
+             ++nested_index) {
+            TemplateParam* signature_parameter =
+                &outer_parameter->template_signature->params[nested_index];
+            TemplateParam* actual_parameter =
+                &actual_template->params[nested_index];
+            if (signature_parameter->kind != actual_parameter->kind ||
+                signature_parameter->is_pack != actual_parameter->is_pack) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "template-template argument does not match its "
+                          "parameter list");
+                return NULL;
+            }
+            if (actual_parameter->kind == TPARAM_NONTYPE) {
+                Expr* value_expression = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[nested_index] : NULL;
+                Expr* substituted_expression;
+                if (!value_expression) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "dependent template-template non-type argument "
+                              "is missing");
+                    return NULL;
+                }
+                substituted_expression = template_clone_expr(
+                    tmpl, value_expression, args, arg_count, value_args,
+                    value_present);
+                if (!substituted_expression ||
+                    !expr_eval_integer_constant(substituted_expression,
+                                                 &nested_values[nested_index])) {
+                    rcc_error(value_expression->loc,
+                              "dependent template-template non-type argument "
+                              "must be an integer constant expression");
+                    return NULL;
+                }
+                nested_arguments[nested_index] = actual_parameter->type
+                    ? actual_parameter->type : type_int;
+                nested_value_present[nested_index] = true;
+            } else {
+                nested_arguments[nested_index] = template_substitute_type(
+                    tmpl, type->cxx_template_args[nested_index], args,
+                    arg_count, value_args, value_present);
+                if (!nested_arguments[nested_index]) return NULL;
+            }
+        }
+        {
+            CxxClass* instantiated = rcc_cxx_instantiate_class_template(
+                actual_template, nested_arguments, nested_values,
+                nested_value_present, nested_count,
+                (SourceLoc){"<template>", 0, 0});
+            return instantiated ? instantiated->type : NULL;
+        }
     }
 
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {

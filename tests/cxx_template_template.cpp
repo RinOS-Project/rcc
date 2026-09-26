@@ -21,10 +21,27 @@ struct DefaultHolder {
     }
 };
 
+template<auto N>
+struct ValueBox {
+    int value;
+};
+
+template<template<auto M> class Container, int N>
+struct DependentValueHolder {
+    Container<N> value;
+
+    int get() {
+        return value.value;
+    }
+};
+
 int main() {
     Holder<Box, int> holder;
     holder.value.value = 41;
     DefaultHolder<> default_holder;
     default_holder.value.value = 43;
-    return holder.get() == 41 && default_holder.get() == 43 ? 0 : 1;
+    DependentValueHolder<ValueBox, 47> dependent_holder;
+    dependent_holder.value.value = 47;
+    return holder.get() == 41 && default_holder.get() == 43 &&
+                   dependent_holder.get() == 47 ? 0 : 1;
 }
