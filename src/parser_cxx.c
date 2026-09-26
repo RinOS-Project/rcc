@@ -3858,13 +3858,15 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                                        const char* class_name) {
     bool has_definition = false;
+    bool is_final;
 
     /* A final class has the same object layout as an otherwise identical
      * class; the semantic restriction is enforced when bases are resolved. */
-    match(TOK_FINAL);
+    is_final = match(TOK_FINAL);
 
     CxxClass* cls = cxx_class_new(class_name, loc);
     cls->is_struct = is_struct;
+    cls->is_final = is_final;
 
     /* Inheritance */
     if (match(TOK_COLON)) {
@@ -5520,6 +5522,9 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc) {
             rcc_error(loc, "a class cannot derive from itself");
             continue;
         }
+        if (base->is_final) {
+            rcc_error(loc, "cannot derive from final class '%s'", base_name);
+        }
         cls->bases[index].base = base;
     }
 }
@@ -5971,6 +5976,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     }
     instance = cxx_class_new(ast_arena_strdup(tag), loc);
     instance->is_struct = definition->is_struct;
+    instance->is_final = definition->is_final;
     instance->ns = definition->ns;
     instance->has_user_constructor = definition->has_user_constructor;
     instance->has_nonpublic_field = definition->has_nonpublic_field;

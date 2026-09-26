@@ -665,6 +665,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     CxxClass* cls = rcc_alloc(sizeof(CxxClass));
     cls->name = name ? rcc_strdup(name) : NULL;
     cls->is_struct = is_struct;
+    cls->is_final = false;
     cls->has_user_constructor = false;
     cls->has_nonpublic_field = false;
     cls->has_static_field = false;

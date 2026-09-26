@@ -66,6 +66,7 @@ struct CxxConstructorInfo {
 struct CxxClass {
     const char* name;
     bool is_struct;          /* struct vs class (default access) */
+    bool is_final;           /* C++ final class cannot be used as a base. */
     bool has_user_constructor;
     bool has_nonpublic_field;
     bool has_static_field;
