@@ -613,17 +613,29 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log 2>&1
 	grep -q "structured bindings require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
+	grep -q "generic lambda parameters require C++14 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
+	grep -q "inline variables require C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
+	grep -q "C++ designated initializers require C++20 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
 	! $(RCXX_TARGET) -std=c++14 -c \
 		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.ro \
 		tests/cxx_standard_cpp17_invalid.cpp \
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log 2>&1
 	grep -q "if constexpr requires C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
+	grep -q "inline variables require C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
+	grep -q "C++ designated initializers require C++20 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	! $(RCXX_TARGET) -std=c++17 -c \
 		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.ro \
 		tests/cxx_standard_cpp20_invalid.cpp \
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log 2>&1
 	grep -q "requires C++20 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
+	grep -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
 	@echo "C++ standard-version gates and feature-test macros completed"
 

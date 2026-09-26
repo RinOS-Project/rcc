@@ -4422,6 +4422,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             cls->has_nonpublic_field = true;
         }
         if (is_static) cls->has_static_field = true;
+        if (is_static && is_inline &&
+            !rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(loc, "inline variables require C++17 or newer");
+        }
 
         expect(TOK_SEMICOLON, ";");
 
@@ -5208,6 +5212,9 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
             bool is_reference = false;
             bool is_rvalue_reference = false;
             SourceLoc loc = peek()->loc;
+            if (!rcc_parser_cxx_standard_at_least(14)) {
+                rcc_error(loc, "generic lambda parameters require C++14 or newer");
+            }
             expect(TOK_AUTO, "auto lambda parameter");
             if (match(TOK_STAR)) {
                 is_pointer = true;
@@ -5409,6 +5416,10 @@ Expr* rcc_parse_cxx_lambda(void) {
         }
     }
     if (check(TOK_LT)) {
+        if (!rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(peek()->loc,
+                      "lambda template parameters require C++20 or newer");
+        }
         active_template = lambda_template;
         explicit_template_parameters =
             parse_cxx_lambda_template_parameters(lambda_template);
@@ -6514,6 +6525,9 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
+    }
+    if (is_inline && !rcc_parser_cxx_standard_at_least(17)) {
+        rcc_error(loc, "inline variables require C++17 or newer");
     }
     if (is_thread_local) declaration->var_is_thread_local = true;
     if (!base_type || !declaration->type ||

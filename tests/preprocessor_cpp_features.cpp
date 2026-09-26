@@ -108,8 +108,49 @@
 #endif
 #endif
 
+#if __cplusplus >= 201402L
+int rcc_generic_lambda_feature(void) {
+    return [](auto value) { return value + 1; }(4);
+}
+#endif
+
+#if __cplusplus >= 201703L
+inline int rcc_inline_variable_feature = 3;
+
+int rcc_selection_initializer_feature(void) {
+    if (int value = rcc_inline_variable_feature; value) return value;
+    switch (int value = 0; value) {
+    case 0:
+        return 0;
+    default:
+        return value;
+    }
+}
+#endif
+
+#if __cplusplus >= 202002L
+struct RccDesignatedFeature {
+    int value;
+};
+
+int rcc_designated_initializer_feature(void) {
+    RccDesignatedFeature value{.value = 5};
+    return value.value;
+}
+#endif
+
 int rcc_cpp_feature_macro_probe(void) {
-    return 0;
+    int result = 0;
+#if __cplusplus >= 201402L
+    result += rcc_generic_lambda_feature();
+#endif
+#if __cplusplus >= 201703L
+    result += rcc_selection_initializer_feature();
+#endif
+#if __cplusplus >= 202002L
+    result += rcc_designated_initializer_feature();
+#endif
+    return result == 0;
 }
 
 int main() {

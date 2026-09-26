@@ -1744,6 +1744,11 @@ static Expr* parse_initializer(void) {
                 *designator_tail = designator;
                 designator_tail = &designator->next;
             }
+            if (parser_cxx_mode && designator_count > 0u &&
+                !rcc_parser_cxx_standard_at_least(20)) {
+                rcc_error(loc,
+                          "C++ designated initializers require C++20 or newer");
+            }
             if (parser_cxx_mode && designator_count > 1u) {
                 rcc_error(loc,
                           "C++ designated initializer cannot use nested designators");
@@ -2898,6 +2903,10 @@ static Stmt* parse_if_stmt(void) {
     Stmt* init = NULL;
     expect(TOK_LPAREN, "(");
     if (cxx_selection_has_init()) {
+        if (!rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(loc,
+                      "selection-statement initializers require C++17 or newer");
+        }
         if (is_type_start() || check(TOK_AUTO)) {
             init = parse_declaration();
         } else {
@@ -2980,6 +2989,10 @@ static Stmt* parse_switch_stmt(void) {
     Stmt* init = NULL;
     expect(TOK_LPAREN, "(");
     if (cxx_selection_has_init()) {
+        if (!rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(loc,
+                      "selection-statement initializers require C++17 or newer");
+        }
         if (is_type_start() || check(TOK_AUTO)) {
             init = parse_declaration();
         } else {
@@ -3398,6 +3411,10 @@ Stmt* parse_declaration(void) {
     declaration->var_is_constexpr = is_constexpr;
     declaration->var_is_constinit = is_constinit;
     declaration->var_is_inline = is_inline;
+    if (parser_cxx_mode && is_inline &&
+        !rcc_parser_cxx_standard_at_least(17)) {
+        rcc_error(loc, "inline variables require C++17 or newer");
+    }
     if (is_noreturn) {
         rcc_error(loc, "_Noreturn declaration must declare a function");
     }
