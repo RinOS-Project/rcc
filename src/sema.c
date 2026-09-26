@@ -9895,6 +9895,31 @@ static void sema_warn_discarded_nodiscard(const Expr* expression) {
                 declaration->name ? declaration->name : "<function>");
 }
 
+bool rcc_sema_cxx_requires_satisfied(Expr* expression) {
+    int suppressed_before;
+    bool suppress_before;
+    bool valid;
+    SymTab* temporary_symtab = NULL;
+    if (!expression || expression->kind != EXPR_CXX_REQUIRES || !g_symtab) {
+        if (!expression || expression->kind != EXPR_CXX_REQUIRES) return false;
+        temporary_symtab = symtab_new();
+        if (!temporary_symtab) return false;
+        g_symtab = temporary_symtab;
+    }
+    suppressed_before = g_suppressed_error_count;
+    suppress_before = g_suppress_errors;
+    g_suppress_errors = true;
+    (void)sema_expr(expression);
+    g_suppress_errors = suppress_before;
+    valid = expression->kind == EXPR_INT_LIT && expression->int_val != 0;
+    if (g_suppressed_error_count != suppressed_before) valid = false;
+    if (temporary_symtab) {
+        symtab_free(temporary_symtab);
+        g_symtab = NULL;
+    }
+    return valid;
+}
+
 static void sema_stmt(Stmt* stmt) {
     if (!stmt) return;
 

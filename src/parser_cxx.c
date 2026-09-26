@@ -5878,10 +5878,9 @@ CxxTemplate* parse_cxx_template(void) {
 
     expect(TOK_GT, ">");
 
-    /* The bounded named-concept profile is deliberately limited to integral
-     * predicates so it can reuse the existing constant requires-clause
-     * evaluator.  Type concepts and parameter packs must be diagnosed rather
-     * than accepted as an unconstrained marker. */
+    /* Keep named concepts bounded, but preserve real type parameters so a
+     * requires-expression can be substituted and semantically checked.  Packs
+     * and defaults remain outside this compiler's finite template ABI. */
     if (match(TOK_CONCEPT)) {
         Token* concept_name = expect(TOK_IDENT, "concept name");
         tmpl->kind = TMPL_FUNCTION;
@@ -5889,15 +5888,28 @@ CxxTemplate* parse_cxx_template(void) {
         tmpl->name = concept_name ? concept_name->value.str_val : "<concept>";
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->kind != TPARAM_NONTYPE || parameter->is_pack ||
-                parameter->has_default || !parameter->name) {
+            if (!parameter->name) {
                 rcc_error(loc,
-                          "RCC++ named concepts currently require named, "
-                          "non-type integral parameters without packs or defaults");
+                          "RCC++ named concepts require named parameters");
             }
-            if (!parameter->type || !type_is_integer(parameter->type)) {
+            if (parameter->is_pack || parameter->has_default) {
                 rcc_error(loc,
-                          "RCC++ named concepts currently require integral "
+                          "RCC++ named concepts do not support parameter packs "
+                          "or defaults");
+            }
+            if (parameter->kind == TPARAM_TEMPLATE) {
+                rcc_error(loc,
+                          "RCC++ named concepts do not support "
+                          "template-template parameters");
+            } else if (parameter->kind == TPARAM_NONTYPE &&
+                       (!parameter->type || !type_is_integer(parameter->type))) {
+                rcc_error(loc,
+                          "RCC++ named concepts require integral non-type "
+                          "parameters");
+            } else if (parameter->kind != TPARAM_TYPE &&
+                       parameter->kind != TPARAM_NONTYPE) {
+                rcc_error(loc,
+                          "RCC++ named concepts support only type and integral "
                           "non-type parameters");
             }
         }
@@ -5912,9 +5924,8 @@ CxxTemplate* parse_cxx_template(void) {
     }
 
     /* C++20 permits a requires-clause between the template parameter list
-     * and the declaration.  Keep the accepted subset deliberately explicit:
-     * instantiation evaluates an integral constant expression over non-type
-     * parameters, so an unsupported type/concept requirement is diagnosed
+     * and the declaration.  It is evaluated after template arguments are
+     * substituted; unsupported constraint forms remain explicit diagnostics
      * instead of being treated as an always-true annotation. */
     if (match(TOK_REQUIRES)) {
         bool parenthesized = match(TOK_LPAREN);
@@ -6276,9 +6287,23 @@ Expr* rcc_parse_cxx_concept_expression(void) {
                 while (!check(TOK_GT) && !at_end()) advance();
                 break;
             }
-            rcc_parser_set_cxx_template_default_mode(true);
-            argument = parse_assignment_expression();
-            rcc_parser_set_cxx_template_default_mode(false);
+            if (argument_count < concept->param_count &&
+                concept->params[argument_count].kind == TPARAM_TYPE) {
+                Type* argument_type = parse_cxx_type_spec();
+                if (!argument_type) {
+                    rcc_error(peek()->loc,
+                              "named concept type argument requires a type");
+                    argument_type = type_int;
+                }
+                argument_type = rcc_parser_parse_cxx_declarator(
+                    argument_type, NULL, NULL);
+                argument = expr_int(0, loc);
+                argument->type = argument_type;
+            } else {
+                rcc_parser_set_cxx_template_default_mode(true);
+                argument = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+            }
             exprlist_append(&arguments, argument);
             ++argument_count;
         } while (match(TOK_COMMA));
@@ -7967,6 +7992,7 @@ static bool eval_template_integer_expression(Expr* expression,
     }
     if (expression->kind == EXPR_CALL && expression->cxx_concept_template) {
         CxxTemplate* concept = expression->cxx_concept_template;
+        Type* concept_types[32] = { NULL };
         int64_t concept_values[32] = { 0 };
         bool concept_value_present[32] = { false };
         ExprList* argument = expression->call_args;
@@ -7974,16 +8000,39 @@ static bool eval_template_integer_expression(Expr* expression,
             !concept->constraint) return false;
         for (int index = 0; index < concept->param_count; ++index) {
             TemplateParam* parameter = &concept->params[index];
-            if (!argument || parameter->kind != TPARAM_NONTYPE ||
-                !eval_template_integer_expression(
-                    argument->expr, tmpl, values, value_present,
-                    &concept_values[index])) {
+            if (!argument) return false;
+            if (parameter->kind == TPARAM_TYPE) {
+                if (!argument->expr || !argument->expr->type) return false;
+                concept_types[index] = argument->expr->type;
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                if (!eval_template_integer_expression(
+                        argument->expr, tmpl, values, value_present,
+                        &concept_values[index])) {
+                    return false;
+                }
+                concept_value_present[index] = true;
+            } else {
                 return false;
             }
-            concept_value_present[index] = true;
             argument = argument->next;
         }
-        if (argument || !eval_template_integer_expression(
+        if (argument || !concept->constraint) {
+            return false;
+        }
+        if (concept->constraint->kind == EXPR_CXX_REQUIRES) {
+            Expr* instantiated = cxx_template_clone_expr_with_values(
+                concept, concept->constraint, concept_types,
+                concept->param_count, concept_values,
+                concept_value_present);
+            if (!instantiated ||
+                !rcc_sema_cxx_requires_satisfied(instantiated)) {
+                *result = 0;
+                return true;
+            }
+            *result = 1;
+            return true;
+        }
+        if (!eval_template_integer_expression(
                 concept->constraint, concept, concept_values,
                 concept_value_present, result)) {
             return false;
@@ -8084,18 +8133,31 @@ static bool eval_template_integer_expression(Expr* expression,
 }
 
 static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
+                                               Type** arguments,
                                                const int64_t* values,
                                                const bool* value_present,
                                                SourceLoc loc,
                                                bool report_errors) {
     int64_t result;
+    Expr* constraint;
     if (!tmpl || !tmpl->constraint) return true;
-    if (!eval_template_integer_expression(tmpl->constraint, tmpl, values,
-                                          value_present, &result)) {
+    constraint = cxx_template_clone_expr_with_values(
+        tmpl, tmpl->constraint, arguments, tmpl->param_count, values,
+        value_present);
+    if (!constraint) {
+        if (report_errors) {
+            rcc_error(loc, "template constraint could not be instantiated");
+        }
+        return false;
+    }
+    if (constraint->kind == EXPR_CXX_REQUIRES) {
+        result = rcc_sema_cxx_requires_satisfied(constraint) ? 1 : 0;
+    } else if (!eval_template_integer_expression(
+                   constraint, tmpl, values, value_present, &result)) {
         if (report_errors) {
             rcc_error(loc,
-                      "requires-clause must be an integral constant expression "
-                      "over non-type template parameters");
+                      "requires-clause must be a supported constant constraint "
+                      "over the template parameters");
         }
         return false;
     }
@@ -8190,7 +8252,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         return type_int;
     }
     if (!cxx_template_constraint_satisfied(
-            tmpl, values, value_present, loc, true)) {
+            tmpl, arguments, values, value_present, loc, true)) {
         return type_int;
     }
     {
@@ -8504,8 +8566,8 @@ static bool prepare_cxx_function_template_match(
     }
 
     if (!cxx_template_constraint_satisfied(
-            tmpl, match->values, match->value_present, tmpl->func_def->loc,
-            false)) {
+            tmpl, match->arguments, match->values, match->value_present,
+            tmpl->func_def->loc, false)) {
         if (constraint_invalid) *constraint_invalid = true;
         return false;
     }
