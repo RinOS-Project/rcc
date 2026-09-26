@@ -1365,6 +1365,8 @@ static Expr* parse_relational(void) {
             e = expr_binary(EXPR_LE, e, parse_shift(), loc);
         } else if (match(TOK_GE)) {
             e = expr_binary(EXPR_GE, e, parse_shift(), loc);
+        } else if (parser_cxx_mode && match(TOK_SPACESHIP)) {
+            e = expr_binary(EXPR_SPACESHIP, e, parse_shift(), loc);
         } else {
             break;
         }

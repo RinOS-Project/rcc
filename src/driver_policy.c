@@ -247,6 +247,7 @@ static bool driver_validate_expr(Expr* expression)
         case EXPR_MOD: case EXPR_BITAND: case EXPR_BITOR: case EXPR_BITXOR:
         case EXPR_LSHIFT: case EXPR_RSHIFT: case EXPR_EQ: case EXPR_NE:
         case EXPR_LT: case EXPR_GT: case EXPR_LE: case EXPR_GE:
+        case EXPR_SPACESHIP:
         case EXPR_AND: case EXPR_OR: case EXPR_ASSIGN: case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: case EXPR_MUL_ASSIGN: case EXPR_DIV_ASSIGN:
         case EXPR_MOD_ASSIGN: case EXPR_AND_ASSIGN: case EXPR_OR_ASSIGN:

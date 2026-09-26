@@ -6950,6 +6950,7 @@ static const char* sema_cxx_binary_operator_name(ExprKind kind) {
         case EXPR_GT: return "operator>";
         case EXPR_LE: return "operator<=";
         case EXPR_GE: return "operator>=";
+        case EXPR_SPACESHIP: return "operator<=>";
         case EXPR_AND: return "operator&&";
         case EXPR_OR: return "operator||";
         default: return NULL;
@@ -8441,6 +8442,14 @@ static Type* sema_expr(Expr* expr) {
             expr->type = type_int;
             break;
         }
+
+        case EXPR_SPACESHIP:
+            (void)sema_expr(expr->binary_lhs);
+            (void)sema_expr(expr->binary_rhs);
+            rcc_error(expr->loc,
+                      "built-in C++20 <=> requires an unsupported comparison category ABI");
+            expr->type = type_int;
+            break;
 
         case EXPR_AND:
         case EXPR_OR: {

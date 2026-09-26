@@ -155,6 +155,7 @@ typedef enum {
     TOK_GT,             /* > */
     TOK_LE,             /* <= */
     TOK_GE,             /* >= */
+    TOK_SPACESHIP,      /* <=> */
 
     /* Assignment operators */
     TOK_ASSIGN,         /* = */

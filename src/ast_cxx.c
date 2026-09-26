@@ -44,6 +44,7 @@ static const char* cxx_operator_abi_code(const char* name) {
     if (strcmp(name, "operator>") == 0) return "gt";
     if (strcmp(name, "operator<=") == 0) return "le";
     if (strcmp(name, "operator>=") == 0) return "ge";
+    if (strcmp(name, "operator<=>") == 0) return "ss";
     if (strcmp(name, "operator&&") == 0) return "aa";
     if (strcmp(name, "operator||") == 0) return "oo";
     if (strcmp(name, "operator<<") == 0) return "ls";

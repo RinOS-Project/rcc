@@ -88,6 +88,7 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
+        case EXPR_SPACESHIP:
         case EXPR_AND:
         case EXPR_OR:
         case EXPR_COMMA:
@@ -573,6 +574,7 @@ static void optimize_expr(Expr** expression) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
+        case EXPR_SPACESHIP:
         case EXPR_AND:
         case EXPR_OR:
         case EXPR_ASSIGN:
@@ -1042,6 +1044,7 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
+        case EXPR_SPACESHIP:
             propagate_constant_expr(&value->binary_lhs, state);
             propagate_constant_expr(&value->binary_rhs, state);
             optimize_expr(expression);
@@ -1314,6 +1317,7 @@ static void mark_address_escapes_expr(const Expr* expression,
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
+        case EXPR_SPACESHIP:
         case EXPR_AND:
         case EXPR_OR:
         case EXPR_ASSIGN:
@@ -1590,6 +1594,7 @@ static void mark_dead_store_reads(const Expr* expression,
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
+        case EXPR_SPACESHIP:
         case EXPR_AND:
         case EXPR_OR:
         case EXPR_COMMA:

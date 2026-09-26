@@ -314,6 +314,7 @@ typedef enum {
     EXPR_GT,            /* x > y */
     EXPR_LE,            /* x <= y */
     EXPR_GE,            /* x >= y */
+    EXPR_SPACESHIP,     /* x <=> y (C++20 user-defined comparison) */
     EXPR_AND,           /* x && y */
     EXPR_OR,            /* x || y */
 

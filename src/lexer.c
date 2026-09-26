@@ -170,6 +170,7 @@ const char* token_type_str(TokenType type) {
         case TOK_GT: return ">";
         case TOK_LE: return "<=";
         case TOK_GE: return ">=";
+        case TOK_SPACESHIP: return "<=>";
         case TOK_AND: return "&&";
         case TOK_OR: return "||";
         case TOK_INC: return "++";
@@ -682,7 +683,10 @@ static Token* lex_token(Lexer* lex) {
                 if (match(lex, '=')) return token_new(TOK_LSHIFT_ASSIGN, loc);
                 return token_new(TOK_LSHIFT, loc);
             }
-            if (match(lex, '=')) return token_new(TOK_LE, loc);
+            if (match(lex, '=')) {
+                if (match(lex, '>')) return token_new(TOK_SPACESHIP, loc);
+                return token_new(TOK_LE, loc);
+            }
             return token_new(TOK_LT, loc);
 
         case '>':

@@ -1243,6 +1243,9 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_CXX_THIS:
             context->unsupported = true;
             return lower_invalid_value();
+        case EXPR_SPACESHIP:
+            context->unsupported = true;
+            return lower_invalid_value();
         case EXPR_NEG:
             operand = lower_expression(context, expression->unary_operand);
             if (!operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER) {

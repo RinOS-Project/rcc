@@ -884,6 +884,9 @@ static const char* parse_operator_name(void) {
         case TOK_GE:
             advance();
             return rcc_intern("operator>=");
+        case TOK_SPACESHIP:
+            advance();
+            return rcc_intern("operator<=>");
         case TOK_AMP:
             advance();
             return rcc_intern("operator&");
