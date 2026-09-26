@@ -9495,6 +9495,70 @@ static TypeMethod* cxx_range_find_method(Type* type, const char* name) {
     return result;
 }
 
+static bool cxx_range_initializer_element_type(Type* type) {
+    return type && (type_is_arithmetic(type) || type->kind == TYPE_ENUM ||
+                    type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR);
+}
+
+/* A braced range expression is the C++20 initializer-list form.  The RinOS
+ * range ABI does not expose std::initializer_list, so materialize the
+ * bounded scalar list as a compiler-owned array compound expression.  This
+ * keeps the ordinary array range lowering in charge of one-time evaluation,
+ * element lifetime, and both target ABIs without pretending that arbitrary
+ * class initializer-list constructors are supported. */
+static Expr* parse_cxx_range_initializer_list(SourceLoc loc) {
+    ExprList* items = NULL;
+    Type* element_type = NULL;
+    int item_count = 0;
+    bool valid = true;
+
+    expect(TOK_LBRACE, "'{' after range-for colon");
+    if (!check(TOK_RBRACE)) {
+        do {
+            Expr* item = parse_assignment_expression();
+            Type* item_type = cxx_parser_expression_type(item);
+            if (!item || !item_type ||
+                !cxx_range_initializer_element_type(item_type)) {
+                rcc_error(item ? item->loc : loc,
+                          "RinOS braced range-for requires scalar element expressions");
+                valid = false;
+            } else if (!element_type) {
+                element_type = item_type;
+            } else if (type_is_arithmetic(element_type) &&
+                       type_is_arithmetic(item_type)) {
+                element_type = type_common(element_type, item_type);
+            } else if (!type_is_compatible(element_type, item_type)) {
+                rcc_error(item->loc,
+                          "RinOS braced range-for elements require one compatible element type");
+                valid = false;
+            }
+            if (item) {
+                exprlist_append(&items, item);
+                if (item_count == INT_MAX) {
+                    rcc_error(item->loc,
+                              "RinOS braced range-for has too many elements");
+                    valid = false;
+                } else {
+                    ++item_count;
+                }
+            }
+        } while (match(TOK_COMMA) && !check(TOK_RBRACE));
+    }
+    expect(TOK_RBRACE, "'}' after braced range-for initializer");
+    if (item_count == 0) {
+        rcc_error(loc,
+                  "RinOS braced range-for requires at least one element");
+        valid = false;
+    }
+    if (!valid || !element_type || item_count <= 0) return NULL;
+    {
+        Expr* result = expr_initializer_list(items, loc);
+        result->compound_type = type_array(element_type, item_count);
+        result->type = result->compound_type;
+        return result;
+    }
+}
+
 static Type* cxx_range_value_type(Type* type) {
     if (type && type->kind == TYPE_PTR && type->is_reference) {
         return type->base;
@@ -9582,7 +9646,9 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
         }
     }
     expect(TOK_COLON, ":");
-    range = parse_cxx_expression();
+    range = check(TOK_LBRACE)
+        ? parse_cxx_range_initializer_list(loc)
+        : parse_cxx_expression();
     expect(TOK_RPAREN, ")");
     range_type = cxx_parser_expression_type(range);
     if (!range) {

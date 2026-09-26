@@ -70,4 +70,15 @@ extern "C" {
         }
         return total;
     }
+
+    int probe_range_for_initializer_list(void) {
+        int total = 0;
+        for (auto value : { 1, 2, 3 }) {
+            total += value;
+        }
+        for (const auto& value : { 4, 5 }) {
+            total += value;
+        }
+        return total;
+    }
 }

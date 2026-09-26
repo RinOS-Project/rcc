@@ -2198,6 +2198,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 		tests/cxx_range_for_run_test.c \
 		$(TEST_OUT)/cxx-range-for/x86.o
 	$(TEST_OUT)/cxx-range-for/x86
+	@echo "C++ braced range-for i686 compile completed"
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-range-for/x64.s \
 		tests/cxx_function_pointer_probe.cpp
@@ -2209,6 +2210,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 		tests/cxx_range_for_run_test.c \
 		$(TEST_OUT)/cxx-range-for/x64.o
 	$(TEST_OUT)/cxx-range-for/x64
+	@echo "C++ braced range-for AMD64 compile completed"
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-range-for/invalid.ro \
 		tests/cxx_range_for_invalid.cpp \
