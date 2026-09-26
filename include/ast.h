@@ -620,6 +620,7 @@ struct Expr {
             ExprList* cxx_requires_items;
             DeclList* cxx_requires_params;
             TypeList* cxx_requires_types;
+            ExprList* cxx_requires_nested;
         };
 
         /* EXPR_VA_START/END/COPY/ARG */

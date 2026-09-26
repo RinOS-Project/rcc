@@ -1,3 +1,8 @@
+template<int N>
+int nested_requirement_probe() {
+    return requires { requires (N > 0); } ? 1 : 0;
+}
+
 int main() {
     int value = 40;
     static_assert(requires {});
@@ -5,8 +10,14 @@ int main() {
     static_assert(requires(int candidate) { candidate + 1; });
     static_assert(requires(int lhs, int rhs) { lhs + rhs; });
     static_assert(!requires { value.no_such_member; });
+    static_assert(requires { requires (1 < 2); });
+    static_assert(!requires { requires (2 < 1); });
     return requires {} && requires { value + 2; } &&
                    requires(int candidate) { candidate + 1; } &&
-                   !requires { value.no_such_member; }
+                   !requires { value.no_such_member; } &&
+                   requires { requires (1 == 1); } &&
+                   !requires { requires (1 == 0); } &&
+                   nested_requirement_probe<1>() == 1 &&
+                   nested_requirement_probe<0>() == 0
         ? 0 : 1;
 }

@@ -1083,6 +1083,7 @@ static Type* parse_cxx_requires_type(SourceLoc loc) {
 Expr* rcc_parse_cxx_requires_expression(void) {
     SourceLoc loc;
     ExprList* requirements = NULL;
+    ExprList* nested_requirements = NULL;
     DeclList* parameters = NULL;
     TypeList* type_requirements = NULL;
     int parameter_index = 0;
@@ -1131,6 +1132,19 @@ Expr* rcc_parse_cxx_requires_expression(void) {
     }
     rcc_parser_cxx_begin_function_parameters(parameters);
     while (!check(TOK_RBRACE) && !at_end()) {
+        if (match(TOK_REQUIRES)) {
+            SourceLoc requirement_loc = previous()->loc;
+            Expr* nested = parse_assignment_expression();
+            if (!nested) {
+                rcc_error(requirement_loc,
+                          "nested requires-expression requirement expects a constraint expression");
+            } else {
+                exprlist_append(&nested_requirements, nested);
+            }
+            expect(TOK_SEMICOLON,
+                   "';' after nested requires-expression requirement");
+            continue;
+        }
         if (check(TOK_TYPENAME)) {
             SourceLoc requirement_loc = peek()->loc;
             cxx_requires_type_append(
@@ -1150,6 +1164,7 @@ Expr* rcc_parse_cxx_requires_expression(void) {
         Expr* result = expr_cxx_requires(requirements, loc);
         result->cxx_requires_params = parameters;
         result->cxx_requires_types = type_requirements;
+        result->cxx_requires_nested = nested_requirements;
         return result;
     }
 }

@@ -2620,6 +2620,9 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     tail = &requirement_copy->next;
                 }
             }
+            copy->cxx_requires_nested = template_clone_expr_list(
+                tmpl, expression->cxx_requires_nested, args, arg_count,
+                value_args, value_present);
             break;
         case EXPR_VA_START:
         case EXPR_VA_END:

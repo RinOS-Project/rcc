@@ -8378,6 +8378,20 @@ static Type* sema_expr(Expr* expr) {
                     valid = false;
                 }
             }
+            for (ExprList* requirement = expr->cxx_requires_nested;
+                 requirement; requirement = requirement->next) {
+                int suppressed_before = g_suppressed_error_count;
+                bool suppress_before = g_suppress_errors;
+                int64_t value = 0;
+                g_suppress_errors = true;
+                sema_expr(requirement->expr);
+                g_suppress_errors = suppress_before;
+                if (g_suppressed_error_count != suppressed_before ||
+                    !expr_eval_integer_constant(requirement->expr, &value) ||
+                    value == 0) {
+                    valid = false;
+                }
+            }
             symtab_leave_scope(g_symtab);
             expr->kind = EXPR_INT_LIT;
             expr->int_val = valid ? 1 : 0;
