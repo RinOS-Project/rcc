@@ -1,0 +1,1 @@
+_Noreturn int rin_invalid_noreturn_object;

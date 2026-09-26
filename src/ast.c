@@ -990,6 +990,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_cxx_destructor = false;
     d->func_is_constexpr = false;
     d->func_is_consteval = false;
+    d->func_is_noreturn = false;
     d->func_is_noexcept = false;
     d->func_noexcept_expr = NULL;
     d->func_is_auto_return = false;

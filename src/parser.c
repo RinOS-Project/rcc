@@ -2166,9 +2166,6 @@ static Type* parse_type_spec(void) {
         } else if (match(TOK__ATOMIC)) {
             rcc_error(previous()->loc,
                       "language _Atomic is not supported; use RinOS atomic builtins");
-        } else if (match(TOK__NORETURN)) {
-            rcc_error(previous()->loc,
-                      "_Noreturn is not supported by the RinOS function ABI");
         } else {
             break;
         }
@@ -2926,6 +2923,7 @@ Stmt* parse_declaration(void) {
     bool is_constexpr = false;
     bool is_consteval = false;
     bool is_constinit = false;
+    bool is_noreturn = false;
     bool is_noexcept = false;
     Expr* noexcept_expr = NULL;
     bool is_thread_local = false;
@@ -2993,6 +2991,13 @@ Stmt* parse_declaration(void) {
             is_constexpr = true;
             is_consteval = true;
         }
+        else if (match(TOK__NORETURN)) {
+            if (parser_cxx_mode) {
+                rcc_error(previous()->loc,
+                          "_Noreturn is only valid in C declarations");
+            }
+            is_noreturn = true;
+        }
         else if (check(TOK__ALIGNAS)) {
             int alignment = parse_explicit_alignment();
             if (alignment > explicit_alignment) explicit_alignment = alignment;
@@ -3006,6 +3011,17 @@ Stmt* parse_declaration(void) {
         rcc_error(loc, "expected type specifier");
         synchronize();
         return NULL;
+    }
+
+    /* C declaration-specifiers may place a function specifier after the type
+     * specifier (for example `void _Noreturn f(void)`).  Keep consuming it
+     * here instead of letting the declarator parser reinterpret it as a name. */
+    while (match(TOK__NORETURN)) {
+        if (parser_cxx_mode) {
+            rcc_error(previous()->loc,
+                      "_Noreturn is only valid in C declarations");
+        }
+        is_noreturn = true;
     }
 
     /* A standalone aggregate declaration has no declarator. Enum constants
@@ -3093,6 +3109,7 @@ Stmt* parse_declaration(void) {
         declaration->storage = storage;
         declaration->func_is_inline = is_inline;
         declaration->func_is_constexpr = is_constexpr;
+        declaration->func_is_noreturn = is_noreturn;
         declaration->func_is_noexcept = is_noexcept;
         declaration->func_noexcept_expr = noexcept_expr;
         declaration->func_is_consteval = is_consteval;
@@ -3125,6 +3142,9 @@ Stmt* parse_declaration(void) {
     declaration->var_is_constexpr = is_constexpr;
     declaration->var_is_constinit = is_constinit;
     declaration->var_is_inline = is_inline;
+    if (is_noreturn) {
+        rcc_error(loc, "_Noreturn declaration must declare a function");
+    }
     if (is_consteval) {
         rcc_error(loc, "consteval declaration must declare a function");
     }

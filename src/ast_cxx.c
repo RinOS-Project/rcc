@@ -2883,6 +2883,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_inline = definition->func_is_inline;
         instance->func_is_constexpr = definition->func_is_constexpr;
         instance->func_is_consteval = definition->func_is_consteval;
+        instance->func_is_noreturn = definition->func_is_noreturn;
         instance->func_is_noexcept = definition->func_is_noexcept;
         instance->func_noexcept_expr = template_clone_expr(
             tmpl, definition->func_noexcept_expr, args, arg_count,
