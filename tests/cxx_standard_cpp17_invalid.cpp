@@ -15,6 +15,12 @@ int standard_mode_auto_nttp() {
     return Value;
 }
 
+namespace standard_mode::nested {
+int standard_mode_nested_namespace() {
+    return 1;
+}
+}
+
 inline int standard_mode_inline_variable = 1;
 
 struct StandardModeDesignated {

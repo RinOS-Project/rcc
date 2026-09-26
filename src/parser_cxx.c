@@ -4948,6 +4948,10 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
      * component as a real namespace node so qualified lookup and Itanium
      * names retain the same structure as the equivalent nested declarations. */
     while (match(TOK_SCOPE)) {
+        if (!rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(peek()->loc,
+                      "nested namespace definitions require C++17 or newer");
+        }
         const char* nested_name;
         CxxNamespace* nested;
         if (!check(TOK_IDENT)) {

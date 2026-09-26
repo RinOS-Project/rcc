@@ -177,6 +177,14 @@ int rcc_designated_initializer_feature(void) {
 }
 #endif
 
+#if __cplusplus >= 201703L
+namespace rcc::versioned_feature {
+int nested_namespace_feature(void) {
+    return 6;
+}
+}
+#endif
+
 int rcc_cpp_feature_macro_probe(void) {
     int result = 0;
 #if __cplusplus >= 201402L
@@ -190,6 +198,9 @@ int rcc_cpp_feature_macro_probe(void) {
 #endif
 #if __cplusplus >= 202002L
     result += rcc_designated_initializer_feature();
+#endif
+#if __cplusplus >= 201703L
+    result += rcc::versioned_feature::nested_namespace_feature();
 #endif
     return result == 0;
 }

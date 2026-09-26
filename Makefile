@@ -633,6 +633,8 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	grep -q "template<auto> parameters require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
+	grep -q "nested namespace definitions require C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	grep -q "inline variables require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	grep -q "C++ designated initializers require C++20 or newer" \
