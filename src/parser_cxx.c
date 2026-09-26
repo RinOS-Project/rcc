@@ -718,6 +718,8 @@ static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
 static bool is_active_template_type(const char* name);
+static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
+                                      Decl* declaration);
 static int active_template_type_index(const char* name);
 static int active_template_template_parameter_index(const char* name);
 static bool eval_template_integer_expression(Expr* expression,
@@ -3729,6 +3731,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     bool is_constinit = false;
     bool is_explicit = false;
     bool is_thread_local = false;
+    bool is_friend = false;
 
     /* C++ declaration specifiers can be combined in either order. */
     for (;;) {
@@ -3743,9 +3746,22 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         else if (match(TOK_CONSTINIT)) is_constinit = true;
         else if (match(TOK_EXPLICIT)) is_explicit = true;
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
-        else if (match(TOK_FRIEND) || match(TOK_MUTABLE)) { }
+        else if (match(TOK_FRIEND)) is_friend = true;
+        else if (match(TOK_MUTABLE)) { }
         else break;
     }
+
+    if (is_friend && (check(TOK_CLASS) || check(TOK_STRUCT))) {
+        rcc_error(loc,
+                  "friend class declarations are not supported by bounded RCC++");
+        while (!at_end() && !match(TOK_SEMICOLON)) advance();
+        return;
+    }
+    /* A friend function defined in a class is a namespace function, not a
+     * member.  Treat it as static while parsing its body so no synthetic
+     * `this` binding is introduced; it is published to the owning namespace
+     * below instead of entering the class member/vtable set. */
+    if (is_friend) is_static = true;
 
     /* Check for destructor */
     bool is_destructor = match(TOK_TILDE);
@@ -3929,6 +3945,17 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
          * translation units are weak/ODR definitions rather than strong
          * duplicate symbols. */
         method->decl->func_is_inline = body != NULL;
+
+        if (is_friend) {
+            method->owner = NULL;
+            if (active_ast) {
+                add_namespace_declaration(active_ast,
+                                          active_namespace ? active_namespace
+                                                           : g_global_namespace,
+                                          method->decl);
+            }
+            return;
+        }
         method->owner = cls;
 
         if (is_constructor) cls->has_user_constructor = true;

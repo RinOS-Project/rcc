@@ -157,7 +157,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-requires-expression
 .PHONY: test-cxx-inline-variables
-.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias
+.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-friend-function
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
@@ -271,6 +271,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-inline-namespace \
 	test-cxx-nested-namespace \
 	test-cxx-namespace-alias \
+	test-cxx-friend-function \
 	test-cxx-selection-init \
 	test-cxx-designated-initializer \
 	test-cxx-utf8-literals \
@@ -2465,6 +2466,46 @@ test-cxx-namespace-alias: $(RCXX_TARGET)
 	grep -q "namespace alias 'api' conflicts" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 	@echo "C++ namespace alias tests completed"
+
+test-cxx-friend-function: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-friend-function/x86.s \
+		tests/cxx_friend_function.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-friend-function/x86.o \
+		$(TEST_OUT)/cxx-friend-function/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-friend-function/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-friend-function/x86 \
+		$(TEST_OUT)/cxx-friend-function/start-x86.o \
+		$(TEST_OUT)/cxx-friend-function/x86.o
+	$(TEST_OUT)/cxx-friend-function/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-friend-function/x64.s \
+		tests/cxx_friend_function.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-friend-function/x64.o \
+		$(TEST_OUT)/cxx-friend-function/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-friend-function/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-friend-function/x64 \
+		$(TEST_OUT)/cxx-friend-function/start-x64.o \
+		$(TEST_OUT)/cxx-friend-function/x64.o
+	$(TEST_OUT)/cxx-friend-function/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/invalid-x86.ro \
+		tests/cxx_friend_class_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/invalid-x86.log 2>&1
+	grep -q "friend class declarations are not supported" \
+		$(TEST_OUT)/cxx-friend-function/invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/invalid-x64.ro \
+		tests/cxx_friend_class_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/invalid-x64.log 2>&1
+	grep -q "friend class declarations are not supported" \
+		$(TEST_OUT)/cxx-friend-function/invalid-x64.log
+	@echo "C++ friend function tests completed"
 
 test-cxx-selection-init: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-selection-init)
