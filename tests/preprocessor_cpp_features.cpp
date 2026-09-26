@@ -145,6 +145,10 @@ int rcc_lambda_init_capture_feature(void) {
 #if __cplusplus >= 201703L
 inline int rcc_inline_variable_feature = 3;
 
+int rcc_constexpr_lambda_feature(void) {
+    return []() constexpr { return 7; }();
+}
+
 template<typename... Values>
 int rcc_fold_feature(Values... values) {
     return (values + ...);
@@ -195,6 +199,7 @@ int rcc_cpp_feature_macro_probe(void) {
     result += rcc_selection_initializer_feature();
     result += rcc_fold_feature(1, 2, 3);
     result += rcc_auto_nttp_feature<4>();
+    result += rcc_constexpr_lambda_feature();
 #endif
 #if __cplusplus >= 202002L
     result += rcc_designated_initializer_feature();

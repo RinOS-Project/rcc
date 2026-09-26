@@ -5,6 +5,10 @@ int standard_mode_if_constexpr() {
     return 0;
 }
 
+int standard_mode_constexpr_lambda() {
+    return []() constexpr { return 1; }();
+}
+
 template<typename... Values>
 int standard_mode_fold(Values... values) {
     return (values + ...);

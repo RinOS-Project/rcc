@@ -5300,6 +5300,7 @@ Expr* rcc_parse_cxx_lambda(void) {
     int written;
     int capture_count = 0;
     bool lambda_mutable = false;
+    bool lambda_constexpr = false;
     CxxReferenceCapture* lambda_reference_captures = NULL;
     CxxLambdaCaptureSpec* explicit_captures = NULL;
     CxxLambdaCaptureSpec* explicit_capture_tail = NULL;
@@ -5462,6 +5463,13 @@ Expr* rcc_parse_cxx_lambda(void) {
         decllist_append(&all_params, item->decl);
     }
     lambda_mutable = match(TOK_MUTABLE);
+    if (match(TOK_CONSTEXPR)) {
+        if (!rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(previous()->loc,
+                      "constexpr lambda specifiers require C++17 or newer");
+        }
+        lambda_constexpr = true;
+    }
     if (!lambda_mutable) {
         /* A non-mutable lambda has a const call operator.  Model each
          * by-value capture as a top-level const parameter so assignments to
@@ -5530,6 +5538,7 @@ Expr* rcc_parse_cxx_lambda(void) {
                          all_params, body, loc);
     function->storage = STORAGE_STATIC;
     function->func_is_inline = true;
+    function->func_is_constexpr = lambda_constexpr;
     /* An omitted lambda trailing return type follows the ordinary C++
      * placeholder-return rules.  Keep a concrete type in the pre-sema
      * function signature so parsing and call construction remain well typed,

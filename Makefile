@@ -629,6 +629,8 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log 2>&1
 	grep -q "if constexpr requires C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
+	grep -q "constexpr lambda specifiers require C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	grep -q "fold expressions require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	grep -q "template<auto> parameters require C++17 or newer" \
