@@ -50,6 +50,7 @@ int main() {
                    update_lvalue(mutable_value) == 7 &&
                    mutable_value == 7 &&
                    read_rvalue(9) == 9 &&
+                   read_rvalue(mutable_value) == 7 &&
                    invoke(double_value, 6) == 12 &&
                    copy_from_const_pointer(&constant) == 8 &&
                    default_type_copy(13) == 13 &&

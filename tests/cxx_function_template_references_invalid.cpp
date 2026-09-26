@@ -1,5 +1,5 @@
 template<typename T>
-int read_rvalue(T&& value) {
+int read_rvalue(const T&& value) {
     return value;
 }
 

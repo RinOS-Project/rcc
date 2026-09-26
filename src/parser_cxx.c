@@ -8183,7 +8183,8 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
     if (pattern->kind == TYPE_PTR && pattern->is_reference) {
         bool preserve_lvalue_reference =
             pattern->is_rvalue_reference && actual->kind == TYPE_PTR &&
-            actual->is_reference;
+            actual->is_reference && pattern->base &&
+            !pattern->base->is_const && !pattern->base->is_volatile;
         if (preserve_lvalue_reference && pattern->base &&
             pattern->base->kind == TYPE_STRUCT && pattern->base->tag) {
             for (int index = 0; index < tmpl->param_count; ++index) {
