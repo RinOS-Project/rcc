@@ -8947,6 +8947,11 @@ static Stmt* parse_cxx_statement(void) {
                                              : g_global_namespace);
             return stmt_null(loc);
         }
+        if (check(TOK_IDENT) && check_next(TOK_ASSIGN)) {
+            parse_cxx_using(active_namespace ? active_namespace
+                                             : g_global_namespace);
+            return stmt_null(loc);
+        }
         rcc_error(loc,
                   "block-scope using-declarations other than using enum are not supported");
         while (!at_end() && !match(TOK_SEMICOLON)) advance();

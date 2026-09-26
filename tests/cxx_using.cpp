@@ -29,11 +29,24 @@ using math::times_two;
 using Integer = int;
 
 Integer cxx_using_probe(Integer value) {
-    return plus_one(value) + times_two(value);
+    using Integer = unsigned short;
+    Integer local = (Integer)value;
+    {
+        using Integer = int;
+        Integer shadowed = 5;
+        local = (Integer)(local + shadowed);
+    }
+    return plus_one((int)local) + times_two((int)local);
+}
+
+int cxx_using_type_scope_probe(void) {
+    return sizeof(Integer) == sizeof(int) ? 0 : 1;
 }
 
 int main() {
     UsingDerived value;
-    return cxx_using_probe(20) == 61 && value.choose(4) == 14 &&
+    return cxx_using_probe(20) == 76 &&
+                   cxx_using_type_scope_probe() == 0 &&
+                   value.choose(4) == 14 &&
                    value.choose(4, 2) == 6 ? 0 : 1;
 }

@@ -697,6 +697,14 @@ void rcc_parser_define_type(const char* name, Type* type) {
     if (name && type) parser_define_type(name, type);
 }
 
+void* rcc_parser_type_scope_mark(void) {
+    return parser_type_names;
+}
+
+void rcc_parser_type_scope_restore(void* mark) {
+    parser_type_names = (ParserTypeName*)mark;
+}
+
 void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,
                                             uint32_t arity_mask) {
     ParserTypeName* entry;
@@ -2679,6 +2687,7 @@ static Stmt* parse_block(void) {
     SourceLoc loc = previous()->loc;
     StmtList* stmts = NULL;
     ParserEnumConstant* saved_enum_constants = parser_enum_constants;
+    void* saved_type_names = rcc_parser_type_scope_mark();
 
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* iteration_start = parser.cur;
@@ -2699,6 +2708,7 @@ static Stmt* parse_block(void) {
 
     expect(TOK_RBRACE, "}");
     parser_enum_constants = saved_enum_constants;
+    rcc_parser_type_scope_restore(saved_type_names);
     return stmt_block(stmts, loc);
 }
 

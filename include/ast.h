@@ -218,6 +218,8 @@ void rcc_parser_set_cxx_mode(bool enabled);
 bool rcc_parser_is_cxx_mode(void);
 Type* rcc_parser_lookup_type(const char* name);
 void rcc_parser_define_type(const char* name, Type* type);
+void* rcc_parser_type_scope_mark(void);
+void rcc_parser_type_scope_restore(void* mark);
 bool rcc_parser_import_enum_constants(Type* enum_type, SourceLoc loc);
 void* rcc_parser_enum_scope_mark(void);
 void rcc_parser_enum_scope_restore(void* mark);
