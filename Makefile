@@ -2300,6 +2300,14 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 	fi
 	grep -q "wide, UTF-16, and UTF-32 literals are not supported" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.ro \
+		tests/cxx_mixed_literal_invalid.cpp \
+		>$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log 2>&1; then \
+		echo "mixed-encoding string literal case unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "adjacent ordinary and UTF-8 string literals cannot be concatenated" \
+		$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log
 	@echo "C++ UTF-8 literal tests completed"
 
 test-cxx-lambda-function-pointer: $(RCXX_TARGET)
