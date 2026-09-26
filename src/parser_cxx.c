@@ -6969,7 +6969,7 @@ bool rcc_parse_cxx_type_start(void) {
         result = next && next->type == TOK_IDENT;
         return result;
     }
-    if (check(TOK_CHAR8_T)) return true;
+    if (check(TOK_BOOL) || check(TOK_CHAR8_T)) return true;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;
 
     name = parse_qualified_name();

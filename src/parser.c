@@ -2375,6 +2375,8 @@ static Type* parse_type_spec(void) {
         t = type_double;
     } else if (match(TOK_VOID)) {
         t = type_void;
+    } else if (parser_cxx_mode && match(TOK_BOOL)) {
+        t = type_bool;
     } else if (parser_cxx_mode && match(TOK_CHAR8_T)) {
         t = type_uchar;
     } else if (match(TOK_CHAR)) {

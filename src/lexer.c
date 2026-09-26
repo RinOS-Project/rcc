@@ -125,6 +125,19 @@ static struct {
     {"dynamic_cast", TOK_DYNAMIC_CAST},
     {"reinterpret_cast", TOK_REINTERPRET_CAST},
     {"const_cast", TOK_CONST_CAST},
+    /* C++ alternative operator spellings.  These are keywords only in C++;
+     * lex_identifier maps them back to ordinary identifiers for C17. */
+    {"and", TOK_AND},
+    {"and_eq", TOK_AMP_ASSIGN},
+    {"bitand", TOK_AMP},
+    {"bitor", TOK_PIPE},
+    {"compl", TOK_TILDE},
+    {"not", TOK_NOT},
+    {"not_eq", TOK_NE},
+    {"or", TOK_OR},
+    {"or_eq", TOK_PIPE_ASSIGN},
+    {"xor", TOK_CARET},
+    {"xor_eq", TOK_CARET_ASSIGN},
     {NULL, TOK_EOF}
 };
 
@@ -360,6 +373,13 @@ static Token* lex_identifier(Lexer* lex) {
      * in the lexer prevents a valid C implementation name such as
      * `protected` from being rejected before the C parser sees it. */
     if (!lexer_cxx_mode && type >= TOK_CLASS && type <= TOK_CONST_CAST) {
+        type = TOK_IDENT;
+    }
+    if (!lexer_cxx_mode &&
+        (type == TOK_AND || type == TOK_AMP_ASSIGN || type == TOK_AMP ||
+         type == TOK_PIPE || type == TOK_TILDE || type == TOK_NOT ||
+         type == TOK_NE || type == TOK_OR || type == TOK_PIPE_ASSIGN ||
+         type == TOK_CARET || type == TOK_CARET_ASSIGN)) {
         type = TOK_IDENT;
     }
     Token* tok = token_new(type, loc);

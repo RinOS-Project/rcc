@@ -194,7 +194,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-class-template-deduction
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
-	test-cxx-raw-strings
+	test-cxx-raw-strings test-cxx-alternative-tokens
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -252,6 +252,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-constrained-abbreviated \
 	test-cxx-constrained-class-template \
 	test-cxx-raw-strings \
+	test-cxx-alternative-tokens \
 	test-cxx-variable-templates \
 	test-cxx-function-template-overloads \
 	test-cxx-function-template-references \
@@ -4371,6 +4372,58 @@ test-cxx-raw-strings: $(RCXX_TARGET)
 	grep -q "unterminated raw string literal" \
 		$(TEST_OUT)/cxx-raw-strings/invalid-x86.log
 	@echo "C++11 raw string literal tests completed"
+
+test-cxx-alternative-tokens: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alternative-tokens)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-alternative-tokens/cxx-x86.s \
+		tests/cxx_alternative_tokens.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-alternative-tokens/cxx-x86.o \
+		$(TEST_OUT)/cxx-alternative-tokens/cxx-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-alternative-tokens/cxx-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-alternative-tokens/cxx-x86 \
+		$(TEST_OUT)/cxx-alternative-tokens/cxx-start-x86.o \
+		$(TEST_OUT)/cxx-alternative-tokens/cxx-x86.o
+	$(TEST_OUT)/cxx-alternative-tokens/cxx-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-alternative-tokens/cxx-x64.s \
+		tests/cxx_alternative_tokens.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-alternative-tokens/cxx-x64.o \
+		$(TEST_OUT)/cxx-alternative-tokens/cxx-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-alternative-tokens/cxx-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-alternative-tokens/cxx-x64 \
+		$(TEST_OUT)/cxx-alternative-tokens/cxx-start-x64.o \
+		$(TEST_OUT)/cxx-alternative-tokens/cxx-x64.o
+	$(TEST_OUT)/cxx-alternative-tokens/cxx-x64
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/cxx-alternative-tokens/c-x86.s \
+		tests/c_alternative_token_identifiers.c
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-alternative-tokens/c-x86.o \
+		$(TEST_OUT)/cxx-alternative-tokens/c-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-alternative-tokens/c-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-alternative-tokens/c-x86 \
+		$(TEST_OUT)/cxx-alternative-tokens/c-start-x86.o \
+		$(TEST_OUT)/cxx-alternative-tokens/c-x86.o
+	$(TEST_OUT)/cxx-alternative-tokens/c-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/cxx-alternative-tokens/c-x64.s \
+		tests/c_alternative_token_identifiers.c
+	$(CC) -c -o $(TEST_OUT)/cxx-alternative-tokens/c-x64.o \
+		$(TEST_OUT)/cxx-alternative-tokens/c-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-alternative-tokens/c-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-alternative-tokens/c-x64 \
+		$(TEST_OUT)/cxx-alternative-tokens/c-start-x64.o \
+		$(TEST_OUT)/cxx-alternative-tokens/c-x64.o
+	$(TEST_OUT)/cxx-alternative-tokens/c-x64
+	@echo "C++ alternative operator-token and C identifier tests completed"
 
 test-initializer-brace-elision: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/initializer-brace-elision)
