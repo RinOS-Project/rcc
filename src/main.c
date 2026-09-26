@@ -506,6 +506,11 @@ static int compile_current_input(char** argv) {
         pp_add_include_path(pp, g_opts.include_paths[i]);
     }
 
+    /* C17 requires this implementation-defined environment indicator.  RCC
+       targets the RinOS ABI, but retain the standard command-line distinction
+       so hosted preprocessing remains useful for frontend tests and tools. */
+    pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
+
     /* Apply command-line defines */
     for (int i = 0; i < g_opts.define_count; i++) {
         const char* def = g_opts.defines[i];

@@ -186,7 +186,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
-.PHONY: test-preprocessor-line test-preprocessor-date-time
+.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
@@ -195,6 +195,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-cxx-predefined-function-identifiers \
 	test-preprocessor-date-time \
+	test-preprocessor-standard-macros \
 	test-preprocessor-include \
 	test-preprocessor-line-macro \
 	test-multiple-inputs \
@@ -460,6 +461,39 @@ test-preprocessor-date-time: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -F -q "invalid SOURCE_DATE_EPOCH value 'not-a-timestamp'" \
 		$(TEST_OUT)/preprocessor-date-time/invalid.log
 	@echo "C17/C++20 __DATE__/__TIME__ tests completed"
+
+test-preprocessor-standard-macros: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/preprocessor-standard-macros)
+	$(RCC_TARGET) -E tests/preprocessor_standard_macros.c > \
+		$(TEST_OUT)/preprocessor-standard-macros/c-hosted.i
+	grep -F -q 'int rcc_standard_hosted_value = 1;' \
+		$(TEST_OUT)/preprocessor-standard-macros/c-hosted.i
+	$(RCC_TARGET) -ffreestanding -E tests/preprocessor_freestanding_macros.c > \
+		$(TEST_OUT)/preprocessor-standard-macros/c-freestanding.i
+	grep -F -q 'int rcc_freestanding_hosted_value = 0;' \
+		$(TEST_OUT)/preprocessor-standard-macros/c-freestanding.i
+	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_standard_macros.cpp > \
+		$(TEST_OUT)/preprocessor-standard-macros/cxx-hosted.i
+	grep -F -q 'constexpr int rcc_cpp_standard_hosted_value = 1;' \
+		$(TEST_OUT)/preprocessor-standard-macros/cxx-hosted.i
+	$(RCXX_TARGET) -std=c++20 -ffreestanding -E \
+		tests/preprocessor_freestanding_macros.cpp > \
+		$(TEST_OUT)/preprocessor-standard-macros/cxx-freestanding.i
+	grep -F -q 'constexpr int rcc_cpp_freestanding_hosted_value = 0;' \
+		$(TEST_OUT)/preprocessor-standard-macros/cxx-freestanding.i
+	$(RCC_TARGET) --target i686-unknown-rinos -ffreestanding -c \
+		-o $(TEST_OUT)/preprocessor-standard-macros/c-x86.ro \
+		tests/preprocessor_freestanding_macros.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -ffreestanding -c \
+		-o $(TEST_OUT)/preprocessor-standard-macros/c-x64.ro \
+		tests/preprocessor_freestanding_macros.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/preprocessor-standard-macros/cxx-x86.ro \
+		tests/preprocessor_freestanding_macros.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/preprocessor-standard-macros/cxx-x64.ro \
+		tests/preprocessor_freestanding_macros.cpp
+	@echo "C17/C++20 __STDC_HOSTED__ tests completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
 	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)

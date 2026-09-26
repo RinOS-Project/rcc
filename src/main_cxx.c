@@ -430,6 +430,7 @@ static int compile_current_input(char** argv) {
               g_cxx_standard >= 14 ? "201402L" : "201103L");
     pp_define(pp, "__RCC__", "1");
     pp_define(pp, "__RCXX__", "1");
+    pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
     for (int i = 0; i < g_opts.define_count; ++i) {
         const char* definition = g_opts.defines[i];
         const char* equals = strchr(definition, '=');
