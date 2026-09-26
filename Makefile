@@ -2308,6 +2308,22 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 	fi
 	grep -q "adjacent ordinary and UTF-8 string literals cannot be concatenated" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.ro \
+		tests/cxx_mismatched_literal_array_invalid.cpp \
+		>$(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log 2>&1; then \
+		echo "mismatched character array encoding unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "character array initializer encoding does not match the element type" \
+		$(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.ro \
+		tests/cxx_mismatched_literal_array_invalid.cpp \
+		>$(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log 2>&1; then \
+		echo "mismatched character array encoding unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "character array initializer encoding does not match the element type" \
+		$(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log
 	@echo "C++ UTF-8 literal tests completed"
 
 test-cxx-lambda-function-pointer: $(RCXX_TARGET)

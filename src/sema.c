@@ -7801,11 +7801,12 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_CHAR_LIT:
-            expr->type = type_int;
+            expr->type = expr->is_cxx_utf8_literal ? type_uchar : type_int;
             break;
 
         case EXPR_STRING_LIT:
-            expr->type = type_array(type_char,
+            expr->type = type_array(expr->is_cxx_utf8_literal
+                                        ? type_uchar : type_char,
                                     (int)strlen(expr->str_val) + 1);
             break;
 
@@ -9841,10 +9842,30 @@ static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
 }
 
 static Expr* initializer_character_string(Type* type, Expr* initializer) {
-    if (!type || type->kind != TYPE_ARRAY || !type->base ||
-        type->base->kind != TYPE_CHAR || !initializer) {
+    Expr* string = NULL;
+    bool expects_utf8;
+    if (!type || type->kind != TYPE_ARRAY || !type->base || !initializer ||
+        type->base->kind != TYPE_CHAR) {
         return NULL;
     }
+    if (initializer->kind == EXPR_STRING_LIT) {
+        string = initializer;
+    }
+    if (initializer->kind == EXPR_COMPOUND && initializer->compound_init &&
+        !initializer->compound_init->next &&
+        initializer->compound_init->designator_kind == INIT_DESIGNATOR_NONE &&
+        initializer->compound_init->expr &&
+        initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
+        string = initializer->compound_init->expr;
+    }
+    if (!string) return NULL;
+    expects_utf8 = rcc_parser_is_cxx_mode() && type->base->is_unsigned;
+    if (expects_utf8 != string->is_cxx_utf8_literal) return NULL;
+    return string;
+}
+
+static Expr* initializer_string_literal(Expr* initializer) {
+    if (!initializer) return NULL;
     if (initializer->kind == EXPR_STRING_LIT) return initializer;
     if (initializer->kind == EXPR_COMPOUND && initializer->compound_init &&
         !initializer->compound_init->next &&
@@ -10400,6 +10421,7 @@ static void normalize_brace_elided_initializer(Type* type,
 
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
+    Expr* string_literal;
     if (!type || type->cxx_dependent || !initializer) return;
     sema_validate_cxx_designated_initializer(type, initializer);
     /* In C++ a parenthesized constructor argument list is stored in the
@@ -10410,6 +10432,17 @@ static void sema_initializer(Type* type, Expr* initializer) {
     if (!(rcc_parser_is_cxx_mode() && type->cxx_class &&
           type->cxx_class->has_user_constructor)) {
         normalize_brace_elided_initializer(type, initializer);
+    }
+    string_literal = initializer_string_literal(initializer);
+    if (rcc_parser_is_cxx_mode() && type->kind == TYPE_ARRAY &&
+        type->base && string_literal &&
+        type->base->kind == TYPE_CHAR) {
+        bool expects_utf8 = type->base->is_unsigned;
+        if (expects_utf8 != string_literal->is_cxx_utf8_literal) {
+            rcc_error(string_literal->loc,
+                      "C++ character array initializer encoding does not match the element type");
+            return;
+        }
     }
     string = initializer_character_string(type, initializer);
     if (string) {
