@@ -15,6 +15,7 @@ typedef struct CxxTemplate CxxTemplate;
 typedef struct CxxMethod CxxMethod;
 typedef struct CxxConstructorInfo CxxConstructorInfo;
 typedef struct CxxConstructorInitializer CxxConstructorInitializer;
+typedef struct CxxDeductionGuide CxxDeductionGuide;
 typedef struct CxxVtableEntry CxxVtableEntry;
 typedef struct CxxSecondaryVtable CxxSecondaryVtable;
 typedef struct CxxTypeAlias CxxTypeAlias;
@@ -68,6 +69,17 @@ struct CxxConstructorInfo {
     bool is_defaulted;
     AccessSpec access;
     CxxConstructorInfo* next;
+};
+
+/* A bounded user-defined C++17 deduction guide.  The parameter declaration
+ * list retains the guide's deduction patterns; return_type is either a
+ * concrete class-template specialization or a dependent specialization that
+ * is substituted from template_owner during CTAD. */
+struct CxxDeductionGuide {
+    CxxTemplate* template_owner;
+    DeclList* parameters;
+    Type* return_type;
+    CxxDeductionGuide* next;
 };
 
 /* C++ Class/Struct */
@@ -254,7 +266,8 @@ struct CxxTemplate {
         TMPL_CLASS,
         TMPL_FUNCTION,
         TMPL_VARIABLE,
-        TMPL_ALIAS
+        TMPL_ALIAS,
+        TMPL_DEDUCTION_GUIDE
     } kind;
     union {
         CxxClass* class_def;
@@ -283,6 +296,8 @@ struct CxxTemplate {
 
     /* Alternate storage for parsed class (used by parser_cxx.c) */
     CxxClass* templated_class;
+
+    CxxDeductionGuide* deduction_guides;
 
     /* Explicit class-template specializations owned by this primary. */
     CxxTemplate* primary_template;

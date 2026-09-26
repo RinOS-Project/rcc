@@ -44,6 +44,7 @@ extern Stmt* rcc_parse_cxx_qualified_data_definition(
     bool is_constinit, bool is_thread_local, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
     Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
+extern bool rcc_parse_cxx_deduction_guide(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parser_cxx_capture_expression(
     const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;

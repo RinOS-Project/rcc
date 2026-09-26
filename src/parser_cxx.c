@@ -796,6 +796,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_noexcept,
                                             bool* is_consteval);
 CxxTemplate* parse_cxx_template(void);
+bool rcc_parse_cxx_deduction_guide(void);
 static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage);
 
@@ -6129,6 +6130,15 @@ CxxTemplate* parse_cxx_template(void) {
             rcc_error(loc, "requires-clause requires a constraint expression");
         }
     }
+
+    /* A templated user-defined deduction guide has the same template
+     * parameter scope as an ordinary function template, but it is metadata
+     * consumed by class-template deduction and must not become a callable
+     * namespace function. */
+    if (rcc_parse_cxx_deduction_guide()) {
+        active_template = parameter_outer_template;
+        return tmpl;
+    }
     active_template = parameter_outer_template;
 
     /* C++ alias templates are lowered by substituting their bounded type
@@ -7974,6 +7984,129 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                       argument_count, loc);
 }
 
+static bool cxx_deduction_guide_starts(void) {
+    Token* token = parser.cur;
+    int depth = 0;
+    if (!token) return false;
+    if (token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    token = token->next;
+    while (token && token->type == TOK_SCOPE) {
+        token = token->next;
+        if (!token || token->type != TOK_IDENT) return false;
+        token = token->next;
+    }
+    if (!token || token->type != TOK_LPAREN) return false;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++depth;
+        } else if (token->type == TOK_RPAREN) {
+            --depth;
+            if (depth == 0) {
+                return token->next && token->next->type == TOK_ARROW;
+            }
+        }
+    }
+    return false;
+}
+
+/* Parse a user-defined C++17 deduction guide.  The hook is transactional
+ * when the source is an ordinary declaration, allowing the shared parser to
+ * retain all non-guide declarations. */
+bool rcc_parse_cxx_deduction_guide(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    SourceLoc loc = peek()->loc;
+    CxxTemplate* guide_template = active_template;
+    const char* target_name;
+    const char* return_name;
+    CxxTemplate* target;
+    CxxTemplate* return_template;
+    DeclList* parameters = NULL;
+    Type* return_type = NULL;
+    CxxDeductionGuide* guide;
+    int parameter_index = 0;
+
+    if (!cxx_deduction_guide_starts()) return false;
+    if (!rcc_parser_cxx_standard_at_least(17)) {
+        rcc_error(loc, "deduction guides require C++17 or newer");
+    }
+
+    target_name = parse_qualified_name();
+    target = target_name ? find_class_template(target_name) : NULL;
+    if (!target) {
+        rcc_error(loc, "deduction guide target must name a class template");
+    }
+    expect(TOK_LPAREN, "deduction guide parameter list");
+    if (!check(TOK_RPAREN)) {
+        do {
+            const char* parameter_name = NULL;
+            Type* parameter_type = parse_cxx_type_spec();
+            parameter_type = rcc_parser_parse_cxx_declarator(
+                parameter_type, &parameter_name, NULL);
+            if (match(TOK_ELLIPSIS)) {
+                rcc_error(previous()->loc,
+                          "deduction guide parameter packs are not supported");
+            }
+            if (match(TOK_ASSIGN)) {
+                rcc_error(previous()->loc,
+                          "deduction guide default arguments are not supported");
+                (void)parse_assignment_expression();
+            }
+            {
+                Decl* parameter = decl_param(
+                    parameter_name, parameter_type, parameter_index++,
+                    peek()->loc);
+                decllist_append(&parameters, parameter);
+            }
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_RPAREN, ")");
+    expect(TOK_ARROW, "-> in deduction guide");
+
+    if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+        return_name = parse_qualified_name();
+    } else {
+        return_name = NULL;
+        rcc_error(peek()->loc,
+                  "deduction guide must return a class-template specialization");
+    }
+    return_template = return_name ? find_class_template(return_name) : NULL;
+    if (!return_template || return_template != target) {
+        rcc_error(loc,
+                  "deduction guide return type must name its target class "
+                  "template");
+    } else if (!check(TOK_LT)) {
+        rcc_error(loc,
+                  "deduction guide return type requires explicit template "
+                  "arguments");
+    } else {
+        return_type = parse_class_template_specialization(return_template, loc);
+    }
+    if (!return_type) return_type = type_int;
+    expect(TOK_SEMICOLON, "; after deduction guide");
+
+    if (target) {
+        guide = ast_arena_alloc(sizeof(*guide));
+        guide->template_owner = guide_template;
+        guide->parameters = parameters;
+        guide->return_type = return_type;
+        guide->next = NULL;
+        {
+            CxxDeductionGuide** tail = &target->deduction_guides;
+            while (*tail) tail = &(*tail)->next;
+            *tail = guide;
+        }
+    }
+    if (guide_template) {
+        guide_template->kind = TMPL_DEDUCTION_GUIDE;
+        guide_template->name = ast_arena_strdup("<deduction-guide>");
+    }
+    (void)saved_cur;
+    (void)saved_prev;
+    return true;
+}
+
 static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                                           Type* actual, Type** arguments,
                                           int64_t* values,
@@ -8111,6 +8244,142 @@ static Type* cxx_parser_template_deduction_argument(Type* pattern,
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target);
 
+static Type* deduce_class_template_from_guides(
+    CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc) {
+    Type* best_type = NULL;
+    int best_total = INT_MAX;
+    int best_worst = INT_MAX;
+    int best_specificity = -1;
+    int viable_count = 0;
+
+    for (CxxDeductionGuide* guide = tmpl ? tmpl->deduction_guides : NULL;
+         guide; guide = guide->next) {
+        CxxTemplate* owner = guide->template_owner;
+        Type* template_arguments[32] = { NULL };
+        int64_t template_values[32] = { 0 };
+        bool template_value_present[32] = { false };
+        DeclList* parameter = guide->parameters;
+        ExprList* argument = arguments;
+        int specificity = 0;
+        int total = 0;
+        int worst = 0;
+        bool viable = true;
+
+        if (owner && (owner->param_count <= 0 || owner->param_count > 32)) {
+            rcc_error(loc, "deduction guide template parameter limit exceeded");
+            continue;
+        }
+        if (owner) {
+            for (int index = 0; index < owner->param_count; ++index) {
+                TemplateParam* template_parameter = &owner->params[index];
+                if (template_parameter->kind != TPARAM_TYPE ||
+                    template_parameter->is_pack) {
+                    rcc_error(loc,
+                              "RCC++ deduction guides require non-pack type "
+                              "template parameters");
+                    viable = false;
+                    break;
+                }
+            }
+        }
+        if (!viable) continue;
+
+        while (argument && parameter) {
+            Type* actual = cxx_parser_expression_type(argument->expr);
+            Type* pattern = parameter->decl ? parameter->decl->type : NULL;
+            if (!actual || !pattern) {
+                viable = false;
+                break;
+            }
+            if (owner && !deduce_function_template_type(
+                    owner, pattern,
+                    cxx_parser_template_deduction_argument(pattern, actual),
+                    template_arguments, template_values,
+                    template_value_present, &specificity)) {
+                viable = false;
+                break;
+            }
+            argument = argument->next;
+            parameter = parameter->next;
+        }
+        if (argument || parameter) viable = false;
+        if (!viable) continue;
+
+        if (owner) {
+            for (int index = 0; index < owner->param_count; ++index) {
+                TemplateParam* template_parameter = &owner->params[index];
+                if (template_arguments[index]) continue;
+                if (!template_parameter->has_default ||
+                    !template_parameter->default_type) {
+                    viable = false;
+                    break;
+                }
+                template_arguments[index] = substitute_template_type(
+                    owner, template_parameter->default_type,
+                    template_arguments, owner->param_count, template_values,
+                    template_value_present);
+                if (!template_arguments[index] ||
+                    template_arguments[index]->cxx_dependent) {
+                    viable = false;
+                    break;
+                }
+            }
+        }
+        if (!viable) continue;
+
+        parameter = guide->parameters;
+        argument = arguments;
+        while (argument && parameter) {
+            Type* pattern = parameter->decl ? parameter->decl->type : NULL;
+            Type* target_type = owner
+                ? substitute_template_type(
+                    owner, pattern, template_arguments,
+                    owner->param_count, template_values,
+                    template_value_present)
+                : pattern;
+            int rank = cxx_parser_template_conversion_rank(
+                argument->expr, target_type);
+            if (rank < 0) {
+                viable = false;
+                break;
+            }
+            total += rank;
+            if (rank > worst) worst = rank;
+            argument = argument->next;
+            parameter = parameter->next;
+        }
+        if (!viable) continue;
+
+        Type* result = owner
+            ? substitute_template_type(
+                owner, guide->return_type, template_arguments,
+                owner->param_count, template_values, template_value_present)
+            : guide->return_type;
+        if (!result || result->cxx_dependent || !result->cxx_class) continue;
+        if (total < best_total ||
+            (total == best_total && worst < best_worst) ||
+            (total == best_total && worst == best_worst &&
+             specificity > best_specificity)) {
+            best_type = result;
+            best_total = total;
+            best_worst = worst;
+            best_specificity = specificity;
+            viable_count = 1;
+        } else if (total == best_total && worst == best_worst &&
+                   specificity == best_specificity) {
+            ++viable_count;
+        }
+    }
+
+    if (viable_count > 1) {
+        rcc_error(loc,
+                  "ambiguous user-defined deduction guides for '%s'",
+                  tmpl && tmpl->name ? tmpl->name : "template");
+        return NULL;
+    }
+    return viable_count == 1 ? best_type : NULL;
+}
+
 /* Bounded C++17 class-template argument deduction.  The RinOS ABI can lower
  * class instances only after a concrete template argument list exists, so
  * CTAD is resolved from public constructors before object initialization is
@@ -8134,6 +8403,10 @@ static Type* deduce_class_template_from_constructor(
         rcc_error(loc, "class template argument deduction exceeds compiler "
                        "limits");
         return NULL;
+    }
+    if (tmpl->deduction_guides) {
+        Type* guided = deduce_class_template_from_guides(tmpl, arguments, loc);
+        if (guided) return guided;
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
@@ -11238,9 +11511,11 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             (void)parse_cxx_namespace(ast, g_global_namespace, false);
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
-            if (g_global_namespace) {
+            if (g_global_namespace && tmpl &&
+                tmpl->kind != TMPL_DEDUCTION_GUIDE) {
                 cxx_namespace_add_template(g_global_namespace, tmpl);
             }
+        } else if (rcc_parse_cxx_deduction_guide()) {
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
