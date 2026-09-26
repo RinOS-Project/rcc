@@ -244,6 +244,10 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc);
 Expr* rcc_parse_cxx_special_expression(void);
 Stmt* rcc_parse_cxx_statement(void);
+void* rcc_parser_cxx_using_scope_mark(void);
+void rcc_parser_cxx_using_scope_restore(void* mark);
+const char* rcc_parser_cxx_resolve_local_using(const char* name,
+                                               SourceLoc loc);
 
 /* Translation-unit lifetime storage. AST/parser nodes are bulk-released at
  * process exit by the single-shot host compiler. */

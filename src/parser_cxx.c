@@ -48,6 +48,13 @@ typedef struct CxxParserValueBinding {
     struct CxxParserValueBinding* next;
 } CxxParserValueBinding;
 
+typedef struct CxxLocalUsingBinding {
+    const char* name;
+    const char* target;
+    bool namespace_import;
+    struct CxxLocalUsingBinding* next;
+} CxxLocalUsingBinding;
+
 typedef struct CxxReferenceCapture {
     const char* name;
     struct CxxReferenceCapture* next;
@@ -62,6 +69,7 @@ typedef struct CxxLambdaCaptureSpec {
 } CxxLambdaCaptureSpec;
 
 static CxxParserValueBinding* active_value_bindings;
+static CxxLocalUsingBinding* active_local_using_bindings;
 static CxxParserValueBinding* saved_value_bindings[32];
 static int saved_value_binding_depth;
 static CxxReferenceCapture* active_reference_captures;
@@ -223,6 +231,70 @@ static Type* cxx_parser_value_type(const char* name) {
         }
     }
     return NULL;
+}
+
+void* rcc_parser_cxx_using_scope_mark(void) {
+    return active_local_using_bindings;
+}
+
+void rcc_parser_cxx_using_scope_restore(void* mark) {
+    active_local_using_bindings = (CxxLocalUsingBinding*)mark;
+}
+
+static void cxx_parser_add_local_using(const char* name,
+                                       const char* target,
+                                       bool namespace_import,
+                                       SourceLoc loc) {
+    CxxLocalUsingBinding* binding;
+    if (!target || !*target) {
+        rcc_error(loc, "local using-declaration has no target");
+        return;
+    }
+    binding = ast_arena_alloc(sizeof(*binding));
+    binding->name = name;
+    binding->target = target;
+    binding->namespace_import = namespace_import;
+    binding->next = active_local_using_bindings;
+    active_local_using_bindings = binding;
+}
+
+const char* rcc_parser_cxx_resolve_local_using(const char* name,
+                                               SourceLoc loc) {
+    const char* resolved = NULL;
+    char qualified[512];
+    if (!name || !*name || cxx_parser_value_type(name)) return NULL;
+    for (CxxLocalUsingBinding* binding = active_local_using_bindings;
+         binding; binding = binding->next) {
+        const char* candidate = NULL;
+        if (!binding->namespace_import) {
+            if (!binding->name || strcmp(binding->name, name) != 0) {
+                continue;
+            }
+            candidate = binding->target;
+        } else {
+            size_t target_length = strlen(binding->target);
+            if (target_length != 0u &&
+                target_length + 2u + strlen(name) >= sizeof(qualified)) {
+                rcc_error(loc, "local using target exceeds compiler limits");
+                return rcc_intern("__rcc_invalid_local_using");
+            }
+            if (target_length == 0u) {
+                candidate = rcc_intern(name);
+            } else {
+                memcpy(qualified, binding->target, target_length);
+                memcpy(qualified + target_length, "::", 2u);
+                strcpy(qualified + target_length + 2u, name);
+                candidate = rcc_intern(qualified);
+            }
+        }
+        if (!resolved) {
+            resolved = candidate;
+        } else if (strcmp(resolved, candidate) != 0) {
+            rcc_error(loc, "ambiguous local using-declaration for '%s'", name);
+            return rcc_intern("__rcc_invalid_local_using");
+        }
+    }
+    return resolved ? rcc_intern(resolved) : NULL;
 }
 
 /* Function-template deduction happens while the source is still being
@@ -4221,6 +4293,47 @@ static void parse_cxx_using(CxxNamespace* ns) {
         }
         cxx_namespace_add_using_decl(
             ns, cxx_using_qualified_name(target, loc));
+    }
+    expect(TOK_SEMICOLON, ";");
+}
+
+static void parse_cxx_local_using(void) {
+    SourceLoc loc = previous()->loc;
+    const char* target;
+    const char* final_component;
+    CxxNamespace* target_namespace;
+
+    if (match(TOK_NAMESPACE)) {
+        target = parse_qualified_name();
+        target_namespace = cxx_namespace_find(g_global_namespace, target);
+        if (!target_namespace) {
+            rcc_error(loc, "unknown namespace in local using-directive '%s'",
+                      target ? target : "");
+        } else {
+            cxx_parser_add_local_using(
+                NULL, cxx_namespace_qualified_name(target_namespace), true,
+                loc);
+        }
+        expect(TOK_SEMICOLON, ";");
+        return;
+    }
+
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) {
+        rcc_error(loc, "expected qualified name in local using-declaration");
+        while (!at_end() && !match(TOK_SEMICOLON)) advance();
+        return;
+    }
+    target = parse_qualified_name();
+    final_component = target ? strrchr(target, ':') : NULL;
+    if (!final_component || final_component == target ||
+        final_component[-1] != ':') {
+        rcc_error(loc,
+                  "local using-declaration requires a qualified target");
+    } else {
+        ++final_component;
+        cxx_parser_add_local_using(
+            final_component,
+            cxx_using_qualified_name(target, loc), false, loc);
     }
     expect(TOK_SEMICOLON, ";");
 }
@@ -8952,9 +9065,7 @@ static Stmt* parse_cxx_statement(void) {
                                              : g_global_namespace);
             return stmt_null(loc);
         }
-        rcc_error(loc,
-                  "block-scope using-declarations other than using enum are not supported");
-        while (!at_end() && !match(TOK_SEMICOLON)) advance();
+        parse_cxx_local_using();
         return stmt_null(loc);
     }
 

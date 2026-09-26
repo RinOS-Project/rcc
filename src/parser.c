@@ -55,6 +55,10 @@ extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
 extern void rcc_parser_cxx_end_function_parameters(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_add_value_binding(const char* name, Type* type)
     RCC_OPTIONAL_CXX;
+extern void* rcc_parser_cxx_using_scope_mark(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_using_scope_restore(void* mark) RCC_OPTIONAL_CXX;
+extern const char* rcc_parser_cxx_resolve_local_using(
+    const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
 
 typedef struct ParserTypeName {
     const char* name;
@@ -1050,6 +1054,7 @@ static Expr* parse_primary(void) {
     if (match(TOK_IDENT)) {
         int64_t enum_value;
         Type* enum_type = NULL;
+        const char* local_using_name = NULL;
         if (parser_lookup_enum_constant(previous()->value.str_val,
                                         &enum_value, &enum_type)) {
             Expr* value = expr_int(enum_value, loc);
@@ -1061,7 +1066,12 @@ static Expr* parse_primary(void) {
                 previous()->value.str_val, loc);
             if (capture) return capture;
         }
-        return expr_ident(previous()->value.str_val, loc);
+        if (parser_cxx_mode && rcc_parser_cxx_resolve_local_using) {
+            local_using_name = rcc_parser_cxx_resolve_local_using(
+                previous()->value.str_val, loc);
+        }
+        return expr_ident(local_using_name ? local_using_name
+                                           : previous()->value.str_val, loc);
     }
     if (parser_cxx_mode && rcc_parse_cxx_fold_expression) {
         Expr* fold = rcc_parse_cxx_fold_expression();
@@ -2688,6 +2698,9 @@ static Stmt* parse_block(void) {
     StmtList* stmts = NULL;
     ParserEnumConstant* saved_enum_constants = parser_enum_constants;
     void* saved_type_names = rcc_parser_type_scope_mark();
+    void* saved_cxx_using = parser_cxx_mode &&
+                            rcc_parser_cxx_using_scope_mark
+        ? rcc_parser_cxx_using_scope_mark() : NULL;
 
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* iteration_start = parser.cur;
@@ -2709,6 +2722,9 @@ static Stmt* parse_block(void) {
     expect(TOK_RBRACE, "}");
     parser_enum_constants = saved_enum_constants;
     rcc_parser_type_scope_restore(saved_type_names);
+    if (parser_cxx_mode && rcc_parser_cxx_using_scope_restore) {
+        rcc_parser_cxx_using_scope_restore(saved_cxx_using);
+    }
     return stmt_block(stmts, loc);
 }
 
