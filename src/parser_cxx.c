@@ -4461,6 +4461,24 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
     CxxNamespace* ns = cxx_namespace_new(ns_name, loc);
     ns->is_inline_namespace = is_inline_namespace;
     if (parent) cxx_namespace_add_namespace(parent, ns);
+
+    /* C++17 permits a nested namespace definition to spell the namespace
+     * chain in one declaration (`namespace api::v2 { ... }`).  Keep each
+     * component as a real namespace node so qualified lookup and Itanium
+     * names retain the same structure as the equivalent nested declarations. */
+    while (match(TOK_SCOPE)) {
+        const char* nested_name;
+        CxxNamespace* nested;
+        if (!check(TOK_IDENT)) {
+            rcc_error(peek()->loc,
+                      "expected namespace identifier after ::");
+            break;
+        }
+        nested_name = advance()->value.str_val;
+        nested = cxx_namespace_new(nested_name, loc);
+        cxx_namespace_add_namespace(ns, nested);
+        ns = nested;
+    }
     active_namespace = ns;
 
     expect(TOK_LBRACE, "{");
