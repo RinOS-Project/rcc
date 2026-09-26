@@ -12,8 +12,19 @@ struct Holder {
     }
 };
 
+template<template<typename> class Container = Box, typename T = int>
+struct DefaultHolder {
+    Container<T> value;
+
+    int get() {
+        return value.value;
+    }
+};
+
 int main() {
     Holder<Box, int> holder;
     holder.value.value = 41;
-    return holder.get() == 41 ? 0 : 1;
+    DefaultHolder<> default_holder;
+    default_holder.value.value = 43;
+    return holder.get() == 41 && default_holder.get() == 43 ? 0 : 1;
 }

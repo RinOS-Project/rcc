@@ -717,6 +717,7 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
+static Type* parse_template_template_default(SourceLoc loc);
 static bool is_active_template_type(const char* name);
 static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
                                       Decl* declaration);
@@ -5585,14 +5586,9 @@ CxxTemplate* parse_cxx_template(void) {
                 int parameter_index = tmpl->param_count - 1;
                 if (parameter_index >= 0) {
                     if (template_parameter) {
-                        rcc_error(peek()->loc,
-                                  "template-template parameter defaults are "
-                                  "not supported");
-                        if (check(TOK_IDENT) || check(TOK_SCOPE)) {
-                            (void)parse_qualified_name();
-                        } else {
-                            (void)parse_assignment_expression();
-                        }
+                        tmpl->params[parameter_index].has_default = true;
+                        tmpl->params[parameter_index].default_type =
+                            parse_template_template_default(peek()->loc);
                     } else {
                         tmpl->params[parameter_index].has_default = true;
                     }
@@ -6226,6 +6222,28 @@ static bool template_template_signature_matches(
         }
     }
     return true;
+}
+
+static Type* parse_template_template_default(SourceLoc loc) {
+    const char* name = NULL;
+    CxxTemplate* actual = NULL;
+    Type* carrier;
+
+    if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+        name = parse_qualified_name();
+    } else {
+        rcc_error(peek()->loc,
+                  "template-template default requires a class template name");
+    }
+    if (name) actual = find_class_template(name);
+    if (!actual) {
+        rcc_error(loc,
+                  "template-template default must name a class template");
+        return type_int;
+    }
+    carrier = type_struct(name);
+    carrier->cxx_template = actual;
+    return carrier;
 }
 
 static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
@@ -7051,6 +7069,10 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
             arguments[argument_count] = substitute_template_type(
                 tmpl, parameter->default_type, arguments, tmpl->param_count,
                 values, value_present);
+        } else if (parameter->kind == TPARAM_TEMPLATE &&
+                   parameter->default_type &&
+                   parameter->default_type->cxx_template) {
+            arguments[argument_count] = parameter->default_type;
         } else if (parameter->kind == TPARAM_NONTYPE &&
                    parameter->default_value) {
             int64_t value;

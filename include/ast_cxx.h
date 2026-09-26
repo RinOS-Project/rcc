@@ -224,6 +224,7 @@ typedef struct {
     bool is_pack;            /* `typename... Ts` / supported type pack. */
     bool has_default;
     CxxTemplate* template_signature; /* TPARAM_TEMPLATE parameter list. */
+    /* For TPARAM_TEMPLATE, default_type is a class-template carrier. */
     union {
         Type* default_type;
         Expr* default_value;
