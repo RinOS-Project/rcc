@@ -3767,9 +3767,15 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     }
 
     if (is_friend && (check(TOK_CLASS) || check(TOK_STRUCT))) {
-        rcc_error(loc,
-                  "friend class declarations are not supported by bounded RCC++");
-        while (!at_end() && !match(TOK_SEMICOLON)) advance();
+        const char* friend_name;
+        advance();
+        friend_name = parse_qualified_name();
+        if (!friend_name || !*friend_name || strcmp(friend_name, "::") == 0) {
+            rcc_error(loc, "friend class declaration requires a class name");
+        } else {
+            cxx_class_add_friend_class(cls, friend_name);
+        }
+        expect(TOK_SEMICOLON, ";");
         return;
     }
     /* A friend function defined in a class is a namespace function, not a
@@ -6544,6 +6550,15 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         memcpy(instance->using_base_members, definition->using_base_members,
                sizeof(instance->using_base_members[0]) *
                (size_t)definition->using_base_member_count);
+    }
+    instance->friend_class_count = definition->friend_class_count;
+    if (definition->friend_class_count != 0) {
+        instance->friend_class_names = ast_arena_alloc(
+            sizeof(instance->friend_class_names[0]) *
+            (size_t)definition->friend_class_count);
+        memcpy(instance->friend_class_names, definition->friend_class_names,
+               sizeof(instance->friend_class_names[0]) *
+               (size_t)definition->friend_class_count);
     }
     instance->templ = tmpl;
     instance->template_arg_count = argument_count;

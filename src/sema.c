@@ -60,6 +60,85 @@ static Decl* current_cxx_this_param = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
 
+static bool sema_cxx_class_qualified_name(const CxxClass* cls,
+                                          char* buffer, size_t capacity) {
+    const CxxNamespace* stack[32];
+    int count = 0;
+    size_t length = 0u;
+    if (!cls || !cls->name || !buffer || capacity == 0u) return false;
+    for (const CxxNamespace* ns = cls->ns;
+         ns && ns->name;
+         ns = ns->parent) {
+        if (count >= (int)(sizeof(stack) / sizeof(stack[0]))) return false;
+        stack[count++] = ns;
+    }
+    for (int index = count - 1; index >= 0; --index) {
+        size_t part_length = strlen(stack[index]->name);
+        if (length != 0u) {
+            if (length + 2u >= capacity) return false;
+            memcpy(buffer + length, "::", 2u);
+            length += 2u;
+        }
+        if (part_length > capacity - length - 1u) return false;
+        memcpy(buffer + length, stack[index]->name, part_length);
+        length += part_length;
+    }
+    if (strlen(cls->name) > capacity - length - 1u) return false;
+    memcpy(buffer + length, cls->name, strlen(cls->name));
+    length += strlen(cls->name);
+    buffer[length] = '\0';
+    return true;
+}
+
+static bool sema_cxx_class_is_friend(const CxxClass* target,
+                                     const CxxClass* candidate) {
+    char candidate_name[512];
+    if (!target || !candidate || !candidate->name) return false;
+    if (!sema_cxx_class_qualified_name(candidate, candidate_name,
+                                       sizeof(candidate_name))) {
+        return false;
+    }
+    for (int index = 0; index < target->friend_class_count; ++index) {
+        const char* friend_name = target->friend_class_names[index];
+        const char* normalized = friend_name;
+        if (!friend_name) continue;
+        while (normalized[0] == ':' && normalized[1] == ':') {
+            normalized += 2;
+        }
+        if (!strstr(normalized, "::")) {
+            if (target->ns == candidate->ns &&
+                strcmp(normalized, candidate->name) == 0) {
+                return true;
+            }
+        } else if (strcmp(normalized, candidate_name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_member_accessible(CxxClass* target,
+                                       unsigned char access) {
+    CxxClass* context;
+    if (access == ACCESS_PUBLIC) return true;
+    context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    if (context == target) return true;
+    return target && sema_cxx_class_is_friend(target, context);
+}
+
+static CxxClass* sema_cxx_method_owner(Type* object_type,
+                                       TypeMethod* method) {
+    Decl* declaration = method
+        ? (method->source_decl ? method->source_decl : method->function_decl)
+        : NULL;
+    if (declaration && declaration->func_method_owner &&
+        declaration->func_method_owner->cxx_class) {
+        return declaration->func_method_owner->cxx_class;
+    }
+    return object_type ? object_type->cxx_class : NULL;
+}
+
 typedef struct SemaSwitchValue {
     uint64_t bits;
     struct SemaSwitchValue* next;
@@ -9179,7 +9258,9 @@ static Type* sema_expr(Expr* expr) {
                                   "inline accessor '%s' accepts no arguments",
                                   member->member_name);
                     }
-                    if (method->cxx_access != 0u) {
+                    if (!sema_cxx_member_accessible(
+                            sema_cxx_method_owner(owner, method),
+                            method->cxx_access)) {
                         rcc_error(expr->loc, "method '%s' is not accessible",
                                   member->member_name);
                     }
@@ -9213,7 +9294,9 @@ static Type* sema_expr(Expr* expr) {
                 if (method && method->function_decl) {
                     Expr* function_expression;
                     arguments_analyzed = true;
-                    if (method->cxx_access != 0u) {
+                    if (!sema_cxx_member_accessible(
+                            sema_cxx_method_owner(owner, method),
+                            method->cxx_access)) {
                         rcc_error(expr->loc, "method '%s' is not accessible",
                                   member->member_name);
                     }
@@ -9547,11 +9630,8 @@ static Type* sema_expr(Expr* expr) {
                         if (strcmp(final_name, expr->member_name) != 0) {
                             continue;
                         }
-                        if (static_field->cxx_access != 0u &&
-                            (!current_cxx_method_owner ||
-                             !current_cxx_method_owner->cxx_class ||
-                             current_cxx_method_owner->cxx_class !=
-                                 bt->cxx_class)) {
+                        if (!sema_cxx_member_accessible(
+                                bt->cxx_class, static_field->cxx_access)) {
                             rcc_error(expr->loc,
                                       "member '%s' is not accessible",
                                       expr->member_name);
@@ -9585,12 +9665,8 @@ static Type* sema_expr(Expr* expr) {
                                                  bt->is_volatile;
                         expr->type = qualified;
                     }
-                    if (field->cxx_access != 0u &&
-                        (!current_cxx_method_owner ||
-                         !current_cxx_method_owner->cxx_class ||
-                         !bt->cxx_class ||
-                         current_cxx_method_owner->cxx_class !=
-                             bt->cxx_class)) {
+                    if (!sema_cxx_member_accessible(
+                            bt->cxx_class, field->cxx_access)) {
                         rcc_error(expr->loc, "member '%s' is not accessible",
                                   expr->member_name);
                     }

@@ -3269,6 +3269,17 @@ void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
     ++cls->using_base_member_count;
 }
 
+void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name) {
+    if (!cls || !friend_name || !*friend_name) return;
+    cls->friend_class_names = ast_arena_grow(
+        cls->friend_class_names,
+        sizeof(cls->friend_class_names[0]) *
+            (size_t)cls->friend_class_count,
+        sizeof(cls->friend_class_names[0]) *
+            (size_t)(cls->friend_class_count + 1));
+    cls->friend_class_names[cls->friend_class_count++] = rcc_intern(friend_name);
+}
+
 /* Add field to class */
 void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Type* type, AccessSpec access,

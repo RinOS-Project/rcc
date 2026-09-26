@@ -89,6 +89,11 @@ struct CxxClass {
         const char* member_name;
     } *using_base_members;
     int using_base_member_count;
+    /* Friend class declarations are retained as source-qualified names so a
+     * later class definition can gain access without inventing a forward
+     * declaration or changing the object ABI. */
+    const char** friend_class_names;
+    int friend_class_count;
     /* Byte offsets of non-virtual base subobjects after layout. */
     int* base_offsets;
     /* One shared subobject for every virtual base reachable from this class. */
@@ -334,6 +339,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name);
+void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name);
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static);
 void cxx_class_compute_layout(CxxClass* cls);
 bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
