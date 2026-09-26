@@ -165,7 +165,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
-.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-template-template test-cxx-template-template-invalid test-cxx-template-template-dependent-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-cxx-using-enum test-cxx-using-enum-invalid test-multiple-inputs
+.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-generic-lambda-stored-invalid test-cxx-template-template test-cxx-template-template-invalid test-cxx-template-template-dependent-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-cxx-using-enum test-cxx-using-enum-invalid test-multiple-inputs
 .PHONY: test-cxx-default-destructor
 .PHONY: test-cxx-pure-virtual
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
@@ -278,6 +278,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-template-template-dependent-invalid \
 	test-cxx-lambda-function-pointer \
 	test-cxx-generic-lambda \
+	test-cxx-generic-lambda-stored-invalid \
 	test-cxx-range-for \
 	test-cxx-iterator-range-for \
 	test-cxx-operator-arrow \
@@ -3282,6 +3283,31 @@ test-cxx-generic-lambda: $(RCXX_TARGET)
 	grep -q "cannot deduce generic lambda non-type parameter pack value" \
 		$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.log
 	@echo "C++ generic lambda deduction tests completed"
+
+test-cxx-generic-lambda-stored-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-generic-lambda-stored-invalid)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.ro' tests/cxx_generic_lambda_stored_invalid.cpp *> '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.ro' tests/cxx_generic_lambda_stored_invalid.cpp *> '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+else
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.ro \
+		tests/cxx_generic_lambda_stored_invalid.cpp \
+		>$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.log 2>&1; then \
+		echo "stored generic lambda unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.ro \
+		tests/cxx_generic_lambda_stored_invalid.cpp \
+		>$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.log 2>&1; then \
+		echo "stored generic lambda unexpectedly compiled on AMD64"; exit 1; \
+	fi
+endif
+	grep -q "stored generic lambda must be directly invoked" \
+		$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.log
+	grep -q "stored generic lambda must be directly invoked" \
+		$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.log
+	@echo "C++ stored generic lambda diagnostics completed"
 
 test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/multiple-inputs/c)

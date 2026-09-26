@@ -7503,6 +7503,7 @@ static bool sema_cxx_lambda_deduction_value(
 static bool sema_instantiate_cxx_lambda(Expr* call) {
     Expr* function_expression;
     CxxTemplate* tmpl;
+    Decl* lambda_variable = NULL;
     Type* arguments[32] = { NULL };
     Type* pack_arguments[32] = { NULL };
     int64_t pack_values[32] = { 0 };
@@ -7518,8 +7519,22 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
     if (!call || !call->call_func ||
         call->call_func->kind != EXPR_IDENT) return true;
     function_expression = call->call_func;
+    if (!function_expression->ident_decl && function_expression->ident_name) {
+        Symbol* symbol = sema_cxx_lookup_name(function_expression->ident_name,
+                                              function_expression->loc);
+        if (symbol && symbol->decl && symbol->decl->kind == DECL_VAR) {
+            function_expression->ident_decl = symbol->decl;
+            function_expression->cxx_lambda_template =
+                symbol->decl->var_cxx_lambda_template;
+        }
+    }
     tmpl = function_expression->cxx_lambda_template;
     if (!tmpl) return true;
+    if (function_expression->ident_decl &&
+        function_expression->ident_decl->kind == DECL_VAR &&
+        function_expression->ident_decl->var_cxx_lambda_template == tmpl) {
+        lambda_variable = function_expression->ident_decl;
+    }
     if (!tmpl->func_def || tmpl->param_count <= 0 ||
         tmpl->param_count > (int)(sizeof(arguments) / sizeof(arguments[0]))) {
         rcc_error(call->loc, "generic lambda has an invalid template shape");
@@ -7728,6 +7743,21 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
                 }
             }
             if (!present) ast_add_decl(current_ast, instance);
+        }
+        if (lambda_variable) {
+            Expr* initializer = lambda_variable->var_init;
+            lambda_variable->var_cxx_lambda_specialized = true;
+            /* The generic closure has no runtime state in this bounded
+             * captureless profile.  Point its stored function value at the
+             * first concrete specialization so the ordinary function-pointer
+             * initializer remains a real symbol instead of an unresolved
+             * dependent template name. */
+            if (initializer && initializer->kind == EXPR_IDENT &&
+                initializer->cxx_lambda_template == tmpl) {
+                initializer->ident_decl = instance;
+                initializer->type = instance->type;
+                initializer->cxx_lambda_template = NULL;
+            }
         }
         function_expression->ident_decl = instance;
         function_expression->type = instance->type;
@@ -8167,6 +8197,10 @@ static Type* sema_expr(Expr* expr) {
                     expr->ident_decl->type->is_reference
                     ? expr->ident_decl->type->base
                     : expr->ident_decl->type;
+                if (expr->ident_decl->kind == DECL_VAR) {
+                    expr->cxx_lambda_template =
+                        expr->ident_decl->var_cxx_lambda_template;
+                }
                 break;
             }
             Symbol* sym = sema_cxx_lookup_name(expr->ident_name, expr->loc);
@@ -12044,6 +12078,78 @@ static void sema_resolve_function_noexcept(Decl* declaration) {
     }
 }
 
+/* A generic lambda has no single function-pointer type until its call
+ * operator is instantiated.  The bounded lowering supports captureless
+ * variables that are directly invoked; reject an unused or escaped dependent
+ * closure before code generation instead of emitting an unresolved template
+ * symbol. */
+static void sema_validate_stored_generic_lambda_stmt(Stmt* statement) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                sema_validate_stored_generic_lambda_stmt(item->stmt);
+            }
+            break;
+        case STMT_IF:
+            sema_validate_stored_generic_lambda_stmt(statement->if_then);
+            sema_validate_stored_generic_lambda_stmt(statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            sema_validate_stored_generic_lambda_stmt(statement->while_body);
+            break;
+        case STMT_FOR:
+            sema_validate_stored_generic_lambda_stmt(statement->for_init);
+            sema_validate_stored_generic_lambda_stmt(statement->for_body);
+            break;
+        case STMT_SWITCH:
+            sema_validate_stored_generic_lambda_stmt(statement->switch_body);
+            break;
+        case STMT_CASE:
+            sema_validate_stored_generic_lambda_stmt(statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            sema_validate_stored_generic_lambda_stmt(statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            sema_validate_stored_generic_lambda_stmt(statement->label_stmt);
+            break;
+        case STMT_TRY:
+            sema_validate_stored_generic_lambda_stmt(statement->try_body);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                sema_validate_stored_generic_lambda_stmt(handler->body);
+            }
+            break;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR &&
+                statement->decl->var_cxx_lambda_template &&
+                !statement->decl->var_cxx_lambda_specialized) {
+                rcc_error(statement->decl->loc,
+                          "stored generic lambda must be directly invoked "
+                          "in the bounded RCC++ profile");
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void sema_validate_stored_generic_lambda_decl(Decl* declaration) {
+    if (!declaration) return;
+    if (declaration->kind == DECL_VAR &&
+        declaration->var_cxx_lambda_template &&
+        !declaration->var_cxx_lambda_specialized) {
+        rcc_error(declaration->loc,
+                  "stored generic lambda must be directly invoked in the "
+                  "bounded RCC++ profile");
+    } else if (declaration->kind == DECL_FUNC) {
+        sema_validate_stored_generic_lambda_stmt(declaration->func_body);
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
 
@@ -12076,6 +12182,12 @@ static void sema_decl(Decl* decl) {
                 current_cxx_namespace = sema_decl_namespace(decl);
             }
             if (decl->var_is_auto) {
+                if (decl->var_init && decl->var_init->kind == EXPR_IDENT &&
+                    decl->var_init->cxx_lambda_template &&
+                    !decl->var_init->cxx_lambda_captures) {
+                    decl->var_cxx_lambda_template =
+                        decl->var_init->cxx_lambda_template;
+                }
                 decl->type = sema_deduce_auto_type(decl);
             }
             {
@@ -12542,6 +12654,9 @@ bool rcc_sema(AST* ast) {
     /* Process all top-level declarations */
     for (DeclList* d = ast->decls; d; d = d->next) {
         sema_decl(d->decl);
+    }
+    for (DeclList* d = ast->decls; d; d = d->next) {
+        sema_validate_stored_generic_lambda_decl(d->decl);
     }
 
     valid = g_error_count == 0;

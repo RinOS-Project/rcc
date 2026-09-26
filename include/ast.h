@@ -945,6 +945,12 @@ struct Decl {
             bool var_is_auto_rvalue_reference;
             bool var_is_auto_pointer;
             bool var_is_auto_const;
+            /* A captureless generic lambda stored in an `auto` variable keeps
+             * its dependent call operator until each call site supplies the
+             * concrete arguments.  The bounded ABI still materializes the
+             * selected function instance as the initializer value. */
+            struct CxxTemplate* var_cxx_lambda_template;
+            bool var_cxx_lambda_specialized;
             bool var_is_constexpr;  /* C++ constexpr variable declaration. */
             bool var_is_constinit;  /* C++20 constant-initialized variable. */
             bool var_is_inline;     /* C++17 inline variable definition. */

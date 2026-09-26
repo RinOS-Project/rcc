@@ -48,6 +48,11 @@ int main() {
     int rvalue_result = [](auto&& value) {
         return value + 1;
     }(41);
+    auto stored_increment = [](auto value) {
+        return value + 1;
+    };
+    int stored_result = stored_increment(41);
+    long stored_long_result = stored_increment((long)41);
     return captured_value == 42 && referenced_value == 21 &&
            captured_base == 21 && integer_value == 42 &&
            long_value == 42 && pointer_value == 43 &&
@@ -56,6 +61,7 @@ int main() {
            packed_count == 3 && packed_empty_count == 0 &&
            packed_pointers == 1 &&
            forwarded == 42 && forwarded_result == 41 && lvalue_result == 42 &&
-           rvalue_result == 42
+           rvalue_result == 42 && stored_result == 42 &&
+           stored_long_result == 42
         ? 0 : 1;
 }
