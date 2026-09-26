@@ -3663,6 +3663,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         if (match(TOK_LBRACE)) {
             /* Parse method body */
             StmtList* stmts = NULL;
+            void* enum_scope = rcc_parser_enum_scope_mark();
             rcc_parser_cxx_begin_function_parameters(params);
             if (!is_static) {
                 Type* this_type = type_ptr(cls->type);
@@ -3690,6 +3691,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 }
             }
             expect(TOK_RBRACE, "}");
+            rcc_parser_enum_scope_restore(enum_scope);
             rcc_parser_cxx_end_function_parameters();
             body = stmt_block(stmts, loc);
         } else {
@@ -4120,6 +4122,7 @@ static const char* cxx_using_qualified_name(const char* name,
 static void parse_cxx_using(CxxNamespace* ns) {
     SourceLoc loc = previous()->loc;
     const char* name;
+    Type* enum_type;
     Token* local_name;
 
     if (match(TOK_NAMESPACE)) {
@@ -4129,6 +4132,24 @@ static void parse_cxx_using(CxxNamespace* ns) {
             rcc_error(loc, "unknown namespace in using-directive '%s'", name);
         } else {
             cxx_namespace_add_using_namespace(ns, target);
+        }
+        expect(TOK_SEMICOLON, ";");
+        return;
+    }
+
+    if (match(TOK_ENUM)) {
+        const char* enum_name = parse_qualified_name();
+        const char* final_name = enum_name ? strrchr(enum_name, ':') : NULL;
+        enum_type = enum_name ? rcc_parser_lookup_type(enum_name) : NULL;
+        if (!enum_type && final_name) {
+            enum_type = rcc_parser_lookup_type(final_name + 1);
+        }
+        if (!enum_type || enum_type->kind != TYPE_ENUM) {
+            rcc_error(loc,
+                      "using enum requires a declared enumeration type '%s'",
+                      enum_name ? enum_name : "");
+        } else {
+            rcc_parser_import_enum_constants(enum_type, loc);
         }
         expect(TOK_SEMICOLON, ";");
         return;
@@ -4607,6 +4628,7 @@ Expr* rcc_parse_cxx_lambda(void) {
     saved_reference_captures[saved_reference_capture_depth++] =
         active_reference_captures;
     active_reference_captures = lambda_reference_captures;
+    void* enum_scope = rcc_parser_enum_scope_mark();
     rcc_parser_cxx_begin_function_parameters(all_params);
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* start = parser.cur;
@@ -4615,6 +4637,7 @@ Expr* rcc_parse_cxx_lambda(void) {
         if (parser.cur == start && !at_end()) advance();
     }
     expect(TOK_RBRACE, "}");
+    rcc_parser_enum_scope_restore(enum_scope);
     rcc_parser_cxx_end_function_parameters();
     active_reference_captures = saved_reference_captures[
         --saved_reference_capture_depth];
@@ -4770,6 +4793,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         skip_balanced(TOK_LBRACE, TOK_RBRACE);
     } else if (match(TOK_LBRACE)) {
         StmtList* statements = NULL;
+        void* enum_scope = rcc_parser_enum_scope_mark();
         rcc_parser_cxx_begin_function_parameters(params);
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
@@ -4778,6 +4802,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
             if (parser.cur == start && !at_end()) advance();
         }
         expect(TOK_RBRACE, "}");
+        rcc_parser_enum_scope_restore(enum_scope);
         rcc_parser_cxx_end_function_parameters();
         body = stmt_block(statements, loc);
     } else {
@@ -8804,6 +8829,19 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 static Stmt* parse_cxx_statement(void) {
     if (check(TOK_CONSTEXPR)) return parse_declaration();
 
+    if (match(TOK_USING)) {
+        SourceLoc loc = previous()->loc;
+        if (check(TOK_ENUM)) {
+            parse_cxx_using(active_namespace ? active_namespace
+                                             : g_global_namespace);
+            return stmt_null(loc);
+        }
+        rcc_error(loc,
+                  "block-scope using-declarations other than using enum are not supported");
+        while (!at_end() && !match(TOK_SEMICOLON)) advance();
+        return stmt_null(loc);
+    }
+
     if (cxx_structured_binding_starts()) {
         return parse_cxx_structured_binding_declaration();
     }
@@ -8824,11 +8862,13 @@ static Stmt* parse_cxx_statement(void) {
         /* Parse try block */
         expect(TOK_LBRACE, "{");
         StmtList* stmts = NULL;
+        void* try_enum_scope = rcc_parser_enum_scope_mark();
         while (!check(TOK_RBRACE) && !at_end()) {
             Stmt* s = parse_cxx_statement();
             if (s) stmtlist_append(&stmts, s);
         }
         expect(TOK_RBRACE, "}");
+        rcc_parser_enum_scope_restore(try_enum_scope);
         try_body = stmt_block(stmts, loc);
 
         /* Parse catch blocks */
@@ -8852,11 +8892,13 @@ static Stmt* parse_cxx_statement(void) {
             expect(TOK_RPAREN, ")");
 
             expect(TOK_LBRACE, "{");
+            void* catch_enum_scope = rcc_parser_enum_scope_mark();
             while (!check(TOK_RBRACE) && !at_end()) {
                 Stmt* s = parse_cxx_statement();
                 if (s) stmtlist_append(&handler_stmts, s);
             }
             expect(TOK_RBRACE, "}");
+            rcc_parser_enum_scope_restore(catch_enum_scope);
 
             /* Make the catch parameter a normal block declaration so lookup,
              * stack layout, and template cloning all use the existing paths. */

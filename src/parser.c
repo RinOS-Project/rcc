@@ -1039,9 +1039,12 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_IDENT)) {
         int64_t enum_value;
+        Type* enum_type = NULL;
         if (parser_lookup_enum_constant(previous()->value.str_val,
-                                        &enum_value, NULL)) {
-            return expr_int(enum_value, loc);
+                                        &enum_value, &enum_type)) {
+            Expr* value = expr_int(enum_value, loc);
+            value->type = enum_type ? enum_type : type_int;
+            return value;
         }
     if (parser_cxx_mode && rcc_parser_cxx_capture_expression) {
             Expr* capture = rcc_parser_cxx_capture_expression(
@@ -1749,6 +1752,17 @@ static void parse_enum_body(Type* enum_type, bool scoped,
                 }
             }
             parser_define_enum_constant(spelling, value, enum_type);
+            enum_type->enum_constants = ast_arena_grow(
+                enum_type->enum_constants,
+                sizeof(*enum_type->enum_constants) *
+                    (size_t)enum_type->enum_constant_count,
+                sizeof(*enum_type->enum_constants) *
+                    (size_t)(enum_type->enum_constant_count + 1));
+            enum_type->enum_constants[
+                enum_type->enum_constant_count].name = name->value.str_val;
+            enum_type->enum_constants[
+                enum_type->enum_constant_count].value = value;
+            ++enum_type->enum_constant_count;
         }
         next_value = value + 1;
         if (!match(TOK_COMMA)) break;
@@ -1908,6 +1922,38 @@ static bool parser_type_is_variably_modified(Type* type) {
         return parser_type_is_variably_modified(type->base);
     }
     return false;
+}
+
+bool rcc_parser_import_enum_constants(Type* enum_type, SourceLoc loc) {
+    if (!enum_type || enum_type->kind != TYPE_ENUM) {
+        rcc_error(loc, "using enum requires a declared enumeration type");
+        return false;
+    }
+    for (int index = 0; index < enum_type->enum_constant_count; ++index) {
+        const char* name = enum_type->enum_constants[index].name;
+        int64_t value = enum_type->enum_constants[index].value;
+        int64_t existing_value;
+        Type* existing_type = NULL;
+        if (parser_lookup_enum_constant(name, &existing_value,
+                                        &existing_type)) {
+            if (existing_type != enum_type || existing_value != value) {
+                rcc_error(loc,
+                          "using enum introduces a conflicting enumerator '%s'",
+                          name);
+            }
+            continue;
+        }
+        parser_define_enum_constant(name, value, enum_type);
+    }
+    return true;
+}
+
+void* rcc_parser_enum_scope_mark(void) {
+    return parser_enum_constants;
+}
+
+void rcc_parser_enum_scope_restore(void* mark) {
+    parser_enum_constants = (ParserEnumConstant*)mark;
 }
 
 static bool parser_is_flexible_array(Type* type) {
@@ -2596,11 +2642,13 @@ Type* rcc_parser_parse_cxx_declarator(Type* base_type, const char** name,
 static Stmt* parse_block(void) {
     SourceLoc loc = previous()->loc;
     StmtList* stmts = NULL;
+    ParserEnumConstant* saved_enum_constants = parser_enum_constants;
 
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* iteration_start = parser.cur;
         int errors_before = g_error_count;
-        Stmt* s = parse_declaration();
+        Stmt* s = parser_cxx_mode && rcc_parse_cxx_statement
+            ? rcc_parse_cxx_statement() : parse_declaration();
         if (s) {
             stmtlist_append(&stmts, s);
         }
@@ -2614,6 +2662,7 @@ static Stmt* parse_block(void) {
     }
 
     expect(TOK_RBRACE, "}");
+    parser_enum_constants = saved_enum_constants;
     return stmt_block(stmts, loc);
 }
 

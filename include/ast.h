@@ -74,6 +74,11 @@ typedef struct TypeParam {
     struct TypeParam* next;
 } TypeParam;
 
+typedef struct EnumConstantInfo {
+    const char* name;
+    int64_t value;
+} EnumConstantInfo;
+
 typedef enum {
     TYPE_METHOD_FIELD,
     TYPE_METHOD_FIELD_EQ_CONSTANT,
@@ -182,7 +187,8 @@ struct Type {
         struct {
             const char* enum_tag;
             bool enum_is_scoped;  /* C++ enum class/enum struct. */
-            /* Enum values stored in symbol table */
+            EnumConstantInfo* enum_constants;
+            int enum_constant_count;
         };
     };
 };
@@ -211,6 +217,9 @@ void rcc_parser_set_cxx_mode(bool enabled);
 bool rcc_parser_is_cxx_mode(void);
 Type* rcc_parser_lookup_type(const char* name);
 void rcc_parser_define_type(const char* name, Type* type);
+bool rcc_parser_import_enum_constants(Type* enum_type, SourceLoc loc);
+void* rcc_parser_enum_scope_mark(void);
+void rcc_parser_enum_scope_restore(void* mark);
 Type* rcc_parser_parse_cxx_declarator(Type* base_type, const char** name,
                                       DeclList** parameters);
 void rcc_parser_define_cxx_constructor_type(const char* name, Type* type,

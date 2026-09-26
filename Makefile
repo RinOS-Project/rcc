@@ -159,7 +159,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
-.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-template-template test-cxx-template-template-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-multiple-inputs
+.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-template-template test-cxx-template-template-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-cxx-using-enum test-cxx-using-enum-invalid test-multiple-inputs
 .PHONY: test-cxx-default-destructor
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
@@ -243,6 +243,8 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-alignas-invalid \
 	test-cxx-constinit \
 	test-cxx-constinit-invalid \
+	test-cxx-using-enum \
+	test-cxx-using-enum-invalid \
 	test-cxx-template-template \
 	test-cxx-template-template-invalid \
 	test-cxx-lambda-function-pointer \
@@ -1771,6 +1773,57 @@ endif
 	grep -q "constinit declaration must declare a variable" \
 		$(TEST_OUT)/cxx-constinit-invalid/function-x64.log
 	@echo "RCC++ constinit diagnostics completed"
+
+test-cxx-using-enum: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-using-enum)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-using-enum/x86.s tests/cxx_using_enum.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-using-enum/x86.o \
+		$(TEST_OUT)/cxx-using-enum/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-using-enum/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-using-enum/x86 \
+		$(TEST_OUT)/cxx-using-enum/start-x86.o \
+		$(TEST_OUT)/cxx-using-enum/x86.o
+	$(TEST_OUT)/cxx-using-enum/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-using-enum/x64.s tests/cxx_using_enum.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-using-enum/x64.o \
+		$(TEST_OUT)/cxx-using-enum/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-using-enum/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-using-enum/x64 \
+		$(TEST_OUT)/cxx-using-enum/start-x64.o \
+		$(TEST_OUT)/cxx-using-enum/x64.o
+	$(TEST_OUT)/cxx-using-enum/x64
+	@echo "RCC++ using enum execution tests completed"
+
+test-cxx-using-enum-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-using-enum-invalid)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-using-enum-invalid/x86.ro' tests/cxx_using_enum_invalid.cpp *> '$(TEST_OUT)/cxx-using-enum-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-using-enum-invalid/x64.ro' tests/cxx_using_enum_invalid.cpp *> '$(TEST_OUT)/cxx-using-enum-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+else
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-using-enum-invalid/x86.ro \
+		tests/cxx_using_enum_invalid.cpp \
+		>$(TEST_OUT)/cxx-using-enum-invalid/x86.log 2>&1; then \
+		echo "conflicting using enum unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-using-enum-invalid/x64.ro \
+		tests/cxx_using_enum_invalid.cpp \
+		>$(TEST_OUT)/cxx-using-enum-invalid/x64.log 2>&1; then \
+		echo "conflicting using enum unexpectedly compiled on AMD64"; exit 1; \
+	fi
+endif
+	grep -q "using enum introduces a conflicting enumerator 'shared'" \
+		$(TEST_OUT)/cxx-using-enum-invalid/x86.log
+	grep -q "using enum introduces a conflicting enumerator 'shared'" \
+		$(TEST_OUT)/cxx-using-enum-invalid/x64.log
+	@echo "RCC++ using enum diagnostics completed"
 
 test-cxx-template-template: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template)
