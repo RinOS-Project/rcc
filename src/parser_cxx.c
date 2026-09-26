@@ -43,6 +43,7 @@ typedef struct CxxLambdaCaptureSpec {
     const char* name;
     SourceLoc loc;
     bool reference;
+    Expr* initializer;
     struct CxxLambdaCaptureSpec* next;
 } CxxLambdaCaptureSpec;
 
@@ -56,6 +57,92 @@ static unsigned cxx_lambda_counter;
 static unsigned cxx_range_for_counter;
 
 static int cxx_class_pack_index(CxxTemplate* tmpl);
+static Type* cxx_parser_value_type(const char* name);
+
+/* Lambda init-captures are lowered as hidden call parameters.  Their
+ * parameter type must be known while the lambda function declaration is
+ * built, before the enclosing function is semantically analyzed.  Keep this
+ * inference deliberately structural: expressions that need overload
+ * resolution or a deferred template type are rejected instead of receiving a
+ * guessed recovery type. */
+static Type* cxx_lambda_capture_expression_type(Expr* expression) {
+    Type* left;
+    Type* right;
+    if (!expression) return NULL;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_CHAR_LIT:
+            return type_int;
+        case EXPR_FLOAT_LIT:
+            return expression->type && expression->type->kind == TYPE_FLOAT
+                ? expression->type : type_double;
+        case EXPR_IDENT:
+            return cxx_parser_value_type(expression->ident_name);
+        case EXPR_STRING_LIT:
+            return type_array(type_char,
+                              (int)strlen(expression->str_val) + 1);
+        case EXPR_CAST:
+            return expression->cast_type;
+        case EXPR_ADDR:
+            left = cxx_lambda_capture_expression_type(
+                expression->unary_operand);
+            return left ? type_ptr(left) : NULL;
+        case EXPR_DEREF:
+            left = cxx_lambda_capture_expression_type(
+                expression->unary_operand);
+            return left && left->kind == TYPE_PTR ? left->base : NULL;
+        case EXPR_COND:
+            left = cxx_lambda_capture_expression_type(expression->cond_then);
+            right = cxx_lambda_capture_expression_type(expression->cond_else);
+            return left && right && type_is_compatible(left, right)
+                ? left : NULL;
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return cxx_lambda_capture_expression_type(expression->binary_lhs);
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_LE:
+        case EXPR_GT:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return type_int;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+            left = cxx_lambda_capture_expression_type(expression->binary_lhs);
+            right = cxx_lambda_capture_expression_type(expression->binary_rhs);
+            if (!left || !right) return NULL;
+            if (left->kind == TYPE_DOUBLE || right->kind == TYPE_DOUBLE) {
+                return type_double;
+            }
+            if (left->kind == TYPE_FLOAT || right->kind == TYPE_FLOAT) {
+                return type_float;
+            }
+            return left;
+        case EXPR_COMPOUND:
+            return expression->compound_type;
+        default:
+            return NULL;
+    }
+}
 
 static void cxx_parser_expr_loc(SourceLoc* location, const Expr* expression,
                                 const SourceLoc* fallback) {
@@ -4371,6 +4458,18 @@ Expr* rcc_parse_cxx_lambda(void) {
                     ? rcc_intern("this") : capture->value.str_val;
                 spec->loc = capture->loc;
                 spec->reference = reference_capture;
+                spec->initializer = NULL;
+                if (match(TOK_ASSIGN)) {
+                    if (reference_capture || capture->type == TOK_THIS) {
+                        rcc_error(capture->loc,
+                                  "lambda init-capture cannot initialize a reference or this capture");
+                    }
+                    spec->initializer = parse_cxx_expression();
+                    if (!spec->initializer) {
+                        rcc_error(capture->loc,
+                                  "lambda init-capture requires an initializer expression");
+                    }
+                }
                 spec->next = NULL;
                 if (explicit_capture_tail) {
                     explicit_capture_tail->next = spec;
@@ -4384,13 +4483,22 @@ Expr* rcc_parse_cxx_lambda(void) {
     }
     for (CxxLambdaCaptureSpec* spec = explicit_captures; spec;
          spec = spec->next) {
-        Type* capture_type = cxx_parser_value_type(spec->name);
+        Type* capture_type = spec->initializer
+            ? cxx_lambda_capture_expression_type(spec->initializer)
+            : cxx_parser_value_type(spec->name);
+        if (spec->initializer && !capture_type) {
+            rcc_error(spec->loc,
+                      "lambda init-capture expression has no statically inferable type");
+            continue;
+        }
         if (!capture_type) {
             rcc_error(spec->loc, "lambda capture '%s' is not a local value",
                       spec->name);
             continue;
         }
-        if (spec->reference) {
+        if (spec->initializer) {
+            exprlist_append(&captures, spec->initializer);
+        } else if (spec->reference) {
             CxxReferenceCapture* reference =
                 ast_arena_alloc(sizeof(*reference));
             reference->name = spec->name;

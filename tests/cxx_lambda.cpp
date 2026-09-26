@@ -23,6 +23,15 @@ int main() {
     int captured = [base](int extra) -> int {
         return base + extra;
     }(22);
+    int initialized_capture = [value = base + 2]() -> int {
+        return value;
+    }();
+    double initialized_float_capture = [value = 1.25 + 0.25]() {
+        return value;
+    }();
+    int initialized_pointer_capture = [value = &base]() {
+        return *value;
+    }();
     int default_captured = [=](int extra) -> int {
         return base + extra;
     }(22);
@@ -54,7 +63,10 @@ int main() {
     LambdaPoint point;
     point.x = 30;
     point.y = 40;
-    return direct == 42 && captured == 42 && default_captured == 42 &&
+    return direct == 42 && captured == 42 && initialized_capture == 22 &&
+           initialized_float_capture == 1.5 &&
+           initialized_pointer_capture == 20 &&
+           default_captured == 42 &&
            referenced == 22 && default_referenced == 25 &&
            mixed_referenced == 29 && mixed_copied == 34 && base == 29 &&
            mutable_captured == 30 &&
