@@ -618,6 +618,7 @@ static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(void);
 static Type* parse_cxx_type_spec(void);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
+static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
 static bool is_active_template_type(const char* name);
@@ -3950,6 +3951,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
      * routine returns, but vtable names/layout metadata are built here. */
     cls->ns = active_namespace ? active_namespace : g_global_namespace;
     resolve_class_bases(cls, loc);
+    validate_class_virtual_specifiers(cls, loc);
     cxx_class_compute_layout(cls);
     complete_cxx_default_member_initializers(cls);
     cxx_class_build_vtable(cls);
@@ -5527,6 +5529,86 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc) {
         }
         cls->bases[index].base = base;
     }
+}
+
+/* Return the virtual base declaration whose source signature is inherited by
+ * a derived method.  The vtable entries retain the original CxxMethod even
+ * when a base inherited that slot from one of its own bases, so scanning the
+ * primary and secondary tables covers all supported inheritance paths. */
+static CxxMethod* find_base_virtual_method(CxxClass* base,
+                                           CxxMethod* derived) {
+    if (!base || !derived) return NULL;
+    for (int index = 0; index < base->vtable_size; ++index) {
+        CxxMethod* candidate = base->vtable[index].method;
+        if (candidate && candidate->is_virtual &&
+            cxx_method_virtual_signature_matches(derived, candidate)) {
+            return candidate;
+        }
+    }
+    for (int table_index = 0; table_index < base->secondary_vtable_count;
+         ++table_index) {
+        CxxSecondaryVtable* table = &base->secondary_vtables[table_index];
+        for (int index = 0; index < table->size; ++index) {
+            CxxMethod* candidate = table->entries[index].method;
+            if (candidate && candidate->is_virtual &&
+                cxx_method_virtual_signature_matches(derived, candidate)) {
+                return candidate;
+            }
+        }
+    }
+    return NULL;
+}
+
+static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc) {
+    if (!cls) return;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        CxxMethod* base_method = NULL;
+        const char* name;
+        if (!method || !method->decl) continue;
+        name = cxx_method_source_name(method);
+        if ((method->is_override || method->is_final) && method->is_static) {
+            rcc_error(method->decl->loc,
+                      "static member function '%s' cannot use override or final",
+                      name ? name : "<unnamed>");
+            continue;
+        }
+        for (int base_index = 0; base_index < cls->base_count;
+             ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            base_method = find_base_virtual_method(base, method);
+            if (base_method) break;
+        }
+
+        if (base_method &&
+            !cxx_method_override_signature_matches(method, base_method)) {
+            rcc_error(method->decl->loc,
+                      "return type of '%s' is incompatible with the overridden "
+                      "virtual method",
+                      name ? name : "<unnamed>");
+            continue;
+        }
+        if (method->is_override && !base_method) {
+            rcc_error(method->decl->loc,
+                      "method '%s' is marked override but does not override a "
+                      "base class method",
+                      name ? name : "<unnamed>");
+            continue;
+        }
+        if (base_method && base_method->is_final) {
+            rcc_error(method->decl->loc,
+                      "cannot override final method '%s'",
+                      name ? name : "<unnamed>");
+            continue;
+        }
+        if (method->is_final && !base_method && !method->is_virtual) {
+            rcc_error(method->decl->loc,
+                      "method '%s' is marked final but is not virtual",
+                      name ? name : "<unnamed>");
+        }
+    }
+    (void)loc;
 }
 
 /* Tell the shared C declaration parser when an identifier begins a C++ type

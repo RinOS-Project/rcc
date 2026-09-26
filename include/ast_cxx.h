@@ -305,6 +305,15 @@ struct CxxMethod {
     int vtable_index;        /* -1 if not virtual */
 };
 
+/* C++ virtual dispatch uses the source name, parameter types, and cv
+ * qualifier as the slot identity; the return type is checked separately by
+ * override validation.  Keep these checks shared by the parser and vtable
+ * builder so an invalid declaration cannot be silently assigned a base slot. */
+bool cxx_method_virtual_signature_matches(const CxxMethod* derived,
+                                          const CxxMethod* base);
+bool cxx_method_override_signature_matches(const CxxMethod* derived,
+                                           const CxxMethod* base);
+
 /* Name mangling */
 char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls);
 char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls);

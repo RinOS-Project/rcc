@@ -235,6 +235,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-nonmember-operator \
 	test-cxx-spaceship \
 	test-cxx-final \
+	test-cxx-override \
 	test-cxx-conversion-operator \
 	test-cxx-lambda \
 	test-cxx-lambda-invalid \
@@ -2029,6 +2030,30 @@ test-cxx-final: $(RCXX_TARGET)
 	grep -q "cannot derive from final class 'FinalBase'" \
 		$(TEST_OUT)/cxx-final/invalid-x64.log
 	@echo "C++ final class semantics tests completed"
+
+test-cxx-override: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-override)
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-override/invalid-x86.ro \
+		tests/cxx_override_invalid.cpp \
+		>$(TEST_OUT)/cxx-override/invalid-x86.log 2>&1; then \
+		echo "invalid override declarations unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "marked override but does not override a base class method" \
+		$(TEST_OUT)/cxx-override/invalid-x86.log
+	grep -q "cannot override final method 'final_value'" \
+		$(TEST_OUT)/cxx-override/invalid-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-override/invalid-x64.ro \
+		tests/cxx_override_invalid.cpp \
+		>$(TEST_OUT)/cxx-override/invalid-x64.log 2>&1; then \
+		echo "invalid override declarations unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "marked override but does not override a base class method" \
+		$(TEST_OUT)/cxx-override/invalid-x64.log
+	grep -q "cannot override final method 'final_value'" \
+		$(TEST_OUT)/cxx-override/invalid-x64.log
+	@echo "C++ override and final method semantics tests completed"
 
 test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-templates)

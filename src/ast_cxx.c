@@ -661,6 +661,57 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
  * Class Operations (Core API)
  * ═══════════════════════════════════════ */
 
+static bool cxx_method_parameter_lists_match(const CxxMethod* left,
+                                             const CxxMethod* right) {
+    DeclList* left_param;
+    DeclList* right_param;
+    if (!left || !right || !left->decl || !right->decl ||
+        !left->decl->type || !right->decl->type) {
+        return false;
+    }
+    /* The ordinary-method registration pass prepends the ABI-only `this`
+     * parameter to Type::params.  Compare the source parameter lists so a
+     * completed base class and a not-yet-registered derived class use the
+     * same signature domain. */
+    left_param = left->decl->func_params;
+    right_param = right->decl->func_params;
+    while (left_param && right_param) {
+        if (!left_param->decl || !right_param->decl ||
+            !type_is_compatible(left_param->decl->type,
+                                right_param->decl->type)) {
+            return false;
+        }
+        left_param = left_param->next;
+        right_param = right_param->next;
+    }
+    return left_param == NULL && right_param == NULL;
+}
+
+bool cxx_method_virtual_signature_matches(const CxxMethod* derived,
+                                          const CxxMethod* base) {
+    const char* derived_name;
+    const char* base_name;
+    if (!derived || !base || derived->is_static || base->is_static ||
+        !derived->decl || !base->decl) {
+        return false;
+    }
+    derived_name = derived->source_name
+        ? derived->source_name : derived->decl->name;
+    base_name = base->source_name
+        ? base->source_name : base->decl->name;
+    return derived_name && base_name && strcmp(derived_name, base_name) == 0 &&
+           derived->is_const == base->is_const &&
+           cxx_method_parameter_lists_match(derived, base);
+}
+
+bool cxx_method_override_signature_matches(const CxxMethod* derived,
+                                           const CxxMethod* base) {
+    return cxx_method_virtual_signature_matches(derived, base) &&
+           derived->decl->type && base->decl->type &&
+           type_is_compatible(derived->decl->type->ret_type,
+                              base->decl->type->ret_type);
+}
+
 CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     CxxClass* cls = rcc_alloc(sizeof(CxxClass));
     cls->name = name ? rcc_strdup(name) : NULL;
@@ -1162,11 +1213,12 @@ static const char* cxx_virtual_secondary_thunk_name(
 }
 
 static int cxx_vtable_find_slot(const CxxVtableEntry* entries, int count,
-                                const char* name) {
-    if (!entries || !name) return -1;
+                                const CxxMethod* method) {
+    if (!entries || !method) return -1;
     for (int index = 0; index < count; ++index) {
-        if (entries[index].name &&
-            strcmp(entries[index].name, name) == 0) {
+        if (entries[index].method &&
+            cxx_method_virtual_signature_matches(method,
+                                                 entries[index].method)) {
             return index;
         }
     }
@@ -1202,13 +1254,7 @@ void cxx_class_build_vtable(CxxClass* cls) {
             method->is_constructor || method->is_destructor) {
             continue;
         }
-        for (int index = 0; index < vtable_size; ++index) {
-            if (cls->vtable[index].name &&
-                strcmp(cls->vtable[index].name, method->decl->name) == 0) {
-                slot = index;
-                break;
-            }
-        }
+        slot = cxx_vtable_find_slot(cls->vtable, vtable_size, method);
         if (slot >= 0) {
             method->is_virtual = true;
             member->is_virtual = true;
@@ -1270,7 +1316,7 @@ void cxx_class_build_vtable(CxxClass* cls) {
                 continue;
             }
             slot = cxx_vtable_find_slot(secondary->entries, secondary->size,
-                                        method->decl->name);
+                                        method);
             if (slot < 0) continue;
             method->is_virtual = true;
             member->is_virtual = true;
@@ -1328,7 +1374,7 @@ void cxx_class_build_vtable(CxxClass* cls) {
                 continue;
             }
             slot = cxx_vtable_find_slot(secondary->entries, secondary->size,
-                                        method->decl->name);
+                                        method);
             if (slot < 0) continue;
             method->is_virtual = true;
             member->is_virtual = true;
