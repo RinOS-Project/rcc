@@ -5,8 +5,8 @@ struct BindingPair {
 
 int invalid_structured_binding() {
     BindingPair pair{1, 2};
-    auto&& [left, right] = pair;
-    return left + right;
+    auto [left, right, extra] = pair;
+    return left + right + extra;
 }
 
 int main() {

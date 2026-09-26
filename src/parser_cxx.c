@@ -9455,6 +9455,7 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     Expr* initializer;
     bool keyword_type = false;
     bool brace_form = false;
+    bool aggregate_cast = false;
 
     switch (peek()->type) {
         case TOK_VOID:
@@ -9500,9 +9501,14 @@ Expr* rcc_parse_cxx_functional_cast(void) {
             }
         }
     }
+    aggregate_cast = type && type->cxx_class &&
+        rcc_parser_cxx_constructor_arity_mask(type) == 0u &&
+        (check(TOK_LBRACE) ||
+         (check(TOK_LPAREN) && rcc_parser_cxx_standard_at_least(20)));
     if (!type || (!check(TOK_LPAREN) && !check(TOK_LBRACE)) ||
         (type->cxx_class &&
-         rcc_parser_cxx_constructor_arity_mask(type) == 0u)) {
+         rcc_parser_cxx_constructor_arity_mask(type) == 0u &&
+         !aggregate_cast)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
@@ -10660,11 +10666,34 @@ static Type* cxx_structured_binding_const_type(Type* type) {
     return qualified;
 }
 
+static bool cxx_structured_binding_initializer_is_lvalue(Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+        case EXPR_INDEX:
+        case EXPR_DEREF:
+            return true;
+        case EXPR_COMMA:
+            return cxx_structured_binding_initializer_is_lvalue(
+                expression->binary_rhs);
+        case EXPR_COND:
+            return cxx_structured_binding_initializer_is_lvalue(
+                       expression->cond_then) &&
+                   cxx_structured_binding_initializer_is_lvalue(
+                       expression->cond_else);
+        default:
+            return false;
+    }
+}
+
 static Stmt* parse_cxx_structured_binding_declaration(void) {
     SourceLoc loc = peek()->loc;
     bool is_const = match(TOK_CONST);
-    bool is_rvalue_reference = false;
     bool is_reference = false;
+    bool is_rvalue_reference = false;
+    bool materialize_rvalue = false;
     Type* initializer_type;
     Type* binding_source_type;
     Expr* initializer;
@@ -10716,6 +10745,10 @@ static Stmt* parse_cxx_structured_binding_declaration(void) {
     if (!initializer_type && initializer->kind == EXPR_COMPOUND) {
         initializer_type = initializer->compound_type;
     }
+    if (is_rvalue_reference) {
+        materialize_rvalue =
+            !cxx_structured_binding_initializer_is_lvalue(initializer);
+    }
     binding_source_type = cxx_structured_binding_unqualified_type(
         initializer_type);
     if (!binding_source_type ||
@@ -10737,12 +10770,6 @@ static Stmt* parse_cxx_structured_binding_declaration(void) {
                   "structured binding requires a fixed-size array");
         return stmt_null(loc);
     }
-    if (is_rvalue_reference) {
-        rcc_error(loc,
-                  "RinOS structured bindings do not support auto&& initializers");
-        return stmt_null(loc);
-    }
-
     if (binding_source_type->kind == TYPE_ARRAY) {
         if (binding_count != binding_source_type->array_len) {
             rcc_error(loc,
@@ -10770,7 +10797,8 @@ static Stmt* parse_cxx_structured_binding_declaration(void) {
     }
 
     Type* hidden_type = binding_source_type;
-    if (binding_source_type->kind == TYPE_ARRAY || is_reference) {
+    if (binding_source_type->kind == TYPE_ARRAY ||
+        (is_reference && !materialize_rvalue)) {
         hidden_type = type_ptr(binding_source_type);
         hidden_type->is_reference = true;
     } else if (is_const) {

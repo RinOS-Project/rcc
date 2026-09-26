@@ -2071,18 +2071,18 @@ else
 		-o $(TEST_OUT)/cxx-structured-bindings-invalid/x86.ro \
 		tests/cxx_structured_bindings_invalid.cpp \
 		>$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log 2>&1; then \
-		echo "auto&& structured binding unexpectedly compiled on i686"; exit 1; \
+		echo "invalid structured binding field count unexpectedly compiled on i686"; exit 1; \
 	fi
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-structured-bindings-invalid/x64.ro \
 		tests/cxx_structured_bindings_invalid.cpp \
 		>$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log 2>&1; then \
-		echo "auto&& structured binding unexpectedly compiled on AMD64"; exit 1; \
+		echo "invalid structured binding field count unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "structured bindings do not support auto&& initializers" \
+	grep -q "structured binding count does not match aggregate fields" \
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log
-	grep -q "structured bindings do not support auto&& initializers" \
+	grep -q "structured binding count does not match aggregate fields" \
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log
 	@echo "RCC++ structured binding diagnostics completed"
 
