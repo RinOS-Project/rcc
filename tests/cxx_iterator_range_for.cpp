@@ -28,6 +28,18 @@ struct Range {
     }
 };
 
+struct PointerRange {
+    int values[2];
+
+    int* begin() {
+        return values;
+    }
+
+    int* end() {
+        return values + 2;
+    }
+};
+
 int main(void) {
     Range range;
     range.values[0] = 1;
@@ -37,5 +49,11 @@ int main(void) {
     for (auto value : range) {
         total += value;
     }
-    return total == 6 ? 0 : 1;
+    PointerRange pointer_range;
+    pointer_range.values[0] = 4;
+    pointer_range.values[1] = 5;
+    for (const auto& value : pointer_range) {
+        total += value;
+    }
+    return total == 15 ? 0 : 1;
 }

@@ -9042,26 +9042,38 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
                     range_invalid = true;
                 }
                 if (!range_invalid) {
-                    increment_method = cxx_range_find_method(
-                        iterator_type, "operator++");
-                    compare_method = cxx_range_find_method(
-                        iterator_type, "operator!=");
-                    dereference_method = cxx_range_find_method(
-                        iterator_type, "operator*");
-                    if (!increment_method || !compare_method ||
-                        !dereference_method) {
-                        rcc_error(loc,
-                                  "RinOS range-for iterator requires public operator++, operator!=, and operator* members");
-                        range_invalid = true;
-                    } else {
+                    if (iterator_type->kind == TYPE_PTR &&
+                        iterator_type->base &&
+                        iterator_type->base->kind != TYPE_VOID &&
+                        type_is_complete(iterator_type->base)) {
+                        /* Raw object pointers already provide the three
+                         * required iterator operations through the built-in
+                         * pointer ABI. */
                         iterator_range = true;
-                        element_type = cxx_range_value_type(
-                            dereference_method->return_type);
-                        if (!element_type || !type_is_complete(element_type)) {
+                        element_type = iterator_type->base;
+                    } else {
+                        increment_method = cxx_range_find_method(
+                            iterator_type, "operator++");
+                        compare_method = cxx_range_find_method(
+                            iterator_type, "operator!=");
+                        dereference_method = cxx_range_find_method(
+                            iterator_type, "operator*");
+                        if (!increment_method || !compare_method ||
+                            !dereference_method) {
                             rcc_error(loc,
-                                      "RinOS range-for operator* must return a complete object type");
-                            iterator_range = false;
+                                      "RinOS range-for iterator requires public operator++, operator!=, and operator* members");
                             range_invalid = true;
+                        } else {
+                            iterator_range = true;
+                            element_type = cxx_range_value_type(
+                                dereference_method->return_type);
+                            if (!element_type ||
+                                !type_is_complete(element_type)) {
+                                rcc_error(loc,
+                                          "RinOS range-for operator* must return a complete object type");
+                                iterator_range = false;
+                                range_invalid = true;
+                            }
                         }
                     }
                 }
