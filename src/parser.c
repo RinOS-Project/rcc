@@ -2754,10 +2754,51 @@ static Stmt* parse_block(void) {
     return stmt_block(stmts, loc);
 }
 
+static bool cxx_selection_has_init(void) {
+    Token* token;
+    int depth = 0;
+    if (!parser_cxx_mode || !parser.cur) return false;
+    for (token = parser.cur; token; token = token->next) {
+        if (token->type == TOK_LPAREN || token->type == TOK_LBRACKET ||
+            token->type == TOK_LBRACE) {
+            ++depth;
+        } else if (token->type == TOK_RPAREN) {
+            if (depth == 0) break;
+            --depth;
+        } else if (token->type == TOK_RBRACKET ||
+                   token->type == TOK_RBRACE) {
+            if (depth > 0) --depth;
+        } else if (token->type == TOK_SEMICOLON && depth == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Stmt* cxx_wrap_selection_init(Stmt* init, Stmt* selection,
+                                     SourceLoc loc) {
+    StmtList* statements = NULL;
+    if (!init) return selection;
+    stmtlist_append(&statements, init);
+    stmtlist_append(&statements, selection);
+    return stmt_block(statements, loc);
+}
+
 static Stmt* parse_if_stmt(void) {
     SourceLoc loc = previous()->loc;
     bool is_constexpr = parser_cxx_mode && match(TOK_CONSTEXPR);
+    Stmt* init = NULL;
     expect(TOK_LPAREN, "(");
+    if (cxx_selection_has_init()) {
+        if (is_type_start() || check(TOK_AUTO)) {
+            init = parse_declaration();
+        } else {
+            SourceLoc init_loc = peek()->loc;
+            Expr* init_expr = parse_expression();
+            expect(TOK_SEMICOLON, ";");
+            init = stmt_expr(init_expr, init_expr ? init_expr->loc : init_loc);
+        }
+    }
     Expr* cond = parse_expression();
     expect(TOK_RPAREN, ")");
 
@@ -2770,7 +2811,7 @@ static Stmt* parse_if_stmt(void) {
 
     Stmt* statement = stmt_if(cond, then_stmt, else_stmt, loc);
     statement->if_is_constexpr = is_constexpr;
-    return statement;
+    return cxx_wrap_selection_init(init, statement, loc);
 }
 
 static Stmt* parse_while_stmt(void) {
@@ -2828,11 +2869,22 @@ static Stmt* parse_for_stmt(void) {
 
 static Stmt* parse_switch_stmt(void) {
     SourceLoc loc = previous()->loc;
+    Stmt* init = NULL;
     expect(TOK_LPAREN, "(");
+    if (cxx_selection_has_init()) {
+        if (is_type_start() || check(TOK_AUTO)) {
+            init = parse_declaration();
+        } else {
+            SourceLoc init_loc = peek()->loc;
+            Expr* init_expr = parse_expression();
+            expect(TOK_SEMICOLON, ";");
+            init = stmt_expr(init_expr, init_expr ? init_expr->loc : init_loc);
+        }
+    }
     Expr* expr = parse_expression();
     expect(TOK_RPAREN, ")");
     Stmt* body = parse_statement();
-    return stmt_switch(expr, body, loc);
+    return cxx_wrap_selection_init(init, stmt_switch(expr, body, loc), loc);
 }
 
 static Stmt* parse_return_stmt(void) {
