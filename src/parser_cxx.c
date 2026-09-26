@@ -997,6 +997,19 @@ static void cxx_requires_type_append(TypeList** list, Type* type,
     *tail = item;
 }
 
+static void cxx_requires_compound_append(
+    CxxCompoundRequirement** list, Expr* expr, bool is_noexcept,
+    SourceLoc loc) {
+    CxxCompoundRequirement* item = ast_arena_alloc(sizeof(*item));
+    CxxCompoundRequirement** tail = list;
+    item->expr = expr;
+    item->is_noexcept = is_noexcept;
+    item->loc = loc;
+    item->next = NULL;
+    while (*tail) tail = &(*tail)->next;
+    *tail = item;
+}
+
 /* Parse a bounded type-requirement form: a public nested `using` alias, or a
  * dependent `T::Alias` that can be resolved after template substitution.
  * Unresolved names remain carriers so sema can make the surrounding
@@ -1086,6 +1099,7 @@ Expr* rcc_parse_cxx_requires_expression(void) {
     ExprList* nested_requirements = NULL;
     DeclList* parameters = NULL;
     TypeList* type_requirements = NULL;
+    CxxCompoundRequirement* compound_requirements = NULL;
     int parameter_index = 0;
 
     if (!match(TOK_REQUIRES)) return NULL;
@@ -1132,6 +1146,28 @@ Expr* rcc_parse_cxx_requires_expression(void) {
     }
     rcc_parser_cxx_begin_function_parameters(parameters);
     while (!check(TOK_RBRACE) && !at_end()) {
+        if (match(TOK_LBRACE)) {
+            SourceLoc requirement_loc = previous()->loc;
+            Expr* compound = parse_expression();
+            bool is_noexcept;
+            expect(TOK_RBRACE,
+                   "'}' after requires-expression compound expression");
+            is_noexcept = match(TOK_NOEXCEPT);
+            if (match(TOK_ARROW)) {
+                rcc_error(previous()->loc,
+                          "C++20 compound requirement return-type constraints are not supported");
+                while (!check(TOK_SEMICOLON) && !check(TOK_RBRACE) &&
+                       !at_end()) {
+                    advance();
+                }
+            } else if (compound) {
+                cxx_requires_compound_append(&compound_requirements, compound,
+                                             is_noexcept, requirement_loc);
+            }
+            expect(TOK_SEMICOLON,
+                   "';' after requires-expression compound requirement");
+            continue;
+        }
         if (match(TOK_REQUIRES)) {
             SourceLoc requirement_loc = previous()->loc;
             Expr* nested = parse_assignment_expression();
@@ -1165,6 +1201,7 @@ Expr* rcc_parse_cxx_requires_expression(void) {
         result->cxx_requires_params = parameters;
         result->cxx_requires_types = type_requirements;
         result->cxx_requires_nested = nested_requirements;
+        result->cxx_requires_compound = compound_requirements;
         return result;
     }
 }

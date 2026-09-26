@@ -15,6 +15,7 @@ typedef struct Stmt Stmt;
 typedef struct Decl Decl;
 typedef struct DeclList DeclList;
 typedef struct TypeList TypeList;
+typedef struct CxxCompoundRequirement CxxCompoundRequirement;
 typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
@@ -401,6 +402,13 @@ typedef struct TypeList {
     struct TypeList* next;
 } TypeList;
 
+struct CxxCompoundRequirement {
+    Expr* expr;
+    bool is_noexcept;
+    SourceLoc loc;
+    CxxCompoundRequirement* next;
+};
+
 struct GenericAssociation {
     Type* type;                 /* NULL for default */
     Expr* expr;
@@ -621,6 +629,7 @@ struct Expr {
             DeclList* cxx_requires_params;
             TypeList* cxx_requires_types;
             ExprList* cxx_requires_nested;
+            CxxCompoundRequirement* cxx_requires_compound;
         };
 
         /* EXPR_VA_START/END/COPY/ARG */

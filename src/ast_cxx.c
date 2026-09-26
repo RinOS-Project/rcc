@@ -2623,6 +2623,25 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->cxx_requires_nested = template_clone_expr_list(
                 tmpl, expression->cxx_requires_nested, args, arg_count,
                 value_args, value_present);
+            copy->cxx_requires_compound = NULL;
+            {
+                CxxCompoundRequirement** tail =
+                    &copy->cxx_requires_compound;
+                for (CxxCompoundRequirement* requirement =
+                         expression->cxx_requires_compound;
+                     requirement; requirement = requirement->next) {
+                    CxxCompoundRequirement* requirement_copy =
+                        ast_arena_alloc(sizeof(*requirement_copy));
+                    requirement_copy->expr = template_clone_expr(
+                        tmpl, requirement->expr, args, arg_count,
+                        value_args, value_present);
+                    requirement_copy->is_noexcept = requirement->is_noexcept;
+                    requirement_copy->loc = requirement->loc;
+                    requirement_copy->next = NULL;
+                    *tail = requirement_copy;
+                    tail = &requirement_copy->next;
+                }
+            }
             break;
         case EXPR_VA_START:
         case EXPR_VA_END:
