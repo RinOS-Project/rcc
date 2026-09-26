@@ -5789,12 +5789,17 @@ CxxTemplate* parse_cxx_template(void) {
                 if (!check(TOK_GT)) {
                     do {
                         const char* nested_name = NULL;
+                        bool nested_parameter_pack = false;
                         if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
+                            nested_parameter_pack = match(TOK_ELLIPSIS);
                             if (check(TOK_IDENT)) {
                                 nested_name = advance()->value.str_val;
                             }
                             cxx_template_add_type_param(signature, nested_name);
+                            signature->params[signature->param_count - 1].is_pack =
+                                nested_parameter_pack;
                         } else if (match(TOK_AUTO)) {
+                            nested_parameter_pack = match(TOK_ELLIPSIS);
                             if (check(TOK_IDENT)) {
                                 nested_name = advance()->value.str_val;
                             } else {
@@ -5804,8 +5809,11 @@ CxxTemplate* parse_cxx_template(void) {
                             }
                             cxx_template_add_value_param(signature, nested_name,
                                                          type_int);
+                            signature->params[signature->param_count - 1].is_pack =
+                                nested_parameter_pack;
                         } else {
                             Type* nested_type = parse_cxx_type_spec();
+                            nested_parameter_pack = match(TOK_ELLIPSIS);
                             if (!nested_type || !type_is_integer(nested_type)) {
                                 rcc_error(peek()->loc,
                                           "template-template non-type "
@@ -5817,6 +5825,8 @@ CxxTemplate* parse_cxx_template(void) {
                             }
                             cxx_template_add_value_param(signature, nested_name,
                                                          nested_type);
+                            signature->params[signature->param_count - 1].is_pack =
+                                nested_parameter_pack;
                         }
                     } while (match(TOK_COMMA));
                 }

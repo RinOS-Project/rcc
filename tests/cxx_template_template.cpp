@@ -40,6 +40,34 @@ struct IntValueBox {
     int value;
 };
 
+template<typename... Ts>
+struct TypePackBox {
+    int value;
+};
+
+template<int... Ns>
+struct IntPackBox {
+    int value;
+};
+
+template<template<typename...> class Container, typename T>
+struct VariadicTypeHolder {
+    Container<T> value;
+
+    int get() {
+        return value.value;
+    }
+};
+
+template<template<int...> class Container, int N>
+struct VariadicIntHolder {
+    Container<N> value;
+
+    int get() {
+        return value.value;
+    }
+};
+
 template<template<int M> class Container, int N>
 struct DependentIntValueHolder {
     Container<N> value;
@@ -58,7 +86,13 @@ int main() {
     dependent_holder.value.value = 47;
     DependentIntValueHolder<IntValueBox, 53> dependent_int_holder;
     dependent_int_holder.value.value = 53;
+    VariadicTypeHolder<TypePackBox, int> variadic_type_holder;
+    variadic_type_holder.value.value = 59;
+    VariadicIntHolder<IntPackBox, 61> variadic_int_holder;
+    variadic_int_holder.value.value = 61;
     return holder.get() == 41 && default_holder.get() == 43 &&
                    dependent_holder.get() == 47 &&
-                   dependent_int_holder.get() == 53 ? 0 : 1;
+                   dependent_int_holder.get() == 53 &&
+                   variadic_type_holder.get() == 59 &&
+                   variadic_int_holder.get() == 61 ? 0 : 1;
 }
