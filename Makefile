@@ -192,6 +192,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
 .PHONY: test-cxx-class-template-deduction
+.PHONY: test-cxx-abbreviated-function-template
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -243,6 +244,8 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-class-template-static-data-odr \
 	test-cxx-static-locals \
 	test-cxx-function-templates \
+	test-cxx-abbreviated-function-template \
+	test-cxx-abbreviated-function-template-invalid \
 	test-cxx-variable-templates \
 	test-cxx-function-template-overloads \
 	test-cxx-function-template-references \
@@ -4110,6 +4113,54 @@ test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-non-type-template-deduction/x64.o
 	$(TEST_OUT)/cxx-non-type-template-deduction/x64
 	@echo "RCC++ non-type array-bound deduction tests completed"
+
+test-cxx-abbreviated-function-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-abbreviated-function-template)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-abbreviated-function-template/x86.s \
+		tests/cxx-abbreviated-function-template.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-abbreviated-function-template/x86.o \
+		$(TEST_OUT)/cxx-abbreviated-function-template/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-abbreviated-function-template/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-abbreviated-function-template/x86 \
+		$(TEST_OUT)/cxx-abbreviated-function-template/start-x86.o \
+		$(TEST_OUT)/cxx-abbreviated-function-template/x86.o
+	$(TEST_OUT)/cxx-abbreviated-function-template/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-abbreviated-function-template/x64.s \
+		tests/cxx-abbreviated-function-template.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-abbreviated-function-template/x64.o \
+		$(TEST_OUT)/cxx-abbreviated-function-template/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-abbreviated-function-template/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-abbreviated-function-template/x64 \
+		$(TEST_OUT)/cxx-abbreviated-function-template/start-x64.o \
+		$(TEST_OUT)/cxx-abbreviated-function-template/x64.o
+	$(TEST_OUT)/cxx-abbreviated-function-template/x64
+	@echo "C++20 abbreviated function-template tests completed"
+
+test-cxx-abbreviated-function-template-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-abbreviated-function-template-invalid)
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.ro \
+		tests/cxx-abbreviated-function-template-invalid.cpp \
+		>$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.log 2>&1; then \
+		echo "C++20 abbreviated function template unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.ro \
+		tests/cxx-abbreviated-function-template-invalid.cpp \
+		>$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log 2>&1; then \
+		echo "C++20 abbreviated function template unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "abbreviated function templates require C++20 or newer" \
+		$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.log
+	grep -q "abbreviated function templates require C++20 or newer" \
+		$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log
+	@echo "C++20 abbreviated function-template diagnostics completed"
 
 test-initializer-brace-elision: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/initializer-brace-elision)

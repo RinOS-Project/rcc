@@ -773,6 +773,13 @@ extern bool rcc_parser_last_cxx_declarator_was_pack(void);
 static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(void);
 static Type* parse_cxx_type_spec(void);
+static bool cxx_parser_expression_is_lvalue(Expr* expression);
+static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl,
+                                        int parameter_index,
+                                        bool is_const, bool is_pointer,
+                                        bool is_reference,
+                                        bool is_rvalue_reference,
+                                        SourceLoc loc);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
@@ -5104,13 +5111,47 @@ static DeclList* parse_cxx_parameter_declarations(void) {
     }
     while (!check(TOK_RPAREN) && !at_end()) {
         const char* name = NULL;
-        Type* type = parse_cxx_type_spec();
-        bool parameter_pack = match(TOK_ELLIPSIS);
+        Type* type;
+        bool parameter_pack = false;
         Expr* default_argument = NULL;
         Decl* parameter;
-        type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
-        parameter_pack = parameter_pack ||
-            rcc_parser_last_cxx_declarator_was_pack();
+        if (check(TOK_AUTO) || (check(TOK_CONST) && check_next(TOK_AUTO))) {
+            SourceLoc loc = peek()->loc;
+            bool is_const = match(TOK_CONST);
+            bool is_pointer = false;
+            bool is_reference = false;
+            bool is_rvalue_reference = false;
+            if (!rcc_parser_cxx_standard_at_least(20)) {
+                rcc_error(loc,
+                          "abbreviated function templates require C++20 or newer");
+            }
+            expect(TOK_AUTO, "abbreviated function parameter");
+            if (match(TOK_STAR)) {
+                is_pointer = true;
+            } else if (match(TOK_AMP)) {
+                is_reference = true;
+            } else if (match(TOK_AND)) {
+                is_reference = true;
+                is_rvalue_reference = true;
+            }
+            type = parse_cxx_lambda_auto_type(
+                active_template,
+                active_template ? active_template->param_count : 0,
+                is_const, is_pointer, is_reference, is_rvalue_reference, loc);
+            parameter_pack = match(TOK_ELLIPSIS);
+            if (check(TOK_IDENT)) {
+                name = advance()->value.str_val;
+            } else {
+                rcc_error(peek()->loc,
+                          "abbreviated function parameter requires a name");
+            }
+        } else {
+            type = parse_cxx_type_spec();
+            parameter_pack = match(TOK_ELLIPSIS);
+            type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
+            parameter_pack = parameter_pack ||
+                rcc_parser_last_cxx_declarator_was_pack();
+        }
         if (match(TOK_ASSIGN)) {
             default_argument = parse_assignment_expression();
         }
@@ -7068,6 +7109,10 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         base = substitute_template_type(
             tmpl, type->base, arguments, argument_count,
             value_args, value_present);
+        if (type->kind == TYPE_PTR && type->is_reference && base &&
+            base->kind == TYPE_PTR && base->is_reference) {
+            return base;
+        }
         array_len = type->array_len;
         array_bound = type->array_bound;
         if (type->kind == TYPE_ARRAY && type->array_bound) {
@@ -8136,6 +8181,24 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
         }
     }
     if (pattern->kind == TYPE_PTR && pattern->is_reference) {
+        bool preserve_lvalue_reference =
+            pattern->is_rvalue_reference && actual->kind == TYPE_PTR &&
+            actual->is_reference;
+        if (preserve_lvalue_reference && pattern->base &&
+            pattern->base->kind == TYPE_STRUCT && pattern->base->tag) {
+            for (int index = 0; index < tmpl->param_count; ++index) {
+                TemplateParam* parameter = &tmpl->params[index];
+                if (parameter->kind != TPARAM_TYPE || !parameter->name ||
+                    strcmp(parameter->name, pattern->base->tag) != 0) {
+                    continue;
+                }
+                if (!arguments[index]) {
+                    arguments[index] = actual;
+                    return true;
+                }
+                return type_is_compatible(arguments[index], actual);
+            }
+        }
         if (actual->kind == TYPE_PTR && actual->is_reference) {
             actual = actual->base;
         }
@@ -8744,10 +8807,20 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             }
             return false;
         }
+        Type* deduction_actual = actual;
+        if (parameter->decl && parameter->decl->type &&
+            parameter->decl->type->kind == TYPE_PTR &&
+            parameter->decl->type->is_reference &&
+            parameter->decl->type->is_rvalue_reference &&
+            cxx_parser_expression_is_lvalue(argument->expr) &&
+            !actual->is_reference) {
+            deduction_actual = type_ptr(actual);
+            deduction_actual->is_reference = true;
+        }
         if (!deduce_function_template_type(
                 tmpl, parameter->decl->type,
                 cxx_parser_template_deduction_argument(
-                    parameter->decl->type, actual), template_arguments,
+                    parameter->decl->type, deduction_actual), template_arguments,
                 template_values, template_value_present, specificity)) {
             if (report_errors) {
                 rcc_error(argument->expr->loc,
@@ -9163,7 +9236,9 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
 
     if (target->is_reference) {
         bool is_lvalue = cxx_parser_expression_is_lvalue(argument);
-        if ((!target->is_rvalue_reference && !is_lvalue) ||
+        bool binds_const_lvalue = target->base && target->base->is_const;
+        if ((!target->is_rvalue_reference && !is_lvalue &&
+             !binds_const_lvalue) ||
             (target->is_rvalue_reference && is_lvalue) || !target->base) {
             return -1;
         }
@@ -9385,7 +9460,9 @@ static bool prepare_cxx_function_template_match(
                     tmpl, parameter->default_type, match->arguments,
                     tmpl->param_count, match->values, match->value_present);
             }
-            if (!match->arguments[index]) return false;
+            if (!match->arguments[index]) {
+                return false;
+            }
         }
     }
 
@@ -11652,6 +11729,40 @@ static void parse_cxx_language_linkage(AST* ast) {
  * C++ Top-level Parsing
  * ═══════════════════════════════════════ */
 
+/* C++20 abbreviated function templates are ordinary function declarations
+ * whose parameter list contains one or more `auto` placeholders.  Detect the
+ * shape before the common C parser claims the declaration, then route it
+ * through the existing function-template substitution path. */
+static bool cxx_abbreviated_function_starts(void) {
+    Token* token = parser.cur;
+    int paren_depth = 0;
+    bool saw_parameter_list = false;
+
+    for (; token && token->type != TOK_EOF; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++paren_depth;
+            if (paren_depth == 1) saw_parameter_list = true;
+            continue;
+        }
+        if (token->type == TOK_RPAREN) {
+            if (paren_depth == 0) return false;
+            --paren_depth;
+            if (saw_parameter_list && paren_depth == 0) return false;
+            continue;
+        }
+        if (!saw_parameter_list || paren_depth != 1) continue;
+        if (token->type == TOK_AUTO ||
+            (token->type == TOK_CONST && token->next &&
+             token->next->type == TOK_AUTO)) {
+            return true;
+        }
+        if (token->type == TOK_SEMICOLON || token->type == TOK_LBRACE) {
+            return false;
+        }
+    }
+    return false;
+}
+
 /* Parse C++ translation unit */
 AST* rcc_parse_cxx(TokenList* tokens) {
     rcc_parser_set_cxx_mode(true);
@@ -11697,6 +11808,27 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 cxx_namespace_add_class(g_global_namespace, cls);
             }
             (void)loc;
+        } else if (cxx_abbreviated_function_starts()) {
+            CxxTemplate* abbreviated = cxx_template_new(loc);
+            CxxTemplate* outer_template = active_template;
+            bool is_constexpr = false;
+            bool is_noexcept = false;
+            bool is_consteval = false;
+            Decl* declaration;
+
+            abbreviated->kind = TMPL_FUNCTION;
+            abbreviated->ns = g_global_namespace;
+            active_template = abbreviated;
+            declaration = parse_cxx_function_declaration(
+                true, &is_constexpr, &is_noexcept, &is_consteval);
+            active_template = outer_template;
+            if (declaration) {
+                abbreviated->name = declaration->name;
+                abbreviated->func_def = declaration;
+                abbreviated->is_constexpr = is_constexpr;
+                abbreviated->is_noexcept = is_noexcept;
+                cxx_namespace_add_template(g_global_namespace, abbreviated);
+            }
         } else if ((check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL)) &&
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();

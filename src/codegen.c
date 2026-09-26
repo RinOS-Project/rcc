@@ -7282,9 +7282,11 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
 
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
+    int temporary_bytes = 0;
     int argc;
     ExprList** args;
     Type** argument_types;
+    int* reference_temp_offsets;
     Type* function_type;
     TypeParam* parameter;
     int i;
@@ -7313,6 +7315,7 @@ static void gen_call(Module* mod, Expr* expr) {
     argc = exprlist_len(expr->call_args);
     args = rcc_alloc((size_t)argc * sizeof(ExprList*));
     argument_types = rcc_alloc((size_t)argc * sizeof(Type*));
+    reference_temp_offsets = rcc_alloc((size_t)argc * sizeof(int));
     function_type = expr->call_func ? expr->call_func->type : NULL;
     if (function_type && function_type->kind == TYPE_PTR) {
         function_type = function_type->base;
@@ -7328,6 +7331,32 @@ static void gen_call(Module* mod, Expr* expr) {
         if (parameter) parameter = parameter->next;
         ++i;
     }
+    for (i = 0; i < argc; ++i) {
+        Expr* argument = args[i]->expr;
+        Type* passed_type = argument_types[i];
+        Type* value_type;
+        int value_bytes;
+        reference_temp_offsets[i] = -1;
+        if (!passed_type || !passed_type->is_reference ||
+            (!passed_type->is_rvalue_reference &&
+             gen_expr_is_lvalue(argument))) {
+            continue;
+        }
+        value_type = passed_type->base;
+        if (!value_type || gen_aggregate_type32(value_type)) continue;
+        if (gen_is_floating(value_type)) {
+            value_bytes = gen_float_width(value_type);
+        } else if (gen_is_integer64(value_type)) {
+            value_bytes = 8;
+        } else {
+            value_bytes = 4;
+        }
+        reference_temp_offsets[i] = temporary_bytes;
+        temporary_bytes += value_bytes;
+    }
+    if (temporary_bytes > 0) {
+        emit_sub_reg_imm(mod, ESP, temporary_bytes);
+    }
     for (i = argc - 1; i >= 0; --i) {
         Expr* argument = args[i]->expr;
         Type* passed_type = argument_types[i];
@@ -7335,7 +7364,7 @@ static void gen_call(Module* mod, Expr* expr) {
             if (passed_type->is_rvalue_reference ||
                 !gen_expr_is_lvalue(argument)) {
                 Type* value_type = passed_type->base;
-                int value_bytes;
+                int value_offset = reference_temp_offsets[i];
                 if (!value_type || gen_aggregate_type32(value_type)) {
                     rcc_error(argument->loc,
                               "reference temporary requires a scalar type");
@@ -7343,12 +7372,15 @@ static void gen_call(Module* mod, Expr* expr) {
                 }
                 if (gen_is_floating(value_type)) {
                     gen_expr_as_type(mod, argument, value_type);
-                    value_bytes = gen_float_width(value_type);
-                    if (value_bytes == 4) {
-                        emit_push_reg(mod, EAX);
+                    if (gen_float_width(value_type) == 4) {
+                        emit_mov_mem_reg(mod, ESP,
+                                         argument_bytes + value_offset, EAX);
                     } else {
-                        emit_push_reg(mod, EDX);
-                        emit_push_reg(mod, EAX);
+                        emit_mov_mem_reg(mod, ESP,
+                                         argument_bytes + value_offset, EAX);
+                        emit_mov_mem_reg(mod, ESP,
+                                         argument_bytes + value_offset + 4,
+                                         EDX);
                     }
                 } else {
                     gen_expr_as_type(mod, argument, value_type);
@@ -7356,9 +7388,11 @@ static void gen_call(Module* mod, Expr* expr) {
                         if (!gen_is_integer64(argument->type)) {
                             emit_extend_eax_to_integer64(mod, argument->type);
                         }
-                        emit_push_reg(mod, EDX);
-                        emit_push_reg(mod, EAX);
-                        value_bytes = 8;
+                        emit_mov_mem_reg(mod, ESP,
+                                         argument_bytes + value_offset, EAX);
+                        emit_mov_mem_reg(mod, ESP,
+                                         argument_bytes + value_offset + 4,
+                                         EDX);
                     } else {
                         if (type_is_integer(value_type) ||
                             value_type->kind == TYPE_ENUM) {
@@ -7366,15 +7400,20 @@ static void gen_call(Module* mod, Expr* expr) {
                                                        argument->type,
                                                        value_type);
                         }
-                        emit_push_reg(mod, EAX);
-                        value_bytes = 4;
+                        emit_mov_mem_reg(mod, ESP,
+                                         argument_bytes + value_offset, EAX);
                     }
                 }
-                /* The value just pushed is the lifetime-extended temporary.
-                 * Pass its address through the normal reference ABI. */
+                /* Keep lifetime-extended values below the actual argument
+                 * area.  A temporary inserted between two stack arguments
+                 * would shift every following parameter by its size. */
                 emit_mov_reg_reg(mod, EAX, ESP);
+                if (argument_bytes + value_offset != 0) {
+                    emit_add_reg_imm(mod, EAX,
+                                     argument_bytes + value_offset);
+                }
                 emit_push_reg(mod, EAX);
-                argument_bytes += value_bytes + 4;
+                argument_bytes += 4;
                 continue;
             }
             gen_lvalue(mod, argument);
@@ -7442,6 +7481,7 @@ static void gen_call(Module* mod, Expr* expr) {
     }
     rcc_free(argument_types);
     rcc_free(args);
+    rcc_free(reference_temp_offsets);
 
     func_expr = expr->call_func;
     if (expr->call_is_virtual && expr->call_virtual_index >= 0) {
@@ -7475,8 +7515,8 @@ static void gen_call(Module* mod, Expr* expr) {
         emit_raw_from_x87_value(mod, expr->type);
     }
 
-    if (argument_bytes > 0) {
-        emit_add_reg_imm(mod, ESP, argument_bytes);
+    if (argument_bytes + temporary_bytes > 0) {
+        emit_add_reg_imm(mod, ESP, argument_bytes + temporary_bytes);
     }
 }
 
