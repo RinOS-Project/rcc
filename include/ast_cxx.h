@@ -253,11 +253,13 @@ struct CxxTemplate {
     enum {
         TMPL_CLASS,
         TMPL_FUNCTION,
+        TMPL_VARIABLE,
         TMPL_ALIAS
     } kind;
     union {
         CxxClass* class_def;
         Decl* func_def;
+        Decl* var_def;
     };
 
     /* The expanded type of a bounded alias template.  Alias templates do

@@ -24,6 +24,9 @@
 #ifdef __cpp_generic_lambdas
 #error "generic lambdas must not be advertised before C++14"
 #endif
+#ifdef __cpp_variable_templates
+#error "variable templates must not be advertised before C++14"
+#endif
 #else
 #if !defined(__cpp_deprecated) || __cpp_deprecated != 201309L
 #error "RCC++ must report C++14 deprecated support"
@@ -35,6 +38,9 @@
 #if __cplusplus < 202002L
 #error "RCC++ must report C++14 generic lambda support"
 #endif
+#endif
+#if !defined(__cpp_variable_templates) || __cpp_variable_templates != 201304L
+#error "RCC++ must report C++14 variable-template support"
 #endif
 #endif
 

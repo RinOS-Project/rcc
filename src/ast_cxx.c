@@ -657,6 +657,77 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     return buf;
 }
 
+/* C++ variable-template specializations use the same template-argument
+ * encoding as function templates, but have no function parameter suffix.
+ * Keep the source name and every explicit argument in the symbol so two
+ * specializations cannot alias one another in the bounded global ABI. */
+static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
+                                           CxxTemplate* tmpl, Type** type_args,
+                                           const int64_t* value_args,
+                                           const bool* value_present) {
+    static char buf[1024];
+    char* base;
+    size_t pos;
+
+    if (!variable || !tmpl) return NULL;
+    base = cxx_mangle_name(variable->name, ns, NULL);
+    if (!base || strlen(base) + 2u >= sizeof(buf)) {
+        rcc_fatal("C++ variable template name is too long");
+    }
+    strcpy(buf, base);
+    pos = strlen(buf);
+    buf[pos++] = 'I';
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->is_pack) {
+            rcc_fatal("C++ variable template parameter packs are unsupported");
+        }
+        if (parameter->kind == TPARAM_TYPE) {
+            if (!type_args || !type_args[index]) {
+                rcc_fatal("C++ variable template type argument is missing");
+            }
+            char* type_mangled = cxx_mangle_type(type_args[index]);
+            size_t type_length = strlen(type_mangled);
+            if (pos + type_length >= sizeof(buf) - 2u) {
+                rcc_fatal("C++ variable template name is too long");
+            }
+            memcpy(buf + pos, type_mangled, type_length);
+            pos += type_length;
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            char* type_mangled;
+            size_t type_length;
+            if (!value_args || !value_present || !value_present[index]) {
+                rcc_fatal("C++ variable template value argument is missing");
+            }
+            type_mangled = cxx_mangle_type(parameter->type);
+            type_length = strlen(type_mangled);
+            if (pos + type_length + 32u >= sizeof(buf)) {
+                rcc_fatal("C++ variable template name is too long");
+            }
+            buf[pos++] = 'L';
+            memcpy(buf + pos, type_mangled, type_length);
+            pos += type_length;
+            if (value_args[index] < 0) {
+                uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
+                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
+                                        "n%lluE",
+                                        (unsigned long long)magnitude);
+            } else {
+                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
+                                        "%lldE", (long long)value_args[index]);
+            }
+        } else {
+            rcc_fatal("unsupported C++ variable template parameter");
+        }
+    }
+    if (pos + 2u >= sizeof(buf)) {
+        rcc_fatal("C++ variable template name is too long");
+    }
+    buf[pos++] = 'E';
+    buf[pos] = '\0';
+    return buf;
+}
+
 /* ═══════════════════════════════════════
  * Class Operations (Core API)
  * ═══════════════════════════════════════ */
@@ -3297,6 +3368,73 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             }
         }
         tmpl->instances[tmpl->instance_count].arg_count = arg_count;
+        tmpl->instances[tmpl->instance_count].instantiated = instance;
+        ++tmpl->instance_count;
+        return instance;
+    }
+
+    if (tmpl->kind == TMPL_VARIABLE && tmpl->var_def) {
+        Decl* definition = tmpl->var_def;
+        Type* variable_type = template_substitute_type(
+            tmpl, definition->type, args, arg_count, value_args,
+            value_present);
+        Expr* initializer = template_clone_expr(
+            tmpl, definition->var_init, args, arg_count, value_args,
+            value_present);
+        Decl* instance;
+        char generated_name[128];
+        int written;
+
+        if (!variable_type) {
+            rcc_error(definition->loc,
+                      "variable template type substitution failed");
+            return NULL;
+        }
+        written = snprintf(generated_name, sizeof(generated_name),
+                           "__rcc_variable_template_%d_%s",
+                           tmpl->instance_count, definition->name);
+        if (written < 0 || (size_t)written >= sizeof(generated_name)) {
+            rcc_error(definition->loc,
+                      "variable template specialization name exceeds compiler limits");
+            return NULL;
+        }
+        instance = decl_var(rcc_intern(generated_name), variable_type,
+                            initializer, definition->loc);
+        instance->storage = definition->storage;
+        instance->var_is_thread_local = definition->var_is_thread_local;
+        instance->var_is_constexpr = definition->var_is_constexpr;
+        instance->var_is_constinit = definition->var_is_constinit;
+        instance->var_is_inline = definition->var_is_inline;
+        instance->var_is_deprecated = definition->var_is_deprecated;
+        instance->var_deprecated_message = definition->var_deprecated_message;
+        instance->link_name = rcc_intern(cxx_mangle_variable_template(
+            definition, tmpl->ns, tmpl, args, value_args, value_present));
+
+        tmpl->instances = ast_arena_grow(
+            tmpl->instances,
+            sizeof(tmpl->instances[0]) * (size_t)tmpl->instance_count,
+            sizeof(tmpl->instances[0]) * (size_t)(tmpl->instance_count + 1));
+        tmpl->instances[tmpl->instance_count].args = ast_arena_alloc(
+            sizeof(Type*) * (size_t)arg_count);
+        memcpy(tmpl->instances[tmpl->instance_count].args, args,
+               sizeof(Type*) * (size_t)arg_count);
+        tmpl->instances[tmpl->instance_count].value_args = NULL;
+        tmpl->instances[tmpl->instance_count].value_present = NULL;
+        tmpl->instances[tmpl->instance_count].pack_args = NULL;
+        tmpl->instances[tmpl->instance_count].pack_values = NULL;
+        tmpl->instances[tmpl->instance_count].pack_value_present = NULL;
+        tmpl->instances[tmpl->instance_count].pack_count = 0;
+        tmpl->instances[tmpl->instance_count].arg_count = arg_count;
+        if (arg_count > 0) {
+            tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
+                sizeof(int64_t) * (size_t)arg_count);
+            tmpl->instances[tmpl->instance_count].value_present = ast_arena_alloc(
+                sizeof(bool) * (size_t)arg_count);
+            memcpy(tmpl->instances[tmpl->instance_count].value_args,
+                   value_args, sizeof(int64_t) * (size_t)arg_count);
+            memcpy(tmpl->instances[tmpl->instance_count].value_present,
+                   value_present, sizeof(bool) * (size_t)arg_count);
+        }
         tmpl->instances[tmpl->instance_count].instantiated = instance;
         ++tmpl->instance_count;
         return instance;

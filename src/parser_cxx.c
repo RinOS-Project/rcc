@@ -765,6 +765,7 @@ static Expr* parse_cxx_expression(void);
 extern Expr* parse_expression(void);
 extern Expr* parse_assignment_expression(void);
 extern Expr* rcc_parser_parse_initializer(void);
+extern Stmt* parse_declaration(void);
 extern Type* rcc_parser_parse_cxx_declarator(Type* base_type,
                                               const char** name,
                                               DeclList** parameters);
@@ -797,6 +798,35 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
 CxxTemplate* parse_cxx_template(void);
 static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage);
+
+static bool cxx_template_variable_starts(void) {
+    Token* token = parser.cur;
+    int parentheses = 0;
+    int brackets = 0;
+
+    /* A variable template definition has an initializer boundary or a
+     * terminating semicolon before any top-level parameter list.  This is
+     * intentionally structural: direct-initialized variables with (...)
+     * remain outside the bounded profile and are diagnosed by the ordinary
+     * function-template path instead of being misparsed as functions. */
+    if (token && (token->type == TOK_CLASS || token->type == TOK_STRUCT)) {
+        return false;
+    }
+    for (; token; token = token->next) {
+        if (parentheses == 0 && brackets == 0) {
+            if (token->type == TOK_ASSIGN || token->type == TOK_LBRACE ||
+                token->type == TOK_SEMICOLON) {
+                return true;
+            }
+            if (token->type == TOK_LPAREN) return false;
+        }
+        if (token->type == TOK_LPAREN) ++parentheses;
+        else if (token->type == TOK_RPAREN && parentheses > 0) --parentheses;
+        else if (token->type == TOK_LBRACKET) ++brackets;
+        else if (token->type == TOK_RBRACKET && brackets > 0) --brackets;
+    }
+    return false;
+}
 
 /* `constexpr`/`consteval` can introduce either a function or a variable.  The dedicated
  * function parser is needed for C++ parameter/body handling, while ordinary
@@ -6119,6 +6149,30 @@ CxxTemplate* parse_cxx_template(void) {
         return tmpl;
     }
 
+    if (cxx_template_variable_starts()) {
+        Stmt* statement;
+        if (!rcc_parser_cxx_standard_at_least(14)) {
+            rcc_error(loc,
+                      "variable templates require C++14 or newer");
+        }
+        active_template = tmpl;
+        statement = parse_declaration();
+        active_template = parameter_outer_template;
+        if (!statement || statement->kind != STMT_DECL ||
+            !statement->decl || statement->decl->kind != DECL_VAR) {
+            rcc_error(loc,
+                      "RCC++ variable template requires a variable definition");
+            tmpl->kind = TMPL_VARIABLE;
+            tmpl->name = ast_arena_strdup("<invalid-variable-template>");
+            return tmpl;
+        }
+        tmpl->kind = TMPL_VARIABLE;
+        tmpl->var_def = statement->decl;
+        tmpl->name = ast_arena_strdup(statement->decl->name);
+        tmpl->is_constexpr = statement->decl->var_is_constexpr;
+        return tmpl;
+    }
+
     /* Template body */
     if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
         parser.cur->next && parser.cur->next->type == TOK_IDENT &&
@@ -6318,6 +6372,10 @@ static CxxTemplate* find_class_template(const char* qualified_name) {
 
 static CxxTemplate* find_alias_template(const char* qualified_name) {
     return find_template(qualified_name, TMPL_ALIAS);
+}
+
+static CxxTemplate* find_variable_template(const char* qualified_name) {
+    return find_template(qualified_name, TMPL_VARIABLE);
 }
 
 static CxxTemplate* find_concept(const char* qualified_name) {
@@ -8975,6 +9033,103 @@ Expr* rcc_parse_cxx_template_call(void) {
         name, candidate_templates,
         (int)(sizeof(candidate_templates) / sizeof(candidate_templates[0])));
     if (candidate_count <= 0) {
+        CxxTemplate* variable_template = find_variable_template(name);
+        if (variable_template && check(TOK_LT)) {
+            Type* arguments[32] = { NULL };
+            int64_t values[32] = { 0 };
+            bool value_present[32] = { false };
+            int argument_count = 0;
+            Decl* instance;
+
+            if (variable_template->param_count >
+                    (int)(sizeof(arguments) / sizeof(arguments[0]))) {
+                rcc_error(loc,
+                          "variable template argument limit exceeded");
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return NULL;
+            }
+            for (int index = 0; index < variable_template->param_count;
+                 ++index) {
+                if (variable_template->params[index].is_pack) {
+                    rcc_error(loc,
+                              "RCC++ variable template parameter packs are not supported");
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return NULL;
+                }
+            }
+            expect(TOK_LT, "<");
+            if (!check(TOK_GT)) {
+                do {
+                    TemplateParam* parameter = argument_count <
+                        variable_template->param_count
+                        ? &variable_template->params[argument_count] : NULL;
+                    if (!parameter) {
+                        rcc_error(peek()->loc,
+                                  "too many variable template arguments");
+                        while (!check(TOK_GT) && !at_end()) advance();
+                        break;
+                    }
+                    if (parameter->kind == TPARAM_TYPE) {
+                        arguments[argument_count] = parse_cxx_type_spec();
+                        if (!arguments[argument_count]) {
+                            rcc_error(peek()->loc,
+                                      "variable template type argument is invalid");
+                        }
+                    } else if (parameter->kind == TPARAM_NONTYPE) {
+                        Expr* value_expression;
+                        rcc_parser_set_cxx_template_default_mode(true);
+                        value_expression = parse_assignment_expression();
+                        rcc_parser_set_cxx_template_default_mode(false);
+                        if (!expr_eval_integer_constant(value_expression,
+                                                        &values[argument_count])) {
+                            rcc_error(value_expression ? value_expression->loc : loc,
+                                      "variable template argument must be an integer constant expression");
+                        } else {
+                            value_present[argument_count] = true;
+                        }
+                    } else {
+                        rcc_error(peek()->loc,
+                                  "RCC++ variable templates do not support template-template parameters");
+                        while (!check(TOK_COMMA) && !check(TOK_GT) &&
+                               !at_end()) advance();
+                    }
+                    ++argument_count;
+                } while (match(TOK_COMMA));
+            }
+            expect(TOK_GT, ">");
+            if (argument_count != variable_template->param_count) {
+                rcc_error(loc,
+                          "variable template specialization requires all template arguments");
+                return expr_int(0, loc);
+            }
+            instance = (Decl*)cxx_template_instantiate_with_values(
+                variable_template, arguments, values, value_present,
+                argument_count);
+            if (!instance || instance->kind != DECL_VAR) {
+                rcc_error(loc, "could not instantiate variable template '%s'",
+                          name);
+                return expr_int(0, loc);
+            }
+            if (active_ast) {
+                bool present = false;
+                for (DeclList* item = active_ast->decls; item;
+                     item = item->next) {
+                    if (item->decl == instance) {
+                        present = true;
+                        break;
+                    }
+                }
+                if (!present) ast_add_decl(active_ast, instance);
+            }
+            {
+                Expr* expression = expr_ident(instance->name, loc);
+                expression->ident_decl = instance;
+                expression->type = instance->type;
+                return expression;
+            }
+        }
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;

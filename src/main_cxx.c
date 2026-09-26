@@ -39,6 +39,7 @@ static void define_cxx_feature_test_macros(Preprocessor* pp) {
         pp_define(pp, "__cpp_init_captures", "201304L");
         pp_define(pp, "__cpp_generic_lambdas",
                   standard >= 20 ? "201707L" : "201304L");
+        pp_define(pp, "__cpp_variable_templates", "201304L");
     }
     if (standard >= 17) {
         pp_define(pp, "__cpp_fold_expressions", "201603L");
