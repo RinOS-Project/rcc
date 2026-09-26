@@ -2336,9 +2336,9 @@ test-cxx-requires-expression: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-requires-expression/invalid-x64.log 2>&1; then \
 		echo "parameter-list requires-expression unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "RCC++ requires-expression parameter lists are not supported" \
+	grep -q "requires-expression parameters cannot have defaults" \
 		$(TEST_OUT)/cxx-requires-expression/invalid-x86.log
-	grep -q "RCC++ requires-expression parameter lists are not supported" \
+	grep -q "requires-expression parameters cannot have defaults" \
 		$(TEST_OUT)/cxx-requires-expression/invalid-x64.log
 	@echo "C++20 bounded requires-expression tests completed"
 

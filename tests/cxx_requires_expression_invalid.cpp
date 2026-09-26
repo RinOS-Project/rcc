@@ -1,3 +1,3 @@
 int main() {
-    return requires(int value) { value + 1; } ? 0 : 1;
+    return requires(int value = 1) { value + 1; } ? 0 : 1;
 }

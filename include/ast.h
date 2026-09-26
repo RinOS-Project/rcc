@@ -605,7 +605,10 @@ struct Expr {
         };
 
         /* EXPR_CXX_REQUIRES */
-        ExprList* cxx_requires_items;
+        struct {
+            ExprList* cxx_requires_items;
+            DeclList* cxx_requires_params;
+        };
 
         /* EXPR_VA_START/END/COPY/ARG */
         struct {

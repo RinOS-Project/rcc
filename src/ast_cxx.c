@@ -1792,6 +1792,10 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  Type** args, int arg_count,
                                  const int64_t* value_args,
                                  const bool* value_present);
+static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
+                                 Type** args, int arg_count,
+                                 const int64_t* value_args,
+                                 const bool* value_present);
 
 static bool template_expr_contains_identifier(Expr* expression,
                                                const char* name) {
@@ -2562,6 +2566,21 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->cxx_requires_items = template_clone_expr_list(
                 tmpl, expression->cxx_requires_items, args, arg_count,
                 value_args, value_present);
+            copy->cxx_requires_params = NULL;
+            {
+                DeclList** tail = &copy->cxx_requires_params;
+                for (DeclList* parameter = expression->cxx_requires_params;
+                     parameter; parameter = parameter->next) {
+                    DeclList* parameter_copy = ast_arena_alloc(
+                        sizeof(*parameter_copy));
+                    parameter_copy->decl = template_clone_decl(
+                        tmpl, parameter->decl, args, arg_count,
+                        value_args, value_present);
+                    parameter_copy->next = NULL;
+                    *tail = parameter_copy;
+                    tail = &parameter_copy->next;
+                }
+            }
             break;
         case EXPR_VA_START:
         case EXPR_VA_END:

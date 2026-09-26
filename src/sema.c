@@ -8318,6 +8318,20 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_CXX_REQUIRES: {
             bool valid = true;
+            symtab_enter_scope(g_symtab);
+            for (DeclList* parameter = expr->cxx_requires_params;
+                 parameter; parameter = parameter->next) {
+                if (!parameter->decl || !parameter->decl->name ||
+                    !parameter->decl->type) {
+                    rcc_error(expr->loc,
+                              "requires-expression parameter is incomplete");
+                    valid = false;
+                    continue;
+                }
+                (void)symtab_define(g_symtab, parameter->decl->name,
+                                    SYM_PARAM, parameter->decl->type,
+                                    parameter->decl->loc);
+            }
             for (ExprList* requirement = expr->cxx_requires_items;
                  requirement; requirement = requirement->next) {
                 int suppressed_before = g_suppressed_error_count;
@@ -8329,6 +8343,7 @@ static Type* sema_expr(Expr* expr) {
                     valid = false;
                 }
             }
+            symtab_leave_scope(g_symtab);
             expr->kind = EXPR_INT_LIT;
             expr->int_val = valid ? 1 : 0;
             expr->type = type_bool;

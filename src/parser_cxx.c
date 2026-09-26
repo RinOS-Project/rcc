@@ -989,18 +989,52 @@ static void skip_balanced(TokenType open, TokenType close) {
 Expr* rcc_parse_cxx_requires_expression(void) {
     SourceLoc loc;
     ExprList* requirements = NULL;
+    DeclList* parameters = NULL;
+    int parameter_index = 0;
 
     if (!match(TOK_REQUIRES)) return NULL;
     loc = previous()->loc;
-    if (check(TOK_LPAREN)) {
-        rcc_error(peek()->loc,
-                  "RCC++ requires-expression parameter lists are not supported");
-        skip_balanced(TOK_LPAREN, TOK_RPAREN);
+    if (match(TOK_LPAREN)) {
+        while (!check(TOK_RPAREN) && !at_end()) {
+            SourceLoc parameter_loc = peek()->loc;
+            Type* parameter_base = parse_cxx_type_spec();
+            const char* parameter_name = NULL;
+            Type* parameter_type;
+            Decl* parameter;
+            if (!parameter_base) {
+                rcc_error(peek()->loc,
+                          "requires-expression parameter requires a type");
+                parameter_base = type_int;
+            }
+            parameter_type = rcc_parser_parse_cxx_declarator(
+                parameter_base, &parameter_name, NULL);
+            if (!parameter_name) {
+                rcc_error(parameter_loc,
+                          "requires-expression parameter requires a name");
+                parameter_name = rcc_intern("__rcc_requires_parameter");
+            }
+            parameter = decl_param(parameter_name, parameter_type,
+                                   parameter_index++, parameter_loc);
+            decllist_append(&parameters, parameter);
+            if (match(TOK_ASSIGN)) {
+                rcc_error(previous()->loc,
+                          "requires-expression parameters cannot have defaults");
+                (void)parse_assignment_expression();
+            }
+            if (!match(TOK_COMMA)) break;
+            if (check(TOK_RPAREN)) {
+                rcc_error(peek()->loc,
+                          "expected parameter declaration after ','");
+                break;
+            }
+        }
+        expect(TOK_RPAREN, ")");
     }
     if (!match(TOK_LBRACE)) {
         rcc_error(peek()->loc, "requires-expression expects a requirement body");
         return expr_cxx_requires(NULL, loc);
     }
+    rcc_parser_cxx_begin_function_parameters(parameters);
     while (!check(TOK_RBRACE) && !at_end()) {
         if (check(TOK_TYPENAME)) {
             rcc_error(peek()->loc,
@@ -1016,7 +1050,12 @@ Expr* rcc_parse_cxx_requires_expression(void) {
         expect(TOK_SEMICOLON, "';' after requires-expression requirement");
     }
     expect(TOK_RBRACE, "'}' after requires-expression requirements");
-    return expr_cxx_requires(requirements, loc);
+    rcc_parser_cxx_end_function_parameters();
+    {
+        Expr* result = expr_cxx_requires(requirements, loc);
+        result->cxx_requires_params = parameters;
+        return result;
+    }
 }
 
 static void skip_cxx_template_arguments(void) {
