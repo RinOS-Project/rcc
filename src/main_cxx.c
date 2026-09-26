@@ -42,6 +42,7 @@ static void define_cxx_feature_test_macros(Preprocessor* pp) {
         pp_define(pp, "__cpp_variable_templates", "201304L");
     }
     if (standard >= 17) {
+        pp_define(pp, "__cpp_deduction_guides", "201611L");
         pp_define(pp, "__cpp_fold_expressions", "201603L");
         pp_define(pp, "__cpp_nested_namespace_definitions", "201411L");
         pp_define(pp, "__cpp_nontype_template_args", "201411L");

@@ -66,6 +66,9 @@
 #ifdef __cpp_nontype_template_args
 #error "auto non-type template arguments must not be advertised before C++17"
 #endif
+#ifdef __cpp_deduction_guides
+#error "class template argument deduction must not be advertised before C++17"
+#endif
 #else
 #if !defined(__cpp_fold_expressions) || __cpp_fold_expressions != 201603L
 #error "RCC++ must report C++17 fold-expression support"
@@ -75,6 +78,9 @@
 #endif
 #if !defined(__cpp_nontype_template_args) || __cpp_nontype_template_args != 201411L
 #error "RCC++ must report C++17 auto non-type template support"
+#endif
+#if !defined(__cpp_deduction_guides) || __cpp_deduction_guides != 201611L
+#error "RCC++ must report C++17 class template argument deduction support"
 #endif
 #if !defined(__cpp_if_constexpr) || __cpp_if_constexpr != 201606L
 #error "RCC++ must report C++17 if constexpr support"

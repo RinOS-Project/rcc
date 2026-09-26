@@ -6819,6 +6819,7 @@ bool rcc_parse_cxx_type_start(void) {
 
     name = parse_qualified_name();
     result = is_active_template_type(name) || find_class(name) != NULL ||
+             find_class_template(name) != NULL ||
              (strstr(name, "::") == NULL &&
               rcc_parser_lookup_type(name) != NULL);
     if (check(TOK_LT) &&
@@ -8105,6 +8106,159 @@ static Type* cxx_parser_template_deduction_argument(Type* pattern,
     adjusted->is_const = false;
     adjusted->is_volatile = false;
     return adjusted;
+}
+
+static int cxx_parser_template_conversion_rank(Expr* argument,
+                                                Type* target);
+
+/* Bounded C++17 class-template argument deduction.  The RinOS ABI can lower
+ * class instances only after a concrete template argument list exists, so
+ * CTAD is resolved from public constructors before object initialization is
+ * validated.  This deliberately covers ordinary type parameters and
+ * constructor deduction; deduction guides, non-type/template parameters,
+ * and packs remain explicit diagnostics instead of guessed types. */
+static Type* deduce_class_template_from_constructor(
+    CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc) {
+    Type* best_arguments[32] = { NULL };
+    int64_t best_values[32] = { 0 };
+    bool best_value_present[32] = { false };
+    int best_total = INT_MAX;
+    int best_worst = INT_MAX;
+    int best_specificity = -1;
+    int viable_count = 0;
+    int argument_count = cxx_constructor_argument_count(arguments);
+
+    if (!tmpl || tmpl->kind != TMPL_CLASS || tmpl->param_count <= 0 ||
+        tmpl->param_count > (int)(sizeof(best_arguments) /
+                                  sizeof(best_arguments[0]))) {
+        rcc_error(loc, "class template argument deduction exceeds compiler "
+                       "limits");
+        return NULL;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind != TPARAM_TYPE || parameter->is_pack) {
+            rcc_error(loc,
+                      "RCC++ CTAD currently requires non-pack type template "
+                      "parameters");
+            return NULL;
+        }
+    }
+
+    for (CxxConstructorInfo* constructor = tmpl->templated_class->constructors;
+         constructor; constructor = constructor->next) {
+        Type* candidate_arguments[32] = { NULL };
+        int64_t candidate_values[32] = { 0 };
+        bool candidate_value_present[32] = { false };
+        TypeParam* parameter = constructor->parameters;
+        DeclList* declaration = constructor->method && constructor->method->decl
+            ? constructor->method->decl->func_params : NULL;
+        ExprList* argument = arguments;
+        int specificity = 0;
+        int total = 0;
+        int worst = 0;
+        bool viable = true;
+
+        if (constructor->access != ACCESS_PUBLIC || constructor->is_deleted ||
+            constructor->is_defaulted ||
+            argument_count < (int)cxx_constructor_required_parameter_count(
+                constructor) ||
+            argument_count > constructor->parameter_count ||
+            !cxx_constructor_arity_has_defaults(constructor, argument_count)) {
+            continue;
+        }
+        while (argument && parameter && declaration) {
+            Type* actual = cxx_parser_expression_type(argument->expr);
+            Type* pattern = parameter->type;
+            if (!actual || !pattern ||
+                !deduce_function_template_type(
+                    tmpl, pattern,
+                    cxx_parser_template_deduction_argument(pattern, actual),
+                    candidate_arguments, candidate_values,
+                    candidate_value_present, &specificity)) {
+                viable = false;
+                break;
+            }
+            argument = argument->next;
+            parameter = parameter->next;
+            declaration = declaration->next;
+        }
+        if (argument || parameter || declaration) viable = false;
+        if (!viable) continue;
+
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* template_parameter = &tmpl->params[index];
+            if (candidate_arguments[index]) continue;
+            if (!template_parameter->has_default ||
+                !template_parameter->default_type) {
+                viable = false;
+                break;
+            }
+            candidate_arguments[index] = substitute_template_type(
+                tmpl, template_parameter->default_type, candidate_arguments,
+                tmpl->param_count, candidate_values,
+                candidate_value_present);
+            if (!candidate_arguments[index] ||
+                candidate_arguments[index]->cxx_dependent) {
+                viable = false;
+                break;
+            }
+        }
+        if (!viable) continue;
+
+        parameter = constructor->parameters;
+        argument = arguments;
+        while (argument && parameter) {
+            Type* target = substitute_template_type(
+                tmpl, parameter->type, candidate_arguments, tmpl->param_count,
+                candidate_values, candidate_value_present);
+            int rank = cxx_parser_template_conversion_rank(
+                argument->expr, target);
+            if (rank < 0) {
+                viable = false;
+                break;
+            }
+            total += rank;
+            if (rank > worst) worst = rank;
+            argument = argument->next;
+            parameter = parameter->next;
+        }
+        if (!viable) continue;
+        if (total < best_total ||
+            (total == best_total && worst < best_worst) ||
+            (total == best_total && worst == best_worst &&
+             specificity > best_specificity)) {
+            memcpy(best_arguments, candidate_arguments,
+                   sizeof(best_arguments));
+            memcpy(best_values, candidate_values, sizeof(best_values));
+            memcpy(best_value_present, candidate_value_present,
+                   sizeof(best_value_present));
+            best_total = total;
+            best_worst = worst;
+            best_specificity = specificity;
+            viable_count = 1;
+        } else if (total == best_total && worst == best_worst &&
+                   specificity == best_specificity) {
+            ++viable_count;
+        }
+    }
+
+    if (viable_count == 0) {
+        rcc_error(loc,
+                  "no viable public constructor for class template argument "
+                  "deduction of '%s'",
+                  tmpl->name ? tmpl->name : "template");
+        return NULL;
+    }
+    if (viable_count > 1) {
+        rcc_error(loc,
+                  "ambiguous class template argument deduction for '%s'",
+                  tmpl->name ? tmpl->name : "template");
+        return NULL;
+    }
+    return instantiate_class_template(
+        tmpl, best_arguments, best_values, best_value_present,
+        tmpl->param_count, loc);
 }
 
 static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern);
@@ -9677,8 +9831,7 @@ static Type* parse_cxx_type_spec(void) {
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
         /* Class or namespace qualified type */
         const char* name = parse_qualified_name();
-        CxxTemplate* tmpl = check(TOK_LT)
-            ? find_class_template(name) : NULL;
+        CxxTemplate* tmpl = find_class_template(name);
         CxxTemplate* alias_tmpl = check(TOK_LT)
             ? find_alias_template(name) : NULL;
         int template_template_index =
@@ -9690,7 +9843,31 @@ static Type* parse_cxx_type_spec(void) {
         }
         Type* known_type = strstr(name, "::") == NULL
             ? rcc_parser_lookup_type(name) : NULL;
-        if (template_template_index >= 0 && check(TOK_LT)) {
+        if (tmpl && !check(TOK_LT)) {
+            bool direct_initialization = check(TOK_IDENT) &&
+                (check_next(TOK_LPAREN) || check_next(TOK_LBRACE));
+            if (!rcc_parser_cxx_standard_at_least(17)) {
+                rcc_error(loc,
+                          "class template argument deduction requires "
+                          "C++17 or newer");
+                t = type_int;
+            } else if (!direct_initialization) {
+                rcc_error(loc,
+                          "class template argument deduction requires "
+                          "direct initialization");
+                t = type_int;
+            } else {
+                /* Keep the template identity on a bounded placeholder.  The
+                 * declaration parser resolves it only after it has parsed the
+                 * constructor arguments, so a class template name can never
+                 * silently become an arbitrary scalar type. */
+                t = type_struct(name);
+                t->cxx_dependent = true;
+                t->cxx_template = tmpl;
+                t->cxx_template_param_index = -1;
+                t->cxx_template_arg_count = 0;
+            }
+        } else if (template_template_index >= 0 && check(TOK_LT)) {
             TemplateParam* parameter = &active_template->params[
                 template_template_index];
             Type* dependent = type_struct(name);
@@ -10762,26 +10939,51 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     ExprList* arguments = NULL;
     Expr* initializer;
     Decl* declaration;
+    bool is_ctad_placeholder = base_type && base_type->cxx_dependent &&
+        base_type->cxx_template && base_type->cxx_template_param_index < 0 &&
+        base_type->cxx_template_arg_count == 0;
+    bool brace_form;
 
     /* Only consume the spelling that the common C parser would misinterpret
      * as a function declarator.  Constructor arity was registered only after
      * the C++ class verifier proved its storage representation is ABI-safe. */
     if (!base_type || (base_type->kind != TYPE_STRUCT &&
                        base_type->kind != TYPE_UNION) ||
-        !type_is_complete(base_type) ||
-        rcc_parser_cxx_constructor_arity_mask(base_type) == 0u ||
-        !check(TOK_IDENT) || !check_next(TOK_LPAREN)) {
+        (!is_ctad_placeholder &&
+         (!type_is_complete(base_type) ||
+          rcc_parser_cxx_constructor_arity_mask(base_type) == 0u)) ||
+        !check(TOK_IDENT) ||
+        (!check_next(TOK_LPAREN) && !check_next(TOK_LBRACE))) {
         return NULL;
     }
 
     name = advance();
-    advance(); /* `(` */
-    if (!check(TOK_RPAREN)) {
+    brace_form = match(TOK_LBRACE);
+    if (!brace_form) advance(); /* `(` */
+    if ((!brace_form && !check(TOK_RPAREN)) ||
+        (brace_form && !check(TOK_RBRACE))) {
         do {
             exprlist_append(&arguments, parse_assignment_expression());
         } while (match(TOK_COMMA));
     }
-    expect(TOK_RPAREN, ")");
+    expect(brace_form ? TOK_RBRACE : TOK_RPAREN,
+           brace_form ? "}" : ")");
+
+    if (is_ctad_placeholder) {
+        base_type = deduce_class_template_from_constructor(
+            base_type->cxx_template, arguments, loc);
+        if (!base_type) {
+            expect(TOK_SEMICOLON, ";");
+            return stmt_null(loc);
+        }
+        if (rcc_parser_cxx_constructor_arity_mask(base_type) == 0u) {
+            rcc_error(loc,
+                      "deduced class template specialization is not "
+                      "lowerable by the RinOS C++ ABI");
+            expect(TOK_SEMICOLON, ";");
+            return stmt_null(loc);
+        }
+    }
 
     initializer = expr_initializer_list(arguments, loc);
     initializer->compound_type = base_type;

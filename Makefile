@@ -191,6 +191,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
+.PHONY: test-cxx-class-template-deduction
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -263,6 +264,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-final \
 	test-cxx-override \
 	test-cxx-conditional-explicit \
+	test-cxx-class-template-deduction \
 	test-cxx-pure-virtual \
 	test-cxx-conversion-operator \
 	test-cxx-lambda \
@@ -2580,6 +2582,50 @@ test-cxx-conditional-explicit: $(RCXX_TARGET)
 	grep -q "conditional explicit specifier requires an integral constant expression" \
 		$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log
 	@echo "C++20 conditional explicit tests completed"
+
+test-cxx-class-template-deduction: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-deduction)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -S \
+		-o $(TEST_OUT)/cxx-class-template-deduction/x86.s \
+		tests/cxx_class_template_deduction.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-deduction/x86.o \
+		$(TEST_OUT)/cxx-class-template-deduction/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-deduction/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-deduction/x86 \
+		$(TEST_OUT)/cxx-class-template-deduction/start-x86.o \
+		$(TEST_OUT)/cxx-class-template-deduction/x86.o
+	$(TEST_OUT)/cxx-class-template-deduction/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-deduction/x64.s \
+		tests/cxx_class_template_deduction.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-deduction/x64.o \
+		$(TEST_OUT)/cxx-class-template-deduction/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-deduction/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-deduction/x64 \
+		$(TEST_OUT)/cxx-class-template-deduction/start-x64.o \
+		$(TEST_OUT)/cxx-class-template-deduction/x64.o
+	$(TEST_OUT)/cxx-class-template-deduction/x64
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++14 -c \
+		-o $(TEST_OUT)/cxx-class-template-deduction/old-x86.ro \
+		tests/cxx_class_template_deduction_invalid.cpp \
+		>$(TEST_OUT)/cxx-class-template-deduction/old-x86.log 2>&1; then \
+		echo "class template argument deduction unexpectedly compiled before C++17 on i686"; exit 1; \
+	fi
+	grep -q "class template argument deduction requires C++17 or newer" \
+		$(TEST_OUT)/cxx-class-template-deduction/old-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c \
+		-o $(TEST_OUT)/cxx-class-template-deduction/old-x64.ro \
+		tests/cxx_class_template_deduction_invalid.cpp \
+		>$(TEST_OUT)/cxx-class-template-deduction/old-x64.log 2>&1; then \
+		echo "class template argument deduction unexpectedly compiled before C++17 on AMD64"; exit 1; \
+	fi
+	grep -q "class template argument deduction requires C++17 or newer" \
+		$(TEST_OUT)/cxx-class-template-deduction/old-x64.log
+	@echo "C++17 class template argument deduction tests completed"
 
 test-cxx-pure-virtual: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-pure-virtual)
