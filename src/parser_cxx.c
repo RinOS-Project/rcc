@@ -4447,7 +4447,8 @@ static void parse_cxx_local_using(void) {
     expect(TOK_SEMICOLON, ";");
 }
 
-static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
+static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
+                                         bool is_inline_namespace) {
     SourceLoc loc = previous()->loc;
     CxxNamespace* outer_namespace = active_namespace;
 
@@ -4458,6 +4459,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
     }
 
     CxxNamespace* ns = cxx_namespace_new(ns_name, loc);
+    ns->is_inline_namespace = is_inline_namespace;
     if (parent) cxx_namespace_add_namespace(parent, ns);
     active_namespace = ns;
 
@@ -4476,8 +4478,12 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
             cxx_namespace_add_template(ns, tmpl);
+        } else if (check(TOK_INLINE) && check_next(TOK_NAMESPACE)) {
+            advance();
+            advance();
+            (void)parse_cxx_namespace(ast, ns, true);
         } else if (match(TOK_NAMESPACE)) {
-            (void)parse_cxx_namespace(ast, ns);
+            (void)parse_cxx_namespace(ast, ns, false);
         } else if (match(TOK_USING)) {
             parse_cxx_using(ns);
         } else if ((check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL)) &&
@@ -5596,6 +5602,12 @@ static CxxTemplate* namespace_template(CxxNamespace* ns,
             return candidate;
         }
     }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (child->is_inline_namespace) {
+            CxxTemplate* candidate = namespace_template(child, name);
+            if (candidate) return candidate;
+        }
+    }
     return NULL;
 }
 
@@ -5652,6 +5664,21 @@ static int namespace_function_templates(CxxNamespace* ns, const char* name,
         if (count < capacity) results[count] = candidate;
         ++count;
     }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (child->is_inline_namespace) {
+            CxxTemplate* nested[32] = { NULL };
+            int nested_count = namespace_function_templates(
+                child, name, nested, (int)(sizeof(nested) / sizeof(nested[0])));
+            for (int nested_index = 0; nested_index < nested_count;
+                 ++nested_index) {
+                if (nested_index < (int)(sizeof(nested) / sizeof(nested[0])) &&
+                    count < capacity) {
+                    results[count] = nested[nested_index];
+                }
+                ++count;
+            }
+        }
+    }
     return count;
 }
 
@@ -5700,6 +5727,12 @@ static CxxClass* namespace_class(CxxNamespace* ns, const char* name) {
         if (candidate && candidate->name &&
             strcmp(candidate->name, name) == 0) {
             return candidate;
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (child->is_inline_namespace) {
+            CxxClass* candidate = namespace_class(child, name);
+            if (candidate) return candidate;
         }
     }
     return NULL;
@@ -9674,8 +9707,12 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else if (check(TOK_EXTERN) && parser.cur->next &&
                parser.cur->next->type == TOK_STRING_LIT) {
             parse_cxx_language_linkage(ast);
+        } else if (check(TOK_INLINE) && check_next(TOK_NAMESPACE)) {
+            advance();
+            advance();
+            (void)parse_cxx_namespace(ast, g_global_namespace, true);
         } else if (match(TOK_NAMESPACE)) {
-            (void)parse_cxx_namespace(ast, g_global_namespace);
+            (void)parse_cxx_namespace(ast, g_global_namespace, false);
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
             if (g_global_namespace) {

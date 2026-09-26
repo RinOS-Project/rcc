@@ -1436,6 +1436,7 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     CxxNamespace* ns = rcc_alloc(sizeof(CxxNamespace));
     ns->name = name ? rcc_strdup(name) : NULL;
     ns->parent = parent;
+    ns->is_inline_namespace = false;
     ns->decls = NULL;
     ns->classes = NULL;
     ns->class_count = 0;

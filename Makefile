@@ -157,6 +157,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-requires-expression
 .PHONY: test-cxx-inline-variables
+.PHONY: test-cxx-inline-namespace
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
@@ -267,6 +268,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-operator-arrow \
 	test-cxx-requires-expression \
 	test-cxx-inline-variables \
+	test-cxx-inline-namespace \
 	test-cxx-selection-init \
 	test-cxx-designated-initializer \
 	test-cxx-utf8-literals \
@@ -2361,6 +2363,34 @@ test-cxx-inline-variables: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-inline-variables/x64.o
 	$(TEST_OUT)/cxx-inline-variables/x64
 	@echo "C++ inline variable tests completed"
+
+test-cxx-inline-namespace: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inline-namespace)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inline-namespace/x86.s \
+		tests/cxx_inline_namespace.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-inline-namespace/x86.o \
+		$(TEST_OUT)/cxx-inline-namespace/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-inline-namespace/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-inline-namespace/x86 \
+		$(TEST_OUT)/cxx-inline-namespace/start-x86.o \
+		$(TEST_OUT)/cxx-inline-namespace/x86.o
+	$(TEST_OUT)/cxx-inline-namespace/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inline-namespace/x64.s \
+		tests/cxx_inline_namespace.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-inline-namespace/x64.o \
+		$(TEST_OUT)/cxx-inline-namespace/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-inline-namespace/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-inline-namespace/x64 \
+		$(TEST_OUT)/cxx-inline-namespace/start-x64.o \
+		$(TEST_OUT)/cxx-inline-namespace/x64.o
+	$(TEST_OUT)/cxx-inline-namespace/x64
+	@echo "C++ inline namespace tests completed"
 
 test-cxx-selection-init: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-selection-init)

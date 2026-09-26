@@ -159,6 +159,7 @@ struct CxxClass {
 struct CxxNamespace {
     const char* name;
     CxxNamespace* parent;
+    bool is_inline_namespace;
 
     /* Declarations in this namespace */
     DeclList* decls;

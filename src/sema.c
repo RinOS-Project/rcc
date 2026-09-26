@@ -462,6 +462,14 @@ static Symbol* sema_cxx_visible_symbol(Symbol* symbol, SourceLoc use_loc) {
     return sema_cxx_make_function_symbol(symbol->name, &candidates);
 }
 
+static bool sema_cxx_namespace_has_inline_child(const CxxNamespace* ns) {
+    for (const CxxNamespace* child = ns ? ns->children : NULL;
+         child; child = child->next) {
+        if (child->is_inline_namespace) return true;
+    }
+    return false;
+}
+
 static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
                                           const char* name,
                                           CxxNamespace** visited,
@@ -490,7 +498,16 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
     } else {
         result = symtab_lookup(g_symtab, name);
     }
-    if (result) return result;
+    if (result) {
+        /* Preserve the established direct/using lookup precedence for
+         * ordinary namespaces.  Only an enclosing namespace with an inline
+         * child needs the merged overload set below. */
+        if (result->kind != SYM_FUNC ||
+            !sema_cxx_namespace_has_inline_child(ns)) {
+            return result;
+        }
+        sema_cxx_adl_collect_symbol(result, &function_candidates);
+    }
 
     for (int index = 0; index < ns->using_declaration_count; ++index) {
         const char* target = ns->using_declarations[index];
@@ -516,6 +533,17 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
             non_function = result;
         }
     }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (!child->is_inline_namespace) continue;
+        result = sema_cxx_lookup_namespace(child, name, visited,
+                                           visited_count, use_loc);
+        if (!result) continue;
+        if (result->kind == SYM_FUNC) {
+            sema_cxx_adl_collect_symbol(result, &function_candidates);
+        } else if (!non_function) {
+            non_function = result;
+        }
+    }
     if (function_candidates.overflow) {
         rcc_error((SourceLoc){"<sema>", 0, 0},
                   "using-namespace overload set exceeds compiler limits");
@@ -527,6 +555,45 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
     return non_function;
 }
 
+/* Resolve a namespace-qualified expression such as `api::make_value` before
+ * falling back to ordinary identifier lookup.  The existing direct symbol
+ * lookup is sufficient for declarations emitted under their complete link
+ * spelling, but it cannot see a name introduced through an inline namespace
+ * below `api`; route the final component through the namespace lookup logic. */
+static Symbol* sema_cxx_lookup_qualified_name(const char* name,
+                                               SourceLoc use_loc) {
+    char buffer[512];
+    char* separator;
+    char* cursor;
+    const char* final_name;
+    CxxNamespace* global_namespace = sema_cxx_global_namespace();
+    CxxNamespace* namespace;
+    CxxNamespace* visited[32] = { 0 };
+
+    if (!global_namespace || !name || strlen(name) >= sizeof(buffer)) {
+        return NULL;
+    }
+    strcpy(buffer, name);
+    while (buffer[0] == ':' && buffer[1] == ':') {
+        memmove(buffer, buffer + 2, strlen(buffer + 2) + 1u);
+    }
+    separator = NULL;
+    for (cursor = buffer; (cursor = strstr(cursor, "::")) != NULL;
+         cursor += 2) {
+        separator = cursor;
+    }
+    if (!separator || separator == buffer) {
+        return NULL;
+    }
+    *separator = '\0';
+    final_name = separator + 2;
+    if (!*final_name) return NULL;
+    namespace = cxx_namespace_find(global_namespace, buffer);
+    if (!namespace) return NULL;
+    return sema_cxx_lookup_namespace(namespace, final_name, visited, 0,
+                                     use_loc);
+}
+
 static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
     Symbol* symbol;
     CxxNamespace* visited[32] = { 0 };
@@ -534,8 +601,11 @@ static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
 
     if (!name) return NULL;
     symbol = sema_cxx_visible_symbol(symtab_lookup(g_symtab, name), use_loc);
-    if (symbol || !rcc_parser_is_cxx_mode() || strchr(name, ':')) {
+    if (symbol || !rcc_parser_is_cxx_mode()) {
         return symbol;
+    }
+    if (strchr(name, ':')) {
+        return sema_cxx_lookup_qualified_name(name, use_loc);
     }
     for (ns = current_cxx_namespace ? current_cxx_namespace
                                     : sema_cxx_global_namespace();
