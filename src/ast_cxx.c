@@ -743,6 +743,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->type->cxx_class = cls;
     cls->size = 0;
     cls->align = 1;
+    cls->pack_alignment = 0;
     cls->fields = NULL;
     cls->ns = NULL;
     cls->templ = NULL;
@@ -798,6 +799,14 @@ static int cxx_virtual_base_index(CxxClass* cls, CxxClass* base);
 static void cxx_add_virtual_base(CxxClass* cls, CxxClass* base,
                                  bool public_path);
 
+static int cxx_class_member_alignment(const CxxClass* cls, int alignment) {
+    if (alignment <= 0) return alignment;
+    if (cls->pack_alignment > 0 && alignment > cls->pack_alignment) {
+        return cls->pack_alignment;
+    }
+    return alignment;
+}
+
 void cxx_class_compute_layout(CxxClass* cls) {
     int offset = 0;
     int max_align = 1;
@@ -838,7 +847,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
     if (has_virtual && !primary_vtable_base) {
         int pointer_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
         offset = pointer_size;  /* vptr */
-        max_align = pointer_size;
+        max_align = cxx_class_member_alignment(cls, pointer_size);
     }
 
     if (cls->base_count > 0) {
@@ -862,7 +871,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 continue;
             }
             /* Align for base */
-            int align = base->align;
+            int align = cxx_class_member_alignment(cls, base->align);
             offset = (offset + align - 1) & ~(align - 1);
             base_offsets[i] = offset;
             /* Base subobject */
@@ -917,7 +926,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
             continue;
         }
         if (type->cxx_nontrivial) nontrivial = true;
-        align = type->align;
+        align = cxx_class_member_alignment(cls, type->align);
         size = type->size;
 
         if (f->is_bitfield) {
@@ -1016,7 +1025,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
     for (struct CxxMember* m = cls->members; m; m = m->next) {
         if (!m->is_static && m->decl->kind == DECL_VAR) {
             Type* type = m->decl->type;
-            int align = type->align;
+            int align = cxx_class_member_alignment(cls, type->align);
             int size = type->size;
 
             /* Align */
@@ -1036,10 +1045,11 @@ void cxx_class_compute_layout(CxxClass* cls) {
     cls->virtual_base_pointer_offset = -1;
     if (cls->virtual_base_count > 0) {
         int pointer_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
-        offset = (offset + pointer_size - 1) & ~(pointer_size - 1);
+        int pointer_align = cxx_class_member_alignment(cls, pointer_size);
+        offset = (offset + pointer_align - 1) & ~(pointer_align - 1);
         cls->virtual_base_pointer_offset = offset;
         offset += pointer_size;
-        if (pointer_size > max_align) max_align = pointer_size;
+        if (pointer_align > max_align) max_align = pointer_align;
     }
 
     /* Save the size used when this class is embedded as a non-virtual base;
@@ -1058,10 +1068,11 @@ void cxx_class_compute_layout(CxxClass* cls) {
             layout_complete = false;
             continue;
         }
-        offset = (offset + base->align - 1) & ~(base->align - 1);
+        int base_align = cxx_class_member_alignment(cls, base->align);
+        offset = (offset + base_align - 1) & ~(base_align - 1);
         cls->virtual_bases[virtual_index].offset = offset;
         offset += base->nonvirtual_size;
-        if (base->align > max_align) max_align = base->align;
+        if (base_align > max_align) max_align = base_align;
         for (TypeField* base_field = base->type->fields;
              base_field; base_field = base_field->next) {
             if (base_field->from_virtual_base) continue;

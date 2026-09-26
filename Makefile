@@ -5361,7 +5361,7 @@ test-bootstrap-stage2: test-bootstrap-execute
 	done
 	@echo "Reproducible dual-architecture stage1-to-stage2 compiler rebuild completed"
 
-test-pragma-pack: $(RCC_TARGET)
+test-pragma-pack: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/pragma-pack
 	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc \
 		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/x86.ro \
@@ -5369,6 +5369,36 @@ test-pragma-pack: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc \
 		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/x64.ro \
 		tests/pragma_pack.c
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/operator-x86.ro \
+		tests/pragma_operator_pack.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/operator-x64.ro \
+		tests/pragma_operator_pack.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -nostdinc -S \
+		-Ibootstrap/include -o $(TEST_OUT)/pragma-pack/operator-cxx-x86.s \
+		tests/pragma_operator_pack.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/pragma-pack/operator-cxx-x86.o \
+		$(TEST_OUT)/pragma-pack/operator-cxx-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/pragma-pack/operator-cxx-start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/pragma-pack/operator-cxx-x86 \
+		$(TEST_OUT)/pragma-pack/operator-cxx-start-x86.o \
+		$(TEST_OUT)/pragma-pack/operator-cxx-x86.o
+	$(TEST_OUT)/pragma-pack/operator-cxx-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -nostdinc -S \
+		-Ibootstrap/include -o $(TEST_OUT)/pragma-pack/operator-cxx-x64.s \
+		tests/pragma_operator_pack.cpp
+	$(CC) -c -o $(TEST_OUT)/pragma-pack/operator-cxx-x64.o \
+		$(TEST_OUT)/pragma-pack/operator-cxx-x64.s
+	$(CC) -c -o $(TEST_OUT)/pragma-pack/operator-cxx-start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/pragma-pack/operator-cxx-x64 \
+		$(TEST_OUT)/pragma-pack/operator-cxx-start-x64.o \
+		$(TEST_OUT)/pragma-pack/operator-cxx-x64.o
+	$(TEST_OUT)/pragma-pack/operator-cxx-x64
 	@echo "Dual-architecture pragma-pack and offsetof tests completed"
 
 test-bitfields: $(RCC_TARGET)

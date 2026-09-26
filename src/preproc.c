@@ -926,6 +926,48 @@ static char* expand_macros(Preprocessor* pp, const char* input);
 static char* expand_macro(Preprocessor* pp, Macro* macro,
                           const char** args, int arg_count);
 
+/* Expand the standard _Pragma operator into the directive spelling consumed
+ * by the lexer.  The returned pointer is the first character after the
+ * closing parenthesis, or NULL when the identifier is not a valid operator
+ * invocation so the caller can leave ordinary identifier processing intact. */
+static const char* expand_pragma_operator(const char* after_name,
+                                          PPBuffer* result) {
+    const char* cursor = skip_ws(after_name);
+    PPBuffer pragma;
+
+    if (*cursor != '(') return NULL;
+    cursor = skip_ws(cursor + 1);
+    if (*cursor != '"') return NULL;
+    ++cursor;
+
+    buf_init(&pragma);
+    while (*cursor && *cursor != '"') {
+        if (*cursor == '\\' && cursor[1]) {
+            ++cursor;
+            buf_append_char(&pragma, *cursor++);
+        } else {
+            buf_append_char(&pragma, *cursor++);
+        }
+    }
+    if (*cursor != '"') {
+        rcc_free(pragma.data);
+        return NULL;
+    }
+    ++cursor;
+    cursor = skip_ws(cursor);
+    if (*cursor != ')') {
+        rcc_free(pragma.data);
+        return NULL;
+    }
+    ++cursor;
+
+    buf_append_str(result, "#pragma ");
+    buf_append(result, pragma.data, pragma.size);
+    buf_append_char(result, '\n');
+    rcc_free(pragma.data);
+    return cursor;
+}
+
 static bool macro_is_expanding(const Preprocessor* pp, const Macro* macro) {
     for (int i = 0; i < pp->expansion_depth; i++) {
         if (pp->expanding[i] == macro) return true;
@@ -1253,6 +1295,14 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
         } else if (isalpha(*p) || *p == '_') {
             char ident[256];
             const char* end = read_ident(p, ident, sizeof(ident));
+
+            if (strcmp(ident, "_Pragma") == 0) {
+                const char* after_pragma = expand_pragma_operator(end, &result);
+                if (after_pragma) {
+                    p = after_pragma;
+                    continue;
+                }
+            }
 
             Macro* macro = pp_get_macro(pp, ident);
             if (macro && !macro_is_expanding(pp, macro)) {

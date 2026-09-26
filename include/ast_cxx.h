@@ -126,6 +126,8 @@ struct CxxClass {
     Type* type;
     int size;
     int align;
+    /* Active #pragma pack limit captured when the class definition starts. */
+    int pack_alignment;
 
     /* Fields list (TypeParam*) for struct compatibility */
     TypeParam* fields;

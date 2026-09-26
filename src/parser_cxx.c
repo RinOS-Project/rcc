@@ -3959,6 +3959,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     CxxClass* cls = cxx_class_new(class_name, loc);
     cls->is_struct = is_struct;
     cls->is_final = is_final;
+    cls->pack_alignment = rcc_parser_pack_alignment();
 
     /* Inheritance */
     if (match(TOK_COLON)) {
@@ -4359,7 +4360,9 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
         Token* declaration_start = parser.cur;
         int errors_before = g_error_count;
         skip_cxx_attributes();
-        if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+        if (match(TOK_PRAGMA_PACK)) {
+            rcc_parser_apply_pragma_pack(previous());
+        } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             cxx_namespace_add_class(ns, cls);
         } else if (match(TOK_TEMPLATE)) {
@@ -6196,6 +6199,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     instance->has_nonpublic_field = definition->has_nonpublic_field;
     instance->has_static_field = definition->has_static_field;
     instance->has_field_initializer = definition->has_field_initializer;
+    instance->pack_alignment = definition->pack_alignment;
     instance->using_base_member_count = definition->using_base_member_count;
     if (definition->using_base_member_count != 0) {
         instance->using_base_members = ast_arena_alloc(
@@ -9254,8 +9258,10 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         SourceLoc loc = peek()->loc;
         skip_cxx_attributes();
 
-        if (check(TOK_EXTERN) && parser.cur->next &&
-            parser.cur->next->type == TOK_STRING_LIT) {
+        if (match(TOK_PRAGMA_PACK)) {
+            rcc_parser_apply_pragma_pack(previous());
+        } else if (check(TOK_EXTERN) && parser.cur->next &&
+               parser.cur->next->type == TOK_STRING_LIT) {
             parse_cxx_language_linkage(ast);
         } else if (match(TOK_NAMESPACE)) {
             (void)parse_cxx_namespace(ast, g_global_namespace);

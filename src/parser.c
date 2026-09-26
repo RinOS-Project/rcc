@@ -191,6 +191,14 @@ static void parser_define_enum_constant(const char* name, int64_t value,
     parser_enum_constants = entry;
 }
 
+void rcc_parser_apply_pragma_pack(Token* directive) {
+    parser_apply_pack(directive);
+}
+
+int rcc_parser_pack_alignment(void) {
+    return parser_pack_alignment;
+}
+
 static bool parser_lookup_enum_constant(const char* name, int64_t* value,
                                         Type** type) {
     ParserEnumConstant* entry;

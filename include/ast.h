@@ -17,6 +17,7 @@ typedef struct DeclList DeclList;
 typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
+struct Token;
 struct CxxClass;
 struct CxxTemplate;
 
@@ -216,6 +217,8 @@ extern Type* type_nullptr;
 void type_configure_target(TargetArch architecture);
 void rcc_parser_set_cxx_mode(bool enabled);
 bool rcc_parser_is_cxx_mode(void);
+void rcc_parser_apply_pragma_pack(struct Token* directive);
+int rcc_parser_pack_alignment(void);
 Type* rcc_parser_lookup_type(const char* name);
 void rcc_parser_define_type(const char* name, Type* type);
 void* rcc_parser_type_scope_mark(void);
