@@ -3615,6 +3615,46 @@ static void emit_atomic_cmpxchg8b(Module* mod, int address) {
     emit_memory_operand32(mod, 1, address, 0);
 }
 
+/* A plain aligned x86 load is atomic for all scalar widths supported by the
+ * frontend.  i686 has no single-instruction 64-bit load, so use CMPXCHG8B
+ * with a zero desired value; success leaves the compared zero in EDX:EAX and
+ * failure returns the observed object value there. */
+static void emit_atomic_load_i686(Module* mod, const Type* type) {
+    if (!type || type->size != 8) {
+        emit_load_typed32(mod, EAX, EAX, 0, type);
+        return;
+    }
+    emit_push_reg(mod, EBX);
+    emit_push_reg(mod, ESI);
+    emit_mov_reg_reg(mod, ESI, EAX);
+    emit_xor_reg_reg(mod, EAX, EAX);
+    emit_xor_reg_reg(mod, EDX, EDX);
+    emit_mov_reg_reg(mod, EBX, EAX);
+    emit_mov_reg_reg(mod, ECX, EDX);
+    emit_atomic_cmpxchg8b(mod, ESI);
+    emit_pop_reg(mod, ESI);
+    emit_pop_reg(mod, EBX);
+}
+
+/* Store a 64-bit value whose low/high words are at [ESP]/[ESP+4] into the
+ * address currently held in EAX.  The compare/exchange loop provides the
+ * same sequentially-consistent store used by the existing builtin path. */
+static void emit_atomic_store64_i686(Module* mod) {
+    int retry_label = new_label();
+    emit_push_reg(mod, EBX);
+    emit_push_reg(mod, ESI);
+    emit_mov_reg_reg(mod, ESI, EAX);
+    emit_mov_reg_mem(mod, EAX, ESI, 0);
+    emit_mov_reg_mem(mod, EDX, ESI, 4);
+    emit_label(mod, retry_label);
+    emit_mov_reg_mem(mod, EBX, ESP, 8);
+    emit_mov_reg_mem(mod, ECX, ESP, 12);
+    emit_atomic_cmpxchg8b(mod, ESI);
+    emit_jcc_label(mod, CC_NE, retry_label);
+    emit_pop_reg(mod, ESI);
+    emit_pop_reg(mod, EBX);
+}
+
 static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
                                       const char* name) {
     int retry_label;
@@ -4911,9 +4951,13 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
             gen_lvalue(mod, expr);
-            emit_mov_reg_reg(mod, ECX, EAX);
-            emit_mov_reg_mem(mod, EAX, ECX, 0);
-            emit_mov_reg_mem(mod, EDX, ECX, 4);
+            if (expr->type && expr->type->is_atomic) {
+                emit_atomic_load_i686(mod, expr->type);
+            } else {
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_mov_reg_mem(mod, EAX, ECX, 0);
+                emit_mov_reg_mem(mod, EDX, ECX, 4);
+            }
             break;
 
         case EXPR_NEG:
@@ -5029,11 +5073,19 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             emit_push_reg(mod, EDX);
             emit_push_reg(mod, EAX);
             gen_lvalue(mod, expr->binary_lhs);
-            emit_mov_reg_reg(mod, ECX, EAX);
-            emit_pop_reg(mod, EAX);
-            emit_pop_reg(mod, EDX);
-            emit_mov_mem_reg(mod, ECX, 0, EAX);
-            emit_mov_mem_reg(mod, ECX, 4, EDX);
+            if (expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                emit_atomic_store64_i686(mod);
+                emit_mov_reg_mem(mod, EAX, ESP, 0);
+                emit_mov_reg_mem(mod, EDX, ESP, 4);
+                emit_add_reg_imm(mod, ESP, 8);
+            } else {
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EAX);
+                emit_pop_reg(mod, EDX);
+                emit_mov_mem_reg(mod, ECX, 0, EAX);
+                emit_mov_mem_reg(mod, ECX, 4, EDX);
+            }
             break;
 
         case EXPR_ADD_ASSIGN:
@@ -7434,6 +7486,9 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->type && decl->type->is_atomic) {
+                gen_lvalue(mod, expr);
+                emit_atomic_load_i686(mod, decl->type);
             } else if (decl->type && decl->type->is_reference) {
                 gen_lvalue(mod, expr);
                 if (expr->type && expr->type->kind != TYPE_ARRAY &&
@@ -7516,6 +7571,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (expr->type && (expr->type->kind == TYPE_ARRAY ||
                                expr->type->kind == TYPE_STRUCT ||
                                expr->type->kind == TYPE_UNION)) {
+                break;
+            }
+            if (expr->type && expr->type->is_atomic) {
+                emit_atomic_load_i686(mod, expr->type);
                 break;
             }
             if (gen_is_floating(expr->type)) {
@@ -7935,6 +7994,34 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 gen_lvalue(mod, expr->binary_lhs);
                 emit_mov_reg_reg(mod, EDX, EAX);
                 emit_bitfield_store32(mod, expr->binary_lhs->member_field);
+                break;
+            }
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                Type* type = expr->binary_lhs->type;
+                if (type->size == 8) {
+                    gen_expr_as_type(mod, expr->binary_rhs, type);
+                    emit_push_reg(mod, EDX);
+                    emit_push_reg(mod, EAX);
+                    gen_lvalue(mod, expr->binary_lhs);
+                    emit_atomic_store64_i686(mod);
+                    emit_mov_reg_mem(mod, EAX, ESP, 0);
+                    emit_mov_reg_mem(mod, EDX, ESP, 4);
+                    emit_add_reg_imm(mod, ESP, 8);
+                } else {
+                    gen_expr_as_type(mod, expr->binary_rhs, type);
+                    if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+                        emit_normalize_atomic_value(mod, EAX, type);
+                    }
+                    emit_push_reg(mod, EAX);
+                    gen_lvalue(mod, expr->binary_lhs);
+                    emit_mov_reg_reg(mod, EDX, EAX);
+                    emit_pop_reg(mod, ECX);
+                    emit_normalize_atomic_value(mod, ECX, type);
+                    emit_mov_reg_reg(mod, EAX, ECX);
+                    emit_atomic_exchange_width(mod, EAX, EDX, type);
+                    emit_mov_reg_reg(mod, EAX, ECX);
+                }
                 break;
             }
             if (gen_is_floating(expr->binary_lhs->type)) {

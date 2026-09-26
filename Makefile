@@ -152,7 +152,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
 .PHONY: test-cxx-range-for test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
@@ -4367,6 +4367,40 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 		tests/invalid_pointer_atomic.c
 	@echo "Dual-architecture integer/pointer atomic tests completed"
 
+test-atomic-language: $(RCC_TARGET)
+	mkdir -p $(TEST_OUT)/atomic-language-x86 $(TEST_OUT)/atomic-language-x64
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/atomic-language-x86/atomic.ro tests/atomic_language.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/atomic-language-x64/atomic.ro tests/atomic_language.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/atomic-language-run-test \
+		tests/atomic_language_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/atomic-language-run-test \
+		$(TEST_OUT)/atomic-language-x64/atomic.ro
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/atomic-language-run-test-x86 \
+		tests/atomic_language_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/atomic-language-run-test-x86 \
+		$(TEST_OUT)/atomic-language-x86/atomic.ro
+	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/atomic-language-x86/invalid.ro \
+		tests/invalid_atomic_language.c \
+		>$(TEST_OUT)/atomic-language-x86/invalid.log 2>&1; then \
+		echo "invalid _Atomic fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "_Atomic requires an unqualified scalar object type" \
+		$(TEST_OUT)/atomic-language-x86/invalid.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/atomic-language-x64/invalid.ro \
+		tests/invalid_atomic_language.c \
+		>$(TEST_OUT)/atomic-language-x64/invalid.log 2>&1; then \
+		echo "invalid _Atomic fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "_Atomic requires an unqualified scalar object type" \
+		$(TEST_OUT)/atomic-language-x64/invalid.log
+	@echo "C17 language _Atomic syntax and lowering tests completed"
+
 test-x86-wide-scalar: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)/x86-wide-scalar
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -4452,11 +4486,10 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-literal-x64.log
-	@for fixture in complex imaginary language_atomic; do \
+	@for fixture in complex imaginary; do \
 		case "$$fixture" in \
 			complex) message="_Complex is not supported by the RinOS floating-point ABI" ;; \
 			imaginary) message="_Imaginary is not supported by the RinOS floating-point ABI" ;; \
-			language_atomic) message="language _Atomic is not supported; use RinOS atomic builtins" ;; \
 		esac; \
 		if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 			-o $(TEST_OUT)/language-boundaries/$$fixture-x86.ro \

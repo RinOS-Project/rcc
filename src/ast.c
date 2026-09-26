@@ -93,7 +93,7 @@ char* ast_arena_strdup(const char* text) {
     { .kind = (type_kind), .size = (type_size), .align = (type_align), \
       .has_explicit_alignment = false, \
       .is_unsigned = (unsigned_type), .is_const = false, \
-      .is_volatile = false, .cxx_is_class = false, \
+      .is_volatile = false, .is_atomic = false, .cxx_is_class = false, \
       .cxx_nontrivial = false, .cxx_class = NULL, \
       .cxx_namespace = NULL, .cxx_vtable_size = 0, \
       .cxx_vtable_symbol = NULL, .cxx_typeinfo_symbol = NULL }
@@ -152,6 +152,7 @@ Type* type_ptr(Type* base) {
     t->size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
     t->align = t->size;
     t->has_explicit_alignment = false;
+    t->is_atomic = false;
     t->base = base;
     t->array_bound = NULL;
     t->array_unspecified_bound = false;
@@ -176,6 +177,7 @@ Type* type_array(Type* base, int len) {
     t->size = len > 0 ? base->size * len : 0;
     t->align = base->align;
     t->has_explicit_alignment = false;
+    t->is_atomic = false;
     t->base = base;
     t->array_len = len;
     t->array_bound = NULL;
@@ -201,6 +203,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->size = 0;
     t->align = 1;
     t->has_explicit_alignment = false;
+    t->is_atomic = false;
     t->ret_type = ret;
     t->params = params;
     t->variadic = variadic;
@@ -222,6 +225,7 @@ Type* type_struct(const char* tag) {
     t->size = 0;
     t->align = 1;
     t->has_explicit_alignment = false;
+    t->is_atomic = false;
     t->tag = tag;
     t->fields = NULL;
     t->is_complete = false;
@@ -242,6 +246,7 @@ Type* type_union(const char* tag) {
     t->size = 0;
     t->align = 1;
     t->has_explicit_alignment = false;
+    t->is_atomic = false;
     t->tag = tag;
     t->fields = NULL;
     t->is_complete = false;
@@ -262,6 +267,7 @@ Type* type_enum(const char* tag) {
     t->size = 4;
     t->align = 4;
     t->has_explicit_alignment = false;
+    t->is_atomic = false;
     t->enum_tag = tag;
     t->enum_is_scoped = false;
     t->enum_constants = NULL;

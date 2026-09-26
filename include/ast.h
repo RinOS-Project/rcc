@@ -127,6 +127,7 @@ struct Type {
     bool is_unsigned;
     bool is_const;
     bool is_volatile;
+    bool is_atomic;          /* C17 _Atomic-qualified scalar object type. */
     bool is_restrict;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;

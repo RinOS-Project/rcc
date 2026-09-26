@@ -2123,14 +2123,29 @@ static void parse_aggregate_body(Type* aggregate) {
 }
 
 static Type* parser_qualify_type(Type* type, bool is_const,
-                                 bool is_volatile) {
+                                 bool is_volatile, bool is_atomic) {
     Type* qualified;
-    if (!type || (!is_const && !is_volatile)) return type;
+    if (!type || (!is_const && !is_volatile && !is_atomic)) return type;
     qualified = ast_arena_alloc(sizeof(*qualified));
     *qualified = *type;
     qualified->is_const = qualified->is_const || is_const;
     qualified->is_volatile = qualified->is_volatile || is_volatile;
+    qualified->is_atomic = qualified->is_atomic || is_atomic;
     return qualified;
+}
+
+static Type* parser_atomic_type(Type* type, SourceLoc loc) {
+    Type* atomic;
+    if (!type || !type_is_scalar(type) || type->kind == TYPE_NULLPTR ||
+        type->is_atomic || type->is_const || type->is_volatile) {
+        rcc_error(loc,
+                  "_Atomic requires an unqualified scalar object type");
+        return type;
+    }
+    atomic = ast_arena_alloc(sizeof(*atomic));
+    *atomic = *type;
+    atomic->is_atomic = true;
+    return atomic;
 }
 
 static Type* parse_type_spec(void) {
@@ -2139,6 +2154,7 @@ static Type* parse_type_spec(void) {
     bool saw_sign = false;
     bool is_const = false;
     bool is_volatile = false;
+    bool is_atomic = false;
     bool saw_complex = false;
     bool saw_imaginary = false;
     int long_count = 0;
@@ -2168,14 +2184,33 @@ static Type* parse_type_spec(void) {
                       "_Imaginary is not supported by the RinOS floating-point ABI");
             saw_imaginary = true;
         } else if (match(TOK__ATOMIC)) {
-            rcc_error(previous()->loc,
-                      "language _Atomic is not supported; use RinOS atomic builtins");
+            SourceLoc atomic_loc = previous()->loc;
+            if (match(TOK_LPAREN)) {
+                Type* atomic_base;
+                if (!is_type_start()) {
+                    rcc_error(peek()->loc,
+                              "_Atomic(type-name) requires a type name");
+                    atomic_base = type_int;
+                } else {
+                    atomic_base = parse_type_spec();
+                    atomic_base = parse_declarator(atomic_base, NULL, NULL);
+                }
+                expect(TOK_RPAREN, "')' after _Atomic type-name");
+                t = parser_atomic_type(atomic_base, atomic_loc);
+                is_atomic = true;
+            } else {
+                is_atomic = true;
+            }
         } else {
             break;
         }
     }
 
-    if (saw_complex || saw_imaginary) {
+    if (t) {
+        /* A parenthesized _Atomic(type-name) already supplied the complete
+         * type specifier.  Do not reinterpret the following declarator
+         * identifier as a typedef-name lookup. */
+    } else if (saw_complex || saw_imaginary) {
         /* Consume the optional scalar component after the diagnostic so
          * parser recovery does not reinterpret it as a declarator. */
         if (match(TOK_FLOAT)) {
@@ -2312,7 +2347,7 @@ static Type* parse_type_spec(void) {
         if (previous()->type == TOK_CONST) is_const = true;
         else is_volatile = true;
     }
-    t = parser_qualify_type(t, is_const, is_volatile);
+    t = parser_qualify_type(t, is_const, is_volatile, is_atomic);
 
     return t;
 }

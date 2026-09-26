@@ -4253,6 +4253,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_FUNC) {
                 gen64_symbol_address(mod, decl_link_name(decl), 0u);
+            } else if (decl->type && decl->type->is_atomic) {
+                gen64_lvalue(mod, expr);
+                emit64_load_typed(mod, RAX, RAX, 0, decl->type);
             } else if (decl->type && decl->type->is_reference) {
                 gen64_lvalue(mod, expr);
                 if (expr->type && expr->type->kind != TYPE_ARRAY &&
@@ -4320,6 +4323,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (expr->type && (expr->type->kind == TYPE_ARRAY ||
                                expr->type->kind == TYPE_STRUCT ||
                                expr->type->kind == TYPE_UNION)) {
+                break;
+            }
+            if (expr->type && expr->type->is_atomic) {
+                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
                 break;
             }
             emit64_load_typed(mod, RAX, RAX, 0, expr->type);
@@ -4676,6 +4683,19 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 gen64_lvalue(mod, expr->binary_lhs);
                 emit64_mov_reg_reg(mod, RDX, RAX);
                 emit64_bitfield_store(mod, expr->binary_lhs->member_field);
+                break;
+            }
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_atomic) {
+                Type* type = expr->binary_lhs->type;
+                gen64_expr(mod, expr->binary_rhs);
+                emit64_push_reg(mod, RAX);
+                gen64_lvalue(mod, expr->binary_lhs);
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                emit64_pop_reg(mod, RCX);
+                emit64_mov_reg_reg(mod, RAX, RCX);
+                emit64_atomic_exchange_width(mod, RAX, RDX, type);
+                emit64_mov_reg_reg(mod, RAX, RCX);
                 break;
             }
             if (expr->binary_lhs->type &&
