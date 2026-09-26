@@ -7068,6 +7068,7 @@ static const char* sema_cxx_unary_operator_name(ExprKind kind) {
         case EXPR_NEG: return "operator-";
         case EXPR_BITNOT: return "operator~";
         case EXPR_NOT: return "operator!";
+        case EXPR_DEREF: return "operator*";
         case EXPR_PREINC:
         case EXPR_POSTINC: return "operator++";
         case EXPR_PREDEC:
@@ -7796,7 +7797,8 @@ static Type* sema_expr(Expr* expr) {
     if ((expr->kind == EXPR_NEG || expr->kind == EXPR_BITNOT ||
          expr->kind == EXPR_NOT || expr->kind == EXPR_PREINC ||
          expr->kind == EXPR_PREDEC || expr->kind == EXPR_POSTINC ||
-         expr->kind == EXPR_POSTDEC) && expr->unary_operand) {
+         expr->kind == EXPR_POSTDEC || expr->kind == EXPR_DEREF) &&
+        expr->unary_operand) {
         Type* operand_type = sema_expr(expr->unary_operand);
         if (sema_rewrite_cxx_unary_operator(expr, operand_type)) {
             return sema_expr(expr);
@@ -9334,6 +9336,28 @@ static Type* sema_expr(Expr* expr) {
             bt = pretyped_class_base
                 ? expr->member_base->type
                 : sema_expr(expr->member_base);
+
+            /* References are represented as pointer-shaped ABI carriers,
+             * but member lookup operates on the referred object. */
+            if (bt && bt->kind == TYPE_PTR && bt->is_reference) {
+                bt = bt->base;
+            }
+
+            /* A cv-qualified class type may have been copied while its
+             * inline class body was still being parsed.  Refresh its
+             * structural metadata from the completed canonical class type,
+             * while retaining the qualifiers carried by the expression. */
+            if (bt && (bt->kind == TYPE_STRUCT || bt->kind == TYPE_UNION) &&
+                !bt->fields && bt->cxx_class && bt->cxx_class->type &&
+                bt->cxx_class->type->fields) {
+                Type* canonical = bt->cxx_class->type;
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *canonical;
+                qualified->is_const = canonical->is_const || bt->is_const;
+                qualified->is_volatile = canonical->is_volatile ||
+                                         bt->is_volatile;
+                bt = qualified;
+            }
 
             if (expr->kind == EXPR_PTR_MEMBER) {
                 bt = get_pointer_base(bt);

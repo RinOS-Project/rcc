@@ -373,6 +373,16 @@ static Type* cxx_parser_expression_type(Expr* expression) {
                     return field->type;
                 }
             }
+            for (TypeMethod* method = left ? left->methods : NULL;
+                 method; method = method->next) {
+                if (method->name && expression->member_name &&
+                    strcmp(method->name, expression->member_name) == 0) {
+                    return method->function_decl &&
+                               method->function_decl->type
+                        ? method->function_decl->type
+                        : type_func(method->return_type, NULL, false);
+                }
+            }
             return NULL;
 
         case EXPR_NEG:
@@ -8898,18 +8908,47 @@ static int active_template_type_index(const char* name) {
     return -1;
 }
 
-/* Lower the array form of a C++ range-for into the existing indexed-loop
- * representation.  Restricting the range operand to an identifier makes
- * the C++ single-evaluation rule explicit without inventing a hidden object
- * temporary.  Iterator/class ranges are diagnosed instead of being silently
- * reinterpreted as a different loop. */
+static TypeMethod* cxx_range_find_method(Type* type, const char* name) {
+    TypeMethod* method;
+    TypeMethod* result = NULL;
+    if (!type || !name ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    for (method = type->methods; method; method = method->next) {
+        if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
+            strcmp(method->name, name) != 0 || method->cxx_access != 0u ||
+            !method->function_decl || !method->function_decl->type) {
+            continue;
+        }
+        if (result) return NULL;
+        result = method;
+    }
+    return result;
+}
+
+static Type* cxx_range_value_type(Type* type) {
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        return type->base;
+    }
+    return type;
+}
+
+/* Lower array ranges into indexed loops and the bounded member-iterator
+ * profile into the equivalent begin/end loop.  Both paths materialize the
+ * range expression once; unsupported protocols are diagnosed before any
+ * executable fallback can be emitted. */
 Stmt* rcc_parse_cxx_range_for_statement(void) {
     SourceLoc loc;
     Type* item_type = NULL;
+    Type* element_type = NULL;
+    Type* iterator_type = NULL;
     bool is_auto = false;
     bool auto_const = false;
     bool auto_reference = false;
     bool auto_rvalue_reference = false;
+    bool iterator_range = false;
+    bool range_invalid = false;
     const char* item_name = NULL;
     Expr* range;
     Type* range_type = NULL;
@@ -8919,15 +8958,28 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     Expr* condition;
     Expr* increment;
     Expr* range_storage;
+    Expr* begin_expression;
+    Expr* end_expression;
+    Expr* begin_identifier;
+    Expr* end_identifier;
     Decl* index_decl;
     Decl* range_decl = NULL;
+    Decl* begin_decl = NULL;
+    Decl* end_decl = NULL;
     Decl* item_decl;
+    TypeMethod* begin_method = NULL;
+    TypeMethod* end_method = NULL;
+    TypeMethod* increment_method = NULL;
+    TypeMethod* compare_method = NULL;
+    TypeMethod* dereference_method = NULL;
     Stmt* original_body;
     Stmt* loop;
     StmtList* outer_statements = NULL;
     StmtList* body_statements = NULL;
     char index_name[64];
     char range_name[64];
+    char begin_name[64];
+    char end_name[64];
     unsigned range_id;
     int written;
 
@@ -8967,11 +9019,58 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     range_type = cxx_parser_expression_type(range);
     if (!range) {
         rcc_error(loc,
-                  "RinOS range-for requires an array lvalue range expression");
+                  "RinOS range-for requires an array or supported iterator range expression");
+        range_invalid = true;
     } else if (!range_type || range_type->kind != TYPE_ARRAY ||
                range_type->array_len < 0 || !range_type->base) {
-        rcc_error(loc,
-                  "RinOS range-for requires a complete array lvalue range expression");
+        if (range_type && (range_type->kind == TYPE_STRUCT ||
+                           range_type->kind == TYPE_UNION) &&
+            range_type->is_complete) {
+            begin_method = cxx_range_find_method(range_type, "begin");
+            end_method = cxx_range_find_method(range_type, "end");
+            if (!begin_method || !end_method) {
+                rcc_error(loc,
+                          "RinOS range-for requires one public non-overloaded begin() and end() member");
+                range_invalid = true;
+            } else {
+                iterator_type = cxx_range_value_type(
+                    begin_method->return_type);
+                if (!iterator_type ||
+                    !type_is_complete(iterator_type)) {
+                    rcc_error(loc,
+                              "RinOS range-for begin() must return a complete iterator object");
+                    range_invalid = true;
+                }
+                if (!range_invalid) {
+                    increment_method = cxx_range_find_method(
+                        iterator_type, "operator++");
+                    compare_method = cxx_range_find_method(
+                        iterator_type, "operator!=");
+                    dereference_method = cxx_range_find_method(
+                        iterator_type, "operator*");
+                    if (!increment_method || !compare_method ||
+                        !dereference_method) {
+                        rcc_error(loc,
+                                  "RinOS range-for iterator requires public operator++, operator!=, and operator* members");
+                        range_invalid = true;
+                    } else {
+                        iterator_range = true;
+                        element_type = cxx_range_value_type(
+                            dereference_method->return_type);
+                        if (!element_type || !type_is_complete(element_type)) {
+                            rcc_error(loc,
+                                      "RinOS range-for operator* must return a complete object type");
+                            iterator_range = false;
+                            range_invalid = true;
+                        }
+                    }
+                }
+            }
+        } else {
+            rcc_error(loc,
+                      "RinOS range-for requires a complete array or supported iterator range expression");
+            range_invalid = true;
+        }
     } else {
         if (auto_reference && range_type && range_type->base) {
             if (auto_rvalue_reference && auto_const) {
@@ -8990,9 +9089,30 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
         }
     }
 
+    if (range_invalid && !iterator_range) {
+        /* Keep parsing the loop body after the required diagnostic, but do not
+         * lower an unsupported range as an array or emit an invented loop. */
+        original_body = parse_cxx_statement();
+        return original_body ? original_body : stmt_null(loc);
+    }
+
     range_storage = range;
     range_id = ++cxx_range_for_counter;
-    if (range_type && range_type->kind == TYPE_ARRAY &&
+    if (iterator_range) {
+        written = snprintf(range_name, sizeof(range_name),
+                           "__rcc_range_object_%u", range_id);
+        if (written < 0 || (size_t)written >= sizeof(range_name)) {
+            rcc_error(loc, "range-for storage name exceeds compiler limits");
+            range_name[0] = '\0';
+        }
+        range_decl = decl_var(rcc_intern(range_name), range_type,
+                              range, loc);
+        range_decl->var_is_auto = true;
+        range_decl->var_is_auto_reference = true;
+        range_decl->var_is_auto_rvalue_reference = true;
+        rcc_parser_cxx_add_value_binding(range_decl->name, range_type);
+        range_storage = expr_ident(range_decl->name, loc);
+    } else if (range_type && range_type->kind == TYPE_ARRAY &&
         range_type->array_len >= 0 && range_type->base) {
         written = snprintf(range_name, sizeof(range_name),
                            "__rcc_range_base_%u", range_id);
@@ -9004,6 +9124,71 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
                               expr_unary(EXPR_ADDR, range, loc), loc);
         range_storage = expr_unary(
             EXPR_DEREF, expr_ident(range_decl->name, loc), loc);
+    }
+
+    if (iterator_range) {
+        written = snprintf(begin_name, sizeof(begin_name),
+                           "__rcc_range_begin_%u", range_id);
+        if (written < 0 || (size_t)written >= sizeof(begin_name)) {
+            rcc_error(loc, "range-for iterator name exceeds compiler limits");
+            begin_name[0] = '\0';
+        }
+        written = snprintf(end_name, sizeof(end_name),
+                           "__rcc_range_end_%u", range_id);
+        if (written < 0 || (size_t)written >= sizeof(end_name)) {
+            rcc_error(loc, "range-for iterator name exceeds compiler limits");
+            end_name[0] = '\0';
+        }
+        begin_expression = expr_call(
+            expr_member(expr_ident(range_decl->name, loc), "begin", loc),
+            NULL, loc);
+        end_expression = expr_call(
+            expr_member(expr_ident(range_decl->name, loc), "end", loc),
+            NULL, loc);
+        begin_decl = decl_var(rcc_intern(begin_name), iterator_type,
+                              begin_expression, loc);
+        end_decl = decl_var(rcc_intern(end_name), iterator_type,
+                            end_expression, loc);
+        rcc_parser_cxx_add_value_binding(begin_decl->name, iterator_type);
+        rcc_parser_cxx_add_value_binding(end_decl->name, iterator_type);
+        begin_identifier = expr_ident(begin_decl->name, loc);
+        end_identifier = expr_ident(end_decl->name, loc);
+        element_expression = expr_unary(
+            EXPR_DEREF, expr_ident(begin_decl->name, loc), loc);
+        if (auto_reference) {
+            Type* referred_type = element_type;
+            if (auto_const) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *referred_type;
+                qualified->is_const = true;
+                referred_type = qualified;
+            }
+            item_type = type_ptr(referred_type);
+            item_type->is_reference = true;
+            item_type->is_rvalue_reference = auto_rvalue_reference;
+        } else if (is_auto) {
+            item_type = element_type;
+        }
+        item_decl = decl_var(
+            item_name ? item_name : rcc_intern("__rcc_range_item"),
+            item_type, element_expression, loc);
+        item_decl->var_is_auto = is_auto && !auto_reference;
+        rcc_parser_cxx_add_value_binding(
+            item_decl->name, item_type ? item_type : element_type);
+        condition = expr_binary(EXPR_NE, begin_identifier,
+                                end_identifier, loc);
+        increment = expr_unary(
+            EXPR_PREINC, expr_ident(begin_decl->name, loc), loc);
+        original_body = parse_cxx_statement();
+        stmtlist_append(&body_statements, stmt_decl(item_decl, loc));
+        if (original_body) stmtlist_append(&body_statements, original_body);
+        loop = stmt_for(NULL, condition, increment,
+                        stmt_block(body_statements, loc), loc);
+        stmtlist_append(&outer_statements, stmt_decl(range_decl, loc));
+        stmtlist_append(&outer_statements, stmt_decl(begin_decl, loc));
+        stmtlist_append(&outer_statements, stmt_decl(end_decl, loc));
+        stmtlist_append(&outer_statements, loop);
+        return stmt_block(outer_statements, loc);
     }
 
     written = snprintf(index_name, sizeof(index_name),
