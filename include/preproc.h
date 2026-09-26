@@ -32,6 +32,8 @@ typedef struct {
     int include_path_count;
     int include_depth;           /* Current include nesting depth */
     const char* current_file;    /* File used for relative include probes. */
+    bool cxx_mode;               /* C++ conditional feature probes enabled. */
+    int cxx_standard;            /* Active C++ language revision, if any. */
 
     /* Conditional compilation stack */
     struct {

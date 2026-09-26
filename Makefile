@@ -186,7 +186,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
-.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-universal-character-identifiers
+.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-attributes test-universal-character-identifiers
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
@@ -196,6 +196,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
+	test-preprocessor-attributes \
 	test-preprocessor-date-time \
 	test-preprocessor-standard-macros \
 	test-preprocessor-include \
@@ -562,6 +563,26 @@ test-preprocessor-has-include: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log
 	@echo "C17/C++20 __has_include tests completed"
+
+test-preprocessor-attributes: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/preprocessor-attributes)
+	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_attributes.cpp > \
+		$(TEST_OUT)/preprocessor-attributes/cxx.i
+	grep -F -q 'int preprocessor_attribute_probe(int value)' \
+		$(TEST_OUT)/preprocessor-attributes/cxx.i
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-attributes/cxx-x86.ro \
+		tests/preprocessor_attributes.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-attributes/cxx-x64.ro \
+		tests/preprocessor_attributes.cpp
+	! $(RCXX_TARGET) -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-attributes/invalid-cxx.ro \
+		tests/invalid_preprocessor_attributes.cpp \
+		>$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log 2>&1
+	grep -F -q 'invalid #if expression' \
+		$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log
+	@echo "C++20 __has_cpp_attribute tests completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
 	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)

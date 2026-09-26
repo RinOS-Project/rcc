@@ -394,6 +394,11 @@ static int compile_current_input(char** argv) {
         printf("Preprocessing...\n");
     }
     Preprocessor* pp = pp_new();
+    pp->cxx_mode = true;
+    pp->cxx_standard = g_cxx_standard;
+    /* Keep the operator discoverable to #if defined(...) without letting the
+     * ordinary macro expander decide its argument semantics. */
+    pp_define(pp, "__has_cpp_attribute", "1");
 
     /* Add standard include paths (unless -nostdinc). */
     if (!g_opts.nostdinc) {

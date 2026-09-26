@@ -152,6 +152,8 @@ Preprocessor* pp_new(void) {
     pp->include_path_count = 0;
     pp->include_depth = 0;
     pp->current_file = NULL;
+    pp->cxx_mode = false;
+    pp->cxx_standard = 0;
     pp->cond_depth = 0;
     pp->expansion_depth = 0;
     pp->dependencies = NULL;
@@ -467,6 +469,22 @@ static bool pp_has_include(Preprocessor* pp, const char* name,
     if (!content) return false;
     rcc_free(content);
     return true;
+}
+
+/* Return the feature-test value for an attribute that RCC++ actually
+ * implements.  Unknown attributes intentionally remain zero so portable
+ * headers can select a fallback instead of assuming a silently ignored
+ * attribute was accepted. */
+static long pp_cpp_attribute_value(const Preprocessor* pp,
+                                  const char* attribute) {
+    if (!pp || !pp->cxx_mode || !attribute) return 0;
+    if (strcmp(attribute, "nodiscard") == 0 && pp->cxx_standard >= 17) {
+        return pp->cxx_standard >= 20 ? 201907L : 201603L;
+    }
+    if (strcmp(attribute, "deprecated") == 0 && pp->cxx_standard >= 14) {
+        return 201309L;
+    }
+    return 0;
 }
 
 static void pp_add_dependency(Preprocessor* pp, const char* path) {
@@ -934,6 +952,62 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                 buf_append_str(&protected,
                                pp_has_include(pp, include_name, is_system)
                                    ? "1" : "0");
+                p = cursor;
+                continue;
+            }
+            if (strcmp(ident, "__has_cpp_attribute") == 0) {
+                const char* cursor = pp_expr_skip(end);
+                char attribute[256];
+                size_t attribute_length = 0u;
+                bool probe_valid = true;
+
+                if (*cursor != '(') {
+                    probe_valid = false;
+                } else {
+                    cursor = pp_expr_skip(cursor + 1);
+                    while (isalpha((unsigned char)*cursor) ||
+                           isdigit((unsigned char)*cursor) ||
+                           *cursor == '_') {
+                        char component[64];
+                        const char* after = read_ident(
+                            cursor, component, sizeof(component));
+                        size_t component_length = strlen(component);
+                        if (attribute_length + component_length + 1u >=
+                            sizeof(attribute)) {
+                            probe_valid = false;
+                            break;
+                        }
+                        memcpy(attribute + attribute_length, component,
+                               component_length);
+                        attribute_length += component_length;
+                        cursor = after;
+                        if (cursor[0] == ':' && cursor[1] == ':') {
+                            attribute[attribute_length++] = ':';
+                            attribute[attribute_length++] = ':';
+                            cursor = pp_expr_skip(cursor + 2);
+                        } else {
+                            break;
+                        }
+                    }
+                    attribute[attribute_length] = '\0';
+                    cursor = pp_expr_skip(cursor);
+                    if (*cursor != ')' || attribute_length == 0u) {
+                        probe_valid = false;
+                    } else {
+                        cursor++;
+                    }
+                }
+
+                if (!probe_valid) {
+                    *valid = false;
+                    buf_append_str(&protected, "0");
+                    p = end;
+                    continue;
+                }
+                char value[32];
+                snprintf(value, sizeof(value), "%ld",
+                         pp_cpp_attribute_value(pp, attribute));
+                buf_append_str(&protected, value);
                 p = cursor;
                 continue;
             }
