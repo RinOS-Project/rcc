@@ -986,10 +986,73 @@ static void skip_balanced(TokenType open, TokenType close) {
     }
 }
 
+static void cxx_requires_type_append(TypeList** list, Type* type,
+                                     SourceLoc loc) {
+    TypeList* item = ast_arena_alloc(sizeof(*item));
+    TypeList** tail = list;
+    item->type = type;
+    item->loc = loc;
+    item->next = NULL;
+    while (*tail) tail = &(*tail)->next;
+    *tail = item;
+}
+
+/* Parse a bounded type-requirement form: a public nested `using` alias, or a
+ * dependent `T::Alias` that can be resolved after template substitution.
+ * Unresolved names remain carriers so sema can make the surrounding
+ * requires-expression false without rejecting the whole expression. */
+static Type* parse_cxx_requires_type(SourceLoc loc) {
+    const char* qualified;
+    const char* separator;
+    const char* owner_name;
+    const char* member_name;
+    size_t owner_length;
+    char owner_buffer[512];
+    CxxClass* owner;
+    CxxTypeAlias* alias;
+    Type* dependent;
+    int parameter_index;
+
+    if (!match(TOK_TYPENAME)) return NULL;
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) {
+        rcc_error(peek()->loc,
+                  "requires-expression type requirement expects a qualified type");
+        return NULL;
+    }
+    qualified = parse_qualified_name();
+    separator = qualified ? strrchr(qualified, ':') : NULL;
+    if (!separator || separator == qualified || separator[-1] != ':') {
+        rcc_error(loc,
+                  "requires-expression type requirement expects a nested type");
+        return NULL;
+    }
+    owner_length = (size_t)(separator - qualified - 1);
+    if (owner_length == 0 || owner_length >= sizeof(owner_buffer)) {
+        rcc_error(loc, "requires-expression type requirement owner is too long");
+        return NULL;
+    }
+    memcpy(owner_buffer, qualified, owner_length);
+    owner_buffer[owner_length] = '\0';
+    owner_name = rcc_intern(owner_buffer);
+    member_name = rcc_intern(separator + 1);
+    owner = find_class(owner_name);
+    parameter_index = active_template_type_index(owner_name);
+    alias = owner ? cxx_class_find_type_alias(owner, member_name) : NULL;
+    if (alias && alias->access == ACCESS_PUBLIC) return alias->type;
+
+    dependent = type_struct(qualified);
+    dependent->cxx_dependent = true;
+    dependent->cxx_class = owner;
+    dependent->cxx_template_param_index = parameter_index;
+    dependent->cxx_dependent_member_name = member_name;
+    return dependent;
+}
+
 Expr* rcc_parse_cxx_requires_expression(void) {
     SourceLoc loc;
     ExprList* requirements = NULL;
     DeclList* parameters = NULL;
+    TypeList* type_requirements = NULL;
     int parameter_index = 0;
 
     if (!match(TOK_REQUIRES)) return NULL;
@@ -1037,12 +1100,12 @@ Expr* rcc_parse_cxx_requires_expression(void) {
     rcc_parser_cxx_begin_function_parameters(parameters);
     while (!check(TOK_RBRACE) && !at_end()) {
         if (check(TOK_TYPENAME)) {
-            rcc_error(peek()->loc,
-                      "RCC++ requires-expression type requirements are not supported");
-            while (!check(TOK_SEMICOLON) && !check(TOK_RBRACE) && !at_end()) {
-                advance();
-            }
-            (void)match(TOK_SEMICOLON);
+            SourceLoc requirement_loc = peek()->loc;
+            cxx_requires_type_append(
+                &type_requirements,
+                parse_cxx_requires_type(requirement_loc), requirement_loc);
+            expect(TOK_SEMICOLON,
+                   "';' after requires-expression type requirement");
             continue;
         }
         Expr* requirement = parse_expression();
@@ -1054,6 +1117,7 @@ Expr* rcc_parse_cxx_requires_expression(void) {
     {
         Expr* result = expr_cxx_requires(requirements, loc);
         result->cxx_requires_params = parameters;
+        result->cxx_requires_types = type_requirements;
         return result;
     }
 }
@@ -4235,6 +4299,22 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
 
             if (match(TOK_USING)) {
                 SourceLoc using_loc = previous()->loc;
+                if (check(TOK_IDENT) && parser.cur->next &&
+                    parser.cur->next->type == TOK_ASSIGN) {
+                    const char* alias_name = advance()->value.str_val;
+                    Type* alias_type;
+                    advance();
+                    alias_type = parse_cxx_type_spec();
+                    if (!alias_type) {
+                        rcc_error(using_loc,
+                                  "nested type alias requires a type");
+                    } else {
+                        cxx_class_add_type_alias(cls, alias_name, alias_type,
+                                                 current_access);
+                    }
+                    expect(TOK_SEMICOLON, ";");
+                    continue;
+                }
                 const char* qualified = parse_qualified_name();
                 const char* separator = qualified
                     ? strrchr(qualified, ':') : NULL;
@@ -6295,6 +6375,28 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     Expr* array_bound;
     int parameter_index;
     if (!type) return NULL;
+    if (type->cxx_dependent && type->cxx_dependent_member_name &&
+        type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < argument_count &&
+        arguments[type->cxx_template_param_index]) {
+        Type* owner = arguments[type->cxx_template_param_index];
+        CxxTypeAlias* alias = owner->cxx_class
+            ? cxx_class_find_type_alias(owner->cxx_class,
+                                        type->cxx_dependent_member_name)
+            : NULL;
+        if (alias && alias->access == ACCESS_PUBLIC) {
+            return substitute_template_type(
+                tmpl, alias->type, arguments, argument_count,
+                value_args, value_present);
+        }
+        {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_class = owner->cxx_class;
+            unresolved->cxx_template_param_index = -1;
+            return unresolved;
+        }
+    }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0) {
         Type* template_argument;
@@ -6769,6 +6871,14 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             tmpl->params[pack_index].kind == TPARAM_NONTYPE
                 ? (bool*)value_present + pack_index : NULL;
         tmpl->pending_pack_count = argument_count - pack_index;
+    }
+    for (CxxTypeAlias* alias = definition->type_aliases; alias;
+         alias = alias->next) {
+        cxx_class_add_type_alias(
+            instance, alias->name,
+            substitute_template_type(tmpl, alias->type, arguments,
+                                     argument_count, value_args, value_present),
+            alias->access);
     }
     for (TypeParam* field = definition->fields; field; field = field->next) {
     cxx_class_add_field_initializer(

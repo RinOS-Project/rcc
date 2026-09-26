@@ -17,6 +17,7 @@ typedef struct CxxConstructorInfo CxxConstructorInfo;
 typedef struct CxxConstructorInitializer CxxConstructorInitializer;
 typedef struct CxxVtableEntry CxxVtableEntry;
 typedef struct CxxSecondaryVtable CxxSecondaryVtable;
+typedef struct CxxTypeAlias CxxTypeAlias;
 
 typedef struct CxxVirtualBaseInfo {
     CxxClass* base;
@@ -30,6 +31,13 @@ typedef enum {
     ACCESS_PROTECTED,
     ACCESS_PRIVATE
 } AccessSpec;
+
+struct CxxTypeAlias {
+    const char* name;
+    Type* type;
+    AccessSpec access;
+    CxxTypeAlias* next;
+};
 
 /* Constructor facts retained until all class fields are known.  Only the
  * deliberately small, ABI-transparent subset accepted by parser_cxx.c is
@@ -136,6 +144,9 @@ struct CxxClass {
 
     /* Fields list (TypeParam*) for struct compatibility */
     TypeParam* fields;
+    /* Nested `using Name = Type;` declarations used by dependent type
+     * requirements and ordinary qualified type lookup. */
+    CxxTypeAlias* type_aliases;
 
     /* Namespace context */
     CxxNamespace* ns;
@@ -341,6 +352,9 @@ void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bo
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name);
 void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name);
+void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
+                              AccessSpec access);
+CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name);
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static);
 void cxx_class_compute_layout(CxxClass* cls);
 bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,

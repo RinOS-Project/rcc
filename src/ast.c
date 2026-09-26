@@ -718,6 +718,8 @@ Expr* expr_cxx_requires(ExprList* requirements, SourceLoc loc) {
     e->kind = EXPR_CXX_REQUIRES;
     e->loc = loc;
     e->cxx_requires_items = requirements;
+    e->cxx_requires_params = NULL;
+    e->cxx_requires_types = NULL;
     e->type = NULL;
     return e;
 }

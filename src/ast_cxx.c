@@ -745,6 +745,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->align = 1;
     cls->pack_alignment = 0;
     cls->fields = NULL;
+    cls->type_aliases = NULL;
     cls->ns = NULL;
     cls->templ = NULL;
     cls->template_args = NULL;
@@ -1640,6 +1641,28 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     int index;
 
     if (!type) return NULL;
+    if (type->cxx_dependent && type->cxx_dependent_member_name &&
+        type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < arg_count &&
+        args[type->cxx_template_param_index]) {
+        Type* owner = args[type->cxx_template_param_index];
+        CxxTypeAlias* alias = owner->cxx_class
+            ? cxx_class_find_type_alias(owner->cxx_class,
+                                        type->cxx_dependent_member_name)
+            : NULL;
+        if (alias && alias->access == ACCESS_PUBLIC) {
+            return template_substitute_type(
+                tmpl, alias->type, args, arg_count, value_args,
+                value_present);
+        }
+        {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_class = owner->cxx_class;
+            unresolved->cxx_template_param_index = -1;
+            return unresolved;
+        }
+    }
     index = template_type_parameter_index(tmpl, type);
     if (index >= 0 && index < arg_count && args[index]) {
         replacement = args[index];
@@ -2581,6 +2604,22 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     tail = &parameter_copy->next;
                 }
             }
+            copy->cxx_requires_types = NULL;
+            {
+                TypeList** tail = &copy->cxx_requires_types;
+                for (TypeList* requirement = expression->cxx_requires_types;
+                     requirement; requirement = requirement->next) {
+                    TypeList* requirement_copy = ast_arena_alloc(
+                        sizeof(*requirement_copy));
+                    requirement_copy->type = template_substitute_type(
+                        tmpl, requirement->type, args, arg_count,
+                        value_args, value_present);
+                    requirement_copy->loc = requirement->loc;
+                    requirement_copy->next = NULL;
+                    *tail = requirement_copy;
+                    tail = &requirement_copy->next;
+                }
+            }
             break;
         case EXPR_VA_START:
         case EXPR_VA_END:
@@ -3314,6 +3353,37 @@ void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name) {
         sizeof(cls->friend_class_names[0]) *
             (size_t)(cls->friend_class_count + 1));
     cls->friend_class_names[cls->friend_class_count++] = rcc_intern(friend_name);
+}
+
+void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
+                              AccessSpec access) {
+    CxxTypeAlias* alias;
+    CxxTypeAlias** tail;
+    if (!cls || !name || !*name || !type) return;
+    alias = ast_arena_alloc(sizeof(*alias));
+    alias->name = rcc_intern(name);
+    alias->type = type;
+    alias->access = access;
+    alias->next = NULL;
+    tail = &cls->type_aliases;
+    while (*tail) {
+        if (strcmp((*tail)->name, alias->name) == 0) {
+            rcc_error((SourceLoc){"<class>", 0, 0},
+                      "duplicate nested type alias '%s'", name);
+            return;
+        }
+        tail = &(*tail)->next;
+    }
+    *tail = alias;
+}
+
+CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name) {
+    if (!cls || !name) return NULL;
+    for (CxxTypeAlias* alias = cls->type_aliases; alias;
+         alias = alias->next) {
+        if (strcmp(alias->name, name) == 0) return alias;
+    }
+    return NULL;
 }
 
 /* Add field to class */

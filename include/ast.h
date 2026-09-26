@@ -14,6 +14,7 @@ typedef struct Expr Expr;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
 typedef struct DeclList DeclList;
+typedef struct TypeList TypeList;
 typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
@@ -145,6 +146,10 @@ struct Type {
     uint32_t cxx_constructor_arity_mask;
     struct CxxTemplate* cxx_template;
     int cxx_template_param_index;
+    /* Dependent nested type name such as `T::value_type`.  The owner
+     * parameter is identified by cxx_template_param_index and is resolved
+     * only after template substitution. */
+    const char* cxx_dependent_member_name;
     Type** cxx_template_args;
     int cxx_template_arg_count;
     /* Fully qualified namespace owning a C++ class type, or NULL for the
@@ -390,6 +395,12 @@ typedef struct ExprList {
     struct ExprList* next;
 } ExprList;
 
+typedef struct TypeList {
+    Type* type;
+    SourceLoc loc;
+    struct TypeList* next;
+} TypeList;
+
 struct GenericAssociation {
     Type* type;                 /* NULL for default */
     Expr* expr;
@@ -608,6 +619,7 @@ struct Expr {
         struct {
             ExprList* cxx_requires_items;
             DeclList* cxx_requires_params;
+            TypeList* cxx_requires_types;
         };
 
         /* EXPR_VA_START/END/COPY/ARG */

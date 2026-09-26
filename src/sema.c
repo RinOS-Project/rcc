@@ -8332,6 +8332,41 @@ static Type* sema_expr(Expr* expr) {
                                     SYM_PARAM, parameter->decl->type,
                                     parameter->decl->loc);
             }
+            for (TypeList* requirement = expr->cxx_requires_types;
+                 requirement; requirement = requirement->next) {
+                int suppressed_before = g_suppressed_error_count;
+                bool suppress_before = g_suppress_errors;
+                CxxTypeAlias* alias = NULL;
+                g_suppress_errors = true;
+                if (!requirement->type) {
+                    rcc_error(requirement->loc,
+                              "requires-expression type requirement is unresolved");
+                } else if (requirement->type->cxx_dependent_member_name) {
+                    if (requirement->type->cxx_class) {
+                        for (CxxTypeAlias* candidate =
+                                 requirement->type->cxx_class->type_aliases;
+                             candidate; candidate = candidate->next) {
+                            if (strcmp(candidate->name,
+                                       requirement->type
+                                           ->cxx_dependent_member_name) == 0) {
+                                alias = candidate;
+                                break;
+                            }
+                        }
+                    }
+                    if (!alias || alias->access != ACCESS_PUBLIC) {
+                        rcc_error(requirement->loc,
+                                  "requires-expression type requirement names an unresolved or non-public type");
+                    }
+                } else if (requirement->type->cxx_dependent) {
+                    rcc_error(requirement->loc,
+                              "requires-expression type requirement remains dependent");
+                }
+                g_suppress_errors = suppress_before;
+                if (g_suppressed_error_count != suppressed_before) {
+                    valid = false;
+                }
+            }
             for (ExprList* requirement = expr->cxx_requires_items;
                  requirement; requirement = requirement->next) {
                 int suppressed_before = g_suppressed_error_count;
