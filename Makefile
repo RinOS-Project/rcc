@@ -2200,7 +2200,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 	fi
 	grep -q "const auto&& range variable cannot bind to an array lvalue" \
 		$(TEST_OUT)/cxx-range-for/invalid.log
-	@echo "C++ array range-for tests completed"
+	@echo "C++ array-lvalue range-for tests completed"
 
 test-cxx-designated-initializer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-designated-initializer)

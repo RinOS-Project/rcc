@@ -52,4 +52,22 @@ extern "C" {
         }
         return values[0] + values[1] + values[2];
     }
+
+    int probe_range_for_array_member(void) {
+        struct Holder { int values[2]; } holder = {{ 7, 8 }};
+        int total = 0;
+        for (auto value : holder.values) {
+            total += value;
+        }
+        return total;
+    }
+
+    int probe_range_for_indexed_array(void) {
+        int matrix[2][2] = {{ 1, 2 }, { 4, 8 }};
+        int total = 0;
+        for (auto value : matrix[1]) {
+            total += value;
+        }
+        return total;
+    }
 }

@@ -8831,11 +8831,17 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     Expr* count_expression;
     Expr* condition;
     Expr* increment;
+    Expr* range_storage;
     Decl* index_decl;
+    Decl* range_decl = NULL;
     Decl* item_decl;
     Stmt* original_body;
+    Stmt* loop;
+    StmtList* outer_statements = NULL;
     StmtList* body_statements = NULL;
     char index_name[64];
+    char range_name[64];
+    unsigned range_id;
     int written;
 
     if (!cxx_range_for_header()) return NULL;
@@ -8871,16 +8877,15 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     expect(TOK_COLON, ":");
     range = parse_cxx_expression();
     expect(TOK_RPAREN, ")");
-    if (!range || range->kind != EXPR_IDENT) {
+    range_type = cxx_parser_expression_type(range);
+    if (!range) {
         rcc_error(loc,
-                  "RinOS range-for currently requires an array identifier range");
+                  "RinOS range-for requires an array lvalue range expression");
+    } else if (!range_type || range_type->kind != TYPE_ARRAY ||
+               range_type->array_len < 0 || !range_type->base) {
+        rcc_error(loc,
+                  "RinOS range-for requires a complete array lvalue range expression");
     } else {
-        range_type = cxx_parser_value_type(range->ident_name);
-        if (!range_type || range_type->kind != TYPE_ARRAY ||
-            range_type->array_len < 0 || !range_type->base) {
-            rcc_error(range->loc,
-                      "RinOS range-for requires a complete array identifier range");
-        }
         if (auto_reference && range_type && range_type->base) {
             if (auto_rvalue_reference && auto_const) {
                 rcc_error(loc,
@@ -8898,8 +8903,24 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
         }
     }
 
+    range_storage = range;
+    range_id = ++cxx_range_for_counter;
+    if (range_type && range_type->kind == TYPE_ARRAY &&
+        range_type->array_len >= 0 && range_type->base) {
+        written = snprintf(range_name, sizeof(range_name),
+                           "__rcc_range_base_%u", range_id);
+        if (written < 0 || (size_t)written >= sizeof(range_name)) {
+            rcc_error(loc, "range-for storage name exceeds compiler limits");
+            range_name[0] = '\0';
+        }
+        range_decl = decl_var(rcc_intern(range_name), type_ptr(range_type),
+                              expr_unary(EXPR_ADDR, range, loc), loc);
+        range_storage = expr_unary(
+            EXPR_DEREF, expr_ident(range_decl->name, loc), loc);
+    }
+
     written = snprintf(index_name, sizeof(index_name),
-                       "__rcc_range_index_%u", ++cxx_range_for_counter);
+                       "__rcc_range_index_%u", range_id);
     if (written < 0 || (size_t)written >= sizeof(index_name)) {
         rcc_error(loc, "range-for index name exceeds compiler limits");
         index_name[0] = '\0';
@@ -8907,7 +8928,7 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     index_decl = decl_var(rcc_intern(index_name), type_int,
                           expr_int(0, loc), loc);
     index_expression = expr_ident(index_decl->name, loc);
-    element_expression = expr_index(range, index_expression, loc);
+    element_expression = expr_index(range_storage, index_expression, loc);
     item_decl = decl_var(item_name ? item_name : rcc_intern("__rcc_range_item"),
                          item_type, element_expression, loc);
     item_decl->var_is_auto = is_auto && !auto_reference;
@@ -8915,8 +8936,9 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
                                      item_type ? item_type : type_int);
 
     count_expression = expr_binary(
-        EXPR_DIV, expr_sizeof_expr(range, loc),
-        expr_sizeof_expr(expr_index(range, expr_int(0, loc), loc), loc), loc);
+        EXPR_DIV, expr_sizeof_expr(range_storage, loc),
+        expr_sizeof_expr(expr_index(range_storage, expr_int(0, loc), loc), loc),
+        loc);
     condition = expr_binary(EXPR_LT, expr_ident(index_decl->name, loc),
                             count_expression, loc);
     increment = expr_unary(EXPR_PREINC,
@@ -8925,8 +8947,12 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
     original_body = parse_cxx_statement();
     stmtlist_append(&body_statements, stmt_decl(item_decl, loc));
     if (original_body) stmtlist_append(&body_statements, original_body);
-    return stmt_for(stmt_decl(index_decl, loc), condition, increment,
+    loop = stmt_for(stmt_decl(index_decl, loc), condition, increment,
                     stmt_block(body_statements, loc), loc);
+    if (!range_decl) return loop;
+    stmtlist_append(&outer_statements, stmt_decl(range_decl, loc));
+    stmtlist_append(&outer_statements, loop);
+    return stmt_block(outer_statements, loc);
 }
 
 static Stmt* parse_cxx_dependent_local_declaration(void) {
