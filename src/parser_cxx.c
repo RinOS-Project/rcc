@@ -904,12 +904,15 @@ static bool check_next(TokenType type) {
     return parser.cur->next && parser.cur->next->type == type;
 }
 
+static bool pending_cxx_nodiscard;
+
 /* C++ attributes are metadata at this stage.  Consume complete [[...]]
  * groups so they cannot be mistaken for array declarators. */
 static void skip_cxx_attributes(void) {
     while (check(TOK_LBRACKET) && check_next(TOK_LBRACKET)) {
         SourceLoc loc = peek()->loc;
         int depth = 1;
+        bool group_nodiscard = false;
         advance();
         advance();
         while (depth > 0 && !at_end()) {
@@ -922,6 +925,10 @@ static void skip_cxx_attributes(void) {
                 advance();
                 depth--;
             } else {
+                if (depth == 1 && check(TOK_IDENT) &&
+                    strcmp(peek()->value.str_val, "nodiscard") == 0) {
+                    group_nodiscard = true;
+                }
                 advance();
             }
         }
@@ -929,7 +936,14 @@ static void skip_cxx_attributes(void) {
             rcc_error(loc, "unterminated C++ attribute specifier");
             return;
         }
+        if (group_nodiscard) pending_cxx_nodiscard = true;
     }
+}
+
+static bool take_cxx_nodiscard(void) {
+    bool result = pending_cxx_nodiscard;
+    pending_cxx_nodiscard = false;
+    return result;
 }
 
 static void skip_balanced(TokenType open, TokenType close) {
@@ -3722,6 +3736,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
 
     skip_cxx_attributes();
+    bool is_nodiscard = take_cxx_nodiscard();
 
     bool is_virtual = false;
     bool is_static = false;
@@ -3925,6 +3940,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_constexpr = is_constexpr;
         method->decl->func_is_constexpr = is_constexpr;
         method->decl->func_is_consteval = is_consteval;
+        method->decl->func_is_nodiscard = is_nodiscard;
         method->is_explicit = is_explicit;
         method->is_const = is_const;
         method->is_override = is_override;
@@ -4291,7 +4307,15 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
                                       Decl* declaration) {
     const char* qualified_name;
 
-    if (!declaration) return;
+    if (!declaration) {
+        (void)take_cxx_nodiscard();
+        return;
+    }
+    if (declaration->kind == DECL_FUNC && take_cxx_nodiscard()) {
+        declaration->func_is_nodiscard = true;
+    } else if (declaration->kind != DECL_FUNC) {
+        (void)take_cxx_nodiscard();
+    }
     set_cxx_link_name(declaration, ns, false);
     if (declaration->kind == DECL_FUNC && ns) {
         declaration->func_cxx_namespace = cxx_namespace_qualified_name(ns);
@@ -4555,6 +4579,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
             rcc_parser_apply_pragma_pack(previous());
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
+            (void)take_cxx_nodiscard();
             cxx_namespace_add_class(ns, cls);
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
@@ -5154,6 +5179,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     *is_noexcept = false;
     *is_consteval = false;
     skip_cxx_attributes();
+    bool is_nodiscard = take_cxx_nodiscard();
     loc = peek()->loc;
     for (;;) {
         if (match(TOK_CONSTEXPR)) *is_constexpr = true;
@@ -5243,6 +5269,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     function->decl->func_is_inline = is_inline;
     function->decl->func_is_constexpr = *is_constexpr;
     function->decl->func_is_consteval = *is_consteval;
+    function->decl->func_is_nodiscard = is_nodiscard;
     function->decl->func_is_noexcept = *is_noexcept;
     function->decl->func_noexcept_expr = noexcept_expr;
     function->decl->func_is_auto_return = is_auto_return;
@@ -9701,8 +9728,15 @@ Stmt* rcc_parse_cxx_statement(void) {
 static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage) {
     if (statement && statement->kind == STMT_DECL) {
+        if (statement->decl->kind == DECL_FUNC && take_cxx_nodiscard()) {
+            statement->decl->func_is_nodiscard = true;
+        } else if (statement->decl->kind != DECL_FUNC) {
+            (void)take_cxx_nodiscard();
+        }
         set_cxx_link_name(statement->decl, NULL, c_language_linkage);
         ast_add_decl(ast, statement->decl);
+    } else {
+        (void)take_cxx_nodiscard();
     }
 }
 
@@ -9774,6 +9808,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     rcc_parser_set_cxx_mode(true);
     parser.cur = tokens->head;
     parser.prev = NULL;
+    pending_cxx_nodiscard = false;
 
     AST* ast = ast_new();
     active_ast = ast;
@@ -9801,6 +9836,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             }
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
+            (void)take_cxx_nodiscard();
             /* Class is stored in global namespace */
             if (g_global_namespace) {
                 cxx_namespace_add_class(g_global_namespace, cls);

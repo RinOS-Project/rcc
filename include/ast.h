@@ -923,6 +923,7 @@ struct Decl {
             bool func_is_constexpr;
             bool func_is_consteval;
             bool func_is_noreturn;
+            bool func_is_nodiscard;
             bool func_is_noexcept;
             Expr* func_noexcept_expr;
             bool func_is_auto_return;

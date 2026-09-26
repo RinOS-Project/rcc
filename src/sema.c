@@ -9618,6 +9618,37 @@ static Type* sema_expr(Expr* expr) {
  * Statement Semantic Analysis
  * ═══════════════════════════════════════ */
 
+static Decl* sema_nodiscard_call_decl(const Expr* expression) {
+    if (!expression || expression->kind != EXPR_CALL) return NULL;
+    if (expression->call_method) {
+        if (expression->call_method->source_decl &&
+            expression->call_method->source_decl->kind == DECL_FUNC) {
+            return expression->call_method->source_decl;
+        }
+        if (expression->call_method->function_decl &&
+            expression->call_method->function_decl->kind == DECL_FUNC) {
+            return expression->call_method->function_decl;
+        }
+    }
+    if (expression->call_func && expression->call_func->ident_decl &&
+        expression->call_func->ident_decl->kind == DECL_FUNC) {
+        return expression->call_func->ident_decl;
+    }
+    return NULL;
+}
+
+static void sema_warn_discarded_nodiscard(const Expr* expression) {
+    Decl* declaration = sema_nodiscard_call_decl(expression);
+    if (!declaration || !declaration->func_is_nodiscard ||
+        !declaration->type || declaration->type->kind != TYPE_FUNC ||
+        declaration->type->ret_type == type_void) {
+        return;
+    }
+    rcc_warning(expression->loc,
+                "ignoring return value of nodiscard function '%s'",
+                declaration->name ? declaration->name : "<function>");
+}
+
 static void sema_stmt(Stmt* stmt) {
     if (!stmt) return;
 
@@ -9625,6 +9656,9 @@ static void sema_stmt(Stmt* stmt) {
         case STMT_EXPR:
             if (stmt->expr) {
                 sema_expr(stmt->expr);
+                if (stmt->expr->kind == EXPR_CALL) {
+                    sema_warn_discarded_nodiscard(stmt->expr);
+                }
             }
             break;
 
