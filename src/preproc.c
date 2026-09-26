@@ -4,10 +4,12 @@
  */
 
 #include "preproc.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 /* Output buffer for preprocessed source */
 typedef struct {
@@ -58,6 +60,90 @@ static const char* buf_append_quoted_token(PPBuffer* buffer,
     return input;
 }
 
+static void pp_report_builtin_error(const char* message, const char* value) {
+    rcc_error((SourceLoc){"<preprocessor>", 0, 0}, message, value);
+}
+
+static bool pp_get_build_timestamp(time_t* timestamp) {
+    const char* source_date_epoch = getenv("SOURCE_DATE_EPOCH");
+
+    if (!source_date_epoch || !source_date_epoch[0]) {
+        time_t now = time(NULL);
+        if (now == (time_t)-1) {
+            rcc_error((SourceLoc){"<preprocessor>", 0, 0},
+                      "cannot determine the current time for __DATE__/__TIME__");
+            return false;
+        }
+        *timestamp = now;
+        return true;
+    }
+
+    char* end = NULL;
+    errno = 0;
+    long long seconds = strtoll(source_date_epoch, &end, 10);
+    if (errno == ERANGE || end == source_date_epoch || *end != '\0' ||
+        seconds < 0) {
+        pp_report_builtin_error("invalid SOURCE_DATE_EPOCH value '%s'", source_date_epoch);
+        return false;
+    }
+
+    time_t converted = (time_t)seconds;
+    if ((long long)converted != seconds) {
+        pp_report_builtin_error("SOURCE_DATE_EPOCH value '%s' is outside the host time_t range",
+                                source_date_epoch);
+        return false;
+    }
+    *timestamp = converted;
+    return true;
+}
+
+static bool pp_build_date_time_literals(char date_literal[12],
+                                        char time_literal[9]) {
+    static const char* months[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+    const char* source_date_epoch = getenv("SOURCE_DATE_EPOCH");
+    time_t timestamp;
+    struct tm* broken_down;
+    int year;
+    int date_length;
+    int time_length;
+
+    if (!pp_get_build_timestamp(&timestamp)) return false;
+    broken_down = (source_date_epoch && source_date_epoch[0])
+        ? gmtime(&timestamp) : localtime(&timestamp);
+    if (!broken_down) {
+        rcc_error((SourceLoc){"<preprocessor>", 0, 0},
+                  "cannot convert the build timestamp for __DATE__/__TIME__");
+        return false;
+    }
+    if (broken_down->tm_mon < 0 || broken_down->tm_mon >= 12 ||
+        broken_down->tm_mday < 1 || broken_down->tm_mday > 31 ||
+        broken_down->tm_hour < 0 || broken_down->tm_hour > 23 ||
+        broken_down->tm_min < 0 || broken_down->tm_min > 59 ||
+        broken_down->tm_sec < 0 || broken_down->tm_sec > 60 ||
+        broken_down->tm_year < -1900 || broken_down->tm_year > 8099) {
+        rcc_error((SourceLoc){"<preprocessor>", 0, 0},
+                  "host returned an invalid build timestamp for __DATE__/__TIME__");
+        return false;
+    }
+
+    year = broken_down->tm_year + 1900;
+    date_length = snprintf(date_literal, 12, "%.3s %2d %04d",
+                           months[broken_down->tm_mon],
+                           broken_down->tm_mday, year);
+    time_length = snprintf(time_literal, 9, "%02d:%02d:%02d",
+                           broken_down->tm_hour, broken_down->tm_min,
+                           broken_down->tm_sec);
+    if (date_length != 11 || time_length != 8) {
+        rcc_error((SourceLoc){"<preprocessor>", 0, 0},
+                  "cannot format the build timestamp for __DATE__/__TIME__");
+        return false;
+    }
+    return true;
+}
+
 /* Create new preprocessor */
 Preprocessor* pp_new(void) {
     Preprocessor* pp = rcc_alloc(sizeof(Preprocessor));
@@ -76,6 +162,16 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__RINOS__", "1");
     pp_define(pp, "__STDC__", "1");
     pp_define(pp, "__STDC_VERSION__", "201710L");
+    char date_literal[12];
+    char time_literal[9];
+    if (pp_build_date_time_literals(date_literal, time_literal)) {
+        char date_macro[14];
+        char time_macro[11];
+        snprintf(date_macro, sizeof(date_macro), "\"%s\"", date_literal);
+        snprintf(time_macro, sizeof(time_macro), "\"%s\"", time_literal);
+        pp_define(pp, "__DATE__", date_macro);
+        pp_define(pp, "__TIME__", time_macro);
+    }
     pp_define(pp, "__ATOMIC_RELAXED", "0");
     pp_define(pp, "__ATOMIC_CONSUME", "1");
     pp_define(pp, "__ATOMIC_ACQUIRE", "2");

@@ -186,7 +186,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
-.PHONY: test-preprocessor-line
+.PHONY: test-preprocessor-line test-preprocessor-date-time
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
@@ -194,6 +194,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-cxx-predefined-function-identifiers \
+	test-preprocessor-date-time \
 	test-preprocessor-include \
 	test-preprocessor-line-macro \
 	test-multiple-inputs \
@@ -423,6 +424,42 @@ test-cxx-predefined-function-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -q "__func__ is only valid within a function body" \
 		$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log
 	@echo "C/C++ predefined function identifier tests completed"
+
+test-preprocessor-date-time: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/preprocessor-date-time)
+	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) -E tests/preprocessor_date_time.c > \
+		$(TEST_OUT)/preprocessor-date-time/c.i
+	grep -F -q 'const char rcc_preprocessor_date[] = "Jan  1 1970";' \
+		$(TEST_OUT)/preprocessor-date-time/c.i
+	grep -F -q 'const char rcc_preprocessor_time[] = "00:00:00";' \
+		$(TEST_OUT)/preprocessor-date-time/c.i
+	SOURCE_DATE_EPOCH=0 $(RCXX_TARGET) -std=c++20 -E \
+		tests/preprocessor_date_time.cpp > \
+		$(TEST_OUT)/preprocessor-date-time/cxx.i
+	grep -F -q 'const char rcc_cpp_preprocessor_date[] = "Jan  1 1970";' \
+		$(TEST_OUT)/preprocessor-date-time/cxx.i
+	grep -F -q 'const char rcc_cpp_preprocessor_time[] = "00:00:00";' \
+		$(TEST_OUT)/preprocessor-date-time/cxx.i
+	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-date-time/c-x86.ro \
+		tests/preprocessor_date_time.c
+	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-date-time/c-x64.ro \
+		tests/preprocessor_date_time.c
+	SOURCE_DATE_EPOCH=0 $(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/preprocessor-date-time/cxx-x86.ro \
+		tests/preprocessor_date_time.cpp
+	SOURCE_DATE_EPOCH=0 $(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/preprocessor-date-time/cxx-x64.ro \
+		tests/preprocessor_date_time.cpp
+	if SOURCE_DATE_EPOCH=not-a-timestamp $(RCC_TARGET) -E \
+		 tests/preprocessor_date_time.c \
+		 >$(TEST_OUT)/preprocessor-date-time/invalid.log 2>&1; then \
+		exit 1; \
+	fi
+	grep -F -q "invalid SOURCE_DATE_EPOCH value 'not-a-timestamp'" \
+		$(TEST_OUT)/preprocessor-date-time/invalid.log
+	@echo "C17/C++20 __DATE__/__TIME__ tests completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
 	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
