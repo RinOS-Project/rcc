@@ -105,6 +105,7 @@ typedef enum {
     TOK_CONSTEVAL,      /* consteval */
     TOK_CONSTINIT,      /* constinit */
     TOK_DECLTYPE,       /* decltype */
+    TOK_CONCEPT,        /* concept */
     TOK_REQUIRES,       /* requires */
     TOK_NOEXCEPT,       /* noexcept */
     TOK_STATIC_CAST,    /* static_cast */

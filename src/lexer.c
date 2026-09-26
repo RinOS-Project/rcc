@@ -115,6 +115,7 @@ static struct {
     {"consteval", TOK_CONSTEVAL},
     {"constinit", TOK_CONSTINIT},
     {"decltype", TOK_DECLTYPE},
+    {"concept", TOK_CONCEPT},
     {"alignas", TOK__ALIGNAS},
     {"alignof", TOK__ALIGNOF},
     {"requires", TOK_REQUIRES},

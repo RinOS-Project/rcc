@@ -261,6 +261,7 @@ struct CxxTemplate {
 
     bool is_constexpr;
     bool is_noexcept;
+    bool is_concept;
     /* A parsed integral requires-clause.  The current frontend accepts
      * constant expressions over non-type template parameters; keeping the
      * expression in the template object lets overload/instantiation code
@@ -464,6 +465,7 @@ Type* rcc_parse_cxx_direct_list_type(void);
 Type* rcc_parse_cxx_type_name(void);
 bool rcc_parse_cxx_type_start(void);
 Expr* rcc_parse_cxx_template_call(void);
+Expr* rcc_parse_cxx_concept_expression(void);
 Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);

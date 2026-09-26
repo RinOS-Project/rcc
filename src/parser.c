@@ -30,6 +30,7 @@ extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_concept_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_dependent_member(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_qualified_template_member(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
@@ -1054,6 +1055,11 @@ static Expr* parse_primary(void) {
     /* A small, structurally validated set of C++ function templates can be
      * expanded directly to the common expression AST.  The hook restores the
      * token cursor when the current spelling is not one of those templates. */
+    if (parser_cxx_mode && rcc_parse_cxx_concept_expression &&
+        (check(TOK_IDENT) || check(TOK_SCOPE))) {
+        Expr* concept_call = rcc_parse_cxx_concept_expression();
+        if (concept_call) return concept_call;
+    }
     if (parser_cxx_mode && rcc_parse_cxx_template_call &&
         (check(TOK_IDENT) || check(TOK_SCOPE))) {
         Expr* template_call = rcc_parse_cxx_template_call();

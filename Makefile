@@ -155,7 +155,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
-.PHONY: test-cxx-requires-expression test-cxx-requires-type
+.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-designated-initializer
@@ -247,6 +247,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-auto-non-type-template \
 	test-cxx-non-type-template-deduction \
 	test-cxx-constraints \
+	test-cxx-named-concepts \
 	test-cxx-operator-overload \
 	test-cxx-member-operator-forms \
 	test-cxx-assignment-operator \
@@ -1478,6 +1479,50 @@ test-cxx-constraints: $(RCXX_TARGET)
 	grep -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-constraints/invalid-x64.log
 	@echo "RCC++ integral template constraint tests completed"
+
+test-cxx-named-concepts: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-named-concepts/x86.s \
+		tests/cxx_named_concepts.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-named-concepts/x86.o \
+		$(TEST_OUT)/cxx-named-concepts/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-named-concepts/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-named-concepts/x86 \
+		$(TEST_OUT)/cxx-named-concepts/start-x86.o \
+		$(TEST_OUT)/cxx-named-concepts/x86.o
+	$(TEST_OUT)/cxx-named-concepts/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-named-concepts/x64.s \
+		tests/cxx_named_concepts.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-named-concepts/x64.o \
+		$(TEST_OUT)/cxx-named-concepts/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-named-concepts/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-named-concepts/x64 \
+		$(TEST_OUT)/cxx-named-concepts/start-x64.o \
+		$(TEST_OUT)/cxx-named-concepts/x64.o
+	$(TEST_OUT)/cxx-named-concepts/x64
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-named-concepts/invalid-x86.ro \
+		tests/cxx_named_concepts_invalid.cpp \
+		>$(TEST_OUT)/cxx-named-concepts/invalid-x86.log 2>&1; then \
+		echo "type named concept unexpectedly compiled on i686"; exit 1; \
+	fi
+	grep -q "named concepts currently require named, non-type integral parameters" \
+		$(TEST_OUT)/cxx-named-concepts/invalid-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-named-concepts/invalid-x64.ro \
+		tests/cxx_named_concepts_invalid.cpp \
+		>$(TEST_OUT)/cxx-named-concepts/invalid-x64.log 2>&1; then \
+		echo "type named concept unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "named concepts currently require named, non-type integral parameters" \
+		$(TEST_OUT)/cxx-named-concepts/invalid-x64.log
+	@echo "RCC++ bounded named concept tests completed"
 
 test-cxx-class-template-methods: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)

@@ -252,6 +252,7 @@ Type* rcc_parse_cxx_direct_list_type(void);
 Type* rcc_parse_cxx_type_name(void);
 bool rcc_parse_cxx_type_start(void);
 Expr* rcc_parse_cxx_template_call(void);
+Expr* rcc_parse_cxx_concept_expression(void);
 Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
@@ -481,6 +482,9 @@ struct Expr {
      * supplies concrete argument types.  The semantic pass replaces the
      * expression with the cached, fully substituted function instance. */
     struct CxxTemplate* cxx_lambda_template;
+    /* A bounded named C++20 concept call is evaluated only while checking a
+     * template constraint; it is never lowered as a runtime function call. */
+    struct CxxTemplate* cxx_concept_template;
     /* C++ `sizeof...(Pack)` is retained until a function-template
      * specialization supplies the pack length. */
     const char* sizeof_pack_name;

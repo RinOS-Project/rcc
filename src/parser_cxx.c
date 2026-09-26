@@ -717,6 +717,8 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
+static CxxTemplate* find_template(const char* qualified_name, int kind);
+static CxxTemplate* find_concept(const char* qualified_name);
 static Type* parse_template_template_default(SourceLoc loc);
 static bool is_active_template_type(const char* name);
 static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
@@ -5875,6 +5877,39 @@ CxxTemplate* parse_cxx_template(void) {
 
     expect(TOK_GT, ">");
 
+    /* The bounded named-concept profile is deliberately limited to integral
+     * predicates so it can reuse the existing constant requires-clause
+     * evaluator.  Type concepts and parameter packs must be diagnosed rather
+     * than accepted as an unconstrained marker. */
+    if (match(TOK_CONCEPT)) {
+        Token* concept_name = expect(TOK_IDENT, "concept name");
+        tmpl->kind = TMPL_FUNCTION;
+        tmpl->is_concept = true;
+        tmpl->name = concept_name ? concept_name->value.str_val : "<concept>";
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind != TPARAM_NONTYPE || parameter->is_pack ||
+                parameter->has_default || !parameter->name) {
+                rcc_error(loc,
+                          "RCC++ named concepts currently require named, "
+                          "non-type integral parameters without packs or defaults");
+            }
+            if (!parameter->type || !type_is_integer(parameter->type)) {
+                rcc_error(loc,
+                          "RCC++ named concepts currently require integral "
+                          "non-type parameters");
+            }
+        }
+        expect(TOK_ASSIGN, "= after concept name");
+        tmpl->constraint = parse_assignment_expression();
+        if (!tmpl->constraint) {
+            rcc_error(loc, "concept definition requires a constraint expression");
+        }
+        expect(TOK_SEMICOLON, "; after concept definition");
+        active_template = parameter_outer_template;
+        return tmpl;
+    }
+
     /* C++20 permits a requires-clause between the template parameter list
      * and the declaration.  Keep the accepted subset deliberately explicit:
      * instantiation evaluates an integral constant expression over non-type
@@ -6087,6 +6122,11 @@ static CxxTemplate* find_class_template(const char* qualified_name) {
     return find_template(qualified_name, TMPL_CLASS);
 }
 
+static CxxTemplate* find_concept(const char* qualified_name) {
+    CxxTemplate* candidate = find_template(qualified_name, TMPL_FUNCTION);
+    return candidate && candidate->is_concept ? candidate : NULL;
+}
+
 static int namespace_function_templates(CxxNamespace* ns, const char* name,
                                         CxxTemplate** results, int capacity) {
     int count = 0;
@@ -6094,6 +6134,7 @@ static int namespace_function_templates(CxxNamespace* ns, const char* name,
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* candidate = ns->templates[index];
         if (!candidate || candidate->kind != TMPL_FUNCTION ||
+            candidate->is_concept ||
             !candidate->name || strcmp(candidate->name, name) != 0) {
             continue;
         }
@@ -6154,6 +6195,56 @@ static int find_function_template_candidates(const char* qualified_name,
         component = next + 2;
     }
     return namespace_function_templates(ns, component, results, capacity);
+}
+
+Expr* rcc_parse_cxx_concept_expression(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    SourceLoc loc = peek()->loc;
+    const char* name;
+    CxxTemplate* concept;
+    ExprList* arguments = NULL;
+    int argument_count = 0;
+
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    name = parse_qualified_name();
+    concept = find_concept(name);
+    if (!concept) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    if (!match(TOK_LT)) {
+        rcc_error(loc, "named concept '%s' requires template arguments", name);
+        return expr_int(0, loc);
+    }
+    if (!check(TOK_GT)) {
+        do {
+            Expr* argument;
+            if (argument_count >= 32) {
+                rcc_error(peek()->loc,
+                          "named concept argument limit exceeded");
+                while (!check(TOK_GT) && !at_end()) advance();
+                break;
+            }
+            rcc_parser_set_cxx_template_default_mode(true);
+            argument = parse_assignment_expression();
+            rcc_parser_set_cxx_template_default_mode(false);
+            exprlist_append(&arguments, argument);
+            ++argument_count;
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, ">");
+    if (argument_count != concept->param_count) {
+        rcc_error(loc,
+                  "named concept '%s' expects %d argument(s), got %d",
+                  name, concept->param_count, argument_count);
+    }
+    {
+        Expr* call = expr_call(expr_ident(name, loc), arguments, loc);
+        call->cxx_concept_template = concept;
+        return call;
+    }
 }
 
 static CxxClass* namespace_class(CxxNamespace* ns, const char* name) {
@@ -7790,6 +7881,32 @@ static bool eval_template_integer_expression(Expr* expression,
             }
         }
         return false;
+    }
+    if (expression->kind == EXPR_CALL && expression->cxx_concept_template) {
+        CxxTemplate* concept = expression->cxx_concept_template;
+        int64_t concept_values[32] = { 0 };
+        bool concept_value_present[32] = { false };
+        ExprList* argument = expression->call_args;
+        if (!concept->is_concept || concept->param_count > 32 ||
+            !concept->constraint) return false;
+        for (int index = 0; index < concept->param_count; ++index) {
+            TemplateParam* parameter = &concept->params[index];
+            if (!argument || parameter->kind != TPARAM_NONTYPE ||
+                !eval_template_integer_expression(
+                    argument->expr, tmpl, values, value_present,
+                    &concept_values[index])) {
+                return false;
+            }
+            concept_value_present[index] = true;
+            argument = argument->next;
+        }
+        if (argument || !eval_template_integer_expression(
+                concept->constraint, concept, concept_values,
+                concept_value_present, result)) {
+            return false;
+        }
+        *result = *result != 0;
+        return true;
     }
     switch (expression->kind) {
         case EXPR_NEG:
