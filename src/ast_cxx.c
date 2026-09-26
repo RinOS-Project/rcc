@@ -957,6 +957,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 field->bit_offset = bitfield_used;
                 field->from_virtual_base = false;
                 field->initializer = f->initializer;
+                field->is_deprecated = f->is_deprecated;
+                field->deprecated_message = f->deprecated_message;
                 field->cxx_access = f->cxx_access;
                 field->next = NULL;
                 *field_tail = field;
@@ -979,6 +981,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->bit_offset = 0u;
         field->from_virtual_base = false;
         field->initializer = f->initializer;
+        field->is_deprecated = f->is_deprecated;
+        field->deprecated_message = f->deprecated_message;
         field->cxx_access = f->cxx_access;
         field->next = NULL;
         *field_tail = field;
@@ -1014,6 +1018,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->bit_offset = base_field->bit_offset;
             field->from_virtual_base = false;
             field->initializer = base_field->initializer;
+            field->is_deprecated = base_field->is_deprecated;
+            field->deprecated_message = base_field->deprecated_message;
             field->cxx_access = access;
             field->next = NULL;
             *field_tail = field;
@@ -1090,6 +1096,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->bit_offset = base_field->bit_offset;
             field->from_virtual_base = true;
             field->initializer = base_field->initializer;
+            field->is_deprecated = base_field->is_deprecated;
+            field->deprecated_message = base_field->deprecated_message;
             field->cxx_access = access;
             field->next = NULL;
             *field_tail = field;
@@ -2965,6 +2973,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                     type_parameter->is_bitfield = false;
                     type_parameter->bit_width = 0u;
                     type_parameter->is_static = false;
+                    type_parameter->initializer = NULL;
+                    type_parameter->is_deprecated = false;
+                    type_parameter->deprecated_message = NULL;
                     type_parameter->cxx_access = ACCESS_PUBLIC;
                     type_parameter->next = NULL;
                     *type_tail = type_parameter;
@@ -2987,6 +2998,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             type_parameter->is_bitfield = false;
             type_parameter->bit_width = 0u;
             type_parameter->is_static = false;
+            type_parameter->initializer = NULL;
+            type_parameter->is_deprecated = false;
+            type_parameter->deprecated_message = NULL;
             type_parameter->cxx_access = ACCESS_PUBLIC;
             type_parameter->next = NULL;
             *type_tail = type_parameter;
@@ -3010,6 +3024,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_consteval = definition->func_is_consteval;
         instance->func_is_noreturn = definition->func_is_noreturn;
         instance->func_is_nodiscard = definition->func_is_nodiscard;
+        instance->func_is_deprecated = definition->func_is_deprecated;
+        instance->func_deprecated_message =
+            definition->func_deprecated_message;
         instance->func_is_noexcept = definition->func_is_noexcept;
         instance->func_noexcept_expr = template_clone_expr(
             tmpl, definition->func_noexcept_expr, args, arg_count,
@@ -3284,7 +3301,9 @@ void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name) {
 void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Type* type, AccessSpec access,
                                      Expr* initializer, bool is_bitfield,
-                                     unsigned bit_width, bool is_static) {
+                                     unsigned bit_width, bool is_static,
+                                     bool is_deprecated,
+                                     const char* deprecated_message) {
     /* Create field as TypeParam (reusing existing structure) */
     TypeParam* field = rcc_alloc(sizeof(TypeParam));
     field->name = name ? rcc_strdup(name) : NULL;
@@ -3293,6 +3312,8 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
     field->bit_width = bit_width;
     field->is_static = is_static;
     field->initializer = initializer;
+    field->is_deprecated = is_deprecated;
+    field->deprecated_message = deprecated_message;
     field->cxx_access = (unsigned char)access;
     field->next = NULL;
 
@@ -3309,7 +3330,7 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
 void cxx_class_add_field(CxxClass* cls, const char* name, Type* type,
                          AccessSpec access) {
     cxx_class_add_field_initializer(
-        cls, name, type, access, NULL, false, 0u, false);
+        cls, name, type, access, NULL, false, 0u, false, false, NULL);
 }
 
 /* Add method to class */
@@ -3354,6 +3375,9 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
         tp->is_bitfield = false;
         tp->bit_width = 0u;
         tp->is_static = false;
+        tp->initializer = NULL;
+        tp->is_deprecated = false;
+        tp->deprecated_message = NULL;
         tp->cxx_access = ACCESS_PUBLIC;
         tp->next = NULL;
         *parameter_tail = tp;

@@ -8100,6 +8100,22 @@ static Type* sema_expr(Expr* expr) {
             if (expr->ident_decl &&
                 (expr->ident_decl->kind == DECL_VAR ||
                  expr->ident_decl->kind == DECL_PARAM)) {
+                if (expr->ident_decl->kind == DECL_VAR &&
+                    expr->ident_decl->var_is_deprecated) {
+                    if (expr->ident_decl->var_deprecated_message &&
+                        *expr->ident_decl->var_deprecated_message) {
+                        rcc_warning(expr->loc,
+                                    "use of deprecated variable '%s': %s",
+                                    expr->ident_decl->name
+                                        ? expr->ident_decl->name : "<variable>",
+                                    expr->ident_decl->var_deprecated_message);
+                    } else {
+                        rcc_warning(expr->loc,
+                                    "use of deprecated variable '%s'",
+                                    expr->ident_decl->name
+                                        ? expr->ident_decl->name : "<variable>");
+                    }
+                }
                 expr->type = expr->ident_decl->type &&
                     expr->ident_decl->type->is_reference
                     ? expr->ident_decl->type->base
@@ -8168,6 +8184,22 @@ static Type* sema_expr(Expr* expr) {
                 expr->ident_decl = sym->decl;
                 expr->type = sym->type && sym->type->is_reference
                     ? sym->type->base : sym->type;
+                if (sym->decl && sym->decl->kind == DECL_VAR &&
+                    sym->decl->var_is_deprecated) {
+                    if (sym->decl->var_deprecated_message &&
+                        *sym->decl->var_deprecated_message) {
+                        rcc_warning(expr->loc,
+                                    "use of deprecated variable '%s': %s",
+                                    sym->decl->name ? sym->decl->name
+                                                    : "<variable>",
+                                    sym->decl->var_deprecated_message);
+                    } else {
+                        rcc_warning(expr->loc,
+                                    "use of deprecated variable '%s'",
+                                    sym->decl->name ? sym->decl->name
+                                                    : "<variable>");
+                    }
+                }
                 if (sym->kind == SYM_FUNC && sym->decl &&
                     sym->decl->func_overload_next) {
                     rcc_error(expr->loc,
@@ -9275,6 +9307,25 @@ static Type* sema_expr(Expr* expr) {
                             method->source_decl->func_is_noexcept;
                     }
                     expr->cxx_call_is_noexcept = method->is_noexcept;
+                    if (method->source_decl &&
+                        method->source_decl->func_is_deprecated) {
+                        if (method->source_decl->func_deprecated_message &&
+                            *method->source_decl->func_deprecated_message) {
+                            rcc_warning(expr->loc,
+                                        "use of deprecated function '%s': %s",
+                                        method->source_decl->name
+                                            ? method->source_decl->name
+                                            : "<function>",
+                                        method->source_decl
+                                            ->func_deprecated_message);
+                        } else {
+                            rcc_warning(expr->loc,
+                                        "use of deprecated function '%s'",
+                                        method->source_decl->name
+                                            ? method->source_decl->name
+                                            : "<function>");
+                        }
+                    }
                     if (method->kind == TYPE_METHOD_FIELD_CLOSE) {
                         sema_prepare_cxx_close_call(expr, method,
                                                     member->member_base);
@@ -9425,6 +9476,21 @@ static Type* sema_expr(Expr* expr) {
                 expr->call_func->ident_decl &&
                 expr->call_func->ident_decl->kind == DECL_FUNC) {
                 call_declaration = expr->call_func->ident_decl;
+            }
+            if (call_declaration && call_declaration->func_is_deprecated) {
+                if (call_declaration->func_deprecated_message &&
+                    *call_declaration->func_deprecated_message) {
+                    rcc_warning(expr->loc,
+                                "use of deprecated function '%s': %s",
+                                call_declaration->name
+                                    ? call_declaration->name : "<function>",
+                                call_declaration->func_deprecated_message);
+                } else {
+                    rcc_warning(expr->loc,
+                                "use of deprecated function '%s'",
+                                call_declaration->name
+                                    ? call_declaration->name : "<function>");
+                }
             }
             expr->cxx_call_is_noexcept = call_declaration &&
                                          call_declaration->func_is_noexcept;
@@ -9655,6 +9721,19 @@ static Type* sema_expr(Expr* expr) {
                 if (strcmp(field->name, expr->member_name) == 0) {
                     expr->member_field = field;
                     expr->type = field->type;
+                    if (field->is_deprecated) {
+                        if (field->deprecated_message &&
+                            *field->deprecated_message) {
+                            rcc_warning(expr->loc,
+                                        "use of deprecated member '%s': %s",
+                                        field->name,
+                                        field->deprecated_message);
+                        } else {
+                            rcc_warning(expr->loc,
+                                        "use of deprecated member '%s'",
+                                        field->name);
+                        }
+                    }
                     if ((bt->is_const && !expr->type->is_const) ||
                         (bt->is_volatile && !expr->type->is_volatile)) {
                         Type* qualified = ast_arena_alloc(sizeof(*qualified));

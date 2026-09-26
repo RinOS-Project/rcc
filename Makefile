@@ -157,7 +157,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-requires-expression
 .PHONY: test-cxx-inline-variables
-.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-friend-function test-cxx-nodiscard test-cxx-friend-class
+.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
@@ -273,6 +273,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-namespace-alias \
 	test-cxx-friend-function \
 	test-cxx-nodiscard \
+	test-cxx-deprecated \
 	test-cxx-friend-class \
 	test-cxx-selection-init \
 	test-cxx-designated-initializer \
@@ -2542,6 +2543,40 @@ test-cxx-nodiscard: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-nodiscard/x64.o
 	$(TEST_OUT)/cxx-nodiscard/x64
 	@echo "C++ nodiscard attribute tests completed"
+
+test-cxx-deprecated: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-deprecated)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-deprecated/x86.s \
+		tests/cxx_deprecated.cpp \
+		>$(TEST_OUT)/cxx-deprecated/x86.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-deprecated/x64.s \
+		tests/cxx_deprecated.cpp \
+		>$(TEST_OUT)/cxx-deprecated/x64.log 2>&1
+	test "$$(grep -c "use of deprecated" \
+		$(TEST_OUT)/cxx-deprecated/x86.log)" -eq 4
+	test "$$(grep -c "use of deprecated" \
+		$(TEST_OUT)/cxx-deprecated/x64.log)" -eq 4
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-deprecated/x86.o \
+		$(TEST_OUT)/cxx-deprecated/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-deprecated/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-deprecated/x86 \
+		$(TEST_OUT)/cxx-deprecated/start-x86.o \
+		$(TEST_OUT)/cxx-deprecated/x86.o
+	$(TEST_OUT)/cxx-deprecated/x86
+	$(CC) -c -o $(TEST_OUT)/cxx-deprecated/x64.o \
+		$(TEST_OUT)/cxx-deprecated/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-deprecated/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-deprecated/x64 \
+		$(TEST_OUT)/cxx-deprecated/start-x64.o \
+		$(TEST_OUT)/cxx-deprecated/x64.o
+	$(TEST_OUT)/cxx-deprecated/x64
+	@echo "C++ deprecated attribute tests completed"
 
 test-cxx-friend-class: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-class)

@@ -905,6 +905,8 @@ static bool check_next(TokenType type) {
 }
 
 static bool pending_cxx_nodiscard;
+static bool pending_cxx_deprecated;
+static const char* pending_cxx_deprecated_message;
 
 /* C++ attributes are metadata at this stage.  Consume complete [[...]]
  * groups so they cannot be mistaken for array declarators. */
@@ -913,6 +915,8 @@ static void skip_cxx_attributes(void) {
         SourceLoc loc = peek()->loc;
         int depth = 1;
         bool group_nodiscard = false;
+        bool group_deprecated = false;
+        const char* group_deprecated_message = NULL;
         advance();
         advance();
         while (depth > 0 && !at_end()) {
@@ -925,9 +929,19 @@ static void skip_cxx_attributes(void) {
                 advance();
                 depth--;
             } else {
-                if (depth == 1 && check(TOK_IDENT) &&
-                    strcmp(peek()->value.str_val, "nodiscard") == 0) {
-                    group_nodiscard = true;
+                if (depth == 1 && check(TOK_IDENT)) {
+                    if (strcmp(peek()->value.str_val, "nodiscard") == 0) {
+                        group_nodiscard = true;
+                    } else if (strcmp(peek()->value.str_val, "deprecated") == 0) {
+                        group_deprecated = true;
+                        if (parser.cur->next &&
+                            parser.cur->next->type == TOK_LPAREN &&
+                            parser.cur->next->next &&
+                            parser.cur->next->next->type == TOK_STRING_LIT) {
+                            group_deprecated_message =
+                                parser.cur->next->next->value.str_val;
+                        }
+                    }
                 }
                 advance();
             }
@@ -937,12 +951,26 @@ static void skip_cxx_attributes(void) {
             return;
         }
         if (group_nodiscard) pending_cxx_nodiscard = true;
+        if (group_deprecated) {
+            pending_cxx_deprecated = true;
+            if (group_deprecated_message) {
+                pending_cxx_deprecated_message = group_deprecated_message;
+            }
+        }
     }
 }
 
 static bool take_cxx_nodiscard(void) {
     bool result = pending_cxx_nodiscard;
     pending_cxx_nodiscard = false;
+    return result;
+}
+
+static bool take_cxx_deprecated(const char** message) {
+    bool result = pending_cxx_deprecated;
+    if (message) *message = pending_cxx_deprecated_message;
+    pending_cxx_deprecated = false;
+    pending_cxx_deprecated_message = NULL;
     return result;
 }
 
@@ -1155,6 +1183,8 @@ static Type* cxx_function_type_from_parameters(Type* return_type,
         parameter->bit_width = 0u;
         parameter->is_static = false;
         parameter->initializer = item->decl ? item->decl->param_default : NULL;
+        parameter->is_deprecated = false;
+        parameter->deprecated_message = NULL;
         parameter->cxx_access = ACCESS_PUBLIC;
         parameter->next = NULL;
         *tail = parameter;
@@ -3724,6 +3754,9 @@ static void register_instantiated_class_static_fields(
         declaration->var_is_inline = source && source->var_is_inline;
         declaration->var_is_constexpr = source && source->var_is_constexpr;
         declaration->var_is_constinit = source && source->var_is_constinit;
+        declaration->var_is_deprecated = source && source->var_is_deprecated;
+        declaration->var_deprecated_message = source
+            ? source->var_deprecated_message : NULL;
         declaration->storage = STORAGE_NONE;
         cxx_class_add_member(instance, declaration,
                              (AccessSpec)field->cxx_access, true);
@@ -3737,6 +3770,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
     skip_cxx_attributes();
     bool is_nodiscard = take_cxx_nodiscard();
+    const char* deprecated_message = NULL;
+    bool is_deprecated = take_cxx_deprecated(&deprecated_message);
 
     bool is_virtual = false;
     bool is_static = false;
@@ -3947,6 +3982,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->decl->func_is_constexpr = is_constexpr;
         method->decl->func_is_consteval = is_consteval;
         method->decl->func_is_nodiscard = is_nodiscard;
+        method->decl->func_is_deprecated = is_deprecated;
+        method->decl->func_deprecated_message = deprecated_message;
         method->is_explicit = is_explicit;
         method->is_const = is_const;
         method->is_override = is_override;
@@ -4089,13 +4126,16 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Add field to class */
         cxx_class_add_field_initializer(cls, name, type, current_access, init,
-                                         is_bitfield, bit_width, is_static);
+                                         is_bitfield, bit_width, is_static,
+                                         is_deprecated, deprecated_message);
         if (is_static && name) {
             Decl* declaration = decl_var(name, type, init, loc);
             declaration->var_is_thread_local = is_thread_local;
             declaration->var_is_inline = is_inline;
             declaration->var_is_constexpr = is_constexpr;
             declaration->var_is_constinit = is_constinit;
+            declaration->var_is_deprecated = is_deprecated;
+            declaration->var_deprecated_message = deprecated_message;
             cxx_class_add_member(cls, declaration, current_access, true);
         }
     }
@@ -4315,12 +4355,24 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
 
     if (!declaration) {
         (void)take_cxx_nodiscard();
+        (void)take_cxx_deprecated(NULL);
         return;
     }
     if (declaration->kind == DECL_FUNC && take_cxx_nodiscard()) {
         declaration->func_is_nodiscard = true;
     } else if (declaration->kind != DECL_FUNC) {
         (void)take_cxx_nodiscard();
+    }
+    {
+        const char* deprecated_message = NULL;
+        bool is_deprecated = take_cxx_deprecated(&deprecated_message);
+        if (is_deprecated && declaration->kind == DECL_FUNC) {
+            declaration->func_is_deprecated = true;
+            declaration->func_deprecated_message = deprecated_message;
+        } else if (is_deprecated && declaration->kind == DECL_VAR) {
+            declaration->var_is_deprecated = true;
+            declaration->var_deprecated_message = deprecated_message;
+        }
     }
     set_cxx_link_name(declaration, ns, false);
     if (declaration->kind == DECL_FUNC && ns) {
@@ -4586,6 +4638,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
+            (void)take_cxx_deprecated(NULL);
             cxx_namespace_add_class(ns, cls);
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
@@ -4687,6 +4740,8 @@ static Type* cxx_lambda_function_type(Type* return_type, DeclList* params) {
         parameter->bit_width = 0u;
         parameter->is_static = false;
         parameter->initializer = item->decl ? item->decl->param_default : NULL;
+        parameter->is_deprecated = false;
+        parameter->deprecated_message = NULL;
         parameter->next = NULL;
         *tail = parameter;
         tail = &parameter->next;
@@ -5186,6 +5241,8 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     *is_consteval = false;
     skip_cxx_attributes();
     bool is_nodiscard = take_cxx_nodiscard();
+    const char* deprecated_message = NULL;
+    bool is_deprecated = take_cxx_deprecated(&deprecated_message);
     loc = peek()->loc;
     for (;;) {
         if (match(TOK_CONSTEXPR)) *is_constexpr = true;
@@ -5276,6 +5333,8 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     function->decl->func_is_constexpr = *is_constexpr;
     function->decl->func_is_consteval = *is_consteval;
     function->decl->func_is_nodiscard = is_nodiscard;
+    function->decl->func_is_deprecated = is_deprecated;
+    function->decl->func_deprecated_message = deprecated_message;
     function->decl->func_is_noexcept = *is_noexcept;
     function->decl->func_noexcept_expr = noexcept_expr;
     function->decl->func_is_auto_return = is_auto_return;
@@ -6655,8 +6714,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         tmpl->pending_pack_count = argument_count - pack_index;
     }
     for (TypeParam* field = definition->fields; field; field = field->next) {
-        cxx_class_add_field_initializer(
-            instance, field->name,
+    cxx_class_add_field_initializer(
+        instance, field->name,
             substitute_template_type(
                 tmpl, field->type, arguments, argument_count,
                 value_args, value_present),
@@ -6664,7 +6723,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             cxx_template_clone_expr_with_values(
                 tmpl, field->initializer, arguments, argument_count,
                 value_args, value_present),
-            field->is_bitfield, field->bit_width, field->is_static);
+            field->is_bitfield, field->bit_width, field->is_static,
+            field->is_deprecated, field->deprecated_message);
     }
     register_instantiated_class_static_fields(instance, definition);
     for (struct CxxMember* member = definition->members; member;
@@ -9748,10 +9808,22 @@ static void add_cxx_declaration(AST* ast, Stmt* statement,
         } else if (statement->decl->kind != DECL_FUNC) {
             (void)take_cxx_nodiscard();
         }
+        {
+            const char* deprecated_message = NULL;
+            bool is_deprecated = take_cxx_deprecated(&deprecated_message);
+            if (is_deprecated && statement->decl->kind == DECL_FUNC) {
+                statement->decl->func_is_deprecated = true;
+                statement->decl->func_deprecated_message = deprecated_message;
+            } else if (is_deprecated && statement->decl->kind == DECL_VAR) {
+                statement->decl->var_is_deprecated = true;
+                statement->decl->var_deprecated_message = deprecated_message;
+            }
+        }
         set_cxx_link_name(statement->decl, NULL, c_language_linkage);
         ast_add_decl(ast, statement->decl);
     } else {
         (void)take_cxx_nodiscard();
+        (void)take_cxx_deprecated(NULL);
     }
 }
 
@@ -9824,6 +9896,8 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     parser.cur = tokens->head;
     parser.prev = NULL;
     pending_cxx_nodiscard = false;
+    pending_cxx_deprecated = false;
+    pending_cxx_deprecated_message = NULL;
 
     AST* ast = ast_new();
     active_ast = ast;
@@ -9852,6 +9926,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
+            (void)take_cxx_deprecated(NULL);
             /* Class is stored in global namespace */
             if (g_global_namespace) {
                 cxx_namespace_add_class(g_global_namespace, cls);

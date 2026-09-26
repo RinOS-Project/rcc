@@ -57,6 +57,8 @@ typedef struct TypeField {
     bool from_virtual_base;
     /* C++ default member initializer, if one was declared in the class. */
     Expr* initializer;
+    bool is_deprecated;          /* C++ deprecated data member. */
+    const char* deprecated_message;
     /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
      * C AST does not depend on the C++ extension header. */
     unsigned char cxx_access;
@@ -71,6 +73,8 @@ typedef struct TypeParam {
     bool is_static;
     /* Used by C++ class fields; function parameters set this to false. */
     Expr* initializer;
+    bool is_deprecated;          /* C++ deprecated data member. */
+    const char* deprecated_message;
     unsigned char cxx_access;
     struct TypeParam* next;
 } TypeParam;
@@ -903,6 +907,8 @@ struct Decl {
             bool var_is_constexpr;  /* C++ constexpr variable declaration. */
             bool var_is_constinit;  /* C++20 constant-initialized variable. */
             bool var_is_inline;     /* C++17 inline variable definition. */
+            bool var_is_deprecated; /* C++17 deprecated variable declaration. */
+            const char* var_deprecated_message;
             Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
             ExprList* var_cleanups;  /* Validated object/member cleanup calls. */
         };
@@ -924,6 +930,8 @@ struct Decl {
             bool func_is_consteval;
             bool func_is_noreturn;
             bool func_is_nodiscard;
+            bool func_is_deprecated; /* C++14 deprecated function declaration. */
+            const char* func_deprecated_message;
             bool func_is_noexcept;
             Expr* func_noexcept_expr;
             bool func_is_auto_return;

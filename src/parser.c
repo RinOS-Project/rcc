@@ -1835,6 +1835,8 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     field->bit_width = 0u;
     field->bit_offset = 0u;
     field->cxx_access = 0u;
+    field->is_deprecated = false;
+    field->deprecated_message = NULL;
     field->next = NULL;
     while (*tail) tail = &(*tail)->next;
     if (aggregate->kind == TYPE_UNION) {
@@ -1952,6 +1954,8 @@ static void parser_append_bitfield(Type* aggregate,
     field->bit_width = width;
     field->bit_offset = layout->used;
     field->cxx_access = 0u;
+    field->is_deprecated = false;
+    field->deprecated_message = NULL;
     field->next = NULL;
     tail = &aggregate->fields;
     while (*tail) tail = &(*tail)->next;
@@ -2093,6 +2097,8 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
         field->bit_width = source->bit_width;
         field->bit_offset = source->bit_offset;
         field->cxx_access = source->cxx_access;
+        field->is_deprecated = source->is_deprecated;
+        field->deprecated_message = source->deprecated_message;
         field->next = NULL;
         *tail = field;
         tail = &field->next;
@@ -2413,6 +2419,9 @@ static TypeParam* parser_type_params(DeclList* parameters, bool* variadic) {
         param->is_bitfield = false;
         param->bit_width = 0u;
         param->is_static = false;
+        param->initializer = NULL;
+        param->is_deprecated = false;
+        param->deprecated_message = NULL;
         param->cxx_access = 0u;
         param->next = NULL;
         *tail = param;

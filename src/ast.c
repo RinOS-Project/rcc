@@ -980,6 +980,8 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_is_constexpr = false;
     d->var_is_constinit = false;
     d->var_is_inline = false;
+    d->var_is_deprecated = false;
+    d->var_deprecated_message = NULL;
     d->var_cleanup = NULL;
     d->var_cleanups = NULL;
     return d;
@@ -1008,6 +1010,8 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_consteval = false;
     d->func_is_noreturn = false;
     d->func_is_noexcept = false;
+    d->func_is_deprecated = false;
+    d->func_deprecated_message = NULL;
     d->func_noexcept_expr = NULL;
     d->func_is_auto_return = false;
     d->func_is_decltype_auto_return = false;

@@ -408,7 +408,9 @@ void cxx_class_add_field(CxxClass* cls, const char* name, Type* type, AccessSpec
 void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Type* type, AccessSpec access,
                                      Expr* initializer, bool is_bitfield,
-                                     unsigned bit_width, bool is_static);
+                                     unsigned bit_width, bool is_static,
+                                     bool is_deprecated,
+                                     const char* deprecated_message);
 
 /* Add method to class */
 void cxx_class_add_method(CxxClass* cls, CxxMethod* method);
