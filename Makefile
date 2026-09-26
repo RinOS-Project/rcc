@@ -186,7 +186,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
-.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros
+.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-universal-character-identifiers
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
@@ -194,6 +194,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-cxx-predefined-function-identifiers \
+	test-universal-character-identifiers \
 	test-preprocessor-date-time \
 	test-preprocessor-standard-macros \
 	test-preprocessor-include \
@@ -497,6 +498,33 @@ test-preprocessor-standard-macros: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/preprocessor-standard-macros/cxx-x64.ro \
 		tests/preprocessor_freestanding_macros.cpp
 	@echo "C17/C++20 __STDC_HOSTED__ tests completed"
+
+test-universal-character-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/universal-character-identifiers)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/universal-character-identifiers/c-x86.ro \
+		tests/universal_character_identifiers.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/universal-character-identifiers/c-x64.ro \
+		tests/universal_character_identifiers.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/universal-character-identifiers/cxx-x86.ro \
+		tests/universal_character_identifiers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/universal-character-identifiers/cxx-x64.ro \
+		tests/universal_character_identifiers.cpp
+	! $(RCC_TARGET) -c -o $(TEST_OUT)/universal-character-identifiers/invalid-c.ro \
+		tests/invalid_universal_character_name.c \
+		>$(TEST_OUT)/universal-character-identifiers/invalid-c.log 2>&1
+	grep -q "universal character names are not supported by the RinOS byte-string ABI" \
+		$(TEST_OUT)/universal-character-identifiers/invalid-c.log
+	! $(RCXX_TARGET) -std=c++20 -c \
+		-o $(TEST_OUT)/universal-character-identifiers/invalid-cxx.ro \
+		tests/invalid_universal_character_name.c \
+		>$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log 2>&1
+	grep -q "universal character names are not supported by the RinOS byte-string ABI" \
+		$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log
+	@echo "C17/C++20 universal character identifier tests completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
 	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)

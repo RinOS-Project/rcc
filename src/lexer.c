@@ -280,6 +280,8 @@ static SourceLoc make_loc(Lexer* lex) {
     return loc;
 }
 
+static int lex_identifier_ucn(Lexer* lex, char* output, size_t capacity);
+
 static void skip_whitespace(Lexer* lex) {
     while (1) {
         char c = peek(lex);
@@ -320,18 +322,40 @@ static void skip_whitespace(Lexer* lex) {
 
 static Token* lex_identifier(Lexer* lex) {
     SourceLoc loc = make_loc(lex);
-    const char* start = lex->pos;
+    char spelling[RCC_MAX_IDENT];
+    size_t len = 0u;
+    bool over_limit = false;
 
-    while (isalnum(peek(lex)) || peek(lex) == '_') {
-        advance(lex);
+    while (isalnum((unsigned char)peek(lex)) || peek(lex) == '_' ||
+           (peek(lex) == '\\' &&
+            (peek_next(lex) == 'u' || peek_next(lex) == 'U'))) {
+        if (peek(lex) == '\\') {
+            int written = lex_identifier_ucn(
+                lex, spelling + (len < sizeof(spelling) ? len : sizeof(spelling)),
+                len < sizeof(spelling) ? sizeof(spelling) - len : 0u);
+            if (written > 0) {
+                if (len + (size_t)written < sizeof(spelling)) {
+                    len += (size_t)written;
+                } else {
+                    over_limit = true;
+                }
+            }
+            continue;
+        }
+        if (len + 1u < sizeof(spelling)) {
+            spelling[len++] = advance(lex);
+        } else {
+            over_limit = true;
+            advance(lex);
+        }
     }
 
-    size_t len = lex->pos - start;
-    char* str = rcc_alloc(len + 1);
-    memcpy(str, start, len);
-    str[len] = '\0';
+    if (over_limit) {
+        rcc_error(loc, "identifier exceeds compiler limits");
+    }
+    spelling[len] = '\0';
 
-    TokenType type = keyword_lookup(str);
+    TokenType type = keyword_lookup(spelling);
     /* C++ keywords are ordinary identifiers in C17.  Keeping this decision
      * in the lexer prevents a valid C implementation name such as
      * `protected` from being rejected before the C parser sees it. */
@@ -341,9 +365,8 @@ static Token* lex_identifier(Lexer* lex) {
     Token* tok = token_new(type, loc);
 
     if (type == TOK_IDENT) {
-        tok->value.str_val = rcc_intern(str);
+        tok->value.str_val = rcc_intern(spelling);
     }
-    rcc_free(str);
 
     return tok;
 }
@@ -562,6 +585,74 @@ static int hex_digit(char c) {
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
     return -1;
+}
+
+/* Decode a universal character name occurring in an identifier.  Identifier
+ * UCNs are source spelling, not byte-string data: retain them as UTF-8 in the
+ * interned name while keeping the narrow string/character literal ABI
+ * diagnostics in lex_escape(). */
+static int lex_identifier_ucn(Lexer* lex, char* output, size_t capacity) {
+    SourceLoc loc;
+    char kind;
+    int digits;
+    uint32_t codepoint = 0u;
+    int length;
+
+    if (peek(lex) != '\\' ||
+        (peek_next(lex) != 'u' && peek_next(lex) != 'U')) {
+        return 0;
+    }
+    loc = make_loc(lex);
+    advance(lex); /* backslash */
+    kind = advance(lex);
+    digits = kind == 'u' ? 4 : 8;
+    for (int index = 0; index < digits; ++index) {
+        if (!isxdigit((unsigned char)peek(lex))) {
+            rcc_error(loc,
+                      "universal character name requires hexadecimal digits");
+            return -1;
+        }
+        codepoint = (codepoint << 4) |
+                    (uint32_t)hex_digit(advance(lex));
+    }
+    /* C17/C++20 reserve the basic source character set and control range from
+     * identifier UCNs.  The bounded frontend accepts the remaining Unicode
+     * scalar range and stores its UTF-8 spelling in the identifier table. */
+    if (codepoint < 0xa0u || codepoint > 0x10ffffu ||
+        (codepoint >= 0xd800u && codepoint <= 0xdfffu)) {
+        rcc_error(loc,
+                  "universal character name is not valid in an identifier");
+        return -1;
+    }
+    if (codepoint <= 0x7fu) {
+        length = 1;
+    } else if (codepoint <= 0x7ffu) {
+        length = 2;
+    } else if (codepoint <= 0xffffu) {
+        length = 3;
+    } else {
+        length = 4;
+    }
+    if (!output || capacity < (size_t)length) {
+        rcc_error(loc, "identifier exceeds compiler limits");
+        return -1;
+    }
+    if (length == 1) {
+        output[0] = (char)codepoint;
+    } else if (length == 2) {
+        output[0] = (char)(0xc0u | (codepoint >> 6));
+        output[1] = (char)(0x80u | (codepoint & 0x3fu));
+    } else if (length == 3) {
+        output[0] = (char)(0xe0u | (codepoint >> 12));
+        output[1] = (char)(0x80u | ((codepoint >> 6) & 0x3fu));
+        output[2] = (char)(0x80u | (codepoint & 0x3fu));
+    } else {
+        output[0] = (char)(0xf0u | (codepoint >> 18));
+        output[1] = (char)(0x80u | ((codepoint >> 12) & 0x3fu));
+        output[2] = (char)(0x80u | ((codepoint >> 6) & 0x3fu));
+        output[3] = (char)(0x80u | (codepoint & 0x3fu));
+    }
+    return length;
 }
 
 /* Decode a universal character escape into UTF-8 bytes for a u8 string.
@@ -789,7 +880,8 @@ static Token* lex_token(Lexer* lex) {
     }
 
     /* Identifier or keyword */
-    if (isalpha(c) || c == '_') {
+    if (isalpha((unsigned char)c) || c == '_' ||
+        (c == '\\' && (peek_next(lex) == 'u' || peek_next(lex) == 'U'))) {
         return lex_identifier(lex);
     }
 
