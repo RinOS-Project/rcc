@@ -8397,12 +8397,22 @@ static Type* sema_expr(Expr* expr) {
                  requirement; requirement = requirement->next) {
                 int suppressed_before = g_suppressed_error_count;
                 bool suppress_before = g_suppress_errors;
+                Type* actual_type;
                 g_suppress_errors = true;
-                sema_expr(requirement->expr);
+                actual_type = sema_expr(requirement->expr);
                 if (requirement->is_noexcept &&
                     !sema_noexcept_expr(requirement->expr)) {
                     rcc_error(requirement->loc,
                               "requires-expression compound requirement is not noexcept");
+                }
+                if (requirement->return_type &&
+                    ((!requirement->return_type_convertible &&
+                      !type_is_compatible(actual_type,
+                                          requirement->return_type)) ||
+                     (requirement->return_type_convertible &&
+                      cxx_conversion_rank(requirement->expr,
+                                          requirement->return_type) < 0))) {
+                    valid = false;
                 }
                 g_suppress_errors = suppress_before;
                 if (g_suppressed_error_count != suppressed_before) {

@@ -2393,7 +2393,11 @@ test-cxx-requires-expression: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-requires-expression/invalid-x86.log
 	grep -q "requires-expression parameters cannot have defaults" \
 		$(TEST_OUT)/cxx-requires-expression/invalid-x64.log
-	@echo "C++20 bounded requires-expression tests completed"
+	grep -q "unsupported C++20 requires-expression return constraint" \
+		$(TEST_OUT)/cxx-requires-expression/invalid-x86.log
+	grep -q "unsupported C++20 requires-expression return constraint" \
+		$(TEST_OUT)/cxx-requires-expression/invalid-x64.log
+	@echo "C++20 bounded requires-expression and return-constraint tests completed"
 
 test-cxx-requires-type: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-type)

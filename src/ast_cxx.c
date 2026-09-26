@@ -2636,6 +2636,11 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         tmpl, requirement->expr, args, arg_count,
                         value_args, value_present);
                     requirement_copy->is_noexcept = requirement->is_noexcept;
+                    requirement_copy->return_type = template_substitute_type(
+                        tmpl, requirement->return_type, args, arg_count,
+                        value_args, value_present);
+                    requirement_copy->return_type_convertible =
+                        requirement->return_type_convertible;
                     requirement_copy->loc = requirement->loc;
                     requirement_copy->next = NULL;
                     *tail = requirement_copy;

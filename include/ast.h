@@ -407,6 +407,8 @@ typedef struct TypeList {
 struct CxxCompoundRequirement {
     Expr* expr;
     bool is_noexcept;
+    Type* return_type;
+    bool return_type_convertible;
     SourceLoc loc;
     CxxCompoundRequirement* next;
 };

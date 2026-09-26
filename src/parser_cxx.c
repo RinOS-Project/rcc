@@ -999,15 +999,70 @@ static void cxx_requires_type_append(TypeList** list, Type* type,
 
 static void cxx_requires_compound_append(
     CxxCompoundRequirement** list, Expr* expr, bool is_noexcept,
-    SourceLoc loc) {
+    Type* return_type, bool return_type_convertible, SourceLoc loc) {
     CxxCompoundRequirement* item = ast_arena_alloc(sizeof(*item));
     CxxCompoundRequirement** tail = list;
     item->expr = expr;
     item->is_noexcept = is_noexcept;
+    item->return_type = return_type;
+    item->return_type_convertible = return_type_convertible;
     item->loc = loc;
     item->next = NULL;
     while (*tail) tail = &(*tail)->next;
     *tail = item;
+}
+
+static bool cxx_requires_return_constraint_has_arguments(void) {
+    Token* token = parser.cur;
+
+    if (!token) return false;
+    if (token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    while (token->next && token->next->type == TOK_SCOPE) {
+        token = token->next->next;
+        if (!token || token->type != TOK_IDENT) return false;
+    }
+    return token->next && token->next->type == TOK_LT;
+}
+
+static bool cxx_name_has_suffix(const char* name, const char* suffix) {
+    size_t name_length;
+    size_t suffix_length;
+
+    if (!name || !suffix) return false;
+    name_length = strlen(name);
+    suffix_length = strlen(suffix);
+    return name_length >= suffix_length &&
+           strcmp(name + name_length - suffix_length, suffix) == 0 &&
+           (name_length == suffix_length ||
+            name[name_length - suffix_length - 1u] == ':');
+}
+
+/* Recognize the standard-library type constraints that have a direct bounded
+ * ABI interpretation.  Bare types remain accepted as a useful exact-type
+ * extension for freestanding RinOS code; unknown concept names are diagnosed
+ * instead of being lowered as an unconstrained requirement. */
+static Type* parse_cxx_requires_return_constraint(bool* return_type_convertible) {
+    const char* constraint_name;
+    Type* return_type;
+
+    *return_type_convertible = false;
+    if (!cxx_requires_return_constraint_has_arguments()) {
+        return parse_cxx_type_spec();
+    }
+    constraint_name = parse_qualified_name();
+    expect(TOK_LT, "< after requires-expression return constraint");
+    return_type = parse_cxx_type_spec();
+    expect(TOK_GT, "> after requires-expression return constraint");
+    if (cxx_name_has_suffix(constraint_name, "same_as")) return return_type;
+    if (cxx_name_has_suffix(constraint_name, "convertible_to")) {
+        *return_type_convertible = true;
+        return return_type;
+    }
+    rcc_error(previous()->loc,
+              "unsupported C++20 requires-expression return constraint '%s'",
+              constraint_name);
+    return NULL;
 }
 
 /* Parse a bounded type-requirement form: a public nested `using` alias, or a
@@ -1150,19 +1205,20 @@ Expr* rcc_parse_cxx_requires_expression(void) {
             SourceLoc requirement_loc = previous()->loc;
             Expr* compound = parse_expression();
             bool is_noexcept;
+            bool return_type_convertible = false;
+            Type* return_type = NULL;
             expect(TOK_RBRACE,
                    "'}' after requires-expression compound expression");
             is_noexcept = match(TOK_NOEXCEPT);
             if (match(TOK_ARROW)) {
-                rcc_error(previous()->loc,
-                          "C++20 compound requirement return-type constraints are not supported");
-                while (!check(TOK_SEMICOLON) && !check(TOK_RBRACE) &&
-                       !at_end()) {
-                    advance();
-                }
-            } else if (compound) {
+                return_type = parse_cxx_requires_return_constraint(
+                    &return_type_convertible);
+            }
+            if (compound) {
                 cxx_requires_compound_append(&compound_requirements, compound,
-                                             is_noexcept, requirement_loc);
+                                             is_noexcept, return_type,
+                                             return_type_convertible,
+                                             requirement_loc);
             }
             expect(TOK_SEMICOLON,
                    "';' after requires-expression compound requirement");
