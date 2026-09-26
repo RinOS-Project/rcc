@@ -1272,6 +1272,34 @@ static int current_function_va_fp_offset64 = 48;
 static int current_function_va_overflow_offset64 = 0;
 static int current_function_va_reg_save_offset64 = 0;
 
+static Type* codegen64_comparison_type(Expr* expr);
+
+static void gen64_spaceship_integer(Module* mod, Expr* expr) {
+    int less_label = new_label64();
+    int greater_label = new_label64();
+    int end_label = new_label64();
+    Type* comparison_type = codegen64_comparison_type(expr);
+    bool unsigned_compare = comparison_type &&
+        (comparison_type->is_unsigned || comparison_type->kind == TYPE_PTR);
+
+    gen64_expr(mod, expr->binary_lhs);
+    emit64_push_reg(mod, RAX);
+    gen64_expr(mod, expr->binary_rhs);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_pop_reg(mod, RAX);
+    emit64_cmp_reg_reg(mod, RAX, RCX);
+    emit64_jcc_label(mod, unsigned_compare ? CC64_B : CC64_L, less_label);
+    emit64_jcc_label(mod, unsigned_compare ? CC64_A : CC64_G, greater_label);
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    emit64_jmp_label(mod, end_label);
+    emit64_label(mod, less_label);
+    emit64_mov_reg_imm32(mod, RAX, UINT32_MAX);
+    emit64_jmp_label(mod, end_label);
+    emit64_label(mod, greater_label);
+    emit64_mov_reg_imm32(mod, RAX, 1u);
+    emit64_label(mod, end_label);
+}
+
 static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
     Gen64AggregateClass classification = gen64_classify_aggregate(
         expression ? expression->va_arg_type : NULL);
@@ -3089,6 +3117,7 @@ static Expr* gen64_cxx_bind_constructor_expression(
         case EXPR_BITXOR:
         case EXPR_LSHIFT:
         case EXPR_RSHIFT:
+        case EXPR_SPACESHIP:
         case EXPR_EQ:
         case EXPR_NE:
         case EXPR_LT:
@@ -4634,6 +4663,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_sar_reg_cl(mod, RAX);
             }
             emit64_normalize_atomic_value(mod, RAX, expr->type);
+            break;
+
+        case EXPR_SPACESHIP:
+            gen64_spaceship_integer(mod, expr);
             break;
 
         case EXPR_EQ:

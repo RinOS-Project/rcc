@@ -8911,13 +8911,27 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
-        case EXPR_SPACESHIP:
-            (void)sema_expr(expr->binary_lhs);
-            (void)sema_expr(expr->binary_rhs);
-            rcc_error(expr->loc,
-                      "built-in C++20 <=> requires an unsupported comparison category ABI");
+        case EXPR_SPACESHIP: {
+            Type* left = generic_selection_type(sema_expr(expr->binary_lhs));
+            Type* right = generic_selection_type(sema_expr(expr->binary_rhs));
+            bool integral = left && right &&
+                (type_is_integer(left) || left->kind == TYPE_ENUM) &&
+                (type_is_integer(right) || right->kind == TYPE_ENUM);
+            bool pointers = left && right && type_is_pointer(left) &&
+                type_is_pointer(right) && type_is_compatible(left, right);
+            if (!integral && !pointers) {
+                rcc_error(expr->loc,
+                          "RinOS C++20 built-in <=> requires integral, enum, "
+                          "or compatible pointer operands");
+            }
+            /* RinOS has no standard comparison-category object ABI.  The
+             * bounded scalar profile exposes the category's sign as int:
+             * -1, 0, or 1.  Relational use remains directly representable
+             * and unsupported category members cannot be mistaken for a
+             * silently generated object. */
             expr->type = type_int;
             break;
+        }
 
         case EXPR_AND:
         case EXPR_OR: {

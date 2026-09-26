@@ -2244,7 +2244,7 @@ test-cxx-spaceship: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-spaceship/invalid-x86.log 2>&1; then \
 		echo "built-in <=> unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "built-in C++20 <=> requires an unsupported comparison category ABI" \
+	grep -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-spaceship/invalid-x64.ro \
@@ -2252,7 +2252,7 @@ test-cxx-spaceship: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-spaceship/invalid-x64.log 2>&1; then \
 		echo "built-in <=> unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "built-in C++20 <=> requires an unsupported comparison category ABI" \
+	grep -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x64.log
 	@echo "C++20 user-defined spaceship operator tests completed"
 

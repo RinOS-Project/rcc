@@ -532,6 +532,7 @@ static bool eval_integer_constant_typed(Expr* expr,
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
+        case EXPR_SPACESHIP:
         case EXPR_COMMA:
             break;
         default:
@@ -593,6 +594,22 @@ static bool eval_integer_constant_typed(Expr* expr,
         }
         value->bits = result;
         value->type = type_int;
+        return true;
+    }
+    if (expr->kind == EXPR_SPACESHIP) {
+        if (common->is_unsigned) {
+            if (left.bits < right.bits) value->bits = UINT64_MAX;
+            else if (left.bits > right.bits) value->bits = 1u;
+            else value->bits = 0u;
+        } else {
+            int64_t signed_left = integer_constant_signed(left);
+            int64_t signed_right = integer_constant_signed(right);
+            if (signed_left < signed_right) value->bits = UINT64_MAX;
+            else if (signed_left > signed_right) value->bits = 1u;
+            else value->bits = 0u;
+        }
+        value->type = type_int;
+        value->bits &= integer_type_mask(type_int);
         return true;
     }
 

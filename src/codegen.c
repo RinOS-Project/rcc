@@ -475,6 +475,9 @@ static bool codegen_static_integer(Expr* expression, int64_t* value) {
         *value = (uint8_t)expression->char_val;
         return true;
     }
+    if (expression->kind == EXPR_SPACESHIP) {
+        return expr_eval_integer_constant(expression, value);
+    }
     if (expression->kind == EXPR_NEG && expression->unary_operand &&
         codegen_static_integer(expression->unary_operand, value) &&
         *value != INT64_MIN) {
@@ -5278,6 +5281,33 @@ static void gen_expr_as_integer64(Module* mod, Expr* expr) {
     }
 }
 
+static Type* codegen_comparison_type(Expr* expr);
+
+static void gen_spaceship_integer32(Module* mod, Expr* expr) {
+    int less_label = new_label();
+    int greater_label = new_label();
+    int end_label = new_label();
+    Type* comparison_type = codegen_comparison_type(expr);
+    bool unsigned_compare = comparison_type && comparison_type->is_unsigned;
+
+    gen_expr(mod, expr->binary_lhs);
+    emit_push_reg(mod, EAX);
+    gen_expr(mod, expr->binary_rhs);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_pop_reg(mod, EAX);
+    emit_cmp_reg_reg(mod, EAX, ECX);
+    emit_jcc_label(mod, unsigned_compare ? CC_B : CC_L, less_label);
+    emit_jcc_label(mod, unsigned_compare ? CC_A : CC_G, greater_label);
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_jmp_label(mod, end_label);
+    emit_label(mod, less_label);
+    emit_mov_reg_imm(mod, EAX, UINT32_MAX);
+    emit_jmp_label(mod, end_label);
+    emit_label(mod, greater_label);
+    emit_mov_reg_imm(mod, EAX, 1u);
+    emit_label(mod, end_label);
+}
+
 static void gen_compare_integer64(Module* mod, Expr* expr) {
     int high_diff_label = new_label();
     int end_label = new_label();
@@ -5327,6 +5357,36 @@ static void gen_compare_integer64(Module* mod, Expr* expr) {
         emit_byte(mod, 0xB6);
         emit_byte(mod, modrm(3, EAX, EAX));
     }
+    emit_label(mod, end_label);
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
+static void gen_spaceship_integer64(Module* mod, Expr* expr) {
+    int less_label = new_label();
+    int greater_label = new_label();
+    int end_label = new_label();
+    Type* comparison_type = codegen_comparison_type(expr);
+    bool unsigned_compare = comparison_type && comparison_type->is_unsigned;
+
+    gen_expr_as_integer64(mod, expr->binary_lhs);
+    emit_push_reg(mod, EDX);
+    emit_push_reg(mod, EAX);
+    gen_expr_as_integer64(mod, expr->binary_rhs);
+    emit_mov_reg_mem(mod, ECX, ESP, 4);
+    emit_cmp_reg_reg(mod, ECX, EDX);
+    emit_jcc_label(mod, unsigned_compare ? CC_B : CC_L, less_label);
+    emit_jcc_label(mod, unsigned_compare ? CC_A : CC_G, greater_label);
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    emit_cmp_reg_reg(mod, ECX, EAX);
+    emit_jcc_label(mod, CC_B, less_label);
+    emit_jcc_label(mod, CC_A, greater_label);
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_jmp_label(mod, end_label);
+    emit_label(mod, less_label);
+    emit_mov_reg_imm(mod, EAX, UINT32_MAX);
+    emit_jmp_label(mod, end_label);
+    emit_label(mod, greater_label);
+    emit_mov_reg_imm(mod, EAX, 1u);
     emit_label(mod, end_label);
     emit_add_reg_imm(mod, ESP, 8);
 }
@@ -5995,6 +6055,7 @@ static Expr* gen_cxx_bind_constructor_expression32(
         case EXPR_BITXOR:
         case EXPR_LSHIFT:
         case EXPR_RSHIFT:
+        case EXPR_SPACESHIP:
         case EXPR_EQ:
         case EXPR_NE:
         case EXPR_LT:
@@ -7956,6 +8017,15 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_shr_reg_cl(mod, EAX);
             } else {
                 emit_sar_reg_cl(mod, EAX);
+            }
+            break;
+
+        case EXPR_SPACESHIP:
+            if (gen_is_integer64(expr->binary_lhs->type) ||
+                gen_is_integer64(expr->binary_rhs->type)) {
+                gen_spaceship_integer64(mod, expr);
+            } else {
+                gen_spaceship_integer32(mod, expr);
             }
             break;
 

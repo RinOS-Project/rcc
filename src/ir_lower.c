@@ -790,6 +790,76 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
     return lower_cast(context, result, expression->type);
 }
 
+static RccIrLowerValue lower_spaceship(RccIrLowerContext* context,
+                                       const Expr* expression) {
+    Type* comparison_type = type_common(expression->binary_lhs->type,
+                                        expression->binary_rhs->type);
+    RccIrType result_type;
+    RccIrLowerValue left;
+    RccIrLowerValue right;
+    RccIrLowerValue less;
+    RccIrLowerValue greater;
+    RccIrLowerValue negative;
+    RccIrLowerValue zero;
+    RccIrLowerValue positive;
+    RccIrInstruction* less_compare;
+    RccIrInstruction* greater_compare;
+    RccIrInstruction* greater_select;
+    RccIrInstruction* less_select;
+    RccIrValue operands[3];
+    if (!comparison_type || !lower_type(expression->type, &result_type) ||
+        result_type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    left = lower_expression(context, expression->binary_lhs);
+    right = lower_expression(context, expression->binary_rhs);
+    if (!left.valid || !right.valid) return lower_invalid_value();
+    left = lower_cast(context, left, comparison_type);
+    right = lower_cast(context, right, comparison_type);
+    if (!left.valid || !right.valid) return lower_invalid_value();
+    operands[0] = left.value;
+    operands[1] = right.value;
+    less_compare = lower_append(context, RCC_IR_ICMP,
+                                rcc_ir_type_integer(1u), operands, 2u,
+                                NULL, 0u);
+    greater_compare = lower_append(context, RCC_IR_ICMP,
+                                   rcc_ir_type_integer(1u), operands, 2u,
+                                   NULL, 0u);
+    if (!less_compare || !greater_compare) return lower_invalid_value();
+    rcc_ir_set_predicate(less_compare, lower_comparison_predicate(
+        EXPR_LT, comparison_type->is_unsigned ||
+                 comparison_type->kind == TYPE_PTR));
+    rcc_ir_set_predicate(greater_compare, lower_comparison_predicate(
+        EXPR_GT, comparison_type->is_unsigned ||
+                 comparison_type->kind == TYPE_PTR));
+    less = lower_value(less_compare->result, rcc_ir_type_integer(1u), true);
+    greater = lower_value(greater_compare->result,
+                          rcc_ir_type_integer(1u), true);
+    negative = lower_integer_constant(context, result_type, false,
+                                      UINT64_MAX);
+    zero = lower_integer_constant(context, result_type, false, 0u);
+    positive = lower_integer_constant(context, result_type, false, 1u);
+    if (!less.valid || !greater.valid || !negative.valid ||
+        !zero.valid || !positive.valid) {
+        return lower_invalid_value();
+    }
+    operands[0] = greater.value;
+    operands[1] = positive.value;
+    operands[2] = zero.value;
+    greater_select = lower_append(context, RCC_IR_SELECT, result_type,
+                                  operands, 3u, NULL, 0u);
+    if (!greater_select) return lower_invalid_value();
+    operands[0] = less.value;
+    operands[1] = negative.value;
+    operands[2] = greater_select->result;
+    less_select = lower_append(context, RCC_IR_SELECT, result_type,
+                               operands, 3u, NULL, 0u);
+    if (!less_select) return lower_invalid_value();
+    return lower_value(less_select->result, result_type,
+                       expression->type->is_unsigned);
+}
+
 static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
                                         const Expr* expression) {
     RccIrLowerValue value;
@@ -1244,8 +1314,7 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             context->unsupported = true;
             return lower_invalid_value();
         case EXPR_SPACESHIP:
-            context->unsupported = true;
-            return lower_invalid_value();
+            return lower_spaceship(context, expression);
         case EXPR_NEG:
             operand = lower_expression(context, expression->unary_operand);
             if (!operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER) {

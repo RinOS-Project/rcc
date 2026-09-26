@@ -1,3 +1,3 @@
-int builtin_spaceship(int left, int right) {
+int builtin_spaceship(float left, float right) {
     return left <=> right;
 }
