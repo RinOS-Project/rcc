@@ -512,6 +512,8 @@ static int compile_current_input(char** argv) {
     pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
     /* The RinOS floating-point ABI deliberately excludes C complex types. */
     pp_define(pp, "__STDC_NO_COMPLEX__", "1");
+    /* RinOS exposes pthreads, but does not provide the C11 <threads.h> API. */
+    pp_define(pp, "__STDC_NO_THREADS__", "1");
 
     /* Apply command-line defines */
     for (int i = 0; i < g_opts.define_count; i++) {
