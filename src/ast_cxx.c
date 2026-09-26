@@ -1444,6 +1444,9 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     ns->template_count = 0;
     ns->children = NULL;
     ns->next = NULL;
+    ns->namespace_alias_names = NULL;
+    ns->namespace_alias_targets = NULL;
+    ns->namespace_alias_count = 0;
     ns->using_namespaces = NULL;
     ns->using_namespace_count = 0;
     ns->using_declarations = NULL;
@@ -1466,7 +1469,37 @@ CxxNamespace* cxx_namespace_lookup(CxxNamespace* root, const char* name) {
             return ns;
         }
     }
+    for (int index = 0; index < root->namespace_alias_count; ++index) {
+        if (root->namespace_alias_names[index] &&
+            strcmp(root->namespace_alias_names[index], name) == 0) {
+            return root->namespace_alias_targets[index];
+        }
+    }
     return NULL;
+}
+
+bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,
+                             CxxNamespace* target) {
+    if (!ns || !name || !*name || !target || cxx_namespace_lookup(ns, name)) {
+        return false;
+    }
+    ns->namespace_alias_names = ast_arena_grow(
+        ns->namespace_alias_names,
+        sizeof(*ns->namespace_alias_names) *
+            (size_t)ns->namespace_alias_count,
+        sizeof(*ns->namespace_alias_names) *
+            (size_t)(ns->namespace_alias_count + 1));
+    ns->namespace_alias_targets = ast_arena_grow(
+        ns->namespace_alias_targets,
+        sizeof(*ns->namespace_alias_targets) *
+            (size_t)ns->namespace_alias_count,
+        sizeof(*ns->namespace_alias_targets) *
+            (size_t)(ns->namespace_alias_count + 1));
+    ns->namespace_alias_names[ns->namespace_alias_count] =
+        rcc_intern(name);
+    ns->namespace_alias_targets[ns->namespace_alias_count] = target;
+    ++ns->namespace_alias_count;
+    return true;
 }
 
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {

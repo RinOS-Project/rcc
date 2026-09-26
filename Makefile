@@ -157,7 +157,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-requires-expression
 .PHONY: test-cxx-inline-variables
-.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace
+.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
@@ -270,6 +270,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-inline-variables \
 	test-cxx-inline-namespace \
 	test-cxx-nested-namespace \
+	test-cxx-namespace-alias \
 	test-cxx-selection-init \
 	test-cxx-designated-initializer \
 	test-cxx-utf8-literals \
@@ -2420,6 +2421,50 @@ test-cxx-nested-namespace: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-nested-namespace/x64.o
 	$(TEST_OUT)/cxx-nested-namespace/x64
 	@echo "C++ nested namespace definition tests completed"
+
+test-cxx-namespace-alias: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-namespace-alias)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-namespace-alias/x86.s \
+		tests/cxx_namespace_alias.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-namespace-alias/x86.o \
+		$(TEST_OUT)/cxx-namespace-alias/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-namespace-alias/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-namespace-alias/x86 \
+		$(TEST_OUT)/cxx-namespace-alias/start-x86.o \
+		$(TEST_OUT)/cxx-namespace-alias/x86.o
+	$(TEST_OUT)/cxx-namespace-alias/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-namespace-alias/x64.s \
+		tests/cxx_namespace_alias.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-namespace-alias/x64.o \
+		$(TEST_OUT)/cxx-namespace-alias/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-namespace-alias/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-namespace-alias/x64 \
+		$(TEST_OUT)/cxx-namespace-alias/start-x64.o \
+		$(TEST_OUT)/cxx-namespace-alias/x64.o
+	$(TEST_OUT)/cxx-namespace-alias/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-alias/invalid-x86.ro \
+		tests/cxx_namespace_alias_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log 2>&1
+	grep -q "unknown namespace alias target" \
+		$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
+	grep -q "namespace alias 'api' conflicts" \
+		$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-alias/invalid-x64.ro \
+		tests/cxx_namespace_alias_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log 2>&1
+	grep -q "unknown namespace alias target" \
+		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
+	grep -q "namespace alias 'api' conflicts" \
+		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
+	@echo "C++ namespace alias tests completed"
 
 test-cxx-selection-init: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-selection-init)

@@ -4326,6 +4326,21 @@ static const char* cxx_using_qualified_name(const char* name,
     return rcc_intern(name);
 }
 
+static CxxNamespace* resolve_cxx_namespace_reference(
+    CxxNamespace* scope, const char* name) {
+    CxxNamespace* candidate;
+
+    if (!name || !*name || !g_global_namespace) return NULL;
+    if (name[0] == ':' && name[1] == ':') {
+        return cxx_namespace_find(g_global_namespace, name + 2);
+    }
+    for (candidate = scope; candidate; candidate = candidate->parent) {
+        CxxNamespace* target = cxx_namespace_find(candidate, name);
+        if (target) return target;
+    }
+    return NULL;
+}
+
 static void parse_cxx_using(CxxNamespace* ns) {
     SourceLoc loc = previous()->loc;
     const char* name;
@@ -4456,6 +4471,27 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
     const char* ns_name = NULL;
     if (check(TOK_IDENT)) {
         ns_name = advance()->value.str_val;
+    }
+
+    if (match(TOK_ASSIGN)) {
+        const char* target_name = parse_qualified_name();
+        CxxNamespace* target = resolve_cxx_namespace_reference(
+            parent, target_name);
+        if (is_inline_namespace) {
+            rcc_error(loc, "inline namespace alias is not valid");
+        } else if (!ns_name) {
+            rcc_error(loc, "namespace alias requires a name");
+        } else if (!target) {
+            rcc_error(loc, "unknown namespace alias target '%s'",
+                      target_name ? target_name : "");
+        } else if (cxx_namespace_lookup(parent, ns_name)) {
+            rcc_error(loc, "namespace alias '%s' conflicts with an existing namespace",
+                      ns_name);
+        } else if (!cxx_namespace_add_alias(parent, ns_name, target)) {
+            rcc_error(loc, "failed to register namespace alias '%s'", ns_name);
+        }
+        expect(TOK_SEMICOLON, ";");
+        return NULL;
     }
 
     CxxNamespace* ns = cxx_namespace_new(ns_name, loc);

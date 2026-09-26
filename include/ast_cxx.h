@@ -176,6 +176,12 @@ struct CxxNamespace {
     CxxNamespace* children;
     CxxNamespace* next;      /* sibling */
 
+    /* Namespace aliases preserve the canonical target namespace for lookup;
+     * declarations continue to use the target's ABI-qualified spelling. */
+    const char** namespace_alias_names;
+    CxxNamespace** namespace_alias_targets;
+    int namespace_alias_count;
+
     /* Names introduced by using-directives/declarations.  Semantic analysis
      * consults this metadata instead of manufacturing duplicate symbols. */
     CxxNamespace** using_namespaces;
@@ -412,6 +418,8 @@ void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls);
 
 /* Add nested namespace */
 void cxx_namespace_add_namespace(CxxNamespace* parent, CxxNamespace* child);
+bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,
+                             CxxNamespace* target);
 
 /* Template creation with source location */
 CxxTemplate* cxx_template_new(SourceLoc loc);
