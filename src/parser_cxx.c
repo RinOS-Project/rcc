@@ -55,6 +55,7 @@ static CxxReferenceCapture* saved_reference_captures[32];
 static int saved_reference_capture_depth;
 static unsigned cxx_lambda_counter;
 static unsigned cxx_range_for_counter;
+static unsigned cxx_structured_binding_counter;
 
 static int cxx_class_pack_index(CxxTemplate* tmpl);
 static Type* cxx_parser_value_type(const char* name);
@@ -8318,6 +8319,194 @@ static bool is_active_template_type(const char* name) {
     return false;
 }
 
+static bool cxx_structured_binding_starts(void) {
+    Token* token = parser.cur;
+    if (!token) return false;
+    if (token->type == TOK_CONST) token = token->next;
+    if (!token || token->type != TOK_AUTO) return false;
+    token = token->next;
+    if (token && (token->type == TOK_AMP || token->type == TOK_AND)) {
+        token = token->next;
+    }
+    return token && token->type == TOK_LBRACKET;
+}
+
+static Type* cxx_structured_binding_unqualified_type(Type* type) {
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        return type->base;
+    }
+    return type;
+}
+
+static Type* cxx_structured_binding_const_type(Type* type) {
+    Type* qualified;
+    if (!type || type->is_const) return type;
+    qualified = ast_arena_alloc(sizeof(*qualified));
+    *qualified = *type;
+    qualified->is_const = true;
+    return qualified;
+}
+
+static Stmt* parse_cxx_structured_binding_declaration(void) {
+    SourceLoc loc = peek()->loc;
+    bool is_const = match(TOK_CONST);
+    bool is_rvalue_reference = false;
+    bool is_reference = false;
+    Type* initializer_type;
+    Type* binding_source_type;
+    Expr* initializer;
+    Decl* hidden;
+    StmtList* statements = NULL;
+    const char* binding_names[32];
+    int binding_count = 0;
+    char hidden_name[64];
+    int written;
+
+    if (!check(TOK_AUTO)) return NULL;
+    advance();
+    if (match(TOK_AMP)) {
+        is_reference = true;
+    } else if (match(TOK_AND)) {
+        is_reference = true;
+        is_rvalue_reference = true;
+    }
+    expect(TOK_LBRACKET, "structured binding list");
+    if (check(TOK_RBRACKET)) {
+        rcc_error(loc, "structured binding list cannot be empty");
+    }
+    while (!check(TOK_RBRACKET) && !at_end()) {
+        Token* name = expect(TOK_IDENT, "structured binding name");
+        if (name && binding_count < (int)(sizeof(binding_names) /
+                                          sizeof(binding_names[0]))) {
+            binding_names[binding_count++] = name->value.str_val;
+        } else if (name) {
+            rcc_error(name->loc, "too many structured binding names");
+        }
+        if (!match(TOK_COMMA)) break;
+    }
+    expect(TOK_RBRACKET, "]");
+    if (!match(TOK_ASSIGN)) {
+        rcc_error(peek()->loc,
+                  "RinOS structured bindings require an '=' initializer");
+        while (!check(TOK_SEMICOLON) && !at_end()) advance();
+        (void)match(TOK_SEMICOLON);
+        return stmt_null(loc);
+    }
+    initializer = parse_cxx_expression();
+    expect(TOK_SEMICOLON, ";");
+    if (!initializer || binding_count == 0) return stmt_null(loc);
+
+    initializer_type = initializer->type;
+    if (!initializer_type && initializer->kind == EXPR_IDENT) {
+        initializer_type = cxx_parser_value_type(initializer->ident_name);
+    }
+    if (!initializer_type && initializer->kind == EXPR_COMPOUND) {
+        initializer_type = initializer->compound_type;
+    }
+    binding_source_type = cxx_structured_binding_unqualified_type(
+        initializer_type);
+    if (!binding_source_type ||
+        (binding_source_type->kind != TYPE_STRUCT &&
+         binding_source_type->kind != TYPE_UNION &&
+         binding_source_type->kind != TYPE_ARRAY)) {
+        rcc_error(loc,
+                  "structured binding requires a complete aggregate initializer");
+        return stmt_null(loc);
+    }
+    if (!type_is_complete(binding_source_type)) {
+        rcc_error(loc,
+                  "structured binding requires a complete aggregate type");
+        return stmt_null(loc);
+    }
+    if (binding_source_type->kind == TYPE_ARRAY &&
+        binding_source_type->array_len < 0) {
+        rcc_error(loc,
+                  "structured binding requires a fixed-size array");
+        return stmt_null(loc);
+    }
+    if (is_rvalue_reference) {
+        rcc_error(loc,
+                  "RinOS structured bindings do not support auto&& initializers");
+        return stmt_null(loc);
+    }
+
+    if (binding_source_type->kind == TYPE_ARRAY) {
+        if (binding_count != binding_source_type->array_len) {
+            rcc_error(loc,
+                      "structured binding count does not match array extent");
+            return stmt_null(loc);
+        }
+    } else {
+        int field_count = 0;
+        for (TypeField* field = binding_source_type->fields; field;
+             field = field->next) {
+            if (field->name) ++field_count;
+        }
+        if (binding_count != field_count) {
+            rcc_error(loc,
+                      "structured binding count does not match aggregate fields");
+            return stmt_null(loc);
+        }
+    }
+    written = snprintf(hidden_name, sizeof(hidden_name),
+                       "__rcc_structured_binding_%u",
+                       ++cxx_structured_binding_counter);
+    if (written < 0 || (size_t)written >= sizeof(hidden_name)) {
+        rcc_error(loc, "structured binding temporary name exceeds compiler limits");
+        return stmt_null(loc);
+    }
+
+    Type* hidden_type = binding_source_type;
+    if (binding_source_type->kind == TYPE_ARRAY || is_reference) {
+        hidden_type = type_ptr(binding_source_type);
+        hidden_type->is_reference = true;
+    } else if (is_const) {
+        hidden_type = cxx_structured_binding_const_type(binding_source_type);
+    }
+    hidden = decl_var(rcc_intern(hidden_name), hidden_type, initializer, loc);
+    rcc_parser_cxx_add_value_binding(hidden->name, hidden_type);
+    stmtlist_append(&statements, stmt_decl(hidden, loc));
+
+    {
+        TypeField* field = binding_source_type->fields;
+        for (int index = 0; index < binding_count; ++index) {
+            Expr* object = expr_ident(hidden->name, loc);
+            Expr* element;
+            Type* element_type;
+            Type* reference_type;
+            Decl* binding;
+
+            object->ident_decl = hidden;
+            object->type = binding_source_type;
+            if (binding_source_type->kind == TYPE_ARRAY) {
+                element = expr_index(object, expr_int(index, loc), loc);
+                element_type = binding_source_type->base;
+            } else {
+                while (field && !field->name) field = field->next;
+                if (!field) {
+                    rcc_error(loc, "structured binding selected an unnamed field");
+                    return stmt_null(loc);
+                }
+                element = expr_member(object, field->name, loc);
+                element->member_field = field;
+                element_type = field->type;
+                field = field->next;
+            }
+            if (is_const) element_type = cxx_structured_binding_const_type(
+                element_type);
+            reference_type = type_ptr(element_type);
+            reference_type->is_reference = true;
+            binding = decl_var(binding_names[index], reference_type,
+                               element, loc);
+            rcc_parser_cxx_add_value_binding(binding->name, reference_type);
+            stmtlist_append(&statements, stmt_decl(binding, loc));
+        }
+    }
+    Stmt* structured = stmt_block(statements, loc);
+    structured->block_no_scope = true;
+    return structured;
+}
+
 /* Return whether a `for` header contains the range separator at its outer
  * parameter-list depth.  Nested conditional expressions may contain `:`;
  * only a separator directly inside the header belongs to range-for. */
@@ -8560,6 +8749,9 @@ Stmt* rcc_parse_cxx_auto_local_declaration(void) {
                               parser.cur->next->type == TOK_AUTO)) {
         return NULL;
     }
+    if (cxx_structured_binding_starts()) {
+        return parse_cxx_structured_binding_declaration();
+    }
     return parse_cxx_dependent_local_declaration();
 }
 
@@ -8606,6 +8798,10 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 
 static Stmt* parse_cxx_statement(void) {
     if (check(TOK_CONSTEXPR)) return parse_declaration();
+
+    if (cxx_structured_binding_starts()) {
+        return parse_cxx_structured_binding_declaration();
+    }
 
     if (check(TOK_AUTO) ||
         (check(TOK_IDENT) &&

@@ -682,6 +682,9 @@ struct Stmt {
     /* C++ `if constexpr` is selected after semantic constant evaluation, so
      * the discarded branch is never analyzed or lowered. */
     bool if_is_constexpr;
+    /* Structured bindings are represented as a parser-generated statement
+     * list, but their names belong to the surrounding scope. */
+    bool block_no_scope;
 
     union {
         /* STMT_EXPR */

@@ -753,6 +753,7 @@ Stmt* stmt_block(StmtList* stmts, SourceLoc loc) {
     Stmt* s = rcc_alloc(sizeof(Stmt));
     s->kind = STMT_BLOCK;
     s->loc = loc;
+    s->block_no_scope = false;
     s->block_stmts = stmts;
     return s;
 }

@@ -9374,11 +9374,11 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_BLOCK:
-            symtab_enter_scope(g_symtab);
+            if (!stmt->block_no_scope) symtab_enter_scope(g_symtab);
             for (StmtList* s = stmt->block_stmts; s; s = s->next) {
                 sema_stmt(s->stmt);
             }
-            symtab_leave_scope(g_symtab);
+            if (!stmt->block_no_scope) symtab_leave_scope(g_symtab);
             break;
 
         case STMT_IF:

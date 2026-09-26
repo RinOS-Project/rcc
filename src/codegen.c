@@ -10292,17 +10292,19 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         case STMT_BLOCK: {
             CleanupCodegen* marker = active_cleanups;
             VLAScopeCodegen* vla_marker = active_vla_scopes;
-            if (stmt->vla_stack_offset < 0) {
+            if (!stmt->block_no_scope && stmt->vla_stack_offset < 0) {
                 emit_mov_mem_reg(mod, EBP, stmt->vla_stack_offset, ESP);
             }
             for (StmtList* s = stmt->block_stmts; s; s = s->next) {
                 gen_stmt(mod, s->stmt);
             }
-            gen_cleanups_until(mod, marker);
-            discard_cleanups_until(marker);
-            gen_vla_scopes_until(mod, vla_marker);
-            discard_vla_scopes_until(vla_marker);
-            if (stmt->vla_stack_offset < 0) {
+            if (!stmt->block_no_scope) {
+                gen_cleanups_until(mod, marker);
+                discard_cleanups_until(marker);
+                gen_vla_scopes_until(mod, vla_marker);
+                discard_vla_scopes_until(vla_marker);
+            }
+            if (!stmt->block_no_scope && stmt->vla_stack_offset < 0) {
                 emit_mov_reg_mem(mod, ESP, EBP, stmt->vla_stack_offset);
             }
             break;

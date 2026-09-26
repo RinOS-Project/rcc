@@ -6537,17 +6537,19 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_BLOCK: {
             CleanupCodegen64* marker = active_cleanups64;
             VLAScopeCodegen64* vla_marker = active_vla_scopes64;
-            if (stmt->vla_stack_offset < 0) {
+            if (!stmt->block_no_scope && stmt->vla_stack_offset < 0) {
                 emit64_mov_mem_reg(mod, RBP, stmt->vla_stack_offset, RSP);
             }
             for (StmtList* s = stmt->block_stmts; s; s = s->next) {
                 gen64_stmt(mod, s->stmt);
             }
-            gen64_cleanups_until(mod, marker);
-            discard64_cleanups_until(marker);
-            gen64_vla_scopes_until(mod, vla_marker);
-            discard64_vla_scopes_until(vla_marker);
-            if (stmt->vla_stack_offset < 0) {
+            if (!stmt->block_no_scope) {
+                gen64_cleanups_until(mod, marker);
+                discard64_cleanups_until(marker);
+                gen64_vla_scopes_until(mod, vla_marker);
+                discard64_vla_scopes_until(vla_marker);
+            }
+            if (!stmt->block_no_scope && stmt->vla_stack_offset < 0) {
                 emit64_mov_reg_mem(mod, RSP, RBP, stmt->vla_stack_offset);
             }
             break;
