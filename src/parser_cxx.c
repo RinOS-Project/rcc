@@ -5102,6 +5102,25 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
     return ns;
 }
 
+/* A constrained placeholder starts with a named concept and ends with the
+ * auto placeholder. Keep the look-ahead structural so a normal named type
+ * is still parsed by the ordinary parameter declarator. */
+static bool cxx_constrained_auto_parameter_starts(void) {
+    Token* token = parser.cur;
+
+    if (token && token->type == TOK_CONST) token = token->next;
+    if (!token || (token->type != TOK_IDENT && token->type != TOK_SCOPE)) {
+        return false;
+    }
+    if (token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    while (token->next && token->next->type == TOK_SCOPE) {
+        token = token->next->next;
+        if (!token || token->type != TOK_IDENT) return false;
+    }
+    return token->next && token->next->type == TOK_AUTO;
+}
+
 static DeclList* parse_cxx_parameter_declarations(void) {
     DeclList* params = NULL;
     int param_idx = 0;
@@ -5116,15 +5135,35 @@ static DeclList* parse_cxx_parameter_declarations(void) {
         bool parameter_pack = false;
         Expr* default_argument = NULL;
         Decl* parameter;
-        if (check(TOK_AUTO) || (check(TOK_CONST) && check_next(TOK_AUTO))) {
+        if (check(TOK_AUTO) || (check(TOK_CONST) && check_next(TOK_AUTO)) ||
+            cxx_constrained_auto_parameter_starts()) {
             SourceLoc loc = peek()->loc;
             bool is_const = match(TOK_CONST);
             bool is_pointer = false;
             bool is_reference = false;
             bool is_rvalue_reference = false;
+            const char* concept_name = NULL;
+            CxxTemplate* concept = NULL;
             if (!rcc_parser_cxx_standard_at_least(20)) {
                 rcc_error(loc,
                           "abbreviated function templates require C++20 or newer");
+            }
+            if (!check(TOK_AUTO)) {
+                concept_name = parse_qualified_name();
+                concept = find_concept(concept_name);
+                if (!concept) {
+                    rcc_error(loc,
+                              "constrained abbreviated function parameter "
+                              "requires a known named concept");
+                } else if (concept->param_count != 1 ||
+                           concept->params[0].kind != TPARAM_TYPE ||
+                           concept->params[0].is_pack ||
+                           concept->params[0].has_default) {
+                    rcc_error(loc,
+                              "constrained abbreviated function parameter "
+                              "requires a single type-parameter concept");
+                    concept = NULL;
+                }
             }
             expect(TOK_AUTO, "abbreviated function parameter");
             if (match(TOK_STAR)) {
@@ -5139,6 +5178,28 @@ static DeclList* parse_cxx_parameter_declarations(void) {
                 active_template,
                 active_template ? active_template->param_count : 0,
                 is_const, is_pointer, is_reference, is_rvalue_reference, loc);
+            if (concept) {
+                Type* concept_type = type;
+                Expr* concept_argument;
+                Expr* concept_call;
+                ExprList* concept_arguments = NULL;
+                while (concept_type && concept_type->kind == TYPE_PTR) {
+                    concept_type = concept_type->base;
+                }
+                concept_argument = expr_int(0, loc);
+                concept_argument->type = concept_type;
+                exprlist_append(&concept_arguments, concept_argument);
+                concept_call = expr_call(
+                    expr_ident(concept_name, loc), concept_arguments, loc);
+                concept_call->cxx_concept_template = concept;
+                if (active_template->constraint) {
+                    active_template->constraint = expr_binary(
+                        EXPR_AND, active_template->constraint,
+                        concept_call, loc);
+                } else {
+                    active_template->constraint = concept_call;
+                }
+            }
             parameter_pack = match(TOK_ELLIPSIS);
             if (check(TOK_IDENT)) {
                 name = advance()->value.str_val;
