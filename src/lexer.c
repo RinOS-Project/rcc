@@ -844,6 +844,78 @@ static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8) {
     return tok;
 }
 
+/* C++11 raw strings deliberately bypass escape decoding.  Keep the bounded
+ * RinOS representation identical to an ordinary byte string while retaining
+ * delimiter matching and source locations for embedded newlines. */
+static Token* lex_raw_string(Lexer* lex, SourceLoc loc, unsigned prefix_length,
+                             bool is_utf8, bool unsupported_encoding) {
+    char delimiter[17];
+    char buf[RCC_MAX_STRING];
+    size_t delimiter_length = 0;
+    int len = 0;
+
+    for (unsigned index = 0; index < prefix_length; ++index) advance(lex);
+    if (peek(lex) != '"') {
+        rcc_error(loc, "raw string literal requires an opening quote");
+        return lex_string(lex, loc, is_utf8);
+    }
+    advance(lex);
+    while (peek(lex) && peek(lex) != '(') {
+        unsigned char c = (unsigned char)peek(lex);
+        if (delimiter_length >= sizeof(delimiter) - 1u) {
+            rcc_error(loc, "raw string literal delimiter exceeds 16 bytes");
+            while (peek(lex) && peek(lex) != '(') advance(lex);
+            break;
+        }
+        if (c <= 0x20u || c == ')' || c == '\\' || c == '"') {
+            rcc_error(loc, "invalid raw string literal delimiter");
+        }
+        delimiter[delimiter_length++] = advance(lex);
+    }
+    if (peek(lex) != '(') {
+        rcc_error(loc, "raw string literal delimiter requires an opening parenthesis");
+    } else {
+        advance(lex);
+    }
+    delimiter[delimiter_length] = '\0';
+    if (unsupported_encoding) {
+        rcc_error(loc,
+                  "wide, UTF-16, and UTF-32 literals are not supported by the RinOS byte-string ABI");
+    }
+
+    while (peek(lex)) {
+        if (peek(lex) == ')' &&
+            strncmp(lex->pos + 1, delimiter, delimiter_length) == 0 &&
+            lex->pos[1 + delimiter_length] == '"') {
+            advance(lex);
+            for (size_t index = 0; index < delimiter_length + 1u; ++index) {
+                advance(lex);
+            }
+            buf[len] = '\0';
+            {
+                Token* tok = token_new(TOK_STRING_LIT, loc);
+                tok->value.str_val = rcc_intern(buf);
+                tok->is_utf8_literal = is_utf8;
+                return tok;
+            }
+        }
+        if (len >= RCC_MAX_STRING - 1) {
+            rcc_error(loc, "raw string literal is too long");
+            while (peek(lex)) advance(lex);
+            break;
+        }
+        buf[len++] = advance(lex);
+    }
+    rcc_error(loc, "unterminated raw string literal");
+    buf[len] = '\0';
+    {
+        Token* tok = token_new(TOK_STRING_LIT, loc);
+        tok->value.str_val = rcc_intern(buf);
+        tok->is_utf8_literal = is_utf8;
+        return tok;
+    }
+}
+
 static Token* lex_token(Lexer* lex) {
     skip_whitespace(lex);
 
@@ -853,6 +925,38 @@ static Token* lex_token(Lexer* lex) {
 
     SourceLoc loc = make_loc(lex);
     char c = peek(lex);
+
+    /* Raw literal prefixes are recognized before ordinary identifier lexing.
+     * A prefix with a wide encoding still produces one string token so the
+     * parser can recover, but the ABI diagnostic is never suppressed. */
+    if (lexer_cxx_mode) {
+        unsigned prefix_length = 0;
+        bool is_utf8 = false;
+        bool unsupported_encoding = false;
+        if (c == 'R' && peek_next(lex) == '"') {
+            prefix_length = 1;
+        } else if (c == 'u' && peek_next(lex) == '8' &&
+                   lex->pos[2] == 'R' && lex->pos[3] == '"') {
+            prefix_length = 3;
+            is_utf8 = true;
+        } else if (c == 'L' && peek_next(lex) == 'R' &&
+                   lex->pos[2] == '"') {
+            prefix_length = 2;
+            unsupported_encoding = true;
+        } else if (c == 'u' && peek_next(lex) == 'R' &&
+                   lex->pos[2] == '"') {
+            prefix_length = 2;
+            unsupported_encoding = true;
+        } else if (c == 'U' && peek_next(lex) == 'R' &&
+                   lex->pos[2] == '"') {
+            prefix_length = 2;
+            unsupported_encoding = true;
+        }
+        if (prefix_length != 0) {
+            return lex_raw_string(lex, loc, prefix_length, is_utf8,
+                                  unsupported_encoding);
+        }
+    }
 
     /* Recognize C++ literal prefixes before identifier lexing.  UTF-8 is
      * representable by the RinOS byte-string ABI; wide, UTF-16, and UTF-32
