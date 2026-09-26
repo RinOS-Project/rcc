@@ -187,11 +187,13 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
 .PHONY: test-preprocessor-line
+.PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-cxx-predefined-function-identifiers \
+	test-preprocessor-include \
 	test-multiple-inputs \
 	test-cxx-language-core \
 	test-cxx-numeric-separators \
@@ -5085,6 +5087,38 @@ test-preprocessor-line: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -F -q 'expected a positive line number' \
 		$(TEST_OUT)/invalid-preprocessor-line-x64.log
 	@echo "C17/C++20 #line marker tests completed"
+
+test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT))
+	$(RCC_TARGET) -E -Itests tests/preprocessor_include.c > \
+		$(TEST_OUT)/preprocessor-include-c.i
+	grep -F -q 'int preprocessor_include_c =' \
+		$(TEST_OUT)/preprocessor-include-c.i
+	grep -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-c.i
+	$(RCXX_TARGET) -E -Itests tests/preprocessor_include.cpp > \
+		$(TEST_OUT)/preprocessor-include-cxx.i
+	grep -F -q 'constexpr int preprocessor_include_cxx =' \
+		$(TEST_OUT)/preprocessor-include-cxx.i
+	grep -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-cxx.i
+	$(RCC_TARGET) --target i686-unknown-rinos -Itests -c \
+		-o $(TEST_OUT)/preprocessor-include-c-x86.ro \
+		tests/preprocessor_include.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -Itests -c \
+		-o $(TEST_OUT)/preprocessor-include-c-x64.ro \
+		tests/preprocessor_include.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -Itests -c \
+		-o $(TEST_OUT)/preprocessor-include-cxx-x86.ro \
+		tests/preprocessor_include.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -Itests -c \
+		-o $(TEST_OUT)/preprocessor-include-cxx-x64.ro \
+		tests/preprocessor_include.cpp
+	! $(RCC_TARGET) --target i686-unknown-rinos -Itests -c \
+		-o $(TEST_OUT)/invalid-preprocessor-include.ro \
+		tests/invalid_preprocessor_include.c > \
+		$(TEST_OUT)/invalid-preprocessor-include.log 2>&1
+	grep -F -q 'unexpected tokens after #include path' \
+		$(TEST_OUT)/invalid-preprocessor-include.log
+	@echo "C17/C++20 macro-expanded #include tests completed"
 
 test-preprocessor-operators: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)

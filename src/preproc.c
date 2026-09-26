@@ -214,9 +214,9 @@ Macro* pp_get_macro(Preprocessor* pp, const char* name) {
     return NULL;
 }
 
-/* Skip whitespace (not newlines) */
+/* Skip horizontal whitespace and the CR in a CRLF line ending. */
 static const char* skip_ws(const char* p) {
-    while (*p == ' ' || *p == '\t') p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r') p++;
     return p;
 }
 
@@ -1406,16 +1406,38 @@ static const char* process_directive(Preprocessor* pp, const char* p,
             return skip_to_eol(p);
         }
 
-        bool is_system = (*p == '<');
+        const char* original_end = skip_to_eol(p);
+        size_t include_text_length = (size_t)(original_end - p);
+        char* include_text = rcc_alloc(include_text_length + 1u);
+        memcpy(include_text, p, include_text_length);
+        include_text[include_text_length] = '\0';
+        char* expanded_include = expand_macros(pp, include_text);
+        rcc_free(include_text);
+
+        const char* include_start = skip_ws(expanded_include);
+        bool is_system = (*include_start == '<');
         char inc_name[256];
-        char delim = (*p == '<') ? '>' : '"';
+        char delim = is_system ? '>' : '"';
         bool include_closed = false;
-        p = read_string(p, inc_name, sizeof(inc_name), delim,
-                        &include_closed);
+        if (*include_start != '<' && *include_start != '"') {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "#include expects a quoted or angle-bracket path");
+            rcc_free(expanded_include);
+            return original_end;
+        }
+        const char* include_end = read_string(
+            include_start, inc_name, sizeof(inc_name), delim, &include_closed);
         if (!include_closed) {
             rcc_error((SourceLoc){filename, source_line, 0},
                       "unterminated #include path");
-            return skip_to_eol(p);
+            rcc_free(expanded_include);
+            return original_end;
+        }
+        if (*skip_ws(include_end) != '\0') {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "unexpected tokens after #include path");
+            rcc_free(expanded_include);
+            return original_end;
         }
 
         char resolved[RCC_MAX_PATH];
@@ -1423,8 +1445,10 @@ static const char* process_directive(Preprocessor* pp, const char* p,
                                      resolved, sizeof(resolved));
         if (!content) {
             rcc_error((SourceLoc){filename, 0, 0}, "cannot find include file: %s", inc_name);
-            return skip_to_eol(p);
+            rcc_free(expanded_include);
+            return original_end;
         }
+        rcc_free(expanded_include);
         pp_add_dependency(pp, resolved);
 
         /* Process included file */
@@ -1448,7 +1472,7 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         rcc_free(content);
         rcc_free(processed);
 
-        return skip_to_eol(p);
+        return original_end;
     }
 
     if (strcmp(directive, "define") == 0) {
