@@ -510,6 +510,8 @@ static int compile_current_input(char** argv) {
        targets the RinOS ABI, but retain the standard command-line distinction
        so hosted preprocessing remains useful for frontend tests and tools. */
     pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
+    /* The RinOS floating-point ABI deliberately excludes C complex types. */
+    pp_define(pp, "__STDC_NO_COMPLEX__", "1");
 
     /* Apply command-line defines */
     for (int i = 0; i < g_opts.define_count; i++) {
