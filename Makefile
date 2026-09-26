@@ -166,7 +166,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-shared-virtual-base
 .PHONY: test-cxx-shared-virtual-base-method test-cxx-virtual-base-conversion \
 test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
-.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-generic-lambda-stored-invalid test-cxx-template-template test-cxx-template-template-invalid test-cxx-template-template-dependent-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-cxx-using-enum test-cxx-using-enum-invalid test-multiple-inputs
+.PHONY: test-cxx-lambda-function-pointer test-cxx-generic-lambda test-cxx-generic-lambda-stored-invalid test-cxx-template-template test-cxx-template-template-invalid test-cxx-template-template-dependent-invalid test-cxx-structured-bindings test-cxx-structured-bindings-invalid test-cxx-alignas test-cxx-alignas-invalid test-cxx-constinit test-cxx-constinit-invalid test-cxx-using-enum test-cxx-using-enum-invalid test-cxx-conditional-explicit test-multiple-inputs
 .PHONY: test-cxx-default-destructor
 .PHONY: test-cxx-pure-virtual
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
@@ -262,6 +262,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-spaceship \
 	test-cxx-final \
 	test-cxx-override \
+	test-cxx-conditional-explicit \
 	test-cxx-pure-virtual \
 	test-cxx-conversion-operator \
 	test-cxx-lambda \
@@ -2519,6 +2520,66 @@ test-cxx-override: $(RCXX_TARGET)
 	grep -q "cannot override final method 'final_value'" \
 		$(TEST_OUT)/cxx-override/invalid-x64.log
 	@echo "C++ override and final method semantics tests completed"
+
+test-cxx-conditional-explicit: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-explicit)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-explicit/x86.s \
+		tests/cxx_conditional_explicit.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-conditional-explicit/x86.o \
+		$(TEST_OUT)/cxx-conditional-explicit/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-conditional-explicit/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-conditional-explicit/x86 \
+		$(TEST_OUT)/cxx-conditional-explicit/start-x86.o \
+		$(TEST_OUT)/cxx-conditional-explicit/x86.o
+	$(TEST_OUT)/cxx-conditional-explicit/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-explicit/x64.s \
+		tests/cxx_conditional_explicit.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-conditional-explicit/x64.o \
+		$(TEST_OUT)/cxx-conditional-explicit/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-conditional-explicit/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-conditional-explicit/x64 \
+		$(TEST_OUT)/cxx-conditional-explicit/start-x64.o \
+		$(TEST_OUT)/cxx-conditional-explicit/x64.o
+	$(TEST_OUT)/cxx-conditional-explicit/x64
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-conditional-explicit/old-x86.ro \
+		tests/cxx_conditional_explicit_invalid.cpp \
+		>$(TEST_OUT)/cxx-conditional-explicit/old-x86.log 2>&1; then \
+		echo "conditional explicit unexpectedly compiled before C++20 on i686"; exit 1; \
+	fi
+	grep -q "conditional explicit specifiers require C++20 or newer" \
+		$(TEST_OUT)/cxx-conditional-explicit/old-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-conditional-explicit/old-x64.ro \
+		tests/cxx_conditional_explicit_invalid.cpp \
+		>$(TEST_OUT)/cxx-conditional-explicit/old-x64.log 2>&1; then \
+		echo "conditional explicit unexpectedly compiled before C++20 on AMD64"; exit 1; \
+	fi
+	grep -q "conditional explicit specifiers require C++20 or newer" \
+		$(TEST_OUT)/cxx-conditional-explicit/old-x64.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.ro \
+		tests/cxx_conditional_explicit_invalid.cpp \
+		>$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.log 2>&1; then \
+		echo "non-constant conditional explicit unexpectedly compiled on i686"; exit 1; \
+	fi
+	grep -q "conditional explicit specifier requires an integral constant expression" \
+		$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.ro \
+		tests/cxx_conditional_explicit_invalid.cpp \
+		>$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log 2>&1; then \
+		echo "non-constant conditional explicit unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "conditional explicit specifier requires an integral constant expression" \
+		$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log
+	@echo "C++20 conditional explicit tests completed"
 
 test-cxx-pure-virtual: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-pure-virtual)

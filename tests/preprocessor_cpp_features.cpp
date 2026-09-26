@@ -114,6 +114,9 @@
 #ifdef __cpp_designated_initializers
 #error "designated initializers must not be advertised before C++20"
 #endif
+#ifdef __cpp_conditional_explicit
+#error "conditional explicit must not be advertised before C++20"
+#endif
 #else
 #if !defined(__cpp_consteval) || __cpp_consteval != 201811L
 #error "RCC++ must report C++20 consteval support"
@@ -132,6 +135,9 @@
 #endif
 #if !defined(__cpp_designated_initializers) || __cpp_designated_initializers != 201707L
 #error "RCC++ must report C++20 designated initializer support"
+#endif
+#if !defined(__cpp_conditional_explicit) || __cpp_conditional_explicit != 201806L
+#error "RCC++ must report C++20 conditional explicit support"
 #endif
 #if __cpp_nodiscard != 201907L
 #error "RCC++ must report the C++20 nodiscard value"

@@ -58,6 +58,7 @@ static void define_cxx_feature_test_macros(Preprocessor* pp) {
         pp_define(pp, "__cpp_char8_t", "201811L");
         pp_define(pp, "__cpp_using_enum", "201907L");
         pp_define(pp, "__cpp_designated_initializers", "201707L");
+        pp_define(pp, "__cpp_conditional_explicit", "201806L");
         pp_define(pp, "__cpp_nodiscard", "201907L");
     }
 }

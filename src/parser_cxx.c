@@ -1073,6 +1073,30 @@ static bool take_cxx_deprecated(const char** message) {
     return result;
 }
 
+/* C++20 permits an explicit-specifier to be a constant expression.  Keep the
+ * bounded frontend honest: evaluate the condition before recording the
+ * constructor/conversion metadata, and reject dependent or runtime forms
+ * instead of treating them as an unconditional explicit declaration. */
+static bool parse_cxx_explicit_specifier(SourceLoc loc) {
+    Expr* condition;
+    int64_t value = 0;
+
+    expect(TOK_EXPLICIT, "explicit");
+    if (!match(TOK_LPAREN)) return true;
+    condition = parse_expression();
+    expect(TOK_RPAREN, ")");
+    if (!rcc_parser_cxx_standard_at_least(20)) {
+        rcc_error(loc, "conditional explicit specifiers require C++20 or newer");
+        return false;
+    }
+    if (!condition || !expr_eval_integer_constant(condition, &value)) {
+        rcc_error(loc,
+                  "conditional explicit specifier requires an integral constant expression");
+        return false;
+    }
+    return value != 0;
+}
+
 static void skip_balanced(TokenType open, TokenType close) {
     int depth = 0;
     if (!match(open)) return;
@@ -4138,7 +4162,9 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             is_consteval = true;
         }
         else if (match(TOK_CONSTINIT)) is_constinit = true;
-        else if (match(TOK_EXPLICIT)) is_explicit = true;
+        else if (check(TOK_EXPLICIT)) {
+            is_explicit = parse_cxx_explicit_specifier(peek()->loc);
+        }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else if (match(TOK_FRIEND)) is_friend = true;
         else if (match(TOK_MUTABLE)) { }
