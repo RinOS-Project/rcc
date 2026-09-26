@@ -1619,6 +1619,7 @@ static Expr* parse_initializer(void) {
         for (;;) {
             ParsedInitializerDesignator* designators = NULL;
             ParsedInitializerDesignator** designator_tail = &designators;
+            unsigned designator_count = 0u;
             while (check(TOK_DOT) || check(TOK_LBRACKET)) {
                 ParsedInitializerDesignator* designator =
                     rcc_alloc(sizeof(*designator));
@@ -1644,8 +1645,13 @@ static Expr* parse_initializer(void) {
                     }
                     expect(TOK_RBRACKET, "]");
                 }
+                ++designator_count;
                 *designator_tail = designator;
                 designator_tail = &designator->next;
+            }
+            if (parser_cxx_mode && designator_count > 1u) {
+                rcc_error(loc,
+                          "C++ designated initializer cannot use nested designators");
             }
             if (designators) {
                 expect(TOK_ASSIGN, "=");

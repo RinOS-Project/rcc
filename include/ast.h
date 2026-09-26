@@ -584,6 +584,9 @@ struct Expr {
             int compound_offset;     /* Assigned automatic-storage slot. */
             bool compound_value_init; /* Spelled as an empty C++ {} list. */
             bool compound_copy_init;  /* C++ copy-initialization (`T t = x`). */
+            bool compound_cxx_default_member_normalized;
+            /* True when C++ default member initializers rewrote this list
+             * into compiler-generated designated clauses. */
             const char* compound_static_symbol;
             struct CxxConstructorInfo* compound_constructor;
         };

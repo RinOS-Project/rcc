@@ -10118,7 +10118,7 @@ static void sema_infer_initializer_type(Type* type, Expr* initializer) {
 static TypeField* initializer_field(Type* type, const char* name) {
     if (!type || !name) return NULL;
     for (TypeField* field = type->fields; field; field = field->next) {
-        if (strcmp(field->name, name) == 0) return field;
+        if (field->name && strcmp(field->name, name) == 0) return field;
     }
     return NULL;
 }
@@ -10179,6 +10179,66 @@ static bool initializer_is_aggregate_type(Type* type) {
     return type && (type->kind == TYPE_ARRAY ||
                     type->kind == TYPE_STRUCT ||
                     type->kind == TYPE_UNION);
+}
+
+/* C++20 designated initialization is narrower than the C designator
+ * grammar shared by the parser: only direct non-static data members may be
+ * named, names must follow declaration order, and one initializer list
+ * cannot mix designated and positional clauses.  This check runs before
+ * any C++ default-member normalization can reorder synthesized clauses. */
+static void sema_validate_cxx_designated_initializer(
+    Type* type, Expr* initializer) {
+    bool saw_designated = false;
+    bool saw_positional = false;
+    int previous_index = -1;
+
+    if (!rcc_parser_is_cxx_mode() || !type || !type->cxx_class ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !initializer || initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_cxx_default_member_normalized) {
+        return;
+    }
+    for (ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                      "C++ designated initializer cannot use an array designator");
+            continue;
+        }
+        if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+            int index = 0;
+            TypeField* field = initializer_field(type, item->designator_field);
+            for (TypeField* cursor = type->fields; cursor;
+                 cursor = cursor->next, ++index) {
+                if (cursor == field) break;
+            }
+            if (saw_positional) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "C++ designated initializer cannot follow a positional initializer");
+            }
+            if (!field) continue;
+            if (field->cxx_access != 0u) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "C++ designated initializer names an inaccessible member '%s'",
+                          item->designator_field);
+            }
+            if (type->kind == TYPE_UNION && saw_designated) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "C++ union designated initializer may name only one member");
+            } else if (index <= previous_index) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "C++ designated initializers must follow declaration order");
+            }
+            previous_index = index;
+            saw_designated = true;
+        } else {
+            if (saw_designated) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "C++ designated initializer cannot mix designated and positional initializers");
+            }
+            saw_positional = true;
+        }
+    }
 }
 
 static bool initializer_directly_initializes(Type* type, Expr* initializer) {
@@ -10341,6 +10401,7 @@ static void normalize_brace_elided_initializer(Type* type,
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     if (!type || type->cxx_dependent || !initializer) return;
+    sema_validate_cxx_designated_initializer(type, initializer);
     /* In C++ a parenthesized constructor argument list is stored in the
      * same compound node as a braced aggregate initializer.  Brace elision
      * must not rewrite that list into nested class objects before overload
@@ -11125,6 +11186,7 @@ static Expr* sema_cxx_default_member_initializer(Decl* declaration) {
         SourceLoc loc = source ? source->loc : declaration->loc;
         Expr* result = expr_initializer_list(items, loc);
         result->compound_type = type;
+        result->compound_cxx_default_member_normalized = true;
         return result;
     }
 }
