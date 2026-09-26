@@ -7505,12 +7505,15 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
     CxxTemplate* tmpl;
     Type* arguments[32] = { NULL };
     Type* pack_arguments[32] = { NULL };
+    int64_t pack_values[32] = { 0 };
+    bool pack_value_present[32] = { false };
     int64_t values[32] = { 0 };
     bool value_present[32] = { false };
     int capture_count = 0;
     int function_parameter_index;
     int pack_count = 0;
     bool has_pack = false;
+    bool has_value_pack = false;
 
     if (!call || !call->call_func ||
         call->call_func->kind != EXPR_IDENT) return true;
@@ -7565,13 +7568,52 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
                 break;
             }
         }
-        if (parameter->kind == TPARAM_NONTYPE) {
-            int64_t deduced_value = 0;
-            if (parameter_is_pack) {
+        if (parameter->kind == TPARAM_NONTYPE && parameter_is_pack) {
+            ExprList* pack_argument;
+            if (has_pack) {
                 rcc_error(call->loc,
-                          "generic lambda non-type parameter packs are not supported");
+                          "generic lambda supports only one parameter pack");
                 return false;
             }
+            if (pack_first_user_index < 0 || !parameter_pattern) {
+                rcc_error(call->loc,
+                          "generic lambda non-type parameter pack does not "
+                          "match a function parameter pack");
+                return false;
+            }
+            pack_argument = call->call_args;
+            while (pack_argument && pack_first_user_index > 0) {
+                pack_argument = pack_argument->next;
+                --pack_first_user_index;
+            }
+            while (pack_argument) {
+                int64_t deduced_value = 0;
+                if (pack_count >= (int)(sizeof(pack_values) /
+                                        sizeof(pack_values[0]))) {
+                    rcc_error(pack_argument->expr->loc,
+                              "generic lambda non-type parameter pack exceeds compiler limits");
+                    return false;
+                }
+                sema_expr(pack_argument->expr);
+                if (!sema_cxx_lambda_deduction_value(
+                        pack_argument->expr, parameter_pattern,
+                        parameter->name, &deduced_value)) {
+                    rcc_error(pack_argument->expr->loc,
+                              "cannot deduce generic lambda non-type parameter pack value");
+                    return false;
+                }
+                pack_values[pack_count] = deduced_value;
+                pack_value_present[pack_count] = true;
+                ++pack_count;
+                pack_argument = pack_argument->next;
+            }
+            arguments[template_index] = parameter->type;
+            has_pack = true;
+            has_value_pack = true;
+            continue;
+        }
+        if (parameter->kind == TPARAM_NONTYPE) {
+            int64_t deduced_value = 0;
             if (!argument || !parameter_pattern) {
                 rcc_error(call->loc,
                           "generic lambda non-type argument does not match a parameter");
@@ -7659,13 +7701,18 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
         return false;
 #endif
         if (has_pack) {
-            tmpl->pending_pack_args = pack_arguments;
+            tmpl->pending_pack_args = has_value_pack ? NULL : pack_arguments;
+            tmpl->pending_pack_values = has_value_pack ? pack_values : NULL;
+            tmpl->pending_pack_value_present = has_value_pack
+                ? pack_value_present : NULL;
             tmpl->pending_pack_count = pack_count;
         }
         Decl* instance = (Decl*)cxx_template_instantiate_with_values(
             tmpl, arguments, values, value_present, tmpl->param_count);
         if (has_pack) {
             tmpl->pending_pack_args = NULL;
+            tmpl->pending_pack_values = NULL;
+            tmpl->pending_pack_value_present = NULL;
             tmpl->pending_pack_count = -1;
         }
         if (!instance || instance->kind != DECL_FUNC) {

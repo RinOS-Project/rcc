@@ -1,6 +1,7 @@
 int main() {
-    auto invalid = []<int... Values>(int value) {
-        return value + sizeof...(Values);
-    }(1);
+    int value = 1;
+    auto invalid = []<int... Values>(int (&...inputs)[Values]) {
+        return (... + Values);
+    }(value);
     return invalid;
 }

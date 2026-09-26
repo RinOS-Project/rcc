@@ -95,6 +95,11 @@ static bool parser_cxx_template_default_mode;
 static const char* parser_function_name;
 static const char* parser_function_name_stack[64];
 static int parser_function_scope_depth;
+static bool parser_last_declarator_parameter_pack;
+
+bool rcc_parser_last_cxx_declarator_was_pack(void) {
+    return parser_last_declarator_parameter_pack;
+}
 
 void rcc_parser_set_cxx_mode(bool enabled) {
     parser_cxx_mode = enabled;
@@ -2541,6 +2546,7 @@ static DeclList* parse_parameter_list(bool* variadic) {
         }
         parameter = decl_param(parameter_name, parameter_type,
                                parameter_index++, peek()->loc);
+        parameter->param_is_pack = parser_last_declarator_parameter_pack;
         parameter->param_array_type = parameter_array_type;
         parameter->param_default = parameter_default;
         decllist_append(&parameters, parameter);
@@ -2631,8 +2637,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
     int array_count = 0;
     ParsedPointerLevel* parenthesized_pointers = NULL;
     bool parenthesized_pointer = false;
+    bool declarator_parameter_pack = false;
     if (name) *name = NULL;
     if (parameters) *parameters = NULL;
+    parser_last_declarator_parameter_pack = false;
 
     leading_pointers = parse_pointer_levels();
 
@@ -2647,6 +2655,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
         bool has_prototype;
         advance();
         nested_pointers = parse_pointer_levels();
+        declarator_parameter_pack = parser_cxx_mode && match(TOK_ELLIPSIS);
         if (check(TOK_IDENT)) {
             Token* identifier = advance();
             if (name) *name = identifier->value.str_val;
@@ -2662,6 +2671,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
         type->has_prototype = has_prototype;
         type = apply_pointer_levels(type, nested_pointers);
         if (parameters) *parameters = function_parameters;
+        parser_last_declarator_parameter_pack = declarator_parameter_pack;
         return type;
     }
 
@@ -2673,6 +2683,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
          (parser_cxx_mode && parser.cur->next->type == TOK_AMP))) {
         advance();
         parenthesized_pointers = parse_pointer_levels();
+        declarator_parameter_pack = parser_cxx_mode && match(TOK_ELLIPSIS);
         if (check(TOK_IDENT)) {
             Token* identifier = advance();
             if (name) *name = identifier->value.str_val;
@@ -2774,6 +2785,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
     if (parenthesized_pointers) {
         type = apply_pointer_levels(type, parenthesized_pointers);
     }
+    parser_last_declarator_parameter_pack = declarator_parameter_pack;
     return type;
 }
 

@@ -13,6 +13,13 @@ int main() {
     int explicit_pack = []<typename... T>(T... values) {
         return (0 + ... + values);
     }(1, 2, 3);
+    int first_values[1] = { 7 };
+    int second_values[2] = { 8, 9 };
+    int explicit_value_pack =
+        []<int... N>(int (&...input)[N]) {
+            return (... + N);
+        }(first_values, second_values);
     return explicit_value == 42 && explicit_pointer == 42 &&
-           explicit_bound == 4 && explicit_pack == 6 ? 0 : 1;
+           explicit_bound == 4 && explicit_pack == 6 &&
+           explicit_value_pack == 3 ? 0 : 1;
 }

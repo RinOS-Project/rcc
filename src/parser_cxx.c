@@ -710,6 +710,7 @@ extern Expr* rcc_parser_parse_initializer(void);
 extern Type* rcc_parser_parse_cxx_declarator(Type* base_type,
                                               const char** name,
                                               DeclList** parameters);
+extern bool rcc_parser_last_cxx_declarator_was_pack(void);
 static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(void);
 static Type* parse_cxx_type_spec(void);
@@ -4979,6 +4980,8 @@ static DeclList* parse_cxx_parameter_declarations(void) {
         Expr* default_argument = NULL;
         Decl* parameter;
         type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
+        parameter_pack = parameter_pack ||
+            rcc_parser_last_cxx_declarator_was_pack();
         if (match(TOK_ASSIGN)) {
             default_argument = parse_assignment_expression();
         }
@@ -5060,6 +5063,20 @@ static int cxx_lambda_template_type_index(CxxTemplate* tmpl, Type* type) {
     if (type->kind == TYPE_PTR) {
         return cxx_lambda_template_type_index(tmpl, type->base);
     }
+    if (type->kind == TYPE_ARRAY) {
+        if (type->array_bound && type->array_bound->kind == EXPR_IDENT &&
+            type->array_bound->ident_name) {
+            for (int index = 0; index < tmpl->param_count; ++index) {
+                TemplateParam* parameter = &tmpl->params[index];
+                if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                    strcmp(parameter->name,
+                           type->array_bound->ident_name) == 0) {
+                    return index;
+                }
+            }
+        }
+        return cxx_lambda_template_type_index(tmpl, type->base);
+    }
     if (type->kind != TYPE_STRUCT || !type->tag) return -1;
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
@@ -5113,10 +5130,6 @@ static bool parse_cxx_lambda_template_parameters(CxxTemplate* tmpl) {
                 }
                 cxx_template_add_value_param(tmpl, name, type);
                 tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
-                if (parameter_pack) {
-                    rcc_error(peek()->loc,
-                              "lambda non-type template parameter packs are not supported");
-                }
             }
         } while (match(TOK_COMMA));
     }
@@ -5165,6 +5178,8 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
             type = parse_cxx_type_spec();
             parameter_pack = match(TOK_ELLIPSIS);
             type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
+            parameter_pack = parameter_pack ||
+                rcc_parser_last_cxx_declarator_was_pack();
             if (parameter_pack) {
                 int template_index = cxx_lambda_template_type_index(tmpl, type);
                 if (template_index < 0) {

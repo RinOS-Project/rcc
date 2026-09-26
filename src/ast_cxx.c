@@ -1605,16 +1605,6 @@ static int template_type_parameter_index(CxxTemplate* tmpl, Type* type) {
  * ordinary substitution helper must still distinguish that pattern from a
  * complete dependent type, so only pack-parameter discovery unwraps the
  * pointer/array carrier. */
-static int template_type_parameter_index_nested(CxxTemplate* tmpl,
-                                                Type* type) {
-    if (!tmpl || !type) return -1;
-    while (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
-        type = type->base;
-        if (!type) return -1;
-    }
-    return template_type_parameter_index(tmpl, type);
-}
-
 static int template_value_parameter_index(CxxTemplate* tmpl,
                                            Expr* bound_expression) {
     if (!tmpl || !bound_expression || bound_expression->kind != EXPR_IDENT ||
@@ -1630,6 +1620,19 @@ static int template_value_parameter_index(CxxTemplate* tmpl,
         }
     }
     return -1;
+}
+
+static int template_parameter_index_nested(CxxTemplate* tmpl, Type* type) {
+    int index;
+    if (!tmpl || !type) return -1;
+    if (type->kind == TYPE_ARRAY) {
+        index = template_value_parameter_index(tmpl, type->array_bound);
+        if (index >= 0) return index;
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        return template_parameter_index_nested(tmpl, type->base);
+    }
+    return template_type_parameter_index(tmpl, type);
 }
 
 static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
@@ -3001,14 +3004,11 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         for (DeclList* item = definition->func_params; item;
              item = item->next) {
             if (item->decl && item->decl->param_is_pack) {
-                int pack_index = template_type_parameter_index_nested(
+                int pack_index = template_parameter_index_nested(
                     tmpl, item->decl->type);
-                if (pack_index >= 0 && !tmpl->params[pack_index].is_pack) {
-                    pack_index = -1;
-                }
-                if (pack_index < 0) {
+                if (pack_index < 0 || !tmpl->params[pack_index].is_pack) {
                     rcc_error(item->decl->loc,
-                              "function parameter pack is not a type pack");
+                              "function parameter pack is not bound to a template parameter pack");
                     return NULL;
                 }
                 for (int pack_value = 0;
@@ -3032,13 +3032,33 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                       "function template pack substitution exceeds compiler limits");
                             return NULL;
                         }
+                        int64_t expanded_values[32];
+                        bool expanded_value_present[32];
                         memcpy(expanded_arguments, args,
                                sizeof(Type*) * (size_t)arg_count);
-                        expanded_arguments[pack_index] =
-                            tmpl->pending_pack_args[pack_value];
+                        memcpy(expanded_values, value_args,
+                               sizeof(int64_t) * (size_t)arg_count);
+                        memcpy(expanded_value_present, value_present,
+                               sizeof(bool) * (size_t)arg_count);
+                        if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+                            expanded_arguments[pack_index] =
+                                tmpl->pending_pack_args[pack_value];
+                        } else {
+                            if (!tmpl->pending_pack_values ||
+                                !tmpl->pending_pack_value_present ||
+                                !tmpl->pending_pack_value_present[pack_value]) {
+                                rcc_error(item->decl->loc,
+                                          "function non-type parameter pack value is missing");
+                                return NULL;
+                            }
+                            expanded_values[pack_index] =
+                                tmpl->pending_pack_values[pack_value];
+                            expanded_value_present[pack_index] = true;
+                        }
                         parameter_type = template_substitute_type(
                             tmpl, item->decl->type, expanded_arguments,
-                            arg_count, value_args, value_present);
+                            arg_count, expanded_values,
+                            expanded_value_present);
                     }
                     if (!parameter_type) {
                         rcc_error(item->decl->loc,
@@ -3068,7 +3088,6 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                     *type_tail = type_parameter;
                     type_tail = &type_parameter->next;
                 }
-                (void)pack_index;
                 continue;
             }
             Type* parameter_type = template_substitute_type(
