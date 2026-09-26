@@ -21,9 +21,11 @@ int main() {
     static_assert(requires { typename IntCarrier::value_type; });
     static_assert(!requires { typename IntCarrier::missing_type; });
     static_assert(!requires { typename PrivateCarrier::value_type; });
+    static_assert(requires { typename TemplateCarrier<int>::value_type; });
     return requires { typename IntCarrier::value_type; } &&
                    !requires { typename IntCarrier::missing_type; } &&
                    !requires { typename PrivateCarrier::value_type; } &&
+                   requires { typename TemplateCarrier<int>::value_type; } &&
                    template_probe<TemplateCarrier<int> >() == 1
         ? 0 : 1;
 }

@@ -1019,6 +1019,38 @@ static Type* parse_cxx_requires_type(SourceLoc loc) {
                   "requires-expression type requirement expects a qualified type");
         return NULL;
     }
+    if (check(TOK_IDENT) && parser.cur->next &&
+        parser.cur->next->type == TOK_LT) {
+        Type* owner_type = parse_cxx_type_spec();
+        const char* specialized_member = NULL;
+        CxxClass* specialized_class = owner_type
+            ? owner_type->cxx_class : NULL;
+        CxxTypeAlias* specialized_alias = NULL;
+        if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+            rcc_error(loc,
+                      "requires-expression type requirement expects a nested type");
+            return NULL;
+        }
+        specialized_member = rcc_intern(advance()->value.str_val);
+        specialized_alias = specialized_class
+            ? cxx_class_find_type_alias(specialized_class,
+                                        specialized_member)
+            : NULL;
+        if (specialized_alias &&
+            specialized_alias->access == ACCESS_PUBLIC) {
+            return specialized_alias->type;
+        }
+        {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            if (owner_type) *unresolved = *owner_type;
+            else memset(unresolved, 0, sizeof(*unresolved));
+            unresolved->cxx_dependent = true;
+            unresolved->cxx_class = specialized_class;
+            unresolved->cxx_template_param_index = -1;
+            unresolved->cxx_dependent_member_name = specialized_member;
+            return unresolved;
+        }
+    }
     qualified = parse_qualified_name();
     separator = qualified ? strrchr(qualified, ':') : NULL;
     if (!separator || separator == qualified || separator[-1] != ':') {
