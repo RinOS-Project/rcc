@@ -876,6 +876,39 @@ static void skip_balanced(TokenType open, TokenType close) {
     }
 }
 
+Expr* rcc_parse_cxx_requires_expression(void) {
+    SourceLoc loc;
+    ExprList* requirements = NULL;
+
+    if (!match(TOK_REQUIRES)) return NULL;
+    loc = previous()->loc;
+    if (check(TOK_LPAREN)) {
+        rcc_error(peek()->loc,
+                  "RCC++ requires-expression parameter lists are not supported");
+        skip_balanced(TOK_LPAREN, TOK_RPAREN);
+    }
+    if (!match(TOK_LBRACE)) {
+        rcc_error(peek()->loc, "requires-expression expects a requirement body");
+        return expr_cxx_requires(NULL, loc);
+    }
+    while (!check(TOK_RBRACE) && !at_end()) {
+        if (check(TOK_TYPENAME)) {
+            rcc_error(peek()->loc,
+                      "RCC++ requires-expression type requirements are not supported");
+            while (!check(TOK_SEMICOLON) && !check(TOK_RBRACE) && !at_end()) {
+                advance();
+            }
+            (void)match(TOK_SEMICOLON);
+            continue;
+        }
+        Expr* requirement = parse_expression();
+        if (requirement) exprlist_append(&requirements, requirement);
+        expect(TOK_SEMICOLON, "';' after requires-expression requirement");
+    }
+    expect(TOK_RBRACE, "'}' after requires-expression requirements");
+    return expr_cxx_requires(requirements, loc);
+}
+
 static void skip_cxx_template_arguments(void) {
     SourceLoc loc = peek()->loc;
     int depth = 0;

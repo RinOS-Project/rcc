@@ -48,6 +48,7 @@ extern Expr* rcc_parser_cxx_capture_expression(
 extern Expr* rcc_parse_cxx_special_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_fold_expression(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_requires_expression(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
@@ -939,6 +940,10 @@ static const char* parse_expression_qualified_name(SourceLoc loc) {
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (parser_cxx_mode && rcc_parse_cxx_requires_expression &&
+        check(TOK_REQUIRES)) {
+        return rcc_parse_cxx_requires_expression();
+    }
     if (parser_cxx_mode && rcc_parse_cxx_special_expression &&
         (check(TOK_NEW) || check(TOK_DELETE))) {
         return rcc_parse_cxx_special_expression();

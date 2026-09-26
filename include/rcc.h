@@ -141,6 +141,8 @@ const char* rcc_intern(const char* str);
 extern CompilerOptions g_opts;
 extern int g_error_count;
 extern int g_warning_count;
+extern int g_suppressed_error_count;
+extern bool g_suppress_errors;
 
 /* Main compilation phases */
 struct TokenList;

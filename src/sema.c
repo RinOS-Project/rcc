@@ -8135,6 +8135,25 @@ static Type* sema_expr(Expr* expr) {
             expr->type = type_int;
             break;
 
+        case EXPR_CXX_REQUIRES: {
+            bool valid = true;
+            for (ExprList* requirement = expr->cxx_requires_items;
+                 requirement; requirement = requirement->next) {
+                int suppressed_before = g_suppressed_error_count;
+                bool suppress_before = g_suppress_errors;
+                g_suppress_errors = true;
+                sema_expr(requirement->expr);
+                g_suppress_errors = suppress_before;
+                if (g_suppressed_error_count != suppressed_before) {
+                    valid = false;
+                }
+            }
+            expr->kind = EXPR_INT_LIT;
+            expr->int_val = valid ? 1 : 0;
+            expr->type = type_bool;
+            break;
+        }
+
         case EXPR_CAST: {
             Type* source = sema_expr(expr->cast_expr);
             sema_validate_array_parameter_type(expr->cast_type,

@@ -304,6 +304,10 @@ static bool driver_validate_expr(Expr* expression)
             rcc_error(expression->loc,
                       "unexpanded C++ fold expression reached driver validation");
             return false;
+        case EXPR_CXX_REQUIRES:
+            rcc_error(expression->loc,
+                      "unlowered C++ requires-expression reached driver validation");
+            return false;
         case EXPR_VA_START:
         case EXPR_VA_COPY:
             return driver_validate_expr(expression->va_list_operand) &&

@@ -1409,6 +1409,7 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 address->result, rcc_ir_type_pointer(0u), true);
         }
         case EXPR_FLOAT_LIT:
+        case EXPR_CXX_REQUIRES:
         case EXPR_GENERIC:
         case EXPR_CXX_FOLD:
         case EXPR_VA_START:

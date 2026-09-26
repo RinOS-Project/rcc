@@ -2516,6 +2516,11 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->generic_associations, args, arg_count,
                 value_args, value_present);
             break;
+        case EXPR_CXX_REQUIRES:
+            copy->cxx_requires_items = template_clone_expr_list(
+                tmpl, expression->cxx_requires_items, args, arg_count,
+                value_args, value_present);
+            break;
         case EXPR_VA_START:
         case EXPR_VA_END:
         case EXPR_VA_COPY:

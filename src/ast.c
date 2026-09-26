@@ -713,6 +713,15 @@ Expr* expr_generic(Expr* control, GenericAssociation* associations,
     return expression;
 }
 
+Expr* expr_cxx_requires(ExprList* requirements, SourceLoc loc) {
+    Expr* e = rcc_alloc(sizeof(Expr));
+    e->kind = EXPR_CXX_REQUIRES;
+    e->loc = loc;
+    e->cxx_requires_items = requirements;
+    e->type = NULL;
+    return e;
+}
+
 Expr* expr_vararg(ExprKind kind, Expr* list, Expr* second, Type* type,
                   SourceLoc loc) {
     Expr* expression = rcc_alloc(sizeof(*expression));

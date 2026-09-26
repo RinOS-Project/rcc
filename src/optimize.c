@@ -114,6 +114,9 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_CXX_FOLD:
             /* A fold is invalid until template instantiation expands it. */
             return true;
+        case EXPR_CXX_REQUIRES:
+            /* Sema replaces requires-expressions with a bool literal. */
+            return false;
     }
     return true;
 }
@@ -1109,6 +1112,7 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
         case EXPR_ALIGNOF:
         case EXPR_GENERIC:
         case EXPR_CXX_FOLD:
+        case EXPR_CXX_REQUIRES:
             return;
     }
 }
@@ -1382,6 +1386,8 @@ static void mark_address_escapes_expr(const Expr* expression,
                 mark_address_escapes_expr(association->expr, locals);
             }
             return;
+        case EXPR_CXX_REQUIRES:
+            return;
         case EXPR_VA_START:
         case EXPR_VA_COPY:
             mark_address_escapes_expr(expression->va_list_operand, locals);
@@ -1628,6 +1634,8 @@ static void mark_dead_store_reads(const Expr* expression,
                  association; association = association->next) {
                 mark_dead_store_reads(association->expr, locals);
             }
+            return;
+        case EXPR_CXX_REQUIRES:
             return;
         case EXPR_VA_START:
         case EXPR_VA_COPY:

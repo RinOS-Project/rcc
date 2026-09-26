@@ -29,6 +29,8 @@
 CompilerOptions g_opts = {0};
 int g_error_count = 0;
 int g_warning_count = 0;
+int g_suppressed_error_count = 0;
+bool g_suppress_errors = false;
 
 bool rcc_parse_target_triple(const char* triple, TargetArch* arch_out) {
     if (!triple || !arch_out) {
@@ -510,6 +512,10 @@ void rcc_free(void* ptr) {
 
 /* Error reporting */
 void rcc_error(SourceLoc loc, const char* fmt, ...) {
+    if (g_suppress_errors) {
+        g_suppressed_error_count++;
+        return;
+    }
     fprintf(stderr, "%s:%d:%d: error: ", loc.filename, loc.line, loc.column);
     va_list args;
     va_start(args, fmt);
