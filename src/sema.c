@@ -7161,6 +7161,55 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
     return true;
 }
 
+/* C++ `operator->` is the one member operator whose result is recursively
+ * applied to the same member selection.  Lower each validated hop through
+ * the ordinary member-call ABI, then let the normal pointer-member path
+ * consume the resulting pointer.  A finite bound is part of this frontend's
+ * bounded ABI profile: a cyclic proxy chain is an error, never a fake member
+ * access or an unbounded compiler recursion. */
+static bool sema_rewrite_cxx_arrow_operator(Expr* expression,
+                                            Type* object_type) {
+    Type* aggregate;
+    TypeMethod* method;
+    Expr* member;
+    Expr* call;
+    Expr* rewritten;
+
+    if (!expression || expression->kind != EXPR_PTR_MEMBER ||
+        !expression->member_base || !object_type) return false;
+    aggregate = object_type;
+    if (aggregate->kind == TYPE_PTR && aggregate->is_reference) {
+        aggregate = aggregate->base;
+    }
+    aggregate = generic_selection_type(aggregate);
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION)) return false;
+    method = sema_find_function_method(aggregate, "operator->");
+    if (!method || !method->function_decl) return false;
+    if (expression->cxx_arrow_depth >= 16u) {
+        rcc_error(expression->loc,
+                  "C++ operator-> chain exceeds the bounded frontend limit");
+        expression->type = type_int;
+        return false;
+    }
+    member = expr_member(expression->member_base, "operator->",
+                         expression->loc);
+    call = expr_call(member, NULL, expression->loc);
+    sema_expr(call);
+    call->cxx_call_semantic_lowered = true;
+    if (!call->type || call->type->kind != TYPE_PTR) {
+        rcc_error(expression->loc,
+                  "operator-> must return a pointer in the bounded RCC++ profile");
+        expression->type = type_int;
+        return false;
+    }
+    rewritten = expr_member(call, expression->member_name, expression->loc);
+    rewritten->kind = EXPR_PTR_MEMBER;
+    rewritten->cxx_arrow_depth = expression->cxx_arrow_depth + 1u;
+    *expression = *rewritten;
+    return true;
+}
+
 static bool sema_rewrite_cxx_call_operator(Expr* expression,
                                            Type* object_type) {
     Type* aggregate;
@@ -7793,6 +7842,17 @@ static bool sema_noexcept_expr(Expr* expression) {
 
 static Type* sema_expr(Expr* expr) {
     if (!expr) return NULL;
+
+    if (expr->kind == EXPR_CALL && expr->cxx_call_semantic_lowered) {
+        return expr->type;
+    }
+
+    if (expr->kind == EXPR_PTR_MEMBER && expr->member_base) {
+        Type* object_type = sema_expr(expr->member_base);
+        if (sema_rewrite_cxx_arrow_operator(expr, object_type)) {
+            return sema_expr(expr);
+        }
+    }
 
     if ((expr->kind == EXPR_NEG || expr->kind == EXPR_BITNOT ||
          expr->kind == EXPR_NOT || expr->kind == EXPR_PREINC ||
