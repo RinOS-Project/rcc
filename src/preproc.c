@@ -1643,8 +1643,39 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     }
 
     if (strcmp(directive, "line") == 0) {
-        /* Ignore #line for now */
-        return skip_to_eol(p);
+        const char* end = skip_to_eol(p);
+        const char* argument = skip_ws(p);
+        const char* number_start = argument;
+        char* end_number;
+        unsigned long line_number;
+
+        while (isdigit((unsigned char)*argument)) argument++;
+        if (argument == number_start) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "invalid #line directive: expected a positive line number");
+            return end;
+        }
+        line_number = strtoul(number_start, &end_number, 10);
+        if (line_number == 0u || end_number != argument) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "invalid #line directive: line number must be positive");
+            return end;
+        }
+        argument = skip_ws(argument);
+        if (*argument != '\0' && *argument != '"' &&
+            !isdigit((unsigned char)*argument)) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "invalid #line directive: unexpected trailing text");
+            return end;
+        }
+        if (pp_is_active(pp)) {
+            /* Keep the marker in the preprocessed stream.  The lexer owns
+             * the source-location state and already consumes this exact
+             * form, so diagnostics and generated locations remain aligned. */
+            buf_append_str(output, "#line ");
+            buf_append(output, p, (size_t)(end - p));
+        }
+        return end;
     }
 
     /* Unknown directive */

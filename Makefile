@@ -180,6 +180,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
+.PHONY: test-preprocessor-line
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -4371,6 +4372,34 @@ test-preprocessor-if: $(RCC_TARGET)
 		tests/invalid_preprocessor_if.c >$(TEST_OUT)/invalid-preprocessor-if-x64.log 2>&1; then exit 1; fi
 	grep -F -q 'invalid #if expression' $(TEST_OUT)/invalid-preprocessor-if-x64.log
 	@echo "C17 #if integer constant expression tests completed"
+
+test-preprocessor-line: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT))
+	$(RCC_TARGET) -E tests/preprocessor_line.c > \
+		$(TEST_OUT)/preprocessor-line.i
+	grep -F -q '#line 77 "rcc-line-marker.c"' \
+		$(TEST_OUT)/preprocessor-line.i
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-line-x86.ro tests/preprocessor_line.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-line-x64.ro tests/preprocessor_line.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-line-cxx-x86.ro tests/preprocessor_line.c
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-line-cxx-x64.ro tests/preprocessor_line.c
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/invalid-preprocessor-line-x86.ro \
+		tests/invalid_preprocessor_line.c > \
+		$(TEST_OUT)/invalid-preprocessor-line-x86.log 2>&1
+	grep -F -q 'expected a positive line number' \
+		$(TEST_OUT)/invalid-preprocessor-line-x86.log
+	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/invalid-preprocessor-line-x64.ro \
+		tests/invalid_preprocessor_line.c > \
+		$(TEST_OUT)/invalid-preprocessor-line-x64.log 2>&1
+	grep -F -q 'expected a positive line number' \
+		$(TEST_OUT)/invalid-preprocessor-line-x64.log
+	@echo "C17/C++20 #line marker tests completed"
 
 test-preprocessor-operators: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)
