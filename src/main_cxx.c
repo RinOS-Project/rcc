@@ -36,10 +36,14 @@ static void define_cxx_feature_test_macros(Preprocessor* pp) {
               standard >= 14 ? "201304L" : "200704L");
     if (standard >= 14) {
         pp_define(pp, "__cpp_deprecated", "201309L");
+        pp_define(pp, "__cpp_init_captures", "201304L");
         pp_define(pp, "__cpp_generic_lambdas",
                   standard >= 20 ? "201707L" : "201304L");
     }
     if (standard >= 17) {
+        pp_define(pp, "__cpp_fold_expressions", "201603L");
+        pp_define(pp, "__cpp_nested_namespace_definitions", "201411L");
+        pp_define(pp, "__cpp_nontype_template_args", "201411L");
         pp_define(pp, "__cpp_if_constexpr", "201606L");
         pp_define(pp, "__cpp_structured_bindings", "201606L");
         pp_define(pp, "__cpp_inline_variables", "201606L");

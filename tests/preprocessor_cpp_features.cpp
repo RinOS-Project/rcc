@@ -18,12 +18,18 @@
 #ifdef __cpp_deprecated
 #error "deprecated must not be advertised before C++14"
 #endif
+#ifdef __cpp_init_captures
+#error "init-captures must not be advertised before C++14"
+#endif
 #ifdef __cpp_generic_lambdas
 #error "generic lambdas must not be advertised before C++14"
 #endif
 #else
 #if !defined(__cpp_deprecated) || __cpp_deprecated != 201309L
 #error "RCC++ must report C++14 deprecated support"
+#endif
+#if !defined(__cpp_init_captures) || __cpp_init_captures != 201304L
+#error "RCC++ must report C++14 init-capture support"
 #endif
 #if !defined(__cpp_generic_lambdas) || __cpp_generic_lambdas != 201304L
 #if __cplusplus < 202002L
@@ -45,7 +51,25 @@
 #ifdef __cpp_nodiscard
 #error "nodiscard must not be advertised before C++17"
 #endif
+#ifdef __cpp_fold_expressions
+#error "fold expressions must not be advertised before C++17"
+#endif
+#ifdef __cpp_nested_namespace_definitions
+#error "nested namespace definitions must not be advertised before C++17"
+#endif
+#ifdef __cpp_nontype_template_args
+#error "auto non-type template arguments must not be advertised before C++17"
+#endif
 #else
+#if !defined(__cpp_fold_expressions) || __cpp_fold_expressions != 201603L
+#error "RCC++ must report C++17 fold-expression support"
+#endif
+#if !defined(__cpp_nested_namespace_definitions) || __cpp_nested_namespace_definitions != 201411L
+#error "RCC++ must report C++17 nested namespace support"
+#endif
+#if !defined(__cpp_nontype_template_args) || __cpp_nontype_template_args != 201411L
+#error "RCC++ must report C++17 auto non-type template support"
+#endif
 #if !defined(__cpp_if_constexpr) || __cpp_if_constexpr != 201606L
 #error "RCC++ must report C++17 if constexpr support"
 #endif
