@@ -444,16 +444,6 @@ struct Expr {
      * noexcept expression is evaluated. */
     bool cxx_noexcept_value_valid;
     bool cxx_noexcept_value;
-    /* Number of C++ overloaded `operator->` hops already materialized for
-     * this member expression.  The language permits a bounded chain of
-     * proxy objects; retaining the count lets sema reject a cyclic chain
-     * explicitly instead of recursing until the compiler stack is exhausted. */
-    unsigned cxx_arrow_depth;
-    /* A compiler-generated operator-> hop has already undergone ordinary
-     * member-call semantic lowering.  It may be revisited as the base of a
-     * second proxy hop, but must not be resolved a second time after its
-     * call target has been rewritten to an ABI symbol. */
-    bool cxx_call_semantic_lowered;
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;
