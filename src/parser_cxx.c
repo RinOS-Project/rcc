@@ -5955,6 +5955,11 @@ CxxTemplate* parse_cxx_template(void) {
         expect(TOK_ASSIGN, "= after alias template name");
         active_template = tmpl;
         alias_type = parse_cxx_type_spec();
+        /* A type-id may carry array or function declarator suffixes after the
+         * base specifier. Reuse the shared declarator parser so aliases such
+         * as `int[N]` retain their dependent bound for substitution instead
+         * of silently becoming the element type. */
+        alias_type = rcc_parser_parse_cxx_declarator(alias_type, NULL, NULL);
         active_template = parameter_outer_template;
         if (!alias_type) {
             rcc_error(loc, "alias template requires a type-id");
