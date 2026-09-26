@@ -717,6 +717,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->name = name ? rcc_strdup(name) : NULL;
     cls->is_struct = is_struct;
     cls->is_final = false;
+    cls->is_abstract = false;
     cls->has_user_constructor = false;
     cls->has_nonpublic_field = false;
     cls->has_static_field = false;
@@ -1225,6 +1226,10 @@ static int cxx_vtable_find_slot(const CxxVtableEntry* entries, int count,
     return -1;
 }
 
+bool cxx_class_is_abstract(const CxxClass* cls) {
+    return cls && cls->is_abstract;
+}
+
 void cxx_class_build_vtable(CxxClass* cls) {
     CxxClass* primary_base;
     int vtable_size;
@@ -1384,6 +1389,28 @@ void cxx_class_build_vtable(CxxClass* cls) {
         }
     }
 
+    cls->is_abstract = false;
+    for (int slot = 0; slot < vtable_size; ++slot) {
+        if (cls->vtable[slot].method &&
+            cls->vtable[slot].method->is_pure_virtual) {
+            cls->is_abstract = true;
+            break;
+        }
+    }
+    if (!cls->is_abstract) {
+        for (int table_index = 0;
+             table_index < cls->secondary_vtable_count && !cls->is_abstract;
+             ++table_index) {
+            CxxSecondaryVtable* table = &cls->secondary_vtables[table_index];
+            for (int slot = 0; slot < table->size; ++slot) {
+                if (table->entries[slot].method &&
+                    table->entries[slot].method->is_pure_virtual) {
+                    cls->is_abstract = true;
+                    break;
+                }
+            }
+        }
+    }
     cls->vtable_size = vtable_size;
     cls->type->cxx_vtable_size = vtable_size;
     cls->type->cxx_vtable_symbol = vtable_size > 0

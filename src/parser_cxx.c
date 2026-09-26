@@ -28,6 +28,20 @@ static AST* active_ast;
 
 static const char* cxx_method_source_name(CxxMethod* method);
 
+void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc) {
+    Type* object_type = type;
+    if (!object_type || object_type->is_reference) return;
+    while (object_type && object_type->kind == TYPE_ARRAY) {
+        object_type = object_type->base;
+    }
+    if (object_type && object_type->cxx_class &&
+        cxx_class_is_abstract(object_type->cxx_class)) {
+        rcc_error(loc, "cannot instantiate abstract class '%s'",
+                  object_type->cxx_class->name
+                      ? object_type->cxx_class->name : "<anonymous>");
+    }
+}
+
 typedef struct CxxParserValueBinding {
     const char* name;
     Type* type;
@@ -3292,8 +3306,9 @@ static void register_ordinary_class_methods(CxxClass* cls) {
 
         constructor = method && method->is_constructor
             ? constructor_info_for_method(cls, method) : NULL;
-        if (!method || !method->decl || !method->decl->func_body ||
-            method->is_pure_virtual || method->is_deleted ||
+        if (!method || !method->decl ||
+            (!method->decl->func_body && !method->is_pure_virtual) ||
+            method->is_deleted ||
             method->is_defaulted ||
             (method->is_constructor &&
              (!constructor || constructor->body_is_empty))) {
@@ -3381,7 +3396,11 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         *tail = lowered;
         tail = &lowered->next;
 
-        ast_add_decl(active_ast, declaration);
+        /* Pure virtual declarations must participate in member lookup and
+         * virtual-call lowering, but they do not define an external function
+         * symbol.  Their vtable slot is materialized by the target-local pure
+         * virtual handler instead. */
+        if (!method->is_pure_virtual) ast_add_decl(active_ast, declaration);
     }
 }
 
@@ -8907,6 +8926,7 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 
     initializer = expr_initializer_list(arguments, loc);
     initializer->compound_type = base_type;
+    rcc_parser_validate_cxx_object_type(base_type, loc);
     rcc_parser_validate_cxx_constructor_initializer(base_type, initializer);
     expect(TOK_SEMICOLON, ";");
 

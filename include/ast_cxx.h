@@ -67,6 +67,7 @@ struct CxxClass {
     const char* name;
     bool is_struct;          /* struct vs class (default access) */
     bool is_final;           /* C++ final class cannot be used as a base. */
+    bool is_abstract;        /* A vtable slot remains pure virtual. */
     bool has_user_constructor;
     bool has_nonpublic_field;
     bool has_static_field;
@@ -328,6 +329,7 @@ void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_
 void cxx_class_compute_layout(CxxClass* cls);
 bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
                                    int* offset);
+bool cxx_class_is_abstract(const CxxClass* cls);
 void cxx_class_build_vtable(CxxClass* cls);
 
 /* Namespace operations (core API) */

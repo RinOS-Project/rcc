@@ -2652,7 +2652,8 @@ static void codegen_emit_cxx_vtable_storage(Module* mod,
         CxxVtableEntry* entry = &entries[slot];
         CxxMethod* method = entry->method;
         const char* entry_symbol = entry->entry_symbol;
-        if (!method || !method->decl || !method->decl->link_name) {
+        if (!method || !method->decl ||
+            (!method->is_pure_virtual && !method->decl->link_name)) {
             rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
                       "virtual table entry %d of '%s' has no function body",
                       slot, owner->name ? owner->name : "<anonymous>");
@@ -2662,11 +2663,51 @@ static void codegen_emit_cxx_vtable_storage(Module* mod,
             mod, MODULE_SYMBOL_RODATA,
             offset + (uint32_t)slot * pointer_size, 0u, false,
             pointer_size == 8u,
-            entry_symbol ? entry_symbol : decl_link_name(method->decl));
+            method->is_pure_virtual
+                ? "__rcc_pure_virtual"
+                : (entry_symbol ? entry_symbol : decl_link_name(method->decl)));
         add_reloc(mod, MODULE_SYMBOL_RODATA,
                   offset + (uint32_t)slot * pointer_size,
                   pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     }
+}
+
+static bool codegen_cxx_namespace_has_pure_virtual(CxxNamespace* ns) {
+    if (!ns) return false;
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* cls = ns->classes[index];
+        if (!cls) continue;
+        for (int slot = 0; slot < cls->vtable_size; ++slot) {
+            if (cls->vtable && cls->vtable[slot].method &&
+                cls->vtable[slot].method->is_pure_virtual) return true;
+        }
+        for (int table_index = 0; table_index < cls->secondary_vtable_count;
+             ++table_index) {
+            CxxSecondaryVtable* table = &cls->secondary_vtables[table_index];
+            for (int slot = 0; table->entries && slot < table->size; ++slot) {
+                if (table->entries[slot].method &&
+                    table->entries[slot].method->is_pure_virtual) return true;
+            }
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (codegen_cxx_namespace_has_pure_virtual(child)) return true;
+    }
+    return false;
+}
+
+static void codegen_emit_cxx_pure_virtual_handler(Module* mod) {
+    uint32_t start;
+    if (!mod) return;
+    start = code_offset(mod);
+    /* This is the target-local implementation of the C++ pure virtual call
+     * contract.  Reaching it is a violated abstract-class dispatch invariant,
+     * so the instruction stream terminates synchronously on both targets. */
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0x0B); /* UD2 on both supported x86 targets. */
+    module_add_symbol(mod, "__rcc_pure_virtual", start, true,
+                      MODULE_SYMBOL_CODE, true);
+    module_mark_symbol_weak(mod, "__rcc_pure_virtual");
 }
 
 static void codegen_emit_cxx_vtables_in_namespace(Module* mod,
@@ -2791,6 +2832,9 @@ void codegen_emit_cxx_vtable_thunks32(Module* mod, CxxNamespace* ns) {
 void codegen_emit_cxx_vtables(Module* mod) {
     CxxNamespace* global_namespace = codegen_cxx_global_namespace();
     if (mod && global_namespace) {
+        if (codegen_cxx_namespace_has_pure_virtual(global_namespace)) {
+            codegen_emit_cxx_pure_virtual_handler(mod);
+        }
         codegen_emit_cxx_vbase_tables_in_namespace(mod, global_namespace);
         if (g_opts.target_arch == ARCH_X64) {
             codegen_emit_cxx_vtable_thunks64(mod, global_namespace);

@@ -23,10 +23,21 @@ extern CxxNamespace* cxx_namespace_for_decl_name(
     CxxNamespace*, const char*) __attribute__((weak));
 extern const char* cxx_namespace_qualified_name(
     CxxNamespace*) __attribute__((weak));
+extern bool cxx_class_is_abstract(
+    const CxxClass*) __attribute__((weak));
 extern void* cxx_template_instantiate_with_values(
     CxxTemplate*, Type**, const int64_t*, const bool*, int)
     __attribute__((weak));
 #endif
+
+static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
+#if defined(__GNUC__) || defined(__clang__)
+    return cls && cxx_class_is_abstract && cxx_class_is_abstract(cls);
+#else
+    (void)cls;
+    return false;
+#endif
+}
 
 static CxxNamespace* sema_cxx_global_namespace(void) {
 #if defined(__GNUC__) || defined(__clang__)
@@ -8694,6 +8705,11 @@ static Type* sema_expr(Expr* expr) {
                  * this preserves the declared RinOS allocation ABI and also
                  * validates dynamic array bounds. */
                 sema_expr(expr->call_func);
+                if (sema_cxx_class_is_abstract(cls)) {
+                    rcc_error(expr->loc,
+                              "cannot allocate abstract class '%s'",
+                              cls->name ? cls->name : "<anonymous>");
+                }
                 for (argument = expr->call_args; argument;
                      argument = argument->next) {
                     sema_expr(argument->expr);

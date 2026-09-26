@@ -238,6 +238,7 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
                                             int storage,
                                             bool is_thread_local,
                                             SourceLoc loc);
+void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc);
 Expr* rcc_parse_cxx_special_expression(void);
 Stmt* rcc_parse_cxx_statement(void);
 
