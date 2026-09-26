@@ -186,7 +186,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-implicit-copy
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
-.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-attributes test-universal-character-identifiers
+.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-attributes test-preprocessor-cxx-features test-universal-character-identifiers
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
@@ -197,6 +197,7 @@ CXX_REGRESSION_TARGETS = \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
 	test-preprocessor-attributes \
+	test-preprocessor-cxx-features \
 	test-preprocessor-date-time \
 	test-preprocessor-standard-macros \
 	test-preprocessor-include \
@@ -583,6 +584,48 @@ test-preprocessor-attributes: $(RCXX_TARGET)
 	grep -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log
 	@echo "C++20 __has_cpp_attribute tests completed"
+
+test-preprocessor-cxx-features: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/preprocessor-cxx-features)
+	$(RCXX_TARGET) -std=c++11 -E tests/preprocessor_cpp_features.cpp > \
+		$(TEST_OUT)/preprocessor-cxx-features/cxx11.i
+	$(RCXX_TARGET) -std=c++14 -E tests/preprocessor_cpp_features.cpp > \
+		$(TEST_OUT)/preprocessor-cxx-features/cxx14.i
+	$(RCXX_TARGET) -std=c++17 -E tests/preprocessor_cpp_features.cpp > \
+		$(TEST_OUT)/preprocessor-cxx-features/cxx17.i
+	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_cpp_features.cpp > \
+		$(TEST_OUT)/preprocessor-cxx-features/cxx20.i
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -c \
+		-o $(TEST_OUT)/preprocessor-cxx-features/cxx11-x86.ro \
+		tests/preprocessor_cpp_features.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c \
+		-o $(TEST_OUT)/preprocessor-cxx-features/cxx14-x64.ro \
+		tests/preprocessor_cpp_features.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/preprocessor-cxx-features/cxx17-x86.ro \
+		tests/preprocessor_cpp_features.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-cxx-features/cxx20-x64.ro \
+		tests/preprocessor_cpp_features.cpp
+	! $(RCXX_TARGET) -std=c++11 -c \
+		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.ro \
+		tests/cxx_standard_cpp14_invalid.cpp \
+		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log 2>&1
+	grep -q "structured bindings require C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
+	! $(RCXX_TARGET) -std=c++14 -c \
+		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.ro \
+		tests/cxx_standard_cpp17_invalid.cpp \
+		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log 2>&1
+	grep -q "if constexpr requires C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
+	! $(RCXX_TARGET) -std=c++17 -c \
+		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.ro \
+		tests/cxx_standard_cpp20_invalid.cpp \
+		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log 2>&1
+	grep -q "requires C++20 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
+	@echo "C++ standard-version gates and feature-test macros completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
 	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)

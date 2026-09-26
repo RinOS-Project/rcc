@@ -82,6 +82,49 @@ static unsigned cxx_structured_binding_counter;
 static int cxx_class_pack_index(CxxTemplate* tmpl);
 static Type* cxx_parser_value_type(const char* name);
 
+static bool cxx_standard_feature_tokens_valid(Token* head) {
+    for (Token* token = head; token && token->type != TOK_EOF;
+         token = token->next) {
+        if (token->type == TOK_CONSTEVAL &&
+            !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(token->loc, "consteval requires C++20 or newer");
+        } else if (token->type == TOK_CONSTINIT &&
+                   !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(token->loc, "constinit requires C++20 or newer");
+        } else if (token->type == TOK_CONCEPT &&
+                   !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(token->loc, "concept declarations require C++20 or newer");
+        } else if (token->type == TOK_CHAR8_T &&
+                   !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(token->loc, "char8_t requires C++20 or newer");
+        } else if (token->type == TOK_SPACESHIP &&
+                   !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(token->loc, "operator<=> requires C++20 or newer");
+        } else if (token->type == TOK_REQUIRES &&
+                   !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(token->loc, "requires-expressions and requires-clauses require C++20 or newer");
+        } else if (token->type == TOK_IF && token->next &&
+                   token->next->type == TOK_CONSTEXPR &&
+                   !rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(token->loc, "if constexpr requires C++17 or newer");
+        } else if (token->type == TOK_USING && token->next &&
+                   token->next->type == TOK_ENUM &&
+                   !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(token->loc, "using enum requires C++20 or newer");
+        } else if (token->type == TOK_AUTO) {
+            Token* next = token->next;
+            if (next && (next->type == TOK_AMP || next->type == TOK_AND)) {
+                next = next->next;
+            }
+            if (next && next->type == TOK_LBRACKET &&
+                !rcc_parser_cxx_standard_at_least(17)) {
+                rcc_error(token->loc, "structured bindings require C++17 or newer");
+            }
+        }
+    }
+    return g_error_count == 0;
+}
+
 /* Lambda init-captures are lowered as hidden call parameters.  Their
  * parameter type must be known while the lambda function declaration is
  * built, before the enclosing function is semantically analyzed.  Keep this
@@ -954,6 +997,12 @@ static void skip_cxx_attributes(void) {
         if (depth != 0) {
             rcc_error(loc, "unterminated C++ attribute specifier");
             return;
+        }
+        if (group_nodiscard && !rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(loc, "[[nodiscard]] requires C++17 or newer");
+        }
+        if (group_deprecated && !rcc_parser_cxx_standard_at_least(14)) {
+            rcc_error(loc, "[[deprecated]] requires C++14 or newer");
         }
         if (group_nodiscard) pending_cxx_nodiscard = true;
         if (group_deprecated) {
@@ -10720,6 +10769,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     pending_cxx_nodiscard = false;
     pending_cxx_deprecated = false;
     pending_cxx_deprecated_message = NULL;
+    cxx_standard_feature_tokens_valid(tokens->head);
 
     AST* ast = ast_new();
     active_ast = ast;

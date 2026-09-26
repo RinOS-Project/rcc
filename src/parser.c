@@ -91,6 +91,7 @@ static int parser_pack_alignment;
 static int parser_pack_stack[32];
 static int parser_pack_depth;
 static bool parser_cxx_mode;
+static int parser_cxx_standard = 20;
 static bool parser_cxx_template_default_mode;
 static const char* parser_function_name;
 static const char* parser_function_name_stack[64];
@@ -107,6 +108,14 @@ void rcc_parser_set_cxx_mode(bool enabled) {
 
 bool rcc_parser_is_cxx_mode(void) {
     return parser_cxx_mode;
+}
+
+void rcc_parser_set_cxx_standard(int standard) {
+    parser_cxx_standard = standard;
+}
+
+bool rcc_parser_cxx_standard_at_least(int standard) {
+    return parser_cxx_mode && parser_cxx_standard >= standard;
 }
 
 void rcc_parser_function_scope_push(const char* name) {
@@ -2883,6 +2892,9 @@ static Stmt* cxx_wrap_selection_init(Stmt* init, Stmt* selection,
 static Stmt* parse_if_stmt(void) {
     SourceLoc loc = previous()->loc;
     bool is_constexpr = parser_cxx_mode && match(TOK_CONSTEXPR);
+    if (is_constexpr && !rcc_parser_cxx_standard_at_least(17)) {
+        rcc_error(loc, "if constexpr requires C++17 or newer");
+    }
     Stmt* init = NULL;
     expect(TOK_LPAREN, "(");
     if (cxx_selection_has_init()) {

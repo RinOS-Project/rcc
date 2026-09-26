@@ -20,6 +20,43 @@
 /* C++ specific options */
 static int g_cxx_standard = 20;  /* C++20 is the RinOS v3 language contract. */
 
+static void define_cxx_feature_test_macros(Preprocessor* pp) {
+    int standard = g_cxx_standard;
+
+    /* These values describe syntax and semantic paths that RCC++ actually
+     * lowers.  They intentionally do not claim a complete hosted standard
+     * library or an ABI outside the bounded RinOS profile. */
+    pp_define(pp, "__cpp_attributes", "200809L");
+    pp_define(pp, "__cpp_decltype", "200707L");
+    pp_define(pp, "__cpp_lambdas", "200907L");
+    pp_define(pp, "__cpp_static_assert", "200410L");
+    pp_define(pp, "__cpp_constexpr",
+              standard >= 20 ? "201907L" :
+              standard >= 17 ? "201603L" :
+              standard >= 14 ? "201304L" : "200704L");
+    if (standard >= 14) {
+        pp_define(pp, "__cpp_deprecated", "201309L");
+        pp_define(pp, "__cpp_generic_lambdas",
+                  standard >= 20 ? "201707L" : "201304L");
+    }
+    if (standard >= 17) {
+        pp_define(pp, "__cpp_if_constexpr", "201606L");
+        pp_define(pp, "__cpp_structured_bindings", "201606L");
+        pp_define(pp, "__cpp_inline_variables", "201606L");
+        pp_define(pp, "__cpp_nodiscard", "201603L");
+        pp_define(pp, "__cpp_range_based_for", "201603L");
+    }
+    if (standard >= 20) {
+        pp_define(pp, "__cpp_consteval", "201811L");
+        pp_define(pp, "__cpp_constinit", "201907L");
+        pp_define(pp, "__cpp_concepts", "201907L");
+        pp_define(pp, "__cpp_char8_t", "201811L");
+        pp_define(pp, "__cpp_using_enum", "201907L");
+        pp_define(pp, "__cpp_designated_initializers", "201707L");
+        pp_define(pp, "__cpp_nodiscard", "201907L");
+    }
+}
+
 /* Print usage for rcc++ */
 static void print_usage_cxx(void) {
     printf("RCC++ - RinOS C++ Compiler v%d.%d.%d\n",
@@ -436,6 +473,7 @@ static int compile_current_input(char** argv) {
     pp_define(pp, "__RCC__", "1");
     pp_define(pp, "__RCXX__", "1");
     pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
+    define_cxx_feature_test_macros(pp);
     for (int i = 0; i < g_opts.define_count; ++i) {
         const char* definition = g_opts.defines[i];
         const char* equals = strchr(definition, '=');
@@ -514,6 +552,7 @@ static int compile_current_input(char** argv) {
     if (g_opts.verbose) {
         printf("Parsing (C++ mode)...\n");
     }
+    rcc_parser_set_cxx_standard(g_cxx_standard);
     AST* ast = rcc_parse_cxx(tokens);
     if (g_error_count > 0) {
         fprintf(stderr, "rcc++: %d error(s) in parsing\n", g_error_count);
