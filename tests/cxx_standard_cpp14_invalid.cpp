@@ -9,6 +9,15 @@ int standard_mode_generic_lambda() {
     return increment(1);
 }
 
+int standard_mode_lambda_init_capture() {
+    return [value = 1]() { return value; }();
+}
+
+template<typename... Values>
+int standard_mode_fold(Values... values) {
+    return (values + ...);
+}
+
 inline int standard_mode_inline_variable = 1;
 
 struct StandardModeDesignated {

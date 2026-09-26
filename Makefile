@@ -615,6 +615,10 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
 	grep -q "generic lambda parameters require C++14 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
+	grep -q "lambda init-captures require C++14 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
+	grep -q "fold expressions require C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
 	grep -q "inline variables require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
 	grep -q "C++ designated initializers require C++20 or newer" \
@@ -624,6 +628,10 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 		tests/cxx_standard_cpp17_invalid.cpp \
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log 2>&1
 	grep -q "if constexpr requires C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
+	grep -q "fold expressions require C++17 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
+	grep -q "template<auto> parameters require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	grep -q "inline variables require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log

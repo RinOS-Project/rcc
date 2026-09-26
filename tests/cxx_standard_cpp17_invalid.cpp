@@ -5,6 +5,16 @@ int standard_mode_if_constexpr() {
     return 0;
 }
 
+template<typename... Values>
+int standard_mode_fold(Values... values) {
+    return (values + ...);
+}
+
+template<auto Value>
+int standard_mode_auto_nttp() {
+    return Value;
+}
+
 inline int standard_mode_inline_variable = 1;
 
 struct StandardModeDesignated {

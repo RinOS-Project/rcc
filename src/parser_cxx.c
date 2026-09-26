@@ -601,6 +601,9 @@ Expr* rcc_parse_cxx_fold_expression(void) {
         if (pattern && operator_kind != EXPR_INT_LIT) {
             advance();
             if (match(TOK_ELLIPSIS) && match(TOK_RPAREN)) {
+                if (!rcc_parser_cxx_standard_at_least(17)) {
+                    rcc_error(loc, "fold expressions require C++17 or newer");
+                }
                 fold = expr_cxx_fold(NULL, operator_kind, false, loc);
                 fold->cxx_fold_pattern = pattern;
                 return fold;
@@ -630,6 +633,9 @@ Expr* rcc_parse_cxx_fold_expression(void) {
         }
         pack_name = advance()->value.str_val;
         expect(TOK_RPAREN, ")");
+        if (!rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(loc, "fold expressions require C++17 or newer");
+        }
         return expr_cxx_fold(pack_name, operator_kind, true, loc);
     }
 
@@ -678,6 +684,9 @@ Expr* rcc_parse_cxx_fold_expression(void) {
         {
             Expr* fold = expr_cxx_fold(pack_name, operator_kind, true, loc);
             fold->cxx_fold_init = initializer;
+            if (!rcc_parser_cxx_standard_at_least(17)) {
+                rcc_error(loc, "fold expressions require C++17 or newer");
+            }
             return fold;
         }
     }
@@ -725,6 +734,9 @@ Expr* rcc_parse_cxx_fold_expression(void) {
         {
             Expr* fold = expr_cxx_fold(pack_name, operator_kind, false, loc);
             fold->cxx_fold_init = initializer;
+            if (!rcc_parser_cxx_standard_at_least(17)) {
+                rcc_error(loc, "fold expressions require C++17 or newer");
+            }
             return fold;
         }
     }
@@ -742,6 +754,9 @@ Expr* rcc_parse_cxx_fold_expression(void) {
     }
     expect(TOK_ELLIPSIS, "...");
     expect(TOK_RPAREN, ")");
+    if (!rcc_parser_cxx_standard_at_least(17)) {
+        rcc_error(loc, "fold expressions require C++17 or newer");
+    }
     return expr_cxx_fold(pack_name, operator_kind, false, loc);
 }
 
@@ -5325,6 +5340,10 @@ Expr* rcc_parse_cxx_lambda(void) {
                 spec->reference = reference_capture;
                 spec->initializer = NULL;
                 if (match(TOK_ASSIGN)) {
+                    if (!rcc_parser_cxx_standard_at_least(14)) {
+                        rcc_error(capture->loc,
+                                  "lambda init-captures require C++14 or newer");
+                    }
                     if (reference_capture || capture->type == TOK_THIS) {
                         rcc_error(capture->loc,
                                   "lambda init-capture cannot initialize a reference or this capture");
@@ -5859,6 +5878,10 @@ CxxTemplate* parse_cxx_template(void) {
                             signature->params[signature->param_count - 1].is_pack =
                                 nested_parameter_pack;
                         } else if (match(TOK_AUTO)) {
+                            if (!rcc_parser_cxx_standard_at_least(17)) {
+                                rcc_error(peek()->loc,
+                                          "template<auto> parameters require C++17 or newer");
+                            }
                             nested_parameter_pack = match(TOK_ELLIPSIS);
                             if (check(TOK_IDENT)) {
                                 nested_name = advance()->value.str_val;
@@ -5916,6 +5939,10 @@ CxxTemplate* parse_cxx_template(void) {
                  * keeping the parameter's ABI type as int preserves the
                  * existing substitution, constraint, and mangling rules. */
                 const char* param_name = NULL;
+                if (!rcc_parser_cxx_standard_at_least(17)) {
+                    rcc_error(peek()->loc,
+                              "template<auto> parameters require C++17 or newer");
+                }
                 parameter_pack = match(TOK_ELLIPSIS);
                 if (check(TOK_IDENT)) {
                     param_name = advance()->value.str_val;
