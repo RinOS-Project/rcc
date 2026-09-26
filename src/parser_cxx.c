@@ -1402,6 +1402,7 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     }
     if (match(TOK_LBRACE)) {
         rcc_parser_cxx_begin_function_parameters(params);
+        rcc_parser_function_scope_push(name);
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
             Stmt* statement = parse_cxx_statement();
@@ -1409,6 +1410,7 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
             if (parser.cur == start && !at_end()) advance();
         }
         expect(TOK_RBRACE, "}");
+        rcc_parser_function_scope_pop();
         rcc_parser_cxx_end_function_parameters();
         body = stmt_block(statements, loc);
     } else {
@@ -4128,6 +4130,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             StmtList* stmts = NULL;
             void* enum_scope = rcc_parser_enum_scope_mark();
             rcc_parser_cxx_begin_function_parameters(params);
+            rcc_parser_function_scope_push(name);
             if (!is_static) {
                 Type* this_type = type_ptr(cls->type);
                 if (is_const) {
@@ -4154,6 +4157,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 }
             }
             expect(TOK_RBRACE, "}");
+            rcc_parser_function_scope_pop();
             rcc_parser_enum_scope_restore(enum_scope);
             rcc_parser_cxx_end_function_parameters();
             body = stmt_block(stmts, loc);
@@ -5340,6 +5344,7 @@ Expr* rcc_parse_cxx_lambda(void) {
     active_reference_captures = lambda_reference_captures;
     void* enum_scope = rcc_parser_enum_scope_mark();
     rcc_parser_cxx_begin_function_parameters(all_params);
+    rcc_parser_function_scope_push("operator()");
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* start = parser.cur;
         Stmt* statement = parse_cxx_statement();
@@ -5347,6 +5352,7 @@ Expr* rcc_parse_cxx_lambda(void) {
         if (parser.cur == start && !at_end()) advance();
     }
     expect(TOK_RBRACE, "}");
+    rcc_parser_function_scope_pop();
     rcc_parser_enum_scope_restore(enum_scope);
     rcc_parser_cxx_end_function_parameters();
     active_reference_captures = saved_reference_captures[
@@ -5511,6 +5517,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         StmtList* statements = NULL;
         void* enum_scope = rcc_parser_enum_scope_mark();
         rcc_parser_cxx_begin_function_parameters(params);
+        rcc_parser_function_scope_push(name->value.str_val);
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
             Stmt* statement = parse_cxx_statement();
@@ -5518,6 +5525,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
             if (parser.cur == start && !at_end()) advance();
         }
         expect(TOK_RBRACE, "}");
+        rcc_parser_function_scope_pop();
         rcc_parser_enum_scope_restore(enum_scope);
         rcc_parser_cxx_end_function_parameters();
         body = stmt_block(statements, loc);

@@ -91,6 +91,9 @@ static int parser_pack_stack[32];
 static int parser_pack_depth;
 static bool parser_cxx_mode;
 static bool parser_cxx_template_default_mode;
+static const char* parser_function_name;
+static const char* parser_function_name_stack[64];
+static int parser_function_scope_depth;
 
 void rcc_parser_set_cxx_mode(bool enabled) {
     parser_cxx_mode = enabled;
@@ -98,6 +101,25 @@ void rcc_parser_set_cxx_mode(bool enabled) {
 
 bool rcc_parser_is_cxx_mode(void) {
     return parser_cxx_mode;
+}
+
+void rcc_parser_function_scope_push(const char* name) {
+    if (parser_function_scope_depth >=
+        (int)(sizeof(parser_function_name_stack) /
+              sizeof(parser_function_name_stack[0]))) {
+        rcc_fatal("function scope nesting is too deep");
+    }
+    parser_function_name_stack[parser_function_scope_depth++] =
+        parser_function_name;
+    parser_function_name = name;
+}
+
+void rcc_parser_function_scope_pop(void) {
+    if (parser_function_scope_depth <= 0) {
+        rcc_fatal("function scope stack underflow");
+    }
+    parser_function_name =
+        parser_function_name_stack[--parser_function_scope_depth];
 }
 
 void rcc_parser_set_cxx_template_default_mode(bool enabled) {
@@ -993,6 +1015,18 @@ static Expr* parse_primary(void) {
         Expr* expression = expr_string(literal->value.str_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
         return expression;
+    }
+    if (check(TOK_IDENT) &&
+        (strcmp(peek()->value.str_val, "__func__") == 0 ||
+         strcmp(peek()->value.str_val, "__FUNCTION__") == 0)) {
+        Token* identifier = advance();
+        if (!parser_function_name) {
+            rcc_error(identifier->loc,
+                      "%s is only valid within a function body",
+                      identifier->value.str_val);
+            return expr_int(0, loc);
+        }
+        return expr_string(parser_function_name, loc);
     }
     if (check(TOK_IDENT) &&
         strcmp(peek()->value.str_val, "__builtin_offsetof") == 0) {
@@ -3254,7 +3288,9 @@ Stmt* parse_declaration(void) {
             if (parser_cxx_mode && rcc_parser_cxx_begin_function_parameters) {
                 rcc_parser_cxx_begin_function_parameters(parameters);
             }
+            rcc_parser_function_scope_push(declaration_name);
             body = parse_block();
+            rcc_parser_function_scope_pop();
             if (parser_cxx_mode && rcc_parser_cxx_end_function_parameters) {
                 rcc_parser_cxx_end_function_parameters();
             }
@@ -3338,6 +3374,8 @@ AST* rcc_parse(TokenList* tokens) {
     parser_type_names = NULL;
     parser_tag_names = NULL;
     parser_enum_constants = NULL;
+    parser_function_name = NULL;
+    parser_function_scope_depth = 0;
     if (g_opts.target_arch == ARCH_X64) {
         Type* record = type_struct("__rcc_sysv_va_list");
         record->size = 24;

@@ -187,9 +187,11 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
 .PHONY: test-preprocessor-line
+.PHONY: test-cxx-predefined-function-identifiers
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
+	test-cxx-predefined-function-identifiers \
 	test-multiple-inputs \
 	test-cxx-language-core \
 	test-cxx-numeric-separators \
@@ -373,6 +375,50 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	mkdir -p $(TEST_OUT)
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
+
+test-cxx-predefined-function-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-predefined-function-identifiers)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x86.s \
+		tests/predefined_function_identifiers.c
+	$(CC) -m32 -o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x86 \
+		tests/predefined_function_c_run_test.c \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/c-x86.s
+	$(TEST_OUT)/cxx-predefined-function-identifiers/c-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x64.s \
+		tests/predefined_function_identifiers.c
+	$(CC) -o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x64 \
+		tests/predefined_function_c_run_test.c \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/c-x64.s
+	$(TEST_OUT)/cxx-predefined-function-identifiers/c-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x86.s \
+		tests/predefined_function_identifiers.cpp
+	$(CC) -m32 -o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x86 \
+		tests/predefined_function_cxx_run_test.c \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x86.s
+	$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64.s \
+		tests/predefined_function_identifiers.cpp
+	$(CC) -o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64 \
+		tests/predefined_function_cxx_run_test.c \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64.s
+	$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64
+	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.ro \
+		tests/predefined_function_invalid.c \
+		>$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.log 2>&1
+	grep -q "__func__ is only valid within a function body" \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.ro \
+		tests/predefined_function_invalid.c \
+		>$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log 2>&1
+	grep -q "__func__ is only valid within a function body" \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log
+	@echo "C/C++ predefined function identifier tests completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
 	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
