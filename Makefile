@@ -187,6 +187,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
 .PHONY: test-preprocessor-line
+.PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
 
@@ -194,6 +195,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-cxx-predefined-function-identifiers \
 	test-preprocessor-include \
+	test-preprocessor-line-macro \
 	test-multiple-inputs \
 	test-cxx-language-core \
 	test-cxx-numeric-separators \
@@ -5119,6 +5121,32 @@ test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 	grep -F -q 'unexpected tokens after #include path' \
 		$(TEST_OUT)/invalid-preprocessor-include.log
 	@echo "C17/C++20 macro-expanded #include tests completed"
+
+test-preprocessor-line-macro: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT))
+	$(RCC_TARGET) -E tests/preprocessor_line_macro.c > \
+		$(TEST_OUT)/preprocessor-line-macro.i
+	grep -F -q '#line 77 "rcc-macro-line.c"' \
+		$(TEST_OUT)/preprocessor-line-macro.i
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/preprocessor-line-macro-c-x86.s \
+		tests/preprocessor_line_macro.c
+	grep -F -q '0x4d, 0x00, 0x00, 0x00' \
+		$(TEST_OUT)/preprocessor-line-macro-c-x86.s
+	grep -F -q '0x72, 0x63, 0x63, 0x2d, 0x6d, 0x61, 0x63, 0x72' \
+		$(TEST_OUT)/preprocessor-line-macro-c-x86.s
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/preprocessor-line-macro-c-x64.s \
+		tests/preprocessor_line_macro.c
+	grep -F -q '0x4d, 0x00, 0x00, 0x00' \
+		$(TEST_OUT)/preprocessor-line-macro-c-x64.s
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-line-macro-cxx-x86.ro \
+		tests/preprocessor_line_macro.c
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-line-macro-cxx-x64.ro \
+		tests/preprocessor_line_macro.c
+	@echo "C17/C++20 macro-expanded #line tests completed"
 
 test-preprocessor-operators: $(RCC_TARGET)
 	mkdir -p $(TEST_OUT)

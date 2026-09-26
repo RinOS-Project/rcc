@@ -1718,7 +1718,13 @@ static const char* process_directive(Preprocessor* pp, const char* p,
 
     if (strcmp(directive, "line") == 0) {
         const char* end = skip_to_eol(p);
-        const char* argument = skip_ws(p);
+        size_t line_text_length = (size_t)(end - p);
+        char* line_text = rcc_alloc(line_text_length + 1u);
+        memcpy(line_text, p, line_text_length);
+        line_text[line_text_length] = '\0';
+        char* expanded_line = expand_macros(pp, line_text);
+        rcc_free(line_text);
+        const char* argument = skip_ws(expanded_line);
         const char* number_start = argument;
         char* end_number;
         unsigned long line_number;
@@ -1727,12 +1733,14 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         if (argument == number_start) {
             rcc_error((SourceLoc){filename, source_line, 0},
                       "invalid #line directive: expected a positive line number");
+            rcc_free(expanded_line);
             return end;
         }
         line_number = strtoul(number_start, &end_number, 10);
         if (line_number == 0u || end_number != argument) {
             rcc_error((SourceLoc){filename, source_line, 0},
                       "invalid #line directive: line number must be positive");
+            rcc_free(expanded_line);
             return end;
         }
         argument = skip_ws(argument);
@@ -1740,6 +1748,7 @@ static const char* process_directive(Preprocessor* pp, const char* p,
             !isdigit((unsigned char)*argument)) {
             rcc_error((SourceLoc){filename, source_line, 0},
                       "invalid #line directive: unexpected trailing text");
+            rcc_free(expanded_line);
             return end;
         }
         if (pp_is_active(pp)) {
@@ -1747,8 +1756,9 @@ static const char* process_directive(Preprocessor* pp, const char* p,
              * the source-location state and already consumes this exact
              * form, so diagnostics and generated locations remain aligned. */
             buf_append_str(output, "#line ");
-            buf_append(output, p, (size_t)(end - p));
+            buf_append_str(output, expanded_line);
         }
+        rcc_free(expanded_line);
         return end;
     }
 
