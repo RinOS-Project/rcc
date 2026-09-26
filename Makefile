@@ -2398,6 +2398,18 @@ test-cxx-generic-lambda: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-generic-lambda/explicit-start-x64.o \
 		$(TEST_OUT)/cxx-generic-lambda/explicit-x64.o
 	$(TEST_OUT)/cxx-generic-lambda/explicit-x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.ro \
+		tests/cxx_lambda_explicit_template_invalid.cpp \
+		>$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.log 2>&1
+	grep -q "lambda non-type template parameter packs are not supported" \
+		$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.ro \
+		tests/cxx_lambda_explicit_template_invalid.cpp \
+		>$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.log 2>&1
+	grep -q "lambda non-type template parameter packs are not supported" \
+		$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.log
 	@echo "C++ generic lambda deduction tests completed"
 
 test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)

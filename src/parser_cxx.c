@@ -4525,8 +4525,9 @@ static int cxx_lambda_template_type_index(CxxTemplate* tmpl, Type* type) {
 }
 
 /* C++20 explicit lambda templates share the ordinary function-template
- * substitution path.  Keep the type-parameter subset here and diagnose
- * non-type/template parameters instead of silently treating them as values. */
+ * substitution path.  Template-template parameters remain outside the
+ * bounded lambda ABI, but type and integral non-type parameters use the same
+ * deduction and substitution data as ordinary function templates. */
 static bool parse_cxx_lambda_template_parameters(CxxTemplate* tmpl) {
     if (!tmpl || !match(TOK_LT)) return false;
     if (!check(TOK_GT)) {
@@ -4543,11 +4544,31 @@ static bool parse_cxx_lambda_template_parameters(CxxTemplate* tmpl) {
                 }
                 cxx_template_add_type_param(tmpl, name);
                 tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
+            } else if (match(TOK_AUTO)) {
+                const char* name = NULL;
+                parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) {
+                    name = advance()->value.str_val;
+                } else {
+                    rcc_error(peek()->loc,
+                              "lambda non-type template parameter requires a name");
+                }
+                cxx_template_add_value_param(tmpl, name, type_int);
+                tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
             } else {
-                rcc_error(peek()->loc,
-                          "explicit lambda template supports only type parameters");
-                while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
-                    advance();
+                Type* type = parse_cxx_type_spec();
+                const char* name = NULL;
+                parameter_pack = match(TOK_ELLIPSIS);
+                type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
+                if (!name) {
+                    rcc_error(peek()->loc,
+                              "lambda non-type template parameter requires a name");
+                }
+                cxx_template_add_value_param(tmpl, name, type);
+                tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
+                if (parameter_pack) {
+                    rcc_error(peek()->loc,
+                              "lambda non-type template parameter packs are not supported");
                 }
             }
         } while (match(TOK_COMMA));

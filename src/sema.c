@@ -7220,6 +7220,16 @@ static bool sema_cxx_lambda_type_uses_parameter(
         return sema_cxx_lambda_type_uses_parameter(type->base,
                                                    parameter_name);
     }
+    if (type->kind == TYPE_ARRAY) {
+        if (sema_cxx_lambda_type_uses_parameter(type->base,
+                                                parameter_name)) {
+            return true;
+        }
+        return type->array_bound &&
+            type->array_bound->kind == EXPR_IDENT &&
+            type->array_bound->ident_name &&
+            strcmp(type->array_bound->ident_name, parameter_name) == 0;
+    }
     return false;
 }
 
@@ -7259,6 +7269,42 @@ static Type* sema_cxx_lambda_deduction_type(Expr* argument,
     if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
     if (type->kind == TYPE_FUNC) return type_ptr(type);
     return type;
+}
+
+static bool sema_cxx_lambda_deduction_value(
+    Expr* argument, Type* parameter_pattern, const char* parameter_name,
+    int64_t* value) {
+    Type* actual;
+    if (!argument || !parameter_pattern || !parameter_name || !value ||
+        !argument->type) {
+        return false;
+    }
+    actual = argument->type;
+    if (parameter_pattern->kind == TYPE_PTR &&
+        parameter_pattern->is_reference) {
+        return sema_cxx_lambda_deduction_value(
+            argument, parameter_pattern->base, parameter_name, value);
+    }
+    if (parameter_pattern->kind == TYPE_ARRAY) {
+        if (parameter_pattern->array_bound &&
+            parameter_pattern->array_bound->kind == EXPR_IDENT &&
+            parameter_pattern->array_bound->ident_name &&
+            strcmp(parameter_pattern->array_bound->ident_name,
+                   parameter_name) == 0 &&
+            actual->kind == TYPE_ARRAY && actual->array_len > 0) {
+            *value = actual->array_len;
+            return true;
+        }
+        return parameter_pattern->base && actual->kind == TYPE_ARRAY &&
+            sema_cxx_lambda_deduction_value(
+                argument, parameter_pattern->base, parameter_name, value);
+    }
+    if (parameter_pattern->kind == TYPE_PTR &&
+        actual->kind == TYPE_PTR) {
+        return sema_cxx_lambda_deduction_value(
+            argument, parameter_pattern->base, parameter_name, value);
+    }
+    return false;
 }
 
 /* Instantiate a generic lambda at the call site.  The parser intentionally
@@ -7329,6 +7375,30 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
                 }
                 break;
             }
+        }
+        if (parameter->kind == TPARAM_NONTYPE) {
+            int64_t deduced_value = 0;
+            if (parameter_is_pack) {
+                rcc_error(call->loc,
+                          "generic lambda non-type parameter packs are not supported");
+                return false;
+            }
+            if (!argument || !parameter_pattern) {
+                rcc_error(call->loc,
+                          "generic lambda non-type argument does not match a parameter");
+                return false;
+            }
+            sema_expr(argument);
+            if (!sema_cxx_lambda_deduction_value(
+                    argument, parameter_pattern, parameter->name,
+                    &deduced_value)) {
+                rcc_error(argument->loc,
+                          "cannot deduce generic lambda non-type parameter");
+                return false;
+            }
+            values[template_index] = deduced_value;
+            value_present[template_index] = true;
+            continue;
         }
         if (parameter->kind != TPARAM_TYPE ||
             (parameter_is_pack && has_pack)) {
