@@ -649,6 +649,8 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
 	grep -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
+	grep -q "consteval lambda specifiers require C++20 or newer" \
+		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
 	@echo "C++ standard-version gates and feature-test macros completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)

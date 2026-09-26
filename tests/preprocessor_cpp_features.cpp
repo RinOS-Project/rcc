@@ -179,6 +179,10 @@ int rcc_designated_initializer_feature(void) {
     RccDesignatedFeature value{.value = 5};
     return value.value;
 }
+
+int rcc_consteval_lambda_feature(void) {
+    return []() consteval { return 8; }();
+}
 #endif
 
 #if __cplusplus >= 201703L
@@ -206,6 +210,9 @@ int rcc_cpp_feature_macro_probe(void) {
 #endif
 #if __cplusplus >= 201703L
     result += rcc::versioned_feature::nested_namespace_feature();
+#endif
+#if __cplusplus >= 202002L
+    result += rcc_consteval_lambda_feature();
 #endif
     return result == 0;
 }

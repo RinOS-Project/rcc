@@ -17,3 +17,7 @@ int standard_mode_designated() {
     StandardModeDesignated value{.value = 1};
     return value.value;
 }
+
+int standard_mode_consteval_lambda() {
+    return []() consteval { return 1; }();
+}
