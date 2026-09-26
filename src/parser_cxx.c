@@ -717,6 +717,7 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
+static CxxTemplate* find_alias_template(const char* qualified_name);
 static CxxTemplate* find_template(const char* qualified_name, int kind);
 static CxxTemplate* find_concept(const char* qualified_name);
 static Type* parse_template_template_default(SourceLoc loc);
@@ -5925,6 +5926,45 @@ CxxTemplate* parse_cxx_template(void) {
     }
     active_template = parameter_outer_template;
 
+    /* C++ alias templates are lowered by substituting their bounded type
+     * expression before ordinary declaration parsing.  They have no runtime
+     * entity, so accepting one as a function or class template would produce
+     * an invalid ABI artifact. */
+    if (match(TOK_USING)) {
+        Token* alias_name = expect(TOK_IDENT, "alias template name");
+        Type* alias_type;
+        tmpl->kind = TMPL_ALIAS;
+        tmpl->name = ast_arena_strdup(
+            alias_name ? alias_name->value.str_val : "<alias>");
+        if (tmpl->param_count == 0) {
+            rcc_error(loc, "alias template requires at least one parameter");
+        }
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack) {
+                rcc_error(loc,
+                          "RCC++ alias template parameter packs are not "
+                          "supported by the bounded type ABI");
+            }
+            if (parameter->kind == TPARAM_TEMPLATE) {
+                rcc_error(loc,
+                          "RCC++ alias template template-parameters are not "
+                          "supported by the bounded type ABI");
+            }
+        }
+        expect(TOK_ASSIGN, "= after alias template name");
+        active_template = tmpl;
+        alias_type = parse_cxx_type_spec();
+        active_template = parameter_outer_template;
+        if (!alias_type) {
+            rcc_error(loc, "alias template requires a type-id");
+            alias_type = type_int;
+        }
+        tmpl->alias_type = alias_type;
+        expect(TOK_SEMICOLON, "; after alias template");
+        return tmpl;
+    }
+
     /* Template body */
     if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
         parser.cur->next && parser.cur->next->type == TOK_IDENT &&
@@ -6120,6 +6160,10 @@ static CxxTemplate* find_template(const char* qualified_name,
 
 static CxxTemplate* find_class_template(const char* qualified_name) {
     return find_template(qualified_name, TMPL_CLASS);
+}
+
+static CxxTemplate* find_alias_template(const char* qualified_name) {
+    return find_template(qualified_name, TMPL_ALIAS);
 }
 
 static CxxTemplate* find_concept(const char* qualified_name) {
@@ -6523,7 +6567,7 @@ bool rcc_parse_cxx_type_start(void) {
              (strstr(name, "::") == NULL &&
               rcc_parser_lookup_type(name) != NULL);
     if (check(TOK_LT) &&
-        (find_class_template(name) ||
+        (find_class_template(name) || find_alias_template(name) ||
          active_template_template_parameter_index(name) >= 0)) {
         result = true;
     }
@@ -6635,6 +6679,40 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             unresolved->cxx_template_param_index = -1;
             return unresolved;
         }
+    }
+    if (type->cxx_dependent && type->cxx_template &&
+        type->cxx_template_param_index < 0 &&
+        type->cxx_template_arg_count > 0) {
+        Type* nested_arguments[32] = { NULL };
+        bool still_dependent = false;
+        if (type->cxx_template_arg_count >
+            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "dependent class template argument limit exceeded");
+            return NULL;
+        }
+        for (int nested_index = 0;
+             nested_index < type->cxx_template_arg_count; ++nested_index) {
+            nested_arguments[nested_index] = substitute_template_type(
+                tmpl, type->cxx_template_args[nested_index], arguments,
+                argument_count, value_args, value_present);
+            if (!nested_arguments[nested_index]) return NULL;
+            if (nested_arguments[nested_index]->cxx_dependent) {
+                still_dependent = true;
+            }
+        }
+        if (still_dependent) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *type;
+            substituted->cxx_template_args = ast_arena_alloc(
+                sizeof(Type*) * (size_t)type->cxx_template_arg_count);
+            memcpy(substituted->cxx_template_args, nested_arguments,
+                   sizeof(Type*) * (size_t)type->cxx_template_arg_count);
+            return substituted;
+        }
+        return instantiate_class_template(
+            type->cxx_template, nested_arguments, NULL, NULL,
+            type->cxx_template_arg_count, (SourceLoc){"<template>", 0, 0});
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0) {
@@ -8025,6 +8103,104 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
     return true;
 }
 
+static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
+                                                  SourceLoc loc) {
+    Type* arguments[32] = { NULL };
+    int64_t values[32] = { 0 };
+    bool value_present[32] = { false };
+    int argument_count = 0;
+
+    if (!tmpl || tmpl->kind != TMPL_ALIAS || !tmpl->alias_type) {
+        rcc_error(loc, "invalid alias template declaration");
+        return type_int;
+    }
+    expect(TOK_LT, "<");
+    if (!check(TOK_GT)) {
+        do {
+            TemplateParam* parameter;
+            if (argument_count >= 32 || argument_count >= tmpl->param_count) {
+                rcc_error(peek()->loc, "too many alias template arguments");
+                while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
+                    advance();
+                }
+                continue;
+            }
+            parameter = &tmpl->params[argument_count];
+            if (parameter->kind == TPARAM_TYPE) {
+                arguments[argument_count] = parse_cxx_type_spec();
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                Expr* value_expression;
+                int64_t value;
+                rcc_parser_set_cxx_template_default_mode(true);
+                value_expression = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+                if (!expr_eval_integer_constant(value_expression, &value)) {
+                    rcc_error(loc,
+                              "alias template non-type argument must be an "
+                              "integer constant expression");
+                    value = 0;
+                }
+                arguments[argument_count] = parameter->type;
+                values[argument_count] = value;
+                value_present[argument_count] = true;
+            } else {
+                rcc_error(loc,
+                          "alias template template-arguments are not "
+                          "supported by the bounded type ABI");
+            }
+            ++argument_count;
+        } while (match(TOK_COMMA));
+    }
+    while (argument_count < tmpl->param_count &&
+           tmpl->params[argument_count].has_default) {
+        TemplateParam* parameter = &tmpl->params[argument_count];
+        if (parameter->kind == TPARAM_TYPE && parameter->default_type) {
+            arguments[argument_count] = substitute_template_type(
+                tmpl, parameter->default_type, arguments, tmpl->param_count,
+                values, value_present);
+        } else if (parameter->kind == TPARAM_NONTYPE &&
+                   parameter->default_value) {
+            int64_t value;
+            if (!eval_template_integer_expression(
+                    parameter->default_value, tmpl, values, value_present,
+                    &value)) {
+                rcc_error(loc,
+                          "alias template non-type default must be an "
+                          "integer constant expression");
+                value = 0;
+            }
+            arguments[argument_count] = parameter->type;
+            values[argument_count] = value;
+            value_present[argument_count] = true;
+        } else {
+            break;
+        }
+        ++argument_count;
+    }
+    expect(TOK_GT, ">");
+    if (argument_count != tmpl->param_count) {
+        rcc_error(loc, "alias template '%s' expects %d argument(s), got %d",
+                  tmpl->name ? tmpl->name : "<alias>", tmpl->param_count,
+                  argument_count);
+        return type_int;
+    }
+    if (!cxx_template_constraint_satisfied(
+            tmpl, values, value_present, loc, true)) {
+        return type_int;
+    }
+    {
+        Type* result = substitute_template_type(
+            tmpl, tmpl->alias_type, arguments, tmpl->param_count, values,
+            value_present);
+        if (!result) {
+            rcc_error(loc, "alias template '%s' could not be substituted",
+                      tmpl->name ? tmpl->name : "<alias>");
+            return type_int;
+        }
+        return result;
+    }
+}
+
 typedef struct CxxParsedTemplateArgument {
     bool is_type;
     Type* type;
@@ -9085,6 +9261,8 @@ static Type* parse_cxx_type_spec(void) {
         const char* name = parse_qualified_name();
         CxxTemplate* tmpl = check(TOK_LT)
             ? find_class_template(name) : NULL;
+        CxxTemplate* alias_tmpl = check(TOK_LT)
+            ? find_alias_template(name) : NULL;
         int template_template_index =
             active_template_template_parameter_index(name);
         CxxClass* known_class = find_class(name);
@@ -9146,6 +9324,8 @@ static Type* parse_cxx_type_spec(void) {
                           "its parameter list");
             }
             t = dependent;
+        } else if (alias_tmpl) {
+            t = parse_alias_template_specialization(alias_tmpl, loc);
         } else if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);
         } else if (known_class && active_template &&

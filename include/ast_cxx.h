@@ -252,12 +252,18 @@ struct CxxTemplate {
     /* Template body - either class or function */
     enum {
         TMPL_CLASS,
-        TMPL_FUNCTION
+        TMPL_FUNCTION,
+        TMPL_ALIAS
     } kind;
     union {
         CxxClass* class_def;
         Decl* func_def;
     };
+
+    /* The expanded type of a bounded alias template.  Alias templates do
+     * not have an object or function body; their specialization is resolved
+     * before semantic analysis sees the enclosing declaration. */
+    Type* alias_type;
 
     bool is_constexpr;
     bool is_noexcept;

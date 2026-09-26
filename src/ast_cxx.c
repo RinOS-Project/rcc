@@ -1563,6 +1563,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->param_count = count;
     tmpl->kind = TMPL_CLASS;
     tmpl->class_def = NULL;
+    tmpl->alias_type = NULL;
     tmpl->is_constexpr = false;
     tmpl->is_noexcept = false;
     tmpl->is_concept = false;
