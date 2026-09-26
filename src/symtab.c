@@ -174,8 +174,13 @@ Symbol* symtab_define(SymTab* st, const char* name, SymKind kind, Type* type, So
                 storage = (2 + symtab_vla_dimension_count(type)) * word_size;
             }
             st->current->local_offset += storage;
-            /* Align to 4 bytes */
-            st->current->local_offset = (st->current->local_offset + 3) & ~3;
+            /* Ordinary locals retain the historical four-byte frame
+             * contract.  Explicit C `_Alignas` may request a stricter
+             * power-of-two boundary without changing unrelated layouts. */
+            int alignment = type->has_explicit_alignment && type->align > 4
+                ? type->align : 4;
+            st->current->local_offset =
+                (st->current->local_offset + alignment - 1) & ~(alignment - 1);
             sym->offset = -st->current->local_offset;
         }
     }

@@ -8822,6 +8822,67 @@ static bool codegen_stmt_owns_vla(Stmt* statement) {
     return false;
 }
 
+static int codegen_required_frame_alignment(const Stmt* statement) {
+    int alignment = 4;
+    if (!statement) return alignment;
+    switch (statement->kind) {
+        case STMT_DECL:
+            if (statement->decl && statement->decl->type &&
+                statement->decl->type->has_explicit_alignment &&
+                statement->decl->type->align > alignment) {
+                alignment = statement->decl->type->align;
+            }
+            break;
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                int nested = codegen_required_frame_alignment(item->stmt);
+                if (nested > alignment) alignment = nested;
+            }
+            break;
+        case STMT_IF:
+            alignment = codegen_required_frame_alignment(statement->if_then);
+            if (statement->if_else) {
+                int nested = codegen_required_frame_alignment(statement->if_else);
+                if (nested > alignment) alignment = nested;
+            }
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            alignment = codegen_required_frame_alignment(statement->while_body);
+            break;
+        case STMT_FOR: {
+            alignment = codegen_required_frame_alignment(statement->for_init);
+            int nested = codegen_required_frame_alignment(statement->for_body);
+            if (nested > alignment) alignment = nested;
+            break;
+        }
+        case STMT_SWITCH:
+            alignment = codegen_required_frame_alignment(statement->switch_body);
+            break;
+        case STMT_CASE:
+            alignment = codegen_required_frame_alignment(statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            alignment = codegen_required_frame_alignment(statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            alignment = codegen_required_frame_alignment(statement->label_stmt);
+            break;
+        case STMT_TRY:
+            alignment = codegen_required_frame_alignment(statement->try_body);
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                int nested = codegen_required_frame_alignment(handler->body);
+                if (nested > alignment) alignment = nested;
+            }
+            break;
+        default:
+            break;
+    }
+    return alignment;
+}
+
 static int codegen_align_frame_bytes(int bytes, int alignment) {
     int64_t value;
     if (alignment <= 1) return bytes;
@@ -10744,6 +10805,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
 static void gen_function(Module* mod, Decl* decl) {
     int stack_size;
+    int frame_alignment;
     Type* old_return_type;
     int old_active_frame_offset;
     CleanupCodegen* old_cleanups;
@@ -10755,6 +10817,7 @@ static void gen_function(Module* mod, Decl* decl) {
     stack_size = codegen_required_local_bytes(decl->func_body);
     stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
                                                  4);
+    frame_alignment = codegen_required_frame_alignment(decl->func_body);
     codegen_assign_vla_parameter_slots(decl, &stack_size);
     if (stack_size > INT_MAX - 15) {
         rcc_error(decl->loc, "function stack frame exceeds compiler limits");
@@ -10762,9 +10825,20 @@ static void gen_function(Module* mod, Decl* decl) {
     }
     stack_size = (stack_size + 15) & ~15;
 
-    /* Function prologue */
+    /* Function prologue.  An explicitly over-aligned local needs an aligned
+     * frame base on i686; keep the normal saved-EBP/return-address layout at
+     * [EBP] and [EBP+4] after rounding ESP down. */
     emit_push_reg(mod, EBP);
-    emit_mov_reg_reg(mod, EBP, ESP);
+    if (frame_alignment > 4) {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_reg_mem(mod, EDX, ESP, 4);
+        emit_and_reg_imm(mod, ESP, (uint32_t)(-(int)frame_alignment));
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        emit_mov_mem_reg(mod, ESP, 4, EDX);
+        emit_mov_reg_reg(mod, EBP, ESP);
+    } else {
+        emit_mov_reg_reg(mod, EBP, ESP);
+    }
     if (stack_size > 0) {
         emit_sub_reg_imm(mod, ESP, stack_size);
     }

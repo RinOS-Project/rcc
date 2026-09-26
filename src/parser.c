@@ -1661,6 +1661,56 @@ static int parser_align_up(int value, int alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
+static int parse_explicit_alignment(void) {
+    SourceLoc loc = peek()->loc;
+    Type* alignment_type;
+    Expr* alignment_expression;
+    int64_t value;
+    int alignment = 0;
+
+    expect(TOK__ALIGNAS, "_Alignas");
+    expect(TOK_LPAREN, "'(' after _Alignas");
+    if (is_type_start()) {
+        alignment_type = parse_type_spec();
+        alignment_type = parse_declarator(alignment_type, NULL, NULL);
+        alignment = alignment_type && alignment_type->align > 0
+            ? alignment_type->align : 0;
+    } else {
+        alignment_expression = parse_assignment();
+        if (!expr_eval_integer_constant(alignment_expression, &value) ||
+            value < 0 || value > INT_MAX) {
+            rcc_error(loc,
+                      "_Alignas requires a non-negative integer constant or type");
+        } else {
+            alignment = (int)value;
+        }
+    }
+    expect(TOK_RPAREN, "')' after _Alignas");
+    if (alignment != 0 &&
+        (alignment < 1 || alignment > 16 ||
+         (alignment & (alignment - 1)) != 0)) {
+        rcc_error(loc,
+                  "_Alignas alignment must be a power of two no greater than 16");
+        alignment = 0;
+    }
+    return alignment;
+}
+
+static Type* apply_explicit_alignment(Type* type, int alignment,
+                                      SourceLoc loc) {
+    Type* aligned;
+    if (!type || alignment <= type->align) return type;
+    if (type->kind == TYPE_FUNC) {
+        rcc_error(loc, "_Alignas cannot apply to a function declaration");
+        return type;
+    }
+    aligned = ast_arena_alloc(sizeof(*aligned));
+    *aligned = *type;
+    aligned->align = alignment;
+    aligned->has_explicit_alignment = true;
+    return aligned;
+}
+
 static int64_t parse_enum_value(int64_t fallback) {
     bool negative = match(TOK_MINUS);
     int64_t value = fallback;
@@ -2834,6 +2884,12 @@ Stmt* parse_declaration(void) {
     Type* base_type;
     Type* type;
     Decl* declaration;
+    int explicit_alignment = 0;
+
+    while (check(TOK__ALIGNAS)) {
+        int alignment = parse_explicit_alignment();
+        if (alignment > explicit_alignment) explicit_alignment = alignment;
+    }
 
     if (parser_cxx_mode && rcc_parse_cxx_auto_local_declaration &&
         (check(TOK_AUTO) || (check(TOK_CONST) && parser.cur->next &&
@@ -2880,6 +2936,10 @@ Stmt* parse_declaration(void) {
         else if (match(TOK_REGISTER)) storage = STORAGE_REGISTER;
         else if (match(TOK_AUTO)) storage = STORAGE_AUTO;
         else if (match(TOK_THREAD_LOCAL)) is_thread_local = true;
+        else if (check(TOK__ALIGNAS)) {
+            int alignment = parse_explicit_alignment();
+            if (alignment > explicit_alignment) explicit_alignment = alignment;
+        }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
     }
@@ -2921,6 +2981,7 @@ Stmt* parse_declaration(void) {
     }
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
+    type = apply_explicit_alignment(type, explicit_alignment, loc);
     if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&
         match(TOK_NOEXCEPT)) {
         if (match(TOK_LPAREN)) {

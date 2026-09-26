@@ -118,6 +118,7 @@ struct Type {
     TypeKind kind;
     int size;           /* Size in bytes */
     int align;          /* Alignment */
+    bool has_explicit_alignment;
     bool is_unsigned;
     bool is_const;
     bool is_volatile;
