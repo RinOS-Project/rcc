@@ -81,6 +81,9 @@ static unsigned cxx_structured_binding_counter;
 
 static int cxx_class_pack_index(CxxTemplate* tmpl);
 static Type* cxx_parser_value_type(const char* name);
+static bool cxx_template_constraint_satisfied(
+    CxxTemplate* tmpl, Type** arguments, const int64_t* values,
+    const bool* value_present, SourceLoc loc, bool report_errors);
 
 static bool cxx_standard_feature_tokens_valid(Token* head) {
     for (Token* token = head; token && token->type != TOK_EOF;
@@ -7439,6 +7442,10 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             }
         }
     }
+    if (!cxx_template_constraint_satisfied(
+            tmpl, arguments, value_args, value_present, loc, true)) {
+        return type_int;
+    }
     for (index = 0; index < tmpl->instance_count; ++index) {
         int argument_index;
         bool matches = tmpl->instances[index].arg_count == argument_count;
@@ -8018,6 +8025,14 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
             }
             return dependent;
         }
+    }
+    /* A constrained primary class template remains a viability condition for
+     * all concrete specializations.  Partial-specialization constraints are
+     * checked when their selected definition is instantiated below. */
+    if (tmpl->specialization_count > 0 &&
+        !cxx_template_constraint_satisfied(
+            tmpl, arguments, values, value_present, loc, true)) {
+        return type_int;
     }
     CxxTemplate* selected = NULL;
     Type* selected_arguments[32] = { NULL };

@@ -193,7 +193,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-predefined-function-identifiers
 .PHONY: test-cxx-class-template-deduction
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
-	test-cxx-constrained-abbreviated
+	test-cxx-constrained-abbreviated test-cxx-constrained-class-template
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -249,6 +249,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-abbreviated-function-template-invalid \
 	test-cxx-trailing-requires \
 	test-cxx-constrained-abbreviated \
+	test-cxx-constrained-class-template \
 	test-cxx-variable-templates \
 	test-cxx-function-template-overloads \
 	test-cxx-function-template-references \
@@ -4272,6 +4273,58 @@ test-cxx-constrained-abbreviated: $(RCXX_TARGET)
 	grep -q "abbreviated function templates require C++20 or newer" \
 		$(TEST_OUT)/cxx-constrained-abbreviated/old-x86.log
 	@echo "C++20 constrained abbreviated-template tests completed"
+
+test-cxx-constrained-class-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constrained-class-template)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constrained-class-template/x86.s \
+		tests/cxx-constrained-class-template.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constrained-class-template/x86.o \
+		$(TEST_OUT)/cxx-constrained-class-template/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-constrained-class-template/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-constrained-class-template/x86 \
+		$(TEST_OUT)/cxx-constrained-class-template/start-x86.o \
+		$(TEST_OUT)/cxx-constrained-class-template/x86.o
+	$(TEST_OUT)/cxx-constrained-class-template/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-constrained-class-template/x64.s \
+		tests/cxx-constrained-class-template.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-constrained-class-template/x64.o \
+		$(TEST_OUT)/cxx-constrained-class-template/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-constrained-class-template/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-constrained-class-template/x64 \
+		$(TEST_OUT)/cxx-constrained-class-template/start-x64.o \
+		$(TEST_OUT)/cxx-constrained-class-template/x64.o
+	$(TEST_OUT)/cxx-constrained-class-template/x64
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constrained-class-template/invalid-x86.ro \
+		tests/cxx-constrained-class-template-invalid.cpp \
+		>$(TEST_OUT)/cxx-constrained-class-template/invalid-x86.log 2>&1; then \
+		echo "invalid constrained class template unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constrained-class-template/invalid-x64.ro \
+		tests/cxx-constrained-class-template-invalid.cpp \
+		>$(TEST_OUT)/cxx-constrained-class-template/invalid-x64.log 2>&1; then \
+		echo "invalid constrained class template unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "template constraints are not satisfied" \
+		$(TEST_OUT)/cxx-constrained-class-template/invalid-x86.log
+	grep -q "template constraints are not satisfied" \
+		$(TEST_OUT)/cxx-constrained-class-template/invalid-x64.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-constrained-class-template/old-x86.ro \
+		tests/cxx-constrained-class-template-invalid.cpp \
+		>$(TEST_OUT)/cxx-constrained-class-template/old-x86.log 2>&1; then \
+		echo "constrained class template unexpectedly compiled as C++17"; exit 1; \
+	fi
+	grep -q "requires-expressions and requires-clauses require C++20 or newer" \
+		$(TEST_OUT)/cxx-constrained-class-template/old-x86.log
+	@echo "C++20 constrained class-template tests completed"
 
 test-initializer-brace-elision: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/initializer-brace-elision)
