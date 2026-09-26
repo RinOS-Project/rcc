@@ -1028,6 +1028,19 @@ static Expr* parse_primary(void) {
         }
         return expr_string(parser_function_name, loc);
     }
+    if (check(TOK_IDENT) && strcmp(peek()->value.str_val, "__FILE__") == 0) {
+        Token* identifier = advance();
+        if (!loc.filename) {
+            rcc_error(identifier->loc,
+                      "__FILE__ has no source filename at this location");
+            return expr_int(0, loc);
+        }
+        return expr_string(loc.filename, loc);
+    }
+    if (check(TOK_IDENT) && strcmp(peek()->value.str_val, "__LINE__") == 0) {
+        advance();
+        return expr_int(loc.line, loc);
+    }
     if (check(TOK_IDENT) &&
         strcmp(peek()->value.str_val, "__builtin_offsetof") == 0) {
         return parse_builtin_offsetof(loc);

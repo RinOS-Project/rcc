@@ -20,6 +20,15 @@ extern "C" int probe_cxx_predefined_function(void) {
         ? 0 : 1;
 }
 
+extern "C" int probe_cxx_predefined_location(void) {
+    int first_line = __LINE__;
+    int second_line = __LINE__;
+    const char* source_file = __FILE__;
+    return second_line == first_line + 1 &&
+           text_equal(source_file, "tests/predefined_function_identifiers.cpp")
+        ? 0 : 1;
+}
+
 extern "C" int probe_cxx_nested_predefined_function(void) {
     FunctionNameMember member{};
     auto lambda = []() {

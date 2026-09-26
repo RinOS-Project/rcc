@@ -13,3 +13,12 @@ int probe_c_predefined_function(void) {
            text_equal(compatibility_name, "probe_c_predefined_function")
         ? 0 : 1;
 }
+
+int probe_c_predefined_location(void) {
+    int first_line = __LINE__;
+    int second_line = __LINE__;
+    const char* source_file = __FILE__;
+    return second_line == first_line + 1 &&
+           text_equal(source_file, "tests/predefined_function_identifiers.c")
+        ? 0 : 1;
+}
