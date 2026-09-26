@@ -778,6 +778,71 @@ static bool cxx_decltype_auto_starts_function(void) {
     return token && token->type == TOK_LPAREN;
 }
 
+/* `inline` is valid on both namespace-scope functions and variables.  The
+ * dedicated C++ function parser must only claim the former; otherwise an
+ * ordinary declaration such as `inline int value = 1;` is consumed as a
+ * malformed function before the common declaration parser can preserve its
+ * inline-variable linkage.  Keep this lexical probe conservative and stop at
+ * declaration initializers, while accepting the standard parameter type
+ * spellings used by the bounded profile. */
+static bool cxx_inline_starts_function(void) {
+    Token* token = parser.cur;
+    Token* previous = NULL;
+    int parentheses = 0;
+    int brackets = 0;
+
+    if (!token || (token->type != TOK_INLINE &&
+                   token->type != TOK___INLINE__)) return false;
+    token = token->next;
+    while (token) {
+        if (parentheses == 0 && brackets == 0) {
+            if (token->type == TOK_ASSIGN || token->type == TOK_LBRACE ||
+                token->type == TOK_SEMICOLON) return false;
+            if (token->type == TOK_LPAREN) {
+                Token* parameter = token->next;
+                if (previous && previous->type == TOK_STAR) return false;
+                if (!parameter || parameter->type == TOK_RPAREN ||
+                    parameter->type == TOK_ELLIPSIS ||
+                    parameter->type == TOK_CONST ||
+                    parameter->type == TOK_VOLATILE ||
+                    parameter->type == TOK_SIGNED ||
+                    parameter->type == TOK_UNSIGNED ||
+                    parameter->type == TOK_SHORT ||
+                    parameter->type == TOK_LONG ||
+                    parameter->type == TOK_VOID ||
+                    parameter->type == TOK_BOOL ||
+                    parameter->type == TOK_CHAR ||
+                    parameter->type == TOK_CHAR8_T ||
+                    parameter->type == TOK_INT ||
+                    parameter->type == TOK_FLOAT ||
+                    parameter->type == TOK_DOUBLE ||
+                    parameter->type == TOK_AUTO ||
+                    parameter->type == TOK_DECLTYPE ||
+                    parameter->type == TOK_STRUCT ||
+                    parameter->type == TOK_CLASS ||
+                    parameter->type == TOK_TYPENAME ||
+                    (parameter->type == TOK_IDENT && parameter->next &&
+                     (parameter->next->type == TOK_IDENT ||
+                      parameter->next->type == TOK_AMP ||
+                      parameter->next->type == TOK_AND ||
+                      parameter->next->type == TOK_STAR ||
+                      parameter->next->type == TOK_RPAREN))) {
+                    return true;
+                }
+                return false;
+            }
+        }
+        if (token->type == TOK_LPAREN) ++parentheses;
+        else if (token->type == TOK_RPAREN && parentheses > 0) --parentheses;
+        else if (token->type == TOK_LBRACKET) ++brackets;
+        else if (token->type == TOK_RBRACKET && brackets > 0) --brackets;
+        previous = token;
+        if (token->type == TOK_EOF) break;
+        token = token->next;
+    }
+    return false;
+}
+
 /* ═══════════════════════════════════════
  * C++ Scope Resolution
  * ═══════════════════════════════════════ */
@@ -4433,8 +4498,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent) {
                 add_namespace_declaration(ast, ns, declaration);
             }
         } else if (check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL) ||
-                   check(TOK_INLINE) ||
-                   check(TOK___INLINE__)) {
+                   cxx_inline_starts_function()) {
             bool is_constexpr = false;
             bool is_noexcept = false;
             bool is_consteval = false;
@@ -9645,8 +9709,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                                           declaration);
             }
         } else if (check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL) ||
-                   check(TOK_INLINE) ||
-                   check(TOK___INLINE__)) {
+                   cxx_inline_starts_function()) {
             bool is_constexpr = false;
             bool is_noexcept = false;
             bool is_consteval = false;
