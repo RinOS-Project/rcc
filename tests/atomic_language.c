@@ -21,13 +21,21 @@ int atomic_language_deref(_Atomic(int)* value) {
 
 int atomic_language_rmw(void) {
     _Atomic(int) value;
+    _Atomic long long wide_values[1];
+    int index = 0;
     value = 1;
     if (++value != 2) return 1;
     if (value++ != 2 || value != 3) return 2;
     value += 4;
     if (value != 7) return 3;
     value -= 2;
-    return value == 5 ? 0 : 4;
+    if (value != 5) return 4;
+    wide_values[0] = 5LL;
+    if (wide_values[index++]++ != 5LL || index != 1 ||
+        wide_values[0] != 6LL) return 5;
+    if (--wide_values[0] != 5LL) return 6;
+    if (wide_values[0]-- != 5LL || wide_values[0] != 4LL) return 7;
+    return 0;
 }
 
 int atomic_language_bitwise(void) {

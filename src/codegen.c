@@ -3152,6 +3152,77 @@ static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+/* Lower i686 64-bit atomic pre/post increment and decrement with one
+ * CMPXCHG8B retry loop.  The old value is kept only for the postfix result;
+ * a failed exchange discards that temporary before retrying with the value
+ * returned by CMPXCHG8B. */
+static bool gen_atomic_increment_assignment(Module* mod, Expr* expr) {
+    Expr* operand;
+    Type* type;
+    bool increment;
+    bool post;
+    int retry_label;
+    int failed_label;
+    int done_label;
+
+    if (!expr || !expr->unary_operand ||
+        !expr->unary_operand->type ||
+        !expr->unary_operand->type->is_atomic) return false;
+    if (expr->kind != EXPR_PREINC && expr->kind != EXPR_PREDEC &&
+        expr->kind != EXPR_POSTINC && expr->kind != EXPR_POSTDEC) {
+        return false;
+    }
+    operand = expr->unary_operand;
+    type = operand->type;
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM) return false;
+    if (type->size != 8) return false;
+
+    increment = expr->kind == EXPR_PREINC || expr->kind == EXPR_POSTINC;
+    post = expr->kind == EXPR_POSTINC || expr->kind == EXPR_POSTDEC;
+    emit_push_reg(mod, EBX);
+    emit_push_reg(mod, ESI);
+    emit_push_reg(mod, EDI);
+    gen_lvalue(mod, operand);
+    emit_mov_reg_reg(mod, ESI, EAX);
+    emit_atomic_load_i686(mod, type);
+    retry_label = new_label();
+    failed_label = new_label();
+    done_label = new_label();
+    emit_label(mod, retry_label);
+    emit_push_reg(mod, EDX); /* Old high word for postfix results. */
+    emit_mov_reg_reg(mod, EDI, EAX); /* Old low word for postfix results. */
+    emit_mov_reg_reg(mod, EBX, EAX);
+    emit_mov_reg_reg(mod, ECX, EDX);
+    if (increment) {
+        emit_add_reg_imm(mod, EBX, 1u);
+        emit_adc_reg_imm8(mod, ECX, 0u);
+    } else {
+        emit_sub_reg_imm(mod, EBX, 1u);
+        emit_sbb_reg_imm8(mod, ECX, 0u);
+    }
+    emit_mov_reg_reg(mod, EAX, EDI);
+    emit_mov_reg_mem(mod, EDX, ESP, 0);
+    emit_atomic_cmpxchg8b(mod, ESI);
+    emit_jcc_label(mod, CC_NE, failed_label);
+    if (post) {
+        emit_mov_reg_reg(mod, EAX, EDI);
+        emit_mov_reg_mem(mod, EDX, ESP, 0);
+    } else {
+        emit_mov_reg_reg(mod, EAX, EBX);
+        emit_mov_reg_reg(mod, EDX, ECX);
+    }
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_pop_reg(mod, EDI);
+    emit_pop_reg(mod, ESI);
+    emit_pop_reg(mod, EBX);
+    emit_jmp_label(mod, done_label);
+    emit_label(mod, failed_label);
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_jmp_label(mod, retry_label);
+    emit_label(mod, done_label);
+    return true;
+}
+
 static bool codegen_type_has_vla(const Type* type) {
     return type && type->kind == TYPE_ARRAY &&
            (type->array_bound != NULL || codegen_type_has_vla(type->base));
@@ -5277,6 +5348,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_POSTDEC: {
             if (expr->unary_operand && expr->unary_operand->type &&
                 expr->unary_operand->type->is_atomic) {
+                if (gen_atomic_increment_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "i686 atomic 64-bit ++/-- requires a supported RMW lowering");
                 break;
