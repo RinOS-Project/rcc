@@ -11668,6 +11668,7 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     Expr* initializer = NULL;
     bool is_auto_const = match(TOK_CONST);
     bool is_auto = match(TOK_AUTO);
+    bool direct_list_initializer = false;
     bool is_auto_reference = false;
     bool is_auto_rvalue_reference = false;
     bool is_auto_pointer = false;
@@ -11706,7 +11707,7 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
             initializer = parse_cxx_expression();
         }
     } else if (check(TOK_LBRACE)) {
-        if (check_next(TOK_RBRACE)) {
+        if (!is_auto && check_next(TOK_RBRACE)) {
             SourceLoc initializer_loc = peek()->loc;
             advance();
             advance();
@@ -11716,8 +11717,23 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
             initializer->compound_type = type;
             initializer->type = type;
             initializer->compound_value_init = true;
+        } else if (is_auto) {
+            direct_list_initializer = true;
+            initializer = rcc_parser_parse_initializer();
         } else {
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        }
+    }
+    if (direct_list_initializer) {
+        ExprList* item = initializer && initializer->kind == EXPR_COMPOUND
+            ? initializer->compound_init : NULL;
+        if (!item || item->next || item->designator_kind !=
+                INIT_DESIGNATOR_NONE) {
+            rcc_error(name->loc,
+                      "direct-list auto initialization requires one initializer expression");
+            initializer = NULL;
+        } else {
+            initializer = item->expr;
         }
     }
     if (is_auto && initializer) {

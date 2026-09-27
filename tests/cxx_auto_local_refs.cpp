@@ -19,3 +19,10 @@ extern "C" int auto_local_pointer_probe(void) {
     *pointer = 8;
     return *const_pointer;
 }
+
+extern "C" int auto_local_direct_list_probe(void) {
+    int value = 9;
+    auto direct{value};
+    const auto constant{4};
+    return direct + constant;
+}

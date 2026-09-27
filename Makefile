@@ -179,7 +179,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constexpr-pointer-aggregate
 .PHONY: test-cxx-noexcept-expression
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
-	test-cxx-auto-local-refs test-cxx-const-cast test-cxx-dynamic-cast
+	test-cxx-auto-local-refs test-cxx-auto-direct-list-invalid \
+	test-cxx-const-cast test-cxx-dynamic-cast
 .PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime test-cxx-dynamic-cast-reference
 .PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
 .PHONY: test-cxx-qualified-class-initialization test-cxx-static-member-tls
@@ -330,6 +331,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-decltype \
 	test-cxx-decltype-auto \
 	test-cxx-auto-local-refs \
+	test-cxx-auto-direct-list-invalid \
 	test-cxx-exceptions \
 	test-cxx-object-exceptions \
 	test-cxx-cross-library-exceptions \
@@ -4106,6 +4108,26 @@ test-cxx-auto-local-refs: $(RCXX_TARGET)
 	grep -q "unsupported operator in decltype expression" \
 		$(TEST_OUT)/cxx-decltype/invalid.log
 	@echo "C++ decltype tests completed"
+
+test-cxx-auto-direct-list-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-direct-list-invalid)
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-auto-direct-list-invalid/x86.ro \
+		tests/cxx_auto_direct_list_invalid.cpp \
+		>$(TEST_OUT)/cxx-auto-direct-list-invalid/x86.log 2>&1; then \
+		echo "multi-element direct-list auto initialization unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-auto-direct-list-invalid/x64.ro \
+		tests/cxx_auto_direct_list_invalid.cpp \
+		>$(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log 2>&1; then \
+		echo "multi-element direct-list auto initialization unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "direct-list auto initialization requires one initializer expression" \
+		$(TEST_OUT)/cxx-auto-direct-list-invalid/x86.log
+	grep -q "direct-list auto initialization requires one initializer expression" \
+		$(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log
+	@echo "C++ direct-list auto diagnostics completed"
 
 test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)
