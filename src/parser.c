@@ -2848,6 +2848,14 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 array_restricts[array_count] = parameter_restrict;
                 ++array_count;
             }
+        } else if (parser_cxx_mode && !parenthesized_pointer &&
+                   array_count > 0 && check(TOK_LPAREN)) {
+            /* C++20 permits an array aggregate initializer directly after
+             * the declarator (`int values[3](1, 2, 3)`).  A plain array
+             * declarator cannot form a function type; leave this token for
+             * parse_declaration, while parenthesized pointer declarators
+             * retain the ordinary array-of-function-pointer grammar. */
+            break;
         } else if (match(TOK_LPAREN)) {
             bool variadic = false;
             bool has_prototype = !check(TOK_RPAREN);
@@ -3467,6 +3475,22 @@ Stmt* parse_declaration(void) {
         init = parse_initializer();
     } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
+    } else if (parser_cxx_mode && type && type->kind == TYPE_ARRAY &&
+               match(TOK_LPAREN)) {
+        ExprList* arguments = NULL;
+        if (!check(TOK_RPAREN)) {
+            do {
+                exprlist_append(&arguments, parse_assignment_expression());
+            } while (match(TOK_COMMA));
+        }
+        expect(TOK_RPAREN, ")");
+        if (!rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(loc,
+                      "C++20 aggregate parenthesized initialization requires C++20 or newer");
+        }
+        init = expr_initializer_list(arguments, loc);
+        init->compound_type = type;
+        init->compound_paren_init = true;
     }
     /* A declaration-level C++ braced initializer carries the declared class
      * type, just like a direct-list expression parsed in an expression or

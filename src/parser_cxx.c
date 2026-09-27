@@ -88,6 +88,18 @@ static bool cxx_template_constraint_satisfied(
     CxxTemplate* tmpl, Type** arguments, const int64_t* values,
     const bool* value_present, SourceLoc loc, bool report_errors);
 
+static bool cxx_type_is_aggregate(Type* type) {
+    CxxClass* cls;
+    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !type->cxx_class || !type_is_complete(type)) {
+        return false;
+    }
+    cls = type->cxx_class;
+    return type->kind == TYPE_STRUCT && !cls->has_user_constructor &&
+           !cls->has_nonpublic_field && cls->base_count == 0 &&
+           cls->vtable_size == 0;
+}
+
 static bool cxx_standard_feature_tokens_valid(Token* head) {
     for (Token* token = head; token && token->type != TOK_EOF;
          token = token->next) {
@@ -12089,22 +12101,44 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     ExprList* arguments = NULL;
     Expr* initializer;
     Decl* declaration;
+    uint32_t constructor_mask;
+    bool aggregate_type;
+    bool paren_form;
+    bool paren_has_arguments;
     bool is_ctad_placeholder = base_type && base_type->cxx_dependent &&
         base_type->cxx_template && base_type->cxx_template_param_index < 0 &&
         base_type->cxx_template_arg_count == 0;
     bool brace_form;
 
+    constructor_mask = base_type
+        ? rcc_parser_cxx_constructor_arity_mask(base_type) : 0u;
+    aggregate_type = cxx_type_is_aggregate(base_type);
+    paren_form = check_next(TOK_LPAREN);
+    paren_has_arguments = paren_form && parser.cur->next->next &&
+        parser.cur->next->next->type != TOK_RPAREN;
+
     /* Only consume the spelling that the common C parser would misinterpret
      * as a function declarator.  Constructor arity was registered only after
-     * the C++ class verifier proved its storage representation is ABI-safe. */
+     * the C++ class verifier proved its storage representation is ABI-safe.
+     * A constructor-free aggregate additionally accepts a non-empty
+     * parenthesized initializer starting in C++20; `T value();` remains the
+     * usual most-vexing-parse function declaration. */
     if (!base_type || (base_type->kind != TYPE_STRUCT &&
                        base_type->kind != TYPE_UNION) ||
         (!is_ctad_placeholder &&
          (!type_is_complete(base_type) ||
-          rcc_parser_cxx_constructor_arity_mask(base_type) == 0u)) ||
+          (constructor_mask == 0u &&
+           !(aggregate_type && (check_next(TOK_LBRACE) ||
+                                (paren_form && paren_has_arguments)))))) ||
         !check(TOK_IDENT) ||
         (!check_next(TOK_LPAREN) && !check_next(TOK_LBRACE))) {
         return NULL;
+    }
+
+    if (aggregate_type && paren_form && paren_has_arguments &&
+        !rcc_parser_cxx_standard_at_least(20)) {
+        rcc_error(parser.cur->next->loc,
+                  "C++20 aggregate parenthesized initialization requires C++20 or newer");
     }
 
     name = advance();
@@ -12138,6 +12172,7 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 
     initializer = expr_initializer_list(arguments, loc);
     initializer->compound_type = base_type;
+    initializer->compound_paren_init = !brace_form;
     rcc_parser_validate_cxx_object_type(base_type, loc);
     rcc_parser_validate_cxx_constructor_initializer(base_type, initializer);
     expect(TOK_SEMICOLON, ";");

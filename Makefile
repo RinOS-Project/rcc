@@ -195,7 +195,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
 .PHONY: test-cxx-predefined-function-identifiers
-.PHONY: test-cxx-class-template-deduction
+.PHONY: test-cxx-class-template-deduction test-cxx-aggregate-paren-init
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
 	test-cxx-raw-strings test-cxx-alternative-tokens
@@ -315,6 +315,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-deprecated \
 	test-cxx-friend-class \
 	test-cxx-selection-init \
+	test-cxx-aggregate-paren-init \
 	test-cxx-designated-initializer \
 	test-cxx-utf8-literals \
 	test-cxx-if-constexpr \
@@ -3331,6 +3332,58 @@ test-cxx-selection-init: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-selection-init/x64.o
 	$(TEST_OUT)/cxx-selection-init/x64
 	@echo "C++ selection-statement initializer tests completed"
+
+test-cxx-aggregate-paren-init: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-init)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/x86.s \
+		tests/cxx_aggregate_paren_init.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/x86.o \
+		$(TEST_OUT)/cxx-aggregate-paren-init/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/x86 \
+		$(TEST_OUT)/cxx-aggregate-paren-init/start-x86.o \
+		$(TEST_OUT)/cxx-aggregate-paren-init/x86.o
+	$(TEST_OUT)/cxx-aggregate-paren-init/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/x64.s \
+		tests/cxx_aggregate_paren_init.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-init/x64.o \
+		$(TEST_OUT)/cxx-aggregate-paren-init/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-init/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/x64 \
+		$(TEST_OUT)/cxx-aggregate-paren-init/start-x64.o \
+		$(TEST_OUT)/cxx-aggregate-paren-init/x64.o
+	$(TEST_OUT)/cxx-aggregate-paren-init/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.ro \
+		tests/cxx_aggregate_paren_init_invalid.cpp \
+		>$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log 2>&1
+	grep -q "too many initializers for aggregate" \
+		$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.ro \
+		tests/cxx_aggregate_paren_init_invalid.cpp \
+		>$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.log 2>&1
+	grep -q "too many initializers for aggregate" \
+		$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.ro \
+		tests/cxx_aggregate_paren_init.cpp \
+		>$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.log 2>&1
+	grep -q "C++20 aggregate parenthesized initialization requires C++20 or newer" \
+		$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.ro \
+		tests/cxx_aggregate_paren_init.cpp \
+		>$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log 2>&1
+	grep -q "C++20 aggregate parenthesized initialization requires C++20 or newer" \
+		$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log
+	@echo "C++20 aggregate parenthesized initialization tests completed"
 
 test-cxx-designated-initializer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-designated-initializer)

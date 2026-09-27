@@ -140,6 +140,9 @@
         trailing type defaultの実体化
   - [x] 先行非型引数を参照する整数constant-expression defaultの評価
   - [x] dependent aggregate templateの未対応partial loweringを診断
+  - [x] C++20 aggregate parenthesized initializationを完全なpublic struct
+        aggregateと固定長配列へloweringし、static/automatic storageの両arch
+        実行、過剰initializer診断、C++17以前の明示的standard-gateを検証
 - [ ] modules、coroutines、atomics、TLS
 - [ ] Itanium ABI mangling、exceptions、RTTI、static initialization
 - [ ] cross-library exceptionとthread-local destructor

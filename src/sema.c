@@ -11250,7 +11250,8 @@ static void sema_initializer(Type* type, Expr* initializer) {
      * resolution; doing so changes `Outer(&value, &value)` into two aggregate
      * initializers and loses the original argument types. */
     if (!(rcc_parser_is_cxx_mode() && type->cxx_class &&
-          type->cxx_class->has_user_constructor)) {
+          (type->cxx_class->has_user_constructor ||
+           initializer->compound_paren_init))) {
         normalize_brace_elided_initializer(type, initializer);
     }
     string_literal = initializer_string_literal(initializer);
