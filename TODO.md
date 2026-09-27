@@ -222,6 +222,8 @@
 - [ ] PIC/PIE、GOT/PLT、TLS relocation
 - [ ] DWARF debug/unwind
 - [ ] inline asm constraintの完全検証
+  - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
+        未実装placeholderをsemaで明示診断し、未知制約の黙殺を禁止
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend

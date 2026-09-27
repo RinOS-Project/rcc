@@ -1026,6 +1026,157 @@ static bool sema_is_integer_type(Type* type) {
     return type && (type_is_integer(type) || type->kind == TYPE_ENUM);
 }
 
+/* The inline-assembly backend deliberately implements a small, explicit
+ * fixed-register ABI.  Do not let GCC-style constraints which the backend
+ * cannot materialize fall through as an ignored operand. */
+static bool sema_asm_register_name_supported(const char* name,
+                                              bool output,
+                                              SourceLoc loc) {
+    if (!name || !name[0]) {
+        rcc_error(loc, "inline asm constraint has no register class");
+        return false;
+    }
+    if (g_opts.target_arch == ARCH_X86) {
+        if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
+        rcc_error(loc, "unsupported i686 inline asm %s register constraint '%s'",
+                  output ? "output" : "input", name);
+        return false;
+    }
+    if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
+    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) {
+        if (!output) return true;
+    }
+    if (!output && (strcmp(name, "{eax}") == 0 ||
+                    strcmp(name, "{rax}") == 0 ||
+                    strcmp(name, "{ebx}") == 0 ||
+                    strcmp(name, "{rbx}") == 0 ||
+                    strcmp(name, "{ecx}") == 0 ||
+                    strcmp(name, "{rcx}") == 0 ||
+                    strcmp(name, "{edx}") == 0 ||
+                    strcmp(name, "{rdx}") == 0 ||
+                    strcmp(name, "{esi}") == 0 ||
+                    strcmp(name, "{rsi}") == 0 ||
+                    strcmp(name, "{edi}") == 0 ||
+                    strcmp(name, "{rdi}") == 0)) {
+        return true;
+    }
+    rcc_error(loc, "unsupported AMD64 inline asm %s register constraint '%s'",
+              output ? "output" : "input", name);
+    return false;
+}
+
+static bool sema_asm_constraint_supported(const char* constraint,
+                                          bool output, SourceLoc loc) {
+    const char* name;
+    char mode;
+    bool early_clobber = false;
+
+    if (!constraint || !constraint[0]) {
+        rcc_error(loc, "inline asm %s constraint is empty",
+                  output ? "output" : "input");
+        return false;
+    }
+    mode = constraint[0];
+    if (output) {
+        if (mode != '=' && mode != '+') {
+            rcc_error(loc,
+                      "inline asm output constraint '%s' must start with '=' or '+'",
+                      constraint);
+            return false;
+        }
+    } else if (mode == '=' || mode == '+' || mode == '&') {
+        rcc_error(loc,
+                  "inline asm input constraint '%s' has an output modifier",
+                  constraint);
+        return false;
+    }
+
+    name = output ? constraint + 1 : constraint;
+    if (output && *name == '&') {
+        early_clobber = true;
+        ++name;
+    }
+    if (early_clobber && mode != '=' && mode != '+') {
+        rcc_error(loc, "malformed inline asm early-clobber constraint '%s'",
+                  constraint);
+        return false;
+    }
+    if (strchr(name, '=') || strchr(name, '+') || strchr(name, '&')) {
+        rcc_error(loc, "malformed inline asm constraint '%s'", constraint);
+        return false;
+    }
+    return sema_asm_register_name_supported(name, output, loc);
+}
+
+static bool sema_asm_scalar_operand(Type* type) {
+    return type && (sema_is_integer_type(type) || type_is_pointer(type) ||
+                    type->kind == TYPE_NULLPTR);
+}
+
+static bool sema_asm_clobber_supported(const char* name, SourceLoc loc) {
+    static const char* const x86_names[] = {
+        "eax", "ax", "al", "ah", "ebx", "bx", "bl", "bh",
+        "ecx", "cx", "cl", "ch", "edx", "dx", "dl", "dh",
+        "esi", "si", "edi", "di", "cc", "memory"
+    };
+    static const char* const x64_names[] = {
+        "rax", "eax", "ax", "al", "ah", "rbx", "ebx", "bx", "bl",
+        "bh", "rcx", "ecx", "cx", "cl", "ch", "rdx", "edx", "dx",
+        "dl", "dh", "rsi", "esi", "si", "rdi", "edi", "di", "r8",
+        "r9", "r10", "r11", "cc", "memory"
+    };
+    const char* const* names = g_opts.target_arch == ARCH_X86
+        ? x86_names : x64_names;
+    size_t count = g_opts.target_arch == ARCH_X86
+        ? sizeof(x86_names) / sizeof(x86_names[0])
+        : sizeof(x64_names) / sizeof(x64_names[0]);
+    for (size_t index = 0; index < count; ++index) {
+        if (strcmp(name, names[index]) == 0) return true;
+    }
+    rcc_error(loc, "unsupported %s inline asm clobber '%s'",
+              g_opts.target_arch == ARCH_X86 ? "i686" : "AMD64", name);
+    return false;
+}
+
+static void sema_asm_stmt(Stmt* stmt) {
+    const char* cursor;
+
+    if (!stmt) return;
+    cursor = stmt->asm_template ? stmt->asm_template : "";
+    for (; *cursor; ++cursor) {
+        if (*cursor == '%') {
+            rcc_error(stmt->loc,
+                      "inline asm operand placeholders are not supported by the bounded backend");
+            break;
+        }
+    }
+    for (AsmOperand* op = stmt->asm_outputs; op; op = op->next) {
+        (void)sema_asm_constraint_supported(op->constraint, true, stmt->loc);
+        if (!op->expr) {
+            rcc_error(stmt->loc, "inline asm output has no expression");
+        } else if (!is_modifiable_lvalue(op->expr)) {
+            rcc_error(op->expr->loc,
+                      "inline asm output expression must be a modifiable lvalue");
+        } else if (!sema_asm_scalar_operand(op->expr->type)) {
+            rcc_error(op->expr->loc,
+                      "inline asm output expression must have scalar integer or pointer type");
+        }
+    }
+    for (AsmOperand* op = stmt->asm_inputs; op; op = op->next) {
+        (void)sema_asm_constraint_supported(op->constraint, false, stmt->loc);
+        if (!op->expr) {
+            rcc_error(stmt->loc, "inline asm input has no expression");
+        } else if (!sema_asm_scalar_operand(op->expr->type)) {
+            rcc_error(op->expr->loc,
+                      "inline asm input expression must have scalar integer or pointer type");
+        }
+    }
+    for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
+         clobber = clobber->next) {
+        (void)sema_asm_clobber_supported(clobber->reg, stmt->loc);
+    }
+}
+
 static bool sema_is_scoped_enum(Type* type) {
     return type && type->kind == TYPE_ENUM && type->enum_is_scoped;
 }
@@ -10443,6 +10594,7 @@ static void sema_stmt(Stmt* stmt) {
                     sema_expr(op->expr);
                 }
             }
+            sema_asm_stmt(stmt);
             break;
 
         case STMT_TRY: {
