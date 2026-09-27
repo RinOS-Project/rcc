@@ -152,7 +152,7 @@ static Type* cxx_lambda_capture_expression_type(Expr* expression) {
             return cxx_parser_value_type(expression->ident_name);
         case EXPR_STRING_LIT:
             return type_array(type_char,
-                              (int)strlen(expression->str_val) + 1);
+                              (int)expression->str_length + 1);
         case EXPR_CAST:
             return expression->cast_type;
         case EXPR_ADDR:

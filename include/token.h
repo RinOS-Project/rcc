@@ -208,6 +208,10 @@ typedef struct Token {
     /* C++ UTF-8 character/string literal spelling.  RinOS represents
      * char8_t and UTF-8 strings with its bounded byte ABI. */
     bool is_utf8_literal;
+    /* TOK_STRING_LIT payload length, excluding the required terminator.  The
+     * payload is owned by the token so embedded NUL bytes remain lossless. */
+    size_t string_length;
+    bool owns_string;
     /* TOK_FLOAT_LIT metadata.  C distinguishes unsuffixed/double and
      * `f`-suffixed/float literals; retaining the spelling keeps semantic
      * analysis and object emission from silently widening every literal. */

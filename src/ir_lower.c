@@ -1461,7 +1461,7 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            size = strlen(expression->str_val);
+            size = expression->str_length;
             if (size == SIZE_MAX) {
                 context->unsupported = true;
                 return lower_invalid_value();
@@ -2645,7 +2645,7 @@ static bool lower_array_initializer(
     }
     if (!lower_zero_array_storage(context, base, array_type)) return false;
     if (string) {
-        size_t text_size = strlen(string->str_val);
+        size_t text_size = string->str_length;
         size_t copy_size;
         if (text_size == SIZE_MAX) {
             context->unsupported = true;

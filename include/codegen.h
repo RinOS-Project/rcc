@@ -55,6 +55,7 @@ typedef struct Reloc {
 /* String literal entry */
 typedef struct StringLit {
     const char* value;
+    size_t length;             /* Payload length, excluding terminator. */
     uint32_t offset;        /* Offset in read-only data section */
     struct StringLit* next;
 } StringLit;
@@ -156,7 +157,7 @@ void emit_dword(Module* mod, uint32_t d);
 void emit_bytes(Module* mod, const uint8_t* data, size_t len);
 
 /* Data section */
-uint32_t emit_string(Module* mod, const char* str);
+uint32_t emit_string(Module* mod, const char* str, size_t length);
 uint32_t emit_data(Module* mod, const void* data, size_t len);
 
 /* Relocations */

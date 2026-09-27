@@ -190,6 +190,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-protected-member
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators test-cxx-user-defined-literals
+.PHONY: test-string-embedded-nul
 .PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-attributes test-preprocessor-cxx-features test-universal-character-identifiers
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include
@@ -4931,6 +4932,34 @@ test-cxx-user-defined-literals: $(RCXX_TARGET)
 	grep -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
 		$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log
 	@echo "RCC++ user-defined literal tests completed"
+
+test-string-embedded-nul: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/string-embedded-nul)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/string-embedded-nul/x86.s \
+		tests/string_embedded_nul.c
+	$(CC) -m32 -c -o $(TEST_OUT)/string-embedded-nul/x86.o \
+		$(TEST_OUT)/string-embedded-nul/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/string-embedded-nul/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/string-embedded-nul/x86 \
+		$(TEST_OUT)/string-embedded-nul/start-x86.o \
+		$(TEST_OUT)/string-embedded-nul/x86.o
+	$(TEST_OUT)/string-embedded-nul/x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/string-embedded-nul/x64.s \
+		tests/string_embedded_nul.c
+	$(CC) -c -o $(TEST_OUT)/string-embedded-nul/x64.o \
+		$(TEST_OUT)/string-embedded-nul/x64.s
+	$(CC) -c -o $(TEST_OUT)/string-embedded-nul/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/string-embedded-nul/x64 \
+		$(TEST_OUT)/string-embedded-nul/start-x64.o \
+		$(TEST_OUT)/string-embedded-nul/x64.o
+	$(TEST_OUT)/string-embedded-nul/x64
+	@echo "C17 embedded-NUL string literal tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)

@@ -521,11 +521,18 @@ Expr* expr_char(char val, SourceLoc loc) {
 }
 
 Expr* expr_string(const char* val, SourceLoc loc) {
+    return expr_string_n(val, strlen(val), loc);
+}
+
+Expr* expr_string_n(const char* val, size_t length, SourceLoc loc) {
     Expr* e = rcc_alloc(sizeof(Expr));
     e->kind = EXPR_STRING_LIT;
     e->loc = loc;
-    e->str_val = val;
-    e->type = type_array(type_char, (int)strlen(val) + 1);
+    e->str_val = rcc_alloc(length + 1u);
+    memcpy((void*)e->str_val, val, length);
+    ((char*)e->str_val)[length] = '\0';
+    e->str_length = length;
+    e->type = type_array(type_char, (int)length + 1);
     return e;
 }
 

@@ -453,6 +453,8 @@ struct Expr {
     bool cxx_parenthesized;
     /* C++20 u8 character/string literal mapped to the RinOS byte ABI. */
     bool is_cxx_utf8_literal;
+    /* EXPR_STRING_LIT payload length, excluding its required terminator. */
+    size_t str_length;
     /* C++ public non-virtual derived-to-base pointer conversion.  The
      * semantic pass records the fixed subobject displacement on the source
      * expression so both initializer and call lowering use the adjusted
@@ -669,6 +671,7 @@ Expr* expr_integer_literal(uint64_t val, unsigned base,
 Expr* expr_float(double val, SourceLoc loc);
 Expr* expr_char(char val, SourceLoc loc);
 Expr* expr_string(const char* val, SourceLoc loc);
+Expr* expr_string_n(const char* val, size_t length, SourceLoc loc);
 Expr* expr_ident(const char* name, SourceLoc loc);
 Expr* expr_cxx_this(SourceLoc loc);
 Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc);

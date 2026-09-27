@@ -219,10 +219,13 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->int_overflow = false;
     tok->user_literal_suffix = NULL;
     tok->is_utf8_literal = false;
+    tok->string_length = 0u;
+    tok->owns_string = false;
     return tok;
 }
 
 void token_free(Token* tok) {
+    if (tok && tok->owns_string) rcc_free((void*)tok->value.str_val);
     rcc_free(tok);
 }
 
@@ -880,9 +883,12 @@ static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8) {
     }
     advance(lex);
 
-    buf[len] = '\0';
     Token* tok = token_new(TOK_STRING_LIT, loc);
-    tok->value.str_val = rcc_intern(buf);
+    tok->value.str_val = rcc_alloc((size_t)len + 1u);
+    memcpy((void*)tok->value.str_val, buf, (size_t)len);
+    ((char*)tok->value.str_val)[len] = '\0';
+    tok->string_length = (size_t)len;
+    tok->owns_string = true;
     tok->is_utf8_literal = is_utf8;
     return tok;
 }
@@ -934,10 +940,13 @@ static Token* lex_raw_string(Lexer* lex, SourceLoc loc, unsigned prefix_length,
             for (size_t index = 0; index < delimiter_length + 1u; ++index) {
                 advance(lex);
             }
-            buf[len] = '\0';
             {
                 Token* tok = token_new(TOK_STRING_LIT, loc);
-                tok->value.str_val = rcc_intern(buf);
+                tok->value.str_val = rcc_alloc((size_t)len + 1u);
+                memcpy((void*)tok->value.str_val, buf, (size_t)len);
+                ((char*)tok->value.str_val)[len] = '\0';
+                tok->string_length = (size_t)len;
+                tok->owns_string = true;
                 tok->is_utf8_literal = is_utf8;
                 return tok;
             }
@@ -950,10 +959,13 @@ static Token* lex_raw_string(Lexer* lex, SourceLoc loc, unsigned prefix_length,
         buf[len++] = advance(lex);
     }
     rcc_error(loc, "unterminated raw string literal");
-    buf[len] = '\0';
     {
         Token* tok = token_new(TOK_STRING_LIT, loc);
-        tok->value.str_val = rcc_intern(buf);
+        tok->value.str_val = rcc_alloc((size_t)len + 1u);
+        memcpy((void*)tok->value.str_val, buf, (size_t)len);
+        ((char*)tok->value.str_val)[len] = '\0';
+        tok->string_length = (size_t)len;
+        tok->owns_string = true;
         tok->is_utf8_literal = is_utf8;
         return tok;
     }
@@ -1287,14 +1299,21 @@ TokenList* rcc_lex_string(const char* src, const char* filename) {
         if (tok->type == TOK_STRING_LIT && list->tail &&
             list->tail->type == TOK_STRING_LIT &&
             tok->is_utf8_literal == list->tail->is_utf8_literal) {
-            size_t left_length = strlen(list->tail->value.str_val);
-            size_t right_length = strlen(tok->value.str_val);
+            size_t left_length = list->tail->string_length;
+            size_t right_length = tok->string_length;
             char* joined = rcc_alloc(left_length + right_length + 1u);
             memcpy(joined, list->tail->value.str_val, left_length);
             memcpy(joined + left_length, tok->value.str_val,
-                   right_length + 1u);
-            list->tail->value.str_val = rcc_intern(joined);
-            rcc_free(joined);
+                   right_length);
+            joined[left_length + right_length] = '\0';
+            if (list->tail->owns_string) {
+                rcc_free((void*)list->tail->value.str_val);
+            }
+            /* The tail remains linked in the list; replace only its payload
+             * and ownership metadata after releasing the previous buffer. */
+            list->tail->value.str_val = joined;
+            list->tail->string_length = left_length + right_length;
+            list->tail->owns_string = true;
             token_free(tok);
             continue;
         }

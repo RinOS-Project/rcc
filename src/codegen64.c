@@ -1823,7 +1823,7 @@ static bool gen64_local_initializer(Module* mod, Type* type,
     }
     if (string) {
         size_t storage = (size_t)type->size;
-        size_t text_size = strlen(string->str_val) + 1u;
+        size_t text_size = string->str_length + 1u;
         size_t offset = 0u;
         while (offset + 4u <= storage) {
             uint32_t packed = 0u;
@@ -4268,7 +4268,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_STRING_LIT: {
-            uint32_t offset = emit_string(mod, expr->str_val);
+            uint32_t offset = emit_string(mod, expr->str_val,
+                                           expr->str_length);
             module_ensure_rodata_base_symbol(mod);
             gen64_symbol_address(mod, "__rcc_rodata_base", offset);
             break;

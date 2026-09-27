@@ -1098,13 +1098,14 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_STRING_LIT)) {
         Token* literal = previous();
-        Expr* expression = expr_string(literal->value.str_val, loc);
+        Expr* expression = expr_string_n(literal->value.str_val,
+                                          literal->string_length, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
         if (parser_cxx_mode) {
             const char* suffix = take_cxx_user_literal_suffix();
             if (suffix) {
                 Expr* length = expr_integer_literal(
-                    (uint64_t)strlen(expression->str_val), 10u,
+                    (uint64_t)expression->str_length, 10u,
                     false, 0u, loc);
                 return parse_cxx_user_literal_call(suffix, expression, length,
                                                    loc);

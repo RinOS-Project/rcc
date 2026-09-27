@@ -792,7 +792,8 @@ static bool codegen_static_address(Module* mod, Expr* expression,
     }
 
     if (expression->kind == EXPR_STRING_LIT) {
-        *addend = emit_string(mod, expression->str_val);
+        *addend = emit_string(mod, expression->str_val,
+                               expression->str_length);
         module_ensure_rodata_base_symbol(mod);
         *symbol_name = "__rcc_rodata_base";
         return true;
@@ -1022,7 +1023,7 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     string = codegen_character_array_string(type, initializer);
     if (string) {
-        size_t text_size = strlen(string->str_val) + 1u;
+        size_t text_size = string->str_length + 1u;
         size_t copy_size = (size_t)type->size < text_size
             ? (size_t)type->size : text_size;
         memcpy(mod->data.data + offset, string->str_val, copy_size);
@@ -1156,7 +1157,7 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     string = codegen_character_array_string(type, initializer);
     if (string) {
-        size_t text_size = strlen(string->str_val) + 1u;
+        size_t text_size = string->str_length + 1u;
         size_t copy_size = (size_t)type->size < text_size
             ? (size_t)type->size : text_size;
         memcpy(mod->tls.data + offset, string->str_val, copy_size);
@@ -1587,25 +1588,27 @@ static void ensure_rodata_capacity(Module* mod, size_t needed) {
     }
 }
 
-uint32_t emit_string(Module* mod, const char* str) {
+uint32_t emit_string(Module* mod, const char* str, size_t length) {
     /* Check if already exists */
     for (StringLit* s = mod->strings; s; s = s->next) {
-        if (strcmp(s->value, str) == 0) {
+        if (s->length == length && memcmp(s->value, str, length) == 0) {
             return s->offset;
         }
     }
 
     /* Add new string */
-    size_t len = strlen(str) + 1;
+    size_t len = length + 1u;
     uint32_t offset = (uint32_t)mod->rodata.size;
 
     ensure_rodata_capacity(mod, len);
-    memcpy(mod->rodata.data + mod->rodata.size, str, len);
+    memcpy(mod->rodata.data + mod->rodata.size, str, length);
+    mod->rodata.data[mod->rodata.size + length] = '\0';
     mod->rodata.size += len;
 
     /* Record in string list */
     StringLit* lit = rcc_alloc(sizeof(StringLit));
     lit->value = str;
+    lit->length = length;
     lit->offset = offset;
     lit->next = mod->strings;
     mod->strings = lit;
@@ -7584,7 +7587,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_STRING_LIT: {
-            uint32_t offset = emit_string(mod, expr->str_val);
+            uint32_t offset = emit_string(mod, expr->str_val,
+                                           expr->str_length);
             module_ensure_rodata_base_symbol(mod);
             gen_symbol_address(mod, "__rcc_rodata_base", offset);
             break;
@@ -9669,7 +9673,7 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
     }
     if (string) {
         size_t storage = (size_t)type->size;
-        size_t text_size = strlen(string->str_val) + 1u;
+        size_t text_size = string->str_length + 1u;
         size_t offset = 0u;
         while (offset + 4u <= storage) {
             uint32_t packed = 0u;

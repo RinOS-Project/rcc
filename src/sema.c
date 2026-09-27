@@ -8336,7 +8336,7 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_STRING_LIT:
             expr->type = type_array(expr->is_cxx_utf8_literal
                                         ? type_uchar : type_char,
-                                    (int)strlen(expr->str_val) + 1);
+                                    (int)expr->str_length + 1);
             break;
 
         case EXPR_IDENT: {
@@ -10886,7 +10886,7 @@ static void sema_infer_initializer_type(Type* type, Expr* initializer) {
     if (sema_type_has_vla(type)) return;
     string = initializer_character_string(type, initializer);
     if (string) {
-        size_t characters = strlen(string->str_val);
+        size_t characters = string->str_length;
         size_t storage = characters + 1u;
         if (type->array_len < 0) {
             if (storage > INT_MAX || type->base->size <= 0 ||

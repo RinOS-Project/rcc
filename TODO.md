@@ -27,6 +27,8 @@
 
 - [x] 基本declaration、function、struct/union/enum/typedef
   - [x] global/local文字配列のstring初期化、未指定長推論、末尾zero-fill
+  - [x] 文字列リテラルの埋め込みNULを長さ付きbyte列として保持し、隣接連結、
+        static/TLS/local初期化、IR、C++文字列UDLのlength引数へ伝播
   - [x] global/local配列・struct・unionのbrace初期化、ネストdesignator列、zero-fill
 - [x] 式、制御文、scope、基本type conversion
   - [x] C17 integer literalの基数別候補型、`U/L/LL` suffix、overflow診断
