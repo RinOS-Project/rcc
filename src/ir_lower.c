@@ -176,9 +176,12 @@ static bool lower_type(const Type* type, RccIrType* result) {
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
         case TYPE_ARRAY:
+        case TYPE_VECTOR:
         case TYPE_FUNC:
         case TYPE_STRUCT:
         case TYPE_UNION:
+            /* The verified SSA subset is scalar; the production x86
+             * backend owns vector lowering and remains the fallback. */
             return false;
     }
     return false;

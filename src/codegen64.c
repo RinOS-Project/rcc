@@ -1637,6 +1637,7 @@ typedef enum {
     RCC_CODEGEN64_MMX_BINARY,
     RCC_CODEGEN64_MMX_VARIABLE_SHIFT,
     RCC_CODEGEN64_MMX_IMMEDIATE_SHIFT,
+    RCC_CODEGEN64_MMX_STORE,
     RCC_CODEGEN64_MMX_INIT_V2SI,
     RCC_CODEGEN64_MMX_INIT_V4HI,
     RCC_CODEGEN64_MMX_INIT_V8QI
@@ -1677,6 +1678,9 @@ static RccCodegen64MmxKind codegen64_mmx_builtin_kind(const char* name) {
     };
     size_t index;
     if (!name) return RCC_CODEGEN64_MMX_NONE;
+    if (strcmp(name, "__builtin_ia32_movntq") == 0) {
+        return RCC_CODEGEN64_MMX_STORE;
+    }
     for (index = 0; index < sizeof(binary_names) / sizeof(binary_names[0]);
          ++index) {
         if (strcmp(name, binary_names[index]) == 0) {
@@ -1794,6 +1798,13 @@ static void emit64_mmx_store(Module* mod, int base, int32_t disp, int mm) {
     emit64_memory_operand(mod, mm, base, disp);
 }
 
+static void emit64_mmx_non_temporal_store(Module* mod, int base, int32_t disp,
+                                          int mm) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xE7);
+    emit64_memory_operand(mod, mm, base, disp);
+}
+
 static void emit64_mmx_binary(Module* mod, int opcode) {
     emit_byte(mod, 0x0F);
     emit_byte(mod, (uint8_t)opcode);
@@ -1822,6 +1833,18 @@ static bool gen64_mmx_builtin(Module* mod, Expr* expr) {
     }
     kind = codegen64_mmx_builtin_kind(expr->call_func->ident_name);
     if (kind == RCC_CODEGEN64_MMX_NONE) return false;
+    if (kind == RCC_CODEGEN64_MMX_STORE) {
+        emit64_sub_reg_imm(mod, RSP, 16);
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        gen64_expr(mod, call64_argument(expr, 1));
+        emit64_mov_mem_reg(mod, RSP, 8, RAX);
+        emit64_mmx_load(mod, 0, RSP, 8);
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_mmx_non_temporal_store(mod, RCX, 0, 0);
+        emit64_add_reg_imm(mod, RSP, 16);
+        return true;
+    }
     if (kind == RCC_CODEGEN64_MMX_INIT_V2SI ||
         kind == RCC_CODEGEN64_MMX_INIT_V4HI ||
         kind == RCC_CODEGEN64_MMX_INIT_V8QI) {
@@ -2189,11 +2212,21 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
                   strcmp(name, "lfence") == 0 ? 0xE8 : 0xF0);
         return true;
     }
-    if (strcmp(name, "ldmxcsr") == 0 || strcmp(name, "stmxcsr") == 0) {
+    if (strcmp(name, "ldmxcsr") == 0) {
+        emit64_sub_reg_imm(mod, RSP, 8);
         gen64_expr(mod, call64_argument(expr, 0));
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
         emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
-        emit_byte(mod, modrm64(0, strcmp(name, "ldmxcsr") == 0 ? 2 : 3,
-                               RAX));
+        emit64_memory_operand(mod, 2, RSP, 0);
+        emit64_add_reg_imm(mod, RSP, 8);
+        return true;
+    }
+    if (strcmp(name, "stmxcsr") == 0) {
+        emit64_sub_reg_imm(mod, RSP, 8);
+        emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
+        emit64_memory_operand(mod, 3, RSP, 0);
+        emit64_memory_operand_width(mod, RAX, RSP, 0, 4);
+        emit64_add_reg_imm(mod, RSP, 8);
         return true;
     }
     if (strcmp(name, "clflush") == 0) {

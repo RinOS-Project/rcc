@@ -4005,6 +4005,7 @@ typedef enum {
     RCC_CODEGEN_MMX_BINARY,
     RCC_CODEGEN_MMX_VARIABLE_SHIFT,
     RCC_CODEGEN_MMX_IMMEDIATE_SHIFT,
+    RCC_CODEGEN_MMX_STORE,
     RCC_CODEGEN_MMX_INIT_V2SI,
     RCC_CODEGEN_MMX_INIT_V4HI,
     RCC_CODEGEN_MMX_INIT_V8QI
@@ -4045,6 +4046,9 @@ static RccCodegenMmxKind codegen_mmx_builtin_kind(const char* name) {
     };
     size_t index;
     if (!name) return RCC_CODEGEN_MMX_NONE;
+    if (strcmp(name, "__builtin_ia32_movntq") == 0) {
+        return RCC_CODEGEN_MMX_STORE;
+    }
     for (index = 0; index < sizeof(binary_names) / sizeof(binary_names[0]);
          ++index) {
         if (strcmp(name, binary_names[index]) == 0) {
@@ -4159,6 +4163,13 @@ static void emit_mmx_load(Module* mod, int mm, int base, int32_t disp) {
 static void emit_mmx_store(Module* mod, int base, int32_t disp, int mm) {
     emit_byte(mod, 0x0F);
     emit_byte(mod, 0x7F);
+    emit_memory_operand32(mod, mm, base, disp);
+}
+
+static void emit_mmx_non_temporal_store(Module* mod, int base, int32_t disp,
+                                        int mm) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xE7);
     emit_memory_operand32(mod, mm, base, disp);
 }
 
@@ -4369,10 +4380,21 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
                   strcmp(name, "lfence") == 0 ? 0xE8 : 0xF0);
         return true;
     }
-    if (strcmp(name, "ldmxcsr") == 0 || strcmp(name, "stmxcsr") == 0) {
+    if (strcmp(name, "ldmxcsr") == 0) {
+        emit_sub_reg_imm(mod, ESP, 4);
         gen_expr(mod, call_argument(expr, 0));
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
         emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
-        emit_byte(mod, modrm(0, strcmp(name, "ldmxcsr") == 0 ? 2 : 3, EAX));
+        emit_memory_operand32(mod, 2, ESP, 0);
+        emit_add_reg_imm(mod, ESP, 4);
+        return true;
+    }
+    if (strcmp(name, "stmxcsr") == 0) {
+        emit_sub_reg_imm(mod, ESP, 4);
+        emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
+        emit_memory_operand32(mod, 3, ESP, 0);
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_add_reg_imm(mod, ESP, 4);
         return true;
     }
     if (strcmp(name, "clflush") == 0) {
@@ -4621,6 +4643,19 @@ static bool gen_mmx_builtin32(Module* mod, Expr* expr) {
     }
     kind = codegen_mmx_builtin_kind(expr->call_func->ident_name);
     if (kind == RCC_CODEGEN_MMX_NONE) return false;
+    if (kind == RCC_CODEGEN_MMX_STORE) {
+        emit_sub_reg_imm(mod, ESP, 16);
+        gen_expr(mod, call_argument(expr, 0));
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        gen_expr_as_integer64(mod, call_argument(expr, 1));
+        emit_mov_mem_reg(mod, ESP, 8, EAX);
+        emit_mov_mem_reg(mod, ESP, 12, EDX);
+        emit_mmx_load(mod, 0, ESP, 8);
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        emit_mmx_non_temporal_store(mod, ECX, 0, 0);
+        emit_add_reg_imm(mod, ESP, 16);
+        return true;
+    }
     if (kind == RCC_CODEGEN_MMX_INIT_V2SI ||
         kind == RCC_CODEGEN_MMX_INIT_V4HI ||
         kind == RCC_CODEGEN_MMX_INIT_V8QI) {

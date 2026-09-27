@@ -31,6 +31,8 @@ static void print_usage(void) {
     printf("  -driver         Create driver (.drv)\n");
     printf("  -m32            Generate 32-bit code (default)\n");
     printf("  -m64            Generate 64-bit code\n");
+    printf("  -msse/-mno-sse  Enable/disable SSE intrinsics (default: enabled)\n");
+    printf("  -msse2/-mno-sse2  Enable/disable SSE2 intrinsics (default: enabled)\n");
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
     printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign <file>    Isolated v3 signer program\n");
@@ -78,6 +80,8 @@ static int parse_args(int argc, char** argv) {
     g_opts.output_format = OUTPUT_RIN;
     g_opts.target_arch = ARCH_X86;
     g_opts.opt_level = 0;
+    g_opts.sse_enabled = true;
+    g_opts.sse2_enabled = true;
     g_opts.include_count = 0;
     g_opts.define_count = 0;
     g_opts.undef_count = 0;
@@ -209,6 +213,14 @@ static int parse_args(int argc, char** argv) {
             }
             g_opts.target_arch = ARCH_X64;
             g_opts.target_explicit = true;
+        } else if (strcmp(arg, "-msse") == 0) {
+            g_opts.sse_enabled = true;
+        } else if (strcmp(arg, "-mno-sse") == 0) {
+            g_opts.sse_enabled = false;
+        } else if (strcmp(arg, "-msse2") == 0) {
+            g_opts.sse2_enabled = true;
+        } else if (strcmp(arg, "-mno-sse2") == 0) {
+            g_opts.sse2_enabled = false;
         } else if (strcmp(arg, "--target") == 0 || strncmp(arg, "--target=", 9) == 0) {
             const char* triple;
             TargetArch target_arch;

@@ -80,6 +80,8 @@ static void print_usage_cxx(void) {
     printf("  -driver         Create driver (.drv)\n");
     printf("  -m32            Generate 32-bit code (default)\n");
     printf("  -m64            Generate 64-bit code\n");
+    printf("  -msse/-mno-sse  Enable/disable SSE intrinsics (default: enabled)\n");
+    printf("  -msse2/-mno-sse2  Enable/disable SSE2 intrinsics (default: enabled)\n");
     printf("  --target <triple>  i686-unknown-rinos or x86_64-unknown-rinos\n");
     printf("  --manifest <file>  RIN-BUILD-MANIFEST 1 build contract\n");
     printf("  --rinsign/--sign-key/--public-key  Required final v3 signing inputs\n");
@@ -112,6 +114,8 @@ static int parse_cxx_args(int argc, char** argv) {
     g_opts.output_format = OUTPUT_RIN;
     g_opts.target_arch = ARCH_X86;
     g_opts.opt_level = 0;
+    g_opts.sse_enabled = true;
+    g_opts.sse2_enabled = true;
     g_opts.input_count = 0;
 
     static struct option long_options[] = {
@@ -185,6 +189,14 @@ static int parse_cxx_args(int argc, char** argv) {
                     }
                     g_opts.target_arch = ARCH_X64;
                     g_opts.target_explicit = true;
+                } else if (strcmp(optarg, "sse") == 0) {
+                    g_opts.sse_enabled = true;
+                } else if (strcmp(optarg, "no-sse") == 0) {
+                    g_opts.sse_enabled = false;
+                } else if (strcmp(optarg, "sse2") == 0) {
+                    g_opts.sse2_enabled = true;
+                } else if (strcmp(optarg, "no-sse2") == 0) {
+                    g_opts.sse2_enabled = false;
                 } else {
                     rcc_fatal("unknown architecture: -m%s", optarg);
                 }

@@ -10894,6 +10894,7 @@ typedef enum {
     RCC_MMX_BUILTIN_BINARY,
     RCC_MMX_BUILTIN_VARIABLE_SHIFT,
     RCC_MMX_BUILTIN_IMMEDIATE_SHIFT,
+    RCC_MMX_BUILTIN_STORE,
     RCC_MMX_BUILTIN_INIT_V2SI,
     RCC_MMX_BUILTIN_INIT_V4HI,
     RCC_MMX_BUILTIN_INIT_V8QI
@@ -10934,6 +10935,9 @@ static RccMmxBuiltinKind sema_mmx_builtin_kind(const char* name) {
     };
     size_t index;
     if (!name) return RCC_MMX_BUILTIN_NONE;
+    if (strcmp(name, "__builtin_ia32_movntq") == 0) {
+        return RCC_MMX_BUILTIN_STORE;
+    }
     for (index = 0; index < sizeof(binary_names) / sizeof(binary_names[0]);
          ++index) {
         if (strcmp(name, binary_names[index]) == 0) {
@@ -10968,6 +10972,178 @@ static RccMmxBuiltinKind sema_mmx_builtin_kind(const char* name) {
 
 static bool sema_sse_builtin_name(const char* name) {
     return name && strncmp(name, "__builtin_ia32_", 15) == 0;
+}
+
+static bool sema_sse2_builtin_name(const char* name) {
+    const char* suffix;
+    if (!sema_sse_builtin_name(name)) return false;
+    suffix = name + 15;
+    if (strcmp(suffix, "pause") == 0 || strcmp(suffix, "clflush") == 0 ||
+        strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0 ||
+        strcmp(suffix, "movnti") == 0 || strcmp(suffix, "loaddqu") == 0 ||
+        strcmp(suffix, "storedqu") == 0 ||
+        strcmp(suffix, "vec_ext_v8hi") == 0 ||
+        strcmp(suffix, "vec_set_v8hi") == 0) return true;
+    if (strstr(suffix, "pd") || strstr(suffix, "sd") ||
+        strstr(suffix, "comi") || strstr(suffix, "ucomi") ||
+        strncmp(suffix, "cvt", 3) == 0 ||
+        strncmp(suffix, "p", 1) == 0) return true;
+    return false;
+}
+
+static int sema_sse_builtin_arity(const char* name) {
+    const char* suffix;
+    if (!sema_sse_builtin_name(name)) return -1;
+    suffix = name + 15;
+    if (strcmp(suffix, "pause") == 0 || strcmp(suffix, "sfence") == 0 ||
+        strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0) {
+        return 0;
+    }
+    if (strcmp(suffix, "vec_set_v8hi") == 0) return 9;
+    if (strcmp(suffix, "cvtsi2ss") == 0 ||
+        strcmp(suffix, "cvtsi642ss") == 0) return 2;
+    if (strcmp(suffix, "movmskps") == 0 ||
+        strcmp(suffix, "movmskpd") == 0 ||
+        strcmp(suffix, "pmovmskb128") == 0 ||
+        strcmp(suffix, "loadss") == 0 || strcmp(suffix, "loadups") == 0 ||
+        strcmp(suffix, "loadsd") == 0 || strcmp(suffix, "loadupd") == 0 ||
+        strcmp(suffix, "loaddqu") == 0 || strcmp(suffix, "ldmxcsr") == 0 ||
+        strcmp(suffix, "clflush") == 0 ||
+        strncmp(suffix, "cvt", 3) == 0 ||
+        strncmp(suffix, "sqrt", 4) == 0 || strncmp(suffix, "rcp", 3) == 0 ||
+        strncmp(suffix, "rsqrt", 5) == 0) return 1;
+    if (strcmp(suffix, "shufps") == 0 || strcmp(suffix, "shufpd") == 0) {
+        return 3;
+    }
+    if (strcmp(suffix, "vec_ext_v8hi") == 0) return 2;
+    if (strcmp(suffix, "stmxcsr") == 0 ||
+        strcmp(suffix, "pause") == 0) return 0;
+    if (strncmp(suffix, "pshuf", 5) == 0 ||
+        strncmp(suffix, "psll", 4) == 0 || strncmp(suffix, "psrl", 4) == 0 ||
+        strncmp(suffix, "psra", 4) == 0 ||
+        strncmp(suffix, "p", 1) == 0 ||
+        strncmp(suffix, "comi", 4) == 0 ||
+        strncmp(suffix, "ucomi", 5) == 0 ||
+        strncmp(suffix, "cmp", 3) == 0 ||
+        strncmp(suffix, "mov", 3) == 0 ||
+        strncmp(suffix, "unpck", 5) == 0 ||
+        strncmp(suffix, "unpack", 6) == 0 ||
+        strncmp(suffix, "add", 3) == 0 || strncmp(suffix, "sub", 3) == 0 ||
+        strncmp(suffix, "mul", 3) == 0 || strncmp(suffix, "div", 3) == 0 ||
+        strncmp(suffix, "min", 3) == 0 || strncmp(suffix, "max", 3) == 0 ||
+        strncmp(suffix, "and", 3) == 0 || strncmp(suffix, "or", 2) == 0 ||
+        strncmp(suffix, "xor", 3) == 0) return 2;
+    if (strncmp(suffix, "store", 5) == 0 ||
+        strncmp(suffix, "movnt", 5) == 0) return 2;
+    return -1;
+}
+
+static Expr* sema_sse_argument(Expr* call, int index) {
+    ExprList* argument = call ? call->call_args : NULL;
+    while (argument && index-- > 0) argument = argument->next;
+    return argument ? argument->expr : NULL;
+}
+
+static void sema_sse_require_vector(Expr* call, const char* name, int index) {
+    Expr* argument = sema_sse_argument(call, index);
+    if (!argument || !argument->type || !type_is_vector(argument->type)) {
+        rcc_error(call->loc, "%s argument %d must have vector type", name,
+                  index + 1);
+    }
+}
+
+static void sema_sse_require_pointer(Expr* call, const char* name, int index) {
+    Expr* argument = sema_sse_argument(call, index);
+    if (!argument || !argument->type || argument->type->kind != TYPE_PTR) {
+        rcc_error(call->loc, "%s argument %d must have pointer type", name,
+                  index + 1);
+    }
+}
+
+static void sema_sse_require_integer(Expr* call, const char* name, int index) {
+    Expr* argument = sema_sse_argument(call, index);
+    if (!argument || !argument->type || !type_is_integer(argument->type)) {
+        rcc_error(call->loc, "%s argument %d must have integer type", name,
+                  index + 1);
+    }
+}
+
+static void sema_validate_sse_operands(Expr* call, const char* name,
+                                        int expected_count) {
+    const char* suffix;
+    int64_t immediate;
+    if (!call || !name || expected_count < 0) return;
+    if (0 != strncmp(name, "__builtin_ia32_", 15)) return;
+    if (sema_sse_builtin_arity(name) != expected_count) return;
+    suffix = name + 15;
+    if (strcmp(suffix, "ldmxcsr") == 0) {
+        sema_sse_require_integer(call, name, 0);
+    } else if (strcmp(suffix, "clflush") == 0 ||
+               strncmp(suffix, "load", 4) == 0) {
+        sema_sse_require_pointer(call, name, 0);
+    } else if (strncmp(suffix, "store", 5) == 0 ||
+               strncmp(suffix, "movnt", 5) == 0) {
+        sema_sse_require_pointer(call, name, 0);
+        if (strcmp(suffix, "movnti") == 0 ||
+            strcmp(suffix, "movntq") == 0) {
+            sema_sse_require_integer(call, name, 1);
+        } else {
+            sema_sse_require_vector(call, name, 1);
+        }
+    } else if (strcmp(suffix, "movmskps") == 0 ||
+               strcmp(suffix, "movmskpd") == 0 ||
+               strcmp(suffix, "pmovmskb128") == 0 ||
+               strcmp(suffix, "vec_ext_v8hi") == 0) {
+        sema_sse_require_vector(call, name, 0);
+        if (strcmp(suffix, "vec_ext_v8hi") == 0) {
+            sema_sse_require_integer(call, name, 1);
+        }
+    } else if (strcmp(suffix, "vec_set_v8hi") == 0) {
+        for (int index = 0; index < expected_count; ++index) {
+            sema_sse_require_integer(call, name, index);
+        }
+    } else if (strcmp(suffix, "cvtsi2ss") == 0 ||
+               strcmp(suffix, "cvtsi642ss") == 0) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_integer(call, name, 1);
+    } else if (strncmp(suffix, "cvt", 3) == 0 ||
+               strncmp(suffix, "sqrt", 4) == 0 ||
+               strncmp(suffix, "rcp", 3) == 0 ||
+               strncmp(suffix, "rsqrt", 5) == 0) {
+        sema_sse_require_vector(call, name, 0);
+    } else if (strcmp(suffix, "shufps") == 0 ||
+               strcmp(suffix, "shufpd") == 0) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_vector(call, name, 1);
+        sema_sse_require_integer(call, name, 2);
+        if (!expr_eval_integer_constant(sema_sse_argument(call, 2),
+                                        &immediate)) {
+            rcc_error(call->loc, "%s requires an integer constant immediate",
+                      name);
+        } else if (immediate < 0 || immediate > 255) {
+            rcc_error(call->loc, "%s immediate must be between 0 and 255",
+                      name);
+        }
+    } else if (strncmp(suffix, "pshuf", 5) == 0) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_integer(call, name, 1);
+        if (!expr_eval_integer_constant(sema_sse_argument(call, 1),
+                                        &immediate)) {
+            rcc_error(call->loc, "%s requires an integer constant immediate",
+                      name);
+        } else if (immediate < 0 || immediate > 255) {
+            rcc_error(call->loc, "%s immediate must be between 0 and 255",
+                      name);
+        }
+    } else if (strncmp(suffix, "psll", 4) == 0 ||
+               strncmp(suffix, "psrl", 4) == 0 ||
+               strncmp(suffix, "psra", 4) == 0) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_integer(call, name, 1);
+    } else if (expected_count == 2) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_vector(call, name, 1);
+    }
 }
 
 static Type* sema_sse_builtin_vector(const char* name) {
@@ -11046,17 +11222,33 @@ static bool sema_compiler_builtin_call(Expr* expr) {
             rcc_error(expr->loc, "%s expects %d arguments, got %d", name,
                       expected_count, argument_count);
         }
-        for (argument = expr->call_args; argument;
-             argument = argument->next) {
-            if (!argument->expr->type ||
-                !type_is_integer(argument->expr->type) ||
-                argument->expr->type->size >
-                    (mmx_kind == RCC_MMX_BUILTIN_INIT_V2SI ||
-                     mmx_kind == RCC_MMX_BUILTIN_INIT_V4HI ||
-                     mmx_kind == RCC_MMX_BUILTIN_INIT_V8QI ? 4 : 8)) {
+        if (mmx_kind == RCC_MMX_BUILTIN_STORE) {
+            first = expr->call_args ? expr->call_args->expr : NULL;
+            second = expr->call_args && expr->call_args->next
+                ? expr->call_args->next->expr : NULL;
+            if (!first || !first->type || first->type->kind != TYPE_PTR) {
                 rcc_error(expr->loc,
-                          "%s expects integer arguments within the MMX value width",
+                          "%s first argument must have pointer type", name);
+            }
+            if (!second || !second->type || !type_is_integer(second->type) ||
+                second->type->size > 8) {
+                rcc_error(expr->loc,
+                          "%s second argument must be an integer no wider than 8 bytes",
                           name);
+            }
+        } else {
+            for (argument = expr->call_args; argument;
+                 argument = argument->next) {
+                if (!argument->expr->type ||
+                    !type_is_integer(argument->expr->type) ||
+                    argument->expr->type->size >
+                        (mmx_kind == RCC_MMX_BUILTIN_INIT_V2SI ||
+                         mmx_kind == RCC_MMX_BUILTIN_INIT_V4HI ||
+                         mmx_kind == RCC_MMX_BUILTIN_INIT_V8QI ? 4 : 8)) {
+                    rcc_error(expr->loc,
+                              "%s expects integer arguments within the MMX value width",
+                              name);
+                }
             }
         }
         if (mmx_kind == RCC_MMX_BUILTIN_IMMEDIATE_SHIFT) {
@@ -11073,21 +11265,37 @@ static bool sema_compiler_builtin_call(Expr* expr) {
                           name);
             }
         }
-        function->type = type_ptr(type_llong);
-        expr->type = type_llong;
+        function->type = type_ptr(mmx_kind == RCC_MMX_BUILTIN_STORE
+                                      ? type_void : type_llong);
+        expr->type = mmx_kind == RCC_MMX_BUILTIN_STORE ? type_void : type_llong;
         return true;
     }
     if (sema_sse_builtin_name(name)) {
         Type* return_type = sema_sse_builtin_return_type(name);
+        int expected_count = sema_sse_builtin_arity(name);
+        bool feature_error = false;
         for (argument = expr->call_args; argument;
              argument = argument->next) {
             sema_expr(argument->expr);
             ++argument_count;
         }
-        if (argument_count == 0 && return_type != type_void &&
-            strcmp(name, "__builtin_ia32_pause") != 0 &&
-            strcmp(name, "__builtin_ia32_stmxcsr") != 0) {
-            rcc_error(expr->loc, "%s requires at least one argument", name);
+        if (!g_opts.sse_enabled) {
+            rcc_error(expr->loc,
+                      "%s requires SSE; enable it with -msse", name);
+            feature_error = true;
+        } else if (sema_sse2_builtin_name(name) && !g_opts.sse2_enabled) {
+            rcc_error(expr->loc,
+                      "%s requires SSE2; enable it with -msse2", name);
+            feature_error = true;
+        }
+        if (expected_count < 0) {
+            rcc_error(expr->loc, "unsupported SSE/SSE2 compiler builtin '%s'",
+                      name);
+        } else if (argument_count != expected_count) {
+            rcc_error(expr->loc, "%s expects %d arguments, got %d", name,
+                      expected_count, argument_count);
+        } else if (!feature_error) {
+            sema_validate_sse_operands(expr, name, expected_count);
         }
         function->type = type_ptr(return_type);
         expr->type = return_type;

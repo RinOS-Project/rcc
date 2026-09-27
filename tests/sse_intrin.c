@@ -26,5 +26,8 @@ int main(void) {
         add_values[2] != 10 || add_values[3] != 12) return 3;
     if (equal_values[0] != 0 || equal_values[1] != -1 ||
         equal_values[2] != 0 || equal_values[3] != -1) return 4;
+    unsigned int csr = _mm_getcsr();
+    _mm_setcsr(csr);
+    if (_mm_getcsr() != csr) return 5;
     return 0;
 }

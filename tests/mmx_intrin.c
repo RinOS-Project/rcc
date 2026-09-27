@@ -1,5 +1,8 @@
 /* Runtime coverage for the bounded MMX intrinsic lowering. */
 #include <mmintrin.h>
+#include <xmmintrin.h>
+
+static unsigned long long streamed_value;
 
 int main(void) {
     __m64 a = _mm_set_pi16(4, 3, 2, 1);
@@ -13,9 +16,11 @@ int main(void) {
     unsigned long long equal_bits = (unsigned long long)equal;
     unsigned long long zero_bits = (unsigned long long)zero;
 
+    _mm_stream_pi((__m64*)&streamed_value, a);
     _mm_empty();
     if (sum_bits != 0x000c000a00080006ULL) return 1;
     if (shifted_bits != 0x0008000600040002ULL) return 2;
     if (equal_bits != 0xffffffffffffffffULL) return 3;
-    return zero_bits == 0 ? 0 : 4;
+    if (zero_bits != 0) return 4;
+    return streamed_value == (unsigned long long)a ? 0 : 5;
 }

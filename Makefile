@@ -6752,6 +6752,54 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/sse-x64 \
 		$(TEST_OUT)/compiler-builtins/sse-x64.s
 	$(TEST_OUT)/compiler-builtins/sse-x64
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-c -o $(TEST_OUT)/compiler-builtins/sse-features-x86.ro \
+		tests/sse_feature_macros.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-c -o $(TEST_OUT)/compiler-builtins/sse-features-x64.ro \
+		tests/sse_feature_macros.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -mno-sse \
+		-DEXPECT_NO_SSE -DEXPECT_NO_SSE2 -c \
+		-o $(TEST_OUT)/compiler-builtins/no-sse-features-x86.ro \
+		tests/sse_feature_macros.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -mno-sse2 \
+		-DEXPECT_NO_SSE2 -c \
+		-o $(TEST_OUT)/compiler-builtins/no-sse2-features-x64.ro \
+		tests/sse_feature_macros.c
+	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -mno-sse \
+		-Iinclude -c -o $(TEST_OUT)/compiler-builtins/no-sse-x86.ro \
+		tests/sse_intrin.c >$(TEST_OUT)/compiler-builtins/no-sse-x86.log 2>&1; then \
+		echo "SSE unexpectedly compiled with -mno-sse"; exit 1; \
+	fi
+	grep -F -q "requires SSE; enable it with -msse" \
+		$(TEST_OUT)/compiler-builtins/no-sse-x86.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -mno-sse2 \
+		-Iinclude -c -o $(TEST_OUT)/compiler-builtins/no-sse2-x64.ro \
+		tests/sse_intrin.c >$(TEST_OUT)/compiler-builtins/no-sse2-x64.log 2>&1; then \
+		echo "SSE2 unexpectedly compiled with -mno-sse2"; exit 1; \
+	fi
+	grep -F -q "requires SSE2; enable it with -msse2" \
+		$(TEST_OUT)/compiler-builtins/no-sse2-x64.log
+	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -c \
+		-o $(TEST_OUT)/compiler-builtins/invalid-sse-x86.ro \
+		tests/invalid_sse_intrin.c \
+		>$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log 2>&1; then \
+		echo "invalid SSE intrinsic fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "expects 2 arguments, got 1" \
+		$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log
+	grep -F -q "requires an integer constant immediate" \
+		$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -c \
+		-o $(TEST_OUT)/compiler-builtins/invalid-sse-x64.ro \
+		tests/invalid_sse_intrin.c \
+		>$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log 2>&1; then \
+		echo "invalid SSE intrinsic fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "expects 2 arguments, got 1" \
+		$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log
+	grep -F -q "requires an integer constant immediate" \
+		$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log
 	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/compiler-builtins/invalid-x86.ro \
 		tests/invalid_compiler_builtins.c \

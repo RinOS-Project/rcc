@@ -181,6 +181,10 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__ATOMIC_RELEASE", "3");
     pp_define(pp, "__ATOMIC_ACQ_REL", "4");
     pp_define(pp, "__ATOMIC_SEQ_CST", "5");
+    if (g_opts.sse_enabled) pp_define(pp, "__SSE__", "1");
+    if (g_opts.sse_enabled && g_opts.sse2_enabled) {
+        pp_define(pp, "__SSE2__", "1");
+    }
 
     /* Architecture */
     if (g_opts.target_arch == ARCH_X86) {
