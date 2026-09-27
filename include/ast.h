@@ -448,6 +448,9 @@ struct Expr {
     /* Marks the literal spelling of C++ nullptr so it remains excluded from
      * integer constant expressions.  Its semantic type is TYPE_NULLPTR. */
     bool is_cxx_nullptr;
+    /* Parentheses change decltype(auto) lvalue deduction, even though they
+     * do not change ordinary expression lowering. */
+    bool cxx_parenthesized;
     /* C++20 u8 character/string literal mapped to the RinOS byte ABI. */
     bool is_cxx_utf8_literal;
     /* C++ public non-virtual derived-to-base pointer conversion.  The

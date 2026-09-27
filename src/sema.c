@@ -62,6 +62,28 @@ static AST* current_ast = NULL;
 
 static Type* sema_decltype_auto_return_type(Expr* expression);
 
+static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+        case EXPR_INDEX:
+        case EXPR_DEREF:
+            return true;
+        case EXPR_COMMA:
+            return sema_decltype_auto_expression_is_lvalue(
+                expression->binary_rhs);
+        case EXPR_COND:
+            return sema_decltype_auto_expression_is_lvalue(
+                       expression->cond_then) &&
+                   sema_decltype_auto_expression_is_lvalue(
+                       expression->cond_else);
+        default:
+            return false;
+    }
+}
+
 static bool sema_cxx_class_qualified_name(const CxxClass* cls,
                                           char* buffer, size_t capacity) {
     const CxxNamespace* stack[32];
@@ -12017,7 +12039,9 @@ static Type* sema_decltype_auto_return_type(Expr* expression) {
 
     /* These expression forms are lvalues.  Preserve that category for the
      * lowered reference ABI instead of silently copying the object value. */
-    if (expression->kind == EXPR_DEREF || expression->kind == EXPR_INDEX ||
+    if ((expression->cxx_parenthesized &&
+         sema_decltype_auto_expression_is_lvalue(expression)) ||
+        expression->kind == EXPR_DEREF || expression->kind == EXPR_INDEX ||
         expression->kind == EXPR_MEMBER ||
         expression->kind == EXPR_PTR_MEMBER) {
         if (result->kind == TYPE_PTR && result->is_reference) return result;

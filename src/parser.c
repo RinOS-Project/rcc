@@ -1189,6 +1189,7 @@ static Expr* parse_primary(void) {
     if (match(TOK_LPAREN)) {
         Expr* e = parse_expression();
         expect(TOK_RPAREN, ")");
+        if (e) e->cxx_parenthesized = true;
         return e;
     }
     if (match(TOK__ALIGNOF)) {
