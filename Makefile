@@ -162,6 +162,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals
+.PHONY: test-compiler-builtins
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -203,6 +204,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
+	test-compiler-builtins \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
@@ -365,6 +367,7 @@ C17_REGRESSION_TARGETS = \
 	test-preprocessor-va-opt \
 	test-language-boundaries \
 	test-noreturn \
+	test-compiler-builtins \
 	test-integer-literals \
 	test-integer-promotions \
 	test-integer-conversions \
@@ -6700,6 +6703,48 @@ test-noreturn: $(RCC_TARGET)
 	grep -q "_Noreturn declaration must declare a function" \
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
+
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
+	$(CC) -m32 -no-pie -o $(TEST_OUT)/compiler-builtins/c-x86 \
+		$(TEST_OUT)/compiler-builtins/c-x86.s
+	$(TEST_OUT)/compiler-builtins/c-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/compiler-builtins/c-x64.s tests/compiler_builtins.c
+	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/c-x64 \
+		$(TEST_OUT)/compiler-builtins/c-x64.s
+	$(TEST_OUT)/compiler-builtins/c-x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/compiler-builtins/cxx-x86.s \
+		tests/cxx_compiler_builtins.cpp
+	$(CC) -m32 -no-pie -o $(TEST_OUT)/compiler-builtins/cxx-x86 \
+		$(TEST_OUT)/compiler-builtins/cxx-x86.s
+	$(TEST_OUT)/compiler-builtins/cxx-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/compiler-builtins/cxx-x64.s \
+		tests/cxx_compiler_builtins.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/cxx-x64 \
+		$(TEST_OUT)/compiler-builtins/cxx-x64.s
+	$(TEST_OUT)/compiler-builtins/cxx-x64
+	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/compiler-builtins/invalid-x86.ro \
+		tests/invalid_compiler_builtins.c \
+		>$(TEST_OUT)/compiler-builtins/invalid-x86.log 2>&1; then \
+		echo "invalid compiler builtin fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "__builtin_expect expected value must have integer type" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/compiler-builtins/invalid-x64.ro \
+		tests/invalid_compiler_builtins.c \
+		>$(TEST_OUT)/compiler-builtins/invalid-x64.log 2>&1; then \
+		echo "invalid compiler builtin fixture unexpectedly compiled"; exit 1; \
+	fi
+	grep -F -q "__builtin_expect expected value must have integer type" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	@echo "C/C++ compiler builtin intrinsic tests completed"
 
 test-cxx-const-cast: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-const-cast)

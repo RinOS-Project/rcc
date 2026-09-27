@@ -259,6 +259,7 @@ static bool sema_cxx_is_polymorphic(Type* type) {
 }
 
 static void sema_validate_static_integer_expression(Expr* expression);
+static bool sema_compiler_builtin_call(Expr* expr);
 static bool sema_atomic_builtin_call(Expr* expr);
 static void sema_vla_bounds(Type* type, SourceLoc loc);
 static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
@@ -9966,6 +9967,7 @@ static Type* sema_expr(Expr* expr) {
                 }
             }
             }
+            if (sema_compiler_builtin_call(expr)) break;
             if (sema_atomic_builtin_call(expr)) break;
             if (expr->call_func->kind == EXPR_IDENT) {
                 Symbol* overload = sema_cxx_lookup_name(
@@ -10879,6 +10881,63 @@ static Expr* initializer_string_literal(Expr* initializer) {
         return initializer->compound_init->expr;
     }
     return NULL;
+}
+
+static bool sema_compiler_builtin_call(Expr* expr) {
+    Expr* function;
+    Expr* first;
+    Expr* second;
+    ExprList* argument;
+    const char* name;
+    int argument_count = 0;
+
+    if (!expr || expr->kind != EXPR_CALL ||
+        !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
+        return false;
+    }
+    function = expr->call_func;
+    name = function->ident_name;
+    if (strcmp(name, "__builtin_unreachable") == 0) {
+        if (expr->call_args) {
+            for (argument = expr->call_args; argument;
+                 argument = argument->next) {
+                sema_expr(argument->expr);
+                ++argument_count;
+            }
+        }
+        if (argument_count != 0) {
+            rcc_error(expr->loc,
+                      "__builtin_unreachable expects no arguments, got %d",
+                      argument_count);
+        }
+        function->type = type_ptr(type_void);
+        expr->type = type_void;
+        return true;
+    }
+    if (strcmp(name, "__builtin_expect") != 0) return false;
+
+    for (argument = expr->call_args; argument; argument = argument->next) {
+        sema_expr(argument->expr);
+        ++argument_count;
+    }
+    if (argument_count != 2) {
+        rcc_error(expr->loc, "__builtin_expect expects 2 arguments, got %d",
+                  argument_count);
+    }
+    first = expr->call_args ? expr->call_args->expr : NULL;
+    second = expr->call_args && expr->call_args->next
+        ? expr->call_args->next->expr : NULL;
+    if (!first || !first->type || !type_is_integer(first->type)) {
+        rcc_error(expr->loc,
+                  "__builtin_expect value must have integer type");
+    }
+    if (!second || !second->type || !type_is_integer(second->type)) {
+        rcc_error(expr->loc,
+                  "__builtin_expect expected value must have integer type");
+    }
+    function->type = type_ptr(type_void);
+    expr->type = first && first->type ? first->type : type_int;
+    return true;
 }
 
 static bool sema_atomic_builtin_call(Expr* expr) {

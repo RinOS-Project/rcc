@@ -1651,6 +1651,30 @@ static bool atomic64_bitwise_returns_new(const char* name) {
            strcmp(name, "__sync_nand_and_fetch") == 0;
 }
 
+static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
+    Expr* function;
+
+    if (!expr || expr->kind != EXPR_CALL ||
+        !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
+        return false;
+    }
+    function = expr->call_func;
+    if (strcmp(function->ident_name, "__builtin_expect") == 0) {
+        /* Evaluate the prediction operand for side effects, then return the
+         * first operand in RAX as the intrinsic's value. */
+        gen64_expr(mod, call64_argument(expr, 1));
+        gen64_expr(mod, call64_argument(expr, 0));
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_unreachable") == 0) {
+        /* Emit a real target trap for the undefined-execution path. */
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x0B); /* UD2 */
+        return true;
+    }
+    return false;
+}
+
 static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
@@ -5211,6 +5235,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 break;
             }
             if (gen64_inline_method_call(mod, expr)) break;
+            if (gen64_compiler_builtin(mod, expr)) break;
             if (gen64_atomic_builtin(mod, expr)) break;
             /* x86-64 System V ABI: RDI, RSI, RDX, RCX, R8, R9 */
             int arg_regs[] = {RDI, RSI, RDX, RCX, R8, R9};

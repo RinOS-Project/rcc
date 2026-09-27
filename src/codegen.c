@@ -7734,6 +7734,32 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
     emit_label(mod, done);
 }
 
+static bool gen_compiler_builtin(Module* mod, Expr* expr) {
+    Expr* function;
+
+    if (!expr || expr->kind != EXPR_CALL ||
+        !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
+        return false;
+    }
+    function = expr->call_func;
+    if (strcmp(function->ident_name, "__builtin_expect") == 0) {
+        /* The prediction operand has no runtime value.  Evaluate it for its
+         * language-level side effects, then leave the first operand in the
+         * normal scalar return registers. */
+        gen_expr(mod, call_argument(expr, 1));
+        gen_expr(mod, call_argument(expr, 0));
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_unreachable") == 0) {
+        /* This is a defined compiler intrinsic with undefined source
+         * execution semantics, not an unresolved call or an empty stub. */
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x0B); /* UD2 */
+        return true;
+    }
+    return false;
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int temporary_bytes = 0;
@@ -7764,6 +7790,7 @@ static void gen_call(Module* mod, Expr* expr) {
         return;
     }
     if (gen_inline_method_call(mod, expr)) return;
+    if (gen_compiler_builtin(mod, expr)) return;
     if (gen_atomic_builtin(mod, expr)) return;
 
     argc = exprlist_len(expr->call_args);
