@@ -992,6 +992,35 @@ static const char* parse_expression_qualified_name(SourceLoc loc) {
     return rcc_intern(buffer);
 }
 
+static Expr* parse_cxx_user_literal_call(const char* suffix,
+                                         Expr* literal,
+                                         Expr* length,
+                                         SourceLoc loc) {
+    char name[512];
+    Expr* function;
+    ExprList* arguments;
+    int written;
+
+    if (!suffix || suffix[0] != '_') return literal;
+    written = snprintf(name, sizeof(name), "operator\"\"%s", suffix);
+    if (written < 0 || (size_t)written >= sizeof(name)) {
+        rcc_error(loc, "user-defined literal operator name is too long");
+        return literal;
+    }
+    function = expr_ident(rcc_intern(name), loc);
+    arguments = exprlist_new(literal);
+    if (length) exprlist_append(&arguments, length);
+    return expr_call(function, arguments, loc);
+}
+
+static const char* take_cxx_user_literal_suffix(void) {
+    if (!parser_cxx_mode || !check(TOK_IDENT) ||
+        !peek()->value.str_val || peek()->value.str_val[0] != '_') {
+        return NULL;
+    }
+    return advance()->value.str_val;
+}
+
 /* Primary: literal, identifier, (expr) */
 static Expr* parse_primary(void) {
     SourceLoc loc = peek()->loc;
@@ -1049,8 +1078,8 @@ static Expr* parse_primary(void) {
         Expr* expression = expr_float(literal->value.float_val, loc);
         if (literal->float_suffix) expression->type = type_float;
         if (parser_cxx_mode && literal->user_literal_suffix) {
-            rcc_error(loc,
-                      "floating-point user-defined literals are not supported by the bounded RCC++ integer UDL ABI");
+            return parse_cxx_user_literal_call(literal->user_literal_suffix,
+                                               expression, NULL, loc);
         }
         return expression;
     }
@@ -1058,17 +1087,28 @@ static Expr* parse_primary(void) {
         Token* literal = previous();
         Expr* expression = expr_char(literal->value.char_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
+        if (parser_cxx_mode) {
+            const char* suffix = take_cxx_user_literal_suffix();
+            if (suffix) {
+                return parse_cxx_user_literal_call(suffix, expression, NULL,
+                                                   loc);
+            }
+        }
         return expression;
     }
     if (match(TOK_STRING_LIT)) {
         Token* literal = previous();
         Expr* expression = expr_string(literal->value.str_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
-        if (parser_cxx_mode && check(TOK_IDENT) &&
-            peek()->value.str_val && peek()->value.str_val[0] == '_') {
-            rcc_error(peek()->loc,
-                      "string user-defined literals are not supported by the bounded RCC++ integer UDL ABI");
-            advance();
+        if (parser_cxx_mode) {
+            const char* suffix = take_cxx_user_literal_suffix();
+            if (suffix) {
+                Expr* length = expr_integer_literal(
+                    (uint64_t)strlen(expression->str_val), 10u,
+                    false, 0u, loc);
+                return parse_cxx_user_literal_call(suffix, expression, length,
+                                                   loc);
+            }
         }
         return expression;
     }

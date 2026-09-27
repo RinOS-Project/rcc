@@ -129,6 +129,10 @@
         解決し、free function callをi686/AMD64で実行検証
   - [x] integer user-defined literal operatorをItanium `li`名修飾へ接続し、
         built-in integer suffixを含むi686/AMD64の生成・実行を検証
+  - [x] C++17 floating、character、string user-defined literal operatorを
+        bounded scalar/pointer ABIへ接続し、`double`、`char/char8_t`、
+        `const char*/size_t`の生成・実行を検証。long doubleおよび未対応署名は
+        明示診断する
 - [ ] templates、concepts、constexpr/consteval、lambda
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化

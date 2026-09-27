@@ -1654,10 +1654,24 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     params = parse_cxx_parameter_declarations();
     expect(TOK_RPAREN, ")");
     if (name && strncmp(name, "operator\"\"", 10u) == 0) {
-        if (!params || params->next || !params->decl ||
-            !type_is_compatible(params->decl->type, type_ullong)) {
+        Type* first = params && params->decl ? params->decl->type : NULL;
+        Type* second = params && params->next && params->next->decl
+            ? params->next->decl->type : NULL;
+        bool integer_form = params && !params->next && first &&
+            type_is_compatible(first, type_ullong);
+        bool floating_form = params && !params->next && first &&
+            type_is_floating(first) && first->size == type_double->size;
+        bool character_form = params && !params->next && first &&
+            first->kind == TYPE_CHAR;
+        bool string_form = params && params->next && !params->next->next &&
+            first && second && first->kind == TYPE_PTR && first->base &&
+            first->base->kind == TYPE_CHAR && type_is_integer(second) &&
+            second->is_unsigned && second->size ==
+                (g_opts.target_arch == ARCH_X64 ? 8 : 4);
+        if (!integer_form && !floating_form && !character_form &&
+            !string_form) {
             rcc_error(loc,
-                      "bounded RCC++ user-defined literal operators require exactly one unsigned long long parameter");
+                      "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form");
         }
     }
     if (match(TOK_NOEXCEPT) && check(TOK_LPAREN)) {

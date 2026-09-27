@@ -4922,15 +4922,15 @@ test-cxx-user-defined-literals: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-user-defined-literals/invalid-x86.ro \
 		tests/cxx_user_defined_literals_invalid.cpp \
 		>$(TEST_OUT)/cxx-user-defined-literals/invalid-x86.log 2>&1
-	grep -F -q "bounded RCC++ user-defined literal operators require exactly one unsigned long long parameter" \
+	grep -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
 		$(TEST_OUT)/cxx-user-defined-literals/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-user-defined-literals/invalid-x64.ro \
 		tests/cxx_user_defined_literals_invalid.cpp \
 		>$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log 2>&1
-	grep -F -q "bounded RCC++ user-defined literal operators require exactly one unsigned long long parameter" \
+	grep -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
 		$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log
-	@echo "RCC++ integer user-defined literal tests completed"
+	@echo "RCC++ user-defined literal tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
