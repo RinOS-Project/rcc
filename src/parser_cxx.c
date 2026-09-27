@@ -7030,6 +7030,14 @@ static CxxClass* find_class(const char* qualified_name) {
     return namespace_class(ns, component);
 }
 
+/* Semantic analysis needs the declaring class for qualified static-member
+ * expressions so protected/private access is checked after ordinary symbol
+ * lookup.  Keep the class registry private to this frontend while exposing a
+ * read-only lookup boundary to the shared C semantic pass. */
+CxxClass* rcc_parser_cxx_find_class(const char* qualified_name) {
+    return find_class(qualified_name);
+}
+
 /* Complete a previously declared static data member outside its class.  The
  * class parser has already published the declaration and its ABI spelling;
  * this hook only consumes the qualified definition and updates that same

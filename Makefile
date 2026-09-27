@@ -187,6 +187,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-qualified-class-initialization test-cxx-static-member-tls
 .PHONY: test-cxx-constructor-general
 .PHONY: test-cxx-implicit-copy
+.PHONY: test-cxx-protected-member
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators
 .PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-attributes test-preprocessor-cxx-features test-universal-character-identifiers
@@ -235,6 +236,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-array-destructor \
 	test-cxx-constructor-general \
 	test-cxx-implicit-copy \
+	test-cxx-protected-member \
 	test-cxx-constructor-body \
 	test-cxx-constructor-initializer-body \
 	test-cxx-base-constructor-initializer \
@@ -1123,6 +1125,46 @@ test-cxx-implicit-copy: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-implicit-copy/x64.o
 	$(TEST_OUT)/cxx-implicit-copy/x64
 	@echo "C++ implicit copy-construction tests completed"
+
+test-cxx-protected-member: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-protected-member)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-protected-member/x86.s \
+		tests/cxx_protected_member.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-protected-member/x86.o \
+		$(TEST_OUT)/cxx-protected-member/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-protected-member/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-protected-member/x86 \
+		$(TEST_OUT)/cxx-protected-member/start-x86.o \
+		$(TEST_OUT)/cxx-protected-member/x86.o
+	$(TEST_OUT)/cxx-protected-member/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-protected-member/x64.s \
+		tests/cxx_protected_member.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-protected-member/x64.o \
+		$(TEST_OUT)/cxx-protected-member/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-protected-member/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-protected-member/x64 \
+		$(TEST_OUT)/cxx-protected-member/start-x64.o \
+		$(TEST_OUT)/cxx-protected-member/x64.o
+	$(TEST_OUT)/cxx-protected-member/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-protected-member/rejected-x86.ro \
+		tests/cxx_protected_member_rejected.cpp \
+		>$(TEST_OUT)/cxx-protected-member/rejected-x86.log 2>&1
+	grep -q "member 'counter' is not accessible" \
+		$(TEST_OUT)/cxx-protected-member/rejected-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-protected-member/rejected-x64.ro \
+		tests/cxx_protected_member_rejected.cpp \
+		>$(TEST_OUT)/cxx-protected-member/rejected-x64.log 2>&1
+	grep -q "member 'counter' is not accessible" \
+		$(TEST_OUT)/cxx-protected-member/rejected-x64.log
+	@echo "C++ protected-member access tests completed"
 
 test-cxx-virtual-base-constructor-order: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base-constructor-order)

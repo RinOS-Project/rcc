@@ -25,6 +25,8 @@ extern const char* cxx_namespace_qualified_name(
     CxxNamespace*) __attribute__((weak));
 extern bool cxx_class_is_abstract(
     const CxxClass*) __attribute__((weak));
+extern CxxClass* rcc_parser_cxx_find_class(
+    const char*) __attribute__((weak));
 extern void* cxx_template_instantiate_with_values(
     CxxTemplate*, Type**, const int64_t*, const bool*, int)
     __attribute__((weak));
@@ -141,6 +143,25 @@ static bool sema_cxx_class_is_friend(const CxxClass* target,
     return false;
 }
 
+static bool sema_cxx_class_derives_from(const CxxClass* derived,
+                                        const CxxClass* base,
+                                        unsigned depth) {
+    if (!derived || !base || depth > 32u) return false;
+    for (int index = 0; index < derived->base_count; ++index) {
+        CxxClass* candidate = derived->bases[index].base;
+        if (!candidate) continue;
+        if (candidate == base ||
+            (candidate->type && base->type &&
+             candidate->type->cxx_class == base->type->cxx_class)) {
+            return true;
+        }
+        if (sema_cxx_class_derives_from(candidate, base, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool sema_cxx_member_accessible(CxxClass* target,
                                        unsigned char access) {
     CxxClass* context;
@@ -148,7 +169,50 @@ static bool sema_cxx_member_accessible(CxxClass* target,
     context = current_cxx_method_owner
         ? current_cxx_method_owner->cxx_class : NULL;
     if (context == target) return true;
+    if (access == ACCESS_PROTECTED &&
+        sema_cxx_class_derives_from(context, target, 0u)) {
+        return true;
+    }
     return target && sema_cxx_class_is_friend(target, context);
+}
+
+static bool sema_cxx_check_qualified_member_access(const char* name,
+                                                   Decl* declaration,
+                                                   SourceLoc loc) {
+    const char* separator;
+    char owner_name[512];
+    const char* member_name;
+    CxxClass* owner;
+
+#if defined(__GNUC__) || defined(__clang__)
+    if (!name || !declaration || !rcc_parser_cxx_find_class) return true;
+#else
+    (void)name;
+    (void)declaration;
+    (void)loc;
+    return true;
+#endif
+    separator = strrchr(name, ':');
+    if (!separator || separator <= name || separator[-1] != ':') return true;
+    if ((size_t)(separator - name - 1u) >= sizeof(owner_name)) {
+        rcc_error(loc, "qualified member owner exceeds compiler limit");
+        return false;
+    }
+    memcpy(owner_name, name, (size_t)(separator - name - 1u));
+    owner_name[separator - name - 1u] = '\0';
+    member_name = separator + 1;
+    owner = rcc_parser_cxx_find_class(owner_name);
+    if (!owner) return true;
+    for (struct CxxMember* member = owner->members; member;
+         member = member->next) {
+        if (member->decl != declaration || !member->decl->name) continue;
+        if (!sema_cxx_member_accessible(owner, member->access)) {
+            rcc_error(loc, "member '%s' is not accessible", member_name);
+            return false;
+        }
+        return true;
+    }
+    return true;
 }
 
 static CxxClass* sema_cxx_method_owner(Type* object_type,
@@ -8292,12 +8356,16 @@ static Type* sema_expr(Expr* expr) {
                 break;
             }
             if (expr->ident_decl && expr->ident_decl->kind == DECL_FUNC) {
+                sema_cxx_check_qualified_member_access(
+                    expr->ident_name, expr->ident_decl, expr->loc);
                 expr->type = expr->ident_decl->type;
                 break;
             }
             if (expr->ident_decl &&
                 (expr->ident_decl->kind == DECL_VAR ||
                  expr->ident_decl->kind == DECL_PARAM)) {
+                sema_cxx_check_qualified_member_access(
+                    expr->ident_name, expr->ident_decl, expr->loc);
                 if (expr->ident_decl->kind == DECL_VAR &&
                     expr->ident_decl->var_is_deprecated) {
                     if (expr->ident_decl->var_deprecated_message &&
@@ -8383,6 +8451,8 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "undefined identifier '%s'", expr->ident_name);
                 expr->type = type_int;
             } else {
+                sema_cxx_check_qualified_member_access(
+                    expr->ident_name, sym->decl, expr->loc);
                 expr->ident_decl = sym->decl;
                 expr->type = sym->type && sym->type->is_reference
                     ? sym->type->base : sym->type;
