@@ -11048,6 +11048,7 @@ static Stmt* parse_cxx_structured_binding_declaration(void) {
     bool is_reference = false;
     bool is_rvalue_reference = false;
     bool materialize_rvalue = false;
+    bool direct_list_initializer = false;
     Type* initializer_type;
     Type* binding_source_type;
     Expr* initializer;
@@ -11082,15 +11083,33 @@ static Stmt* parse_cxx_structured_binding_declaration(void) {
     }
     expect(TOK_RBRACKET, "]");
     if (!match(TOK_ASSIGN)) {
-        rcc_error(peek()->loc,
-                  "RinOS structured bindings require an '=' initializer");
-        while (!check(TOK_SEMICOLON) && !at_end()) advance();
-        (void)match(TOK_SEMICOLON);
-        return stmt_null(loc);
+        if (check(TOK_LBRACE)) {
+            direct_list_initializer = true;
+            initializer = rcc_parser_parse_initializer();
+        } else {
+            rcc_error(peek()->loc,
+                      "RinOS structured bindings require an '=' initializer");
+            while (!check(TOK_SEMICOLON) && !at_end()) advance();
+            (void)match(TOK_SEMICOLON);
+            return stmt_null(loc);
+        }
+    } else {
+        initializer = parse_cxx_expression();
     }
-    initializer = parse_cxx_expression();
     expect(TOK_SEMICOLON, ";");
     if (!initializer || binding_count == 0) return stmt_null(loc);
+
+    if (direct_list_initializer) {
+        ExprList* item = initializer->kind == EXPR_COMPOUND
+            ? initializer->compound_init : NULL;
+        if (!item || item->next || item->designator_kind !=
+                INIT_DESIGNATOR_NONE) {
+            rcc_error(loc,
+                      "direct-list structured binding requires one initializer expression");
+            return stmt_null(loc);
+        }
+        initializer = item->expr;
+    }
 
     initializer_type = initializer->type;
     if (!initializer_type && initializer->kind == EXPR_IDENT) {

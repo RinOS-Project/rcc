@@ -2100,6 +2100,10 @@ endif
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log
 	grep -q "structured binding count does not match aggregate fields" \
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log
+	grep -q "direct-list structured binding requires one initializer expression" \
+		$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log
+	grep -q "direct-list structured binding requires one initializer expression" \
+		$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log
 	@echo "RCC++ structured binding diagnostics completed"
 
 test-cxx-alignas: $(RCXX_TARGET)

@@ -5,6 +5,8 @@ struct BindingPair {
 
 int main() {
     BindingPair original{10, 20};
+    auto [direct_left, direct_right]{original};
+    direct_left += 1;
     auto [left, right] = original;
     left += 2;
     auto& [alias_left, alias_right] = original;
@@ -16,7 +18,8 @@ int main() {
     int values[2] = {4, 5};
     auto [first, second] = values;
     first += 1;
-    return left == 12 && right == 20 && original.left == 14 &&
+    return direct_left == 11 && direct_right == 20 && left == 12 &&
+           right == 20 && original.left == 14 &&
            alias_left == 14 && alias_right == 23 && forward_left == 14 &&
            forward_right == 23 && temporary_left == 30 &&
            temporary_right == 33 && first == 5 && second == 5 ? 0 : 1;
