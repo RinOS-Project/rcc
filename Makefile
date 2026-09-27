@@ -6728,6 +6728,20 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/cxx-x64 \
 		$(TEST_OUT)/compiler-builtins/cxx-x64.s
 	$(TEST_OUT)/compiler-builtins/cxx-x64
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -c \
+		-o $(TEST_OUT)/compiler-builtins/intrin-x86.ro tests/intrin_all_test.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -c \
+		-o $(TEST_OUT)/compiler-builtins/intrin-x64.ro tests/intrin_all_test.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/mmx-x86.s tests/mmx_intrin.c
+	$(CC) -m32 -no-pie -o $(TEST_OUT)/compiler-builtins/mmx-x86 \
+		$(TEST_OUT)/compiler-builtins/mmx-x86.s
+	$(TEST_OUT)/compiler-builtins/mmx-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/mmx-x64.s tests/mmx_intrin.c
+	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/mmx-x64 \
+		$(TEST_OUT)/compiler-builtins/mmx-x64.s
+	$(TEST_OUT)/compiler-builtins/mmx-x64
 	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/compiler-builtins/invalid-x86.ro \
 		tests/invalid_compiler_builtins.c \

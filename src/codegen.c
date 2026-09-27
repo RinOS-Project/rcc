@@ -4000,6 +4000,276 @@ static Expr* call_argument(Expr* call, int index) {
     return argument ? argument->expr : NULL;
 }
 
+typedef enum {
+    RCC_CODEGEN_MMX_NONE,
+    RCC_CODEGEN_MMX_BINARY,
+    RCC_CODEGEN_MMX_VARIABLE_SHIFT,
+    RCC_CODEGEN_MMX_IMMEDIATE_SHIFT,
+    RCC_CODEGEN_MMX_INIT_V2SI,
+    RCC_CODEGEN_MMX_INIT_V4HI,
+    RCC_CODEGEN_MMX_INIT_V8QI
+} RccCodegenMmxKind;
+
+static RccCodegenMmxKind codegen_mmx_builtin_kind(const char* name) {
+    static const char* const binary_names[] = {
+        "__builtin_ia32_packsswb", "__builtin_ia32_packssdw",
+        "__builtin_ia32_packuswb", "__builtin_ia32_punpckhbw",
+        "__builtin_ia32_punpckhwd", "__builtin_ia32_punpckhdq",
+        "__builtin_ia32_punpcklbw", "__builtin_ia32_punpcklwd",
+        "__builtin_ia32_punpckldq", "__builtin_ia32_paddb",
+        "__builtin_ia32_paddw", "__builtin_ia32_paddd",
+        "__builtin_ia32_paddsb", "__builtin_ia32_paddsw",
+        "__builtin_ia32_paddusb", "__builtin_ia32_paddusw",
+        "__builtin_ia32_psubb", "__builtin_ia32_psubw",
+        "__builtin_ia32_psubd", "__builtin_ia32_psubsb",
+        "__builtin_ia32_psubsw", "__builtin_ia32_psubusb",
+        "__builtin_ia32_psubusw", "__builtin_ia32_pmaddwd",
+        "__builtin_ia32_pmulhw", "__builtin_ia32_pmullw",
+        "__builtin_ia32_pand", "__builtin_ia32_pandn",
+        "__builtin_ia32_por", "__builtin_ia32_pxor",
+        "__builtin_ia32_pcmpeqb", "__builtin_ia32_pcmpeqw",
+        "__builtin_ia32_pcmpeqd", "__builtin_ia32_pcmpgtb",
+        "__builtin_ia32_pcmpgtw", "__builtin_ia32_pcmpgtd"
+    };
+    static const char* const variable_shift_names[] = {
+        "__builtin_ia32_psllw", "__builtin_ia32_pslld",
+        "__builtin_ia32_psllq", "__builtin_ia32_psraw",
+        "__builtin_ia32_psrad", "__builtin_ia32_psrlw",
+        "__builtin_ia32_psrld", "__builtin_ia32_psrlq"
+    };
+    static const char* const immediate_shift_names[] = {
+        "__builtin_ia32_psllwi", "__builtin_ia32_pslldi",
+        "__builtin_ia32_psllqi", "__builtin_ia32_psrawi",
+        "__builtin_ia32_psradi", "__builtin_ia32_psrlwi",
+        "__builtin_ia32_psrldi", "__builtin_ia32_psrlqi"
+    };
+    size_t index;
+    if (!name) return RCC_CODEGEN_MMX_NONE;
+    for (index = 0; index < sizeof(binary_names) / sizeof(binary_names[0]);
+         ++index) {
+        if (strcmp(name, binary_names[index]) == 0) {
+            return RCC_CODEGEN_MMX_BINARY;
+        }
+    }
+    for (index = 0;
+         index < sizeof(variable_shift_names) / sizeof(variable_shift_names[0]);
+         ++index) {
+        if (strcmp(name, variable_shift_names[index]) == 0) {
+            return RCC_CODEGEN_MMX_VARIABLE_SHIFT;
+        }
+    }
+    for (index = 0;
+         index < sizeof(immediate_shift_names) /
+                    sizeof(immediate_shift_names[0]); ++index) {
+        if (strcmp(name, immediate_shift_names[index]) == 0) {
+            return RCC_CODEGEN_MMX_IMMEDIATE_SHIFT;
+        }
+    }
+    if (strcmp(name, "__builtin_ia32_vec_init_v2si") == 0) {
+        return RCC_CODEGEN_MMX_INIT_V2SI;
+    }
+    if (strcmp(name, "__builtin_ia32_vec_init_v4hi") == 0) {
+        return RCC_CODEGEN_MMX_INIT_V4HI;
+    }
+    if (strcmp(name, "__builtin_ia32_vec_init_v8qi") == 0) {
+        return RCC_CODEGEN_MMX_INIT_V8QI;
+    }
+    return RCC_CODEGEN_MMX_NONE;
+}
+
+static int codegen_mmx_binary_opcode(const char* name) {
+    static const struct {
+        const char* name;
+        int opcode;
+    } opcodes[] = {
+        {"__builtin_ia32_packsswb", 0x63},
+        {"__builtin_ia32_packssdw", 0x6B},
+        {"__builtin_ia32_packuswb", 0x67},
+        {"__builtin_ia32_punpckhbw", 0x6F},
+        {"__builtin_ia32_punpckhwd", 0x65},
+        {"__builtin_ia32_punpckhdq", 0x6D},
+        {"__builtin_ia32_punpcklbw", 0x60},
+        {"__builtin_ia32_punpcklwd", 0x61},
+        {"__builtin_ia32_punpckldq", 0x62},
+        {"__builtin_ia32_paddb", 0xFC}, {"__builtin_ia32_paddw", 0xFD},
+        {"__builtin_ia32_paddd", 0xFE}, {"__builtin_ia32_paddsb", 0xEC},
+        {"__builtin_ia32_paddsw", 0xED}, {"__builtin_ia32_paddusb", 0xDC},
+        {"__builtin_ia32_paddusw", 0xDD}, {"__builtin_ia32_psubb", 0xF8},
+        {"__builtin_ia32_psubw", 0xF9}, {"__builtin_ia32_psubd", 0xFA},
+        {"__builtin_ia32_psubsb", 0xE8}, {"__builtin_ia32_psubsw", 0xE9},
+        {"__builtin_ia32_psubusb", 0xD8}, {"__builtin_ia32_psubusw", 0xD9},
+        {"__builtin_ia32_pmaddwd", 0xF5}, {"__builtin_ia32_pmulhw", 0xE5},
+        {"__builtin_ia32_pmullw", 0xD5}, {"__builtin_ia32_pand", 0xDB},
+        {"__builtin_ia32_pandn", 0xDF}, {"__builtin_ia32_por", 0xEB},
+        {"__builtin_ia32_pxor", 0xEF}, {"__builtin_ia32_pcmpeqb", 0x74},
+        {"__builtin_ia32_pcmpeqw", 0x75}, {"__builtin_ia32_pcmpeqd", 0x76},
+        {"__builtin_ia32_pcmpgtb", 0x64}, {"__builtin_ia32_pcmpgtw", 0x65},
+        {"__builtin_ia32_pcmpgtd", 0x66}
+    };
+    size_t index;
+    for (index = 0; index < sizeof(opcodes) / sizeof(opcodes[0]); ++index) {
+        if (strcmp(name, opcodes[index].name) == 0) return opcodes[index].opcode;
+    }
+    return -1;
+}
+
+static int codegen_mmx_shift_opcode(const char* name, int* group) {
+    static const struct {
+        const char* name;
+        int opcode;
+        int group;
+    } shifts[] = {
+        {"__builtin_ia32_psllw", 0xF1, 6}, {"__builtin_ia32_pslld", 0xF2, 6},
+        {"__builtin_ia32_psllq", 0xF3, 6}, {"__builtin_ia32_psraw", 0xE1, 4},
+        {"__builtin_ia32_psrad", 0xE2, 4}, {"__builtin_ia32_psrlw", 0xD1, 2},
+        {"__builtin_ia32_psrld", 0xD2, 2}, {"__builtin_ia32_psrlq", 0xD3, 2},
+        {"__builtin_ia32_psllwi", 0x71, 6}, {"__builtin_ia32_pslldi", 0x72, 6},
+        {"__builtin_ia32_psllqi", 0x73, 6}, {"__builtin_ia32_psrawi", 0x71, 4},
+        {"__builtin_ia32_psradi", 0x72, 4}, {"__builtin_ia32_psrlwi", 0x71, 2},
+        {"__builtin_ia32_psrldi", 0x72, 2}, {"__builtin_ia32_psrlqi", 0x73, 2}
+    };
+    size_t index;
+    for (index = 0; index < sizeof(shifts) / sizeof(shifts[0]); ++index) {
+        if (strcmp(name, shifts[index].name) == 0) {
+            if (group) *group = shifts[index].group;
+            return shifts[index].opcode;
+        }
+    }
+    return -1;
+}
+
+static int codegen_mmx_runtime_shift_opcode(const char* name) {
+    if (strcmp(name, "__builtin_ia32_psllwi") == 0) return 0xF1;
+    if (strcmp(name, "__builtin_ia32_pslldi") == 0) return 0xF2;
+    if (strcmp(name, "__builtin_ia32_psllqi") == 0) return 0xF3;
+    if (strcmp(name, "__builtin_ia32_psrawi") == 0) return 0xE1;
+    if (strcmp(name, "__builtin_ia32_psradi") == 0) return 0xE2;
+    if (strcmp(name, "__builtin_ia32_psrlwi") == 0) return 0xD1;
+    if (strcmp(name, "__builtin_ia32_psrldi") == 0) return 0xD2;
+    if (strcmp(name, "__builtin_ia32_psrlqi") == 0) return 0xD3;
+    return -1;
+}
+
+static void emit_mmx_load(Module* mod, int mm, int base, int32_t disp) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0x6F);
+    emit_memory_operand32(mod, mm, base, disp);
+}
+
+static void emit_mmx_store(Module* mod, int base, int32_t disp, int mm) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0x7F);
+    emit_memory_operand32(mod, mm, base, disp);
+}
+
+static void emit_mmx_binary(Module* mod, int opcode) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, (uint8_t)opcode);
+    emit_byte(mod, modrm(3, 0, 1));
+}
+
+static void emit_mmx_immediate_shift(Module* mod, int opcode, int group,
+                                     uint8_t amount) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, (uint8_t)opcode);
+    emit_byte(mod, modrm(3, group, 0));
+    emit_byte(mod, amount);
+}
+
+static bool gen_mmx_builtin32(Module* mod, Expr* expr) {
+    RccCodegenMmxKind kind;
+    Expr* argument;
+    int opcode;
+    int group = 0;
+    int64_t amount = 0;
+    bool immediate_constant = false;
+    int index;
+
+    if (!expr || !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
+        return false;
+    }
+    kind = codegen_mmx_builtin_kind(expr->call_func->ident_name);
+    if (kind == RCC_CODEGEN_MMX_NONE) return false;
+    if (kind == RCC_CODEGEN_MMX_INIT_V2SI ||
+        kind == RCC_CODEGEN_MMX_INIT_V4HI ||
+        kind == RCC_CODEGEN_MMX_INIT_V8QI) {
+        emit_sub_reg_imm(mod, ESP, 32);
+        for (index = 0; index <
+             (kind == RCC_CODEGEN_MMX_INIT_V2SI ? 2 :
+              kind == RCC_CODEGEN_MMX_INIT_V4HI ? 4 : 8); ++index) {
+            gen_expr(mod, call_argument(expr, index));
+            emit_mov_mem_reg(mod, ESP, 16 + index * 4, EAX);
+        }
+        if (kind == RCC_CODEGEN_MMX_INIT_V2SI) {
+            emit_mov_reg_mem(mod, EAX, ESP, 16);
+            emit_mov_reg_mem(mod, EDX, ESP, 20);
+        } else {
+            emit_mov_reg_imm(mod, EAX, 0);
+            emit_mov_reg_imm(mod, EDX, 0);
+            for (index = 0; index <
+                 (kind == RCC_CODEGEN_MMX_INIT_V4HI ? 4 : 8); ++index) {
+                emit_mov_reg_mem(mod, ECX, ESP, 16 + index * 4);
+                emit_and_reg_imm(mod, ECX,
+                                 kind == RCC_CODEGEN_MMX_INIT_V4HI
+                                     ? 0xFFFFu : 0xFFu);
+                if (kind == RCC_CODEGEN_MMX_INIT_V4HI) {
+                    emit_shl_reg_imm(mod, ECX,
+                        (uint8_t)((index & 1) * 16));
+                    emit_or_reg_reg(mod, index >= 2 ? EDX : EAX, ECX);
+                } else {
+                    if (index >= 4) emit_shl_reg_imm(mod, ECX,
+                        (uint8_t)((index - 4) * 8));
+                    else emit_shl_reg_imm(mod, ECX, (uint8_t)(index * 8));
+                    emit_or_reg_reg(mod, index >= 4 ? EDX : EAX, ECX);
+                }
+            }
+        }
+        emit_add_reg_imm(mod, ESP, 32);
+        return true;
+    }
+
+    emit_sub_reg_imm(mod, ESP, 16);
+    gen_expr_as_integer64(mod, call_argument(expr, 0));
+    emit_mov_mem_reg(mod, ESP, 0, EAX);
+    emit_mov_mem_reg(mod, ESP, 4, EDX);
+    if (kind == RCC_CODEGEN_MMX_IMMEDIATE_SHIFT) {
+        argument = call_argument(expr, 1);
+        immediate_constant = expr_eval_integer_constant(argument, &amount);
+        if (!immediate_constant) {
+            gen_expr_as_integer64(mod, argument);
+            emit_mov_mem_reg(mod, ESP, 8, EAX);
+            emit_mov_mem_reg(mod, ESP, 12, EDX);
+        }
+    } else {
+        gen_expr_as_integer64(mod, call_argument(expr, 1));
+        emit_mov_mem_reg(mod, ESP, 8, EAX);
+        emit_mov_mem_reg(mod, ESP, 12, EDX);
+    }
+    emit_mmx_load(mod, 0, ESP, 0);
+    if (kind == RCC_CODEGEN_MMX_BINARY) {
+        emit_mmx_load(mod, 1, ESP, 8);
+        opcode = codegen_mmx_binary_opcode(expr->call_func->ident_name);
+        emit_mmx_binary(mod, opcode);
+    } else if (kind == RCC_CODEGEN_MMX_VARIABLE_SHIFT) {
+        emit_mmx_load(mod, 1, ESP, 8);
+        opcode = codegen_mmx_shift_opcode(expr->call_func->ident_name, &group);
+        emit_mmx_binary(mod, opcode);
+    } else if (immediate_constant) {
+        opcode = codegen_mmx_shift_opcode(expr->call_func->ident_name, &group);
+        emit_mmx_immediate_shift(mod, opcode, group, (uint8_t)amount);
+    } else {
+        emit_mmx_load(mod, 1, ESP, 8);
+        opcode = codegen_mmx_runtime_shift_opcode(
+            expr->call_func->ident_name);
+        emit_mmx_binary(mod, opcode);
+    }
+    emit_mmx_store(mod, ESP, 0, 0);
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_mov_reg_mem(mod, EDX, ESP, 4);
+    emit_add_reg_imm(mod, ESP, 16);
+    return true;
+}
+
 static const Type* atomic_value_type(Expr* call) {
     Expr* object = call_argument(call, 0);
     return object && object->type && object->type->kind == TYPE_PTR
@@ -7812,6 +8082,7 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         return false;
     }
     function = expr->call_func;
+    if (gen_mmx_builtin32(mod, expr)) return true;
     bswap_width = strcmp(function->ident_name, "__builtin_bswap16") == 0 ? 2 :
         strcmp(function->ident_name, "__builtin_bswap32") == 0 ? 4 :
         strcmp(function->ident_name, "__builtin_bswap64") == 0 ? 8 : 0;
@@ -9518,6 +9789,12 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xF3);
         emit_byte(mod, 0x90);
+        return true;
+    }
+    else if (strcmp(mnemonic, "emms") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x77);
         return true;
     }
     else if (strcmp(mnemonic, "mfence") == 0) {

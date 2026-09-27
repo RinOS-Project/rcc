@@ -10883,6 +10883,83 @@ static Expr* initializer_string_literal(Expr* initializer) {
     return NULL;
 }
 
+typedef enum {
+    RCC_MMX_BUILTIN_NONE,
+    RCC_MMX_BUILTIN_BINARY,
+    RCC_MMX_BUILTIN_VARIABLE_SHIFT,
+    RCC_MMX_BUILTIN_IMMEDIATE_SHIFT,
+    RCC_MMX_BUILTIN_INIT_V2SI,
+    RCC_MMX_BUILTIN_INIT_V4HI,
+    RCC_MMX_BUILTIN_INIT_V8QI
+} RccMmxBuiltinKind;
+
+static RccMmxBuiltinKind sema_mmx_builtin_kind(const char* name) {
+    static const char* const binary_names[] = {
+        "__builtin_ia32_packsswb", "__builtin_ia32_packssdw",
+        "__builtin_ia32_packuswb", "__builtin_ia32_punpckhbw",
+        "__builtin_ia32_punpckhwd", "__builtin_ia32_punpckhdq",
+        "__builtin_ia32_punpcklbw", "__builtin_ia32_punpcklwd",
+        "__builtin_ia32_punpckldq", "__builtin_ia32_paddb",
+        "__builtin_ia32_paddw", "__builtin_ia32_paddd",
+        "__builtin_ia32_paddsb", "__builtin_ia32_paddsw",
+        "__builtin_ia32_paddusb", "__builtin_ia32_paddusw",
+        "__builtin_ia32_psubb", "__builtin_ia32_psubw",
+        "__builtin_ia32_psubd", "__builtin_ia32_psubsb",
+        "__builtin_ia32_psubsw", "__builtin_ia32_psubusb",
+        "__builtin_ia32_psubusw", "__builtin_ia32_pmaddwd",
+        "__builtin_ia32_pmulhw", "__builtin_ia32_pmullw",
+        "__builtin_ia32_pand", "__builtin_ia32_pandn",
+        "__builtin_ia32_por", "__builtin_ia32_pxor",
+        "__builtin_ia32_pcmpeqb", "__builtin_ia32_pcmpeqw",
+        "__builtin_ia32_pcmpeqd", "__builtin_ia32_pcmpgtb",
+        "__builtin_ia32_pcmpgtw", "__builtin_ia32_pcmpgtd"
+    };
+    static const char* const variable_shift_names[] = {
+        "__builtin_ia32_psllw", "__builtin_ia32_pslld",
+        "__builtin_ia32_psllq", "__builtin_ia32_psraw",
+        "__builtin_ia32_psrad", "__builtin_ia32_psrlw",
+        "__builtin_ia32_psrld", "__builtin_ia32_psrlq"
+    };
+    static const char* const immediate_shift_names[] = {
+        "__builtin_ia32_psllwi", "__builtin_ia32_pslldi",
+        "__builtin_ia32_psllqi", "__builtin_ia32_psrawi",
+        "__builtin_ia32_psradi", "__builtin_ia32_psrlwi",
+        "__builtin_ia32_psrldi", "__builtin_ia32_psrlqi"
+    };
+    size_t index;
+    if (!name) return RCC_MMX_BUILTIN_NONE;
+    for (index = 0; index < sizeof(binary_names) / sizeof(binary_names[0]);
+         ++index) {
+        if (strcmp(name, binary_names[index]) == 0) {
+            return RCC_MMX_BUILTIN_BINARY;
+        }
+    }
+    for (index = 0;
+         index < sizeof(variable_shift_names) / sizeof(variable_shift_names[0]);
+         ++index) {
+        if (strcmp(name, variable_shift_names[index]) == 0) {
+            return RCC_MMX_BUILTIN_VARIABLE_SHIFT;
+        }
+    }
+    for (index = 0;
+         index < sizeof(immediate_shift_names) /
+                    sizeof(immediate_shift_names[0]); ++index) {
+        if (strcmp(name, immediate_shift_names[index]) == 0) {
+            return RCC_MMX_BUILTIN_IMMEDIATE_SHIFT;
+        }
+    }
+    if (strcmp(name, "__builtin_ia32_vec_init_v2si") == 0) {
+        return RCC_MMX_BUILTIN_INIT_V2SI;
+    }
+    if (strcmp(name, "__builtin_ia32_vec_init_v4hi") == 0) {
+        return RCC_MMX_BUILTIN_INIT_V4HI;
+    }
+    if (strcmp(name, "__builtin_ia32_vec_init_v8qi") == 0) {
+        return RCC_MMX_BUILTIN_INIT_V8QI;
+    }
+    return RCC_MMX_BUILTIN_NONE;
+}
+
 static bool sema_compiler_builtin_call(Expr* expr) {
     Expr* function;
     Expr* first;
@@ -10893,6 +10970,7 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     int bswap_width = 0;
     bool is_bit_count = false;
     bool is_bit_count_wide = false;
+    RccMmxBuiltinKind mmx_kind;
 
     if (!expr || expr->kind != EXPR_CALL ||
         !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
@@ -10900,6 +10978,52 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     }
     function = expr->call_func;
     name = function->ident_name;
+    mmx_kind = sema_mmx_builtin_kind(name);
+    if (mmx_kind != RCC_MMX_BUILTIN_NONE) {
+        int expected_count = mmx_kind == RCC_MMX_BUILTIN_INIT_V2SI ? 2 :
+            mmx_kind == RCC_MMX_BUILTIN_INIT_V4HI ? 4 :
+            mmx_kind == RCC_MMX_BUILTIN_INIT_V8QI ? 8 : 2;
+        int64_t immediate = 0;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != expected_count) {
+            rcc_error(expr->loc, "%s expects %d arguments, got %d", name,
+                      expected_count, argument_count);
+        }
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            if (!argument->expr->type ||
+                !type_is_integer(argument->expr->type) ||
+                argument->expr->type->size >
+                    (mmx_kind == RCC_MMX_BUILTIN_INIT_V2SI ||
+                     mmx_kind == RCC_MMX_BUILTIN_INIT_V4HI ||
+                     mmx_kind == RCC_MMX_BUILTIN_INIT_V8QI ? 4 : 8)) {
+                rcc_error(expr->loc,
+                          "%s expects integer arguments within the MMX value width",
+                          name);
+            }
+        }
+        if (mmx_kind == RCC_MMX_BUILTIN_IMMEDIATE_SHIFT) {
+            second = expr->call_args && expr->call_args->next
+                ? expr->call_args->next->expr : NULL;
+            if (!second || !second->type || !type_is_integer(second->type)) {
+                rcc_error(expr->loc,
+                          "%s shift count must have integer type",
+                          name);
+            } else if (expr_eval_integer_constant(second, &immediate) &&
+                       (immediate < 0 || immediate > 63)) {
+                rcc_error(expr->loc,
+                          "%s constant shift count must be between 0 and 63",
+                          name);
+            }
+        }
+        function->type = type_ptr(type_llong);
+        expr->type = type_llong;
+        return true;
+    }
     if (strcmp(name, "__builtin_bswap16") == 0) {
         bswap_width = 2;
     } else if (strcmp(name, "__builtin_bswap32") == 0) {
