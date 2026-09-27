@@ -183,7 +183,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-decltype-auto-local \
 	test-cxx-const-cast test-cxx-dynamic-cast
 .PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime test-cxx-dynamic-cast-reference
-.PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
+.PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor test-cxx-inherited-constructor
 .PHONY: test-cxx-qualified-class-initialization test-cxx-static-member-tls
 .PHONY: test-cxx-constructor-general
 .PHONY: test-cxx-implicit-copy
@@ -241,6 +241,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-default-member-initializer \
 	test-cxx-delegating-constructor \
 	test-cxx-converting-constructor \
+	test-cxx-inherited-constructor \
 	test-cxx-static-members \
 	test-cxx-static-data-members \
 	test-cxx-static-member-tls \
@@ -5300,6 +5301,72 @@ test-cxx-converting-constructor: $(RCXX_TARGET)
 	grep -q "no safely lowerable constructor accepts the C++ initializer" \
 		$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
 	@echo "C++ converting constructor tests completed"
+
+test-cxx-inherited-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor/x86.s \
+		tests/cxx_inherited_constructor.cpp
+	$(CC) -m32 -o $(TEST_OUT)/cxx-inherited-constructor/x86 \
+		tests/cxx_inherited_constructor_run_test.c \
+		$(TEST_OUT)/cxx-inherited-constructor/x86.s
+	$(TEST_OUT)/cxx-inherited-constructor/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor/x64.s \
+		tests/cxx_inherited_constructor.cpp
+	$(CC) -o $(TEST_OUT)/cxx-inherited-constructor/x64 \
+		tests/cxx_inherited_constructor_run_test.c \
+		$(TEST_OUT)/cxx-inherited-constructor/x64.s
+	$(TEST_OUT)/cxx-inherited-constructor/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro \
+		tests/cxx_inherited_constructor_invalid_virtual.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log 2>&1
+	grep -q "using-base constructor cannot name a virtual base" \
+		$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.ro \
+		tests/cxx_inherited_constructor_invalid_virtual.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log 2>&1
+	grep -q "using-base constructor cannot name a virtual base" \
+		$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/access-x86.ro \
+		tests/cxx_inherited_constructor_invalid_access.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/access-x86.log 2>&1
+	grep -q "using-base constructor requires a public direct base" \
+		$(TEST_OUT)/cxx-inherited-constructor/access-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/access-x64.ro \
+		tests/cxx_inherited_constructor_invalid_access.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/access-x64.log 2>&1
+	grep -q "using-base constructor requires a public direct base" \
+		$(TEST_OUT)/cxx-inherited-constructor/access-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/member-x86.ro \
+		tests/cxx_inherited_constructor_invalid_member.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/member-x86.log 2>&1
+	grep -q "using-base constructors require scalar derived fields" \
+		$(TEST_OUT)/cxx-inherited-constructor/member-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/member-x64.ro \
+		tests/cxx_inherited_constructor_invalid_member.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/member-x64.log 2>&1
+	grep -q "using-base constructors require scalar derived fields" \
+		$(TEST_OUT)/cxx-inherited-constructor/member-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/unknown-x86.ro \
+		tests/cxx_inherited_constructor_invalid_unknown.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log 2>&1
+	grep -q "using-base constructor names an unknown direct base" \
+		$(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor/unknown-x64.ro \
+		tests/cxx_inherited_constructor_invalid_unknown.cpp \
+		>$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log 2>&1
+	grep -q "using-base constructor names an unknown direct base" \
+		$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log
+	@echo "C++ inherited constructor tests completed"
 
 test-aggregate-union-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-union-abi)

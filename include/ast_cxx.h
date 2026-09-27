@@ -67,6 +67,7 @@ struct CxxConstructorInfo {
     bool body_is_empty;
     bool is_deleted;
     bool is_defaulted;
+    bool is_inherited;
     AccessSpec access;
     CxxConstructorInfo* next;
 };
@@ -107,6 +108,8 @@ struct CxxClass {
     struct {
         const char* base_name;
         const char* member_name;
+        AccessSpec access;
+        SourceLoc loc;
     } *using_base_members;
     int using_base_member_count;
     /* Friend class declarations are retained as source-qualified names so a
@@ -374,7 +377,8 @@ char* cxx_mangle_type(Type* type);
 CxxClass* cxx_class_alloc(const char* name, bool is_struct);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
-                                     const char* member_name);
+                                     const char* member_name, AccessSpec access,
+                                     SourceLoc loc);
 void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name);
 void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
                               AccessSpec access);

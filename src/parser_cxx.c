@@ -2030,6 +2030,239 @@ static CxxConstructorInitializer* cxx_copy_constructor_initializer(
     return copy;
 }
 
+static bool cxx_using_name_matches_base(const char* using_base,
+                                        const CxxClass* base) {
+    const char* suffix;
+    if (!using_base || !base || !base->name) return false;
+    if (strcmp(using_base, base->name) == 0) return true;
+    suffix = strstr(using_base, "::");
+    while (suffix) {
+        suffix += 2;
+        if (strcmp(suffix, base->name) == 0) return true;
+        suffix = strstr(suffix, "::");
+    }
+    return false;
+}
+
+static bool cxx_constructor_parameter_lists_match(
+    const CxxConstructorInfo* left, const CxxConstructorInfo* right) {
+    TypeParam* left_parameter = left ? left->parameters : NULL;
+    TypeParam* right_parameter = right ? right->parameters : NULL;
+    if (!left || !right || left->parameter_count != right->parameter_count) {
+        return false;
+    }
+    while (left_parameter && right_parameter) {
+        if (!left_parameter->type || !right_parameter->type ||
+            !type_is_compatible(left_parameter->type, right_parameter->type)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return !left_parameter && !right_parameter;
+}
+
+static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
+    if (!cls) return false;
+    if (cls->has_field_initializer) return false;
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->type && (field->type->cxx_class ||
+                            field->type->kind == TYPE_ARRAY)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_inherited_constructor_source_supported(
+    const CxxConstructorInfo* source) {
+    return source && source->method && source->method->decl &&
+           !source->is_deleted && !source->is_defaulted &&
+           source->access == ACCESS_PUBLIC &&
+           source->initializers_are_supported;
+}
+
+static CxxConstructorInfo* cxx_make_inherited_constructor(
+    CxxClass* cls, CxxClass* base, CxxConstructorInfo* source) {
+    CxxMethod* method;
+    CxxConstructorInfo* inherited;
+    CxxConstructorInitializer* initializer;
+    DeclList* parameter;
+    if (!cls || !base || !source || !source->method ||
+        !cxx_inherited_constructor_source_supported(source)) {
+        return NULL;
+    }
+    method = cxx_method_new(cls->name, type_void,
+                            source->method->decl->func_params, NULL,
+                            source->method->decl->loc);
+    method->source_name = cls->name;
+    method->owner = cls;
+    method->access = source->access;
+    method->is_constructor = true;
+    method->is_explicit = source->method->is_explicit;
+    method->is_noexcept = source->method->is_noexcept;
+    method->decl->func_is_cxx_method = true;
+    method->decl->func_has_cxx_linkage = true;
+    method->decl->func_is_cxx_constructor = true;
+    method->decl->func_is_noexcept = method->is_noexcept;
+    method->decl->func_noexcept_expr = source->method->decl->func_noexcept_expr;
+    method->decl->func_method_owner = cls->type;
+
+    inherited = rcc_alloc(sizeof(*inherited));
+    inherited->method = method;
+    inherited->parameter_count = source->parameter_count;
+    inherited->parameters = source->parameters;
+    inherited->initializers_are_supported = true;
+    inherited->body_is_empty = true;
+    inherited->is_deleted = false;
+    inherited->is_defaulted = false;
+    inherited->is_inherited = true;
+    inherited->access = source->access;
+
+    initializer = ast_arena_alloc(sizeof(*initializer));
+    initializer->arguments = NULL;
+    initializer->field = rcc_intern(base->name);
+    initializer->constructor = source;
+    initializer->is_base_initializer = true;
+    initializer->is_virtual_base_initializer = false;
+    initializer->is_delegating_constructor = false;
+    initializer->is_default_member_initializer = false;
+    initializer->next = NULL;
+    for (parameter = source->method->decl->func_params;
+         parameter; parameter = parameter->next) {
+        if (!parameter->decl || !parameter->decl->name) return NULL;
+        exprlist_append(&initializer->arguments,
+                        expr_ident(parameter->decl->name,
+                                   parameter->decl->loc));
+    }
+    initializer->value = initializer->arguments
+        ? initializer->arguments->expr : NULL;
+    inherited->initializers = initializer;
+    inherited->initializer_count = 1;
+    return inherited;
+}
+
+/* Materialize only the bounded form of `using Base::Base`: public direct
+ * non-virtual bases with scalar derived fields.  The synthesized constructor
+ * owns the derived object but delegates the complete base initialization to
+ * the original constructor, so no fake function body or unresolved symbol is
+ * emitted. */
+static void cxx_materialize_inherited_constructors(CxxClass* cls) {
+    CxxConstructorInfo** tail;
+    if (!cls || cls->base_count == 0) return;
+    for (int using_index = 0;
+         using_index < cls->using_base_member_count; ++using_index) {
+        const char* member_name =
+            cls->using_base_members[using_index].member_name;
+        bool names_constructor = false;
+        for (int base_index = 0; base_index < cls->base_count;
+             ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            if (!base || !cxx_using_name_matches_base(
+                             cls->using_base_members[using_index].base_name,
+                             base) ||
+                !cxx_using_name_matches_base(member_name, base)) {
+                continue;
+            }
+            names_constructor = true;
+            if (cls->bases[base_index].access != ACCESS_PUBLIC) {
+                rcc_error(cls->using_base_members[using_index].loc,
+                          "using-base constructor requires a public direct base");
+            } else if (cls->bases[base_index].is_virtual) {
+                rcc_error(cls->using_base_members[using_index].loc,
+                          "using-base constructor cannot name a virtual base");
+            } else if (!cxx_inherited_constructor_member_supported(cls)) {
+                rcc_error(cls->using_base_members[using_index].loc,
+                          "using-base constructors require scalar derived fields "
+                          "without member initializers in the bounded RCC++ profile");
+            } else {
+                bool has_lowerable_source = false;
+                for (CxxConstructorInfo* source = base->constructors;
+                     source; source = source->next) {
+                    if (!cxx_inherited_constructor_source_supported(source)) {
+                        continue;
+                    }
+                    if (source->parameter_count == 1 && source->parameters &&
+                        source->parameters->type &&
+                        source->parameters->type->kind == TYPE_PTR &&
+                        source->parameters->type->is_reference &&
+                        source->parameters->type->base &&
+                        type_is_compatible(source->parameters->type->base,
+                                           base->type)) {
+                        continue;
+                    }
+                    has_lowerable_source = true;
+                    break;
+                }
+                if (!has_lowerable_source) {
+                    rcc_error(cls->using_base_members[using_index].loc,
+                              "using-base constructor has no safely lowerable "
+                              "base overloads");
+                }
+            }
+            break;
+        }
+        if (!names_constructor && member_name &&
+            cls->using_base_members[using_index].base_name &&
+            strcmp(cxx_unqualified_name(member_name),
+                   cxx_unqualified_name(
+                       cls->using_base_members[using_index].base_name)) == 0) {
+            rcc_error(cls->using_base_members[using_index].loc,
+                      "using-base constructor names an unknown direct base");
+        }
+    }
+    if (!cxx_inherited_constructor_member_supported(cls)) return;
+    tail = &cls->constructors;
+    while (*tail) tail = &(*tail)->next;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        bool inherited = false;
+        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC ||
+            cls->bases[base_index].is_virtual) continue;
+        for (int index = 0; index < cls->using_base_member_count; ++index) {
+            const char* member_name = cls->using_base_members[index].member_name;
+            if (cxx_using_name_matches_base(
+                    cls->using_base_members[index].base_name, base) &&
+                cxx_using_name_matches_base(member_name, base)) {
+                inherited = true;
+                break;
+            }
+        }
+        if (!inherited) continue;
+        for (CxxConstructorInfo* source = base->constructors;
+             source; source = source->next) {
+            CxxConstructorInfo* duplicate = NULL;
+            CxxConstructorInfo* copy;
+            if (!cxx_inherited_constructor_source_supported(source) ||
+                (source->parameter_count == 1 && source->parameters &&
+                source->parameters->type &&
+                source->parameters->type->kind == TYPE_PTR &&
+                source->parameters->type->is_reference &&
+                source->parameters->type->base &&
+                type_is_compatible(source->parameters->type->base, base->type))) {
+                continue;
+            }
+            for (CxxConstructorInfo* existing = cls->constructors;
+                 existing; existing = existing->next) {
+                if (cxx_constructor_parameter_lists_match(existing, source)) {
+                    duplicate = existing;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            copy = cxx_make_inherited_constructor(cls, base, source);
+            if (!copy) {
+                rcc_error((SourceLoc){"<class>", 0, 0},
+                          "using-base constructor is not safely lowerable");
+                continue;
+            }
+            *tail = copy;
+            tail = &copy->next;
+            cls->has_user_constructor = true;
+        }
+    }
+}
+
 static CxxConstructorInitializer* cxx_find_constructor_initializer(
     CxxConstructorInfo* constructor, const char* field, bool* duplicate) {
     CxxConstructorInitializer* result = NULL;
@@ -2054,6 +2287,7 @@ static CxxConstructorInitializer* cxx_find_constructor_initializer(
 static void complete_cxx_default_member_initializers(CxxClass* cls) {
     if (!cls || (!cls->has_field_initializer && cls->base_count == 0 &&
                  !cls->constructors)) return;
+    cxx_materialize_inherited_constructors(cls);
     for (CxxConstructorInfo* constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         CxxConstructorInitializer* ordered = NULL;
@@ -2103,8 +2337,9 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                     valid = false;
                     continue;
                 }
-                base_constructor = cxx_find_base_constructor(
-                    base, argument_count);
+                base_constructor = constructor->is_inherited
+                    ? item->constructor
+                    : cxx_find_base_constructor(base, argument_count);
                 if ((!base_constructor && argument_count != 0) ||
                     (!base_constructor && base && base->constructors)) {
                     valid = false;
@@ -4663,7 +4898,8 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                         base_name[base_length] = '\0';
                         cxx_class_add_using_base_member(
                             cls, rcc_intern(base_name),
-                            rcc_intern(separator + 1));
+                            rcc_intern(separator + 1), current_access,
+                            using_loc);
                     }
                 }
                 expect(TOK_SEMICOLON, ";");
