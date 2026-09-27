@@ -4027,7 +4027,7 @@ test-cxx-decltype: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-decltype/invalid.ro \
 		tests/cxx_decltype_invalid.cpp \
 		>$(TEST_OUT)/cxx-decltype/invalid.log 2>&1; then \
-		echo "unsupported decltype expression unexpectedly compiled"; exit 1; \
+		echo "unsupported decltype assignment unexpectedly compiled"; exit 1; \
 	fi
 
 test-cxx-decltype-auto: $(RCXX_TARGET)

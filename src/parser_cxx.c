@@ -81,6 +81,9 @@ static unsigned cxx_structured_binding_counter;
 
 static int cxx_class_pack_index(CxxTemplate* tmpl);
 static Type* cxx_parser_value_type(const char* name);
+static Type* cxx_decltype_member_type(Type* object_type,
+                                      const char* member_name,
+                                      SourceLoc loc);
 static bool cxx_template_constraint_satisfied(
     CxxTemplate* tmpl, Type** arguments, const int64_t* values,
     const bool* value_present, SourceLoc loc, bool report_errors);
@@ -10250,7 +10253,7 @@ static Type* cxx_decltype_function_return(const char* name, SourceLoc loc) {
  * source-level type.  `decltype` is intentionally not an integer fallback:
  * an unsupported dependent or side-effecting expression is diagnosed at its
  * grammar boundary rather than being assigned a guessed type. */
-static Type* parse_cxx_decltype_type(SourceLoc loc) {
+static Type* parse_cxx_decltype_type_legacy(SourceLoc loc) {
     Type* result = NULL;
     bool extra_parentheses = false;
     bool valid = true;
@@ -10377,6 +10380,117 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
             result = result->base;
         }
         reference = type_ptr(result);
+        reference->is_reference = true;
+        return reference;
+    }
+    return result;
+}
+
+static bool cxx_decltype_expression_is_lvalue(Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+        case EXPR_INDEX:
+        case EXPR_DEREF:
+            return true;
+        case EXPR_COMMA:
+            return cxx_decltype_expression_is_lvalue(
+                expression->binary_rhs);
+        case EXPR_COND:
+            return cxx_decltype_expression_is_lvalue(expression->cond_then) &&
+                   cxx_decltype_expression_is_lvalue(expression->cond_else);
+        default:
+            return false;
+    }
+}
+
+static Type* cxx_decltype_parsed_expression_type(Expr* expression,
+                                                 SourceLoc loc) {
+    Type* object_type;
+    if (!expression) return NULL;
+    switch (expression->kind) {
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            /* Assignment expressions are valid C++, but this frontend does
+             * not retain their lvalue category in a type-only parse.  Keep
+             * the boundary explicit until that category is represented. */
+            return NULL;
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return type_bool;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            object_type = cxx_parser_expression_type(
+                expression->member_base);
+            if (expression->kind == EXPR_PTR_MEMBER &&
+                (!object_type || object_type->kind != TYPE_PTR)) {
+                return NULL;
+            }
+            return cxx_decltype_member_type(object_type,
+                                            expression->member_name,
+                                            loc);
+        case EXPR_IDENT:
+            if (!cxx_parser_value_type(expression->ident_name) &&
+                rcc_parser_lookup_type(expression->ident_name)) {
+                return NULL;
+            }
+            return cxx_parser_expression_type(expression);
+        default:
+            return cxx_parser_expression_type(expression);
+    }
+}
+
+static Type* parse_cxx_decltype_type(SourceLoc loc) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    Expr* expression;
+    Type* result;
+    bool extra_parentheses;
+    bool is_lvalue;
+    int errors_before = g_error_count;
+
+    expect(TOK_DECLTYPE, "decltype");
+    expect(TOK_LPAREN, "(");
+    extra_parentheses = check(TOK_LPAREN);
+    expression = parse_expression();
+    if (!check(TOK_RPAREN)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return parse_cxx_decltype_type_legacy(loc);
+    }
+    advance();
+    if (g_error_count != errors_before) return type_int;
+
+    result = cxx_decltype_parsed_expression_type(expression, loc);
+    if (!result) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return parse_cxx_decltype_type_legacy(loc);
+    }
+
+    is_lvalue = cxx_decltype_expression_is_lvalue(expression);
+    if ((extra_parentheses || expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER ||
+         expression->kind == EXPR_INDEX ||
+         expression->kind == EXPR_DEREF) && is_lvalue) {
+        Type* reference = type_ptr(result);
         reference->is_reference = true;
         return reference;
     }
