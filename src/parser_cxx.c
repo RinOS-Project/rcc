@@ -4830,7 +4830,8 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     /* Inheritance */
     if (match(TOK_COLON)) {
         do {
-            AccessSpec inherit_access = ACCESS_PRIVATE;
+            AccessSpec inherit_access = is_struct
+                ? ACCESS_PUBLIC : ACCESS_PRIVATE;
             bool is_virtual = false;
             if (match(TOK_VIRTUAL)) is_virtual = true;
             if (match(TOK_PUBLIC)) inherit_access = ACCESS_PUBLIC;

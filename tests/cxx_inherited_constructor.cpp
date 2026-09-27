@@ -5,7 +5,7 @@ struct InheritedBase {
     int value_;
 };
 
-struct InheritedDerived : public InheritedBase {
+struct InheritedDerived : InheritedBase {
     using InheritedBase::InheritedBase;
 };
 
