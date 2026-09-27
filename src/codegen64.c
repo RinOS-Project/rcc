@@ -691,6 +691,62 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
 static void gen64_cxx_dynamic_cast_runtime(Module* mod, Expr* expr);
+static void emit64_normalize_atomic_value(Module* mod, int reg,
+                                          const Type* type);
+static void emit64_atomic_cmpxchg_width(Module* mod, int desired, int address,
+                                        const Type* type);
+static void emit64_label(Module* mod, int label);
+static void emit64_jcc_label(Module* mod, int cc, int label);
+
+/* Lower integer atomic bitwise compound assignments as a CAS loop.  This
+ * keeps the lvalue and RHS single-evaluation guarantees while making the
+ * read/modify/write indivisible for every native integer width. */
+static bool gen64_atomic_bitwise_assignment(Module* mod, Expr* expr) {
+    Type* type;
+    int retry_label;
+
+    if (!expr || !expr->binary_lhs || !expr->binary_lhs->type ||
+        !expr->binary_lhs->type->is_atomic) return false;
+    if (expr->kind != EXPR_AND_ASSIGN && expr->kind != EXPR_OR_ASSIGN &&
+        expr->kind != EXPR_XOR_ASSIGN) return false;
+
+    type = expr->binary_lhs->type;
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM) {
+        rcc_error(expr->loc,
+                  "atomic bitwise assignment requires an integer object");
+        return true;
+    }
+    if (type->size != 1 && type->size != 2 && type->size != 4 &&
+        type->size != 8) {
+        rcc_error(expr->loc,
+                  "AMD64 atomic bitwise assignment has unsupported object width");
+        return true;
+    }
+
+    gen64_expr(mod, expr->binary_rhs);
+    emit64_normalize_atomic_value(mod, RAX, type);
+    emit64_push_reg(mod, RAX); /* Operand. */
+    gen64_lvalue(mod, expr->binary_lhs);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_load_typed(mod, RAX, RCX, 0, type);
+    retry_label = new_label64();
+    emit64_label(mod, retry_label);
+    emit64_mov_reg_reg(mod, RDX, RAX);
+    emit64_mov_reg_mem(mod, R8, RSP, 0);
+    if (expr->kind == EXPR_AND_ASSIGN) {
+        emit64_and_reg_reg(mod, RDX, R8);
+    } else if (expr->kind == EXPR_OR_ASSIGN) {
+        emit64_or_reg_reg(mod, RDX, R8);
+    } else {
+        emit64_xor_reg_reg(mod, RDX, R8);
+    }
+    emit64_normalize_atomic_value(mod, RDX, type);
+    emit64_atomic_cmpxchg_width(mod, RDX, RCX, type);
+    emit64_jcc_label(mod, CC64_NE, retry_label);
+    emit64_mov_reg_reg(mod, RAX, RDX);
+    emit64_add_reg_imm(mod, RSP, 8);
+    return true;
+}
 
 static bool gen64_expr_is_lvalue(Expr* expression) {
     if (!expression) return false;
@@ -4924,6 +4980,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                                expr->binary_rhs->type);
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
+                if (gen64_atomic_bitwise_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "atomic compound assignment operator is not supported by the target RMW backend");
                 break;

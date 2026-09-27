@@ -2913,9 +2913,113 @@ static void gen_expr64_pair(Module* mod, Expr* expr);
 static void gen_expr_as_integer64(Module* mod, Expr* expr);
 static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
 static void gen_call(Module* mod, Expr* expr);
+static void gen_lvalue(Module* mod, Expr* expr);
+static void emit_normalize_atomic_value(Module* mod, int reg,
+                                         const Type* type);
+static void emit_atomic_cmpxchg_width(Module* mod, int desired, int address,
+                                      const Type* type);
+static void emit_atomic_cmpxchg8b(Module* mod, int address);
 static void emit_convert_integer_value(Module* mod, int reg,
                                        const Type* source_type,
                                        const Type* target_type);
+
+/* Lower the integer atomic bitwise compound assignments with the same
+ * compare/exchange retry semantics as the standard atomic bitwise builtins.
+ * The address and RHS are each evaluated once; a failed exchange reloads the
+ * observed value from EAX (or EDX:EAX on the i686 wide path). */
+static bool gen_atomic_bitwise_assignment(Module* mod, Expr* expr) {
+    Type* type;
+    int retry_label;
+
+    if (!expr || !expr->binary_lhs || !expr->binary_lhs->type ||
+        !expr->binary_lhs->type->is_atomic) return false;
+    if (expr->kind != EXPR_AND_ASSIGN && expr->kind != EXPR_OR_ASSIGN &&
+        expr->kind != EXPR_XOR_ASSIGN) return false;
+
+    type = expr->binary_lhs->type;
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM) {
+        rcc_error(expr->loc,
+                  "atomic bitwise assignment requires an integer object");
+        return true;
+    }
+
+    if (type->size == 8) {
+        /* CMPXCHG8B uses EDX:EAX as the expected value and ECX:EBX as the
+         * replacement.  Keep the operand on the stack while preserving all
+         * callee-saved registers used by the loop. */
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr_as_integer64(mod, expr->binary_rhs);
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        gen_lvalue(mod, expr->binary_lhs);
+        emit_mov_reg_reg(mod, ESI, EAX);
+        emit_mov_reg_mem(mod, EAX, ESI, 0);
+        emit_mov_reg_mem(mod, EDX, ESI, 4);
+        retry_label = new_label();
+        emit_label(mod, retry_label);
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_mov_reg_mem(mod, EDI, ESP, 0);
+        if (expr->kind == EXPR_AND_ASSIGN) {
+            emit_and_reg_reg(mod, EBX, EDI);
+        } else if (expr->kind == EXPR_OR_ASSIGN) {
+            emit_or_reg_reg(mod, EBX, EDI);
+        } else {
+            emit_xor_reg_reg(mod, EBX, EDI);
+        }
+        emit_mov_reg_mem(mod, EDI, ESP, 4);
+        if (expr->kind == EXPR_AND_ASSIGN) {
+            emit_and_reg_reg(mod, ECX, EDI);
+        } else if (expr->kind == EXPR_OR_ASSIGN) {
+            emit_or_reg_reg(mod, ECX, EDI);
+        } else {
+            emit_xor_reg_reg(mod, ECX, EDI);
+        }
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_mov_reg_reg(mod, EAX, EBX);
+        emit_mov_reg_reg(mod, EDX, ECX);
+        emit_add_reg_imm(mod, ESP, 8);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (type->size != 1 && type->size != 2 && type->size != 4) {
+        rcc_error(expr->loc,
+                  "i686 atomic bitwise assignment has unsupported object width");
+        return true;
+    }
+    emit_push_reg(mod, EBX);
+    gen_expr(mod, expr->binary_rhs);
+    emit_normalize_atomic_value(mod, EAX, type);
+    emit_push_reg(mod, EAX); /* Operand. */
+    gen_lvalue(mod, expr->binary_lhs);
+    emit_push_reg(mod, EAX); /* Object address. */
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_load_typed32(mod, EAX, ECX, 0, type);
+    retry_label = new_label();
+    emit_label(mod, retry_label);
+    emit_mov_reg_reg(mod, EDX, EAX);
+    emit_mov_reg_mem(mod, EBX, ESP, 4);
+    if (expr->kind == EXPR_AND_ASSIGN) {
+        emit_and_reg_reg(mod, EDX, EBX);
+    } else if (expr->kind == EXPR_OR_ASSIGN) {
+        emit_or_reg_reg(mod, EDX, EBX);
+    } else {
+        emit_xor_reg_reg(mod, EDX, EBX);
+    }
+    emit_normalize_atomic_value(mod, EDX, type);
+    emit_atomic_cmpxchg_width(mod, EDX, ECX, type);
+    emit_jcc_label(mod, CC_NE, retry_label);
+    emit_mov_reg_reg(mod, EAX, EDX);
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_pop_reg(mod, EBX);
+    return true;
+}
 
 static bool codegen_type_has_vla(const Type* type) {
     return type && type->kind == TYPE_ARRAY &&
@@ -5107,6 +5211,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_XOR_ASSIGN:
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
+                if (gen_atomic_bitwise_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "i686 atomic 64-bit compound assignment requires a supported RMW lowering");
                 break;
@@ -8377,6 +8482,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                                                expr->binary_rhs->type);
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
+                if (gen_atomic_bitwise_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "atomic compound assignment operator is not supported by the target RMW backend");
                 break;

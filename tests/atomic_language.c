@@ -29,3 +29,22 @@ int atomic_language_rmw(void) {
     value -= 2;
     return value == 5 ? 0 : 4;
 }
+
+int atomic_language_bitwise(void) {
+    _Atomic unsigned char byte_value = 0xf3u;
+    _Atomic unsigned short word_value = 0xf0f3u;
+    _Atomic unsigned int dword_value = 0xf0f0f0f0u;
+    _Atomic unsigned long long wide_value = 0xf0f0f0f0f0f0f0f0ULL;
+
+    if ((byte_value &= 0x3fu) != 0x33u) return 1;
+    if ((byte_value |= 0x80u) != 0xb3u) return 2;
+    if ((byte_value ^= 0xffu) != 0x4cu) return 3;
+    if ((word_value &= 0x0ff0u) != 0x00f0u) return 4;
+    if ((word_value |= 0x8001u) != 0x80f1u) return 5;
+    if ((word_value ^= 0x00ffu) != 0x800eu) return 6;
+    if ((dword_value |= 0x01020304u) != 0xf1f2f3f4u) return 7;
+    if ((dword_value ^= 0xffffffffu) != 0x0e0d0c0bu) return 8;
+    if ((wide_value ^= 0x0f0f0f0f0f0f0f0fULL) !=
+        0xffffffffffffffffULL) return 9;
+    return 0;
+}

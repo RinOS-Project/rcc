@@ -26,6 +26,7 @@ int main(int argc, char** argv) {
     void* address;
     atomic_language_fn surface;
     atomic_language_fn rmw;
+    atomic_language_fn bitwise;
     atomic_language_deref_fn deref;
     int value = 0;
 
@@ -57,9 +58,13 @@ int main(int argc, char** argv) {
     symbol = required_function(object, "atomic_language_rmw");
     address = mapping + symbol->value;
     memcpy(&rmw, &address, sizeof(rmw));
+    symbol = required_function(object, "atomic_language_bitwise");
+    address = mapping + symbol->value;
+    memcpy(&bitwise, &address, sizeof(bitwise));
     assert(surface() == 0);
     assert(deref(&value) == 7 && value == 7);
     assert(rmw() == 0);
+    assert(bitwise() == 0);
     assert(munmap(mapping, mapping_size) == 0);
     objfile_free(object);
     return 0;
