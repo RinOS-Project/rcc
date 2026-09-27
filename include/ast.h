@@ -265,7 +265,9 @@ Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
 Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
-                                            int storage,
+                                            int storage, bool is_inline,
+                                            bool is_constexpr,
+                                            bool is_constinit,
                                             bool is_thread_local,
                                             SourceLoc loc);
 void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc);

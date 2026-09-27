@@ -143,6 +143,10 @@
   - [x] C++20 aggregate parenthesized initializationを完全なpublic struct
         aggregateと固定長配列へloweringし、static/automatic storageの両arch
         実行、過剰initializer診断、C++17以前の明示的standard-gateを検証
+  - [x] C++ direct/list aggregate初期化で`constexpr`/`inline`/`constinit`
+        宣言属性を保持し、most-vexing parseの関数宣言を誤認せず、C++20
+        designated/nested initializerとconstexpr aggregate member accessを
+        共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
 - [ ] modules、coroutines、atomics、TLS
 - [ ] Itanium ABI mangling、exceptions、RTTI、static initialization
 - [ ] cross-library exceptionとthread-local destructor

@@ -100,6 +100,65 @@ static bool cxx_type_is_aggregate(Type* type) {
            cls->vtable_size == 0;
 }
 
+/* `T value(args)` is ambiguous with a function declaration when T is an
+ * aggregate.  Keep the standard most-vexing-parse rule for parameter-shaped
+ * lists, while still accepting expression-shaped C++20 aggregate
+ * initialization such as `Pair value(1, 2)` and `Pair value(int(1), 2)`. */
+static bool cxx_paren_looks_like_function_parameters(void) {
+    Token* token;
+
+    if (!parser.cur || !parser.cur->next ||
+        parser.cur->next->type != TOK_LPAREN) return false;
+    token = parser.cur->next->next;
+    if (!token || token->type == TOK_RPAREN) return true;
+
+    while (token->type == TOK_CONST || token->type == TOK_VOLATILE ||
+           token->type == TOK_RESTRICT) {
+        token = token->next;
+    }
+    if (!token) return false;
+
+    switch (token->type) {
+        case TOK_VOID:
+        case TOK_BOOL:
+        case TOK_CHAR8_T:
+        case TOK_CHAR:
+        case TOK_SHORT:
+        case TOK_INT:
+        case TOK_LONG:
+        case TOK_SIGNED:
+        case TOK_UNSIGNED:
+        case TOK_FLOAT:
+        case TOK_DOUBLE:
+        case TOK_STRUCT:
+        case TOK_CLASS:
+        case TOK_ENUM:
+        case TOK_DECLTYPE:
+        case TOK_AUTO:
+            break;
+        case TOK_IDENT:
+            if (!rcc_parser_lookup_type(token->value.str_val)) return false;
+            break;
+        default:
+            return false;
+    }
+
+    token = token->next;
+    if (!token) return false;
+    if (token->type == TOK_IDENT || token->type == TOK_STAR ||
+        token->type == TOK_AMP || token->type == TOK_AND ||
+        token->type == TOK_RPAREN || token->type == TOK_COMMA ||
+        token->type == TOK_ELLIPSIS || token->type == TOK_LBRACKET) {
+        return true;
+    }
+    if (token->type == TOK_LPAREN && token->next &&
+        (token->next->type == TOK_STAR || token->next->type == TOK_AMP ||
+         token->next->type == TOK_AND || token->next->type == TOK_IDENT)) {
+        return true;
+    }
+    return false;
+}
+
 static bool cxx_standard_feature_tokens_valid(Token* head) {
     for (Token* token = head; token && token->type != TOK_EOF;
          token = token->next) {
@@ -12094,7 +12153,9 @@ Stmt* rcc_parse_cxx_auto_local_declaration(void) {
 }
 
 Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
-                                            int storage,
+                                            int storage, bool is_inline,
+                                            bool is_constexpr,
+                                            bool is_constinit,
                                             bool is_thread_local,
                                             SourceLoc loc) {
     Token* name;
@@ -12135,6 +12196,14 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
         return NULL;
     }
 
+    if (paren_form && paren_has_arguments && constructor_mask == 0u &&
+        cxx_paren_looks_like_function_parameters()) {
+        /* The common declarator parser must own declarations such as
+         * `Pair make_pair(int first, int second);`; otherwise C++20 aggregate
+         * parenthesized initialization would steal the function signature. */
+        return NULL;
+    }
+
     if (aggregate_type && paren_form && paren_has_arguments &&
         !rcc_parser_cxx_standard_at_least(20)) {
         rcc_error(parser.cur->next->loc,
@@ -12142,16 +12211,33 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     }
 
     name = advance();
-    brace_form = match(TOK_LBRACE);
-    if (!brace_form) advance(); /* `(` */
-    if ((!brace_form && !check(TOK_RPAREN)) ||
-        (brace_form && !check(TOK_RBRACE))) {
-        do {
-            exprlist_append(&arguments, parse_assignment_expression());
-        } while (match(TOK_COMMA));
+    brace_form = check(TOK_LBRACE);
+    if (brace_form && parser.cur->next &&
+        (parser.cur->next->type == TOK_DOT ||
+         parser.cur->next->type == TOK_LBRACKET)) {
+        /* Use the shared initializer parser for list initialization.  The
+         * direct constructor path used to parse every clause as an
+         * assignment expression, which rejected standard C++20 designated
+         * initializers such as `T value{.field = 1}` before sema could apply
+         * the bounded aggregate checks. */
+        initializer = rcc_parser_parse_initializer();
+        arguments = initializer ? initializer->compound_init : NULL;
+    } else {
+        brace_form = match(TOK_LBRACE);
+        if (!brace_form) advance(); /* `(` */
+        if ((!brace_form && !check(TOK_RPAREN)) ||
+            (brace_form && !check(TOK_RBRACE))) {
+            do {
+                Expr* argument = brace_form && check(TOK_LBRACE)
+                    ? rcc_parser_parse_initializer()
+                    : parse_assignment_expression();
+                exprlist_append(&arguments, argument);
+            } while (match(TOK_COMMA));
+        }
+        expect(brace_form ? TOK_RBRACE : TOK_RPAREN,
+               brace_form ? "}" : ")");
+        initializer = expr_initializer_list(arguments, loc);
     }
-    expect(brace_form ? TOK_RBRACE : TOK_RPAREN,
-           brace_form ? "}" : ")");
 
     if (is_ctad_placeholder) {
         base_type = deduce_class_template_from_constructor(
@@ -12170,7 +12256,6 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
         }
     }
 
-    initializer = expr_initializer_list(arguments, loc);
     initializer->compound_type = base_type;
     initializer->compound_paren_init = !brace_form;
     rcc_parser_validate_cxx_object_type(base_type, loc);
@@ -12179,6 +12264,9 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 
     declaration = decl_var(name->value.str_val, base_type, initializer, loc);
     declaration->storage = (StorageClass)storage;
+    declaration->var_is_inline = is_inline;
+    declaration->var_is_constexpr = is_constexpr;
+    declaration->var_is_constinit = is_constinit;
     declaration->var_is_thread_local = is_thread_local;
     rcc_parser_cxx_add_value_binding(declaration->name, declaration->type);
     return stmt_decl(declaration, loc);
