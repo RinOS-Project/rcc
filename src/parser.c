@@ -52,6 +52,7 @@ extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_fold_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_requires_expression(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_skip_statement_attributes(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
@@ -3025,6 +3026,12 @@ static Stmt* parse_return_stmt(void) {
 }
 
 static Stmt* parse_statement(void) {
+    /* Standard statement attributes may precede a control statement, a label,
+     * or an empty statement.  Let the C++ frontend consume them before this
+     * shared C statement parser classifies the next token. */
+    if (parser_cxx_mode && rcc_parser_cxx_skip_statement_attributes) {
+        rcc_parser_cxx_skip_statement_attributes();
+    }
     SourceLoc loc = peek()->loc;
 
     /* C++ exception statements are parsed by the C++ frontend even inside

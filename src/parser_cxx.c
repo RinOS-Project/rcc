@@ -1024,6 +1024,10 @@ static void skip_cxx_attributes(void) {
         int depth = 1;
         bool group_nodiscard = false;
         bool group_deprecated = false;
+        bool group_maybe_unused = false;
+        bool group_fallthrough = false;
+        bool group_likely = false;
+        bool group_unlikely = false;
         const char* group_deprecated_message = NULL;
         advance();
         advance();
@@ -1049,6 +1053,17 @@ static void skip_cxx_attributes(void) {
                             group_deprecated_message =
                                 parser.cur->next->next->value.str_val;
                         }
+                    } else if (strcmp(peek()->value.str_val,
+                                      "maybe_unused") == 0) {
+                        group_maybe_unused = true;
+                    } else if (strcmp(peek()->value.str_val,
+                                      "fallthrough") == 0) {
+                        group_fallthrough = true;
+                    } else if (strcmp(peek()->value.str_val, "likely") == 0) {
+                        group_likely = true;
+                    } else if (strcmp(peek()->value.str_val,
+                                      "unlikely") == 0) {
+                        group_unlikely = true;
                     }
                 }
                 advance();
@@ -1063,6 +1078,16 @@ static void skip_cxx_attributes(void) {
         }
         if (group_deprecated && !rcc_parser_cxx_standard_at_least(14)) {
             rcc_error(loc, "[[deprecated]] requires C++14 or newer");
+        }
+        if ((group_maybe_unused || group_fallthrough) &&
+            !rcc_parser_cxx_standard_at_least(17)) {
+            rcc_error(loc,
+                      "[[maybe_unused]] and [[fallthrough]] require C++17 or newer");
+        }
+        if ((group_likely || group_unlikely) &&
+            !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(loc,
+                      "[[likely]] and [[unlikely]] require C++20 or newer");
         }
         if (group_nodiscard) pending_cxx_nodiscard = true;
         if (group_deprecated) {
@@ -1086,6 +1111,24 @@ static bool take_cxx_deprecated(const char** message) {
     pending_cxx_deprecated = false;
     pending_cxx_deprecated_message = NULL;
     return result;
+}
+
+/* Statement attributes are consumed by the shared C statement parser.  They
+ * intentionally do not retain declaration metadata: this frontend has no
+ * unused-variable or branch-probability diagnostics, but accepting these
+ * standard annotations is still useful for portable C++ source. */
+void rcc_parser_cxx_skip_statement_attributes(void) {
+    bool saved_nodiscard = pending_cxx_nodiscard;
+    bool saved_deprecated = pending_cxx_deprecated;
+    const char* saved_deprecated_message = pending_cxx_deprecated_message;
+
+    skip_cxx_attributes();
+    /* A generic C++ function body can be parsed before its declaration
+     * metadata is attached.  Preserve that outer metadata while discarding
+     * attributes that appeared directly before a statement. */
+    pending_cxx_nodiscard = saved_nodiscard;
+    pending_cxx_deprecated = saved_deprecated;
+    pending_cxx_deprecated_message = saved_deprecated_message;
 }
 
 /* C++20 permits an explicit-specifier to be a constant expression.  Keep the

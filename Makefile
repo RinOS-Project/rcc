@@ -599,6 +599,12 @@ test-preprocessor-attributes: $(RCXX_TARGET)
 		>$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log 2>&1
 	grep -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log
+	! $(RCXX_TARGET) -std=c++17 -c \
+		-o $(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.ro \
+		tests/invalid_cxx_standard_attributes.cpp \
+		>$(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.log 2>&1
+	grep -F -q '[[likely]] and [[unlikely]] require C++20 or newer' \
+		$(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.log
 	@echo "C++20 __has_cpp_attribute tests completed"
 
 test-preprocessor-cxx-features: $(RCXX_TARGET)

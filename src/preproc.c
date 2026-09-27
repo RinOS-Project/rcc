@@ -471,10 +471,11 @@ static bool pp_has_include(Preprocessor* pp, const char* name,
     return true;
 }
 
-/* Return the feature-test value for an attribute that RCC++ actually
- * implements.  Unknown attributes intentionally remain zero so portable
- * headers can select a fallback instead of assuming a silently ignored
- * attribute was accepted. */
+/* Return the feature-test value for a standard attribute that RCC++ accepts.
+ * Warning-only and branch-hint attributes are semantically inert in this
+ * warning-light frontend, but their syntax and standard-version rules are
+ * checked by the parser.  Unknown attributes remain zero so portable headers
+ * can select a fallback instead of assuming support. */
 static long pp_cpp_attribute_value(const Preprocessor* pp,
                                   const char* attribute) {
     if (!pp || !pp->cxx_mode || !attribute) return 0;
@@ -483,6 +484,14 @@ static long pp_cpp_attribute_value(const Preprocessor* pp,
     }
     if (strcmp(attribute, "deprecated") == 0 && pp->cxx_standard >= 14) {
         return 201309L;
+    }
+    if ((strcmp(attribute, "maybe_unused") == 0 ||
+         strcmp(attribute, "fallthrough") == 0) && pp->cxx_standard >= 17) {
+        return 201603L;
+    }
+    if ((strcmp(attribute, "likely") == 0 ||
+         strcmp(attribute, "unlikely") == 0) && pp->cxx_standard >= 20) {
+        return 201803L;
     }
     return 0;
 }
