@@ -93,9 +93,12 @@
   - [x] i686/AMD64のaggregate returnと戻り値からのmember/argument連鎖
 - [ ] `_Generic`、atomics、thread-local storage
   - [x] Lower the commonly used GCC compatibility builtins
-        `__builtin_expect` and `__builtin_unreachable` as validated intrinsics
-        on i686/AMD64, including real undefined-path trapping and C/C++
-        compile-and-run coverage.
+          `__builtin_expect` and `__builtin_unreachable` as validated intrinsics
+          on i686/AMD64, including real undefined-path trapping and C/C++
+          compile-and-run coverage.
+  - [x] Lower `__builtin_trap` as a validated no-argument terminating
+        intrinsic with real i686/AMD64 trap instructions and diagnostic
+        coverage.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] atomic-qualified整数の`&=`／`|=`／`^=`を一回評価のCAS retry loopでloweringし、

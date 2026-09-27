@@ -6736,6 +6736,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	fi
 	grep -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	grep -F -q "__builtin_trap expects no arguments, got 1" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/compiler-builtins/invalid-x64.ro \
 		tests/invalid_compiler_builtins.c \
@@ -6743,6 +6745,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		echo "invalid compiler builtin fixture unexpectedly compiled"; exit 1; \
 	fi
 	grep -F -q "__builtin_expect expected value must have integer type" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	grep -F -q "__builtin_trap expects no arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
 

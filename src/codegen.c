@@ -7750,9 +7750,10 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         gen_expr(mod, call_argument(expr, 0));
         return true;
     }
-    if (strcmp(function->ident_name, "__builtin_unreachable") == 0) {
-        /* This is a defined compiler intrinsic with undefined source
-         * execution semantics, not an unresolved call or an empty stub. */
+    if (strcmp(function->ident_name, "__builtin_unreachable") == 0 ||
+        strcmp(function->ident_name, "__builtin_trap") == 0) {
+        /* These are real terminating/undefined-path intrinsics, not
+         * unresolved calls or empty stubs. */
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x0B); /* UD2 */
         return true;

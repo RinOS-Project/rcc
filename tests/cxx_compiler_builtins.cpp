@@ -7,8 +7,14 @@ extern "C" int cxx_builtin_unreachable_guard(int value) {
     __builtin_unreachable();
 }
 
+extern "C" int cxx_builtin_trap_guard(int value) {
+    if (value != 0) return 23;
+    __builtin_trap();
+}
+
 extern "C" int main(void) {
     if (cxx_builtin_expect(31) != 31) return 1;
     if (cxx_builtin_unreachable_guard(1) != 19) return 2;
+    if (cxx_builtin_trap_guard(1) != 23) return 3;
     return 0;
 }

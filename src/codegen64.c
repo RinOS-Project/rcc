@@ -1666,8 +1666,9 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         gen64_expr(mod, call64_argument(expr, 0));
         return true;
     }
-    if (strcmp(function->ident_name, "__builtin_unreachable") == 0) {
-        /* Emit a real target trap for the undefined-execution path. */
+    if (strcmp(function->ident_name, "__builtin_unreachable") == 0 ||
+        strcmp(function->ident_name, "__builtin_trap") == 0) {
+        /* Emit a real target trap for the undefined/terminating path. */
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x0B); /* UD2 */
         return true;

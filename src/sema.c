@@ -10897,7 +10897,8 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     }
     function = expr->call_func;
     name = function->ident_name;
-    if (strcmp(name, "__builtin_unreachable") == 0) {
+    if (strcmp(name, "__builtin_unreachable") == 0 ||
+        strcmp(name, "__builtin_trap") == 0) {
         if (expr->call_args) {
             for (argument = expr->call_args; argument;
                  argument = argument->next) {
@@ -10907,7 +10908,7 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         }
         if (argument_count != 0) {
             rcc_error(expr->loc,
-                      "__builtin_unreachable expects no arguments, got %d",
+                      "%s expects no arguments, got %d", name,
                       argument_count);
         }
         function->type = type_ptr(type_void);
