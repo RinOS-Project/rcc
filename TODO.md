@@ -107,7 +107,7 @@
     - [x] CMPXCHG8B load/store/exchange/CASと全RMW retry loop
 - [ ] parser error recoveryとdiagnostic品質の網羅試験
   - [x] block parserの進捗保証と未知parameter/field型のNULL-safe回復
-- [ ] C17 conformance compile-and-run suite
+- [x] C17 conformance compile-and-run suite
 
 ## 3. C++20 frontend / ABI
 
