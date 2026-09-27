@@ -1732,6 +1732,7 @@ static bool is_type_start(void) {
         case TOK_ENUM:
         case TOK_CONST:
         case TOK_VOLATILE:
+        case TOK_RESTRICT:
         case TOK_STATIC:
         case TOK_EXTERN:
         case TOK_THREAD_LOCAL:
@@ -2331,14 +2332,17 @@ static void parse_aggregate_body(Type* aggregate) {
 }
 
 static Type* parser_qualify_type(Type* type, bool is_const,
-                                 bool is_volatile, bool is_atomic) {
+                                 bool is_volatile, bool is_atomic,
+                                 bool is_restrict) {
     Type* qualified;
-    if (!type || (!is_const && !is_volatile && !is_atomic)) return type;
+    if (!type || (!is_const && !is_volatile && !is_atomic &&
+                  !is_restrict)) return type;
     qualified = ast_arena_alloc(sizeof(*qualified));
     *qualified = *type;
     qualified->is_const = qualified->is_const || is_const;
     qualified->is_volatile = qualified->is_volatile || is_volatile;
     qualified->is_atomic = qualified->is_atomic || is_atomic;
+    qualified->is_restrict = qualified->is_restrict || is_restrict;
     return qualified;
 }
 
@@ -2363,6 +2367,7 @@ static Type* parse_type_spec(void) {
     bool is_const = false;
     bool is_volatile = false;
     bool is_atomic = false;
+    bool is_restrict = false;
     bool saw_complex = false;
     bool saw_imaginary = false;
     int long_count = 0;
@@ -2373,6 +2378,8 @@ static Type* parse_type_spec(void) {
             is_const = true;
         } else if (match(TOK_VOLATILE)) {
             is_volatile = true;
+        } else if (match(TOK_RESTRICT)) {
+            is_restrict = true;
         } else if (match(TOK_UNSIGNED)) {
             is_unsigned = true;
             saw_sign = true;
@@ -2555,11 +2562,14 @@ static Type* parse_type_spec(void) {
 
     /* Declaration specifiers permit qualifiers on either side of the type
      * specifier (for example, both const int and int const). */
-    while (match(TOK_CONST) || match(TOK_VOLATILE)) {
+    while (match(TOK_CONST) || match(TOK_VOLATILE) ||
+           match(TOK_RESTRICT)) {
         if (previous()->type == TOK_CONST) is_const = true;
-        else is_volatile = true;
+        else if (previous()->type == TOK_VOLATILE) is_volatile = true;
+        else is_restrict = true;
     }
-    t = parser_qualify_type(t, is_const, is_volatile, is_atomic);
+    t = parser_qualify_type(t, is_const, is_volatile, is_atomic,
+                            is_restrict);
 
     return t;
 }

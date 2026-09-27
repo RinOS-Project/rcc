@@ -56,6 +56,9 @@
 - [ ] qualifierとeffective typeの完全なC17規則
   - [x] 前置・後置cv指定、pointer level cv、modifiable lvalue検査
   - [x] `volatile` object/pointerの未使用readに対するDCE抑止
+  - [x] `restrict`をpointer自体へ保持し、object/incomplete typeを指す制約、
+        function pointer・非pointer適用の明示diagnosticを型名・宣言・member・
+        `sizeof`/cast経路と両arch回帰で検証
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] brace省略列でbraced／文字列aggregate節を一つのsubobjectとして
        扱い、その後のscalar節を次のsubobjectへ進める。未指定長の多次元

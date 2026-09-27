@@ -263,6 +263,7 @@ static bool sema_atomic_builtin_call(Expr* expr);
 static void sema_vla_bounds(Type* type, SourceLoc loc);
 static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
                                                bool is_parameter);
+static void sema_validate_restrict_type(Type* type, SourceLoc loc);
 
 static bool sema_cxx_public_base(Type* derived, Type* target,
                                   int* adjustment, int depth) {
@@ -8724,6 +8725,7 @@ static Type* sema_expr(Expr* expr) {
             } else if (expr->sizeof_type) {
                 sema_validate_array_parameter_type(expr->sizeof_type,
                                                    expr->loc, false);
+                sema_validate_restrict_type(expr->sizeof_type, expr->loc);
                 sema_vla_bounds(expr->sizeof_type, expr->loc);
                 expr->type = type_uint;
             } else {
@@ -8853,6 +8855,7 @@ static Type* sema_expr(Expr* expr) {
             Type* source = sema_expr(expr->cast_expr);
             sema_validate_array_parameter_type(expr->cast_type,
                                                expr->loc, false);
+            sema_validate_restrict_type(expr->cast_type, expr->loc);
             expr->type = expr->cast_type;
             expr->cxx_pointer_adjustment_valid = false;
             if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC) {
@@ -10813,6 +10816,35 @@ static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
     }
 }
 
+/* C17 restrict qualifies a pointer itself, and the pointed-to type must be
+ * an object or incomplete type.  The bounded frontend does not use restrict
+ * as an optimizer promise, but it must still enforce the declaration
+ * constraints instead of accepting a function pointer or a scalar-qualified
+ * spelling and silently dropping it. */
+static void sema_validate_restrict_type(Type* type, SourceLoc loc) {
+    if (!type) return;
+    if (type->is_restrict &&
+        (type->kind != TYPE_PTR || type->is_reference)) {
+        rcc_error(loc, "restrict qualifier is only valid on pointer types");
+    }
+    if (type->kind == TYPE_PTR) {
+        if (type->is_restrict &&
+            (!type->base || type->base->kind == TYPE_FUNC)) {
+            rcc_error(loc,
+                      "restrict-qualified pointer must point to an object or incomplete type");
+        }
+        sema_validate_restrict_type(type->base, loc);
+    } else if (type->kind == TYPE_ARRAY) {
+        sema_validate_restrict_type(type->base, loc);
+    } else if (type->kind == TYPE_FUNC) {
+        sema_validate_restrict_type(type->ret_type, loc);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            sema_validate_restrict_type(parameter->type, loc);
+        }
+    }
+}
+
 static Expr* initializer_character_string(Type* type, Expr* initializer) {
     Expr* string = NULL;
     bool expects_utf8;
@@ -12589,6 +12621,7 @@ static void sema_decl(Decl* decl) {
                           "thread-local variable cannot use auto or register storage");
             }
             sema_validate_array_parameter_type(decl->type, decl->loc, false);
+            sema_validate_restrict_type(decl->type, decl->loc);
             if (sema_type_is_variably_modified(decl->type)) {
                 sema_vla_bounds(decl->type, decl->loc);
                 if (is_global) {
@@ -12803,6 +12836,7 @@ static void sema_decl(Decl* decl) {
             bool cxx_defaults_merged = false;
             Type* previous_method_owner = current_cxx_method_owner;
             Decl* previous_this_param = current_cxx_this_param;
+            sema_validate_restrict_type(decl->type, decl->loc);
             sema_analyze_cxx_default_arguments(decl);
             if (sym && sym->kind == SYM_FUNC &&
                 decl->func_has_cxx_linkage) {
@@ -12926,6 +12960,10 @@ static void sema_decl(Decl* decl) {
                         sema_vla_bounds(p->decl->param_array_type,
                                         p->decl->loc);
                     }
+                    if (p->decl) {
+                        sema_validate_restrict_type(p->decl->type,
+                                                    p->decl->loc);
+                    }
                 }
 
                 /* Analyze body */
@@ -12979,6 +13017,7 @@ static void sema_decl(Decl* decl) {
         case DECL_TYPEDEF: {
             sema_validate_array_parameter_type(decl->typedef_type,
                                                decl->loc, false);
+            sema_validate_restrict_type(decl->typedef_type, decl->loc);
             if (sema_type_is_variably_modified(decl->typedef_type)) {
                 sema_vla_bounds(decl->typedef_type, decl->loc);
                 if (g_symtab->current == g_symtab->global) {
@@ -12993,6 +13032,10 @@ static void sema_decl(Decl* decl) {
         case DECL_STRUCT:
         case DECL_UNION: {
             SymKind k = (decl->kind == DECL_STRUCT) ? SYM_STRUCT : SYM_UNION;
+            for (TypeField* field = decl->type ? decl->type->fields : NULL;
+                 field; field = field->next) {
+                sema_validate_restrict_type(field->type, decl->loc);
+            }
             symtab_define(g_symtab, decl->name, k, decl->type, decl->loc);
             break;
         }
