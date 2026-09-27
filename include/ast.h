@@ -39,6 +39,7 @@ typedef enum {
     TYPE_DOUBLE,
     TYPE_PTR,
     TYPE_ARRAY,
+    TYPE_VECTOR,
     TYPE_FUNC,
     TYPE_STRUCT,
     TYPE_UNION,
@@ -179,7 +180,7 @@ struct Type {
     TypeMethod* move_assignment_method;
 
     union {
-        /* TYPE_PTR, TYPE_ARRAY */
+        /* TYPE_PTR, TYPE_ARRAY, TYPE_VECTOR */
         struct {
             Type* base;
             int array_len;      /* -1 for flexible array */
@@ -287,6 +288,7 @@ char* ast_arena_strdup(const char* text);
 /* Type constructors */
 Type* type_ptr(Type* base);
 Type* type_array(Type* base, int len);
+Type* type_vector(Type* base, int lanes, int vector_size);
 Type* type_func(Type* ret, TypeParam* params, bool variadic);
 Type* type_struct(const char* tag);
 Type* type_union(const char* tag);
@@ -299,6 +301,7 @@ bool type_is_arithmetic(Type* t);
 bool type_is_scalar(Type* t);
 bool type_is_pointer(Type* t);
 bool type_is_array(Type* t);
+bool type_is_vector(Type* t);
 bool type_is_function(Type* t);
 bool type_is_complete(Type* t);
 bool type_is_compatible(Type* a, Type* b);

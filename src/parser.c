@@ -184,6 +184,36 @@ static void parser_apply_pack(Token* directive) {
 
 static Type* parser_lookup_type(const char* name) {
     ParserTypeName* entry;
+    static Type* builtin_v4sf;
+    static Type* builtin_v2df;
+    static Type* builtin_v16qi;
+    static Type* builtin_v8hi;
+    static Type* builtin_v4si;
+    static Type* builtin_v2di;
+    if (name && strcmp(name, "__v4sf") == 0) {
+        if (!builtin_v4sf) builtin_v4sf = type_vector(type_float, 4, 16);
+        return builtin_v4sf;
+    }
+    if (name && strcmp(name, "__v2df") == 0) {
+        if (!builtin_v2df) builtin_v2df = type_vector(type_double, 2, 16);
+        return builtin_v2df;
+    }
+    if (name && strcmp(name, "__v16qi") == 0) {
+        if (!builtin_v16qi) builtin_v16qi = type_vector(type_char, 16, 16);
+        return builtin_v16qi;
+    }
+    if (name && strcmp(name, "__v8hi") == 0) {
+        if (!builtin_v8hi) builtin_v8hi = type_vector(type_short, 8, 16);
+        return builtin_v8hi;
+    }
+    if (name && strcmp(name, "__v4si") == 0) {
+        if (!builtin_v4si) builtin_v4si = type_vector(type_int, 4, 16);
+        return builtin_v4si;
+    }
+    if (name && strcmp(name, "__v2di") == 0) {
+        if (!builtin_v2di) builtin_v2di = type_vector(type_llong, 2, 16);
+        return builtin_v2di;
+    }
     for (entry = parser_type_names; entry; entry = entry->next) {
         if (strcmp(entry->name, name) == 0) return entry->type;
     }
@@ -1011,6 +1041,58 @@ static Expr* parse_cxx_user_literal_call(const char* suffix,
     arguments = exprlist_new(literal);
     if (length) exprlist_append(&arguments, length);
     return expr_call(function, arguments, loc);
+}
+
+/* Parse the GCC vector-size attribute used by the intrinsic headers.  The
+ * ordinary attribute skipper intentionally discards metadata, but vector
+ * size changes the object type and must reach semantic analysis and codegen.
+ * The 64-bit MMX spelling is retained as its scalar long-long ABI carrier;
+ * 128-bit and larger vectors become first-class vector types. */
+static Type* parse_declarator_attributes(Type* type) {
+    while (match(TOK___ATTRIBUTE__)) {
+        int vector_size = 0;
+        SourceLoc attribute_loc = previous()->loc;
+        if (!match(TOK_LPAREN)) continue;
+        while (!check(TOK_RPAREN) && !at_end()) {
+            if (match(TOK_LPAREN)) {
+                Token* name = check(TOK_IDENT) ? advance() : NULL;
+                bool is_vector_size = name &&
+                    (strcmp(name->value.str_val, "vector_size") == 0 ||
+                     strcmp(name->value.str_val, "__vector_size__") == 0);
+                if (match(TOK_LPAREN)) {
+                    Expr* size_expression = parse_assignment();
+                    int64_t value = 0;
+                    if (is_vector_size &&
+                        eval_integer_constant(size_expression, &value) &&
+                        value > 0 && value <= INT_MAX) {
+                        vector_size = (int)value;
+                    } else if (is_vector_size) {
+                        rcc_error(attribute_loc,
+                                  "vector_size attribute requires a positive integer constant");
+                    }
+                    expect(TOK_RPAREN, ") after vector_size argument");
+                }
+                while (!check(TOK_RPAREN) && !at_end()) advance();
+                match(TOK_RPAREN);
+            } else {
+                advance();
+            }
+        }
+        expect(TOK_RPAREN, ") after attribute list");
+        if (vector_size != 0 && type && type->size > 0) {
+            if (vector_size == 8) {
+                /* Keep the existing __m64 scalar carrier ABI. */
+            } else if (vector_size < type->size ||
+                       vector_size % type->size != 0) {
+                rcc_error(attribute_loc,
+                          "vector_size must be a positive multiple of the element size");
+            } else {
+                type = type_vector(type, vector_size / type->size,
+                                   vector_size);
+            }
+        }
+    }
+    return type;
 }
 
 static const char* take_cxx_user_literal_suffix(void) {
@@ -3417,6 +3499,7 @@ Stmt* parse_declaration(void) {
     }
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
+    type = parse_declarator_attributes(type);
     type = apply_explicit_alignment(type, explicit_alignment, loc);
     if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&
         match(TOK_NOEXCEPT)) {

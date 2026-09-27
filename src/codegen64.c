@@ -720,6 +720,16 @@ static void emit64_sse_to_int(Module* mod, int gpr, int src,
     emit_byte(mod, modrm64(3, gpr, src));
 }
 
+static void emit64_sse_to_int_opcode(Module* mod, int gpr, int src,
+                                     int source_width, int destination_width,
+                                     int opcode) {
+    emit_byte(mod, source_width == 4 ? 0xF3 : 0xF2);
+    emit_rex(mod, destination_width == 8, gpr, 0, src);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, (uint8_t)opcode);
+    emit_byte(mod, modrm64(3, gpr, src));
+}
+
 static int gen64_type_width(const Type* type) {
     if (!type || type->size <= 0) return 8;
     if (type->size == 1 || type->size == 2 || type->size == 4 ||
@@ -1239,7 +1249,8 @@ static bool gen64_classify_type_at(const Type* type, int base_offset,
 static Gen64AggregateClass gen64_classify_aggregate(const Type* type) {
     Gen64AggregateClass result = {{GEN64_CLASS_NONE, GEN64_CLASS_NONE}, 0,
                                   false};
-    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
+                  type->kind != TYPE_VECTOR) ||
         type->size <= 0 || type->size > 16 ||
         !gen64_classify_type_at(type, 0, &result)) {
         result.memory = true;
@@ -1261,7 +1272,8 @@ static Gen64AggregateClass gen64_classify_aggregate(const Type* type) {
 
 static bool gen64_is_aggregate(const Type* type) {
     return type && (type->kind == TYPE_STRUCT ||
-                    type->kind == TYPE_UNION);
+                    type->kind == TYPE_UNION ||
+                    type->kind == TYPE_VECTOR);
 }
 
 static int gen64_aggregate_storage(const Type* type) {
@@ -2015,6 +2027,406 @@ static bool atomic64_bitwise_returns_new(const char* name) {
            strcmp(name, "__sync_nand_and_fetch") == 0;
 }
 
+/* SSE/SSE2 instructions operate on an XMM scratch register while the public
+ * RCC ABI carries vectors as 16-byte aggregate addresses. */
+static void emit64_sse128_memory(Module* mod, int xmm, int base, int32_t disp,
+                                 int prefix, int opcode) {
+    if (prefix) emit_byte(mod, (uint8_t)prefix);
+    emit_rex(mod, false, xmm, 0, base);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, (uint8_t)opcode);
+    emit64_memory_operand(mod, xmm, base, disp);
+}
+
+static void emit64_sse128_reg(Module* mod, int dst, int src, int prefix,
+                              int opcode) {
+    if (prefix) emit_byte(mod, (uint8_t)prefix);
+    emit_rex(mod, false, dst, 0, src);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, (uint8_t)opcode);
+    emit_byte(mod, modrm64(3, dst, src));
+}
+
+static void emit64_sse128_immediate(Module* mod, int dst, int src, int prefix,
+                                    int opcode, uint8_t immediate) {
+    emit64_sse128_reg(mod, dst, src, prefix, opcode);
+    emit_byte(mod, immediate);
+}
+
+static void emit64_sse_store_result(Module* mod, Expr* expr, int xmm) {
+    if (!expr || !expr->type || !type_is_vector(expr->type) ||
+        expr->call_result_offset >= 0) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<sse>", 0, 0},
+                  "SSE vector builtin has no automatic result slot");
+        return;
+    }
+    emit64_sse128_memory(mod, xmm, RBP, expr->call_result_offset, 0, 0x11);
+    emit64_lea(mod, RAX, RBP, expr->call_result_offset);
+}
+
+static void gen64_sse_vector_argument(Module* mod, Expr* argument, int xmm) {
+    gen64_expr(mod, argument);
+    emit64_sse128_memory(mod, xmm, RAX, 0, 0, 0x10);
+}
+
+static bool gen64_sse_two_vectors(Module* mod, Expr* call) {
+    Expr* lhs = call64_argument(call, 0);
+    Expr* rhs = call64_argument(call, 1);
+    if (!lhs || !rhs) return false;
+    emit64_sub_reg_imm(mod, RSP, 16);
+    gen64_expr(mod, lhs);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX);
+    gen64_expr(mod, rhs);
+    emit64_mov_mem_reg(mod, RSP, 8, RAX);
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    emit64_sse128_memory(mod, 0, RCX, 0, 0, 0x10);
+    emit64_mov_reg_mem(mod, RCX, RSP, 8);
+    emit64_sse128_memory(mod, 1, RCX, 0, 0, 0x10);
+    emit64_add_reg_imm(mod, RSP, 16);
+    return true;
+}
+
+static bool codegen64_sse_float_binary(const char* name, int* prefix,
+                                      int* opcode, bool* reverse) {
+    static const struct { const char* name; int prefix; int opcode; } table[] = {
+        {"addps", 0, 0x58}, {"subps", 0, 0x5C}, {"mulps", 0, 0x59},
+        {"divps", 0, 0x5E}, {"minps", 0, 0x5D}, {"maxps", 0, 0x5F},
+        {"andps", 0, 0x54}, {"orps", 0, 0x56}, {"xorps", 0, 0x57},
+        {"andnps", 0, 0x55},
+        {"addss", 0xF3, 0x58}, {"subss", 0xF3, 0x5C},
+        {"mulss", 0xF3, 0x59}, {"divss", 0xF3, 0x5E},
+        {"minss", 0xF3, 0x5D}, {"maxss", 0xF3, 0x5F},
+        {"addpd", 0x66, 0x58}, {"subpd", 0x66, 0x5C},
+        {"mulpd", 0x66, 0x59}, {"divpd", 0x66, 0x5E},
+        {"minpd", 0x66, 0x5D}, {"maxpd", 0x66, 0x5F},
+        {"andpd", 0x66, 0x54}, {"orpd", 0x66, 0x56},
+        {"xorpd", 0x66, 0x57}, {"andnpd", 0x66, 0x55},
+        {"addsd", 0xF2, 0x58}, {"subsd", 0xF2, 0x5C},
+        {"mulsd", 0xF2, 0x59}, {"divsd", 0xF2, 0x5E},
+        {"minsd", 0xF2, 0x5D}, {"maxsd", 0xF2, 0x5F}
+    };
+    if (!name || strncmp(name, "__builtin_ia32_", 15) != 0) return false;
+    name += 15;
+    for (size_t index = 0; index < sizeof(table) / sizeof(table[0]); ++index) {
+        if (strcmp(name, table[index].name) == 0) {
+            if (prefix) *prefix = table[index].prefix;
+            if (opcode) *opcode = table[index].opcode;
+            if (reverse) *reverse = strncmp(name, "andn", 4) == 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool codegen64_sse_integer_binary(const char* name, int* prefix,
+                                         int* opcode, bool* reverse) {
+    static const struct { const char* name; int opcode; } table[] = {
+        {"packsswb128", 0x63}, {"packssdw128", 0x6B}, {"packuswb128", 0x67},
+        {"punpckhbw128", 0x68}, {"punpckhwd128", 0x69},
+        {"punpckhdq128", 0x6A}, {"punpckhqdq128", 0x6D},
+        {"punpcklbw128", 0x60}, {"punpcklwd128", 0x61},
+        {"punpckldq128", 0x62}, {"punpcklqdq128", 0x6C},
+        {"paddb128", 0xFC}, {"paddw128", 0xFD}, {"paddd128", 0xFE},
+        {"paddq128", 0xD4}, {"paddsb128", 0xEC}, {"paddsw128", 0xED},
+        {"paddusb128", 0xDC}, {"paddusw128", 0xDD},
+        {"psubb128", 0xF8}, {"psubw128", 0xF9}, {"psubd128", 0xFA},
+        {"psubq128", 0xFB}, {"psubsb128", 0xE8}, {"psubsw128", 0xE9},
+        {"psubusb128", 0xD8}, {"psubusw128", 0xD9},
+        {"pmullw128", 0xD5}, {"pmulhw128", 0xE5}, {"pmulhuw128", 0xE4},
+        {"pmuludq128", 0xF4}, {"pmaddwd128", 0xF5},
+        {"pand128", 0xDB}, {"pandn128", 0xDF}, {"por128", 0xEB},
+        {"pxor128", 0xEF}, {"pcmpeqb128", 0x74}, {"pcmpeqw128", 0x75},
+        {"pcmpeqd128", 0x76}, {"pcmpgtb128", 0x64}, {"pcmpgtw128", 0x65},
+        {"pcmpgtd128", 0x66}
+    };
+    if (!name || strncmp(name, "__builtin_ia32_", 15) != 0) return false;
+    name += 15;
+    for (size_t index = 0; index < sizeof(table) / sizeof(table[0]); ++index) {
+        if (strcmp(name, table[index].name) == 0) {
+            if (prefix) *prefix = 0x66;
+            if (opcode) *opcode = table[index].opcode;
+            if (reverse) *reverse = strcmp(name, "pandn128") == 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+static int codegen64_sse_compare_predicate(const char* name) {
+    if (strstr(name, "cmpeq")) return 0;
+    if (strstr(name, "cmpneq")) return 4;
+    if (strstr(name, "cmplt")) return 1;
+    if (strstr(name, "cmple")) return 2;
+    if (strstr(name, "cmpnlt")) return 5;
+    if (strstr(name, "cmpnle")) return 6;
+    if (strstr(name, "cmpord")) return 7;
+    if (strstr(name, "cmpunord")) return 3;
+    return -1;
+}
+
+static bool gen64_sse_builtin(Module* mod, Expr* expr) {
+    const char* full_name;
+    const char* name;
+    int prefix;
+    int opcode;
+    int64_t immediate;
+    bool reverse;
+
+    if (!expr || !expr->call_func || expr->call_func->kind != EXPR_IDENT ||
+        !expr->call_func->ident_name) return false;
+    full_name = expr->call_func->ident_name;
+    if (strncmp(full_name, "__builtin_ia32_", 15) != 0) return false;
+    name = full_name + 15;
+
+    if (strcmp(name, "pause") == 0) {
+        emit_byte(mod, 0xF3); emit_byte(mod, 0x90);
+        return true;
+    }
+    if (strcmp(name, "sfence") == 0 || strcmp(name, "lfence") == 0 ||
+        strcmp(name, "mfence") == 0) {
+        emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
+        emit_byte(mod, strcmp(name, "sfence") == 0 ? 0xF8 :
+                  strcmp(name, "lfence") == 0 ? 0xE8 : 0xF0);
+        return true;
+    }
+    if (strcmp(name, "ldmxcsr") == 0 || strcmp(name, "stmxcsr") == 0) {
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
+        emit_byte(mod, modrm64(0, strcmp(name, "ldmxcsr") == 0 ? 2 : 3,
+                               RAX));
+        return true;
+    }
+    if (strcmp(name, "clflush") == 0) {
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
+        emit_byte(mod, modrm64(0, 7, RAX));
+        return true;
+    }
+    if (strcmp(name, "movnti") == 0) {
+        emit64_sub_reg_imm(mod, RSP, 8);
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        gen64_expr(mod, call64_argument(expr, 1));
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        emit_byte(mod, 0x0F); emit_byte(mod, 0xC3);
+        emit64_memory_operand(mod, RCX, RAX, 0);
+        emit64_add_reg_imm(mod, RSP, 8);
+        return true;
+    }
+    if (strstr(name, "store") == name || strstr(name, "movnt") == name) {
+        Expr* pointer = call64_argument(expr, 0);
+        Expr* value = call64_argument(expr, 1);
+        emit64_sub_reg_imm(mod, RSP, 8);
+        gen64_expr(mod, pointer);
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        gen64_expr(mod, value);
+        emit64_sse128_memory(mod, 0, RAX, 0, 0, 0x10);
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        if (strstr(name, "movnt") == name) {
+            prefix = strstr(name, "pd") || strstr(name, "dq") ? 0x66 : 0;
+            emit64_sse128_memory(mod, 0, RCX, 0, prefix, 0x2B);
+        } else if (strstr(name, "sd")) {
+            emit64_sse128_memory(mod, 0, RCX, 0, 0xF2, 0x11);
+        } else if (strstr(name, "ss")) {
+            emit64_sse128_memory(mod, 0, RCX, 0, 0xF3, 0x11);
+        } else {
+            emit64_sse128_memory(mod, 0, RCX, 0, 0, 0x11);
+        }
+        emit64_add_reg_imm(mod, RSP, 8);
+        return true;
+    }
+    if (strstr(name, "load") == name) {
+        gen64_expr(mod, call64_argument(expr, 0));
+        if (strcmp(name, "loadss") == 0 || strcmp(name, "loadsd") == 0) {
+            emit64_sse128_reg(mod, 0, 0, 0, 0x57);
+            emit64_sse128_memory(mod, 0, RAX, 0,
+                                 strcmp(name, "loadsd") == 0 ? 0xF2 : 0xF3,
+                                 0x10);
+        } else {
+            prefix = strcmp(name, "loadupd") == 0 ||
+                     strcmp(name, "loaddqu") == 0 ? 0x66 : 0;
+            opcode = strcmp(name, "loaddqu") == 0 ? 0x6F : 0x10;
+            emit64_sse128_memory(mod, 0, RAX, 0, prefix, opcode);
+        }
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "movss") == 0 || strcmp(name, "movsd") == 0) {
+        if (!gen64_sse_two_vectors(mod, expr)) return true;
+        emit64_sse128_reg(mod, 0, 1, strcmp(name, "movsd") == 0 ? 0xF2 : 0xF3,
+                          0x10);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (codegen64_sse_float_binary(full_name, &prefix, &opcode, &reverse) ||
+        codegen64_sse_integer_binary(full_name, &prefix, &opcode, &reverse)) {
+        if (!gen64_sse_two_vectors(mod, expr)) return true;
+        if (reverse) {
+            emit64_sse128_reg(mod, 1, 0, prefix, opcode);
+            emit64_sse128_reg(mod, 0, 1, 0, 0x10);
+        } else {
+            emit64_sse128_reg(mod, 0, 1, prefix, opcode);
+        }
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "unpckhps") == 0 || strcmp(name, "unpcklps") == 0 ||
+        strcmp(name, "unpckhpd") == 0 || strcmp(name, "unpcklpd") == 0 ||
+        strcmp(name, "movhlps") == 0 || strcmp(name, "movlhps") == 0) {
+        if (!gen64_sse_two_vectors(mod, expr)) return true;
+        if (strcmp(name, "movhlps") == 0 || strcmp(name, "movlhps") == 0) {
+            emit64_sse128_reg(mod, 0, 1,
+                              0, strcmp(name, "movhlps") == 0 ? 0x12 : 0x16);
+        } else {
+            emit64_sse128_reg(
+                mod, 0, 1, strstr(name, "pd") ? 0x66 : 0,
+                strstr(name, "unpckh") ? 0x15 : 0x14);
+        }
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strstr(name, "sqrt") == name || strstr(name, "rcp") == name ||
+        strstr(name, "rsqrt") == name) {
+        gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+        opcode = strstr(name, "rsqrt") ? 0x52 :
+                 strstr(name, "sqrt") ? 0x51 : 0x53;
+        prefix = strstr(name, "sd") ? 0xF2 : strstr(name, "ss") ? 0xF3 :
+                 strstr(name, "pd") ? 0x66 : 0;
+        emit64_sse128_reg(mod, 0, 0, prefix, opcode);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strstr(name, "cmp") == name) {
+        int predicate = codegen64_sse_compare_predicate(name);
+        if (predicate < 0 || !gen64_sse_two_vectors(mod, expr)) {
+            rcc_error(expr->loc, "SSE compare builtin has invalid operands");
+            return true;
+        }
+        prefix = strstr(name, "ss") ? 0xF3 :
+                 strstr(name, "sd") || strstr(name, "pd") ? 0x66 : 0;
+        emit64_sse128_immediate(mod, 0, 1, prefix, 0xC2,
+                                (uint8_t)predicate);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strstr(name, "comi") == name || strstr(name, "ucomi") == name) {
+        if (!gen64_sse_two_vectors(mod, expr)) return true;
+        prefix = strstr(name, "d") ? 0x66 : 0;
+        emit64_sse128_reg(mod, 0, 1, prefix, 0x2E);
+        if (strstr(name, "eq")) emit64_setcc(mod, CC64_E, RAX);
+        else if (strstr(name, "neq")) emit64_setcc(mod, CC64_NE, RAX);
+        else if (strstr(name, "lt")) emit64_setcc(mod, CC64_B, RAX);
+        else if (strstr(name, "le")) emit64_setcc(mod, CC64_BE, RAX);
+        else if (strstr(name, "gt")) emit64_setcc(mod, CC64_A, RAX);
+        else emit64_setcc(mod, CC64_AE, RAX);
+        emit64_movzx_r64_r8(mod, RAX, RAX);
+        return true;
+    }
+    if (strstr(name, "movmsk") == name || strstr(name, "pmovmskb") == name) {
+        gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+        prefix = strstr(name, "pd") || strstr(name, "pmovmskb") ? 0x66 : 0;
+        opcode = strstr(name, "pmovmskb") ? 0xD7 : 0x50;
+        emit64_sse128_reg(mod, RAX, 0, prefix, opcode);
+        return true;
+    }
+    if (strcmp(name, "shufps") == 0 || strcmp(name, "shufpd") == 0) {
+        if (!gen64_sse_two_vectors(mod, expr)) return true;
+        if (!expr_eval_integer_constant(call64_argument(expr, 2), &immediate)) {
+            rcc_error(expr->loc, "SSE shuffle requires a constant immediate");
+            return true;
+        }
+        emit64_sse128_immediate(mod, 0, 1,
+                                 strcmp(name, "shufpd") == 0 ? 0x66 : 0,
+                                 0xC6, (uint8_t)immediate);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "pshufd") == 0 || strcmp(name, "pshufhw") == 0 ||
+        strcmp(name, "pshuflw") == 0) {
+        gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+        if (!expr_eval_integer_constant(call64_argument(expr, 1), &immediate)) {
+            rcc_error(expr->loc, "SSE integer shuffle requires a constant immediate");
+            return true;
+        }
+        prefix = strcmp(name, "pshufhw") == 0 ? 0xF3 :
+                 strcmp(name, "pshuflw") == 0 ? 0xF2 : 0x66;
+        emit64_sse128_immediate(mod, 0, 0, prefix, 0x70,
+                                (uint8_t)immediate);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strstr(name, "cvt") == name) {
+        if (strcmp(name, "cvtsi2ss") == 0 ||
+            strcmp(name, "cvtsi642ss") == 0) {
+            gen64_expr(mod, call64_argument(expr, 0));
+            emit64_int_to_sse(mod, 0, RAX,
+                              strcmp(name, "cvtsi642ss") == 0 ? 8 : 4, 4);
+            emit64_sse_store_result(mod, expr, 0);
+            return true;
+        }
+        if (strcmp(name, "cvtss2si") == 0 || strcmp(name, "cvttss2si") == 0 ||
+            strcmp(name, "cvtss2si64") == 0 ||
+            strcmp(name, "cvttss2si64") == 0) {
+            gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+            emit64_sse_to_int_opcode(
+                mod, RAX, 0, 4, strstr(name, "64") ? 8 : 4,
+                strstr(name, "cvtt") ? 0x2C : 0x2D);
+            return true;
+        }
+        gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+        prefix = strcmp(name, "cvtpd2ps") == 0 ? 0x66 :
+                 strcmp(name, "cvtdq2pd") == 0 ? 0xF3 :
+                 strcmp(name, "cvttps2dq") == 0 ? 0xF3 :
+                 (strcmp(name, "cvtps2dq") == 0 ||
+                  strcmp(name, "cvttpd2dq") == 0) ? 0x66 : 0;
+        opcode = (strcmp(name, "cvtdq2pd") == 0 ||
+                  strcmp(name, "cvttpd2dq") == 0) ? 0xE6 :
+                 (strcmp(name, "cvtdq2ps") == 0 ||
+                  strcmp(name, "cvtps2dq") == 0 ||
+                  strcmp(name, "cvttps2dq") == 0) ? 0x5B : 0x5A;
+        emit64_sse128_reg(mod, 0, 0, prefix, opcode);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "vec_ext_v8hi") == 0) {
+        gen64_expr(mod, call64_argument(expr, 0));
+        if (!expr_eval_integer_constant(call64_argument(expr, 1), &immediate)) {
+            rcc_error(expr->loc, "vector extract requires a constant lane");
+            return true;
+        }
+        emit64_load_typed(mod, RAX, RAX, (int32_t)immediate * 2, type_short);
+        return true;
+    }
+    if (strcmp(name, "vec_set_v8hi") == 0) {
+        emit64_lea(mod, R11, RBP, expr->call_result_offset);
+        for (int index = 0; index < 8; ++index) {
+            gen64_expr(mod, call64_argument(expr, index));
+            emit64_store_typed(mod, R11, index * 2, RAX, type_short);
+        }
+        return true;
+    }
+    if (strncmp(name, "psll", 4) == 0 || strncmp(name, "psrl", 4) == 0 ||
+        strncmp(name, "psra", 4) == 0) {
+        gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+        if (expr_eval_integer_constant(call64_argument(expr, 1), &immediate)) {
+            int group = strstr(name, "psra") ? 4 : strstr(name, "psrl") ? 2 : 6;
+            opcode = strstr(name, "w") ? 0x71 : strstr(name, "d") ? 0x72 : 0x73;
+            emit64_sse128_immediate(mod, 0, group, 0x66, opcode,
+                                    (uint8_t)immediate);
+        } else {
+            gen64_expr(mod, call64_argument(expr, 1));
+            emit64_mov_xmm_from_gpr(mod, 1, RAX, 4);
+            opcode = strstr(name, "w") ? 0xF1 : strstr(name, "d") ? 0xF2 : 0xF3;
+            emit64_sse128_reg(mod, 0, 1, 0x66, opcode);
+        }
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    rcc_error(expr->loc, "unsupported SSE/SSE2 compiler builtin '%s'", full_name);
+    return true;
+}
+
 static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     Expr* function;
     Expr* argument;
@@ -2029,6 +2441,7 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     }
     function = expr->call_func;
     if (gen64_mmx_builtin(mod, expr)) return true;
+    if (gen64_sse_builtin(mod, expr)) return true;
     bswap_width = strcmp(function->ident_name, "__builtin_bswap16") == 0 ? 2 :
         strcmp(function->ident_name, "__builtin_bswap32") == 0 ? 4 :
         strcmp(function->ident_name, "__builtin_bswap64") == 0 ? 8 : 0;
@@ -2329,8 +2742,8 @@ static bool gen64_aggregate_zero_initializer(Type* type,
     ExprList* item;
     int64_t value;
     if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
-        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
-         type->kind != TYPE_UNION)) {
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_VECTOR &&
+         type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
         return false;
     }
     item = initializer->compound_init;
@@ -2384,7 +2797,8 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         initializer->compound_init->expr &&
         initializer->compound_init->expr->type &&
         type_is_compatible(type, initializer->compound_init->expr->type) &&
-        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
+         type->kind == TYPE_VECTOR)) {
         int offset = 0;
         gen64_lvalue(mod, initializer->compound_init->expr);
         emit64_mov_reg_reg(mod, RCX, RAX);
@@ -2470,6 +2884,31 @@ static bool gen64_local_initializer(Module* mod, Type* type,
             }
             return true;
         }
+        if (type->kind == TYPE_VECTOR) {
+            int64_t cursor = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                int64_t item_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    return false;
+                }
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    cursor = item->designator_index;
+                }
+                if (cursor < 0 || cursor >= type->array_len || !type->base) {
+                    return false;
+                }
+                item_offset = (int64_t)displacement +
+                              cursor * type->base->size;
+                if (item_offset < INT32_MIN || item_offset > INT32_MAX ||
+                    !gen64_local_initializer(mod, type->base, item->expr,
+                                             (int32_t)item_offset)) {
+                    return false;
+                }
+                ++cursor;
+            }
+            return true;
+        }
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
             TypeField* cursor = type->fields;
             int initialized = 0;
@@ -2512,6 +2951,16 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         }
         return gen64_local_initializer(
             mod, type, initializer->compound_init->expr, displacement);
+    }
+    if (type->kind == TYPE_VECTOR && initializer->type &&
+        type_is_compatible(type, initializer->type)) {
+        if (initializer->kind == EXPR_VA_ARG) {
+            gen64_expr(mod, initializer);
+        } else {
+            gen64_lvalue(mod, initializer);
+        }
+        gen64_copy_memory(mod, RBP, displacement, RAX, 0, type->size);
+        return true;
     }
     if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->type && type_is_compatible(type, initializer->type)) {
@@ -3027,7 +3476,8 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             }
             if (expr->compound_type->kind == TYPE_ARRAY ||
                 expr->compound_type->kind == TYPE_STRUCT ||
-                expr->compound_type->kind == TYPE_UNION) {
+                expr->compound_type->kind == TYPE_UNION ||
+                expr->compound_type->kind == TYPE_VECTOR) {
                 gen64_zero_local_storage(mod, expr->compound_offset,
                                          (size_t)expr->compound_type->size);
             }
@@ -3054,9 +3504,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 gen64_expr(mod, expr);
                 break;
             }
-            if (!expr->type ||
-                (expr->type->kind != TYPE_STRUCT &&
-                 expr->type->kind != TYPE_UNION) ||
+            if (!expr->type || !gen64_is_aggregate(expr->type) ||
                 expr->call_result_offset >= 0) {
                 rcc_error(expr->loc,
                           "aggregate call has no automatic result slot");
@@ -3113,9 +3561,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
         }
 
         case EXPR_ASSIGN:
-            if (expr->type &&
-                (expr->type->kind == TYPE_STRUCT ||
-                 expr->type->kind == TYPE_UNION)) {
+            if (expr->type && gen64_is_aggregate(expr->type)) {
                 gen64_expr(mod, expr);
             } else {
                 rcc_error(expr->loc, "assignment expression is not an lvalue");
@@ -4886,13 +5332,15 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 gen64_lvalue(mod, expr);
                 if (expr->type && expr->type->kind != TYPE_ARRAY &&
                     expr->type->kind != TYPE_STRUCT &&
-                    expr->type->kind != TYPE_UNION) {
+                    expr->type->kind != TYPE_UNION &&
+                    expr->type->kind != TYPE_VECTOR) {
                     emit64_load_typed(mod, RAX, RAX, 0, expr->type);
                 }
             } else if (decl->var_is_thread_local) {
                 gen64_lvalue(mod, expr);
                 emit64_load_typed(mod, RAX, RAX, 0, decl->type);
-            } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
+            } else if (decl->type && (decl->type->kind == TYPE_ARRAY ||
+                                      decl->type->kind == TYPE_VECTOR)) {
                 gen64_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen64_symbol_address(mod, decl_link_name(decl), 0u);
@@ -4948,7 +5396,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
              * subsequent index operation. */
             if (expr->type && (expr->type->kind == TYPE_ARRAY ||
                                expr->type->kind == TYPE_STRUCT ||
-                               expr->type->kind == TYPE_UNION)) {
+                               expr->type->kind == TYPE_UNION ||
+                               expr->type->kind == TYPE_VECTOR)) {
                 break;
             }
             if (expr->type && expr->type->is_atomic) {
@@ -5684,9 +6133,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             int temp_bytes = 0;
             int stack_bytes = 0;
             int stack_padding;
-            bool aggregate_result = expr->type &&
-                (expr->type->kind == TYPE_STRUCT ||
-                 expr->type->kind == TYPE_UNION);
+            bool aggregate_result = gen64_is_aggregate(expr->type);
             Gen64AggregateClass result_class;
             if (aggregate_result) {
                 result_class = gen64_classify_aggregate(expr->type);
@@ -6108,7 +6555,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             gen64_lvalue(mod, expr);
             if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
                                 expr->type->kind != TYPE_STRUCT &&
-                                expr->type->kind != TYPE_UNION)) {
+                                expr->type->kind != TYPE_UNION &&
+                                expr->type->kind != TYPE_VECTOR)) {
                 emit64_load_typed(mod, RAX, RAX, 0, expr->type);
             }
             break;
@@ -7541,12 +7989,15 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     gen64_lvalue(mod, stmt->return_val);
                 } else if (current_function_return_type64 &&
                     (current_function_return_type64->kind == TYPE_STRUCT ||
-                     current_function_return_type64->kind == TYPE_UNION)) {
+                     current_function_return_type64->kind == TYPE_UNION ||
+                     current_function_return_type64->kind == TYPE_VECTOR)) {
                     int size = current_function_return_type64->size;
                     Gen64AggregateClass return_class =
                         gen64_classify_aggregate(
                             current_function_return_type64);
-                    if (stmt->return_val->kind == EXPR_VA_ARG) {
+                    if (current_function_return_type64->kind == TYPE_VECTOR) {
+                        gen64_expr(mod, stmt->return_val);
+                    } else if (stmt->return_val->kind == EXPR_VA_ARG) {
                         gen64_expr(mod, stmt->return_val);
                     } else {
                         gen64_lvalue(mod, stmt->return_val);
@@ -7660,9 +8111,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                          (d->type->cxx_class &&
                           (d->type->cxx_class->secondary_vtable_count > 0 ||
                            d->type->cxx_class->virtual_base_count > 0)))))) {
-                if (d->type && (d->type->kind == TYPE_ARRAY ||
+                    if (d->type && (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
-                                d->type->kind == TYPE_UNION)) {
+                                d->type->kind == TYPE_UNION ||
+                                d->type->kind == TYPE_VECTOR)) {
                     gen64_zero_local_storage(mod, d->var_offset,
                                              (size_t)d->type->size);
                 }

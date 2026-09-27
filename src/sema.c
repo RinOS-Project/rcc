@@ -1008,6 +1008,7 @@ static bool is_modifiable_lvalue(Expr* expression) {
 static Type* get_pointer_base(Type* t) {
     if (t->kind == TYPE_PTR) return t->base;
     if (t->kind == TYPE_ARRAY) return t->base;
+    if (t->kind == TYPE_VECTOR) return t->base;
     return NULL;
 }
 
@@ -1350,6 +1351,11 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
         type_is_compatible(e->type, target)) {
+        return target;
+    }
+    if (target->kind == TYPE_VECTOR &&
+        e->type->kind == TYPE_VECTOR &&
+        e->type->size == target->size) {
         return target;
     }
 
@@ -10960,6 +10966,53 @@ static RccMmxBuiltinKind sema_mmx_builtin_kind(const char* name) {
     return RCC_MMX_BUILTIN_NONE;
 }
 
+static bool sema_sse_builtin_name(const char* name) {
+    return name && strncmp(name, "__builtin_ia32_", 15) == 0;
+}
+
+static Type* sema_sse_builtin_vector(const char* name) {
+    if (!name) return NULL;
+    if (strstr(name, "pd") || strstr(name, "sd") ||
+        strstr(name, "cvtps2pd") || strstr(name, "cvtdq2pd")) {
+        return rcc_parser_lookup_type("__v2df");
+    }
+    if (strstr(name, "128") || strstr(name, "loaddqu") ||
+        strstr(name, "storedqu")) {
+        return rcc_parser_lookup_type("__v2di");
+    }
+    if (strstr(name, "cvtps2dq") || strstr(name, "cvttpd2dq") ||
+        strstr(name, "cvttps2dq")) {
+        return rcc_parser_lookup_type("__v4si");
+    }
+    if (strstr(name, "cvtpd2ps")) {
+        return rcc_parser_lookup_type("__v4sf");
+    }
+    if (strstr(name, "vec_set_v8hi")) {
+        return rcc_parser_lookup_type("__v8hi");
+    }
+    return rcc_parser_lookup_type("__v4sf");
+}
+
+static Type* sema_sse_builtin_return_type(const char* name) {
+    if (!name) return type_int;
+    if (strstr(name, "comi") || strstr(name, "ucomi") ||
+        strstr(name, "movmsk") || strstr(name, "cvtss2si") ||
+        strstr(name, "cvttss2si") ||
+        strstr(name, "vec_ext_v8hi")) {
+        return (strstr(name, "64") || strstr(name, "si64"))
+            ? type_llong : type_int;
+    }
+    if (strstr(name, "lfence") || strstr(name, "mfence") ||
+        strstr(name, "sfence") || strstr(name, "pause") ||
+        strstr(name, "clflush") || strstr(name, "ldmxcsr") ||
+        strstr(name, "movnt") ||
+        strstr(name, "store")) {
+        return type_void;
+    }
+    if (strstr(name, "stmxcsr")) return type_uint;
+    return sema_sse_builtin_vector(name);
+}
+
 static bool sema_compiler_builtin_call(Expr* expr) {
     Expr* function;
     Expr* first;
@@ -11022,6 +11075,22 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         }
         function->type = type_ptr(type_llong);
         expr->type = type_llong;
+        return true;
+    }
+    if (sema_sse_builtin_name(name)) {
+        Type* return_type = sema_sse_builtin_return_type(name);
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count == 0 && return_type != type_void &&
+            strcmp(name, "__builtin_ia32_pause") != 0 &&
+            strcmp(name, "__builtin_ia32_stmxcsr") != 0) {
+            rcc_error(expr->loc, "%s requires at least one argument", name);
+        }
+        function->type = type_ptr(return_type);
+        expr->type = return_type;
         return true;
     }
     if (strcmp(name, "__builtin_bswap16") == 0) {
@@ -11105,11 +11174,11 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         second = expr->call_args && expr->call_args->next
             ? expr->call_args->next->expr : NULL;
         if (second) {
-            if (!second->type || !type_is_integer(second->type) ||
-                !expr_eval_integer_constant(second, &value)) {
+            if (!second->type || !type_is_integer(second->type)) {
                 rcc_error(expr->loc,
-                          "__builtin_prefetch rw argument must be an integer constant");
-            } else if (value != 0 && value != 1) {
+                          "__builtin_prefetch rw argument must have integer type");
+            } else if (expr_eval_integer_constant(second, &value) &&
+                       value != 0 && value != 1) {
                 rcc_error(expr->loc,
                           "__builtin_prefetch rw argument must be 0 or 1");
             }
@@ -11118,11 +11187,11 @@ static bool sema_compiler_builtin_call(Expr* expr) {
             ? expr->call_args->next->next
                 ? expr->call_args->next->next->expr : NULL : NULL;
         if (second) {
-            if (!second->type || !type_is_integer(second->type) ||
-                !expr_eval_integer_constant(second, &value)) {
+            if (!second->type || !type_is_integer(second->type)) {
                 rcc_error(expr->loc,
-                          "__builtin_prefetch locality argument must be an integer constant");
-            } else if (value < 0 || value > 3) {
+                          "__builtin_prefetch locality argument must have integer type");
+            } else if (expr_eval_integer_constant(second, &value) &&
+                       (value < 0 || value > 3)) {
                 rcc_error(expr->loc,
                           "__builtin_prefetch locality argument must be between 0 and 3");
             }
@@ -11462,7 +11531,11 @@ static bool initializer_is_aggregate_zero(Type* type, Expr* initializer) {
 static int initializer_scalar_capacity(Type* type) {
     int64_t capacity = 0;
     if (!type) return 0;
-    if (type->kind == TYPE_ARRAY) {
+    if (type->kind == TYPE_VECTOR) {
+        if (type->array_len <= 0 || !type->base) return 0;
+        capacity = (int64_t)type->array_len *
+                   initializer_scalar_capacity(type->base);
+    } else if (type->kind == TYPE_ARRAY) {
         if (type->array_len < 0 || !type->base) return 0;
         capacity = (int64_t)type->array_len *
                    initializer_scalar_capacity(type->base);
@@ -11495,7 +11568,7 @@ static bool initializer_is_plain_sequence(Expr* initializer) {
 }
 
 static bool initializer_is_aggregate_type(Type* type) {
-    return type && (type->kind == TYPE_ARRAY ||
+    return type && (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR ||
                     type->kind == TYPE_STRUCT ||
                     type->kind == TYPE_UNION);
 }
@@ -11587,6 +11660,21 @@ static void consume_brace_elided_subobject(Type* type, ExprList** source) {
         *source = (*source)->next;
         return;
     }
+    if (type->kind == TYPE_VECTOR) {
+        if (type->array_len <= 0 || !type->base) {
+            *source = (*source)->next;
+            return;
+        }
+        for (int index = 0; index < type->array_len && *source; ++index) {
+            if (initializer_directly_initializes(type->base,
+                                                  (*source)->expr)) {
+                *source = (*source)->next;
+            } else {
+                consume_brace_elided_subobject(type->base, source);
+            }
+        }
+        return;
+    }
     if (type->kind == TYPE_ARRAY) {
         if (type->array_len < 0 || !type->base) {
             *source = (*source)->next;
@@ -11631,7 +11719,8 @@ static void normalize_brace_elided_initializer(Type* type,
     bool plain_sequence = true;
 
     if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
-        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_VECTOR &&
+         type->kind != TYPE_STRUCT &&
          type->kind != TYPE_UNION)) {
         return;
     }
@@ -11639,7 +11728,13 @@ static void normalize_brace_elided_initializer(Type* type,
     if (!plain_sequence) return;
 
     source = initializer->compound_init;
-    if (type->kind == TYPE_ARRAY) {
+    if (type->kind == TYPE_VECTOR) {
+        for (int index = 0; index < type->array_len && source; ++index) {
+            exprlist_append_designated(&normalized, source->expr,
+                                       INIT_DESIGNATOR_NONE, 0, NULL);
+            source = source->next;
+        }
+    } else if (type->kind == TYPE_ARRAY) {
         for (int index = 0; index < type->array_len && source; ++index) {
             Type* element_type = type->base;
             if (initializer_directly_initializes(element_type,
@@ -11779,6 +11874,13 @@ static void sema_initializer(Type* type, Expr* initializer) {
             }
             return;
         }
+        if (type->kind == TYPE_VECTOR) {
+            if (!type_is_compatible(type, initializer->type)) {
+                rcc_error(initializer->loc,
+                          "incompatible vector copy initialization");
+            }
+            return;
+        }
         if (type->kind == TYPE_ARRAY) {
             rcc_error(initializer->loc,
                       "array copy initialization is not valid C17");
@@ -11849,6 +11951,20 @@ static void sema_initializer(Type* type, Expr* initializer) {
         if (!type_is_integer(initializer->compound_init->expr->type)) {
             rcc_error(initializer->compound_init->expr->loc,
                       "aggregate zero initializer requires an integer zero");
+        }
+        return;
+    }
+    if (type->kind == TYPE_VECTOR) {
+        int64_t cursor = 0;
+        for (ExprList* item = initializer->compound_init; item;
+             item = item->next, ++cursor) {
+            if (item->designator_kind != INIT_DESIGNATOR_NONE ||
+                cursor >= type->array_len) {
+                rcc_error(item->expr->loc,
+                          "vector initializer has an invalid lane");
+                continue;
+            }
+            sema_initializer(type->base, item->expr);
         }
         return;
     }
@@ -13212,7 +13328,8 @@ static void sema_decl(Decl* decl) {
                 if (g_opts.target_arch == ARCH_X86 &&
                     decl->type && decl->type->ret_type &&
                     (decl->type->ret_type->kind == TYPE_STRUCT ||
-                     decl->type->ret_type->kind == TYPE_UNION)) {
+                     decl->type->ret_type->kind == TYPE_UNION ||
+                     decl->type->ret_type->kind == TYPE_VECTOR)) {
                     param_offset += 4; /* Hidden aggregate-result pointer. */
                 }
                 if (decl->func_this_param) {
@@ -13309,6 +13426,7 @@ static void sema_decl(Decl* decl) {
             break;
 
         case DECL_TYPEDEF: {
+            Symbol* previous = symtab_lookup_local(g_symtab, decl->name);
             sema_validate_array_parameter_type(decl->typedef_type,
                                                decl->loc, false);
             sema_validate_restrict_type(decl->typedef_type, decl->loc);
@@ -13319,7 +13437,14 @@ static void sema_decl(Decl* decl) {
                               "variably modified typedef is only valid at block scope");
                 }
             }
-            symtab_define(g_symtab, decl->name, SYM_TYPE, decl->typedef_type, decl->loc);
+            if (previous && previous->kind == SYM_TYPE &&
+                type_is_compatible(previous->type, decl->typedef_type)) {
+                previous->type = decl->typedef_type;
+                previous->decl = decl;
+            } else {
+                symtab_define(g_symtab, decl->name, SYM_TYPE,
+                              decl->typedef_type, decl->loc);
+            }
             break;
         }
 

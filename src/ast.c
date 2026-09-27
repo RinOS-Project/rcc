@@ -197,6 +197,32 @@ Type* type_array(Type* base, int len) {
     return t;
 }
 
+Type* type_vector(Type* base, int lanes, int vector_size) {
+    Type* t = rcc_alloc(sizeof(Type));
+    t->kind = TYPE_VECTOR;
+    t->size = vector_size;
+    t->align = vector_size >= 16 ? 16 : vector_size;
+    t->has_explicit_alignment = false;
+    t->is_atomic = false;
+    t->base = base;
+    t->array_len = lanes;
+    t->array_bound = NULL;
+    t->array_unspecified_bound = false;
+    t->array_parameter_static = false;
+    t->array_parameter_const = false;
+    t->array_parameter_volatile = false;
+    t->array_parameter_restrict = false;
+    t->cxx_is_class = false;
+    t->cxx_nontrivial = false;
+    t->cxx_dependent = false;
+    t->cxx_class = NULL;
+    t->cxx_namespace = NULL;
+    t->cxx_vtable_size = 0;
+    t->cxx_vtable_symbol = NULL;
+    t->cxx_typeinfo_symbol = NULL;
+    return t;
+}
+
 Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     Type* t = rcc_alloc(sizeof(Type));
     t->kind = TYPE_FUNC;
@@ -311,6 +337,10 @@ bool type_is_array(Type* t) {
     return t && t->kind == TYPE_ARRAY;
 }
 
+bool type_is_vector(Type* t) {
+    return t && t->kind == TYPE_VECTOR;
+}
+
 bool type_is_function(Type* t) {
     return t && t->kind == TYPE_FUNC;
 }
@@ -341,6 +371,10 @@ bool type_is_compatible(Type* a, Type* b) {
     if (a->kind == TYPE_ARRAY) {
         return (a->array_len < 0 || b->array_len < 0 ||
                 a->array_len == b->array_len) &&
+               type_is_compatible(a->base, b->base);
+    }
+    if (a->kind == TYPE_VECTOR) {
+        return a->size == b->size && a->array_len == b->array_len &&
                type_is_compatible(a->base, b->base);
     }
     if (a->kind == TYPE_FUNC) {
