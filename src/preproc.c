@@ -387,6 +387,34 @@ static char* read_file(const char* filename) {
     return buf;
 }
 
+/* C17/C++20 translation phase 1 maps the supported physical line endings to
+ * a single newline before splicing, comment removal, or literal lexing.  Do
+ * this for every preprocessing entry point, including pp_process_string(),
+ * so raw string contents and diagnostics are independent of the checkout's
+ * CRLF/LF convention. */
+static char* normalize_source_newlines(const char* source) {
+    size_t length;
+    size_t write_index = 0;
+    char* normalized;
+
+    if (!source) return NULL;
+    length = strlen(source);
+    normalized = rcc_alloc(length + 1u);
+    for (size_t read_index = 0; read_index < length; ++read_index) {
+        if (source[read_index] == '\r') {
+            if (read_index + 1u < length &&
+                source[read_index + 1u] == '\n') {
+                ++read_index;
+            }
+            normalized[write_index++] = '\n';
+        } else {
+            normalized[write_index++] = source[read_index];
+        }
+    }
+    normalized[write_index] = '\0';
+    return normalized;
+}
+
 /* Find include file */
 static char* find_include(Preprocessor* pp, const char* name, const char* current_file,
                           bool is_system, char* resolved, size_t resolved_size) {
@@ -2019,10 +2047,18 @@ static const char* process_directive(Preprocessor* pp, const char* p,
 char* pp_process_string(Preprocessor* pp, const char* source, const char* filename) {
     PPBuffer output;
     const char* previous_file = pp->current_file;
+    char* normalized_source;
+    char* spliced_source;
     buf_init(&output);
     pp->current_file = filename;
 
-    char* spliced_source = splice_source_lines(source);
+    normalized_source = normalize_source_newlines(source);
+    if (!normalized_source) {
+        rcc_fatal("cannot normalize null preprocessor source");
+        return NULL;
+    }
+    spliced_source = splice_source_lines(normalized_source);
+    rcc_free(normalized_source);
     char* comment_free_source = strip_source_comments(spliced_source);
     const char* p = comment_free_source;
     int line = 1;

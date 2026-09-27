@@ -46,6 +46,9 @@
 - [x] i686 runtimeのfloat/double x87算術・比較・cast・代入・前後置更新と、
       cdecl stack引数/スカラー戻り値lowering
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
+  - [x] C17/C++20 translation phase 1としてCRLF/CRをLFへ正規化してから
+        line-splice、comment除去、literal lexingを行い、raw stringの埋め込み
+        改行をcheckoutの改行形式に依存させない
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen
 - [ ] qualifierとeffective typeの完全なC17規則
