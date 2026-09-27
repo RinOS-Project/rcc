@@ -748,6 +748,83 @@ static bool gen64_atomic_bitwise_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+/* Lower integer multiply/divide/remainder/shift compound assignments as a
+ * compare/exchange loop.  The operand is evaluated once, while every retry
+ * recomputes the candidate from the value observed by CMPXCHG. */
+static bool gen64_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
+    Type* type;
+    int retry_label;
+    bool division;
+    bool remainder;
+
+    if (!expr || !expr->binary_lhs || !expr->binary_lhs->type ||
+        !expr->binary_lhs->type->is_atomic) return false;
+    if (expr->kind != EXPR_MUL_ASSIGN && expr->kind != EXPR_DIV_ASSIGN &&
+        expr->kind != EXPR_MOD_ASSIGN && expr->kind != EXPR_LSHIFT_ASSIGN &&
+        expr->kind != EXPR_RSHIFT_ASSIGN) return false;
+    type = expr->binary_lhs->type;
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM) {
+        rcc_error(expr->loc,
+                  "atomic arithmetic assignment requires an integer object");
+        return true;
+    }
+    if (type->size != 1 && type->size != 2 && type->size != 4 &&
+        type->size != 8) {
+        rcc_error(expr->loc,
+                  "AMD64 atomic arithmetic assignment has unsupported object width");
+        return true;
+    }
+
+    division = expr->kind == EXPR_DIV_ASSIGN || expr->kind == EXPR_MOD_ASSIGN;
+    remainder = expr->kind == EXPR_MOD_ASSIGN;
+    gen64_expr(mod, expr->binary_rhs);
+    emit64_normalize_atomic_value(mod, RAX, type);
+    emit64_push_reg(mod, RAX); /* Operand. */
+    gen64_lvalue(mod, expr->binary_lhs);
+    /* Keep the object address in a legacy register: the narrow CMPXCHG
+     * encodings below do not carry a REX prefix, so an extended base register
+     * would be decoded as its low three-bit alias. */
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit64_load_typed(mod, RAX, RDI, 0, type);
+    retry_label = new_label64();
+    emit64_label(mod, retry_label);
+    emit64_mov_reg_reg(mod, R10, RAX); /* Expected snapshot. */
+    emit64_mov_reg_mem(mod, R8, RSP, 0);
+    if (division) {
+        emit64_mov_reg_reg(mod, RAX, R10);
+        if (type->is_unsigned) emit64_xor_reg_reg(mod, RDX, RDX);
+        else emit64_cqo(mod);
+        if (type->is_unsigned) emit64_div_reg(mod, R8);
+        else emit64_idiv_reg(mod, R8);
+        if (remainder) {
+            /* RDX already contains the remainder. */
+        } else {
+            emit64_mov_reg_reg(mod, RDX, RAX);
+        }
+        emit64_mov_reg_reg(mod, RAX, R10);
+    } else {
+        emit64_mov_reg_reg(mod, RDX, R10);
+        if (expr->kind == EXPR_MUL_ASSIGN) {
+            emit64_imul_reg_reg(mod, RDX, R8);
+        } else {
+            emit64_mov_reg_reg(mod, RCX, R8);
+            if (expr->kind == EXPR_LSHIFT_ASSIGN) {
+                emit64_shl_reg_cl(mod, RDX);
+            } else if (type->is_unsigned) {
+                emit64_shr_reg_cl(mod, RDX);
+            } else {
+                emit64_sar_reg_cl(mod, RDX);
+            }
+        }
+    }
+    emit64_normalize_atomic_value(mod, RDX, type);
+    emit64_atomic_cmpxchg_width(mod, RDX, RDI, type);
+    emit64_jcc_label(mod, CC64_NE, retry_label);
+    emit64_mov_reg_reg(mod, RAX, RDX);
+    emit64_add_reg_imm(mod, RSP, 8);
+    return true;
+}
+
 static bool gen64_expr_is_lvalue(Expr* expression) {
     if (!expression) return false;
     if (expression->kind == EXPR_CAST && expression->type &&
@@ -4980,7 +5057,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                                expr->binary_rhs->type);
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
-                if (gen64_atomic_bitwise_assignment(mod, expr)) break;
+                if (gen64_atomic_bitwise_assignment(mod, expr) ||
+                    gen64_atomic_arithmetic_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "atomic compound assignment operator is not supported by the target RMW backend");
                 break;

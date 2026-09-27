@@ -48,3 +48,27 @@ int atomic_language_bitwise(void) {
         0xffffffffffffffffULL) return 9;
     return 0;
 }
+
+int atomic_language_arithmetic(void) {
+    _Atomic int signed_value = 3;
+    _Atomic unsigned int unsigned_value = 100u;
+    _Atomic unsigned char byte_value = 0x81u;
+
+    if ((signed_value *= 7) != 21) return 1;
+    if ((signed_value /= 3) != 7) return 2;
+    if ((signed_value <<= 2) != 28) return 3;
+    if ((signed_value >>= 1) != 14) return 4;
+    if ((unsigned_value %= 9u) != 1u) return 5;
+    if ((byte_value >>= 1) != 0x40u) return 6;
+    if ((byte_value <<= 1) != 0x80u) return 7;
+#if defined(__x86_64__)
+    {
+        _Atomic unsigned long long wide_value = 144ULL;
+        if ((wide_value *= 5ULL) != 720ULL) return 8;
+        if ((wide_value /= 9ULL) != 80ULL) return 9;
+        if ((wide_value <<= 3) != 640ULL) return 10;
+        if ((wide_value >>= 4) != 40ULL) return 11;
+    }
+#endif
+    return 0;
+}

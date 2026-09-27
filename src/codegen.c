@@ -3021,6 +3021,88 @@ static bool gen_atomic_bitwise_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
+/* Lower the remaining integer compound assignments that have a native
+ * i686-width implementation.  Division and remainder preserve the CAS
+ * snapshot across the EDX:EAX divide pair; multiplication and shifts use the
+ * same snapshot directly.  A 64-bit i686 arithmetic RMW remains an explicit
+ * diagnostic in the existing wide-expression path. */
+static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
+    Type* type;
+    int retry_label;
+    bool division;
+    bool remainder;
+
+    if (!expr || !expr->binary_lhs || !expr->binary_lhs->type ||
+        !expr->binary_lhs->type->is_atomic) return false;
+    if (expr->kind != EXPR_MUL_ASSIGN && expr->kind != EXPR_DIV_ASSIGN &&
+        expr->kind != EXPR_MOD_ASSIGN && expr->kind != EXPR_LSHIFT_ASSIGN &&
+        expr->kind != EXPR_RSHIFT_ASSIGN) return false;
+    type = expr->binary_lhs->type;
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM) {
+        rcc_error(expr->loc,
+                  "atomic arithmetic assignment requires an integer object");
+        return true;
+    }
+    if (type->size == 8) return false;
+    if (type->size != 1 && type->size != 2 && type->size != 4) {
+        rcc_error(expr->loc,
+                  "i686 atomic arithmetic assignment has unsupported object width");
+        return true;
+    }
+
+    division = expr->kind == EXPR_DIV_ASSIGN || expr->kind == EXPR_MOD_ASSIGN;
+    remainder = expr->kind == EXPR_MOD_ASSIGN;
+    emit_push_reg(mod, EBX);
+    emit_push_reg(mod, ESI);
+    gen_expr(mod, expr->binary_rhs);
+    emit_normalize_atomic_value(mod, EAX, type);
+    emit_push_reg(mod, EAX); /* Operand. */
+    gen_lvalue(mod, expr->binary_lhs);
+    emit_push_reg(mod, EAX); /* Object address. */
+    emit_mov_reg_reg(mod, ESI, EAX);
+    emit_load_typed32(mod, EAX, ESI, 0, type);
+    retry_label = new_label();
+    emit_label(mod, retry_label);
+    if (division) {
+        /* Save the expected value while the divide consumes EAX/EDX. */
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, EBX, ESP, 8);
+        if (type->is_unsigned) emit_xor_reg_reg(mod, EDX, EDX);
+        else emit_cdq(mod);
+        if (type->is_unsigned) emit_div_reg(mod, EBX);
+        else emit_idiv_reg(mod, EBX);
+        if (remainder) {
+            /* EDX already contains the remainder. */
+        } else {
+            emit_mov_reg_reg(mod, EDX, EAX);
+        }
+        emit_pop_reg(mod, EAX);
+    } else {
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_mov_reg_mem(mod, EBX, ESP, 4);
+        if (expr->kind == EXPR_MUL_ASSIGN) {
+            emit_imul_reg_reg(mod, EDX, EBX);
+        } else {
+            emit_mov_reg_reg(mod, ECX, EBX);
+            if (expr->kind == EXPR_LSHIFT_ASSIGN) {
+                emit_shl_reg_cl(mod, EDX);
+            } else if (type->is_unsigned) {
+                emit_shr_reg_cl(mod, EDX);
+            } else {
+                emit_sar_reg_cl(mod, EDX);
+            }
+        }
+    }
+    emit_normalize_atomic_value(mod, EDX, type);
+    emit_atomic_cmpxchg_width(mod, EDX, ESI, type);
+    emit_jcc_label(mod, CC_NE, retry_label);
+    emit_mov_reg_reg(mod, EAX, EDX);
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_pop_reg(mod, ESI);
+    emit_pop_reg(mod, EBX);
+    return true;
+}
+
 static bool codegen_type_has_vla(const Type* type) {
     return type && type->kind == TYPE_ARRAY &&
            (type->array_bound != NULL || codegen_type_has_vla(type->base));
@@ -5212,6 +5294,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
                 if (gen_atomic_bitwise_assignment(mod, expr)) break;
+                if (gen_atomic_arithmetic_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "i686 atomic 64-bit compound assignment requires a supported RMW lowering");
                 break;
@@ -8482,7 +8565,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                                                expr->binary_rhs->type);
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
-                if (gen_atomic_bitwise_assignment(mod, expr)) break;
+                if (gen_atomic_bitwise_assignment(mod, expr) ||
+                    gen_atomic_arithmetic_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "atomic compound assignment operator is not supported by the target RMW backend");
                 break;

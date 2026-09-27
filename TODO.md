@@ -93,6 +93,9 @@
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] atomic-qualified整数の`&=`／`|=`／`^=`を一回評価のCAS retry loopでloweringし、
         i686/AMD64の8/16/32/64-bit幅で結果値と既存atomic API回帰を実行
+  - [x] atomic-qualified整数の`*=`／`/=`／`%=`／`<<=`／`>>=`を一回評価のCAS retry loopで
+        loweringし、i686の8/16/32-bitとAMD64の8/16/32/64-bit幅を実行検証。
+        i686 64-bit算術・shift RMWは未対応として明示診断を維持
   - [x] i686/AMD64生成コードのnative実行と16/32-bit競合回帰
   - [x] 8/16/32-bit標準integer typedefと`atomic_flag`向け`<stdatomic.h>` API
   - [x] wide/pointer-sized型を含むC17標準atomic typedef全面とarch別lock-free定数
