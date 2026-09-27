@@ -69,6 +69,20 @@ int atomic_language_arithmetic(void) {
         if ((wide_value <<= 3) != 640ULL) return 10;
         if ((wide_value >>= 4) != 40ULL) return 11;
     }
+#else
+    {
+        _Atomic long long wide_value = 144LL;
+        int evaluations = 0;
+        if ((wide_value *= (evaluations++, 5LL)) != 720LL) return 8;
+        if (evaluations != 1) return 9;
+        if ((wide_value /= 9LL) != 80LL) return 10;
+        if ((wide_value <<= 3) != 640LL) return 11;
+        if ((wide_value >>= 4) != 40LL) return 12;
+        wide_value = -65LL;
+        if ((wide_value /= 8LL) != -8LL) return 13;
+        wide_value = -33LL;
+        if ((wide_value >>= 2) != -9LL) return 14;
+    }
 #endif
     return 0;
 }

@@ -2911,6 +2911,16 @@ static void gen_cxx_dynamic_cast_runtime32(Module* mod, Expr* expr);
 static void emit_test_scalar_value(Module* mod, const Type* type);
 static void gen_expr64_pair(Module* mod, Expr* expr);
 static void gen_expr_as_integer64(Module* mod, Expr* expr);
+static void gen_multiply_integer64_from_stack(Module* mod, Expr* lhs,
+                                              int rhs_stack_offset);
+static void gen_divmod_integer64_from_stack(Module* mod, Expr* lhs,
+                                            const Type* result_type,
+                                            bool want_remainder,
+                                            int rhs_stack_offset);
+static void gen_shift_integer64_from_stack(Module* mod, Expr* lhs,
+                                           const Type* result_type,
+                                           bool shift_left,
+                                           int rhs_stack_offset);
 static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
 static void gen_call(Module* mod, Expr* expr);
 static void gen_lvalue(Module* mod, Expr* expr);
@@ -2919,6 +2929,7 @@ static void emit_normalize_atomic_value(Module* mod, int reg,
 static void emit_atomic_cmpxchg_width(Module* mod, int desired, int address,
                                       const Type* type);
 static void emit_atomic_cmpxchg8b(Module* mod, int address);
+static void emit_atomic_load_i686(Module* mod, const Type* type);
 static void emit_convert_integer_value(Module* mod, int reg,
                                        const Type* source_type,
                                        const Type* target_type);
@@ -3021,11 +3032,9 @@ static bool gen_atomic_bitwise_assignment(Module* mod, Expr* expr) {
     return true;
 }
 
-/* Lower the remaining integer compound assignments that have a native
- * i686-width implementation.  Division and remainder preserve the CAS
- * snapshot across the EDX:EAX divide pair; multiplication and shifts use the
- * same snapshot directly.  A 64-bit i686 arithmetic RMW remains an explicit
- * diagnostic in the existing wide-expression path. */
+/* Lower integer compound assignments with one-time RHS evaluation.  The
+ * i686-wide path keeps the operand in a stack slot and uses the existing
+ * software 64-bit arithmetic helpers for each CAS retry. */
 static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
     Type* type;
     int retry_label;
@@ -3043,15 +3052,55 @@ static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
                   "atomic arithmetic assignment requires an integer object");
         return true;
     }
-    if (type->size == 8) return false;
+    division = expr->kind == EXPR_DIV_ASSIGN || expr->kind == EXPR_MOD_ASSIGN;
+    remainder = expr->kind == EXPR_MOD_ASSIGN;
+    if (type->size == 8) {
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr_as_integer64(mod, expr->binary_rhs);
+        emit_push_reg(mod, EDX); /* Operand high word. */
+        emit_push_reg(mod, EAX); /* Operand low word. */
+        gen_lvalue(mod, expr->binary_lhs);
+        emit_mov_reg_reg(mod, ESI, EAX);
+        emit_atomic_load_i686(mod, type);
+        retry_label = new_label();
+        emit_label(mod, retry_label);
+        /* Preserve the expected value while the arithmetic helper computes
+         * the candidate from the saved RHS at [ESP+8]/[ESP+12]. */
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        if (expr->kind == EXPR_MUL_ASSIGN) {
+            gen_multiply_integer64_from_stack(mod, NULL, 8);
+        } else if (division) {
+            gen_divmod_integer64_from_stack(mod, NULL, expr->type,
+                                             remainder, 8);
+        } else {
+            gen_shift_integer64_from_stack(
+                mod, NULL, expr->type,
+                expr->kind == EXPR_LSHIFT_ASSIGN, 8);
+        }
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_reg_mem(mod, EDX, ESP, 4);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_add_reg_imm(mod, ESP, 8); /* Expected value. */
+        emit_mov_reg_reg(mod, EAX, EBX);
+        emit_mov_reg_reg(mod, EDX, ECX);
+        emit_add_reg_imm(mod, ESP, 8); /* Saved RHS. */
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
     if (type->size != 1 && type->size != 2 && type->size != 4) {
         rcc_error(expr->loc,
                   "i686 atomic arithmetic assignment has unsupported object width");
         return true;
     }
 
-    division = expr->kind == EXPR_DIV_ASSIGN || expr->kind == EXPR_MOD_ASSIGN;
-    remainder = expr->kind == EXPR_MOD_ASSIGN;
     emit_push_reg(mod, EBX);
     emit_push_reg(mod, ESI);
     gen_expr(mod, expr->binary_rhs);
@@ -4891,9 +4940,10 @@ static void gen_lvalue(Module* mod, Expr* expr) {
     }
 }
 
-static void gen_divmod_integer64(Module* mod, Expr* lhs, Expr* rhs,
-                                 const Type* result_type,
-                                 bool want_remainder) {
+static void gen_divmod_integer64_internal(Module* mod, Expr* lhs, Expr* rhs,
+                                           const Type* result_type,
+                                           bool want_remainder,
+                                           int rhs_stack_offset) {
     enum {
         DIVISOR_LOW = 0,
         DIVISOR_HIGH = 4,
@@ -4936,7 +4986,14 @@ static void gen_divmod_integer64(Module* mod, Expr* lhs, Expr* rhs,
     emit_mov_mem_reg(mod, ESP, QUOTIENT_NEGATIVE, EBX);
     emit_mov_mem_reg(mod, ESP, REMAINDER_NEGATIVE, EBX);
 
-    gen_expr_as_integer64(mod, rhs);
+    if (rhs_stack_offset >= 0) {
+        emit_mov_reg_mem(mod, EAX, ESP,
+                         DIVISION_STORAGE + 12 + rhs_stack_offset);
+        emit_mov_reg_mem(mod, EDX, ESP,
+                         DIVISION_STORAGE + 16 + rhs_stack_offset);
+    } else {
+        gen_expr_as_integer64(mod, rhs);
+    }
     if (is_signed) {
         emit_test_reg_reg(mod, EDX, EDX);
         emit_jcc_label(mod, CC_NS, rhs_positive_label);
@@ -5024,6 +5081,21 @@ static void gen_divmod_integer64(Module* mod, Expr* lhs, Expr* rhs,
     emit_pop_reg(mod, EBX);
 }
 
+static void gen_divmod_integer64(Module* mod, Expr* lhs, Expr* rhs,
+                                 const Type* result_type,
+                                 bool want_remainder) {
+    gen_divmod_integer64_internal(mod, lhs, rhs, result_type, want_remainder,
+                                  -1);
+}
+
+static void gen_divmod_integer64_from_stack(Module* mod, Expr* lhs,
+                                            const Type* result_type,
+                                            bool want_remainder,
+                                            int rhs_stack_offset) {
+    gen_divmod_integer64_internal(mod, lhs, NULL, result_type, want_remainder,
+                                  rhs_stack_offset);
+}
+
 static Type* codegen_comparison_type(Expr* expr) {
     Type* left = expr && expr->binary_lhs ? expr->binary_lhs->type : NULL;
     Type* right = expr && expr->binary_rhs ? expr->binary_rhs->type : NULL;
@@ -5046,7 +5118,8 @@ static void emit_test_scalar_value(Module* mod, const Type* type) {
     emit_test_reg_reg(mod, EAX, EAX);
 }
 
-static void gen_multiply_integer64(Module* mod, Expr* lhs, Expr* rhs) {
+static void gen_multiply_integer64_internal(Module* mod, Expr* lhs, Expr* rhs,
+                                            int rhs_stack_offset) {
     /* Low 64 bits of (ahi:alo) * (bhi:blo): alo*blo plus
      * the low words of both cross products.  A NULL lhs means that its
      * EDX:EAX value was already loaded by a compound assignment. */
@@ -5055,7 +5128,12 @@ static void gen_multiply_integer64(Module* mod, Expr* lhs, Expr* rhs) {
     if (lhs) gen_expr_as_integer64(mod, lhs);
     emit_push_reg(mod, EDX);
     emit_push_reg(mod, EAX);
-    gen_expr_as_integer64(mod, rhs);
+    if (rhs_stack_offset >= 0) {
+        emit_mov_reg_mem(mod, EAX, ESP, rhs_stack_offset + 16);
+        emit_mov_reg_mem(mod, EDX, ESP, rhs_stack_offset + 20);
+    } else {
+        gen_expr_as_integer64(mod, rhs);
+    }
     emit_mov_reg_reg(mod, EBX, EAX);
     emit_mov_reg_reg(mod, ESI, EDX);
     emit_mov_reg_mem(mod, EAX, ESP, 0);
@@ -5075,8 +5153,19 @@ static void gen_multiply_integer64(Module* mod, Expr* lhs, Expr* rhs) {
     emit_pop_reg(mod, EBX);
 }
 
-static void gen_shift_integer64(Module* mod, Expr* lhs, Expr* rhs,
-                                const Type* result_type, bool shift_left) {
+static void gen_multiply_integer64(Module* mod, Expr* lhs, Expr* rhs) {
+    gen_multiply_integer64_internal(mod, lhs, rhs, -1);
+}
+
+static void gen_multiply_integer64_from_stack(Module* mod, Expr* lhs,
+                                              int rhs_stack_offset) {
+    gen_multiply_integer64_internal(mod, lhs, NULL, rhs_stack_offset);
+}
+
+static void gen_shift_integer64_internal(Module* mod, Expr* lhs, Expr* rhs,
+                                          const Type* result_type,
+                                          bool shift_left,
+                                          int rhs_stack_offset) {
     int wide_count_label = new_label();
     int end_label = new_label();
     bool arithmetic = !shift_left && result_type &&
@@ -5085,7 +5174,11 @@ static void gen_shift_integer64(Module* mod, Expr* lhs, Expr* rhs,
     if (lhs) gen_expr_as_integer64(mod, lhs);
     emit_push_reg(mod, EDX);
     emit_push_reg(mod, EAX);
-    gen_expr(mod, rhs);
+    if (rhs_stack_offset >= 0) {
+        emit_mov_reg_mem(mod, EAX, ESP, rhs_stack_offset + 8);
+    } else {
+        gen_expr(mod, rhs);
+    }
     emit_mov_reg_reg(mod, ECX, EAX);
     emit_pop_reg(mod, EAX);
     emit_pop_reg(mod, EDX);
@@ -5117,6 +5210,19 @@ static void gen_shift_integer64(Module* mod, Expr* lhs, Expr* rhs,
         }
     }
     emit_label(mod, end_label);
+}
+
+static void gen_shift_integer64(Module* mod, Expr* lhs, Expr* rhs,
+                                const Type* result_type, bool shift_left) {
+    gen_shift_integer64_internal(mod, lhs, rhs, result_type, shift_left, -1);
+}
+
+static void gen_shift_integer64_from_stack(Module* mod, Expr* lhs,
+                                           const Type* result_type,
+                                           bool shift_left,
+                                           int rhs_stack_offset) {
+    gen_shift_integer64_internal(mod, lhs, NULL, result_type, shift_left,
+                                 rhs_stack_offset);
 }
 
 /* i386 SysV returns 64-bit integer scalars in EDX:EAX.  Keep this separate
@@ -5346,6 +5452,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_RSHIFT_ASSIGN:
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
+                if (gen_atomic_arithmetic_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "i686 atomic 64-bit compound assignment requires a supported RMW lowering");
                 break;

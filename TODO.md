@@ -98,7 +98,9 @@
         i686/AMD64の8/16/32/64-bit幅で結果値と既存atomic API回帰を実行
   - [x] atomic-qualified整数の`*=`／`/=`／`%=`／`<<=`／`>>=`を一回評価のCAS retry loopで
         loweringし、i686の8/16/32-bitとAMD64の8/16/32/64-bit幅を実行検証。
-        i686 64-bit算術・shift RMWは未対応として明示診断を維持
+  - [x] i686 64-bit atomic arithmetic／shift RMWも保存した右辺を一回だけ評価し、
+        `CMPXCHG8B` retry loopと既存のlow-64 multiply／software divide／shift
+        loweringへ接続して、signed／unsignedと右辺評価回数を実行検証
   - [x] i686/AMD64生成コードのnative実行と16/32-bit競合回帰
   - [x] 8/16/32-bit標準integer typedefと`atomic_flag`向け`<stdatomic.h>` API
   - [x] wide/pointer-sized型を含むC17標準atomic typedef全面とarch別lock-free定数
