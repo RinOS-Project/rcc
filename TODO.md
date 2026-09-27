@@ -124,6 +124,8 @@
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完
   - [x] parser-knownなnamespace所属class型の引数からqualified symbolをADLで
         解決し、free function callをi686/AMD64で実行検証
+  - [x] integer user-defined literal operatorをItanium `li`名修飾へ接続し、
+        built-in integer suffixを含むi686/AMD64の生成・実行を検証
 - [ ] templates、concepts、constexpr/consteval、lambda
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化

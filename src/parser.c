@@ -1027,15 +1027,31 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_INT_LIT)) {
         Token* literal = previous();
-        return expr_integer_literal((uint64_t)literal->value.int_val,
-                                    literal->int_base,
-                                    literal->int_unsigned_suffix,
-                                    literal->int_long_suffix, loc);
+        Expr* expression = expr_integer_literal(
+            (uint64_t)literal->value.int_val, literal->int_base,
+            literal->int_unsigned_suffix, literal->int_long_suffix, loc);
+        if (parser_cxx_mode && literal->user_literal_suffix) {
+            char name[512];
+            Expr* function;
+            int written = snprintf(name, sizeof(name), "operator\"\"%s",
+                                   literal->user_literal_suffix);
+            if (written < 0 || (size_t)written >= sizeof(name)) {
+                rcc_error(loc, "user-defined literal operator name is too long");
+                return expression;
+            }
+            function = expr_ident(rcc_intern(name), loc);
+            return expr_call(function, exprlist_new(expression), loc);
+        }
+        return expression;
     }
     if (match(TOK_FLOAT_LIT)) {
         Token* literal = previous();
         Expr* expression = expr_float(literal->value.float_val, loc);
         if (literal->float_suffix) expression->type = type_float;
+        if (parser_cxx_mode && literal->user_literal_suffix) {
+            rcc_error(loc,
+                      "floating-point user-defined literals are not supported by the bounded RCC++ integer UDL ABI");
+        }
         return expression;
     }
     if (match(TOK_CHAR_LIT)) {
@@ -1048,6 +1064,12 @@ static Expr* parse_primary(void) {
         Token* literal = previous();
         Expr* expression = expr_string(literal->value.str_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
+        if (parser_cxx_mode && check(TOK_IDENT) &&
+            peek()->value.str_val && peek()->value.str_val[0] == '_') {
+            rcc_error(peek()->loc,
+                      "string user-defined literals are not supported by the bounded RCC++ integer UDL ABI");
+            advance();
+        }
         return expression;
     }
     if (check(TOK_IDENT) &&

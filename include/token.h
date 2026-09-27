@@ -203,6 +203,8 @@ typedef struct Token {
     uint8_t int_long_suffix;
     bool int_unsigned_suffix;
     bool int_overflow;
+    /* C++ user-defined literal suffix, including its required leading '_'. */
+    const char* user_literal_suffix;
     /* C++ UTF-8 character/string literal spelling.  RinOS represents
      * char8_t and UTF-8 strings with its bounded byte ABI. */
     bool is_utf8_literal;

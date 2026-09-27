@@ -217,6 +217,7 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->int_long_suffix = 0u;
     tok->int_unsigned_suffix = false;
     tok->int_overflow = false;
+    tok->user_literal_suffix = NULL;
     tok->is_utf8_literal = false;
     return tok;
 }
@@ -404,6 +405,7 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
     bool is_float = false;
     int base = 10;
     const char* suffix_start;
+    const char* user_suffix_start = NULL;
     bool saw_digit = false;
     bool saw_exponent_digit = false;
     bool saw_binary_exponent = false;
@@ -510,6 +512,16 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
         }
     }
 
+    /* Keep a C++ user-defined numeric literal suffix on the literal token
+     * instead of letting it become a separate identifier. */
+    if (lexer_cxx_mode && peek(lex) == '_') {
+        user_suffix_start = lex->pos;
+        advance(lex);
+        while (isalnum((unsigned char)peek(lex)) || peek(lex) == '_') {
+            advance(lex);
+        }
+    }
+
     size_t len = lex->pos - start;
     char* str = rcc_alloc(len + 1);
     memcpy(str, start, len);
@@ -544,13 +556,15 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
                              *suffix_start == 'F');
     } else {
         const char* suffix = suffix_start;
+        const char* builtin_suffix_end = user_suffix_start
+            ? user_suffix_start : lex->pos;
         bool suffix_valid = true;
         bool saw_unsigned = false;
         unsigned long_suffix = 0u;
         uint64_t value;
         const char* integer_text = str;
 
-        while (suffix < lex->pos) {
+        while (suffix < builtin_suffix_end) {
             if (*suffix == 'u' || *suffix == 'U') {
                 if (saw_unsigned) {
                     suffix_valid = false;
@@ -565,7 +579,7 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
                     break;
                 }
                 long_suffix = 1u;
-                if (suffix < lex->pos && *suffix == long_case) {
+                if (suffix < builtin_suffix_end && *suffix == long_case) {
                     long_suffix = 2u;
                     ++suffix;
                 }
@@ -594,6 +608,15 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
         if (tok->int_overflow) {
             rcc_error(loc, "integer literal is too large for 64-bit C types");
         }
+    }
+
+    if (user_suffix_start) {
+        size_t user_suffix_length = (size_t)(lex->pos - user_suffix_start);
+        char* user_suffix = rcc_alloc(user_suffix_length + 1u);
+        memcpy(user_suffix, user_suffix_start, user_suffix_length);
+        user_suffix[user_suffix_length] = '\0';
+        tok->user_literal_suffix = rcc_intern(user_suffix);
+        rcc_free(user_suffix);
     }
 
     rcc_free(str);

@@ -1465,6 +1465,26 @@ static void skip_cxx_template_arguments(void) {
 
 static const char* parse_operator_name(void) {
     TokenType operation;
+    if (check(TOK_STRING_LIT)) {
+        Token* quote = advance();
+        Token* suffix = expect(TOK_IDENT, "user-defined literal suffix");
+        char name[512];
+        int written;
+        if (!quote || !quote->value.str_val ||
+            strcmp(quote->value.str_val, "") != 0 || !suffix ||
+            !suffix->value.str_val || suffix->value.str_val[0] != '_') {
+            rcc_error(quote ? quote->loc : peek()->loc,
+                      "user-defined literal operator requires an empty string and a suffix beginning with '_'");
+            return rcc_intern("operator\"\"_invalid");
+        }
+        written = snprintf(name, sizeof(name), "operator\"\"%s",
+                           suffix->value.str_val);
+        if (written < 0 || (size_t)written >= sizeof(name)) {
+            rcc_error(suffix->loc, "user-defined literal operator name is too long");
+            return rcc_intern("operator\"\"_invalid");
+        }
+        return rcc_intern(name);
+    }
     if (match(TOK_LPAREN)) {
         expect(TOK_RPAREN, ")");
         return rcc_intern("operator()");
@@ -1633,6 +1653,13 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     expect(TOK_LPAREN, "(");
     params = parse_cxx_parameter_declarations();
     expect(TOK_RPAREN, ")");
+    if (name && strncmp(name, "operator\"\"", 10u) == 0) {
+        if (!params || params->next || !params->decl ||
+            !type_is_compatible(params->decl->type, type_ullong)) {
+            rcc_error(loc,
+                      "bounded RCC++ user-defined literal operators require exactly one unsigned long long parameter");
+        }
+    }
     if (match(TOK_NOEXCEPT) && check(TOK_LPAREN)) {
         skip_balanced(TOK_LPAREN, TOK_RPAREN);
     }
@@ -6059,7 +6086,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_consteval) {
     SourceLoc loc;
     Type* return_type;
-    Token* name;
+    const char* function_name;
     DeclList* params;
     Stmt* body = NULL;
     bool is_inline = false;
@@ -6107,8 +6134,13 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     } else {
         return_type = parse_cxx_type_spec();
     }
-    name = expect(TOK_IDENT, "function name");
-    if (!name) return NULL;
+    if (match(TOK_OPERATOR)) {
+        function_name = parse_operator_name();
+    } else {
+        Token* name = expect(TOK_IDENT, "function name");
+        if (!name) return NULL;
+        function_name = name->value.str_val;
+    }
     expect(TOK_LPAREN, "(");
     params = parse_cxx_parameter_declarations();
     expect(TOK_RPAREN, ")");
@@ -6150,7 +6182,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         StmtList* statements = NULL;
         void* enum_scope = rcc_parser_enum_scope_mark();
         rcc_parser_cxx_begin_function_parameters(params);
-        rcc_parser_function_scope_push(name->value.str_val);
+        rcc_parser_function_scope_push(function_name);
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
             Stmt* statement = parse_cxx_statement();
@@ -6166,7 +6198,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         expect(TOK_SEMICOLON, ";");
     }
 
-    CxxMethod* function = cxx_method_new(name->value.str_val, return_type,
+    CxxMethod* function = cxx_method_new(function_name, return_type,
                                          params, body, loc);
     for (DeclList* parameter = params; parameter; parameter = parameter->next) {
         if (parameter->decl && parameter->decl->param_is_pack) {

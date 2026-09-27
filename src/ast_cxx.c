@@ -72,7 +72,25 @@ static const char* cxx_operator_abi_code(const char* name) {
 /* Mangle a length-prefixed name or a standard C++ operator name. */
 static void mangle_name(char* buf, size_t* pos, const char* name) {
     const char* operator_code = cxx_operator_abi_code(name);
+    static const char user_literal_prefix[] = "operator\"\"";
     size_t len;
+    if (name && strncmp(name, user_literal_prefix,
+                        sizeof(user_literal_prefix) - 1u) == 0) {
+        const char* suffix = name + sizeof(user_literal_prefix) - 1u;
+        size_t suffix_length = strlen(suffix);
+        if (suffix_length == 0u || *suffix != '_') {
+            rcc_fatal("C++ user-defined literal name is invalid");
+        }
+        if (*pos + suffix_length + 34u >= 256u) {
+            rcc_fatal("C++ mangled name is too long");
+        }
+        /* Itanium ABI integer literal operator: `li` + length + suffix. */
+        buf[(*pos)++] = 'l';
+        buf[(*pos)++] = 'i';
+        *pos += (size_t)snprintf(buf + *pos, 256u - *pos, "%lu%s",
+                                 (unsigned long)suffix_length, suffix);
+        return;
+    }
     if (operator_code) {
         len = strlen(operator_code);
         if (*pos + len >= 256u) rcc_fatal("C++ mangled name is too long");
