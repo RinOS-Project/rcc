@@ -3038,6 +3038,8 @@ static bool gen_atomic_bitwise_assignment(Module* mod, Expr* expr) {
 static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
     Type* type;
     int retry_label;
+    int failed_label;
+    int done_label;
     bool division;
     bool remainder;
 
@@ -3065,6 +3067,7 @@ static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
         emit_mov_reg_reg(mod, ESI, EAX);
         emit_atomic_load_i686(mod, type);
         retry_label = new_label();
+        failed_label = new_label();
         emit_label(mod, retry_label);
         /* Preserve the expected value while the arithmetic helper computes
          * the candidate from the saved RHS at [ESP+8]/[ESP+12]. */
@@ -3085,7 +3088,7 @@ static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
         emit_mov_reg_mem(mod, EAX, ESP, 0);
         emit_mov_reg_mem(mod, EDX, ESP, 4);
         emit_atomic_cmpxchg8b(mod, ESI);
-        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_jcc_label(mod, CC_NE, failed_label);
         emit_add_reg_imm(mod, ESP, 8); /* Expected value. */
         emit_mov_reg_reg(mod, EAX, EBX);
         emit_mov_reg_reg(mod, EDX, ECX);
@@ -3093,6 +3096,12 @@ static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
         emit_pop_reg(mod, EDI);
         emit_pop_reg(mod, ESI);
         emit_pop_reg(mod, EBX);
+        done_label = new_label();
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, failed_label);
+        emit_add_reg_imm(mod, ESP, 8); /* Discard the failed expected value. */
+        emit_jmp_label(mod, retry_label);
+        emit_label(mod, done_label);
         return true;
     }
     if (type->size != 1 && type->size != 2 && type->size != 4) {
@@ -3149,6 +3158,80 @@ static bool gen_atomic_arithmetic_assignment(Module* mod, Expr* expr) {
     emit_add_reg_imm(mod, ESP, 8);
     emit_pop_reg(mod, ESI);
     emit_pop_reg(mod, EBX);
+    return true;
+}
+
+/* Lower i686 64-bit atomic +=/-= with one CMPXCHG8B retry loop.  The
+ * right-hand side is evaluated once and retained as a two-word stack value;
+ * every retry starts from the value returned by the failed exchange. */
+static bool gen_atomic_addsub_assignment(Module* mod, Expr* expr) {
+    Type* type;
+    int retry_label;
+    int failed_label;
+    int done_label;
+    bool subtract;
+
+    if (!expr || !expr->binary_lhs || !expr->binary_lhs->type ||
+        !expr->binary_lhs->type->is_atomic ||
+        (expr->kind != EXPR_ADD_ASSIGN &&
+         expr->kind != EXPR_SUB_ASSIGN)) return false;
+    type = expr->binary_lhs->type;
+    if (!type_is_integer(type) && type->kind != TYPE_ENUM) {
+        rcc_error(expr->loc,
+                  "atomic +=/-= requires an integer object on i686");
+        return true;
+    }
+    if (type->size != 8) return false;
+
+    subtract = expr->kind == EXPR_SUB_ASSIGN;
+    emit_push_reg(mod, EBX);
+    emit_push_reg(mod, ESI);
+    emit_push_reg(mod, EDI);
+    gen_expr_as_integer64(mod, expr->binary_rhs);
+    emit_push_reg(mod, EDX); /* Operand high word. */
+    emit_push_reg(mod, EAX); /* Operand low word. */
+    gen_lvalue(mod, expr->binary_lhs);
+    emit_mov_reg_reg(mod, ESI, EAX);
+    emit_atomic_load_i686(mod, type);
+    retry_label = new_label();
+    failed_label = new_label();
+    emit_label(mod, retry_label);
+    emit_push_reg(mod, EDX); /* Expected high word. */
+    emit_push_reg(mod, EAX); /* Expected low word. */
+    emit_mov_reg_reg(mod, EBX, EAX);
+    emit_mov_reg_reg(mod, ECX, EDX);
+    emit_mov_reg_mem(mod, EDI, ESP, 8);
+    if (subtract) {
+        emit_sub_reg_reg(mod, EBX, EDI);
+    } else {
+        emit_add_reg_reg(mod, EBX, EDI);
+    }
+    emit_mov_reg_mem(mod, EDI, ESP, 12);
+    if (subtract) {
+        emit_sbb_reg_reg(mod, ECX, EDI);
+    } else {
+        emit_adc_reg_reg(mod, ECX, EDI);
+    }
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_mov_reg_mem(mod, EDX, ESP, 4);
+    emit_atomic_cmpxchg8b(mod, ESI);
+    emit_jcc_label(mod, CC_NE, failed_label);
+    emit_add_reg_imm(mod, ESP, 8); /* Expected value. */
+    emit_mov_reg_reg(mod, EAX, EBX);
+    emit_mov_reg_reg(mod, EDX, ECX);
+    emit_add_reg_imm(mod, ESP, 8); /* Saved RHS. */
+    emit_pop_reg(mod, EDI);
+    emit_pop_reg(mod, ESI);
+    emit_pop_reg(mod, EBX);
+    done_label = new_label();
+    emit_jmp_label(mod, done_label);
+    /* A failed CMPXCHG8B leaves the observed value in EDX:EAX.  Remove the
+     * per-attempt expected-value pair before retrying so contention cannot
+     * grow the function's stack frame. */
+    emit_label(mod, failed_label);
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_jmp_label(mod, retry_label);
+    emit_label(mod, done_label);
     return true;
 }
 
@@ -5471,6 +5554,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_XOR_ASSIGN:
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
+                if (gen_atomic_addsub_assignment(mod, expr)) break;
                 if (gen_atomic_bitwise_assignment(mod, expr)) break;
                 if (gen_atomic_arithmetic_assignment(mod, expr)) break;
                 rcc_error(expr->loc,

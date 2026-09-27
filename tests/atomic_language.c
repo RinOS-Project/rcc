@@ -90,6 +90,11 @@ int atomic_language_arithmetic(void) {
         if ((wide_value /= 8LL) != -8LL) return 13;
         wide_value = -33LL;
         if ((wide_value >>= 2) != -9LL) return 14;
+        wide_value = 9LL;
+        evaluations = 0;
+        if ((wide_value += (evaluations++, 5LL)) != 14LL) return 15;
+        if (evaluations != 1) return 16;
+        if ((wide_value -= 6LL) != 8LL) return 17;
     }
 #endif
     return 0;

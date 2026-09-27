@@ -104,6 +104,9 @@
   - [x] i686 64-bit atomic pre/post increment／decrementを一回評価の
         `CMPXCHG8B` retry loopへ接続し、carry／borrowとprefix/postfix結果、
         添字式の評価回数を両archで実行検証
+  - [x] i686 64-bit atomic `+=`／`-=`を一回評価の`CMPXCHG8B` retry loopへ
+        接続し、64-bit carry／borrow、右辺評価回数、および競合時の
+        failed-CAS一時スタック解放を実行検証
   - [x] i686/AMD64生成コードのnative実行と16/32-bit競合回帰
   - [x] 8/16/32-bit標準integer typedefと`atomic_flag`向け`<stdatomic.h>` API
   - [x] wide/pointer-sized型を含むC17標準atomic typedef全面とarch別lock-free定数
