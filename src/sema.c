@@ -10890,6 +10890,9 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     ExprList* argument;
     const char* name;
     int argument_count = 0;
+    int bswap_width = 0;
+    bool is_bit_count = false;
+    bool is_bit_count_wide = false;
 
     if (!expr || expr->kind != EXPR_CALL ||
         !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
@@ -10897,6 +10900,113 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     }
     function = expr->call_func;
     name = function->ident_name;
+    if (strcmp(name, "__builtin_bswap16") == 0) {
+        bswap_width = 2;
+    } else if (strcmp(name, "__builtin_bswap32") == 0) {
+        bswap_width = 4;
+    } else if (strcmp(name, "__builtin_bswap64") == 0) {
+        bswap_width = 8;
+    }
+    if (bswap_width != 0) {
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 1) {
+            rcc_error(expr->loc, "%s expects 1 argument, got %d", name,
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        if (!first || !first->type || !type_is_integer(first->type) ||
+            first->type->size > bswap_width) {
+            rcc_error(expr->loc,
+                      "%s expects an integer argument no wider than %d bytes",
+                      name, bswap_width);
+        }
+        function->type = type_ptr(bswap_width == 2 ? type_ushort :
+                                  bswap_width == 4 ? type_uint : type_ullong);
+        expr->type = bswap_width == 2 ? type_ushort :
+                     bswap_width == 4 ? type_uint : type_ullong;
+        return true;
+    }
+    if (strcmp(name, "__builtin_clz") == 0 ||
+        strcmp(name, "__builtin_ctz") == 0 ||
+        strcmp(name, "__builtin_popcount") == 0) {
+        is_bit_count = true;
+    } else if (strcmp(name, "__builtin_clzll") == 0 ||
+               strcmp(name, "__builtin_ctzll") == 0 ||
+               strcmp(name, "__builtin_popcountll") == 0) {
+        is_bit_count = true;
+        is_bit_count_wide = true;
+    }
+    if (is_bit_count) {
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 1) {
+            rcc_error(expr->loc, "%s expects 1 argument, got %d", name,
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        if (!first || !first->type || !type_is_integer(first->type) ||
+            first->type->size > (is_bit_count_wide ? 8 : 4)) {
+            rcc_error(expr->loc,
+                      "%s expects an integer argument no wider than %d bytes",
+                      name, is_bit_count_wide ? 8 : 4);
+        }
+        function->type = type_ptr(type_int);
+        expr->type = type_int;
+        return true;
+    }
+    if (strcmp(name, "__builtin_prefetch") == 0) {
+        int64_t value;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count < 1 || argument_count > 3) {
+            rcc_error(expr->loc,
+                      "__builtin_prefetch expects 1 to 3 arguments, got %d",
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        if (!first || !first->type || !type_is_pointer(first->type)) {
+            rcc_error(expr->loc,
+                      "__builtin_prefetch address must have pointer type");
+        }
+        second = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->expr : NULL;
+        if (second) {
+            if (!second->type || !type_is_integer(second->type) ||
+                !expr_eval_integer_constant(second, &value)) {
+                rcc_error(expr->loc,
+                          "__builtin_prefetch rw argument must be an integer constant");
+            } else if (value != 0 && value != 1) {
+                rcc_error(expr->loc,
+                          "__builtin_prefetch rw argument must be 0 or 1");
+            }
+        }
+        second = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->next
+                ? expr->call_args->next->next->expr : NULL : NULL;
+        if (second) {
+            if (!second->type || !type_is_integer(second->type) ||
+                !expr_eval_integer_constant(second, &value)) {
+                rcc_error(expr->loc,
+                          "__builtin_prefetch locality argument must be an integer constant");
+            } else if (value < 0 || value > 3) {
+                rcc_error(expr->loc,
+                          "__builtin_prefetch locality argument must be between 0 and 3");
+            }
+        }
+        function->type = type_ptr(type_void);
+        expr->type = type_void;
+        return true;
+    }
     if (strcmp(name, "__builtin_unreachable") == 0 ||
         strcmp(name, "__builtin_trap") == 0) {
         if (expr->call_args) {

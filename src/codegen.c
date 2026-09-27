@@ -1900,6 +1900,71 @@ static void emit_and_reg_imm(Module* mod, int reg, uint32_t immediate) {
     emit_dword(mod, immediate);
 }
 
+static void emit_bswap_reg32(Module* mod, int reg) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xC8 + (uint8_t)reg);
+}
+
+static void emit_bsf_reg_reg(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xBC);
+    emit_byte(mod, modrm(3, dst, src));
+}
+
+static void emit_bsr_reg_reg(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xBD);
+    emit_byte(mod, modrm(3, dst, src));
+}
+
+static void emit_rol_ax_8(Module* mod) {
+    emit_byte(mod, 0x66);
+    emit_byte(mod, 0xC1);
+    emit_byte(mod, modrm(3, 0, EAX));
+    emit_byte(mod, 8);
+}
+
+static void emit_movzx_eax_ax(Module* mod) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB7);
+    emit_byte(mod, modrm(3, EAX, EAX));
+}
+
+static void emit_xchg_eax_edx(Module* mod) {
+    emit_byte(mod, 0x92);
+}
+
+static void emit_prefetch32(Module* mod, int write, int hint) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, write ? 0x0D : 0x18);
+    emit_memory_operand32(mod, write ? 1 : hint, EAX, 0);
+}
+
+static void emit_popcount32(Module* mod) {
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_shr_reg_imm(mod, ECX, 1);
+    emit_and_reg_imm(mod, ECX, 0x55555555u);
+    emit_sub_reg_reg(mod, EAX, ECX);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_and_reg_imm(mod, ECX, 0x33333333u);
+    emit_mov_reg_reg(mod, EDX, EAX);
+    emit_shr_reg_imm(mod, EDX, 2);
+    emit_and_reg_imm(mod, EDX, 0x33333333u);
+    emit_add_reg_reg(mod, ECX, EDX);
+    emit_mov_reg_reg(mod, EAX, ECX);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_shr_reg_imm(mod, ECX, 4);
+    emit_add_reg_reg(mod, EAX, ECX);
+    emit_and_reg_imm(mod, EAX, 0x0F0F0F0Fu);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_shr_reg_imm(mod, ECX, 8);
+    emit_add_reg_reg(mod, EAX, ECX);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_shr_reg_imm(mod, ECX, 16);
+    emit_add_reg_reg(mod, EAX, ECX);
+    emit_and_reg_imm(mod, EAX, 0x3Fu);
+}
+
 static void emit_cmp_reg_reg(Module* mod, int r1, int r2) {
     emit_byte(mod, 0x39);
     emit_byte(mod, modrm(3, r2, r1));
@@ -7736,12 +7801,121 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
 
 static bool gen_compiler_builtin(Module* mod, Expr* expr) {
     Expr* function;
+    Expr* argument;
+    int64_t value;
+    int64_t rw;
+    int64_t locality;
+    int bswap_width;
 
     if (!expr || expr->kind != EXPR_CALL ||
         !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
         return false;
     }
     function = expr->call_func;
+    bswap_width = strcmp(function->ident_name, "__builtin_bswap16") == 0 ? 2 :
+        strcmp(function->ident_name, "__builtin_bswap32") == 0 ? 4 :
+        strcmp(function->ident_name, "__builtin_bswap64") == 0 ? 8 : 0;
+    if (bswap_width != 0) {
+        argument = call_argument(expr, 0);
+        if (bswap_width == 8) {
+            if (argument && argument->type && argument->type->size == 8) {
+                gen_expr_as_integer64(mod, argument);
+            } else {
+                gen_expr(mod, argument);
+                emit_xor_reg_reg(mod, EDX, EDX);
+            }
+            emit_bswap_reg32(mod, EAX);
+            emit_bswap_reg32(mod, EDX);
+            emit_xchg_eax_edx(mod);
+        } else {
+            gen_expr(mod, argument);
+            if (bswap_width == 2) {
+                emit_rol_ax_8(mod);
+                emit_movzx_eax_ax(mod);
+            } else {
+                emit_bswap_reg32(mod, EAX);
+            }
+        }
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_clz") == 0 ||
+        strcmp(function->ident_name, "__builtin_ctz") == 0 ||
+        strcmp(function->ident_name, "__builtin_popcount") == 0) {
+        argument = call_argument(expr, 0);
+        gen_expr(mod, argument);
+        if (strcmp(function->ident_name, "__builtin_popcount") == 0) {
+            emit_popcount32(mod);
+        } else if (strcmp(function->ident_name, "__builtin_clz") == 0) {
+            emit_bsr_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_imm(mod, EAX, 31u);
+            emit_sub_reg_reg(mod, EAX, ECX);
+        } else {
+            emit_bsf_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_reg(mod, EAX, ECX);
+        }
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_clzll") == 0 ||
+        strcmp(function->ident_name, "__builtin_ctzll") == 0 ||
+        strcmp(function->ident_name, "__builtin_popcountll") == 0) {
+        argument = call_argument(expr, 0);
+        if (argument && argument->type && argument->type->size == 8) {
+            gen_expr_as_integer64(mod, argument);
+        } else {
+            gen_expr(mod, argument);
+            emit_xor_reg_reg(mod, EDX, EDX);
+        }
+        if (strcmp(function->ident_name, "__builtin_popcountll") == 0) {
+            emit_push_reg(mod, EDX);
+            emit_popcount32(mod);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_mem(mod, EAX, ESP, 4);
+            emit_popcount32(mod);
+            emit_pop_reg(mod, ECX);
+            emit_add_reg_reg(mod, EAX, ECX);
+        } else if (strcmp(function->ident_name, "__builtin_clzll") == 0) {
+            int high_label = new_label();
+            int end_label = new_label();
+            emit_test_reg_reg(mod, EDX, EDX);
+            emit_jcc_label(mod, CC_NE, high_label);
+            emit_bsr_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_imm(mod, EAX, 31u);
+            emit_sub_reg_reg(mod, EAX, ECX);
+            emit_add_reg_imm(mod, EAX, 32);
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, high_label);
+            emit_bsr_reg_reg(mod, ECX, EDX);
+            emit_mov_reg_imm(mod, EAX, 31u);
+            emit_sub_reg_reg(mod, EAX, ECX);
+            emit_label(mod, end_label);
+        } else {
+            int low_label = new_label();
+            int end_label = new_label();
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_NE, low_label);
+            emit_bsf_reg_reg(mod, ECX, EDX);
+            emit_mov_reg_reg(mod, EAX, ECX);
+            emit_add_reg_imm(mod, EAX, 32);
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, low_label);
+            emit_bsf_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_reg(mod, EAX, ECX);
+            emit_label(mod, end_label);
+        }
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_prefetch") == 0) {
+        rw = 0;
+        locality = 3;
+        argument = call_argument(expr, 1);
+        if (argument) (void)expr_eval_integer_constant(argument, &rw);
+        argument = call_argument(expr, 2);
+        if (argument) (void)expr_eval_integer_constant(argument, &locality);
+        gen_expr(mod, call_argument(expr, 0));
+        value = locality == 0 ? 0 : 4 - locality;
+        emit_prefetch32(mod, rw != 0, (int)value);
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_expect") == 0) {
         /* The prediction operand has no runtime value.  Evaluate it for its
          * language-level side effects, then leave the first operand in the

@@ -418,6 +418,103 @@ static void emit64_movzx_r64_r8(Module* mod, int dst, int src) {
     emit_byte(mod, modrm64(3, dst, src));
 }
 
+static void emit64_memory_operand(Module* mod, int reg, int base,
+                                  int32_t disp);
+
+static void emit64_bswap32_rax(Module* mod) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xC8);
+}
+
+static void emit64_bswap64_rax(Module* mod) {
+    emit_byte(mod, REX_W);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xC8);
+}
+
+static void emit64_bsf_reg32_reg32(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xBC);
+    emit_byte(mod, modrm64(3, dst, src));
+}
+
+static void emit64_bsr_reg32_reg32(Module* mod, int dst, int src) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xBD);
+    emit_byte(mod, modrm64(3, dst, src));
+}
+
+static void emit64_bsf_reg64_reg64(Module* mod, int dst, int src) {
+    emit_rex_w(mod, dst, src);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xBC);
+    emit_byte(mod, modrm64(3, dst, src));
+}
+
+static void emit64_bsr_reg64_reg64(Module* mod, int dst, int src) {
+    emit_rex_w(mod, dst, src);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xBD);
+    emit_byte(mod, modrm64(3, dst, src));
+}
+
+static void emit64_rol_ax_8(Module* mod) {
+    emit_byte(mod, 0x66);
+    emit_byte(mod, 0xC1);
+    emit_byte(mod, modrm64(3, 0, RAX));
+    emit_byte(mod, 8);
+}
+
+static void emit64_movzx_eax_ax(Module* mod) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB7);
+    emit_byte(mod, modrm64(3, RAX, RAX));
+}
+
+static void emit64_zero_extend_eax(Module* mod) {
+    emit_byte(mod, 0x89);
+    emit_byte(mod, modrm64(3, RAX, RAX));
+}
+
+static void emit64_prefetch(Module* mod, int write, int hint) {
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, write ? 0x0D : 0x18);
+    emit64_memory_operand(mod, write ? 1 : hint, RAX, 0);
+}
+
+static void emit64_popcount64(Module* mod) {
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_shr_reg_imm(mod, RCX, 1);
+    emit64_mov_reg_imm64(mod, RDX, UINT64_C(0x5555555555555555));
+    emit64_and_reg_reg(mod, RCX, RDX);
+    emit64_sub_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_mov_reg_imm64(mod, RDX, UINT64_C(0x3333333333333333));
+    emit64_and_reg_reg(mod, RCX, RDX);
+    emit64_mov_reg_reg(mod, RDX, RAX);
+    emit64_shr_reg_imm(mod, RDX, 2);
+    emit64_mov_reg_imm64(mod, R8, UINT64_C(0x3333333333333333));
+    emit64_and_reg_reg(mod, RDX, R8);
+    emit64_add_reg_reg(mod, RCX, RDX);
+    emit64_mov_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_shr_reg_imm(mod, RCX, 4);
+    emit64_add_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_imm64(mod, RCX, UINT64_C(0x0F0F0F0F0F0F0F0F));
+    emit64_and_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_shr_reg_imm(mod, RCX, 8);
+    emit64_add_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_shr_reg_imm(mod, RCX, 16);
+    emit64_add_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_shr_reg_imm(mod, RCX, 32);
+    emit64_add_reg_reg(mod, RAX, RCX);
+    emit64_mov_reg_imm64(mod, RCX, 0x7Fu);
+    emit64_and_reg_reg(mod, RAX, RCX);
+}
+
 /* LEA r64, [base + disp] */
 static void emit64_lea(Module* mod, int dst, int base, int32_t disp) {
     emit_rex_w(mod, dst, base);
@@ -1653,12 +1750,85 @@ static bool atomic64_bitwise_returns_new(const char* name) {
 
 static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     Expr* function;
+    Expr* argument;
+    int64_t rw;
+    int64_t locality;
+    int64_t value;
+    int bswap_width;
 
     if (!expr || expr->kind != EXPR_CALL ||
         !expr->call_func || expr->call_func->kind != EXPR_IDENT) {
         return false;
     }
     function = expr->call_func;
+    bswap_width = strcmp(function->ident_name, "__builtin_bswap16") == 0 ? 2 :
+        strcmp(function->ident_name, "__builtin_bswap32") == 0 ? 4 :
+        strcmp(function->ident_name, "__builtin_bswap64") == 0 ? 8 : 0;
+    if (bswap_width != 0) {
+        argument = call64_argument(expr, 0);
+        gen64_expr(mod, argument);
+        if (bswap_width == 2) {
+            emit64_rol_ax_8(mod);
+            emit64_movzx_eax_ax(mod);
+        } else if (bswap_width == 4) {
+            emit64_bswap32_rax(mod);
+        } else {
+            if (argument && argument->type && argument->type->size < 8) {
+                emit64_zero_extend_eax(mod);
+            }
+            emit64_bswap64_rax(mod);
+        }
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_clz") == 0 ||
+        strcmp(function->ident_name, "__builtin_ctz") == 0 ||
+        strcmp(function->ident_name, "__builtin_popcount") == 0) {
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit64_zero_extend_eax(mod);
+        if (strcmp(function->ident_name, "__builtin_popcount") == 0) {
+            emit64_popcount64(mod);
+        } else if (strcmp(function->ident_name, "__builtin_clz") == 0) {
+            emit64_bsr_reg32_reg32(mod, RCX, RAX);
+            emit64_mov_reg_imm64(mod, RAX, 31u);
+            emit64_sub_reg_reg(mod, RAX, RCX);
+        } else {
+            emit64_bsf_reg32_reg32(mod, RCX, RAX);
+            emit64_mov_reg_reg(mod, RAX, RCX);
+        }
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_clzll") == 0 ||
+        strcmp(function->ident_name, "__builtin_ctzll") == 0 ||
+        strcmp(function->ident_name, "__builtin_popcountll") == 0) {
+        argument = call64_argument(expr, 0);
+        gen64_expr(mod, argument);
+        if (argument && argument->type && argument->type->size < 8) {
+            emit64_zero_extend_eax(mod);
+        }
+        if (strcmp(function->ident_name, "__builtin_popcountll") == 0) {
+            emit64_popcount64(mod);
+        } else if (strcmp(function->ident_name, "__builtin_clzll") == 0) {
+            emit64_bsr_reg64_reg64(mod, RCX, RAX);
+            emit64_mov_reg_imm64(mod, RAX, 63u);
+            emit64_sub_reg_reg(mod, RAX, RCX);
+        } else {
+            emit64_bsf_reg64_reg64(mod, RCX, RAX);
+            emit64_mov_reg_reg(mod, RAX, RCX);
+        }
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_prefetch") == 0) {
+        rw = 0;
+        locality = 3;
+        argument = call64_argument(expr, 1);
+        if (argument) (void)expr_eval_integer_constant(argument, &rw);
+        argument = call64_argument(expr, 2);
+        if (argument) (void)expr_eval_integer_constant(argument, &locality);
+        gen64_expr(mod, call64_argument(expr, 0));
+        value = locality == 0 ? 0 : 4 - locality;
+        emit64_prefetch(mod, rw != 0, (int)value);
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_expect") == 0) {
         /* Evaluate the prediction operand for side effects, then return the
          * first operand in RAX as the intrinsic's value. */
