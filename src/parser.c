@@ -3215,7 +3215,12 @@ Stmt* parse_declaration(void) {
 
     if (parser_cxx_mode && rcc_parse_cxx_auto_local_declaration &&
         (check(TOK_AUTO) || (check(TOK_CONST) && parser.cur->next &&
-                             parser.cur->next->type == TOK_AUTO))) {
+                             parser.cur->next->type == TOK_AUTO) ||
+         (check(TOK_DECLTYPE) && parser.cur->next &&
+          parser.cur->next->type == TOK_LPAREN && parser.cur->next->next &&
+          parser.cur->next->next->type == TOK_AUTO &&
+          parser.cur->next->next->next &&
+          parser.cur->next->next->next->type == TOK_RPAREN))) {
         Stmt* auto_declaration = rcc_parse_cxx_auto_local_declaration();
         if (auto_declaration) return auto_declaration;
     }

@@ -11666,6 +11666,11 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     Type* type;
     Token* name;
     Expr* initializer = NULL;
+    bool is_decltype_auto = check(TOK_DECLTYPE) && parser.cur->next &&
+        parser.cur->next->type == TOK_LPAREN && parser.cur->next->next &&
+        parser.cur->next->next->type == TOK_AUTO &&
+        parser.cur->next->next->next &&
+        parser.cur->next->next->next->type == TOK_RPAREN;
     bool is_auto_const = match(TOK_CONST);
     bool is_auto = match(TOK_AUTO);
     bool direct_list_initializer = false;
@@ -11673,7 +11678,13 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     bool is_auto_rvalue_reference = false;
     bool is_auto_pointer = false;
 
-    if (is_auto) {
+    if (is_decltype_auto) {
+        advance();
+        advance();
+        advance();
+        advance();
+        type = NULL;
+    } else if (is_auto) {
         if (match(TOK_STAR)) {
             is_auto_pointer = true;
         } else if (match(TOK_AMP)) {
@@ -11689,7 +11700,11 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     name = expect(TOK_IDENT, "local variable name");
     if (!name) return NULL;
     if (match(TOK_ASSIGN)) {
-        if (check(TOK_LBRACE)) {
+        if (is_decltype_auto && check(TOK_LBRACE)) {
+            rcc_error(peek()->loc,
+                      "decltype(auto) variable requires an expression initializer");
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        } else if (check(TOK_LBRACE)) {
             if (check_next(TOK_RBRACE)) {
                 SourceLoc initializer_loc = peek()->loc;
                 advance();
@@ -11706,6 +11721,10 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
         } else {
             initializer = parse_cxx_expression();
         }
+    } else if (is_decltype_auto && check(TOK_LBRACE)) {
+        rcc_error(peek()->loc,
+                  "decltype(auto) variable requires an expression initializer");
+        skip_balanced(TOK_LBRACE, TOK_RBRACE);
     } else if (check(TOK_LBRACE)) {
         if (!is_auto && check_next(TOK_RBRACE)) {
             SourceLoc initializer_loc = peek()->loc;
@@ -11745,6 +11764,7 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
     expect(TOK_SEMICOLON, ";");
     Decl* declaration = decl_var(name->value.str_val, type, initializer, loc);
     declaration->var_is_auto = is_auto;
+    declaration->var_is_decltype_auto = is_decltype_auto;
     declaration->var_is_auto_reference = is_auto_reference;
     declaration->var_is_auto_rvalue_reference = is_auto_rvalue_reference;
     declaration->var_is_auto_pointer = is_auto_pointer;
@@ -11754,8 +11774,14 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
 }
 
 Stmt* rcc_parse_cxx_auto_local_declaration(void) {
+    bool decltype_auto = check(TOK_DECLTYPE) && parser.cur->next &&
+        parser.cur->next->type == TOK_LPAREN && parser.cur->next->next &&
+        parser.cur->next->next->type == TOK_AUTO &&
+        parser.cur->next->next->next &&
+        parser.cur->next->next->next->type == TOK_RPAREN;
     if (!check(TOK_AUTO) && !(check(TOK_CONST) && parser.cur->next &&
-                              parser.cur->next->type == TOK_AUTO)) {
+                              parser.cur->next->type == TOK_AUTO) &&
+        !decltype_auto) {
         return NULL;
     }
     if (cxx_structured_binding_starts()) {
@@ -11856,6 +11882,11 @@ static Stmt* parse_cxx_statement(void) {
     }
 
     if (check(TOK_AUTO) ||
+        (check(TOK_DECLTYPE) && parser.cur->next &&
+         parser.cur->next->type == TOK_LPAREN && parser.cur->next->next &&
+         parser.cur->next->next->type == TOK_AUTO &&
+         parser.cur->next->next->next &&
+         parser.cur->next->next->next->type == TOK_RPAREN) ||
         (check(TOK_IDENT) &&
          is_active_template_type(peek()->value.str_val))) {
         return parse_cxx_dependent_local_declaration();

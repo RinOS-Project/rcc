@@ -60,6 +60,8 @@ static Decl* current_cxx_this_param = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
 
+static Type* sema_decltype_auto_return_type(Expr* expression);
+
 static bool sema_cxx_class_qualified_name(const CxxClass* cls,
                                           char* buffer, size_t capacity) {
     const CxxNamespace* stack[32];
@@ -11176,6 +11178,19 @@ static void sema_initializer(Type* type, Expr* initializer) {
         initializer->type = type;
         return;
     }
+    if (type->kind == TYPE_PTR && type->is_reference &&
+        initializer->kind != EXPR_COMPOUND) {
+        Type* source_type = sema_expr(initializer);
+        if (source_type && source_type->kind == TYPE_PTR &&
+            source_type->is_reference) {
+            if (!type->base || !source_type->base ||
+                !type_is_compatible(type->base, source_type->base)) {
+                rcc_error(initializer->loc,
+                          "incompatible C++ reference initialization");
+            }
+            return;
+        }
+    }
     if (initializer->kind != EXPR_COMPOUND) {
         sema_expr(initializer);
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
@@ -12234,6 +12249,22 @@ static void sema_validate_stored_generic_lambda_stmt(Stmt* statement) {
     }
 }
 
+static Type* sema_deduce_decltype_auto_type(Decl* declaration) {
+    Type* deduced;
+    if (!declaration || !declaration->var_init) {
+        rcc_error(declaration ? declaration->loc : (SourceLoc){0},
+                  "decltype(auto) variable requires an initializer");
+        return type_int;
+    }
+    deduced = sema_decltype_auto_return_type(declaration->var_init);
+    if (!deduced || deduced->kind == TYPE_VOID) {
+        rcc_error(declaration->loc,
+                  "decltype(auto) initializer does not have an object type");
+        return type_int;
+    }
+    return deduced;
+}
+
 static void sema_validate_stored_generic_lambda_decl(Decl* declaration) {
     if (!declaration) return;
     if (declaration->kind == DECL_VAR &&
@@ -12286,6 +12317,8 @@ static void sema_decl(Decl* decl) {
                         decl->var_init->cxx_lambda_template;
                 }
                 decl->type = sema_deduce_auto_type(decl);
+            } else if (decl->var_is_decltype_auto) {
+                decl->type = sema_deduce_decltype_auto_type(decl);
             }
             {
                 Expr* default_initializer =

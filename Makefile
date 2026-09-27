@@ -180,6 +180,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-noexcept-expression
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-auto-direct-list-invalid \
+	test-cxx-decltype-auto-local \
 	test-cxx-const-cast test-cxx-dynamic-cast
 .PHONY: test-cxx-dynamic-cast-downcast test-cxx-dynamic-cast-runtime test-cxx-dynamic-cast-reference
 .PHONY: test-cxx-default-member-initializer test-cxx-base-constructor-initializer test-cxx-delegating-constructor test-cxx-converting-constructor
@@ -332,6 +333,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-decltype-auto \
 	test-cxx-auto-local-refs \
 	test-cxx-auto-direct-list-invalid \
+	test-cxx-decltype-auto-local \
 	test-cxx-exceptions \
 	test-cxx-object-exceptions \
 	test-cxx-cross-library-exceptions \
@@ -4128,6 +4130,60 @@ test-cxx-auto-direct-list-invalid: $(RCXX_TARGET)
 	grep -q "direct-list auto initialization requires one initializer expression" \
 		$(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log
 	@echo "C++ direct-list auto diagnostics completed"
+
+test-cxx-decltype-auto-local: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype-auto-local)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-decltype-auto-local/x86.s \
+		tests/cxx_decltype_auto_local.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-decltype-auto-local/x86.o \
+		$(TEST_OUT)/cxx-decltype-auto-local/x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-decltype-auto-local/x86 \
+		tests/cxx_decltype_auto_local_run_test.c \
+		$(TEST_OUT)/cxx-decltype-auto-local/x86.o
+	$(TEST_OUT)/cxx-decltype-auto-local/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-decltype-auto-local/x64.s \
+		tests/cxx_decltype_auto_local.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-decltype-auto-local/x64.o \
+		$(TEST_OUT)/cxx-decltype-auto-local/x64.s
+	$(CC) -o $(TEST_OUT)/cxx-decltype-auto-local/x64 \
+		tests/cxx_decltype_auto_local_run_test.c \
+		$(TEST_OUT)/cxx-decltype-auto-local/x64.o
+	$(TEST_OUT)/cxx-decltype-auto-local/x64
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-decltype-auto-local/invalid-x86.ro \
+		tests/cxx_decltype_auto_local_invalid.cpp \
+		>$(TEST_OUT)/cxx-decltype-auto-local/invalid-x86.log 2>&1; then \
+		echo "invalid decltype(auto) local declarations unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.ro \
+		tests/cxx_decltype_auto_local_invalid.cpp \
+		>$(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.log 2>&1; then \
+		echo "invalid decltype(auto) local declarations unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "decltype(auto) variable requires an expression initializer" \
+		$(TEST_OUT)/cxx-decltype-auto-local/invalid-x86.log
+	grep -q "decltype(auto) variable requires an expression initializer" \
+		$(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-decltype-auto-local/missing-x86.ro \
+		tests/cxx_decltype_auto_local_missing.cpp \
+		>$(TEST_OUT)/cxx-decltype-auto-local/missing-x86.log 2>&1; then \
+		echo "uninitialized decltype(auto) unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-decltype-auto-local/missing-x64.ro \
+		tests/cxx_decltype_auto_local_missing.cpp \
+		>$(TEST_OUT)/cxx-decltype-auto-local/missing-x64.log 2>&1; then \
+		echo "uninitialized decltype(auto) unexpectedly compiled on AMD64"; exit 1; \
+	fi
+	grep -q "decltype(auto) variable requires an initializer" \
+		$(TEST_OUT)/cxx-decltype-auto-local/missing-x86.log
+	grep -q "decltype(auto) variable requires an initializer" \
+		$(TEST_OUT)/cxx-decltype-auto-local/missing-x64.log
+	@echo "C++ local decltype(auto) tests completed"
 
 test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)

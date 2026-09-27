@@ -977,6 +977,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_is_block_extern = false;
     d->var_is_thread_local = false;
     d->var_is_auto = false;
+    d->var_is_decltype_auto = false;
     d->var_is_auto_reference = false;
     d->var_is_auto_rvalue_reference = false;
     d->var_is_auto_pointer = false;
