@@ -2475,6 +2475,10 @@ test-cxx-spaceship: $(RCXX_TARGET)
 	fi
 	grep -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x64.log
+	grep -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" \
+		$(TEST_OUT)/cxx-spaceship/invalid-x86.log
+	grep -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" \
+		$(TEST_OUT)/cxx-spaceship/invalid-x64.log
 	@echo "C++20 user-defined spaceship operator tests completed"
 
 test-cxx-final: $(RCXX_TARGET)

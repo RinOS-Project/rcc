@@ -7117,6 +7117,100 @@ static const char* sema_cxx_binary_operator_name(ExprKind kind) {
     }
 }
 
+static bool sema_cxx_spaceship_comparison_kind(ExprKind kind,
+                                               ExprKind* comparison_kind) {
+    if (!comparison_kind) return false;
+    switch (kind) {
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            *comparison_kind = kind;
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* C++20 rewrites relational/equality expressions through operator<=> when a
+ * direct operator for the requested spelling is absent.  The RinOS bounded
+ * comparison ABI represents the comparison category by an integer sign, so
+ * only integer-returning spaceship functions are eligible here; category
+ * class objects require an explicit diagnostic instead of guessed lowering. */
+static bool sema_rewrite_cxx_spaceship_comparison(
+    Expr* expression, Type* left_type) {
+    ExprKind comparison_kind;
+    Type* aggregate;
+    Type* right_type;
+    Type* right_aggregate;
+    TypeMethod* method = NULL;
+    Symbol* function = NULL;
+    ExprList* arguments = NULL;
+    Expr* spaceship_call;
+    Expr* rewritten;
+
+    if (!expression || !left_type ||
+        !sema_cxx_spaceship_comparison_kind(expression->kind,
+                                            &comparison_kind)) {
+        return false;
+    }
+    aggregate = generic_selection_type(left_type);
+    if (aggregate && (aggregate->kind == TYPE_STRUCT ||
+                      aggregate->kind == TYPE_UNION)) {
+        method = sema_find_function_method(aggregate, "operator<=>");
+        if (method && method->return_type &&
+            !sema_is_integer_type(method->return_type)) {
+            rcc_error(expression->loc,
+                      "C++20 comparison rewriting requires an integer-returning "
+                      "operator<=> in the bounded RCC++ profile");
+            return false;
+        }
+    }
+    right_type = sema_expr(expression->binary_rhs);
+    right_aggregate = generic_selection_type(right_type);
+    if (!method &&
+        (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                        aggregate->kind != TYPE_UNION)) &&
+        (!right_aggregate || (right_aggregate->kind != TYPE_STRUCT &&
+                              right_aggregate->kind != TYPE_UNION))) {
+        return false;
+    }
+    exprlist_append(&arguments, expression->binary_lhs);
+    exprlist_append(&arguments, expression->binary_rhs);
+    if (!method) {
+        function = sema_cxx_operator_function("operator<=>", arguments);
+        if (!function || !function->decl || !function->decl->type ||
+            function->decl->type->kind != TYPE_FUNC ||
+            !function->decl->type->ret_type ||
+            !sema_is_integer_type(function->decl->type->ret_type)) {
+            if (function && function->decl) {
+                rcc_error(expression->loc,
+                          "C++20 comparison rewriting requires an integer-returning "
+                          "operator<=> in the bounded RCC++ profile");
+            }
+            return false;
+        }
+    }
+    if (method) {
+        Expr* member = expr_member(expression->binary_lhs,
+                                   "operator<=>", expression->loc);
+        spaceship_call = expr_call(member,
+                                   exprlist_new(expression->binary_rhs),
+                                   expression->loc);
+    } else {
+        Expr* function_expression = expr_ident("operator<=>",
+                                                expression->loc);
+        spaceship_call = expr_call(function_expression, arguments,
+                                   expression->loc);
+    }
+    rewritten = expr_binary(comparison_kind, spaceship_call,
+                            expr_int(0, expression->loc), expression->loc);
+    *expression = *rewritten;
+    return true;
+}
+
 static const char* sema_cxx_assignment_operator_name(ExprKind kind) {
     switch (kind) {
         case EXPR_ASSIGN: return "operator=";
@@ -8129,6 +8223,9 @@ static Type* sema_expr(Expr* expr) {
         expr->binary_lhs && expr->binary_rhs) {
         Type* left_type = sema_expr(expr->binary_lhs);
         if (sema_rewrite_cxx_binary_operator(expr, left_type)) {
+            return sema_expr(expr);
+        }
+        if (sema_rewrite_cxx_spaceship_comparison(expr, left_type)) {
             return sema_expr(expr);
         }
     }

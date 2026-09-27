@@ -6,6 +6,12 @@ int operator<=>(Version left, Version right) {
     return left.value - right.value;
 }
 
+int spaceship_rewrite_checks(Version older, Version newer) {
+    return (older < newer) && (newer > older) &&
+           (older <= newer) && (newer >= older) &&
+           (older != newer) && (older == older);
+}
+
 int builtin_spaceship(int left, int right) {
     return left <=> right;
 }
@@ -30,5 +36,6 @@ int main() {
            builtin_spaceship(unsigned_high, unsigned_low) == 1 &&
            builtin_spaceship_wide(-5000000000, -4000000000) == -1 &&
            builtin_spaceship_wide(-4000000000, -5000000000) == 1 &&
-           ((&pointer_value <=> &pointer_value) == 0) ? 0 : 1;
+           ((&pointer_value <=> &pointer_value) == 0) &&
+           spaceship_rewrite_checks(older, newer) ? 0 : 1;
 }
