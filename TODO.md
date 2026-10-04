@@ -577,3 +577,6 @@
 - [x] Make the native Windows VLA runtime gate execute real i686/x86_64 RCC
       output through freestanding `main` entries without WSL, retaining the
       POSIX syscall-start path and the full VLA runtime result checks.
+- [x] Make native Windows VLA declaration diagnostics use the shared
+      shell-neutral expected-failure helper, retaining per-target logs and
+      diagnostic-text assertions.
