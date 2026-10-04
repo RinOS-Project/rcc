@@ -50,3 +50,24 @@ int truth_for(u64 value) {
     for (; value; value = 0) ++count;
     return count;
 }
+
+int main(void)
+{
+    u64 high_word = 0x100000000ULL;
+    if (unsigned_lt(0xffffffffU, 1U) != 0 ||
+        unsigned_gt(0xffffffffU, 1U) != 1 ||
+        unsigned_le(0xffffffffU, 0xffffffffU) != 1 ||
+        unsigned_ge(0xffffffffU, 1U) != 1 ||
+        mixed_int_unsigned_lt(-1, 1U) != 0 ||
+        mixed_int_unsigned_gt(-1, 1U) != 1 ||
+        signed_wide_unsigned_lt(-1, 0xffffffffU) != 1 ||
+        unsigned_wide_signed_lt(0, -1) != 1 ||
+        truth_not(0) != 1 || truth_not(high_word) != 0 ||
+        truth_and(high_word) != 1 || truth_or(high_word) != 1 ||
+        truth_conditional(high_word) != 13 || truth_if(high_word) != 19 ||
+        truth_while(high_word) != 1 || truth_do_while(high_word) != 1 ||
+        truth_for(high_word) != 1) {
+        return 1;
+    }
+    return 0;
+}

@@ -7631,6 +7631,20 @@ test-scalar-comparisons: $(RCC_TARGET)
 		-o $(TEST_OUT)/scalar-comparisons/x86.ro tests/scalar_comparison.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/scalar-comparisons/x64.ro tests/scalar_comparison.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/scalar-comparisons/x86.s tests/scalar_comparison.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/scalar-comparisons/run-test-x86 \
+		$(TEST_OUT)/scalar-comparisons/x86.s
+	$(TEST_OUT)/scalar-comparisons/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/scalar-comparisons/x64.s tests/scalar_comparison.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/scalar-comparisons/run-test-x64 \
+		$(TEST_OUT)/scalar-comparisons/x64.s
+	$(TEST_OUT)/scalar-comparisons/run-test-x64
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/scalar-comparisons/run-test-x86 \
 		tests/scalar_comparison_run_test.c src/emit_ro.c src/utils.c
@@ -7641,12 +7655,10 @@ test-scalar-comparisons: $(RCC_TARGET)
 		$(TEST_OUT)/scalar-comparisons/x86.ro
 	$(TEST_OUT)/scalar-comparisons/run-test-x64 \
 		$(TEST_OUT)/scalar-comparisons/x64.ro
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/scalar-comparisons/invalid.ro \
-		tests/invalid_scalar_comparison.c \
-		>$(TEST_OUT)/scalar-comparisons/invalid.log 2>&1; then \
-		echo "invalid scalar comparisons unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_scalar_comparison.c,$(TEST_OUT)/scalar-comparisons/invalid.log)
 	$(GREP) -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/scalar-comparisons/invalid.log
 	$(GREP) -q "logical operator requires scalar operands" \
