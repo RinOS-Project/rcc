@@ -11,6 +11,7 @@ void abort(void);
 void exit(int status);
 int atexit(void (*function)(void));
 int atoi(const char* text);
+char* getenv(const char* name);
 double strtod(const char* text, char** end);
 long strtol(const char* text, char** end, int base);
 unsigned long strtoul(const char* text, char** end, int base);

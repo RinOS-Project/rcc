@@ -73,14 +73,15 @@ BOOTSTRAP_RCC_OBJECTS = utils lexer parser ast symtab sema codegen codegen64 \
                         emit_rin emit_rll emit_drv emit_ro \
                         emit_asm ast_cxx parser_cxx build_manifest \
                         driver_policy main
-BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi \
+BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi getenv \
                               close execvp exit fclose feof ferror fgets fopen \
                               fork fprintf fputc fputs fread free fseek ftell \
                               fwrite isalnum isalpha isdigit isspace isxdigit \
-                              malloc memchr memcmp memcpy memset mkstemp perror printf \
+                              malloc memchr memcmp memcpy memmove memset mkstemp perror printf \
                               qsort realloc remove rename snprintf strchr strcmp \
                               strcpy strlen strcat strncat strncmp strncpy strrchr strstr strtod \
-                              strtoll strtoull tolower vfprintf vsnprintf waitpid setjmp longjmp \
+                              strtol strtoul strtoll strtoull tolower vfprintf vsnprintf waitpid setjmp longjmp \
+                              time gmtime localtime \
                               rin_cpp_exception_install rin_cpp_exception_leave \
                               rin_cpp_exception_throw rin_cpp_exception_rethrow \
                               rin_cpp_exception_throw_object \

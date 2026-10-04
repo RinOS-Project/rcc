@@ -186,12 +186,6 @@ static bool sema_cxx_check_qualified_member_access(const char* name,
 
 #if defined(__GNUC__) || defined(__clang__)
     if (!name || !declaration || !rcc_parser_cxx_find_class) return true;
-#else
-    (void)name;
-    (void)declaration;
-    (void)loc;
-    return true;
-#endif
     separator = strrchr(name, ':');
     if (!separator || separator <= name || separator[-1] != ':') return true;
     if ((size_t)(separator - name - 1u) >= sizeof(owner_name)) {
@@ -213,6 +207,12 @@ static bool sema_cxx_check_qualified_member_access(const char* name,
         return true;
     }
     return true;
+#else
+    (void)name;
+    (void)declaration;
+    (void)loc;
+    return true;
+#endif
 }
 
 static CxxClass* sema_cxx_method_owner(Type* object_type,
@@ -1195,6 +1195,18 @@ static Type* sema_integer_promotion(Type* type) {
         return type_int;
     }
     return type;
+}
+
+static bool sema_is_arithmetic_type(Type* type) {
+    return type_is_arithmetic(type) ||
+           (type && type->kind == TYPE_ENUM &&
+            !sema_is_scoped_enum(type));
+}
+
+static Type* sema_common_arithmetic_type(Type* left, Type* right) {
+    if (left && left->kind == TYPE_ENUM) left = sema_integer_promotion(left);
+    if (right && right->kind == TYPE_ENUM) right = sema_integer_promotion(right);
+    return type_common(left, right);
 }
 
 /* Rank only the standard conversion that follows a user-defined conversion
@@ -9055,8 +9067,9 @@ static Type* sema_expr(Expr* expr) {
                               "pointer subtraction requires compatible complete object types");
                 }
                 expr->type = type_long;  /* ptrdiff_t */
-            } else if (type_is_arithmetic(lt) && type_is_arithmetic(rt)) {
-                expr->type = type_common(lt, rt);
+            } else if (sema_is_arithmetic_type(lt) &&
+                       sema_is_arithmetic_type(rt)) {
+                expr->type = sema_common_arithmetic_type(lt, rt);
             } else {
                 rcc_error(expr->loc, "invalid operands to binary +/-");
                 expr->type = type_int;
@@ -9072,10 +9085,11 @@ static Type* sema_expr(Expr* expr) {
                 sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
                 rcc_error(expr->loc,
                           "nullptr does not support arithmetic operators");
-            } else if (!type_is_arithmetic(lt) || !type_is_arithmetic(rt)) {
+            } else if (!sema_is_arithmetic_type(lt) ||
+                       !sema_is_arithmetic_type(rt)) {
                 rcc_error(expr->loc, "invalid operands to binary operator");
             }
-            expr->type = type_common(lt, rt);
+            expr->type = sema_common_arithmetic_type(lt, rt);
             break;
         }
 
@@ -9354,7 +9368,8 @@ static Type* sema_expr(Expr* expr) {
             } else if (!((type_is_pointer(lt) &&
                           is_pointer_arithmetic_type(lt) &&
                           type_is_integer(rt)) ||
-                  (type_is_arithmetic(lt) && type_is_arithmetic(rt)))) {
+                  (sema_is_arithmetic_type(lt) &&
+                   sema_is_arithmetic_type(rt)))) {
                 rcc_error(expr->loc,
                           "invalid operands to compound pointer arithmetic");
             }
@@ -9373,8 +9388,8 @@ static Type* sema_expr(Expr* expr) {
             if (sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
                 rcc_error(expr->loc,
                           "nullptr does not support arithmetic operators");
-            } else if (!type_is_arithmetic(lt) ||
-                       !type_is_arithmetic(rt)) {
+            } else if (!sema_is_arithmetic_type(lt) ||
+                       !sema_is_arithmetic_type(rt)) {
                 rcc_error(expr->loc,
                           "multiplicative compound assignment requires arithmetic operands");
             }
