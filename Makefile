@@ -1746,27 +1746,24 @@ endif
 	@echo "RCC++ scalar and constructor array-new initializer tests completed"
 
 test-cxx-language-linkage: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-language-linkage
+	$(call MKDIR_P,$(TEST_OUT)/cxx-language-linkage)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-linkage/x86.ro \
 		tests/cxx_language_linkage.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-linkage/x64.ro \
 		tests/cxx_language_linkage.cpp
-	strings $(TEST_OUT)/cxx-language-linkage/x86.ro | \
-		grep -x -q '_Z21call_language_linkagei'
-	strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
-		grep -x -q '_Z18cpp_linkage_importi'
-	strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
-		grep -x -q '_Z19cpp_linkage_counter'
-	strings $(TEST_OUT)/cxx-language-linkage/x86.ro | \
-		grep -x -q 'linkage_import'
-	strings $(TEST_OUT)/cxx-language-linkage/x86.ro | \
-		grep -x -q 'second_linkage_import'
-	strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
-		grep -x -q 'c_linkage_counter'
-	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | \
-		grep -x -q '_Z14linkage_importi'
+	$(call CHECK_TEXT,_Z21call_language_linkagei,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_TEXT,_Z18cpp_linkage_importi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_TEXT,_Z19cpp_linkage_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_TEXT,linkage_import,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_TEXT,second_linkage_import,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_TEXT,c_linkage_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch '_Z14linkage_importi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }"
+else
+	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | grep -x -q '_Z14linkage_importi'
+endif
 	@echo "RCC++ C/C++ language-linkage tests completed"
 
 test-cxx-member-specifiers: $(RCXX_TARGET)
@@ -6242,7 +6239,10 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
 test-cxx-parser-recovery: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-parser-recovery
+	$(call MKDIR_P,$(TEST_OUT)/cxx-parser-recovery)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "$$out='$(TEST_OUT)/cxx-parser-recovery/invalid.log'; $$err='$(TEST_OUT)/cxx-parser-recovery/invalid.err'; $$p=Start-Process -FilePath './rcc++.exe' -ArgumentList '--target','x86_64-unknown-rinos','-std=c++20','-c','-o','$(TEST_OUT)/cxx-parser-recovery/invalid.ro','tests/cxx_parser_recovery.cpp' -RedirectStandardOutput $$out -RedirectStandardError $$err -PassThru; Wait-Process -Id $$p.Id -Timeout 10 -ErrorAction SilentlyContinue | Out-Null; $$p.Refresh(); if (-not $$p.HasExited) { Stop-Process -Id $$p.Id -Force -ErrorAction SilentlyContinue; Write-Error 'C++ parser recovery timed out'; exit 1 }; Get-Content $$err | Add-Content $$out; if ($$p.ExitCode -eq 0) { Write-Error 'invalid C++ fixture unexpectedly compiled'; exit 1 }"
+else
 	@set +e; timeout 10s $(RCXX_TARGET) --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/cxx-parser-recovery/invalid.ro \
 		tests/cxx_parser_recovery.cpp \
@@ -6254,8 +6254,14 @@ test-cxx-parser-recovery: $(RCXX_TARGET)
 		if [ $$status -eq 124 ] || [ $$status -eq 139 ]; then \
 			echo "C++ parser recovery timed out or crashed"; exit 1; \
 		fi
+endif
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid.log') { exit 1 }"
+else
 	grep -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid.log
 	! grep -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid.log
+endif
 	@echo "RCC++ namespace parser recovery test completed"
 
 test-cxx-exceptions: $(RCXX_TARGET)

@@ -440,3 +440,6 @@
       `obj/windows` and `obj/posix` outputs so an existing native Windows
       `obj/*.d` file with drive-letter prerequisites cannot stop WSL before a
       test recipe starts.
+- [x] Make C++ language-linkage symbol checks use the shared host text helper,
+      and run namespace parser-recovery diagnostics through a bounded Windows
+      PowerShell process monitor as well as the POSIX timeout path.
