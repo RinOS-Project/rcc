@@ -9144,13 +9144,13 @@ test-varargs: $(RCC_TARGET)
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
 		-o $(TEST_OUT)/varargs/run-test-x64 $(TEST_OUT)/varargs/x64.s
 	$(TEST_OUT)/varargs/run-test-x64
-	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -c -o '$(TEST_OUT)/varargs/invalid.ro' tests/invalid_varargs.c *> '$(TEST_OUT)/varargs/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_start is only valid in a variadic function' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_start requires the final named parameter' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_copy requires two va_list objects' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_end requires a va_list object' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_arg requires a va_list object' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_arg requires a complete fixed scalar or aggregate object type' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/varargs/invalid.ro tests/invalid_varargs.c,$(TEST_OUT)/varargs/invalid.log)
+	$(GREP) -F -q "va_start is only valid in a variadic function" $(TEST_OUT)/varargs/invalid.log
+	$(GREP) -F -q "va_start requires the final named parameter" $(TEST_OUT)/varargs/invalid.log
+	$(GREP) -F -q "va_copy requires two va_list objects" $(TEST_OUT)/varargs/invalid.log
+	$(GREP) -F -q "va_end requires a va_list object" $(TEST_OUT)/varargs/invalid.log
+	$(GREP) -F -q "va_arg requires a va_list object" $(TEST_OUT)/varargs/invalid.log
+	$(GREP) -F -q "va_arg requires a complete fixed scalar or aggregate object type" $(TEST_OUT)/varargs/invalid.log
 	@echo "Dual-architecture C17 scalar varargs tests completed"
 else
 test-varargs: $(RCC_TARGET)
