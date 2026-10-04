@@ -498,6 +498,8 @@ struct Expr {
     bool cxx_typeid_dynamic;
     /* Bounded `type_info::hash_code()` call lowered from a typeid result. */
     bool cxx_typeinfo_hash_code;
+    /* Bounded `type_info::name()` call lowered from a typeid result. */
+    bool cxx_typeinfo_name;
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;

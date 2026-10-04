@@ -4423,6 +4423,8 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		>$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log 2>&1
 	grep -q "type_info::hash_code() takes no arguments" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
+	grep -q "type_info::name() takes no arguments" \
+		$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
 	grep -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
@@ -4430,6 +4432,8 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/cxx_typeid_hash_invalid.cpp \
 		>$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log 2>&1
 	grep -q "type_info::hash_code() takes no arguments" \
+		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
+	grep -q "type_info::name() takes no arguments" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
 	grep -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log

@@ -2470,8 +2470,12 @@ static void codegen_emit_cxx_vbase_tables_in_namespace(Module* mod,
 void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     static const uint8_t zero[8] = {0};
     uint8_t hash_bytes[8];
+    char name_buffer[80];
+    const char* name_symbol;
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     uint32_t offset;
+    uint32_t name_offset;
+    uint32_t name_pointer_offset;
     uint64_t hash = UINT64_C(1469598103934665603);
     const ModuleSymbol* existing;
     if (!mod || !symbol || !symbol[0]) return;
@@ -2482,6 +2486,15 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
      * must be promoted in place so weak RTTI references cannot escape the TU
      * unresolved. */
     if (existing && existing->is_defined) return;
+    if (snprintf(name_buffer, sizeof(name_buffer), "%s_name", symbol) < 0 ||
+        strlen(name_buffer) >= sizeof(name_buffer) - 1u) {
+        rcc_fatal("C++ typeinfo name symbol is too long");
+    }
+    name_symbol = rcc_intern(name_buffer);
+    name_offset = emit_string(mod, symbol, strlen(symbol));
+    module_add_symbol(mod, name_symbol, name_offset, true,
+                      MODULE_SYMBOL_RODATA, true);
+    module_mark_symbol_weak(mod, name_symbol);
     for (const unsigned char* p = (const unsigned char*)symbol; *p; ++p) {
         hash ^= (uint64_t)*p;
         hash *= UINT64_C(1099511628211);
@@ -2494,6 +2507,12 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     }
     offset = (uint32_t)mod->rodata.size;
     emit_rodata(mod, hash_bytes, pointer_size);
+    name_pointer_offset = (uint32_t)mod->rodata.size;
+    emit_rodata(mod, zero, pointer_size);
+    module_add_relocation(mod, MODULE_SYMBOL_RODATA, name_pointer_offset, 0u,
+                          false, pointer_size == 8u, name_symbol);
+    add_reloc(mod, MODULE_SYMBOL_RODATA, name_pointer_offset,
+              pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     module_add_symbol(mod, symbol, offset, true,
                       MODULE_SYMBOL_RODATA, true);
     module_mark_symbol_weak(mod, symbol);
@@ -10064,6 +10083,11 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (expr->cxx_typeinfo_hash_code) {
                 gen_expr(mod, expr->call_func->member_base);
                 emit_mov_reg_mem(mod, EAX, EAX, 0);
+                break;
+            }
+            if (expr->cxx_typeinfo_name) {
+                gen_expr(mod, expr->call_func->member_base);
+                emit_mov_reg_mem(mod, EAX, EAX, 4);
                 break;
             }
             gen_call(mod, expr);

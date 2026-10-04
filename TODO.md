@@ -223,6 +223,10 @@
         pointer-sized hash loadへlowerし、同一型一致・異型分離・引数付き
         呼出しの明示診断をi686/AMD64で回帰検証する。`type_info`同士の
         `==`/`!=`はidentity address比較へlowerし、relational比較は診断する
+  - [x] bounded `type_info::name()`をtypeinfo identity object内の安定した
+        NUL終端文字列ポインタへlowerし、静的・多相dynamic `typeid`の
+        非空name、引数付き呼出し診断、両archの`.ro`／unsigned-v3／
+        `rinvalidate`回帰を追加する
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
 - [ ] remaining full Itanium ABI、`type_info` API、complete static/TLS
       destructor semantics
