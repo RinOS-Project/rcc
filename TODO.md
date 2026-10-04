@@ -318,6 +318,8 @@
   - [x] stack declarationへ`DW_AT_decl_file`／`DW_AT_decl_line`／
         `DW_AT_decl_column`を追加し、関数・変数ごとのsource file tableを
         line/infoで共有してC/i686・C/x86_64回帰で検証
+  - [x] 現行のframe-pointer ABIに合わせてsubprogramへ`DW_AT_frame_base`を
+        出力し、i686/AMD64のEBP/RBP base expressionをdebug-info回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

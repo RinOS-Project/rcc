@@ -1628,6 +1628,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 3u);
@@ -1736,6 +1738,11 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_line_u32(info, function->source_column);
         section_add_byte(info, function->is_global ? 1u : 0u);
         debug_line_u32(info, debug_str_add(strings, function->name));
+        /* The current C/C++ x86 backends retain a frame pointer, so expose
+         * the same EBP/RBP base used by stack-local locations.  Full CFI and
+         * unwind ranges remain a separate debug/unwind feature. */
+        debug_expr_breg(info, g_opts.target_arch == ARCH_X64
+                               ? ARCH_X64 : ARCH_X86, 0);
         debug_emit_function_locals(
             info, strings, &types, files, file_count, mod, function,
             g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
