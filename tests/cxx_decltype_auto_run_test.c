@@ -1,6 +1,12 @@
-extern int* decltype_auto_reference(int* value);
-extern int decltype_auto_value(void);
-extern int auto_local_value(void);
+#if defined(_WIN32) && defined(__x86_64__)
+#define RIN_SYSV __attribute__((sysv_abi))
+#else
+#define RIN_SYSV
+#endif
+
+extern int* RIN_SYSV decltype_auto_reference(int* value);
+extern int RIN_SYSV decltype_auto_value(void);
+extern int RIN_SYSV auto_local_value(void);
 
 int main(void) {
     int value = 7;

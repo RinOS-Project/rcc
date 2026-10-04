@@ -4,11 +4,65 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 
-typedef int (*int_unary_function)(int);
-typedef int (*int_void_function)(void);
+#if defined(_WIN32) && defined(__x86_64__)
+#define RCC_SYSV_ABI __attribute__((sysv_abi))
+#else
+#define RCC_SYSV_ABI
+#endif
+
+#if defined(_WIN32)
+static long rcc_sysconf(int name) {
+    SYSTEM_INFO system_info;
+    (void)name;
+    GetSystemInfo(&system_info);
+    return (long)system_info.dwPageSize;
+}
+
+static void* rcc_mmap(void* address, size_t length, int protection, int flags,
+                      int descriptor, long offset) {
+    (void)address;
+    (void)protection;
+    (void)flags;
+    (void)descriptor;
+    (void)offset;
+    return VirtualAlloc(NULL, length, MEM_RESERVE | MEM_COMMIT,
+                        PAGE_READWRITE);
+}
+
+static int rcc_mprotect(void* address, size_t length, int protection) {
+    DWORD old_protection;
+    (void)protection;
+    return VirtualProtect(address, length, PAGE_EXECUTE_READ,
+                          &old_protection) ? 0 : -1;
+}
+
+static int rcc_munmap(void* address, size_t length) {
+    (void)length;
+    return VirtualFree(address, 0, MEM_RELEASE) ? 0 : -1;
+}
+
+#define sysconf rcc_sysconf
+#define mmap rcc_mmap
+#define mprotect rcc_mprotect
+#define munmap rcc_munmap
+#define MAP_FAILED ((void*)-1)
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define PROT_EXEC 4
+#define MAP_PRIVATE 2
+#define MAP_ANONYMOUS 0x20
+#define _SC_PAGESIZE 30
+#endif
+
+typedef int (RCC_SYSV_ABI *int_unary_function)(int);
+typedef int (RCC_SYSV_ABI *int_void_function)(void);
 
 static ObjSection* code_section(ObjectFile* object)
 {
@@ -18,12 +72,18 @@ static ObjSection* code_section(ObjectFile* object)
     return section;
 }
 
+static ObjSymbol* required_function(ObjectFile* object, const char* name)
+{
+    ObjSymbol* symbol = objfile_find_symbol(object, name);
+    assert(symbol != NULL && symbol->section >= 0);
+    assert(symbol->binding == BIND_CODE);
+    return symbol;
+}
+
 #define LOAD_FUNCTION(target, object, mapping, symbol_name)                 \
     do {                                                                    \
-        ObjSymbol* symbol = objfile_find_symbol((object), (symbol_name));    \
+        ObjSymbol* symbol = required_function((object), (symbol_name));     \
         void* address;                                                      \
-        assert(symbol != NULL && symbol->section >= 0);                     \
-        assert(symbol->binding == BIND_CODE);                               \
         address = (mapping) + symbol->value;                                \
         memcpy(&(target), &address, sizeof(target));                        \
     } while (0)
@@ -43,15 +103,32 @@ int main(int argc, char** argv)
     int_unary_function reused_a;
     int_unary_function reused_b;
 
-    assert(argc == 2);
-    object = objfile_read(argv[1]);
+    assert(argc == 2 || (argc == 3 && strcmp(argv[1], "--inspect") == 0));
+    object = objfile_read(argc == 3 ? argv[2] : argv[1]);
     assert(object != NULL);
-#if defined(__i386__)
-    assert(object->arch == ARCH_X86);
+#if defined(_WIN32) && defined(__x86_64__)
+    assert(argc == 3 ? object->arch == ARCH_X86 : object->arch == ARCH_X64);
+#elif defined(__i386__)
+    assert(argc == 2 && object->arch == ARCH_X86);
 #else
-    assert(object->arch == ARCH_X64);
+    assert(argc == 2 && object->arch == ARCH_X64);
 #endif
     code = code_section(object);
+    assert(code->size > 0u);
+    if (argc == 3) {
+        static const char* const names[] = {
+            "goto_forward", "goto_backward", "goto_into_constant_if",
+            "goto_into_constant_while", "goto_into_switch",
+            "goto_reused_label_a", "goto_reused_label_b",
+        };
+        size_t index;
+        for (index = 0u; index < sizeof(names) / sizeof(names[0]); ++index) {
+            (void)required_function(object, names[index]);
+        }
+        objfile_free(object);
+        puts("i686 control-flow object and symbol inspection passed");
+        return 0;
+    }
     page_size = sysconf(_SC_PAGESIZE);
     assert(page_size > 0);
     mapping_size = ((size_t)code->size + (size_t)page_size - 1u) /

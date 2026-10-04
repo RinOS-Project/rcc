@@ -59,6 +59,25 @@ GREP = grep
 endif
 
 ifeq ($(OS),Windows_NT)
+DATE_TIME_ENV = set SOURCE_DATE_EPOCH=0&&
+DATE_TIME_INVALID = powershell -NoProfile -Command "$$env:SOURCE_DATE_EPOCH='not-a-timestamp'; & './rcc.exe' -E 'tests/preprocessor_date_time.c' *> '$(TEST_OUT)/preprocessor-date-time/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+else
+DATE_TIME_ENV = SOURCE_DATE_EPOCH=0
+DATE_TIME_INVALID = if SOURCE_DATE_EPOCH=not-a-timestamp $(RCC_TARGET) -E tests/preprocessor_date_time.c >$(TEST_OUT)/preprocessor-date-time/invalid.log 2>&1; then exit 1; fi
+endif
+
+ifeq ($(OS),Windows_NT)
+define CHECK_BINARY_STRING
+strings $(2) > $(2).strings
+$(GREP) -F -x -q '$(1)' $(2).strings
+endef
+else
+define CHECK_BINARY_STRING
+strings $(2) | $(GREP) -F -x -q '$(1)'
+endef
+endif
+
+ifeq ($(OS),Windows_NT)
 MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
 # Keep expected-failure checks shell-neutral. Native Windows builds use
 # cmd.exe, while POSIX/WSL builds use a Bourne-compatible shell.
@@ -103,6 +122,84 @@ else
 define RUN_COMPILER_BUILTINS_X86
 $(CC) -m32 -no-pie -o $(1) $(2)
 $(1)
+endef
+endif
+
+ifeq ($(OS),Windows_NT)
+# Windows has no RinOS int 0x80/syscall runtime.  Compile the i686 image to a
+# PE object for target/ABI verification, then execute the x64 image through a
+# real native CRT adapter that calls the generated main function.
+define CXX_WINDOWS_MAIN
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/$(2)-x86.s tests/$(3)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/$(2)-x86.o $(TEST_OUT)/$(1)/$(2)-x86.s
+objdump -f $(TEST_OUT)/$(1)/$(2)-x86.o > $(TEST_OUT)/$(1)/$(2)-x86-arch.log
+$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/$(2)-x86-arch.log
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/$(2)-x64.s tests/$(3)
+$(CC) -c -o $(TEST_OUT)/$(1)/$(2)-x64.o $(TEST_OUT)/$(1)/$(2)-x64.s
+$(OBJCOPY) --redefine-sym main=rcc_test_main $(TEST_OUT)/$(1)/$(2)-x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/$(2)-x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/$(2)-x64.o
+$(TEST_OUT)/$(1)/$(2)-x64-host
+endef
+
+# Constructor fixtures expose a named C++ function instead of the common
+# _rcc_entry ABI.  On Windows, inspect the i686 PE object and execute the
+# x86_64 SysV-ABI function through its real native CRT adapter.
+define CXX_WINDOWS_CONSTRUCTOR_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o
+$(TEST_OUT)/$(1)/x64-host
+endef
+
+define CXX_WINDOWS_ENTRY_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
+$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o
+$(TEST_OUT)/$(1)/x64-host
+endef
+
+define C_WINDOWS_ENTRY_TEST
+$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
+$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
+$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o
+$(TEST_OUT)/$(1)/x64-host
+endef
+
+define CXX_WINDOWS_C_RUN_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o
+$(TEST_OUT)/$(1)/x64-host
+endef
+
+define CXX_WINDOWS_CONSTEXPR_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
+$(OBJCOPY) --redefine-sym main=rcc_cxx_constexpr_main $(TEST_OUT)/$(1)/x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_constexpr_host.c $(TEST_OUT)/$(1)/x64.o
+$(TEST_OUT)/$(1)/x64-host
 endef
 endif
 
@@ -618,7 +715,7 @@ test-c-old-style: $(RCC_TARGET)
 		-o $(TEST_OUT)/c-old-style/x86.ro tests/c_old_style.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/c-old-style/x64.ro tests/c_old_style.c
-	powershell -NoProfile -Command "& '$(RCC_TARGET)' --target i686-unknown-rinos -std=c17 -c -o '$(TEST_OUT)/c-old-style/invalid.ro' tests/c_old_style_invalid.c *> '$(TEST_OUT)/c-old-style/invalid.log'; if ($$LASTEXITCODE -eq 0) { Write-Error 'invalid old-style parameter declaration unexpectedly compiled'; exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "& './rcc.exe' --target i686-unknown-rinos -std=c17 -c -o '$(TEST_OUT)/c-old-style/invalid.ro' tests/c_old_style_invalid.c *> '$(TEST_OUT)/c-old-style/invalid.log'; if ($$LASTEXITCODE -eq 0) { Write-Error 'invalid old-style parameter declaration unexpectedly compiled'; exit 1 } else { exit 0 }"
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'old-style parameter declaration names an unknown parameter' -Path '$(TEST_OUT)/c-old-style/invalid.log')) { exit 1 }"
 	@echo "C17 old-style function declaration tests completed"
 
@@ -706,6 +803,49 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 
 test-cxx-predefined-function-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-predefined-function-identifiers)
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x86.ro \
+		tests/predefined_function_identifiers.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x64.ro \
+		tests/predefined_function_identifiers.c
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x86.s \
+		tests/predefined_function_identifiers.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x64.s \
+		tests/predefined_function_identifiers.c
+	$(CC) -o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x64 \
+		tests/predefined_function_c_run_test.c \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/c-x64.s
+	$(TEST_OUT)/cxx-predefined-function-identifiers/c-x64
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-object-run-test \
+		tests/predefined_function_object_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/cxx-predefined-function-identifiers/c-object-run-test \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/c-x86.ro \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/c-x64.ro
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x86.ro \
+		tests/predefined_function_identifiers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64.ro \
+		tests/predefined_function_identifiers.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x86.s \
+		tests/predefined_function_identifiers.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64.s \
+		tests/predefined_function_identifiers.cpp
+	$(CC) -o $(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64 \
+		tests/predefined_function_cxx_run_test.c \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64.s
+	$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64
+	$(TEST_OUT)/cxx-predefined-function-identifiers/c-object-run-test --cxx \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x86.ro \
+		$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64.ro
+else
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/cxx-predefined-function-identifiers/c-x86.s \
 		tests/predefined_function_identifiers.c
@@ -734,52 +874,47 @@ test-cxx-predefined-function-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/predefined_function_cxx_run_test.c \
 		$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64.s
 	$(TEST_OUT)/cxx-predefined-function-identifiers/cxx-x64
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.ro \
-		tests/predefined_function_invalid.c \
-		>$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.log 2>&1
+		tests/predefined_function_invalid.c,$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.log)
 	$(GREP) -q "__func__ is only valid within a function body" \
 		$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.ro \
-		tests/predefined_function_invalid.c \
-		>$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log 2>&1
+		tests/predefined_function_invalid.c,$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log)
 	$(GREP) -q "__func__ is only valid within a function body" \
 		$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log
 	@echo "C/C++ predefined function identifier tests completed"
 
 test-preprocessor-date-time: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-date-time)
-	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) -E tests/preprocessor_date_time.c > \
+	$(DATE_TIME_ENV) $(RCC_TARGET) -E tests/preprocessor_date_time.c > \
 		$(TEST_OUT)/preprocessor-date-time/c.i
 	$(GREP) -F -q 'const char rcc_preprocessor_date[] = "Jan  1 1970";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
 	$(GREP) -F -q 'const char rcc_preprocessor_time[] = "00:00:00";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
-	SOURCE_DATE_EPOCH=0 $(RCXX_TARGET) -std=c++20 -E \
+	$(DATE_TIME_ENV) $(RCXX_TARGET) -std=c++20 -E \
 		tests/preprocessor_date_time.cpp > \
 		$(TEST_OUT)/preprocessor-date-time/cxx.i
 	$(GREP) -F -q 'const char rcc_cpp_preprocessor_date[] = "Jan  1 1970";' \
 		$(TEST_OUT)/preprocessor-date-time/cxx.i
 	$(GREP) -F -q 'const char rcc_cpp_preprocessor_time[] = "00:00:00";' \
 		$(TEST_OUT)/preprocessor-date-time/cxx.i
-	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) --target i686-unknown-rinos -c \
+	$(DATE_TIME_ENV) $(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-date-time/c-x86.ro \
 		tests/preprocessor_date_time.c
-	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+	$(DATE_TIME_ENV) $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-date-time/c-x64.ro \
 		tests/preprocessor_date_time.c
-	SOURCE_DATE_EPOCH=0 $(RCXX_TARGET) --target i686-unknown-rinos \
+	$(DATE_TIME_ENV) $(RCXX_TARGET) --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/preprocessor-date-time/cxx-x86.ro \
 		tests/preprocessor_date_time.cpp
-	SOURCE_DATE_EPOCH=0 $(RCXX_TARGET) --target x86_64-unknown-rinos \
+	$(DATE_TIME_ENV) $(RCXX_TARGET) --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/preprocessor-date-time/cxx-x64.ro \
 		tests/preprocessor_date_time.cpp
-	if SOURCE_DATE_EPOCH=not-a-timestamp $(RCC_TARGET) -E \
-		 tests/preprocessor_date_time.c \
-		 >$(TEST_OUT)/preprocessor-date-time/invalid.log 2>&1; then \
-		exit 1; \
-	fi
+	$(DATE_TIME_INVALID)
 	$(GREP) -F -q "invalid SOURCE_DATE_EPOCH value 'not-a-timestamp'" \
 		$(TEST_OUT)/preprocessor-date-time/invalid.log
 	@echo "C17/C++20 __DATE__/__TIME__ tests completed"
@@ -831,15 +966,10 @@ test-universal-character-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/universal-character-identifiers/cxx-x64.ro \
 		tests/universal_character_identifiers.cpp
-	! $(RCC_TARGET) -c -o $(TEST_OUT)/universal-character-identifiers/invalid-c.ro \
-		tests/invalid_universal_character_name.c \
-		>$(TEST_OUT)/universal-character-identifiers/invalid-c.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -c -o $(TEST_OUT)/universal-character-identifiers/invalid-c.ro tests/invalid_universal_character_name.c,$(TEST_OUT)/universal-character-identifiers/invalid-c.log)
 	$(GREP) -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/universal-character-identifiers/invalid-c.log
-	! $(RCXX_TARGET) -std=c++20 -c \
-		-o $(TEST_OUT)/universal-character-identifiers/invalid-cxx.ro \
-		tests/invalid_universal_character_name.c \
-		>$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++20 -c -o $(TEST_OUT)/universal-character-identifiers/invalid-cxx.ro tests/invalid_universal_character_name.c,$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log)
 	$(GREP) -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log
 	@echo "C17/C++20 universal character identifier tests completed"
@@ -866,16 +996,10 @@ test-preprocessor-has-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/preprocessor-has-include/cxx-x64.ro \
 		tests/preprocessor_has_include.cpp
-	! $(RCC_TARGET) -c \
-		-o $(TEST_OUT)/preprocessor-has-include/invalid-c.ro \
-		tests/invalid_preprocessor_has_include.c \
-		>$(TEST_OUT)/preprocessor-has-include/invalid-c.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -c -o $(TEST_OUT)/preprocessor-has-include/invalid-c.ro tests/invalid_preprocessor_has_include.c,$(TEST_OUT)/preprocessor-has-include/invalid-c.log)
 	$(GREP) -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-has-include/invalid-c.log
-	! $(RCXX_TARGET) -std=c++20 -c \
-		-o $(TEST_OUT)/preprocessor-has-include/invalid-cxx.ro \
-		tests/invalid_preprocessor_has_include.c \
-		>$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++20 -c -o $(TEST_OUT)/preprocessor-has-include/invalid-cxx.ro tests/invalid_preprocessor_has_include.c,$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log)
 	$(GREP) -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log
 	@echo "C17/C++20 __has_include tests completed"
@@ -892,16 +1016,10 @@ test-preprocessor-attributes: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/preprocessor-attributes/cxx-x64.ro \
 		tests/preprocessor_attributes.cpp
-	! $(RCXX_TARGET) -std=c++20 -c \
-		-o $(TEST_OUT)/preprocessor-attributes/invalid-cxx.ro \
-		tests/invalid_preprocessor_attributes.cpp \
-		>$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++20 -c -o $(TEST_OUT)/preprocessor-attributes/invalid-cxx.ro tests/invalid_preprocessor_attributes.cpp,$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log)
 	$(GREP) -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log
-	! $(RCXX_TARGET) -std=c++17 -c \
-		-o $(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.ro \
-		tests/invalid_cxx_standard_attributes.cpp \
-		>$(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++17 -c -o $(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.ro tests/invalid_cxx_standard_attributes.cpp,$(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.log)
 	$(GREP) -F -q '[[likely]] and [[unlikely]] require C++20 or newer' \
 		$(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.log
 	@echo "C++20 __has_cpp_attribute tests completed"
@@ -928,49 +1046,40 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/preprocessor-cxx-features/cxx20-x64.ro \
 		tests/preprocessor_cpp_features.cpp
-	! $(RCXX_TARGET) -std=c++11 -c \
-		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.ro \
-		tests/cxx_standard_cpp14_invalid.cpp \
-		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log 2>&1
-	$(GREP) -q "structured bindings require C++17 or newer" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++11 -c -o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.ro tests/cxx_standard_cpp14_invalid.cpp,$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log)
+	$(GREP) -F -q "structured bindings require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	$(GREP) -q "generic lambda parameters require C++14 or newer" \
+	$(GREP) -F -q "generic lambda parameters require C++14 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	$(GREP) -q "lambda init-captures require C++14 or newer" \
+	$(GREP) -F -q "lambda init-captures require C++14 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	$(GREP) -q "fold expressions require C++17 or newer" \
+	$(GREP) -F -q "fold expressions require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	$(GREP) -q "inline variables require C++17 or newer" \
+	$(GREP) -F -q "inline variables require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	$(GREP) -q "C++ designated initializers require C++20 or newer" \
+	$(GREP) -F -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	! $(RCXX_TARGET) -std=c++14 -c \
-		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.ro \
-		tests/cxx_standard_cpp17_invalid.cpp \
-		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log 2>&1
-	$(GREP) -q "if constexpr requires C++17 or newer" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++14 -c -o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.ro tests/cxx_standard_cpp17_invalid.cpp,$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log)
+	$(GREP) -F -q "if constexpr requires C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	$(GREP) -q "constexpr lambda specifiers require C++17 or newer" \
+	$(GREP) -F -q "constexpr lambda specifiers require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	$(GREP) -q "fold expressions require C++17 or newer" \
+	$(GREP) -F -q "fold expressions require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	$(GREP) -q "template<auto> parameters require C++17 or newer" \
+	$(GREP) -F -q "template<auto> parameters require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	$(GREP) -q "nested namespace definitions require C++17 or newer" \
+	$(GREP) -F -q "nested namespace definitions require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	$(GREP) -q "inline variables require C++17 or newer" \
+	$(GREP) -F -q "inline variables require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	$(GREP) -q "C++ designated initializers require C++20 or newer" \
+	$(GREP) -F -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	! $(RCXX_TARGET) -std=c++17 -c \
-		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.ro \
-		tests/cxx_standard_cpp20_invalid.cpp \
-		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log 2>&1
-	$(GREP) -q "requires C++20 or newer" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++17 -c -o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.ro tests/cxx_standard_cpp20_invalid.cpp,$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log)
+	$(GREP) -F -q "requires C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
-	$(GREP) -q "C++ designated initializers require C++20 or newer" \
+	$(GREP) -F -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
-	$(GREP) -q "consteval lambda specifiers require C++20 or newer" \
+	$(GREP) -F -q "consteval lambda specifiers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
 	@echo "C++ standard-version gates and feature-test macros completed"
 
@@ -1098,6 +1207,31 @@ test-fuzz: $(RCC_TARGET) $(RCXX_TARGET)
 
 test-cxx-enum-class: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-enum-class)
+ifeq ($(OS),Windows_NT)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x86.ro \
+		tests/cxx_enum_class.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x64.ro \
+		tests/cxx_enum_class.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x86.s \
+		tests/cxx_enum_class.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-enum-class/enum-x86.o \
+		$(TEST_OUT)/cxx-enum-class/enum-x86.s
+	objdump -f $(TEST_OUT)/cxx-enum-class/enum-x86.o > $(TEST_OUT)/cxx-enum-class/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-enum-class/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x64.s \
+		tests/cxx_enum_class.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-enum-class/enum-x64.o \
+		$(TEST_OUT)/cxx-enum-class/enum-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main \
+		$(TEST_OUT)/cxx-enum-class/enum-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-enum-class/enum-x64-host \
+		tests/cxx_main_host.c $(TEST_OUT)/cxx-enum-class/enum-x64.o
+	$(TEST_OUT)/cxx-enum-class/enum-x64-host
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-enum-class/enum-x86.ro \
 		tests/cxx_enum_class.cpp
@@ -1128,15 +1262,10 @@ test-cxx-enum-class: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-enum-class/start-x64.o \
 		$(TEST_OUT)/cxx-enum-class/enum-x64.o
 	$(TEST_OUT)/cxx-enum-class/enum-x64
-	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-enum-class/invalid-x86.ro \
-		tests/cxx_enum_class_invalid.cpp \
-		>$(TEST_OUT)/cxx-enum-class/invalid-x86.log 2>&1
+endif
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-x86.ro tests/cxx_enum_class_invalid.cpp,$(TEST_OUT)/cxx-enum-class/invalid-x86.log)
 	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-enum-class/invalid-x64.ro \
-		tests/cxx_enum_class_invalid.cpp \
-		>$(TEST_OUT)/cxx-enum-class/invalid-x64.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-x64.ro tests/cxx_enum_class_invalid.cpp,$(TEST_OUT)/cxx-enum-class/invalid-x64.log)
 	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x64.log
 	@echo "RCC++ scoped enum test completed"
 
@@ -1146,17 +1275,13 @@ test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)
 		-MF $(TEST_OUT)/cxx_cli_options.d -nostdinc -Itests/include \
 		-DRCC_CXX_CLI_VALUE=23 -DRCC_CXX_REMOVE_ME -URCC_CXX_REMOVE_ME \
 		-o $(TEST_OUT)/cxx_cli_options.ro tests/cxx_cli_options.cpp
-	! $(RCC_TARGET) -O4 -c -o $(TEST_OUT)/invalid-o-c.ro tests/hello.c \
-		>$(TEST_OUT)/invalid-o-c.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -O4 -c -o $(TEST_OUT)/invalid-o-c.ro tests/hello.c,$(TEST_OUT)/invalid-o-c.log)
 	$(GREP) -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-c.log
-	! $(RCC_TARGET) -Wunknown -c -o $(TEST_OUT)/invalid-w-c.ro tests/hello.c \
-		>$(TEST_OUT)/invalid-w-c.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -Wunknown -c -o $(TEST_OUT)/invalid-w-c.ro tests/hello.c,$(TEST_OUT)/invalid-w-c.log)
 	$(GREP) -q 'unsupported warning option' $(TEST_OUT)/invalid-w-c.log
-	! $(RCC_TARGET) -funknown -c -o $(TEST_OUT)/invalid-f-c.ro tests/hello.c \
-		>$(TEST_OUT)/invalid-f-c.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -funknown -c -o $(TEST_OUT)/invalid-f-c.ro tests/hello.c,$(TEST_OUT)/invalid-f-c.log)
 	$(GREP) -q 'unsupported code-generation option' $(TEST_OUT)/invalid-f-c.log
-	! $(RCXX_TARGET) -Ofoo -c -o $(TEST_OUT)/invalid-o-cxx.ro \
-		tests/cxx_cli_options.cpp >$(TEST_OUT)/invalid-o-cxx.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -Ofoo -c -o $(TEST_OUT)/invalid-o-cxx.ro tests/cxx_cli_options.cpp,$(TEST_OUT)/invalid-o-cxx.log)
 	$(GREP) -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-cxx.log
 	@echo "RCC++ command-line compatibility test completed"
 
@@ -1199,7 +1324,66 @@ test-cxx-language-core: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-language-core/inheritance-x64.s \
 		tests/cxx_inheritance.cpp
 ifeq ($(OS),Windows_NT)
-	wsl -d Ubuntu-24.04 bash -lc "set -e; cd $(WSL_RINCOMPILER_ROOT); bash tests/run_cxx_language_core.sh build/tests/cxx-language-core"
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/new-delete-x86.o \
+		$(TEST_OUT)/cxx-language-core/new-delete-x86.s
+	objdump -f $(TEST_OUT)/cxx-language-core/new-delete-x86.o > \
+		$(TEST_OUT)/cxx-language-core/new-delete-x86.arch
+	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/new-delete-x86.arch
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/adl-x86.o \
+		$(TEST_OUT)/cxx-language-core/adl-x86.s
+	objdump -f $(TEST_OUT)/cxx-language-core/adl-x86.o > \
+		$(TEST_OUT)/cxx-language-core/adl-x86.arch
+	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/adl-x86.arch
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.s
+	objdump -f $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o > \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.arch
+	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.arch
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x86.o \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x86.s
+	objdump -f $(TEST_OUT)/cxx-language-core/field-initializers-x86.o > \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x86.arch
+	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/field-initializers-x86.arch
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/inheritance-x86.o \
+		$(TEST_OUT)/cxx-language-core/inheritance-x86.s
+	objdump -f $(TEST_OUT)/cxx-language-core/inheritance-x86.o > \
+		$(TEST_OUT)/cxx-language-core/inheritance-x86.arch
+	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/inheritance-x86.arch
+	$(CC) -c -o $(TEST_OUT)/cxx-language-core/new-delete-x64.o \
+		$(TEST_OUT)/cxx-language-core/new-delete-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
+		$(TEST_OUT)/cxx-language-core/new-delete-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/new-delete-x64-host \
+		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/new-delete-x64.o
+	$(TEST_OUT)/cxx-language-core/new-delete-x64-host
+	$(CC) -c -o $(TEST_OUT)/cxx-language-core/adl-x64.o \
+		$(TEST_OUT)/cxx-language-core/adl-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
+		$(TEST_OUT)/cxx-language-core/adl-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/adl-x64-host \
+		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/adl-x64.o
+	$(TEST_OUT)/cxx-language-core/adl-x64-host
+	$(CC) -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64-host \
+		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o
+	$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64-host
+	$(CC) -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x64.o \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/field-initializers-x64-host \
+		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/field-initializers-x64.o
+	$(TEST_OUT)/cxx-language-core/field-initializers-x64-host
+	$(CC) -c -o $(TEST_OUT)/cxx-language-core/inheritance-x64.o \
+		$(TEST_OUT)/cxx-language-core/inheritance-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
+		$(TEST_OUT)/cxx-language-core/inheritance-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/inheritance-x64-host \
+		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/inheritance-x64.o
+	$(TEST_OUT)/cxx-language-core/inheritance-x64-host
 else
 	bash tests/run_cxx_language_core.sh $(TEST_OUT)/cxx-language-core
 endif
@@ -1221,22 +1405,19 @@ endif
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/function-specifiers-x64.ro \
 		tests/cxx_function_specifiers.cpp
-	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x86.ro \
-		tests/cxx_new_array_invalid.cpp \
-		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-language-core/invalid-array-new-x86.ro tests/cxx_new_array_invalid.cpp,$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log)
 	$(GREP) -q 'array new has no lowerable constructor for its element initializers' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x64.ro \
-		tests/cxx_new_array_invalid.cpp \
-		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-language-core/invalid-array-new-x64.ro tests/cxx_new_array_invalid.cpp,$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log)
 	$(GREP) -q 'array new has no lowerable constructor for its element initializers' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	@echo "RCC++ core language tests completed"
 
 test-cxx-multiple-inheritance-virtual: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-multiple-inheritance-virtual)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-multiple-inheritance-virtual,test,cxx_multiple_inheritance_virtual.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-multiple-inheritance-virtual/test-x86.s \
 		tests/cxx_multiple_inheritance_virtual.cpp
@@ -1261,10 +1442,14 @@ test-cxx-multiple-inheritance-virtual: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-multiple-inheritance-virtual/start-x64.o \
 		$(TEST_OUT)/cxx-multiple-inheritance-virtual/test-x64.o
 	$(TEST_OUT)/cxx-multiple-inheritance-virtual/test-x64
+endif
 	@echo "C++ secondary virtual-base vptr test completed"
 
 test-cxx-secondary-virtual-override: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-secondary-virtual-override)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-secondary-virtual-override,test,cxx_secondary_virtual_override.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-secondary-virtual-override/test-x86.s \
 		tests/cxx_secondary_virtual_override.cpp
@@ -1289,10 +1474,14 @@ test-cxx-secondary-virtual-override: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-secondary-virtual-override/start-x64.o \
 		$(TEST_OUT)/cxx-secondary-virtual-override/test-x64.o
 	$(TEST_OUT)/cxx-secondary-virtual-override/test-x64
+endif
 	@echo "C++ secondary virtual override execution test completed"
 
 test-cxx-virtual-base: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-virtual-base,test,cxx_virtual_base.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-virtual-base/test-x86.s \
 		tests/cxx_virtual_base.cpp
@@ -1337,10 +1526,14 @@ test-cxx-virtual-base: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-virtual-base/start-x64.o \
 		$(TEST_OUT)/cxx-virtual-base/test-virtual-x64.o
 	$(TEST_OUT)/cxx-virtual-base/test-virtual-x64
+endif
 	@echo "C++ direct virtual-base layout and dispatch tests completed"
 
 test-cxx-virtual-base-conversion: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base-conversion)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-virtual-base-conversion,test,cxx_virtual_base_conversion.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-virtual-base-conversion/x86.s \
 		tests/cxx_virtual_base_conversion.cpp
@@ -1365,10 +1558,14 @@ test-cxx-virtual-base-conversion: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-virtual-base-conversion/start-x64.o \
 		$(TEST_OUT)/cxx-virtual-base-conversion/x64.o
 	$(TEST_OUT)/cxx-virtual-base-conversion/x64
+endif
 	@echo "C++ virtual-base conversion tests completed"
 
 test-cxx-virtual-base-constructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base-constructor)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-virtual-base-constructor,test,cxx_virtual_base_constructor.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-virtual-base-constructor/x86.s \
 		tests/cxx_virtual_base_constructor.cpp
@@ -1393,10 +1590,14 @@ test-cxx-virtual-base-constructor: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-virtual-base-constructor/start-x64.o \
 		$(TEST_OUT)/cxx-virtual-base-constructor/x64.o
 	$(TEST_OUT)/cxx-virtual-base-constructor/x64
+endif
 	@echo "C++ virtual-base constructor tests completed"
 
 test-cxx-constructor-general: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-general)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-constructor-general,test,cxx_constructor_general.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constructor-general/x86.s \
 		tests/cxx_constructor_general.cpp
@@ -1421,10 +1622,14 @@ test-cxx-constructor-general: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constructor-general/start-x64.o \
 		$(TEST_OUT)/cxx-constructor-general/x64.o
 	$(TEST_OUT)/cxx-constructor-general/x64
+endif
 	@echo "C++ general constructor-body tests completed"
 
 test-cxx-implicit-copy: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-implicit-copy)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-implicit-copy,test,cxx_implicit_copy.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-implicit-copy/x86.s \
 		tests/cxx_implicit_copy.cpp
@@ -1449,10 +1654,14 @@ test-cxx-implicit-copy: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-implicit-copy/start-x64.o \
 		$(TEST_OUT)/cxx-implicit-copy/x64.o
 	$(TEST_OUT)/cxx-implicit-copy/x64
+endif
 	@echo "C++ implicit copy-construction tests completed"
 
 test-cxx-protected-member: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-protected-member)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-protected-member,test,cxx_protected_member.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-protected-member/x86.s \
 		tests/cxx_protected_member.cpp
@@ -1477,22 +1686,20 @@ test-cxx-protected-member: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-protected-member/start-x64.o \
 		$(TEST_OUT)/cxx-protected-member/x64.o
 	$(TEST_OUT)/cxx-protected-member/x64
-	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-protected-member/rejected-x86.ro \
-		tests/cxx_protected_member_rejected.cpp \
-		>$(TEST_OUT)/cxx-protected-member/rejected-x86.log 2>&1
+endif
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-protected-member/rejected-x86.ro tests/cxx_protected_member_rejected.cpp,$(TEST_OUT)/cxx-protected-member/rejected-x86.log)
 	$(GREP) -q "member 'counter' is not accessible" \
 		$(TEST_OUT)/cxx-protected-member/rejected-x86.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-protected-member/rejected-x64.ro \
-		tests/cxx_protected_member_rejected.cpp \
-		>$(TEST_OUT)/cxx-protected-member/rejected-x64.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-protected-member/rejected-x64.ro tests/cxx_protected_member_rejected.cpp,$(TEST_OUT)/cxx-protected-member/rejected-x64.log)
 	$(GREP) -q "member 'counter' is not accessible" \
 		$(TEST_OUT)/cxx-protected-member/rejected-x64.log
 	@echo "C++ protected-member access tests completed"
 
 test-cxx-virtual-base-constructor-order: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base-constructor-order)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-virtual-base-constructor-order,test,cxx_virtual_base_constructor_order.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-virtual-base-constructor-order/x86.s \
 		tests/cxx_virtual_base_constructor_order.cpp
@@ -1517,10 +1724,14 @@ test-cxx-virtual-base-constructor-order: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-virtual-base-constructor-order/start-x64.o \
 		$(TEST_OUT)/cxx-virtual-base-constructor-order/x64.o
 	$(TEST_OUT)/cxx-virtual-base-constructor-order/x64
+endif
 	@echo "C++ virtual-base construction-order tests completed"
 
 test-cxx-shared-virtual-base: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-shared-virtual-base)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-shared-virtual-base,test,cxx_shared_virtual_base.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-shared-virtual-base/test-x86.s \
 		tests/cxx_shared_virtual_base.cpp
@@ -1545,10 +1756,14 @@ test-cxx-shared-virtual-base: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-shared-virtual-base/start-x64.o \
 		$(TEST_OUT)/cxx-shared-virtual-base/test-x64.o
 	$(TEST_OUT)/cxx-shared-virtual-base/test-x64
+endif
 	@echo "C++ shared virtual-base diamond test completed"
 
 test-cxx-shared-virtual-base-method: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-shared-virtual-base-method)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-shared-virtual-base-method,test,cxx_shared_virtual_base_method.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-shared-virtual-base-method/test-x86.s \
 		tests/cxx_shared_virtual_base_method.cpp
@@ -1573,10 +1788,14 @@ test-cxx-shared-virtual-base-method: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-shared-virtual-base-method/start-x64.o \
 		$(TEST_OUT)/cxx-shared-virtual-base-method/test-x64.o
 	$(TEST_OUT)/cxx-shared-virtual-base-method/test-x64
+endif
 	@echo "C++ shared virtual-base member dispatch test completed"
 
 test-cxx-destructor-body: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-destructor-body)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-destructor-body,test,cxx_destructor_body.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-destructor-body/x86.s \
 		tests/cxx_destructor_body.cpp
@@ -1601,10 +1820,14 @@ test-cxx-destructor-body: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-destructor-body/start-x64.o \
 		$(TEST_OUT)/cxx-destructor-body/x64.o
 	$(TEST_OUT)/cxx-destructor-body/x64
+endif
 	@echo "C++ explicit destructor body and lifetime tests completed"
 
 test-cxx-default-destructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-default-destructor)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-default-destructor,test,cxx_default_destructor.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-default-destructor/x86.s \
 		tests/cxx_default_destructor.cpp
@@ -1629,10 +1852,14 @@ test-cxx-default-destructor: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-default-destructor/start-x64.o \
 		$(TEST_OUT)/cxx-default-destructor/x64.o
 	$(TEST_OUT)/cxx-default-destructor/x64
+endif
 	@echo "C++ default-constructor destructor lifetime tests completed"
 
 test-cxx-member-lifetime: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-lifetime)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-member-lifetime,test,cxx_member_lifetime.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-member-lifetime/x86.s \
 		tests/cxx_member_lifetime.cpp
@@ -1657,10 +1884,14 @@ test-cxx-member-lifetime: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-member-lifetime/start-x64.o \
 		$(TEST_OUT)/cxx-member-lifetime/x64.o
 	$(TEST_OUT)/cxx-member-lifetime/x64
+endif
 	@echo "C++ nested member construction and destruction tests completed"
 
 test-cxx-array-destructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-array-destructor)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-array-destructor,test,cxx_array_destructor.cpp)
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-array-destructor/x86.s \
 		tests/cxx_array_destructor.cpp
@@ -1685,9 +1916,27 @@ test-cxx-array-destructor: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-array-destructor/start-x64.o \
 		$(TEST_OUT)/cxx-array-destructor/x64.o
 	$(TEST_OUT)/cxx-array-destructor/x64
+endif
 	@echo "C++ array destructor cookie and reverse-lifetime tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-constexpr: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr)
+	$(call CXX_WINDOWS_CONSTEXPR_TEST,cxx-constexpr,cxx_constexpr.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constexpr/invalid-x86.ro tests/cxx_constexpr_invalid.cpp,$(TEST_OUT)/cxx-constexpr/invalid-x86.log)
+	$(GREP) -F -q "constexpr variable requires an initializer" $(TEST_OUT)/cxx-constexpr/invalid-x86.log
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x86.log
+	$(GREP) -F -q "consteval call is not a constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constexpr/invalid-x64.ro tests/cxx_constexpr_invalid.cpp,$(TEST_OUT)/cxx-constexpr/invalid-x64.log)
+	$(GREP) -F -q "constexpr variable requires an initializer" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
+	$(GREP) -F -q "consteval call is not a constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
+	@echo "RCC++ scalar constexpr folding tests completed"
+else
+test-cxx-constexpr: test-cxx-constexpr-posix
+endif
+
+test-cxx-constexpr-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr/x86.s tests/cxx_constexpr.cpp
@@ -1735,7 +1984,16 @@ test-cxx-constexpr: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	@echo "RCC++ scalar constexpr folding tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-constexpr-aggregate: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-aggregate)
+	$(call CXX_WINDOWS_CONSTEXPR_TEST,cxx-constexpr-aggregate,cxx_constexpr_aggregate.cpp)
+	@echo "RCC++ aggregate constexpr tests completed"
+else
+test-cxx-constexpr-aggregate: test-cxx-constexpr-aggregate-posix
+endif
+
+test-cxx-constexpr-aggregate-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-aggregate)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr-aggregate/x86.s \
@@ -1845,7 +2103,7 @@ test-cxx-new-array: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-new-array/constructor-x64.s
 	$(TEST_OUT)/cxx-new-array/constructor-run-test
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-new-array/invalid.ro' tests/cxx_new_array_parenthesized_rejected.cpp *> '$(TEST_OUT)/cxx-new-array/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "& '.\$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-new-array/invalid.ro' tests/cxx_new_array_parenthesized_rejected.cpp *> '$(TEST_OUT)/cxx-new-array/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
 	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'array new element initializers require braces' '$(TEST_OUT)/cxx-new-array/invalid.log')) { exit 1 }"
 else
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
@@ -1909,21 +2167,15 @@ test-cxx-function-templates: $(RCXX_TARGET)
 		tests/cxx_function_templates.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-function-templates/x64.o \
 		$(TEST_OUT)/cxx-function-templates/x64.s
-	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN8identityEi'
-	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN8identityEl'
-	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN6detail16pointer_identityEPi'
-	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN6detail15default_deducedEIlEi'
-	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN6detail18type_only_templateEIiEv'
-	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN6detail18type_only_templateEIlEv'
+	$(call CHECK_BINARY_STRING,_ZN8identityEi,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN8identityEl,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail16pointer_identityEPi,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail15default_deducedEIlEi,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateEIiEv,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateEIlEv,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	@echo "RCC++ function template syntax tests completed"
 
-test-cxx-variable-templates: $(RCXX_TARGET)
+test-cxx-variable-templates-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-variable-templates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-variable-templates/x86.s \
@@ -1967,7 +2219,7 @@ test-cxx-variable-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-variable-templates/invalid-x64.log
 	@echo "RCC++ variable-template specialization tests completed"
 
-test-cxx-function-template-overloads: $(RCXX_TARGET)
+test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-function-template-overloads/x86.s \
@@ -2009,7 +2261,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	@echo "RCC++ function-template overload and expression-deduction tests completed"
 
-test-cxx-function-template-references: $(RCXX_TARGET)
+test-cxx-function-template-references-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-function-template-references/x86.s \
@@ -2043,7 +2295,7 @@ test-cxx-function-template-references: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-references/invalid.log
 	@echo "RCC++ function-template reference and function-pointer deduction tests completed"
 
-test-cxx-constraints: $(RCXX_TARGET)
+test-cxx-constraints-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constraints/x86.s \
@@ -2087,7 +2339,7 @@ test-cxx-constraints: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constraints/invalid-x64.log
 	@echo "RCC++ integral template constraint tests completed"
 
-test-cxx-named-concepts: $(RCXX_TARGET)
+test-cxx-named-concepts-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-named-concepts/x86.s \
@@ -2131,7 +2383,7 @@ test-cxx-named-concepts: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-named-concepts/invalid-x64.log
 	@echo "RCC++ bounded named concept tests completed"
 
-test-cxx-alias-templates: $(RCXX_TARGET)
+test-cxx-alias-templates-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alias-templates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-alias-templates/x86.s \
@@ -2171,7 +2423,62 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-alias-templates/invalid-x64.log
 	@echo "RCC++ bounded alias template tests completed"
 
-test-cxx-class-template-methods: $(RCXX_TARGET)
+ifeq ($(OS),Windows_NT)
+test-cxx-variable-templates: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-variable-templates)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-variable-templates,cxx_variable_templates.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -c -o $(TEST_OUT)/cxx-variable-templates/invalid-x86.ro tests/cxx_variable_templates_invalid.cpp,$(TEST_OUT)/cxx-variable-templates/invalid-x86.log)
+	$(GREP) -F -q "variable templates require C++14 or newer" $(TEST_OUT)/cxx-variable-templates/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -c -o $(TEST_OUT)/cxx-variable-templates/invalid-x64.ro tests/cxx_variable_templates_invalid.cpp,$(TEST_OUT)/cxx-variable-templates/invalid-x64.log)
+	$(GREP) -F -q "variable templates require C++14 or newer" $(TEST_OUT)/cxx-variable-templates/invalid-x64.log
+
+test-cxx-function-template-overloads: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+
+test-cxx-function-template-references: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-references,cxx_function_template_references.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/invalid.ro tests/cxx_function_template_references_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/invalid.log)
+	$(GREP) -F -q "no matching function template overload for 'read_rvalue'" $(TEST_OUT)/cxx-function-template-references/invalid.log
+
+test-cxx-constraints: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constraints,cxx_constraints.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constraints/invalid-x86.ro tests/cxx_constraints_invalid.cpp,$(TEST_OUT)/cxx-constraints/invalid-x86.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-constraints/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constraints/invalid-x64.ro tests/cxx_constraints_invalid.cpp,$(TEST_OUT)/cxx-constraints/invalid-x64.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-constraints/invalid-x64.log
+
+test-cxx-named-concepts: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts,cxx_named_concepts.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/invalid-x86.ro tests/cxx_named_concepts_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/invalid-x86.log)
+	$(GREP) -F -q "named concepts do not support parameter packs" $(TEST_OUT)/cxx-named-concepts/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/invalid-x64.ro tests/cxx_named_concepts_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/invalid-x64.log)
+	$(GREP) -F -q "named concepts do not support parameter packs" $(TEST_OUT)/cxx-named-concepts/invalid-x64.log
+
+test-cxx-alias-templates: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alias-templates)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alias-templates,cxx_alias_templates.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x86.log)
+	$(GREP) -F -q "alias template parameter packs are not supported" $(TEST_OUT)/cxx-alias-templates/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x64.log)
+	$(GREP) -F -q "alias template parameter packs are not supported" $(TEST_OUT)/cxx-alias-templates/invalid-x64.log
+else
+test-cxx-variable-templates: test-cxx-variable-templates-posix
+test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
+test-cxx-function-template-references: test-cxx-function-template-references-posix
+test-cxx-constraints: test-cxx-constraints-posix
+test-cxx-named-concepts: test-cxx-named-concepts-posix
+test-cxx-alias-templates: test-cxx-alias-templates-posix
+endif
+
+test-cxx-class-template-methods-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-class-template-methods/x86.s \
@@ -2199,7 +2506,7 @@ test-cxx-class-template-methods: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-class-template-methods/x64
 	@echo "RCC++ substituted class-template member and constructor test completed"
 
-test-cxx-class-template-specialization: $(RCXX_TARGET)
+test-cxx-class-template-specialization-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-class-template-specialization/x86.s \
@@ -2227,7 +2534,20 @@ test-cxx-class-template-specialization: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-class-template-specialization/x64
 	@echo "RCC++ ordered class-template specialization test completed"
 
-test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
+ifeq ($(OS),Windows_NT)
+test-cxx-class-template-methods: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-methods,cxx_class_template_methods.cpp)
+
+test-cxx-class-template-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-specialization,cxx_class_template_specialization.cpp)
+else
+test-cxx-class-template-methods: test-cxx-class-template-methods-posix
+test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
+endif
+
+test-cxx-class-template-specialization-ambiguous-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-ambiguous)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.ro \
@@ -2247,7 +2567,7 @@ test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log
 	@echo "RCC++ ambiguous class-template specialization diagnostic completed"
 
-test-cxx-class-template-specialization-partial-order-invalid: $(RCXX_TARGET)
+test-cxx-class-template-specialization-partial-order-invalid-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.ro \
@@ -2267,7 +2587,7 @@ test-cxx-class-template-specialization-partial-order-invalid: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log
 	@echo "RCC++ incomparable partial-specialization diagnostic completed"
 
-test-cxx-class-template-specialization-constraint-invalid: $(RCXX_TARGET)
+test-cxx-class-template-specialization-constraint-invalid-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.ro \
@@ -2287,7 +2607,37 @@ test-cxx-class-template-specialization-constraint-invalid: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.log
 	@echo "RCC++ unsupported partial-specialization constraint diagnostic completed"
 
-test-cxx-class-template-non-type: $(RCXX_TARGET)
+ifeq ($(OS),Windows_NT)
+test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-ambiguous)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.ro tests/cxx_class_template_specialization_ambiguous.cpp,$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.ro tests/cxx_class_template_specialization_ambiguous.cpp,$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log
+	@echo "RCC++ ambiguous class-template specialization diagnostic completed"
+
+test-cxx-class-template-specialization-partial-order-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.ro tests/cxx_class_template_specialization_partial_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.ro tests/cxx_class_template_specialization_partial_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log
+	@echo "RCC++ incomparable partial-specialization diagnostic completed"
+
+test-cxx-class-template-specialization-constraint-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.ro tests/cxx_class_template_specialization_constraint_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.log)
+	$(GREP) -F -q "constraint could not be evaluated" $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.ro tests/cxx_class_template_specialization_constraint_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.log)
+	$(GREP) -F -q "constraint could not be evaluated" $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.log
+	@echo "RCC++ unsupported partial-specialization constraint diagnostic completed"
+else
+test-cxx-class-template-specialization-ambiguous: test-cxx-class-template-specialization-ambiguous-posix
+test-cxx-class-template-specialization-partial-order-invalid: test-cxx-class-template-specialization-partial-order-invalid-posix
+test-cxx-class-template-specialization-constraint-invalid: test-cxx-class-template-specialization-constraint-invalid-posix
+endif
+
+test-cxx-class-template-non-type-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-non-type)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-class-template-non-type/x86.s \
@@ -2315,7 +2665,7 @@ test-cxx-class-template-non-type: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-class-template-non-type/x64
 	@echo "RCC++ class non-type template test completed"
 
-test-cxx-operator-overload: $(RCXX_TARGET)
+test-cxx-operator-overload-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-overload)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-operator-overload/x86.s \
@@ -2343,7 +2693,7 @@ test-cxx-operator-overload: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-operator-overload/x64
 	@echo "RCC++ member operator overload test completed"
 
-test-cxx-member-operator-forms: $(RCXX_TARGET)
+test-cxx-member-operator-forms-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-operator-forms)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-member-operator-forms/x86.s \
@@ -2371,7 +2721,7 @@ test-cxx-member-operator-forms: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-member-operator-forms/x64
 	@echo "RCC++ unary, subscript, and call operator tests completed"
 
-test-cxx-assignment-operator: $(RCXX_TARGET)
+test-cxx-assignment-operator-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-assignment-operator)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-assignment-operator/x86.s \
@@ -2399,7 +2749,30 @@ test-cxx-assignment-operator: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-assignment-operator/x64
 	@echo "RCC++ assignment operator tests completed"
 
-test-cxx-lambda: $(RCXX_TARGET)
+ifeq ($(OS),Windows_NT)
+test-cxx-class-template-non-type: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-non-type)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-non-type,cxx_class_template_non_type.cpp)
+
+test-cxx-operator-overload: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-overload)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-overload,cxx_operator_overload.cpp)
+
+test-cxx-member-operator-forms: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-operator-forms)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-member-operator-forms,cxx_member_operator_forms.cpp)
+
+test-cxx-assignment-operator: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-assignment-operator)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-assignment-operator,cxx_assignment_operator.cpp)
+else
+test-cxx-class-template-non-type: test-cxx-class-template-non-type-posix
+test-cxx-operator-overload: test-cxx-operator-overload-posix
+test-cxx-member-operator-forms: test-cxx-member-operator-forms-posix
+test-cxx-assignment-operator: test-cxx-assignment-operator-posix
+endif
+
+test-cxx-lambda-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-lambda/x86.s tests/cxx_lambda.cpp
@@ -2423,11 +2796,19 @@ test-cxx-lambda: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-lambda/x64
 	@echo "RCC++ lambda capture tests completed"
 
+ifeq ($(OS),Windows_NT)
+test-cxx-lambda: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-lambda,cxx_lambda.cpp)
+else
+test-cxx-lambda: test-cxx-lambda-posix
+endif
+
 test-cxx-lambda-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-lambda-invalid/x86.ro' tests/cxx_lambda_invalid.cpp *> '$(TEST_OUT)/cxx-lambda-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-lambda-invalid/x64.ro' tests/cxx_lambda_invalid.cpp *> '$(TEST_OUT)/cxx-lambda-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-lambda-invalid/x86.ro tests/cxx_lambda_invalid.cpp,$(TEST_OUT)/cxx-lambda-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-lambda-invalid/x64.ro tests/cxx_lambda_invalid.cpp,$(TEST_OUT)/cxx-lambda-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-lambda-invalid/x86.ro \
@@ -2451,8 +2832,8 @@ endif
 test-cxx-lambda-init-capture-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda-init-capture-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-lambda-init-capture-invalid/x86.ro' tests/cxx_lambda_init_capture_invalid.cpp *> '$(TEST_OUT)/cxx-lambda-init-capture-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-lambda-init-capture-invalid/x64.ro' tests/cxx_lambda_init_capture_invalid.cpp *> '$(TEST_OUT)/cxx-lambda-init-capture-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-lambda-init-capture-invalid/x86.ro tests/cxx_lambda_init_capture_invalid.cpp,$(TEST_OUT)/cxx-lambda-init-capture-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-lambda-init-capture-invalid/x64.ro tests/cxx_lambda_init_capture_invalid.cpp,$(TEST_OUT)/cxx-lambda-init-capture-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-lambda-init-capture-invalid/x86.ro \
@@ -2473,7 +2854,7 @@ endif
 		$(TEST_OUT)/cxx-lambda-init-capture-invalid/x64.log
 	@echo "RCC++ reference lambda init-capture diagnostics completed"
 
-test-cxx-structured-bindings: $(RCXX_TARGET)
+test-cxx-structured-bindings-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structured-bindings)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-structured-bindings/x86.s \
@@ -2504,8 +2885,8 @@ test-cxx-structured-bindings: $(RCXX_TARGET)
 test-cxx-structured-bindings-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structured-bindings-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-structured-bindings-invalid/x86.ro' tests/cxx_structured_bindings_invalid.cpp *> '$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-structured-bindings-invalid/x64.ro' tests/cxx_structured_bindings_invalid.cpp *> '$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-structured-bindings-invalid/x86.ro tests/cxx_structured_bindings_invalid.cpp,$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-structured-bindings-invalid/x64.ro tests/cxx_structured_bindings_invalid.cpp,$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-structured-bindings-invalid/x86.ro \
@@ -2530,7 +2911,7 @@ endif
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log
 	@echo "RCC++ structured binding diagnostics completed"
 
-test-cxx-alignas: $(RCXX_TARGET)
+test-cxx-alignas-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-alignas/x86.s tests/cxx_alignas.cpp
@@ -2557,8 +2938,8 @@ test-cxx-alignas: $(RCXX_TARGET)
 test-cxx-alignas-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-alignas-invalid/x86.ro' tests/cxx_alignas_invalid.cpp *> '$(TEST_OUT)/cxx-alignas-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-alignas-invalid/x64.ro' tests/cxx_alignas_invalid.cpp *> '$(TEST_OUT)/cxx-alignas-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/x86.ro tests/cxx_alignas_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/x64.ro tests/cxx_alignas_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alignas-invalid/x86.ro \
@@ -2579,7 +2960,7 @@ endif
 		$(TEST_OUT)/cxx-alignas-invalid/x64.log
 	@echo "RCC++ alignas diagnostics completed"
 
-test-cxx-constinit: $(RCXX_TARGET)
+test-cxx-constinit-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constinit)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constinit/x86.s tests/cxx_constinit.cpp
@@ -2612,10 +2993,10 @@ test-cxx-constinit: $(RCXX_TARGET)
 test-cxx-constinit-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constinit-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-constinit-invalid/x86.ro' tests/cxx_constinit_invalid.cpp *> '$(TEST_OUT)/cxx-constinit-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-constinit-invalid/x64.ro' tests/cxx_constinit_invalid.cpp *> '$(TEST_OUT)/cxx-constinit-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-constinit-invalid/function-x86.ro' tests/cxx_constinit_function_invalid.cpp *> '$(TEST_OUT)/cxx-constinit-invalid/function-x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-constinit-invalid/function-x64.ro' tests/cxx_constinit_function_invalid.cpp *> '$(TEST_OUT)/cxx-constinit-invalid/function-x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constinit-invalid/x86.ro tests/cxx_constinit_invalid.cpp,$(TEST_OUT)/cxx-constinit-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constinit-invalid/x64.ro tests/cxx_constinit_invalid.cpp,$(TEST_OUT)/cxx-constinit-invalid/x64.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constinit-invalid/function-x86.ro tests/cxx_constinit_function_invalid.cpp,$(TEST_OUT)/cxx-constinit-invalid/function-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constinit-invalid/function-x64.ro tests/cxx_constinit_function_invalid.cpp,$(TEST_OUT)/cxx-constinit-invalid/function-x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-constinit-invalid/x86.ro \
@@ -2660,7 +3041,7 @@ endif
 		$(TEST_OUT)/cxx-constinit-invalid/function-x64.log
 	@echo "RCC++ constinit diagnostics completed"
 
-test-cxx-using-enum: $(RCXX_TARGET)
+test-cxx-using-enum-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-using-enum)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-using-enum/x86.s tests/cxx_using_enum.cpp
@@ -2689,8 +3070,8 @@ test-cxx-using-enum: $(RCXX_TARGET)
 test-cxx-using-enum-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-using-enum-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-using-enum-invalid/x86.ro' tests/cxx_using_enum_invalid.cpp *> '$(TEST_OUT)/cxx-using-enum-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-using-enum-invalid/x64.ro' tests/cxx_using_enum_invalid.cpp *> '$(TEST_OUT)/cxx-using-enum-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-using-enum-invalid/x86.ro tests/cxx_using_enum_invalid.cpp,$(TEST_OUT)/cxx-using-enum-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-using-enum-invalid/x64.ro tests/cxx_using_enum_invalid.cpp,$(TEST_OUT)/cxx-using-enum-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-using-enum-invalid/x86.ro \
@@ -2711,7 +3092,7 @@ endif
 		$(TEST_OUT)/cxx-using-enum-invalid/x64.log
 	@echo "RCC++ using enum diagnostics completed"
 
-test-cxx-template-template: $(RCXX_TARGET)
+test-cxx-template-template-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-template-template/x86.s \
@@ -2742,8 +3123,8 @@ test-cxx-template-template: $(RCXX_TARGET)
 test-cxx-template-template-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-invalid/x86.ro' tests/cxx_template_template_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-invalid/x64.ro' tests/cxx_template_template_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/x86.ro tests/cxx_template_template_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/x64.ro tests/cxx_template_template_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-template-template-invalid/x86.ro \
@@ -2767,8 +3148,8 @@ endif
 test-cxx-template-template-dependent-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-dependent-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.ro' tests/cxx_template_template_dependent_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.ro' tests/cxx_template_template_dependent_invalid.cpp *> '$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-dependent-invalid/x86.ro tests/cxx_template_template_dependent_invalid.cpp,$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-dependent-invalid/x64.ro tests/cxx_template_template_dependent_invalid.cpp,$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-template-template-dependent-invalid/x86.ro \
@@ -2793,7 +3174,7 @@ endif
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
 	@echo "RCC++ dependent template-template value diagnostics completed"
 
-test-cxx-conversion-operator: $(RCXX_TARGET)
+test-cxx-conversion-operator-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conversion-operator/x86.s \
@@ -2829,7 +3210,7 @@ test-cxx-conversion-operator: $(RCXX_TARGET)
 		tests/cxx_conversion_operator.cpp
 	@echo "RCC++ user-defined conversion operator tests completed"
 
-test-cxx-nonmember-operator: $(RCXX_TARGET)
+test-cxx-nonmember-operator-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nonmember-operator)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-nonmember-operator/x86.s \
@@ -2857,7 +3238,7 @@ test-cxx-nonmember-operator: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-nonmember-operator/x64
 	@echo "RCC++ non-member operator tests completed"
 
-test-cxx-spaceship: $(RCXX_TARGET)
+test-cxx-spaceship-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-spaceship)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-spaceship/x86.s tests/cxx_spaceship.cpp
@@ -2909,7 +3290,7 @@ test-cxx-spaceship: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-spaceship/invalid-x64.log
 	@echo "C++20 user-defined spaceship operator tests completed"
 
-test-cxx-final: $(RCXX_TARGET)
+test-cxx-final-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-final)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-final/x86.s tests/cxx_final.cpp
@@ -2947,7 +3328,7 @@ test-cxx-final: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-final/invalid-x64.log
 	@echo "C++ final class semantics tests completed"
 
-test-cxx-override: $(RCXX_TARGET)
+test-cxx-override-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-override)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-override/invalid-x86.ro \
@@ -2971,7 +3352,7 @@ test-cxx-override: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-override/invalid-x64.log
 	@echo "C++ override and final method semantics tests completed"
 
-test-cxx-conditional-explicit: $(RCXX_TARGET)
+test-cxx-conditional-explicit-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-explicit)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conditional-explicit/x86.s \
@@ -3031,7 +3412,7 @@ test-cxx-conditional-explicit: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log
 	@echo "C++20 conditional explicit tests completed"
 
-test-cxx-class-template-deduction: $(RCXX_TARGET)
+test-cxx-class-template-deduction-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-deduction)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -S \
 		-o $(TEST_OUT)/cxx-class-template-deduction/x86.s \
@@ -3107,7 +3488,7 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.log
 	@echo "C++17 class template argument deduction tests completed"
 
-test-cxx-pure-virtual: $(RCXX_TARGET)
+test-cxx-pure-virtual-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-pure-virtual)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-pure-virtual/x86.s tests/cxx_pure_virtual.cpp
@@ -3165,6 +3546,298 @@ test-cxx-pure-virtual: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-pure-virtual/invalid-new-x64.log
 	@echo "C++ pure virtual and abstract class tests completed"
 
+ifeq ($(OS),Windows_NT)
+test-cxx-conversion-operator: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator,cxx_conversion_operator.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-operator/x86.ro tests/cxx_conversion_operator.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-operator/x64.ro tests/cxx_conversion_operator.cpp
+
+test-cxx-nonmember-operator: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nonmember-operator)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nonmember-operator,cxx_nonmember_operator.cpp)
+
+test-cxx-spaceship: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-spaceship)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-spaceship,cxx_spaceship.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-spaceship/invalid-x86.ro tests/cxx_spaceship_invalid.cpp,$(TEST_OUT)/cxx-spaceship/invalid-x86.log)
+	$(GREP) -F -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" $(TEST_OUT)/cxx-spaceship/invalid-x86.log
+	$(GREP) -F -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" $(TEST_OUT)/cxx-spaceship/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-spaceship/invalid-x64.ro tests/cxx_spaceship_invalid.cpp,$(TEST_OUT)/cxx-spaceship/invalid-x64.log)
+	$(GREP) -F -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" $(TEST_OUT)/cxx-spaceship/invalid-x64.log
+	$(GREP) -F -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" $(TEST_OUT)/cxx-spaceship/invalid-x64.log
+
+test-cxx-final: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-final)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-final,cxx_final.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-final/invalid-x86.ro tests/cxx_final_invalid.cpp,$(TEST_OUT)/cxx-final/invalid-x86.log)
+	$(GREP) -F -q "cannot derive from final class 'FinalBase'" $(TEST_OUT)/cxx-final/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-final/invalid-x64.ro tests/cxx_final_invalid.cpp,$(TEST_OUT)/cxx-final/invalid-x64.log)
+	$(GREP) -F -q "cannot derive from final class 'FinalBase'" $(TEST_OUT)/cxx-final/invalid-x64.log
+
+test-cxx-override: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-override)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-override/invalid-x86.ro tests/cxx_override_invalid.cpp,$(TEST_OUT)/cxx-override/invalid-x86.log)
+	$(GREP) -F -q "marked override but does not override a base class method" $(TEST_OUT)/cxx-override/invalid-x86.log
+	$(GREP) -F -q "cannot override final method 'final_value'" $(TEST_OUT)/cxx-override/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-override/invalid-x64.ro tests/cxx_override_invalid.cpp,$(TEST_OUT)/cxx-override/invalid-x64.log)
+	$(GREP) -F -q "marked override but does not override a base class method" $(TEST_OUT)/cxx-override/invalid-x64.log
+	$(GREP) -F -q "cannot override final method 'final_value'" $(TEST_OUT)/cxx-override/invalid-x64.log
+
+test-cxx-conditional-explicit: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-explicit)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conditional-explicit,cxx_conditional_explicit.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-conditional-explicit/old-x86.ro tests/cxx_conditional_explicit_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/old-x86.log)
+	$(GREP) -F -q "conditional explicit specifiers require C++20 or newer" $(TEST_OUT)/cxx-conditional-explicit/old-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-conditional-explicit/old-x64.ro tests/cxx_conditional_explicit_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/old-x64.log)
+	$(GREP) -F -q "conditional explicit specifiers require C++20 or newer" $(TEST_OUT)/cxx-conditional-explicit/old-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.ro tests/cxx_conditional_explicit_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.log)
+	$(GREP) -F -q "conditional explicit specifier requires an integral constant expression" $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.ro tests/cxx_conditional_explicit_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log)
+	$(GREP) -F -q "conditional explicit specifier requires an integral constant expression" $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log
+
+test-cxx-class-template-deduction: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-deduction)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-deduction,cxx_class_template_deduction.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-class-template-deduction/old-x86.ro tests/cxx_class_template_deduction_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/old-x86.log)
+	$(GREP) -F -q "class template argument deduction requires C++17 or newer" $(TEST_OUT)/cxx-class-template-deduction/old-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-class-template-deduction/old-x64.ro tests/cxx_class_template_deduction_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/old-x64.log)
+	$(GREP) -F -q "class template argument deduction requires C++17 or newer" $(TEST_OUT)/cxx-class-template-deduction/old-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-class-template-deduction/guide-old-x86.ro tests/cxx_class_template_deduction_guide_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/guide-old-x86.log)
+	$(GREP) -F -q "deduction guides require C++17 or newer" $(TEST_OUT)/cxx-class-template-deduction/guide-old-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-class-template-deduction/guide-old-x64.ro tests/cxx_class_template_deduction_guide_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/guide-old-x64.log)
+	$(GREP) -F -q "deduction guides require C++17 or newer" $(TEST_OUT)/cxx-class-template-deduction/guide-old-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.ro tests/cxx_class_template_aggregate_deduction_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.log)
+	$(GREP) -F -q "aggregate class template argument deduction requires braced initialization before C++20" $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.ro tests/cxx_class_template_aggregate_deduction_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.log)
+	$(GREP) -F -q "aggregate class template argument deduction requires braced initialization before C++20" $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.log
+
+test-cxx-pure-virtual: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-pure-virtual)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-pure-virtual,cxx_pure_virtual.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-pure-virtual/invalid-x86.ro tests/cxx_abstract_rejected.cpp,$(TEST_OUT)/cxx-pure-virtual/invalid-x86.log)
+	$(GREP) -F -q "cannot instantiate abstract class 'AbstractValue'" $(TEST_OUT)/cxx-pure-virtual/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-pure-virtual/invalid-new-x86.ro tests/cxx_abstract_new_rejected.cpp,$(TEST_OUT)/cxx-pure-virtual/invalid-new-x86.log)
+	$(GREP) -F -q "cannot allocate abstract class 'AbstractValue'" $(TEST_OUT)/cxx-pure-virtual/invalid-new-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-pure-virtual/invalid-x64.ro tests/cxx_abstract_rejected.cpp,$(TEST_OUT)/cxx-pure-virtual/invalid-x64.log)
+	$(GREP) -F -q "cannot instantiate abstract class 'AbstractValue'" $(TEST_OUT)/cxx-pure-virtual/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-pure-virtual/invalid-new-x64.ro tests/cxx_abstract_new_rejected.cpp,$(TEST_OUT)/cxx-pure-virtual/invalid-new-x64.log)
+	$(GREP) -F -q "cannot allocate abstract class 'AbstractValue'" $(TEST_OUT)/cxx-pure-virtual/invalid-new-x64.log
+
+test-cxx-structured-bindings: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structured-bindings)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-structured-bindings,cxx_structured_bindings.cpp)
+
+test-cxx-alignas: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alignas,cxx_alignas.cpp)
+
+test-cxx-constinit: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constinit)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constinit,cxx_constinit.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constinit/tls-x86.ro tests/cxx_constinit_tls.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constinit/tls-x64.ro tests/cxx_constinit_tls.cpp
+
+test-cxx-using-enum: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-using-enum)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-using-enum,cxx_using_enum.cpp)
+
+test-cxx-template-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-template,cxx_template_template.cpp)
+
+test-cxx-range-for: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-range-for)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-range-for/x86.s tests/cxx_function_pointer_probe.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-range-for/x86.o $(TEST_OUT)/cxx-range-for/x86.s
+	objdump -f $(TEST_OUT)/cxx-range-for/x86.o > $(TEST_OUT)/cxx-range-for/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-range-for/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-range-for/x64.s tests/cxx_function_pointer_probe.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-range-for/x64.o $(TEST_OUT)/cxx-range-for/x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-range-for/x64-host tests/cxx_range_for_run_test.c $(TEST_OUT)/cxx-range-for/x64.o
+	$(TEST_OUT)/cxx-range-for/x64-host
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-range-for/invalid.ro tests/cxx_range_for_invalid.cpp,$(TEST_OUT)/cxx-range-for/invalid.log)
+	$(GREP) -F -q "const auto&& range variable cannot bind to an array lvalue" $(TEST_OUT)/cxx-range-for/invalid.log
+
+test-cxx-iterator-range-for: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-iterator-range-for)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-iterator-range-for,cxx_iterator_range_for.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-iterator-range-for/invalid-x86.ro tests/cxx_iterator_range_for_invalid.cpp,$(TEST_OUT)/cxx-iterator-range-for/invalid-x86.log)
+	$(GREP) -F -q "requires one public non-overloaded begin() and end() member" $(TEST_OUT)/cxx-iterator-range-for/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-iterator-range-for/invalid-x64.ro tests/cxx_iterator_range_for_invalid.cpp,$(TEST_OUT)/cxx-iterator-range-for/invalid-x64.log)
+	$(GREP) -F -q "requires one public non-overloaded begin() and end() member" $(TEST_OUT)/cxx-iterator-range-for/invalid-x64.log
+
+test-cxx-operator-arrow: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-arrow)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-arrow,cxx_operator_arrow.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x86.log)
+	$(GREP) -F -q "operator-> must return a pointer in the bounded RCC++ profile" $(TEST_OUT)/cxx-operator-arrow/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x64.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log)
+	$(GREP) -F -q "operator-> must return a pointer in the bounded RCC++ profile" $(TEST_OUT)/cxx-operator-arrow/invalid-x64.log
+
+test-cxx-requires-expression: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-expression)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-requires-expression,cxx_requires_expression.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-requires-expression/invalid-x86.ro tests/cxx_requires_expression_invalid.cpp,$(TEST_OUT)/cxx-requires-expression/invalid-x86.log)
+	$(GREP) -F -q "requires-expression parameters cannot have defaults" $(TEST_OUT)/cxx-requires-expression/invalid-x86.log
+	$(GREP) -F -q "unsupported C++20 requires-expression return constraint" $(TEST_OUT)/cxx-requires-expression/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-requires-expression/invalid-x64.ro tests/cxx_requires_expression_invalid.cpp,$(TEST_OUT)/cxx-requires-expression/invalid-x64.log)
+	$(GREP) -F -q "requires-expression parameters cannot have defaults" $(TEST_OUT)/cxx-requires-expression/invalid-x64.log
+	$(GREP) -F -q "unsupported C++20 requires-expression return constraint" $(TEST_OUT)/cxx-requires-expression/invalid-x64.log
+
+test-cxx-requires-type: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-type)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-requires-type,cxx_requires_type.cpp)
+
+test-cxx-inline-variables: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inline-variables)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inline-variables,cxx_inline_variable.cpp)
+
+test-cxx-inline-namespace: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inline-namespace)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inline-namespace,cxx_inline_namespace.cpp)
+
+test-cxx-nested-namespace: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-namespace)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-namespace,cxx_nested_namespace.cpp)
+
+test-cxx-namespace-alias: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-namespace-alias)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-namespace-alias,cxx_namespace_alias.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-alias/invalid-x86.ro tests/cxx_namespace_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log)
+	$(GREP) -F -q "unknown namespace alias target" $(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
+	$(GREP) -F -q "namespace alias 'api' conflicts" $(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-alias/invalid-x64.ro tests/cxx_namespace_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log)
+	$(GREP) -F -q "unknown namespace alias target" $(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
+	$(GREP) -F -q "namespace alias 'api' conflicts" $(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
+
+test-cxx-friend-function: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-function,cxx_friend_function.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/invalid-x86.ro tests/cxx_friend_class_invalid.cpp,$(TEST_OUT)/cxx-friend-function/invalid-x86.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/invalid-x64.ro tests/cxx_friend_class_invalid.cpp,$(TEST_OUT)/cxx-friend-function/invalid-x64.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/invalid-x64.log
+
+test-cxx-nodiscard: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nodiscard)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-nodiscard/warnings-x86.s tests/cxx_nodiscard.cpp >$(TEST_OUT)/cxx-nodiscard/x86.log 2>&1
+	$(call CHECK_COUNT,ignoring return value of nodiscard function,$(TEST_OUT)/cxx-nodiscard/x86.log,2)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-nodiscard/warnings-x64.s tests/cxx_nodiscard.cpp >$(TEST_OUT)/cxx-nodiscard/x64.log 2>&1
+	$(call CHECK_COUNT,ignoring return value of nodiscard function,$(TEST_OUT)/cxx-nodiscard/x64.log,2)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nodiscard,cxx_nodiscard.cpp)
+
+test-cxx-deprecated: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-deprecated)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-deprecated/warnings-x86.s tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/x86.log 2>&1
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x86.log,4)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-deprecated/warnings-x64.s tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/x64.log 2>&1
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x64.log,4)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-deprecated,cxx_deprecated.cpp)
+
+test-cxx-friend-class: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-class)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-class,cxx_friend_class.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-class/invalid-x86.ro tests/cxx_friend_class_invalid.cpp,$(TEST_OUT)/cxx-friend-class/invalid-x86.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-class/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-class/invalid-x64.ro tests/cxx_friend_class_invalid.cpp,$(TEST_OUT)/cxx-friend-class/invalid-x64.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-class/invalid-x64.log
+
+test-cxx-selection-init: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-selection-init)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-selection-init,cxx_selection_init.cpp)
+
+test-cxx-aggregate-paren-init: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-init)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-init,cxx_aggregate_paren_init.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.ro tests/cxx_aggregate_paren_init_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log)
+	$(GREP) -F -q "too many initializers for aggregate" $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.ro tests/cxx_aggregate_paren_init_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.log)
+	$(GREP) -F -q "too many initializers for aggregate" $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.ro tests/cxx_aggregate_paren_init.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.log)
+	$(GREP) -F -q "C++20 aggregate parenthesized initialization requires C++20 or newer" $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.ro tests/cxx_aggregate_paren_init.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log)
+	$(GREP) -F -q "C++20 aggregate parenthesized initialization requires C++20 or newer" $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log
+else
+test-cxx-conversion-operator: test-cxx-conversion-operator-posix
+test-cxx-nonmember-operator: test-cxx-nonmember-operator-posix
+test-cxx-spaceship: test-cxx-spaceship-posix
+test-cxx-final: test-cxx-final-posix
+test-cxx-override: test-cxx-override-posix
+test-cxx-conditional-explicit: test-cxx-conditional-explicit-posix
+test-cxx-class-template-deduction: test-cxx-class-template-deduction-posix
+test-cxx-pure-virtual: test-cxx-pure-virtual-posix
+test-cxx-structured-bindings: test-cxx-structured-bindings-posix
+test-cxx-alignas: test-cxx-alignas-posix
+test-cxx-constinit: test-cxx-constinit-posix
+test-cxx-using-enum: test-cxx-using-enum-posix
+test-cxx-template-template: test-cxx-template-template-posix
+test-cxx-range-for: test-cxx-range-for-posix
+test-cxx-iterator-range-for: test-cxx-iterator-range-for-posix
+test-cxx-operator-arrow: test-cxx-operator-arrow-posix
+test-cxx-requires-expression: test-cxx-requires-expression-posix
+test-cxx-requires-type: test-cxx-requires-type-posix
+test-cxx-inline-variables: test-cxx-inline-variables-posix
+test-cxx-inline-namespace: test-cxx-inline-namespace-posix
+test-cxx-nested-namespace: test-cxx-nested-namespace-posix
+test-cxx-namespace-alias: test-cxx-namespace-alias-posix
+test-cxx-friend-function: test-cxx-friend-function-posix
+test-cxx-nodiscard: test-cxx-nodiscard-posix
+test-cxx-deprecated: test-cxx-deprecated-posix
+test-cxx-friend-class: test-cxx-friend-class-posix
+test-cxx-selection-init: test-cxx-selection-init-posix
+test-cxx-aggregate-paren-init: test-cxx-aggregate-paren-init-posix
+endif
+
+ifeq ($(OS),Windows_NT)
+test-cxx-designated-initializer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-designated-initializer)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-designated-initializer/x86.s tests/cxx_designated_initializer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-designated-initializer/x86.o $(TEST_OUT)/cxx-designated-initializer/x86.s
+	objdump -f $(TEST_OUT)/cxx-designated-initializer/x86.o > $(TEST_OUT)/cxx-designated-initializer/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-designated-initializer/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-designated-initializer/x64.s tests/cxx_designated_initializer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-designated-initializer/x64.o $(TEST_OUT)/cxx-designated-initializer/x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-designated-initializer/x64-host tests/cxx_designated_initializer_run_test.c $(TEST_OUT)/cxx-designated-initializer/x64.o
+	$(TEST_OUT)/cxx-designated-initializer/x64-host
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-designated-initializer/invalid-order-x86.ro tests/cxx_designated_initializer_invalid.cpp,$(TEST_OUT)/cxx-designated-initializer/invalid-order-x86.log)
+	$(GREP) -F -q "declaration order" $(TEST_OUT)/cxx-designated-initializer/invalid-order-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-designated-initializer/invalid-order-x64.ro tests/cxx_designated_initializer_invalid.cpp,$(TEST_OUT)/cxx-designated-initializer/invalid-order-x64.log)
+	$(GREP) -F -q "declaration order" $(TEST_OUT)/cxx-designated-initializer/invalid-order-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-designated-initializer/invalid-mixed-x86.ro tests/cxx_designated_initializer_mixed_invalid.cpp,$(TEST_OUT)/cxx-designated-initializer/invalid-mixed-x86.log)
+	$(GREP) -F -q "cannot mix designated and positional" $(TEST_OUT)/cxx-designated-initializer/invalid-mixed-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-designated-initializer/invalid-mixed-x64.ro tests/cxx_designated_initializer_mixed_invalid.cpp,$(TEST_OUT)/cxx-designated-initializer/invalid-mixed-x64.log)
+	$(GREP) -F -q "cannot mix designated and positional" $(TEST_OUT)/cxx-designated-initializer/invalid-mixed-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-designated-initializer/invalid-nested-x86.ro tests/cxx_designated_initializer_nested_invalid.cpp,$(TEST_OUT)/cxx-designated-initializer/invalid-nested-x86.log)
+	$(GREP) -F -q "nested designators" $(TEST_OUT)/cxx-designated-initializer/invalid-nested-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-designated-initializer/invalid-nested-x64.ro tests/cxx_designated_initializer_nested_invalid.cpp,$(TEST_OUT)/cxx-designated-initializer/invalid-nested-x64.log)
+	$(GREP) -F -q "nested designators" $(TEST_OUT)/cxx-designated-initializer/invalid-nested-x64.log
+
+test-cxx-utf8-literals: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-utf8-literals/x86.s tests/cxx_utf8_literals.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-utf8-literals/x86.o $(TEST_OUT)/cxx-utf8-literals/x86.s
+	objdump -f $(TEST_OUT)/cxx-utf8-literals/x86.o > $(TEST_OUT)/cxx-utf8-literals/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-utf8-literals/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-utf8-literals/x64.s tests/cxx_utf8_literals.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-utf8-literals/x64.o $(TEST_OUT)/cxx-utf8-literals/x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-utf8-literals/x64-host tests/cxx_utf8_literals_run_test.c $(TEST_OUT)/cxx-utf8-literals/x64.o
+	$(TEST_OUT)/cxx-utf8-literals/x64-host
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-x86.ro tests/cxx_prefixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log)
+	$(GREP) -F -q "wide, UTF-16, and UTF-32 literals are not supported" $(TEST_OUT)/cxx-utf8-literals/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-x64.ro tests/cxx_prefixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-x64.log)
+	$(GREP) -F -q "wide, UTF-16, and UTF-32 literals are not supported" $(TEST_OUT)/cxx-utf8-literals/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.ro tests/cxx_mixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log)
+	$(GREP) -F -q "adjacent ordinary and UTF-8 string literals cannot be concatenated" $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.ro tests/cxx_mismatched_literal_array_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log)
+	$(GREP) -F -q "character array initializer encoding does not match the element type" $(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.ro tests/cxx_mismatched_literal_array_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log)
+	$(GREP) -F -q "character array initializer encoding does not match the element type" $(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log
+else
+test-cxx-designated-initializer: test-cxx-designated-initializer-posix
+test-cxx-utf8-literals: test-cxx-utf8-literals-posix
+endif
+
 test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-templates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -3173,17 +3846,22 @@ test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-non-type-templates/x64.ro \
 		tests/cxx_non_type_templates.cpp
-	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN12add_constantEILi3EEi'
-	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN12add_constantEILin2EEi'
-	strings $(TEST_OUT)/cxx-non-type-templates/x64.ro | \
-		$(GREP) -F -x -q '_ZN20add_default_constantEILi4EEi'
-	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		$(GREP) -F -x -q '_ZN22add_default_from_valueEILi3ELi4EEi'
+	$(call CHECK_BINARY_STRING,_ZN12add_constantEILi3EEi,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN12add_constantEILin2EEi,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN20add_default_constantEILi4EEi,$(TEST_OUT)/cxx-non-type-templates/x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN22add_default_from_valueEILi3ELi4EEi,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
 	@echo "RCC++ non-type integer template tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-auto-non-type-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-non-type-template)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-auto-non-type-template,cxx_auto_non_type_template.cpp)
+	@echo "C++ auto non-type template tests completed"
+else
+test-cxx-auto-non-type-template: test-cxx-auto-non-type-template-posix
+endif
+
+test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-non-type-template)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-auto-non-type-template/x86.s \
@@ -3211,7 +3889,7 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-auto-non-type-template/x64
 	@echo "C++ auto non-type template tests completed"
 
-test-cxx-range-for: $(RCXX_TARGET)
+test-cxx-range-for-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-range-for)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-range-for/x86.s \
@@ -3247,7 +3925,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-range-for/invalid.log
 	@echo "C++ array-lvalue range-for tests completed"
 
-test-cxx-iterator-range-for: $(RCXX_TARGET)
+test-cxx-iterator-range-for-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-iterator-range-for)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-iterator-range-for/x86.s \
@@ -3283,7 +3961,7 @@ test-cxx-iterator-range-for: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-iterator-range-for/invalid.log
 	@echo "C++ bounded iterator range-for tests completed"
 
-test-cxx-operator-arrow: $(RCXX_TARGET)
+test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-arrow)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-operator-arrow/x86.s \
@@ -3327,7 +4005,7 @@ test-cxx-operator-arrow: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log
 	@echo "C++ overloaded operator-> tests completed"
 
-test-cxx-requires-expression: $(RCXX_TARGET)
+test-cxx-requires-expression-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-expression)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-requires-expression/x86.s \
@@ -3375,7 +4053,7 @@ test-cxx-requires-expression: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-requires-expression/invalid-x64.log
 	@echo "C++20 bounded requires-expression and return-constraint tests completed"
 
-test-cxx-requires-type: $(RCXX_TARGET)
+test-cxx-requires-type-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-type)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-requires-type/x86.s \
@@ -3403,7 +4081,7 @@ test-cxx-requires-type: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-requires-type/x64
 	@echo "C++20 requires-expression type requirement tests completed"
 
-test-cxx-inline-variables: $(RCXX_TARGET)
+test-cxx-inline-variables-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inline-variables)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-inline-variables/x86.s \
@@ -3431,7 +4109,7 @@ test-cxx-inline-variables: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-inline-variables/x64
 	@echo "C++ inline variable tests completed"
 
-test-cxx-inline-namespace: $(RCXX_TARGET)
+test-cxx-inline-namespace-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inline-namespace)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-inline-namespace/x86.s \
@@ -3459,7 +4137,7 @@ test-cxx-inline-namespace: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-inline-namespace/x64
 	@echo "C++ inline namespace tests completed"
 
-test-cxx-nested-namespace: $(RCXX_TARGET)
+test-cxx-nested-namespace-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-namespace)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-nested-namespace/x86.s \
@@ -3487,7 +4165,7 @@ test-cxx-nested-namespace: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-nested-namespace/x64
 	@echo "C++ nested namespace definition tests completed"
 
-test-cxx-namespace-alias: $(RCXX_TARGET)
+test-cxx-namespace-alias-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-namespace-alias)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-namespace-alias/x86.s \
@@ -3531,7 +4209,7 @@ test-cxx-namespace-alias: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 	@echo "C++ namespace alias tests completed"
 
-test-cxx-friend-function: $(RCXX_TARGET)
+test-cxx-friend-function-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-friend-function/x86.s \
@@ -3571,7 +4249,7 @@ test-cxx-friend-function: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-friend-function/invalid-x64.log
 	@echo "C++ friend function and class access tests completed"
 
-test-cxx-nodiscard: $(RCXX_TARGET)
+test-cxx-nodiscard-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nodiscard)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-nodiscard/x86.s \
@@ -3605,7 +4283,7 @@ test-cxx-nodiscard: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-nodiscard/x64
 	@echo "C++ nodiscard attribute tests completed"
 
-test-cxx-deprecated: $(RCXX_TARGET)
+test-cxx-deprecated-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-deprecated)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-deprecated/x86.s \
@@ -3639,7 +4317,7 @@ test-cxx-deprecated: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-deprecated/x64
 	@echo "C++ deprecated attribute tests completed"
 
-test-cxx-friend-class: $(RCXX_TARGET)
+test-cxx-friend-class-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-class)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-friend-class/x86.s \
@@ -3679,7 +4357,7 @@ test-cxx-friend-class: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-friend-class/invalid-x64.log
 	@echo "C++ friend class access tests completed"
 
-test-cxx-selection-init: $(RCXX_TARGET)
+test-cxx-selection-init-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-selection-init)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-selection-init/x86.s \
@@ -3707,7 +4385,7 @@ test-cxx-selection-init: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-selection-init/x64
 	@echo "C++ selection-statement initializer tests completed"
 
-test-cxx-aggregate-paren-init: $(RCXX_TARGET)
+test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-init)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/x86.s \
@@ -3759,7 +4437,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log
 	@echo "C++20 aggregate parenthesized initialization tests completed"
 
-test-cxx-designated-initializer: $(RCXX_TARGET)
+test-cxx-designated-initializer-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-designated-initializer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-designated-initializer/x86.s \
@@ -3823,7 +4501,7 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-designated-initializer/invalid-nested-x86.log
 	@echo "C++20 designated initializer tests completed"
 
-test-cxx-utf8-literals: $(RCXX_TARGET)
+test-cxx-utf8-literals-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-utf8-literals/x86.s \
@@ -3883,7 +4561,33 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log
 	@echo "C++ UTF-8 literal tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-lambda-function-pointer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda-function-pointer)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-lambda-function-pointer/x86.s tests/cxx_lambda_pointer_probe.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-lambda-function-pointer/x86.o $(TEST_OUT)/cxx-lambda-function-pointer/x86.s
+	objdump -f $(TEST_OUT)/cxx-lambda-function-pointer/x86.o > $(TEST_OUT)/cxx-lambda-function-pointer/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-lambda-function-pointer/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-lambda-function-pointer/x64.s tests/cxx_lambda_pointer_probe.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-lambda-function-pointer/x64.o $(TEST_OUT)/cxx-lambda-function-pointer/x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-lambda-function-pointer/x64-host tests/cxx_lambda_pointer_run_test.c $(TEST_OUT)/cxx-lambda-function-pointer/x64.o
+	$(TEST_OUT)/cxx-lambda-function-pointer/x64-host
+
+test-cxx-generic-lambda: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-generic-lambda)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-generic-lambda,cxx_generic_lambda.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-generic-lambda-explicit)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-generic-lambda-explicit,cxx_lambda_explicit_template.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.ro tests/cxx_lambda_explicit_template_invalid.cpp,$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.log)
+	$(GREP) -F -q "cannot deduce generic lambda non-type parameter pack value" $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.ro tests/cxx_lambda_explicit_template_invalid.cpp,$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.log)
+	$(GREP) -F -q "cannot deduce generic lambda non-type parameter pack value" $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.log
+else
+test-cxx-lambda-function-pointer: test-cxx-lambda-function-pointer-posix
+test-cxx-generic-lambda: test-cxx-generic-lambda-posix
+endif
+
+test-cxx-lambda-function-pointer-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda-function-pointer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-lambda-function-pointer/x86.s \
@@ -3905,7 +4609,7 @@ test-cxx-lambda-function-pointer: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-lambda-function-pointer/x64
 	@echo "C++ captureless lambda function-pointer tests completed"
 
-test-cxx-generic-lambda: $(RCXX_TARGET)
+test-cxx-generic-lambda-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-generic-lambda)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-generic-lambda/x86.s \
@@ -3972,8 +4676,8 @@ test-cxx-generic-lambda: $(RCXX_TARGET)
 test-cxx-generic-lambda-stored-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-generic-lambda-stored-invalid)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target i686-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.ro' tests/cxx_generic_lambda_stored_invalid.cpp *> '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& '$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.ro' tests/cxx_generic_lambda_stored_invalid.cpp *> '$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.ro tests/cxx_generic_lambda_stored_invalid.cpp,$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.ro tests/cxx_generic_lambda_stored_invalid.cpp,$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.log)
 else
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.ro \
@@ -3997,6 +4701,26 @@ endif
 test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/multiple-inputs/c)
 	$(call MKDIR_P,$(TEST_OUT)/multiple-inputs/cxx)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/hello.c' -Destination '$(TEST_OUT)/multiple-inputs/c/first.c' -Force"
+	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/aggregate_copy.c' -Destination '$(TEST_OUT)/multiple-inputs/c/second.c' -Force"
+	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -c -MMD first.c second.c"
+	if not exist $(TEST_OUT)\multiple-inputs\c\first.ro exit /b 1
+	if not exist $(TEST_OUT)\multiple-inputs\c\second.ro exit /b 1
+	if not exist $(TEST_OUT)\multiple-inputs\c\first.d exit /b 1
+	if not exist $(TEST_OUT)\multiple-inputs\c\second.d exit /b 1
+	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -S first.c second.c"
+	if not exist $(TEST_OUT)\multiple-inputs\c\first.s exit /b 1
+	if not exist $(TEST_OUT)\multiple-inputs\c\second.s exit /b 1
+	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -E first.c second.c > combined.i"
+	$(GREP) -F -q "int main" $(TEST_OUT)/multiple-inputs/c/combined.i
+	$(GREP) -F -q "struct Pair" $(TEST_OUT)/multiple-inputs/c/combined.i
+	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_function_templates.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/first.cpp' -Force"
+	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_lambda.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/second.cpp' -Force"
+	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/cxx)'; & '$(abspath $(RCXX_TARGET))' --target x86_64-unknown-rinos -std=c++20 -c first.cpp second.cpp"
+	if not exist $(TEST_OUT)\multiple-inputs\cxx\first.ro exit /b 1
+	if not exist $(TEST_OUT)\multiple-inputs\cxx\second.ro exit /b 1
+else
 	cp tests/hello.c $(TEST_OUT)/multiple-inputs/c/first.c
 	cp tests/aggregate_copy.c $(TEST_OUT)/multiple-inputs/c/second.c
 	(cd $(TEST_OUT)/multiple-inputs/c && $(abspath $(RCC_TARGET)) \
@@ -4019,25 +4743,27 @@ test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
 		--target x86_64-unknown-rinos -std=c++20 -c first.cpp second.cpp)
 	test -f $(TEST_OUT)/multiple-inputs/cxx/first.ro
 	test -f $(TEST_OUT)/multiple-inputs/cxx/second.ro
-	@set +e; $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/multiple-inputs/one.ro \
-		$(TEST_OUT)/multiple-inputs/c/first.c \
-		$(TEST_OUT)/multiple-inputs/c/second.c \
-		>$(TEST_OUT)/multiple-inputs/invalid-o-c.log 2>&1; \
-	status=$$?; set -e; test $$status -ne 0
-	$(GREP) -q -- "-o cannot name one output for multiple input files" \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/multiple-inputs/one.ro $(TEST_OUT)/multiple-inputs/c/first.c $(TEST_OUT)/multiple-inputs/c/second.c,$(TEST_OUT)/multiple-inputs/invalid-o-c.log)
+	$(GREP) -F -q "-o cannot name one output for multiple input files" \
 		$(TEST_OUT)/multiple-inputs/invalid-o-c.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
-		-c -o $(TEST_OUT)/multiple-inputs/one-cxx.ro \
-		$(TEST_OUT)/multiple-inputs/cxx/first.cpp \
-		$(TEST_OUT)/multiple-inputs/cxx/second.cpp \
-		>$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log 2>&1; \
-	status=$$?; set -e; test $$status -ne 0
-	$(GREP) -q -- "-o cannot name one output for multiple input files" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/multiple-inputs/one-cxx.ro $(TEST_OUT)/multiple-inputs/cxx/first.cpp $(TEST_OUT)/multiple-inputs/cxx/second.cpp,$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log)
+	$(GREP) -F -q "-o cannot name one output for multiple input files" \
 		$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log
 	@echo "RCC/RCC++ multiple-input compilation tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-if-constexpr: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-if-constexpr,cxx_if_constexpr.cpp,cxx_if_constexpr_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-if-constexpr/nonconstant.ro tests/cxx_if_constexpr_nonconstant.cpp,$(TEST_OUT)/cxx-if-constexpr/nonconstant.log)
+	$(GREP) -F -q "if constexpr condition is not a constant expression" $(TEST_OUT)/cxx-if-constexpr/nonconstant.log
+	@echo "C++ if constexpr selection and diagnostics tests completed"
+else
+test-cxx-if-constexpr: test-cxx-if-constexpr-posix
+endif
+
+test-cxx-if-constexpr-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-if-constexpr/x86.s \
@@ -4066,7 +4792,16 @@ test-cxx-if-constexpr: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-if-constexpr/nonconstant.log
 	@echo "C++ if constexpr selection and diagnostics tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-if-constexpr-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr-template)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-if-constexpr-template,cxx_if_constexpr_template.cpp)
+	@echo "C++ dependent if constexpr template tests completed"
+else
+test-cxx-if-constexpr-template: test-cxx-if-constexpr-template-posix
+endif
+
+test-cxx-if-constexpr-template-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr-template)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-if-constexpr-template/x86.s \
@@ -4094,7 +4829,16 @@ test-cxx-if-constexpr-template: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-if-constexpr-template/x64
 	@echo "C++ dependent if constexpr template tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-adl-multiple-namespaces: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-multiple-namespaces)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-adl-multiple-namespaces,cxx_adl_multiple_namespaces.cpp)
+	@echo "C++ multiple-namespace ADL tests completed"
+else
+test-cxx-adl-multiple-namespaces: test-cxx-adl-multiple-namespaces-posix
+endif
+
+test-cxx-adl-multiple-namespaces-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-multiple-namespaces)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-adl-multiple-namespaces/x86.s \
@@ -4122,7 +4866,20 @@ test-cxx-adl-multiple-namespaces: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-adl-multiple-namespaces/x64
 	@echo "C++ multiple-namespace ADL tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-using-overload-namespaces: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-using-overload-namespaces)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-using-overload-namespaces,cxx_using_overload_namespaces.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x86.ro tests/cxx_using_overload_ambiguous.cpp,$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous overload for 'choose'" $(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.ro tests/cxx_using_overload_ambiguous.cpp,$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous overload for 'choose'" $(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.log
+	@echo "C++ using-namespace overload tests completed"
+else
+test-cxx-using-overload-namespaces: test-cxx-using-overload-namespaces-posix
+endif
+
+test-cxx-using-overload-namespaces-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-using-overload-namespaces)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-using-overload-namespaces/x86.s \
@@ -4162,7 +4919,16 @@ test-cxx-using-overload-namespaces: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.log
 	@echo "C++ using-namespace overload tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-template-two-phase-namespace: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-namespace)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-two-phase-namespace,cxx_template_two_phase_namespace.cpp)
+	@echo "C++ template defining-namespace lookup tests completed"
+else
+test-cxx-template-two-phase-namespace: test-cxx-template-two-phase-namespace-posix
+endif
+
+test-cxx-template-two-phase-namespace-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-namespace)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-template-two-phase-namespace/x86.s \
@@ -4190,7 +4956,16 @@ test-cxx-template-two-phase-namespace: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-template-two-phase-namespace/x64
 	@echo "C++ template defining-namespace lookup tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-template-two-phase-adl: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-adl)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-two-phase-adl,cxx_template_two_phase_adl.cpp)
+	@echo "C++ template instantiation-time ADL tests completed"
+else
+test-cxx-template-two-phase-adl: test-cxx-template-two-phase-adl-posix
+endif
+
+test-cxx-template-two-phase-adl-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-adl)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-template-two-phase-adl/x86.s \
@@ -4218,7 +4993,16 @@ test-cxx-template-two-phase-adl: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-template-two-phase-adl/x64
 	@echo "C++ template instantiation-time ADL tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-template-two-phase-ordinary: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-ordinary)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-two-phase-ordinary,cxx_template_two_phase_ordinary.cpp)
+	@echo "C++ template definition-time ordinary lookup tests completed"
+else
+test-cxx-template-two-phase-ordinary: test-cxx-template-two-phase-ordinary-posix
+endif
+
+test-cxx-template-two-phase-ordinary-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-two-phase-ordinary)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-template-two-phase-ordinary/x86.s \
@@ -4246,7 +5030,24 @@ test-cxx-template-two-phase-ordinary: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-template-two-phase-ordinary/x64
 	@echo "C++ template definition-time ordinary lookup tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-template-parameter-pack: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-parameter-pack)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-parameter-pack/x86.ro tests/cxx_template_parameter_pack.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-parameter-pack/x64.ro tests/cxx_template_parameter_pack.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-template-parameter-pack/verified-x86.ro tests/cxx_template_parameter_pack.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-template-parameter-pack/verified-x64.ro tests/cxx_template_parameter_pack.cpp
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-parameter-pack,cxx_template_parameter_pack.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.ro tests/cxx_template_parameter_pack_invalid.cpp,$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log)
+	$(GREP) -F -q "only a single class-template parameter pack is supported" $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.ro tests/cxx_template_parameter_pack_invalid.cpp,$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log)
+	$(GREP) -F -q "only a single class-template parameter pack is supported" $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
+	@echo "C++ type parameter pack arity tests completed"
+else
+test-cxx-template-parameter-pack: test-cxx-template-parameter-pack-posix
+endif
+
+test-cxx-template-parameter-pack-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-parameter-pack)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-template-parameter-pack/x86.ro \
@@ -4300,7 +5101,16 @@ test-cxx-template-parameter-pack: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
 	@echo "C++ type parameter pack arity tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-class-type-pack: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-type-pack)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-type-pack,cxx_class_type_pack.cpp)
+	@echo "C++ class type parameter-pack tests completed"
+else
+test-cxx-class-type-pack: test-cxx-class-type-pack-posix
+endif
+
+test-cxx-class-type-pack-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-type-pack)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-class-type-pack/x86.s \
@@ -4328,7 +5138,16 @@ test-cxx-class-type-pack: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-class-type-pack/x64
 	@echo "C++ class type parameter-pack tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-qualified-class-initialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-qualified-class-initialization)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-qualified-class-initialization,cxx_qualified_class_initialization.cpp)
+	@echo "C++ qualified class initialization tests completed"
+else
+test-cxx-qualified-class-initialization: test-cxx-qualified-class-initialization-posix
+endif
+
+test-cxx-qualified-class-initialization-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-qualified-class-initialization)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-qualified-class-initialization/x86.s \
@@ -4356,7 +5175,16 @@ test-cxx-qualified-class-initialization: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-qualified-class-initialization/x64
 	@echo "C++ qualified class initialization tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-constexpr-pointer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-constexpr-pointer,cxx_constexpr_pointer.cpp,cxx_constexpr_pointer_run_test.c)
+	@echo "C++ constexpr pointer tests completed"
+else
+test-cxx-constexpr-pointer: test-cxx-constexpr-pointer-posix
+endif
+
+test-cxx-constexpr-pointer-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr-pointer/x86.s \
@@ -4378,7 +5206,16 @@ test-cxx-constexpr-pointer: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-constexpr-pointer/x64
 	@echo "C++ constexpr pointer tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-constexpr-pointer-mutation: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-mutation)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-constexpr-pointer-mutation,cxx_constexpr_pointer_mutation.cpp,cxx_constexpr_pointer_mutation_run_test.c)
+	@echo "C++ constexpr local aggregate pointer mutation tests completed"
+else
+test-cxx-constexpr-pointer-mutation: test-cxx-constexpr-pointer-mutation-posix
+endif
+
+test-cxx-constexpr-pointer-mutation-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-mutation)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr-pointer-mutation/x86.s \
@@ -4400,7 +5237,18 @@ test-cxx-constexpr-pointer-mutation: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-constexpr-pointer-mutation/x64
 	@echo "C++ constexpr local aggregate pointer mutation tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-constexpr-pointer-aggregate: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-aggregate)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constexpr-pointer-aggregate,cxx_constexpr_pointer_aggregate.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/verified-x86.ro tests/cxx_constexpr_pointer_aggregate.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/verified-x64.ro tests/cxx_constexpr_pointer_aggregate.cpp
+	@echo "C++ constexpr aggregate pointer provenance tests completed"
+else
+test-cxx-constexpr-pointer-aggregate: test-cxx-constexpr-pointer-aggregate-posix
+endif
+
+test-cxx-constexpr-pointer-aggregate-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-aggregate)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr-pointer-aggregate/x86.s \
@@ -4436,7 +5284,18 @@ test-cxx-constexpr-pointer-aggregate: $(RCXX_TARGET)
 		tests/cxx_constexpr_pointer_aggregate.cpp
 	@echo "C++ constexpr aggregate pointer provenance tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-noexcept-expression: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-noexcept-expression)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-noexcept-expression,cxx_noexcept_expression.cpp,cxx_noexcept_expression_run_test.c)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-noexcept-expression/x86.ro tests/cxx_noexcept_expression.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-noexcept-expression/x64.ro tests/cxx_noexcept_expression.cpp
+	@echo "C++ noexcept expression tests completed"
+else
+test-cxx-noexcept-expression: test-cxx-noexcept-expression-posix
+endif
+
+test-cxx-noexcept-expression-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-noexcept-expression)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-noexcept-expression/x86.s \
@@ -4466,7 +5325,34 @@ test-cxx-noexcept-expression: $(RCXX_TARGET)
 		tests/cxx_noexcept_expression.cpp
 	@echo "C++ noexcept expression tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid,cxx_typeid.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x86.ro tests/cxx_typeid.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x64.ro tests/cxx_typeid.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x86.rin $(TEST_OUT)/cxx-typeid/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x64.rin $(TEST_OUT)/cxx-typeid/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned $(TEST_OUT)/cxx-typeid/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-typeid/x64.rin
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/invalid-x86.ro tests/cxx_typeid_polymorphic_invalid.cpp,$(TEST_OUT)/cxx-typeid/invalid-x86.log)
+	$(GREP) -F -q "typeid of a polymorphic expression requires a glvalue" $(TEST_OUT)/cxx-typeid/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/invalid-x64.ro tests/cxx_typeid_polymorphic_invalid.cpp,$(TEST_OUT)/cxx-typeid/invalid-x64.log)
+	$(GREP) -F -q "typeid of a polymorphic expression requires a glvalue" $(TEST_OUT)/cxx-typeid/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/hash-invalid-x86.ro tests/cxx_typeid_hash_invalid.cpp,$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log)
+	$(GREP) -F -q "type_info::hash_code() takes no arguments" $(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
+	$(GREP) -F -q "type_info::name() takes no arguments" $(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
+	$(GREP) -F -q "comparison requires arithmetic or pointer operands" $(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/hash-invalid-x64.ro tests/cxx_typeid_hash_invalid.cpp,$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log)
+	$(GREP) -F -q "type_info::hash_code() takes no arguments" $(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
+	$(GREP) -F -q "type_info::name() takes no arguments" $(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
+	$(GREP) -F -q "comparison requires arithmetic or pointer operands" $(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
+	@echo "C++ static typeid identity tests completed"
+else
+test-cxx-typeid: test-cxx-typeid-posix
+endif
+
+test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-typeid/x86.s tests/cxx_typeid.cpp
@@ -4526,7 +5412,29 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
 	@echo "C++ static typeid identity tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-typeid-dynamic: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-dynamic)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-dynamic/x86.s tests/cxx_typeid_dynamic.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-dynamic/x86.o $(TEST_OUT)/cxx-typeid-dynamic/x86.s
+	objdump -f $(TEST_OUT)/cxx-typeid-dynamic/x86.o > $(TEST_OUT)/cxx-typeid-dynamic/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-typeid-dynamic/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-dynamic/x64.s tests/cxx_typeid_dynamic.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid-dynamic/x64.o $(TEST_OUT)/cxx-typeid-dynamic/x64.s
+	objdump -f $(TEST_OUT)/cxx-typeid-dynamic/x64.o > $(TEST_OUT)/cxx-typeid-dynamic/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-typeid-dynamic/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-dynamic/x86.ro tests/cxx_typeid_dynamic.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-dynamic/x64.ro tests/cxx_typeid_dynamic.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 --dep rincrt.rll --import setjmp=rincrt.rll@function --import rin_cpp_exception_install=rincrt.rll@function --import rin_cpp_exception_leave=rincrt.rll@function --import rin_cpp_exception_throw=rincrt.rll@function --import rin_cpp_exception_rethrow_frame=rincrt.rll@function --import rin_cpp_exception_release_frame=rincrt.rll@function -e main -o $(TEST_OUT)/cxx-typeid-dynamic/x86.rin $(TEST_OUT)/cxx-typeid-dynamic/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 --dep rincrt.rll --import setjmp=rincrt.rll@function --import rin_cpp_exception_install=rincrt.rll@function --import rin_cpp_exception_leave=rincrt.rll@function --import rin_cpp_exception_throw=rincrt.rll@function --import rin_cpp_exception_rethrow_frame=rincrt.rll@function --import rin_cpp_exception_release_frame=rincrt.rll@function -e main -o $(TEST_OUT)/cxx-typeid-dynamic/x64.rin $(TEST_OUT)/cxx-typeid-dynamic/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned $(TEST_OUT)/cxx-typeid-dynamic/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-typeid-dynamic/x64.rin
+	@echo "C++ dynamic polymorphic typeid object and image tests completed; host execution requires RinOS exception runtime"
+else
+test-cxx-typeid-dynamic: test-cxx-typeid-dynamic-posix
+endif
+
+test-cxx-typeid-dynamic-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-dynamic)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-typeid-dynamic/x86.s \
@@ -4584,7 +5492,19 @@ test-cxx-typeid-dynamic: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/cxx-typeid-dynamic/x64.rin
 	@echo "C++ dynamic polymorphic typeid tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-auto-return: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-return)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-auto-return,cxx_template_identity.cpp,cxx_template_identity_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-auto-return/invalid.ro tests/cxx_auto_return_invalid.cpp,$(TEST_OUT)/cxx-auto-return/invalid.log)
+	$(GREP) -F -q "inconsistent deduction for auto return type" $(TEST_OUT)/cxx-auto-return/invalid.log
+	$(GREP) -F -q "auto return type requires a function definition" $(TEST_OUT)/cxx-auto-return/invalid.log
+	@echo "C++ auto return deduction tests completed"
+else
+test-cxx-auto-return: test-cxx-auto-return-posix
+endif
+
+test-cxx-auto-return-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-return)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-auto-return/x86.s \
@@ -4615,7 +5535,18 @@ test-cxx-auto-return: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-auto-return/invalid.log
 	@echo "C++ auto return deduction tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-decltype: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-decltype,cxx_decltype.cpp,cxx_decltype_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-decltype/invalid.ro tests/cxx_decltype_invalid.cpp,$(TEST_OUT)/cxx-decltype/invalid.log)
+	$(GREP) -F -q "unsupported operator in decltype expression" $(TEST_OUT)/cxx-decltype/invalid.log
+	@echo "C++ decltype tests completed"
+else
+test-cxx-decltype: test-cxx-decltype-posix
+endif
+
+test-cxx-decltype-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-decltype/x86.s tests/cxx_decltype.cpp
@@ -4638,7 +5569,18 @@ test-cxx-decltype: $(RCXX_TARGET)
 		echo "unsupported decltype assignment unexpectedly compiled"; exit 1; \
 	fi
 
+ifeq ($(OS),Windows_NT)
 test-cxx-decltype-auto: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype-auto)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-decltype-auto,cxx_decltype_auto.cpp,cxx_decltype_auto_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-decltype-auto/invalid.ro tests/cxx_decltype_auto_invalid.cpp,$(TEST_OUT)/cxx-decltype-auto/invalid.log)
+	$(GREP) -F -q "auto return type requires a function definition" $(TEST_OUT)/cxx-decltype-auto/invalid.log
+	@echo "C++ decltype(auto) tests completed"
+else
+test-cxx-decltype-auto: test-cxx-decltype-auto-posix
+endif
+
+test-cxx-decltype-auto-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype-auto)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-decltype-auto/x86.s tests/cxx_decltype_auto.cpp
@@ -4666,7 +5608,19 @@ test-cxx-decltype-auto: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-decltype-auto/invalid.log
 	@echo "C++ decltype(auto) tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-auto-local-refs: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-local-refs)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-auto-local-refs,cxx_auto_local_refs.cpp,cxx_auto_local_refs_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-auto-local-refs/invalid.ro tests/cxx_auto_local_refs_invalid.cpp,$(TEST_OUT)/cxx-auto-local-refs/invalid.log)
+	$(GREP) -F -q "auto& initializer must be an lvalue" $(TEST_OUT)/cxx-auto-local-refs/invalid.log
+	$(GREP) -F -q "auto* initializer must be a pointer or array" $(TEST_OUT)/cxx-auto-local-refs/invalid.log
+	@echo "C++ local auto reference tests completed"
+else
+test-cxx-auto-local-refs: test-cxx-auto-local-refs-posix
+endif
+
+test-cxx-auto-local-refs-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-local-refs)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-auto-local-refs/x86.s \
@@ -4701,7 +5655,19 @@ test-cxx-auto-local-refs: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-decltype/invalid.log
 	@echo "C++ decltype tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-auto-direct-list-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-direct-list-invalid)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-auto-direct-list-invalid/x86.ro tests/cxx_auto_direct_list_invalid.cpp,$(TEST_OUT)/cxx-auto-direct-list-invalid/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-auto-direct-list-invalid/x64.ro tests/cxx_auto_direct_list_invalid.cpp,$(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log)
+	$(GREP) -F -q "direct-list auto initialization requires one initializer expression" $(TEST_OUT)/cxx-auto-direct-list-invalid/x86.log
+	$(GREP) -F -q "direct-list auto initialization requires one initializer expression" $(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log
+	@echo "C++ direct-list auto diagnostics completed"
+else
+test-cxx-auto-direct-list-invalid: test-cxx-auto-direct-list-invalid-posix
+endif
+
+test-cxx-auto-direct-list-invalid-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-direct-list-invalid)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-auto-direct-list-invalid/x86.ro \
@@ -4721,7 +5687,24 @@ test-cxx-auto-direct-list-invalid: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log
 	@echo "C++ direct-list auto diagnostics completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-decltype-auto-local: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype-auto-local)
+	$(call CXX_WINDOWS_C_RUN_TEST,cxx-decltype-auto-local,cxx_decltype_auto_local.cpp,cxx_decltype_auto_local_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-decltype-auto-local/invalid-x86.ro tests/cxx_decltype_auto_local_invalid.cpp,$(TEST_OUT)/cxx-decltype-auto-local/invalid-x86.log)
+	$(GREP) -F -q "decltype(auto) variable requires an expression initializer" $(TEST_OUT)/cxx-decltype-auto-local/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.ro tests/cxx_decltype_auto_local_invalid.cpp,$(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.log)
+	$(GREP) -F -q "decltype(auto) variable requires an expression initializer" $(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-decltype-auto-local/missing-x86.ro tests/cxx_decltype_auto_local_missing.cpp,$(TEST_OUT)/cxx-decltype-auto-local/missing-x86.log)
+	$(GREP) -F -q "decltype(auto) variable requires an initializer" $(TEST_OUT)/cxx-decltype-auto-local/missing-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-decltype-auto-local/missing-x64.ro tests/cxx_decltype_auto_local_missing.cpp,$(TEST_OUT)/cxx-decltype-auto-local/missing-x64.log)
+	$(GREP) -F -q "decltype(auto) variable requires an initializer" $(TEST_OUT)/cxx-decltype-auto-local/missing-x64.log
+	@echo "C++ local decltype(auto) tests completed"
+else
+test-cxx-decltype-auto-local: test-cxx-decltype-auto-local-posix
+endif
+
+test-cxx-decltype-auto-local-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-decltype-auto-local)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-decltype-auto-local/x86.s \
@@ -4775,7 +5758,7 @@ test-cxx-decltype-auto-local: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-decltype-auto-local/missing-x64.log
 	@echo "C++ local decltype(auto) tests completed"
 
-test-cxx-non-type-template-deduction: $(RCXX_TARGET)
+test-cxx-non-type-template-deduction-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-non-type-template-deduction/x86.s \
@@ -4803,7 +5786,7 @@ test-cxx-non-type-template-deduction: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-non-type-template-deduction/x64
 	@echo "RCC++ non-type array-bound deduction tests completed"
 
-test-cxx-abbreviated-function-template: $(RCXX_TARGET)
+test-cxx-abbreviated-function-template-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-abbreviated-function-template)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-abbreviated-function-template/x86.s \
@@ -4831,7 +5814,7 @@ test-cxx-abbreviated-function-template: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-abbreviated-function-template/x64
 	@echo "C++20 abbreviated function-template tests completed"
 
-test-cxx-abbreviated-function-template-invalid: $(RCXX_TARGET)
+test-cxx-abbreviated-function-template-invalid-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-abbreviated-function-template-invalid)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.ro \
@@ -4851,7 +5834,29 @@ test-cxx-abbreviated-function-template-invalid: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log
 	@echo "C++20 abbreviated function-template diagnostics completed"
 
-test-cxx-trailing-requires: $(RCXX_TARGET)
+ifeq ($(OS),Windows_NT)
+test-cxx-non-type-template-deduction: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-non-type-template-deduction)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-non-type-template-deduction,cxx_non_type_templates.cpp)
+
+test-cxx-abbreviated-function-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-abbreviated-function-template)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-abbreviated-function-template,cxx-abbreviated-function-template.cpp)
+
+test-cxx-abbreviated-function-template-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-abbreviated-function-template-invalid)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.ro tests/cxx-abbreviated-function-template-invalid.cpp,$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.log)
+	$(GREP) -F -q "abbreviated function templates require C++20 or newer" $(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.ro tests/cxx-abbreviated-function-template-invalid.cpp,$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log)
+	$(GREP) -F -q "abbreviated function templates require C++20 or newer" $(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log
+	@echo "C++20 abbreviated function-template diagnostics completed"
+else
+test-cxx-non-type-template-deduction: test-cxx-non-type-template-deduction-posix
+test-cxx-abbreviated-function-template: test-cxx-abbreviated-function-template-posix
+test-cxx-abbreviated-function-template-invalid: test-cxx-abbreviated-function-template-invalid-posix
+endif
+
+test-cxx-trailing-requires-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-trailing-requires)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-trailing-requires/x86.s \
@@ -4903,7 +5908,7 @@ test-cxx-trailing-requires: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-trailing-requires/old-x86.log
 	@echo "C++20 trailing requires-clause tests completed"
 
-test-cxx-constrained-abbreviated: $(RCXX_TARGET)
+test-cxx-constrained-abbreviated-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constrained-abbreviated)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constrained-abbreviated/x86.s \
@@ -4959,7 +5964,7 @@ test-cxx-constrained-abbreviated: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constrained-abbreviated/old-x86.log
 	@echo "C++20 constrained abbreviated-template tests completed"
 
-test-cxx-constrained-class-template: $(RCXX_TARGET)
+test-cxx-constrained-class-template-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constrained-class-template)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constrained-class-template/x86.s \
@@ -5011,7 +6016,45 @@ test-cxx-constrained-class-template: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constrained-class-template/old-x86.log
 	@echo "C++20 constrained class-template tests completed"
 
-test-cxx-raw-strings: $(RCXX_TARGET)
+ifeq ($(OS),Windows_NT)
+test-cxx-trailing-requires: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-trailing-requires)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-trailing-requires,cxx-abbreviated-function-template.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-trailing-requires/invalid-x86.ro tests/cxx-trailing-requires-invalid.cpp,$(TEST_OUT)/cxx-trailing-requires/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-trailing-requires/invalid-x64.ro tests/cxx-trailing-requires-invalid.cpp,$(TEST_OUT)/cxx-trailing-requires/invalid-x64.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-trailing-requires/invalid-x86.log
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-trailing-requires/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-trailing-requires/old-x86.ro tests/cxx-trailing-requires-invalid.cpp,$(TEST_OUT)/cxx-trailing-requires/old-x86.log)
+	$(GREP) -F -q "requires-expressions and requires-clauses require C++20 or newer" $(TEST_OUT)/cxx-trailing-requires/old-x86.log
+
+test-cxx-constrained-abbreviated: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constrained-abbreviated)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constrained-abbreviated,cxx-constrained-abbreviated.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constrained-abbreviated/invalid-x86.ro tests/cxx-constrained-abbreviated-invalid.cpp,$(TEST_OUT)/cxx-constrained-abbreviated/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constrained-abbreviated/invalid-x64.ro tests/cxx-constrained-abbreviated-invalid.cpp,$(TEST_OUT)/cxx-constrained-abbreviated/invalid-x64.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-constrained-abbreviated/invalid-x86.log
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-constrained-abbreviated/invalid-x64.log
+	$(GREP) -F -q "requires a known named concept" $(TEST_OUT)/cxx-constrained-abbreviated/invalid-x86.log
+	$(GREP) -F -q "requires a known named concept" $(TEST_OUT)/cxx-constrained-abbreviated/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-constrained-abbreviated/old-x86.ro tests/cxx-constrained-abbreviated-invalid.cpp,$(TEST_OUT)/cxx-constrained-abbreviated/old-x86.log)
+	$(GREP) -F -q "abbreviated function templates require C++20 or newer" $(TEST_OUT)/cxx-constrained-abbreviated/old-x86.log
+
+test-cxx-constrained-class-template: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constrained-class-template)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constrained-class-template,cxx-constrained-class-template.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constrained-class-template/invalid-x86.ro tests/cxx-constrained-class-template-invalid.cpp,$(TEST_OUT)/cxx-constrained-class-template/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constrained-class-template/invalid-x64.ro tests/cxx-constrained-class-template-invalid.cpp,$(TEST_OUT)/cxx-constrained-class-template/invalid-x64.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-constrained-class-template/invalid-x86.log
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-constrained-class-template/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-constrained-class-template/old-x86.ro tests/cxx-constrained-class-template-invalid.cpp,$(TEST_OUT)/cxx-constrained-class-template/old-x86.log)
+	$(GREP) -F -q "requires-expressions and requires-clauses require C++20 or newer" $(TEST_OUT)/cxx-constrained-class-template/old-x86.log
+else
+test-cxx-trailing-requires: test-cxx-trailing-requires-posix
+test-cxx-constrained-abbreviated: test-cxx-constrained-abbreviated-posix
+test-cxx-constrained-class-template: test-cxx-constrained-class-template-posix
+endif
+
+test-cxx-raw-strings-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-raw-strings)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-raw-strings/x86.s \
@@ -5055,7 +6098,19 @@ test-cxx-raw-strings: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-raw-strings/invalid-x86.log
 	@echo "C++11 raw string literal tests completed"
 
-test-cxx-alternative-tokens: $(RCC_TARGET) $(RCXX_TARGET)
+ifeq ($(OS),Windows_NT)
+test-cxx-raw-strings: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-raw-strings)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-raw-strings,cxx_raw_strings.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-raw-strings/invalid-x86.ro tests/cxx_raw_strings_invalid.cpp,$(TEST_OUT)/cxx-raw-strings/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-raw-strings/invalid-x64.ro tests/cxx_raw_strings_invalid.cpp,$(TEST_OUT)/cxx-raw-strings/invalid-x64.log)
+	$(GREP) -F -q "wide, UTF-16, and UTF-32 literals are not supported" $(TEST_OUT)/cxx-raw-strings/invalid-x86.log
+	$(GREP) -F -q "unterminated raw string literal" $(TEST_OUT)/cxx-raw-strings/invalid-x86.log
+else
+test-cxx-raw-strings: test-cxx-raw-strings-posix
+endif
+
+test-cxx-alternative-tokens-posix: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alternative-tokens)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-alternative-tokens/cxx-x86.s \
@@ -5106,6 +6161,16 @@ test-cxx-alternative-tokens: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-alternative-tokens/c-x64.o
 	$(TEST_OUT)/cxx-alternative-tokens/c-x64
 	@echo "C++ alternative operator-token and C identifier tests completed"
+
+ifeq ($(OS),Windows_NT)
+test-cxx-alternative-tokens: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alternative-tokens)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alternative-tokens-c)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alternative-tokens,cxx_alternative_tokens.cpp)
+	$(call C_WINDOWS_ENTRY_TEST,cxx-alternative-tokens-c,c_alternative_token_identifiers.c)
+else
+test-cxx-alternative-tokens: test-cxx-alternative-tokens-posix
+endif
 
 test-initializer-brace-elision: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/initializer-brace-elision)
@@ -5427,17 +6492,35 @@ test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-qualified-namespaces/x64.ro \
 		tests/cxx_qualified_namespace.cpp
-	$(GREP) -a -q '_ZN3api9transformEi' \
+	$(GREP) -q '_ZN3api9transformEi' \
 		$(TEST_OUT)/cxx-qualified-namespaces/x86.ro
-	$(GREP) -a -q '_ZN3api6nested5applyEi' \
+	$(GREP) -q '_ZN3api6nested5applyEi' \
 		$(TEST_OUT)/cxx-qualified-namespaces/x64.ro
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/cxx-qualified-namespaces/c-mode.ro \
-		tests/c_scope_operator_rejected.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/cxx-qualified-namespaces/c-mode.ro tests/c_scope_operator_rejected.c,$(TEST_OUT)/cxx-qualified-namespaces/c-mode.log)
 	@echo "RCC++ qualified namespace and C mode-isolation tests completed"
 
 test-cxx-using: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-using)
+ifeq ($(OS),Windows_NT)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-using/x86.ro tests/cxx_using.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-using/x64.ro tests/cxx_using.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-using/x86.s tests/cxx_using.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-using/x86.o \
+		$(TEST_OUT)/cxx-using/x86.s
+	objdump -f $(TEST_OUT)/cxx-using/x86.o > $(TEST_OUT)/cxx-using/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-using/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-using/x64.s tests/cxx_using.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-using/x64.o \
+		$(TEST_OUT)/cxx-using/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main $(TEST_OUT)/cxx-using/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-using/x64-host \
+		tests/cxx_main_host.c $(TEST_OUT)/cxx-using/x64.o
+	$(TEST_OUT)/cxx-using/x64-host
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-using/x86.s tests/cxx_using.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
@@ -5458,10 +6541,36 @@ test-cxx-using: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-using/x64 \
 		$(TEST_OUT)/cxx-using/start64.o $(TEST_OUT)/cxx-using/x64.o
 	$(TEST_OUT)/cxx-using/x64
+endif
 	@echo "RCC++ using-directive, using-declaration, and alias tests completed"
 
 test-cxx-numeric-separators: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-numeric-separators)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-numeric-separators/x86.ro \
+		tests/cxx_numeric_separators.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-numeric-separators/x64.ro \
+		tests/cxx_numeric_separators.cpp
+ifeq ($(OS),Windows_NT)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-numeric-separators/x86.s \
+		tests/cxx_numeric_separators.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-numeric-separators/x86.o \
+		$(TEST_OUT)/cxx-numeric-separators/x86.s
+	objdump -f $(TEST_OUT)/cxx-numeric-separators/x86.o > $(TEST_OUT)/cxx-numeric-separators/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-numeric-separators/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-numeric-separators/x64.s \
+		tests/cxx_numeric_separators.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-numeric-separators/x64.o \
+		$(TEST_OUT)/cxx-numeric-separators/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main \
+		$(TEST_OUT)/cxx-numeric-separators/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-numeric-separators/x64-host \
+		tests/cxx_main_host.c $(TEST_OUT)/cxx-numeric-separators/x64.o
+	$(TEST_OUT)/cxx-numeric-separators/x64-host
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-numeric-separators/x86.s \
 		tests/cxx_numeric_separators.cpp
@@ -5486,14 +6595,42 @@ test-cxx-numeric-separators: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-numeric-separators/start64.o \
 		$(TEST_OUT)/cxx-numeric-separators/x64.o
 	$(TEST_OUT)/cxx-numeric-separators/x64
+endif
 	@echo "RCC++ digit separator tests completed"
 
 test-cxx-user-defined-literals: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-user-defined-literals)
+ifeq ($(OS),Windows_NT)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-user-defined-literals/x86.ro \
+		tests/cxx_user_defined_literals.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-user-defined-literals/x64.ro \
+		tests/cxx_user_defined_literals.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-user-defined-literals/x86.s \
 		tests/cxx_user_defined_literals.cpp
-	$(GREP) -a -q '_Zli7_answery' \
+	$(GREP) -q '_Zli7_answery' $(TEST_OUT)/cxx-user-defined-literals/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-user-defined-literals/x86.o \
+		$(TEST_OUT)/cxx-user-defined-literals/x86.s
+	objdump -f $(TEST_OUT)/cxx-user-defined-literals/x86.o > $(TEST_OUT)/cxx-user-defined-literals/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-user-defined-literals/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-user-defined-literals/x64.s \
+		tests/cxx_user_defined_literals.cpp
+	$(GREP) -q '_Zli7_answery' $(TEST_OUT)/cxx-user-defined-literals/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-user-defined-literals/x64.o \
+		$(TEST_OUT)/cxx-user-defined-literals/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main \
+		$(TEST_OUT)/cxx-user-defined-literals/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-user-defined-literals/x64-host \
+		tests/cxx_main_host.c $(TEST_OUT)/cxx-user-defined-literals/x64.o
+	$(TEST_OUT)/cxx-user-defined-literals/x64-host
+else
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-user-defined-literals/x86.s \
+		tests/cxx_user_defined_literals.cpp
+	$(GREP) -q '_Zli7_answery' \
 		$(TEST_OUT)/cxx-user-defined-literals/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-user-defined-literals/x86.o \
 		$(TEST_OUT)/cxx-user-defined-literals/x86.s
@@ -5507,7 +6644,7 @@ test-cxx-user-defined-literals: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-user-defined-literals/x64.s \
 		tests/cxx_user_defined_literals.cpp
-	$(GREP) -a -q '_Zli7_answery' \
+	$(GREP) -q '_Zli7_answery' \
 		$(TEST_OUT)/cxx-user-defined-literals/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-user-defined-literals/x64.o \
 		$(TEST_OUT)/cxx-user-defined-literals/x64.s
@@ -5518,22 +6655,37 @@ test-cxx-user-defined-literals: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-user-defined-literals/start-x64.o \
 		$(TEST_OUT)/cxx-user-defined-literals/x64.o
 	$(TEST_OUT)/cxx-user-defined-literals/x64
-	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-user-defined-literals/invalid-x86.ro \
-		tests/cxx_user_defined_literals_invalid.cpp \
-		>$(TEST_OUT)/cxx-user-defined-literals/invalid-x86.log 2>&1
+endif
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-user-defined-literals/invalid-x86.ro tests/cxx_user_defined_literals_invalid.cpp,$(TEST_OUT)/cxx-user-defined-literals/invalid-x86.log)
 	$(GREP) -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
 		$(TEST_OUT)/cxx-user-defined-literals/invalid-x86.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-user-defined-literals/invalid-x64.ro \
-		tests/cxx_user_defined_literals_invalid.cpp \
-		>$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-user-defined-literals/invalid-x64.ro tests/cxx_user_defined_literals_invalid.cpp,$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log)
 	$(GREP) -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
 		$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log
 	@echo "RCC++ user-defined literal tests completed"
 
 test-string-embedded-nul: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/string-embedded-nul)
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/string-embedded-nul/x86.ro \
+		tests/string_embedded_nul.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/string-embedded-nul/x64.ro \
+		tests/string_embedded_nul.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/string-embedded-nul/x64.s \
+		tests/string_embedded_nul.c
+	$(CC) -o $(TEST_OUT)/string-embedded-nul/x64 \
+		$(TEST_OUT)/string-embedded-nul/x64.s
+	$(TEST_OUT)/string-embedded-nul/x64
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/string-embedded-nul/run-test \
+		tests/string_embedded_nul_host_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/string-embedded-nul/run-test \
+		$(TEST_OUT)/string-embedded-nul/x86.ro \
+		$(TEST_OUT)/string-embedded-nul/x64.ro
+else
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/string-embedded-nul/x86.s \
 		tests/string_embedded_nul.c
@@ -5558,6 +6710,7 @@ test-string-embedded-nul: $(RCC_TARGET)
 		$(TEST_OUT)/string-embedded-nul/start-x64.o \
 		$(TEST_OUT)/string-embedded-nul/x64.o
 	$(TEST_OUT)/string-embedded-nul/x64
+endif
 	@echo "C17 embedded-NUL string literal tests completed"
 
 ifeq ($(OS),Windows_NT)
@@ -5569,7 +6722,17 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-member-methods/x64.s \
 		tests/cxx_member_methods.cpp
-	wsl -d Ubuntu-24.04 bash -lc "set -e; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86.s; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start.o $(WSL_RINCOMPILER_ROOT)/tests/cxx_member_methods_i686_start.s; gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86 $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86.o; $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x86; gcc -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64.s; gcc -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start64.o $(WSL_RINCOMPILER_ROOT)/tests/cxx_member_methods_x64_start.s; gcc -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64 $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/start64.o $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64.o; $(WSL_RINCOMPILER_ROOT)/build/tests/cxx-member-methods/x64"
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-methods/x86.o \
+		$(TEST_OUT)/cxx-member-methods/x86.s
+	objdump -f $(TEST_OUT)/cxx-member-methods/x86.o > $(TEST_OUT)/cxx-member-methods/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-member-methods/x86-arch.log
+	$(CC) -c -o $(TEST_OUT)/cxx-member-methods/x64.o \
+		$(TEST_OUT)/cxx-member-methods/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main \
+		$(TEST_OUT)/cxx-member-methods/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-member-methods/x64-host \
+		tests/cxx_main_host.c $(TEST_OUT)/cxx-member-methods/x64.o
+	$(TEST_OUT)/cxx-member-methods/x64-host
 	@echo "RCC++ ordinary C++ member method tests completed"
 else
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
@@ -5615,7 +6778,7 @@ endif
 .PHONY: test-cxx-conversion-operator
 .PHONY: test-cxx-nonmember-operator
 .PHONY: test-cxx-non-type-template-deduction
-test-cxx-static-members: $(RCXX_TARGET)
+test-cxx-static-members-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-static-members/x86.s \
@@ -5643,7 +6806,7 @@ test-cxx-static-members: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-static-members/x64
 	@echo "RCC++ static C++ member method tests completed"
 
-test-cxx-static-data-members: $(RCXX_TARGET)
+test-cxx-static-data-members-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-data-members)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-static-data-members/x86.s \
@@ -5691,7 +6854,7 @@ test-cxx-static-member-tls: $(RCXX_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/cxx-static-member-tls/x64.rin
 	@echo "RCC++ static thread-local data member tests completed"
 
-test-cxx-class-template-static-data: $(RCXX_TARGET)
+test-cxx-class-template-static-data-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-static-data)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-class-template-static-data/x86.s \
@@ -5719,7 +6882,7 @@ test-cxx-class-template-static-data: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-class-template-static-data/x64
 	@echo "RCC++ class-template static data member tests completed"
 
-test-cxx-class-template-static-data-odr: $(RCXX_TARGET)
+test-cxx-class-template-static-data-odr-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-static-data-odr)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.s \
@@ -5778,6 +6941,45 @@ test-cxx-static-locals: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-static-locals/x64.rin \
 		tests/cxx_static_locals.cpp
 	@echo "Dual-architecture C++ static local generation tests completed"
+
+ifeq ($(OS),Windows_NT)
+test-cxx-static-members: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-members)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-static-members,cxx_static_members.cpp)
+
+test-cxx-static-data-members: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-data-members)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-static-data-members,cxx_static_data_member.cpp)
+
+test-cxx-class-template-static-data: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-static-data)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-static-data,cxx_class_template_static_data.cpp)
+
+test-cxx-class-template-static-data-odr: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-static-data-odr)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.s tests/cxx_class_template_static_data_a.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.s tests/cxx_class_template_static_data_b.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.s
+	objdump -f $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.o > $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86-arch.log
+	objdump -f $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o > $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.s tests/cxx_class_template_static_data_a.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.s tests/cxx_class_template_static_data_b.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main_a $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.o
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main_b $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.o
+	$(OBJCOPY) --redefine-sym _rcc_entry=_rcc_entry_b $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.o
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -o $(TEST_OUT)/cxx-class-template-static-data-odr/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x64.o
+	$(TEST_OUT)/cxx-class-template-static-data-odr/x64-host
+else
+test-cxx-static-members: test-cxx-static-members-posix
+test-cxx-static-data-members: test-cxx-static-data-members-posix
+test-cxx-class-template-static-data: test-cxx-class-template-static-data-posix
+test-cxx-class-template-static-data-odr: test-cxx-class-template-static-data-odr-posix
+endif
 
 test-vla-declarations: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/vla-declarations)
@@ -5868,13 +7070,7 @@ endif
 ifeq ($(OS),Windows_NT)
 test-cxx-constructor-body: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-body)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
-		-o $(TEST_OUT)/cxx-constructor-body/x86.s \
-		tests/cxx_constructor_body.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
-		-o $(TEST_OUT)/cxx-constructor-body/x64.s \
-		tests/cxx_constructor_body.cpp
-	@echo "Dual-architecture C++ constructor-body assembly generation completed; host execution is verified by the direct WSL check"
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-constructor-body,cxx_constructor_body.cpp,cxx_constructor_body_run_test.c)
 else
 test-cxx-constructor-body: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-body)
@@ -5895,7 +7091,7 @@ test-cxx-constructor-body: $(RCXX_TARGET)
 	@echo "Dual-architecture C++ constructor-body lowering tests completed"
 endif
 
-test-cxx-constructor-initializer-body: $(RCXX_TARGET)
+test-cxx-constructor-initializer-body-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-initializer-body)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constructor-initializer-body/x86.s \
@@ -5913,7 +7109,7 @@ test-cxx-constructor-initializer-body: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-constructor-initializer-body/x64
 	@echo "C++ constructor mem-initializer plus body tests completed"
 
-test-cxx-base-constructor-initializer: $(RCXX_TARGET)
+test-cxx-base-constructor-initializer-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-base-constructor-initializer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-base-constructor-initializer/x86.s \
@@ -5931,7 +7127,7 @@ test-cxx-base-constructor-initializer: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-base-constructor-initializer/x64
 	@echo "C++ fixed-layout base constructor initializer tests completed"
 
-test-cxx-default-member-initializer: $(RCXX_TARGET)
+test-cxx-default-member-initializer-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-default-member-initializer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-default-member-initializer/x86.s \
@@ -5961,7 +7157,7 @@ test-cxx-default-member-initializer: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
 	@echo "C++ default member initializer tests completed"
 
-test-cxx-delegating-constructor: $(RCXX_TARGET)
+test-cxx-delegating-constructor-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-delegating-constructor)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-delegating-constructor/x86.s \
@@ -5991,7 +7187,7 @@ test-cxx-delegating-constructor: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-delegating-constructor/invalid-x64.log
 	@echo "C++ delegating constructor tests completed"
 
-test-cxx-converting-constructor: $(RCXX_TARGET)
+test-cxx-converting-constructor-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-converting-constructor)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-converting-constructor/x86.s \
@@ -6021,7 +7217,7 @@ test-cxx-converting-constructor: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
 	@echo "C++ converting constructor tests completed"
 
-test-cxx-inherited-constructor: $(RCXX_TARGET)
+test-cxx-inherited-constructor-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-inherited-constructor/x86.s \
@@ -6086,6 +7282,67 @@ test-cxx-inherited-constructor: $(RCXX_TARGET)
 	$(GREP) -q "using-base constructor names an unknown direct base" \
 		$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log
 	@echo "C++ inherited constructor tests completed"
+
+ifeq ($(OS),Windows_NT)
+test-cxx-constructor-initializer-body: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-initializer-body)
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-constructor-initializer-body,cxx_constructor_initializer_body.cpp,cxx_constructor_initializer_body_run_test.c)
+
+test-cxx-base-constructor-initializer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-base-constructor-initializer)
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-base-constructor-initializer,cxx_base_constructor_initializer.cpp,cxx_base_constructor_initializer_run_test.c)
+
+test-cxx-default-member-initializer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-default-member-initializer)
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-default-member-initializer,cxx_default_member_initializer.cpp,cxx_default_member_initializer_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.ro tests/cxx_default_member_initializer_array_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log)
+	$(GREP) -F -q "new requires scalar constant default member initializers" $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.ro tests/cxx_default_member_initializer_array_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log)
+	$(GREP) -F -q "new requires scalar constant default member initializers" $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
+
+test-cxx-delegating-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-delegating-constructor)
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-delegating-constructor,cxx_delegating_constructor.cpp,cxx_delegating_constructor_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-delegating-constructor/invalid-x86.ro tests/cxx_delegating_constructor_invalid.cpp,$(TEST_OUT)/cxx-delegating-constructor/invalid-x86.log)
+	$(GREP) -F -q "cyclic C++ delegating constructor" $(TEST_OUT)/cxx-delegating-constructor/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-delegating-constructor/invalid-x64.ro tests/cxx_delegating_constructor_invalid.cpp,$(TEST_OUT)/cxx-delegating-constructor/invalid-x64.log)
+	$(GREP) -F -q "cyclic C++ delegating constructor" $(TEST_OUT)/cxx-delegating-constructor/invalid-x64.log
+
+test-cxx-converting-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-converting-constructor)
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-converting-constructor,cxx_converting_constructor.cpp,cxx_converting_constructor_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-converting-constructor/invalid-x86.ro tests/cxx_explicit_copy_initialization_invalid.cpp,$(TEST_OUT)/cxx-converting-constructor/invalid-x86.log)
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" $(TEST_OUT)/cxx-converting-constructor/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-converting-constructor/invalid-x64.ro tests/cxx_explicit_copy_initialization_invalid.cpp,$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log)
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" $(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
+
+test-cxx-inherited-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor)
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-inherited-constructor,cxx_inherited_constructor.cpp,cxx_inherited_constructor_run_test.c)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro tests/cxx_inherited_constructor_invalid_virtual.cpp,$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log)
+	$(GREP) -F -q "using-base constructor cannot name a virtual base" $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.ro tests/cxx_inherited_constructor_invalid_virtual.cpp,$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log)
+	$(GREP) -F -q "using-base constructor cannot name a virtual base" $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/access-x86.ro tests/cxx_inherited_constructor_invalid_access.cpp,$(TEST_OUT)/cxx-inherited-constructor/access-x86.log)
+	$(GREP) -F -q "using-base constructor requires a public direct base" $(TEST_OUT)/cxx-inherited-constructor/access-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/access-x64.ro tests/cxx_inherited_constructor_invalid_access.cpp,$(TEST_OUT)/cxx-inherited-constructor/access-x64.log)
+	$(GREP) -F -q "using-base constructor requires a public direct base" $(TEST_OUT)/cxx-inherited-constructor/access-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/member-x86.ro tests/cxx_inherited_constructor_invalid_member.cpp,$(TEST_OUT)/cxx-inherited-constructor/member-x86.log)
+	$(GREP) -F -q "using-base constructors require scalar derived fields" $(TEST_OUT)/cxx-inherited-constructor/member-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/member-x64.ro tests/cxx_inherited_constructor_invalid_member.cpp,$(TEST_OUT)/cxx-inherited-constructor/member-x64.log)
+	$(GREP) -F -q "using-base constructors require scalar derived fields" $(TEST_OUT)/cxx-inherited-constructor/member-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/unknown-x86.ro tests/cxx_inherited_constructor_invalid_unknown.cpp,$(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log)
+	$(GREP) -F -q "using-base constructor names an unknown direct base" $(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/unknown-x64.ro tests/cxx_inherited_constructor_invalid_unknown.cpp,$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log)
+	$(GREP) -F -q "using-base constructor names an unknown direct base" $(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log
+else
+test-cxx-constructor-initializer-body: test-cxx-constructor-initializer-body-posix
+test-cxx-base-constructor-initializer: test-cxx-base-constructor-initializer-posix
+test-cxx-default-member-initializer: test-cxx-default-member-initializer-posix
+test-cxx-delegating-constructor: test-cxx-delegating-constructor-posix
+test-cxx-converting-constructor: test-cxx-converting-constructor-posix
+test-cxx-inherited-constructor: test-cxx-inherited-constructor-posix
+endif
 
 test-aggregate-union-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-union-abi)
@@ -6259,88 +7516,57 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-inline-aggregates/verify \
 		$(TEST_OUT)/cxx-inline-aggregates/x86.ro \
 		$(TEST_OUT)/cxx-inline-aggregates/x64.ro
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/cxx-inline-aggregates/run-x86 \
+		tests/cxx_value_init_run_test.c src/emit_ro.c src/utils.c
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/cxx-inline-aggregates/run-x86 \
 		tests/cxx_value_init_run_test.c src/emit_ro.c src/utils.c
+endif
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/cxx-inline-aggregates/run-x64 \
 		tests/cxx_value_init_run_test.c src/emit_ro.c src/utils.c
+ifeq ($(OS),Windows_NT)
+	$(TEST_OUT)/cxx-inline-aggregates/run-x86 \
+		$(TEST_OUT)/cxx-inline-aggregates/x86.ro --inspect-only
+else
 	$(TEST_OUT)/cxx-inline-aggregates/run-x86 \
 		$(TEST_OUT)/cxx-inline-aggregates/x86.ro
+endif
 	$(TEST_OUT)/cxx-inline-aggregates/run-x64 \
 		$(TEST_OUT)/cxx-inline-aggregates/x64.ro
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/c-empty.ro \
-		tests/c_empty_initializer_rejected.c
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/private.ro \
-		tests/cxx_private_member_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/private.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/cxx-inline-aggregates/c-empty.ro tests/c_empty_initializer_rejected.c,$(TEST_OUT)/cxx-inline-aggregates/c-empty.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/private.ro tests/cxx_private_member_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/private.log)
 	$(GREP) -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-inline-aggregates/private.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/arity.ro \
-		tests/cxx_constructor_arity_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/arity.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/arity.ro tests/cxx_constructor_arity_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/arity.log)
 	$(GREP) -q "no safely lowerable constructor accepts 0 arguments" \
 		$(TEST_OUT)/cxx-inline-aggregates/arity.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/const-reference.ro \
-		tests/cxx_const_reference_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/const-reference.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/const-reference.ro tests/cxx_const_reference_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/const-reference.log)
 	$(GREP) -q "incompatible type for argument 1 to 'reference_test::mutable_reference'" \
 		$(TEST_OUT)/cxx-inline-aggregates/const-reference.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/private-method.ro \
-		tests/cxx_private_method_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/private-method.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/private-method.ro tests/cxx_private_method_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/private-method.log)
 	$(GREP) -q "method 'secret' is not accessible" \
 		$(TEST_OUT)/cxx-inline-aggregates/private-method.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/template-arity.ro \
-		tests/cxx_template_constructor_arity_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/template-arity.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/template-arity.ro tests/cxx_template_constructor_arity_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/template-arity.log)
 	$(GREP) -q "no safely lowerable constructor accepts 1 argument" \
 		$(TEST_OUT)/cxx-inline-aggregates/template-arity.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.ro \
-		tests/cxx_versioned_template_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.ro tests/cxx_versioned_template_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log)
 	$(GREP) -q "function template 'unsafe_versioned' is not safely lowerable" \
 		$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/auto-rejected.ro \
-		tests/cxx_auto_initializer_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/auto-rejected.ro tests/cxx_auto_initializer_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log)
 	$(GREP) -q "auto variable requires an initializer" \
 		$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.ro \
-		tests/cxx_cleanup_copy_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	$(GREP) -q "C++ scope-cleanup object requires a validated direct constructor" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.ro tests/cxx_cleanup_copy_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.log)
+	$(GREP) -F -q "C++ scope-cleanup object requires a validated direct constructor" \
 		$(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.ro \
-		tests/cxx_cleanup_control_flow_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	$(GREP) -q "goto enters a C++ scope-cleanup object lifetime" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.ro tests/cxx_cleanup_control_flow_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log)
+	$(GREP) -F -q "goto enters a C++ scope-cleanup object lifetime" \
 		$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.ro \
-		tests/cxx_cleanup_switch_scope_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	$(GREP) -q "case label crosses C++ scope-cleanup object initialization" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.ro tests/cxx_cleanup_switch_scope_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.log)
+	$(GREP) -F -q "case label crosses C++ scope-cleanup object initialization" \
 		$(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/external-destructor.ro \
@@ -6357,18 +7583,10 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.ro \
 		tests/cxx_unsafe_close_delegate_rejected.cpp
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move.ro \
-		tests/cxx_unsafe_move_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-move.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
-	$(GREP) -q "C++ move construction requires a validated release constructor" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move.ro tests/cxx_unsafe_move_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/unsafe-move.log)
+	$(GREP) -F -q "C++ move construction requires a validated release constructor" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.ro \
-		tests/cxx_unsafe_move_assignment_rejected.cpp \
-		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log 2>&1; \
-		status=$$?; set -e; test $$status -ne 0
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.ro tests/cxx_unsafe_move_assignment_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log)
 	$(GREP) -q "no matching member overload for 'operator='" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
@@ -6399,7 +7617,29 @@ else
 endif
 	@echo "RCC++ namespace parser recovery test completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-exceptions: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-exceptions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exceptions/x86.s tests/cxx_exceptions_rejected.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exceptions/x86.o $(TEST_OUT)/cxx-exceptions/x86.s
+	objdump -f $(TEST_OUT)/cxx-exceptions/x86.o > $(TEST_OUT)/cxx-exceptions/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-exceptions/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exceptions/x64.s tests/cxx_exceptions_rejected.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-exceptions/x64.o $(TEST_OUT)/cxx-exceptions/x64.s
+	objdump -f $(TEST_OUT)/cxx-exceptions/x64.o > $(TEST_OUT)/cxx-exceptions/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exceptions/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-exceptions/x86-verified.ro tests/cxx_exceptions_rejected.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-exceptions/x64-verified.ro tests/cxx_exceptions_rejected.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-exceptions/invalid-order-x86.ro tests/cxx_exceptions_invalid.cpp,$(TEST_OUT)/cxx-exceptions/invalid-order-x86.log)
+	$(GREP) -F -q "C++ catch-all handler must be the last handler" $(TEST_OUT)/cxx-exceptions/invalid-order-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-exceptions/invalid-order-x64.ro tests/cxx_exceptions_invalid.cpp,$(TEST_OUT)/cxx-exceptions/invalid-order-x64.log)
+	$(GREP) -F -q "C++ catch-all handler must be the last handler" $(TEST_OUT)/cxx-exceptions/invalid-order-x64.log
+	@echo "RCC++ exception propagation and nested handler object tests completed; runtime execution requires RinOS exception runtime"
+else
+test-cxx-exceptions: test-cxx-exceptions-posix
+endif
+
+test-cxx-exceptions-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exceptions/x86.s tests/cxx_exceptions_rejected.cpp
@@ -6463,7 +7703,25 @@ test-cxx-exceptions: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-exceptions/invalid-order-x64.log
 	@echo "RCC++ exception propagation and nested handler tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-object-exceptions: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-object-exceptions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-object-exceptions/x86.s tests/cxx_object_exceptions.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-object-exceptions/x86.o $(TEST_OUT)/cxx-object-exceptions/x86.s
+	objdump -f $(TEST_OUT)/cxx-object-exceptions/x86.o > $(TEST_OUT)/cxx-object-exceptions/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-object-exceptions/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-object-exceptions/x64.s tests/cxx_object_exceptions.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-object-exceptions/x64.o $(TEST_OUT)/cxx-object-exceptions/x64.s
+	objdump -f $(TEST_OUT)/cxx-object-exceptions/x64.o > $(TEST_OUT)/cxx-object-exceptions/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-object-exceptions/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-object-exceptions/x86-verified.ro tests/cxx_object_exceptions.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-object-exceptions/x64-verified.ro tests/cxx_object_exceptions.cpp
+	@echo "RCC++ trivially-copyable object exception tests completed; runtime execution requires RinOS exception runtime"
+else
+test-cxx-object-exceptions: test-cxx-object-exceptions-posix
+endif
+
+test-cxx-object-exceptions-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-object-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-object-exceptions/x86.s tests/cxx_object_exceptions.cpp
@@ -6497,7 +7755,43 @@ test-cxx-object-exceptions: $(RCXX_TARGET)
 		tests/cxx_object_exceptions.cpp
 	@echo "RCC++ trivially-copyable object exception tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-cross-library-exceptions: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-cross-library-exceptions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.s tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.s tests/cxx_exception_consumer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.s
+	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o > $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86-arch.log
+	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.o > $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.s tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.s tests/cxx_exception_consumer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.s
+	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o > $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64-arch.log
+	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.o > $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.ro tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.ro tests/cxx_exception_consumer.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.ro tests/cxx_exception_provider.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.ro tests/cxx_exception_consumer.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --shared --emit-unsigned-v3 --dep rincrt.rll --import rin_cpp_exception_throw_object=rincrt.rll@function -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.rll $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --shared --emit-unsigned-v3 --dep rincrt.rll --import rin_cpp_exception_throw_object=rincrt.rll@function -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.rll $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.ro
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 --dep provider-x86.rll --dep rincrt.rll --import cxx_exception_provider_throw=provider-x86.rll@function --import setjmp=rincrt.rll@function --import rin_cpp_exception_install=rincrt.rll@function --import rin_cpp_exception_leave=rincrt.rll@function --import rin_cpp_exception_rethrow_frame=rincrt.rll@function --import rin_cpp_exception_release_frame=rincrt.rll@function -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.rin $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 --dep provider-x64.rll --dep rincrt.rll --import cxx_exception_provider_throw=provider-x64.rll@function --import setjmp=rincrt.rll@function --import rin_cpp_exception_install=rincrt.rll@function --import rin_cpp_exception_leave=rincrt.rll@function --import rin_cpp_exception_rethrow_frame=rincrt.rll@function --import rin_cpp_exception_release_frame=rincrt.rll@function -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.rin $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.ro
+	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.rll
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.rll
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.rin
+	@echo "RCC++ cross-translation-unit and RLL exception ABI object/image tests completed; runtime execution requires RinOS exception runtime"
+else
+test-cxx-cross-library-exceptions: test-cxx-cross-library-exceptions-posix
+endif
+
+test-cxx-cross-library-exceptions-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-cross-library-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.s \
@@ -6595,7 +7889,35 @@ test-cxx-cross-library-exceptions: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.rin
 	@echo "RCC++ cross-translation-unit and RLL exception ABI tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-cross-translation-unit-virtual: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-cross-translation-unit-virtual)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.s tests/cxx_virtual_provider.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.s tests/cxx_virtual_consumer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.s
+	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86-arch.log
+	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.s tests/cxx_virtual_provider.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.s tests/cxx_virtual_consumer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.s
+	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64-arch.log
+	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64-arch.log
+	$(OBJCOPY) --redefine-sym _rcc_entry=provider_virtual_rcc_entry $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.o
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.o
+	$(TEST_OUT)/cxx-cross-translation-unit-virtual/x64-host
+	@echo "RCC++ cross-translation-unit virtual/ODR tests completed"
+else
+test-cxx-cross-translation-unit-virtual: test-cxx-cross-translation-unit-virtual-posix
+endif
+
+test-cxx-cross-translation-unit-virtual-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-cross-translation-unit-virtual)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.s \
@@ -6639,7 +7961,33 @@ test-cxx-cross-translation-unit-virtual: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-cross-translation-unit-virtual/native-x64
 	@echo "RCC++ cross-translation-unit virtual/ODR tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-exception-cleanup: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-exception-cleanup)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/x86.s tests/cxx_exception_cleanup.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.o $(TEST_OUT)/cxx-exception-cleanup/x86.s
+	objdump -f $(TEST_OUT)/cxx-exception-cleanup/x86.o > $(TEST_OUT)/cxx-exception-cleanup/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-exception-cleanup/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/x64.s tests/cxx_exception_cleanup.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.o $(TEST_OUT)/cxx-exception-cleanup/x64.s
+	objdump -f $(TEST_OUT)/cxx-exception-cleanup/x64.o > $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s tests/cxx_exception_cleanup_call_rejected.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s
+	objdump -f $(TEST_OUT)/cxx-exception-cleanup/call-x86.o > $(TEST_OUT)/cxx-exception-cleanup/call-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-exception-cleanup/call-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.s tests/cxx_exception_cleanup_call_rejected.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.o $(TEST_OUT)/cxx-exception-cleanup/call-x64.s
+	objdump -f $(TEST_OUT)/cxx-exception-cleanup/call-x64.o > $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.ro tests/cxx_exception_cleanup.cpp
+	@echo "RCC++ cross-call exception cleanup registration object tests completed; runtime execution requires RinOS exception runtime"
+else
+test-cxx-exception-cleanup: test-cxx-exception-cleanup-posix
+endif
+
+test-cxx-exception-cleanup-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-exception-cleanup)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x86.s \
@@ -6691,7 +8039,25 @@ test-cxx-exception-cleanup: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-exception-cleanup/call-x64
 	@echo "RCC++ cross-call exception cleanup registration tests completed"
 
+ifeq ($(OS),Windows_NT)
 test-cxx-nontrivial-object-exceptions: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nontrivial-object-exceptions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s tests/cxx_nontrivial_object_exceptions.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s
+	objdump -f $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.o > $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.s tests/cxx_nontrivial_object_exceptions.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.s
+	objdump -f $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.o > $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.ro tests/cxx_nontrivial_object_exceptions.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.ro tests/cxx_nontrivial_object_exceptions.cpp
+	@echo "RCC++ non-trivial object exception ownership object tests completed; runtime execution requires RinOS exception runtime"
+else
+test-cxx-nontrivial-object-exceptions: test-cxx-nontrivial-object-exceptions-posix
+endif
+
+test-cxx-nontrivial-object-exceptions-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nontrivial-object-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s \
@@ -6721,6 +8087,25 @@ test-cxx-nontrivial-object-exceptions: $(RCXX_TARGET)
 
 test-cxx-const-member-overload: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-const-member-overload)
+ifeq ($(OS),Windows_NT)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-const-member-overload/x86.s \
+		tests/cxx_const_member_overload.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-const-member-overload/x86.o \
+		$(TEST_OUT)/cxx-const-member-overload/x86.s
+	objdump -f $(TEST_OUT)/cxx-const-member-overload/x86.o > $(TEST_OUT)/cxx-const-member-overload/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-const-member-overload/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-const-member-overload/x64.s \
+		tests/cxx_const_member_overload.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-const-member-overload/x64.o \
+		$(TEST_OUT)/cxx-const-member-overload/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main \
+		$(TEST_OUT)/cxx-const-member-overload/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-const-member-overload/x64-host \
+		tests/cxx_main_host.c $(TEST_OUT)/cxx-const-member-overload/x64.o
+	$(TEST_OUT)/cxx-const-member-overload/x64-host
+else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-const-member-overload/x86.s \
 		tests/cxx_const_member_overload.cpp
@@ -6745,6 +8130,7 @@ test-cxx-const-member-overload: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-const-member-overload/start-x64.o \
 		$(TEST_OUT)/cxx-const-member-overload/x64.o
 	$(TEST_OUT)/cxx-const-member-overload/x64
+endif
 	@echo "RCC++ const member overload tests completed"
 
 test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
@@ -6816,16 +8202,10 @@ test-preprocessor-line: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/preprocessor-line-cxx-x86.ro tests/preprocessor_line.c
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/preprocessor-line-cxx-x64.ro tests/preprocessor_line.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
-		-o $(TEST_OUT)/invalid-preprocessor-line-x86.ro \
-		tests/invalid_preprocessor_line.c > \
-		$(TEST_OUT)/invalid-preprocessor-line-x86.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/invalid-preprocessor-line-x86.ro tests/invalid_preprocessor_line.c,$(TEST_OUT)/invalid-preprocessor-line-x86.log)
 	$(GREP) -F -q 'expected a positive line number' \
 		$(TEST_OUT)/invalid-preprocessor-line-x86.log
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/invalid-preprocessor-line-x64.ro \
-		tests/invalid_preprocessor_line.c > \
-		$(TEST_OUT)/invalid-preprocessor-line-x64.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/invalid-preprocessor-line-x64.ro tests/invalid_preprocessor_line.c,$(TEST_OUT)/invalid-preprocessor-line-x64.log)
 	$(GREP) -F -q 'expected a positive line number' \
 		$(TEST_OUT)/invalid-preprocessor-line-x64.log
 	@echo "C17/C++20 #line marker tests completed"
@@ -6854,10 +8234,7 @@ test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -Itests -c \
 		-o $(TEST_OUT)/preprocessor-include-cxx-x64.ro \
 		tests/preprocessor_include.cpp
-	! $(RCC_TARGET) --target i686-unknown-rinos -Itests -c \
-		-o $(TEST_OUT)/invalid-preprocessor-include.ro \
-		tests/invalid_preprocessor_include.c > \
-		$(TEST_OUT)/invalid-preprocessor-include.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -Itests -c -o $(TEST_OUT)/invalid-preprocessor-include.ro tests/invalid_preprocessor_include.c,$(TEST_OUT)/invalid-preprocessor-include.log)
 	$(GREP) -F -q 'unexpected tokens after #include path' \
 		$(TEST_OUT)/invalid-preprocessor-include.log
 	@echo "C17/C++20 macro-expanded #include tests completed"
@@ -7184,6 +8561,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_clz expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_parity expects an integer argument no wider than 4 bytes" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x64.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x64.log)
@@ -7195,10 +8574,30 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_clz expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_parity expects an integer argument no wider than 4 bytes" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
 
+ifeq ($(OS),Windows_NT)
+test-cxx-const-cast: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-const-cast)
+	$(call CXX_WINDOWS_MAIN,cxx-const-cast,test,cxx_const_cast.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-const-cast/x86.ro tests/cxx_const_cast.cpp \
+		>$(TEST_OUT)/cxx-const-cast/x86.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-const-cast/x64.ro tests/cxx_const_cast.cpp \
+		>$(TEST_OUT)/cxx-const-cast/x64.log 2>&1
+	$(GREP) -F -q "Verified backend: 1 function(s) emitted" \
+		$(TEST_OUT)/cxx-const-cast/x86.log
+	$(GREP) -F -q "Verified backend: 1 function(s) emitted" \
+		$(TEST_OUT)/cxx-const-cast/x64.log
+	@echo "C++ cv-only const_cast tests completed"
+else
 test-cxx-const-cast: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-const-cast)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -7219,12 +8618,31 @@ test-cxx-const-cast: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-const-cast/x64.ro tests/cxx_const_cast.cpp \
 		>$(TEST_OUT)/cxx-const-cast/x64.log 2>&1
-	$(GREP) -q "Verified backend: 1 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 1 function(s) emitted" \
 		$(TEST_OUT)/cxx-const-cast/x86.log
-	$(GREP) -q "Verified backend: 1 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 1 function(s) emitted" \
 		$(TEST_OUT)/cxx-const-cast/x64.log
 	@echo "C++ cv-only const_cast tests completed"
+endif
 
+ifeq ($(OS),Windows_NT)
+test-cxx-dynamic-cast: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast)
+	$(call CXX_WINDOWS_MAIN,cxx-dynamic-cast,test,cxx_dynamic_cast.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast/x86.ro tests/cxx_dynamic_cast_verified.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast/x86.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast/x64.ro tests/cxx_dynamic_cast_verified.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast/x64.log 2>&1
+	$(GREP) -F -q "Verified backend: 3 function(s) emitted" \
+		$(TEST_OUT)/cxx-dynamic-cast/x86.log
+	$(GREP) -F -q "Verified backend: 3 function(s) emitted" \
+		$(TEST_OUT)/cxx-dynamic-cast/x64.log
+	@echo "C++ statically known public-upcast dynamic_cast tests completed"
+else
 test-cxx-dynamic-cast: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -7245,12 +8663,44 @@ test-cxx-dynamic-cast: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-dynamic-cast/x64.ro tests/cxx_dynamic_cast_verified.cpp \
 		>$(TEST_OUT)/cxx-dynamic-cast/x64.log 2>&1
-	$(GREP) -q "Verified backend: 3 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 3 function(s) emitted" \
 		$(TEST_OUT)/cxx-dynamic-cast/x86.log
-	$(GREP) -q "Verified backend: 3 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 3 function(s) emitted" \
 		$(TEST_OUT)/cxx-dynamic-cast/x64.log
 	@echo "C++ statically known public-upcast dynamic_cast tests completed"
+endif
 
+ifeq ($(OS),Windows_NT)
+test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-downcast)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.s \
+		tests/cxx_dynamic_cast_downcast.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/x86.s
+	objdump -f $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o > $(TEST_OUT)/cxx-dynamic-cast-downcast/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-dynamic-cast-downcast/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s \
+		tests/cxx_dynamic_cast_downcast.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o \
+		$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s
+	objdump -f $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o > $(TEST_OUT)/cxx-dynamic-cast-downcast/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-dynamic-cast-downcast/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.ro \
+		tests/cxx_dynamic_cast_downcast.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast-downcast/x86.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.ro \
+		tests/cxx_dynamic_cast_downcast.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.log 2>&1
+	$(GREP) -F -q "Verified backend" $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.log
+	$(GREP) -F -q "Verified backend" $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.log
+	@echo "C++ exact public-downcast dynamic_cast object and verified-backend tests completed; mismatch runtime requires RinOS exception runtime"
+else
 test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-downcast)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -7278,7 +8728,39 @@ test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o
 	$(TEST_OUT)/cxx-dynamic-cast-downcast/x64
 	@echo "C++ exact public-downcast dynamic_cast tests completed"
+endif
 
+ifeq ($(OS),Windows_NT)
+test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-runtime)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.s \
+		tests/cxx_dynamic_cast_virtual.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.o \
+		$(TEST_OUT)/cxx-dynamic-cast-runtime/x86.s
+	objdump -f $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.o > $(TEST_OUT)/cxx-dynamic-cast-runtime/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-dynamic-cast-runtime/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.s \
+		tests/cxx_dynamic_cast_virtual.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o \
+		$(TEST_OUT)/cxx-dynamic-cast-runtime/x64.s
+	objdump -f $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o > $(TEST_OUT)/cxx-dynamic-cast-runtime/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-dynamic-cast-runtime/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.ro \
+		tests/cxx_dynamic_cast_virtual.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast-runtime/x86.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.ro \
+		tests/cxx_dynamic_cast_virtual.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast-runtime/x64.log 2>&1
+	$(GREP) -F -q "Verified backend" $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.log
+	$(GREP) -F -q "Verified backend" $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.log
+	@echo "C++ virtual-base dynamic_cast RTTI object and verified-backend tests completed; runtime execution requires RinOS RTTI runtime"
+else
 test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-runtime)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -7306,7 +8788,39 @@ test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o
 	$(TEST_OUT)/cxx-dynamic-cast-runtime/x64
 	@echo "C++ virtual-base dynamic_cast RTTI tests completed"
+endif
 
+ifeq ($(OS),Windows_NT)
+test-cxx-dynamic-cast-reference: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-reference)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x86.s \
+		tests/cxx_dynamic_cast_reference.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/x86.o \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/x86.s
+	objdump -f $(TEST_OUT)/cxx-dynamic-cast-reference/x86.o > $(TEST_OUT)/cxx-dynamic-cast-reference/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-dynamic-cast-reference/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.s \
+		tests/cxx_dynamic_cast_reference.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.o \
+		$(TEST_OUT)/cxx-dynamic-cast-reference/x64.s
+	objdump -f $(TEST_OUT)/cxx-dynamic-cast-reference/x64.o > $(TEST_OUT)/cxx-dynamic-cast-reference/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-dynamic-cast-reference/x64-arch.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x86.ro \
+		tests/cxx_dynamic_cast_reference.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast-reference/x86.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.ro \
+		tests/cxx_dynamic_cast_reference.cpp \
+		>$(TEST_OUT)/cxx-dynamic-cast-reference/x64.log 2>&1
+	$(GREP) -F -q "Verified backend" $(TEST_OUT)/cxx-dynamic-cast-reference/x86.log
+	$(GREP) -F -q "Verified backend" $(TEST_OUT)/cxx-dynamic-cast-reference/x64.log
+	@echo "C++ reference dynamic_cast object and verified-backend tests completed; bad_cast runtime requires RinOS exception runtime"
+else
 test-cxx-dynamic-cast-reference: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dynamic-cast-reference)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -7334,6 +8848,7 @@ test-cxx-dynamic-cast-reference: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-dynamic-cast-reference/x64.o
 	$(TEST_OUT)/cxx-dynamic-cast-reference/x64
 	@echo "C++ reference dynamic_cast success and bad_cast tests completed"
+endif
 
 test-integer-literals: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/integer-literals)
@@ -8110,6 +9625,26 @@ test-pragma-pack: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -nostdinc -S \
 		-Ibootstrap/include -o $(TEST_OUT)/pragma-pack/operator-cxx-x86.s \
 		tests/pragma_operator_pack.cpp
+ifeq ($(OS),Windows_NT)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -nostdinc -c \
+		-Ibootstrap/include -o $(TEST_OUT)/pragma-pack/operator-cxx-x86.ro \
+		tests/pragma_operator_pack.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -nostdinc -c \
+		-Ibootstrap/include -o $(TEST_OUT)/pragma-pack/operator-cxx-x64.ro \
+		tests/pragma_operator_pack.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -nostdinc -S \
+		-Ibootstrap/include -o $(TEST_OUT)/pragma-pack/operator-cxx-x64.s \
+		tests/pragma_operator_pack.cpp
+	$(CC) -o $(TEST_OUT)/pragma-pack/operator-cxx-x64 \
+		$(TEST_OUT)/pragma-pack/operator-cxx-x64.s
+	$(TEST_OUT)/pragma-pack/operator-cxx-x64
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/pragma-pack/operator-cxx-run-test \
+		tests/pragma_operator_pack_host_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/pragma-pack/operator-cxx-run-test \
+		$(TEST_OUT)/pragma-pack/operator-cxx-x86.ro \
+		$(TEST_OUT)/pragma-pack/operator-cxx-x64.ro
+else
 	$(CC) -m32 -c -o $(TEST_OUT)/pragma-pack/operator-cxx-x86.o \
 		$(TEST_OUT)/pragma-pack/operator-cxx-x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/pragma-pack/operator-cxx-start-x86.o \
@@ -8131,12 +9666,26 @@ test-pragma-pack: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/pragma-pack/operator-cxx-start-x64.o \
 		$(TEST_OUT)/pragma-pack/operator-cxx-x64.o
 	$(TEST_OUT)/pragma-pack/operator-cxx-x64
+endif
 	@echo "Dual-architecture pragma-pack and offsetof tests completed"
 
 test-bitfields: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/bitfields)
+ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/bitfields/x86.s tests/bitfields.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/bitfields/x86.ro tests/bitfields.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/bitfields/x64.s tests/bitfields.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/bitfields/run-test \
+		tests/bitfields_host_run_test.c src/emit_ro.c src/utils.c \
+		$(TEST_OUT)/bitfields/x64.s
+	$(TEST_OUT)/bitfields/run-test
+	$(TEST_OUT)/bitfields/run-test --inspect \
+		$(TEST_OUT)/bitfields/x86.ro
+else
 	$(CC) -m32 -c -o $(TEST_OUT)/bitfields/x86.o \
 		$(TEST_OUT)/bitfields/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/bitfields/start-x86.o \
@@ -8155,26 +9704,18 @@ test-bitfields: $(RCC_TARGET)
 		-o $(TEST_OUT)/bitfields/x64 \
 		$(TEST_OUT)/bitfields/start-x64.o $(TEST_OUT)/bitfields/x64.o
 	$(TEST_OUT)/bitfields/x64
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/bitfields/invalid.ro tests/invalid_bitfields.c \
-		>$(TEST_OUT)/bitfields/invalid.log 2>&1; then \
-		echo "invalid bit-field fixture unexpectedly compiled"; exit 1; \
-	fi
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/bitfields/invalid.ro tests/invalid_bitfields.c,$(TEST_OUT)/bitfields/invalid.log)
 	$(GREP) -q "bit-field width" $(TEST_OUT)/bitfields/invalid.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/bitfields/invalid-address.ro \
-		tests/invalid_bitfield_address.c \
-		>$(TEST_OUT)/bitfields/invalid-address.log 2>&1; then \
-		echo "invalid bit-field address fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_bitfield_address.c,$(TEST_OUT)/bitfields/invalid-address.log)
 	$(GREP) -q "cannot take address of a bit-field" \
 		$(TEST_OUT)/bitfields/invalid-address.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/bitfields/invalid-offsetof.ro \
-		tests/invalid_bitfield_offsetof.c \
-		>$(TEST_OUT)/bitfields/invalid-offsetof.log 2>&1; then \
-		echo "invalid bit-field offsetof fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_bitfield_offsetof.c,$(TEST_OUT)/bitfields/invalid-offsetof.log)
 	$(GREP) -q "cannot compute offsetof for a bit-field" \
 		$(TEST_OUT)/bitfields/invalid-offsetof.log
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -8183,6 +9724,15 @@ test-bitfields: $(RCC_TARGET)
 		-o $(TEST_OUT)/bitfields/tls-x64.ro tests/bitfields_tls.c
 	@echo "Dual-architecture C17 bit-field tests completed"
 
+ifeq ($(OS),Windows_NT)
+test-cxx-bitfields: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-bitfields)
+	$(call CXX_WINDOWS_MAIN,cxx-bitfields,test,cxx_bitfields.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/cxx-bitfields/invalid.ro tests/invalid_cxx_bitfields.cpp,$(TEST_OUT)/cxx-bitfields/invalid.log)
+	$(GREP) -F -q "C++ bit-field width" $(TEST_OUT)/cxx-bitfields/invalid.log
+	@echo "Dual-architecture C++ bit-field tests completed"
+else
 test-cxx-bitfields: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-bitfields)
 	$(RCXX_TARGET) --target i686-unknown-rinos -S \
@@ -8212,6 +9762,7 @@ test-cxx-bitfields: $(RCXX_TARGET)
 	fi
 	$(GREP) -q "C++ bit-field width" $(TEST_OUT)/cxx-bitfields/invalid.log
 	@echo "Dual-architecture C++ bit-field tests completed"
+endif
 
 test-compound-assignment: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/compound-assignment)
@@ -8221,6 +9772,15 @@ test-compound-assignment: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/compound-assignment/x64.ro \
 		tests/compound_assignment.c
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/compound-assignment/run-test \
+		tests/compound_assignment_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/compound-assignment/run-test \
+		$(TEST_OUT)/compound-assignment/x64.ro
+	$(TEST_OUT)/compound-assignment/run-test --inspect \
+		$(TEST_OUT)/compound-assignment/x86.ro
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/compound-assignment/run-test-x86 \
 		tests/compound_assignment_run_test.c src/emit_ro.c src/utils.c
@@ -8231,9 +9791,10 @@ test-compound-assignment: $(RCC_TARGET)
 		$(TEST_OUT)/compound-assignment/x86.ro
 	$(TEST_OUT)/compound-assignment/run-test-x64 \
 		$(TEST_OUT)/compound-assignment/x64.ro
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/compound-assignment/invalid.ro \
-		tests/invalid_compound_assignment.c
+		tests/invalid_compound_assignment.c,$(TEST_OUT)/compound-assignment/invalid.log)
 	@echo "Dual-architecture C17 compound assignment tests completed"
 
 test-switch-statement: $(RCC_TARGET)
@@ -8242,6 +9803,15 @@ test-switch-statement: $(RCC_TARGET)
 		-o $(TEST_OUT)/switch-statement/x86.ro tests/switch_statement.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/switch-statement/x64.ro tests/switch_statement.c
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/switch-statement/run-test \
+		tests/switch_statement_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/switch-statement/run-test \
+		$(TEST_OUT)/switch-statement/x64.ro
+	$(TEST_OUT)/switch-statement/run-test --inspect \
+		$(TEST_OUT)/switch-statement/x86.ro
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/switch-statement/run-test-x86 \
 		tests/switch_statement_run_test.c src/emit_ro.c src/utils.c
@@ -8252,12 +9822,10 @@ test-switch-statement: $(RCC_TARGET)
 		$(TEST_OUT)/switch-statement/x86.ro
 	$(TEST_OUT)/switch-statement/run-test-x64 \
 		$(TEST_OUT)/switch-statement/x64.ro
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/switch-statement/invalid.ro \
-		tests/invalid_switch_statement.c \
-		>$(TEST_OUT)/switch-statement/invalid.log 2>&1; then \
-		echo "invalid switch fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_switch_statement.c,$(TEST_OUT)/switch-statement/invalid.log)
 	$(GREP) -q "case label is not within a switch" \
 		$(TEST_OUT)/switch-statement/invalid.log
 	$(GREP) -q "default label is not within a switch" \
@@ -8276,6 +9844,14 @@ test-control-flow: $(RCC_TARGET)
 		-o $(TEST_OUT)/control-flow/x86.ro tests/control_flow.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/control-flow/x64.ro tests/control_flow.c
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/control-flow/run-test \
+		tests/control_flow_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/control-flow/run-test $(TEST_OUT)/control-flow/x64.ro
+	$(TEST_OUT)/control-flow/run-test --inspect \
+		$(TEST_OUT)/control-flow/x86.ro
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/control-flow/run-test-x86 \
 		tests/control_flow_run_test.c src/emit_ro.c src/utils.c
@@ -8284,12 +9860,10 @@ test-control-flow: $(RCC_TARGET)
 		tests/control_flow_run_test.c src/emit_ro.c src/utils.c
 	$(TEST_OUT)/control-flow/run-test-x86 $(TEST_OUT)/control-flow/x86.ro
 	$(TEST_OUT)/control-flow/run-test-x64 $(TEST_OUT)/control-flow/x64.ro
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/control-flow/invalid.ro \
-		tests/invalid_control_flow.c \
-		>$(TEST_OUT)/control-flow/invalid.log 2>&1; then \
-		echo "invalid control-flow fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_control_flow.c,$(TEST_OUT)/control-flow/invalid.log)
 	$(GREP) -q "break statement is not within a loop or switch" \
 		$(TEST_OUT)/control-flow/invalid.log
 	$(GREP) -q "continue statement is not within a loop" \
@@ -8302,6 +9876,9 @@ test-control-flow: $(RCC_TARGET)
 
 test-parser-recovery: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/parser-recovery)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -c -o '$(TEST_OUT)/parser-recovery/invalid.ro' tests/parser_recovery.c *> '$(TEST_OUT)/parser-recovery/invalid.log'; if ($$LASTEXITCODE -eq 0) { Write-Error 'parser recovery fixture unexpectedly compiled'; exit 1 } else { exit 0 }"
+else
 	@set +e; timeout 10s $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/parser-recovery/invalid.ro \
 		tests/parser_recovery.c \
@@ -8312,6 +9889,7 @@ test-parser-recovery: $(RCC_TARGET)
 		if [ $$status -eq 124 ] || [ $$status -eq 139 ]; then \
 			echo "parser recovery timed out or crashed (status $$status)"; exit 1; \
 		fi
+endif
 	$(GREP) -q "expected parameter type specifier" \
 		$(TEST_OUT)/parser-recovery/invalid.log
 	$(GREP) -q "expected field type specifier" \
@@ -8397,7 +9975,9 @@ test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 test-static-assert: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -c -o $(TEST_OUT)/static_assert_pass.ro tests/static_assert_pass.c
-	! $(RCC_TARGET) -c -o $(TEST_OUT)/static_assert_fail.ro tests/static_assert_fail.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -c \
+		-o $(TEST_OUT)/static_assert_fail.ro tests/static_assert_fail.c,$(TEST_OUT)/static_assert_fail.log)
+	$(GREP) -q "static assertion failed" $(TEST_OUT)/static_assert_fail.log
 	@echo "C17 static assertion test completed"
 
 test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
@@ -9251,13 +10831,13 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/builtins-x86.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x86.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/builtins-x64.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bswap64-x86.ro \
@@ -9281,7 +10861,7 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-builtins-x64.ro \
 		tests/verified_backend_builtins.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
 	@echo "Verified backend terminating/prediction builtin tests completed"
 
@@ -9484,11 +11064,19 @@ test-generic: $(RCC_TARGET)
 		-o $(TEST_OUT)/generic/x86.ro tests/generic_selection.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/generic/x64.ro tests/generic_selection.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
-		-o $(TEST_OUT)/generic/invalid.ro tests/invalid_generic.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/generic/invalid.ro tests/invalid_generic.c,$(TEST_OUT)/generic/invalid.log)
+	$(GREP) -q "generic selection has compatible duplicate types" \
+		$(TEST_OUT)/generic/invalid.log
+	$(GREP) -q "generic selection has more than one default association" \
+		$(TEST_OUT)/generic/invalid.log
+	$(GREP) -q "generic association requires a complete object type" \
+		$(TEST_OUT)/generic/invalid.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/generic/invalid-match.ro \
-		tests/invalid_generic_match.c
+		tests/invalid_generic_match.c,$(TEST_OUT)/generic/invalid-match.log)
+	$(GREP) -q "generic selection has no compatible association" \
+		$(TEST_OUT)/generic/invalid-match.log
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/generic_selection_run_test \
 		tests/generic_selection_run_test.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c
@@ -9519,16 +11107,42 @@ test-alignof: $(RCC_TARGET)
 		-o $(TEST_OUT)/alignof/x86.ro tests/alignof.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/alignof/x64.ro tests/alignof.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
-		-o $(TEST_OUT)/alignof/invalid.ro tests/invalid_alignof.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/alignof/invalid.ro tests/invalid_alignof.c,$(TEST_OUT)/alignof/invalid.log)
+	$(GREP) -q "_Alignof requires a complete object type" \
+		$(TEST_OUT)/alignof/invalid.log
+ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/alignof_run_test \
 		tests/alignof_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/alignof_run_test \
 		$(TEST_OUT)/alignof/x86.ro $(TEST_OUT)/alignof/x64.ro
+	$(TEST_OUT)/alignof_run_test --inspect \
+		$(TEST_OUT)/alignof/x86.ro $(TEST_OUT)/alignof/x64.ro
+else
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/alignof_run_test \
+		tests/alignof_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/alignof_run_test \
+		$(TEST_OUT)/alignof/x86.ro $(TEST_OUT)/alignof/x64.ro
+endif
 	@echo "C17 _Alignof tests completed"
 
 test-alignas: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/alignas)
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/alignas/x86.ro tests/alignas.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/alignas/x64.ro tests/alignas.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/alignas/x64.s tests/alignas.c
+	$(CC) -o $(TEST_OUT)/alignas/x64 \
+		$(TEST_OUT)/alignas/x64.s
+	$(TEST_OUT)/alignas/x64
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/alignas/run-test \
+		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/alignas/run-test \
+		$(TEST_OUT)/alignas/x86.ro $(TEST_OUT)/alignas/x64.ro
+else
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/alignas/x86.s tests/alignas.c
 	$(CC) -m32 -c -o $(TEST_OUT)/alignas/x86.o \
@@ -9549,11 +11163,10 @@ test-alignas: $(RCC_TARGET)
 		-o $(TEST_OUT)/alignas/x64 \
 		$(TEST_OUT)/alignas/start-x64.o $(TEST_OUT)/alignas/x64.o
 	$(TEST_OUT)/alignas/x64
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
-		-o $(TEST_OUT)/alignas/invalid.ro tests/alignas_invalid.c \
-		>$(TEST_OUT)/alignas/invalid.log 2>&1; then \
-		echo "invalid _Alignas unexpectedly compiled"; exit 1; \
-	fi
+
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/alignas/invalid.ro tests/alignas_invalid.c,$(TEST_OUT)/alignas/invalid.log)
 	$(GREP) -q "_Alignas alignment must be a power of two" \
 		$(TEST_OUT)/alignas/invalid.log
 	@echo "C17 _Alignas tests completed"

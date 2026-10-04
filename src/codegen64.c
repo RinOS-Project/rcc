@@ -2498,11 +2498,17 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     }
     if (strcmp(function->ident_name, "__builtin_clz") == 0 ||
         strcmp(function->ident_name, "__builtin_ctz") == 0 ||
-        strcmp(function->ident_name, "__builtin_popcount") == 0) {
+        strcmp(function->ident_name, "__builtin_popcount") == 0 ||
+        strcmp(function->ident_name, "__builtin_parity") == 0) {
         gen64_expr(mod, call64_argument(expr, 0));
         emit64_zero_extend_eax(mod);
-        if (strcmp(function->ident_name, "__builtin_popcount") == 0) {
+        if (strcmp(function->ident_name, "__builtin_popcount") == 0 ||
+            strcmp(function->ident_name, "__builtin_parity") == 0) {
             emit64_popcount64(mod);
+            if (strcmp(function->ident_name, "__builtin_parity") == 0) {
+                emit64_mov_reg_imm64(mod, RCX, 1u);
+                emit64_and_reg_reg(mod, RAX, RCX);
+            }
         } else if (strcmp(function->ident_name, "__builtin_clz") == 0) {
             emit64_bsr_reg32_reg32(mod, RCX, RAX);
             emit64_mov_reg_imm64(mod, RAX, 31u);
@@ -2515,14 +2521,27 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     }
     if (strcmp(function->ident_name, "__builtin_clzll") == 0 ||
         strcmp(function->ident_name, "__builtin_ctzll") == 0 ||
-        strcmp(function->ident_name, "__builtin_popcountll") == 0) {
+        strcmp(function->ident_name, "__builtin_popcountll") == 0 ||
+        strcmp(function->ident_name, "__builtin_clzl") == 0 ||
+        strcmp(function->ident_name, "__builtin_ctzl") == 0 ||
+        strcmp(function->ident_name, "__builtin_popcountl") == 0 ||
+        strcmp(function->ident_name, "__builtin_parityl") == 0 ||
+        strcmp(function->ident_name, "__builtin_parityll") == 0) {
         argument = call64_argument(expr, 0);
         gen64_expr(mod, argument);
         if (argument && argument->type && argument->type->size < 8) {
             emit64_zero_extend_eax(mod);
         }
-        if (strcmp(function->ident_name, "__builtin_popcountll") == 0) {
+        if (strcmp(function->ident_name, "__builtin_popcountll") == 0 ||
+            strcmp(function->ident_name, "__builtin_popcountl") == 0 ||
+            strcmp(function->ident_name, "__builtin_parityl") == 0 ||
+            strcmp(function->ident_name, "__builtin_parityll") == 0) {
             emit64_popcount64(mod);
+            if (strcmp(function->ident_name, "__builtin_parityl") == 0 ||
+                strcmp(function->ident_name, "__builtin_parityll") == 0) {
+                emit64_mov_reg_imm64(mod, RCX, 1u);
+                emit64_and_reg_reg(mod, RAX, RCX);
+            }
         } else if (strcmp(function->ident_name, "__builtin_clzll") == 0) {
             emit64_bsr_reg64_reg64(mod, RCX, RAX);
             emit64_mov_reg_imm64(mod, RAX, 63u);

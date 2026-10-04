@@ -17,3 +17,7 @@ int invalid_builtin_clz(void) {
 void invalid_builtin_prefetch(int *value) {
     __builtin_prefetch(value, 2, 3);
 }
+
+int invalid_builtin_parity(void) {
+    return __builtin_parity(1LL);
+}

@@ -2,15 +2,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int cxx_constructor_body(void) __asm__("_Z20cxx_constructor_bodyv");
-int cxx_local_constructor(void) __asm__("_Z21cxx_local_constructorv");
+#if defined(_WIN32) && defined(__x86_64__)
+#define RIN_SYSV __attribute__((sysv_abi))
+#else
+#define RIN_SYSV
+#endif
 
-void* rin_malloc(unsigned long size)
+int RIN_SYSV cxx_constructor_body(void) __asm__("_Z20cxx_constructor_bodyv");
+int RIN_SYSV cxx_local_constructor(void) __asm__("_Z21cxx_local_constructorv");
+
+RIN_SYSV void* rin_malloc(unsigned long size)
 {
     return malloc((size_t)size);
 }
 
-void rin_free(void* pointer)
+RIN_SYSV void rin_free(void* pointer)
 {
     free(pointer);
 }

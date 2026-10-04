@@ -337,7 +337,13 @@ static bool lower_collect_labels(RccIrLowerContext* context,
             return lower_collect_labels(context, statement->for_init) &&
                 lower_collect_labels(context, statement->for_body);
         case STMT_SWITCH:
-            return lower_collect_labels(context, statement->switch_body);
+            /* A goto may enter a switch through an ordinary label.  The
+             * switch lowerer owns case/default entry blocks, but it does not
+             * yet model arbitrary labels interleaved with those entries.  Do
+             * not pre-create unterminated verified blocks for that shape;
+             * lower_statement will report the label as outside the verified
+             * subset and the production AST backend will handle it. */
+            return true;
         case STMT_CASE:
             return lower_collect_labels(context, statement->case_stmt);
         case STMT_DEFAULT:
@@ -2727,6 +2733,7 @@ static RccIrLowerValue lower_builtin_bit_count(
     RccIrLowerValue result;
     bool leading = false;
     bool population = false;
+    bool parity = false;
     unsigned width = 0u;
     unsigned index;
 
@@ -2760,6 +2767,18 @@ static RccIrLowerValue lower_builtin_bit_count(
         width = g_opts.target_arch == ARCH_X64 ? 64u : 32u;
     } else if (strcmp(name, "__builtin_popcountll") == 0) {
         population = true;
+        width = 64u;
+    } else if (strcmp(name, "__builtin_parity") == 0) {
+        population = true;
+        parity = true;
+        width = 32u;
+    } else if (strcmp(name, "__builtin_parityl") == 0) {
+        population = true;
+        parity = true;
+        width = g_opts.target_arch == ARCH_X64 ? 64u : 32u;
+    } else if (strcmp(name, "__builtin_parityll") == 0) {
+        population = true;
+        parity = true;
         width = 64u;
     } else {
         context->unsupported = true;
@@ -2833,7 +2852,8 @@ static RccIrLowerValue lower_builtin_bit_count(
         {
             RccIrLowerValue mask = lower_integer_constant(
                 context, source_type, true,
-                width == 64u ? UINT64_C(0x7f) : UINT64_C(0x3f));
+                parity ? UINT64_C(1) :
+                (width == 64u ? UINT64_C(0x7f) : UINT64_C(0x3f)));
             if (!mask.valid) return lower_invalid_value();
             source = lower_builtin_integer_binary(
                 context, RCC_IR_AND, source, mask);
@@ -2963,7 +2983,10 @@ static RccIrLowerValue lower_builtin_call(
         strcmp(name, "__builtin_ctzll") == 0 ||
         strcmp(name, "__builtin_popcount") == 0 ||
         strcmp(name, "__builtin_popcountl") == 0 ||
-        strcmp(name, "__builtin_popcountll") == 0) {
+        strcmp(name, "__builtin_popcountll") == 0 ||
+        strcmp(name, "__builtin_parity") == 0 ||
+        strcmp(name, "__builtin_parityl") == 0 ||
+        strcmp(name, "__builtin_parityll") == 0) {
         return lower_builtin_bit_count(context, expression, name);
     }
     if (strcmp(name, "__builtin_bswap16") == 0 ||
@@ -3447,6 +3470,12 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_popcountl") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_popcountll") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_parity") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_parityl") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_parityll") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap16") == 0 ||
                  strcmp(expression->call_func->ident_name,

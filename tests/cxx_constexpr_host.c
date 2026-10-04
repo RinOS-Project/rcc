@@ -2,7 +2,13 @@
 
 #include <stdlib.h>
 
-extern int rcc_cxx_constexpr_main(void);
+#if defined(_WIN32) && defined(__x86_64__)
+#define RIN_SYSV __attribute__((sysv_abi))
+#else
+#define RIN_SYSV
+#endif
+
+extern int RIN_SYSV rcc_cxx_constexpr_main(void);
 
 /* Keep the host link honest for constexpr functions that are also emitted as
  * callable C++ definitions.  These are real host allocator bridges, not

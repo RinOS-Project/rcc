@@ -12705,15 +12705,16 @@ Stmt* rcc_parse_cxx_statement(void) {
 static void add_cxx_declaration_one(AST* ast, Stmt* statement,
                                     bool c_language_linkage,
                                     bool nodiscard,
+                                    bool deprecated,
                                     const char* deprecated_message) {
     if (statement && statement->kind == STMT_DECL) {
         if (statement->decl->kind == DECL_FUNC && nodiscard) {
             statement->decl->func_is_nodiscard = true;
         }
-        if (deprecated_message && statement->decl->kind == DECL_FUNC) {
+        if (deprecated && statement->decl->kind == DECL_FUNC) {
             statement->decl->func_is_deprecated = true;
             statement->decl->func_deprecated_message = deprecated_message;
-        } else if (deprecated_message && statement->decl->kind == DECL_VAR) {
+        } else if (deprecated && statement->decl->kind == DECL_VAR) {
             statement->decl->var_is_deprecated = true;
             statement->decl->var_deprecated_message = deprecated_message;
         }
@@ -12733,12 +12734,12 @@ static void add_cxx_declaration(AST* ast, Stmt* statement,
         statement->block_no_scope) {
         for (StmtList* item = statement->block_stmts; item; item = item->next) {
             add_cxx_declaration_one(ast, item->stmt, c_language_linkage,
-                                    nodiscard, deprecated_message);
+                                    nodiscard, deprecated, deprecated_message);
         }
         return;
     }
-    add_cxx_declaration_one(ast, statement, c_language_linkage,
-                            nodiscard, deprecated_message);
+    add_cxx_declaration_one(ast, statement, c_language_linkage, nodiscard,
+                            deprecated, deprecated_message);
 }
 
 /* Preserve C ABI symbol spelling inside extern "C" while extern "C++" and

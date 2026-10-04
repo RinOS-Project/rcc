@@ -1,5 +1,6 @@
 /* Host harness for the generated static-storage cleanup callback. */
 
+extern void __rcc_global_init(void);
 extern void __rcc_global_fini(void);
 extern int rcc_global_finalizers_main(void);
 extern int global_cleanup_count;
@@ -9,6 +10,7 @@ extern int second_storage;
 
 int main(void) {
     int result;
+    __rcc_global_init();
     result = rcc_global_finalizers_main();
     if (result != 0) return result;
     __rcc_global_fini();

@@ -45,6 +45,16 @@ extern "C" int verified_cxx_builtin_popcountll(unsigned long long value)
     return __builtin_popcountll(value);
 }
 
+extern "C" int verified_cxx_builtin_parity(unsigned int value)
+{
+    return __builtin_parity(value);
+}
+
+extern "C" int verified_cxx_builtin_parityl(unsigned long value)
+{
+    return __builtin_parityl(value);
+}
+
 extern "C" int verified_cxx_builtin_prefetch(int* value)
 {
     __builtin_prefetch(value, 1, 0);
@@ -62,9 +72,11 @@ extern "C" int main(void)
     if (verified_cxx_builtin_clzll(1ULL) != 63) return 7;
     if (verified_cxx_builtin_ctzll(1ULL << 40) != 40) return 8;
     if (verified_cxx_builtin_popcountll(0xf00000000000000FULL) != 8) return 9;
+    if (verified_cxx_builtin_parity(0x80000003u) != 1) return 10;
+    if (verified_cxx_builtin_parityl(0x80000003UL) != 1) return 11;
     {
         int value = 37;
-        if (verified_cxx_builtin_prefetch(&value) != 37) return 10;
+        if (verified_cxx_builtin_prefetch(&value) != 37) return 12;
     }
     return 0;
 }

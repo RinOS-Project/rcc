@@ -11873,11 +11873,19 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     }
     if (strcmp(name, "__builtin_clz") == 0 ||
         strcmp(name, "__builtin_ctz") == 0 ||
-        strcmp(name, "__builtin_popcount") == 0) {
+        strcmp(name, "__builtin_popcount") == 0 ||
+        strcmp(name, "__builtin_parity") == 0) {
         is_bit_count = true;
+    } else if (strcmp(name, "__builtin_clzl") == 0 ||
+               strcmp(name, "__builtin_ctzl") == 0 ||
+               strcmp(name, "__builtin_popcountl") == 0 ||
+               strcmp(name, "__builtin_parityl") == 0) {
+        is_bit_count = true;
+        is_bit_count_wide = g_opts.target_arch == ARCH_X64;
     } else if (strcmp(name, "__builtin_clzll") == 0 ||
                strcmp(name, "__builtin_ctzll") == 0 ||
-               strcmp(name, "__builtin_popcountll") == 0) {
+               strcmp(name, "__builtin_popcountll") == 0 ||
+               strcmp(name, "__builtin_parityll") == 0) {
         is_bit_count = true;
         is_bit_count_wide = true;
     }

@@ -2,13 +2,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int cxx_delegating_constructor(void);
-
 #if defined(_WIN32) && defined(__x86_64__)
 #define RIN_SYSV __attribute__((sysv_abi))
 #else
 #define RIN_SYSV
 #endif
+
+int RIN_SYSV cxx_delegating_constructor(void);
 
 RIN_SYSV void* rin_malloc(unsigned long size)
 {

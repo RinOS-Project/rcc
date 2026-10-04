@@ -40,6 +40,18 @@ int builtin_bit_counts(int *value) {
     return *value;
 }
 
+int builtin_parity(unsigned int value) {
+    return __builtin_parity(value);
+}
+
+int builtin_parityl(unsigned long value) {
+    return __builtin_parityl(value);
+}
+
+int builtin_parityll(unsigned long long value) {
+    return __builtin_parityll(value);
+}
+
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
     if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 2;
@@ -53,5 +65,8 @@ int main(void) {
         int value = 41;
         if (builtin_bit_counts(&value) != 41) return 8;
     }
+    if (builtin_parity(0x80000003u) != 1) return 9;
+    if (builtin_parityl(0x80000003UL) != 1) return 10;
+    if (builtin_parityll(0x8000000000000003ULL) != 1) return 11;
     return 0;
 }
