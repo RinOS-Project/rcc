@@ -323,6 +323,58 @@ static bool sema_cxx_public_base(Type* derived, Type* target,
     return false;
 }
 
+/* Count non-virtual public paths separately.  A conversion to a repeated
+ * non-virtual base is ambiguous even when the first path has a usable fixed
+ * offset; silently selecting that first path would change the C++ program. */
+static int sema_cxx_nonvirtual_public_base_paths(Type* derived, Type* target,
+                                                 int* adjustment,
+                                                 unsigned depth) {
+    CxxClass* cls;
+    int count = 0;
+    if (!derived || !target || depth > 32u) return 0;
+    if (derived == target ||
+        (derived->cxx_class && target->cxx_class &&
+         derived->cxx_class == target->cxx_class)) {
+        if (adjustment) *adjustment = 0;
+        return 1;
+    }
+    cls = derived->cxx_class;
+    if (!cls || cls->virtual_base_count > 0 || !cls->base_offsets) return 0;
+    for (int index = 0; index < cls->base_count; ++index) {
+        Type* base_type = cls->bases[index].base
+            ? cls->bases[index].base->type : NULL;
+        int nested_adjustment = 0;
+        int nested_count;
+        if (!base_type || cls->bases[index].is_virtual ||
+            cls->bases[index].access != ACCESS_PUBLIC ||
+            cls->base_offsets[index] < 0) {
+            continue;
+        }
+        nested_count = sema_cxx_nonvirtual_public_base_paths(
+            base_type, target, &nested_adjustment, depth + 1u);
+        if (nested_count <= 0) continue;
+        if (count == 0 && adjustment) {
+            *adjustment = cls->base_offsets[index] + nested_adjustment;
+        }
+        count += nested_count;
+        if (count > 1) return 2;
+    }
+    return count;
+}
+
+static bool sema_cxx_unique_public_base(Type* derived, Type* target,
+                                         int* adjustment) {
+    CxxClass* cls;
+    if (!derived || !target) return false;
+    cls = derived->cxx_class;
+    if (cls && cls->virtual_base_count == 0) {
+        int paths = sema_cxx_nonvirtual_public_base_paths(
+            derived, target, adjustment, 0u);
+        return paths == 1;
+    }
+    return sema_cxx_public_base(derived, target, adjustment, 0);
+}
+
 static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag,
                                        int adjustment) {
     if (!handler || tag == 0u) return;
@@ -378,8 +430,8 @@ static bool sema_cxx_pointer_conversion(Type* source, Type* target,
         target->kind != TYPE_PTR || !source->base || !target->base) {
         return false;
     }
-    return sema_cxx_public_base(source->base, target->base,
-                                adjustment, 0);
+    return sema_cxx_unique_public_base(source->base, target->base,
+                                       adjustment);
 }
 
 /* Return the first virtual-base edge in a public pointer conversion.  The
@@ -1425,7 +1477,8 @@ static Type* implicit_cast(Expr* e, Type* target) {
                     ? source->cxx_class->virtual_base_pointer_offset : -1;
                 return target;
             }
-            if (sema_cxx_public_base(source, referred, &adjustment, 0)) {
+            if (sema_cxx_unique_public_base(source, referred,
+                                            &adjustment)) {
                 /* Reference binding keeps the source lvalue address but uses
                  * the same fixed public-base displacement as a pointer
                  * conversion.  Record it on the initializer expression so
@@ -5985,7 +6038,7 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
             (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
             (target_base->kind == TYPE_STRUCT ||
              target_base->kind == TYPE_UNION) &&
-            sema_cxx_public_base(source, target_base, NULL, 0)) {
+            sema_cxx_unique_public_base(source, target_base, NULL)) {
             /* Binding a reference to a public base subobject is a standard
              * conversion.  implicit_cast() records the actual subobject
              * displacement; keep the conversion rank here so overload

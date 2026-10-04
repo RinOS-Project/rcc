@@ -175,6 +175,8 @@
   - [x] publicな非virtual/virtual派生クラスlvalueを基底クラス参照へ束縛する
         標準変換、vbptrを含む参照引数のsubobject調整、およびDerived&が
         Base&より優先されるbounded overload選択を両archで回帰検証
+  - [x] 非virtual多重継承で同一基底型への複数public経路を曖昧変換として
+        拒否し、pointer/reference引数の両arch診断を回帰検証
   - [x] bounded function-template overload candidatesで固定・非依存関数
         parameterの標準変換をdeduction後のviabilityへ分離し、候補間の
         conversion vectorを引数ごとに比較。直交したテンプレート候補の

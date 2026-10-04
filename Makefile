@@ -5964,6 +5964,24 @@ test-cxx-overloads: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-overloads/derived-base-reference-x64.ro \
 		tests/cxx_derived_base_reference.cpp
+	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/ambiguous-base-x86.ro \
+		tests/cxx_ambiguous_base_conversion_invalid.cpp \
+		>$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "incompatible type for argument 1 to 'take_base'" \
+		$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log
+	grep -q "incompatible type for argument 1 to 'take_base_pointer'" \
+		$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/ambiguous-base-x64.ro \
+		tests/cxx_ambiguous_base_conversion_invalid.cpp \
+		>$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "incompatible type for argument 1 to 'take_base'" \
+		$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log
+	grep -q "incompatible type for argument 1 to 'take_base_pointer'" \
+		$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/cxx-overloads/verify \
 		tests/cxx_overload_test.c src/emit_ro.c src/utils.c
 	$(TEST_OUT)/cxx-overloads/verify \
