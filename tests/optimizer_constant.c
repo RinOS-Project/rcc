@@ -80,6 +80,16 @@ int algebraic_integer_zero(int value)
     return (value * 0) | 7;
 }
 
+unsigned int strength_reduce_unsigned_right(unsigned int value)
+{
+    return value * 8U;
+}
+
+unsigned int strength_reduce_unsigned_left(unsigned int value)
+{
+    return 16U * value;
+}
+
 int preserved_algebraic_side_effect(int* value)
 {
     return (*value += 1) * 0;

@@ -20,6 +20,7 @@ static bool expression_modifies_decl(const Expr* expression,
 static bool statement_modifies_decl(const Stmt* statement,
                                     const Decl* declaration);
 static bool integer_literal(const Expr* expression, int64_t* value);
+static int integer_width(const Type* type);
 static void replace_integer(Expr* expression, int64_t value);
 static uint64_t integer_mask(const Type* type);
 static uint64_t integer_unsigned_value(int64_t value, const Type* type);
@@ -138,6 +139,53 @@ static bool simplify_integer_identity(Expr** expression) {
         }
     }
     return false;
+}
+
+static bool simplify_unsigned_power_of_two(Expr** expression) {
+    Expr* value;
+    Expr* operand;
+    Expr* shift;
+    Expr* replacement;
+    int64_t factor_value;
+    uint64_t factor_bits;
+    uint64_t shift_count = 0u;
+    int width;
+
+    if (!expression || !*expression || (*expression)->kind != EXPR_MUL) {
+        return false;
+    }
+    value = *expression;
+    if (!value->type || !type_is_integer(value->type) ||
+        !value->type->is_unsigned || !value->binary_lhs ||
+        !value->binary_rhs ||
+        !integer_expression_type_matches(value->binary_lhs, value->type) ||
+        !integer_expression_type_matches(value->binary_rhs, value->type)) {
+        return false;
+    }
+    width = integer_width(value->type);
+    if (width <= 0) return false;
+
+    if (integer_literal(value->binary_rhs, &factor_value)) {
+        operand = value->binary_lhs;
+    } else if (integer_literal(value->binary_lhs, &factor_value)) {
+        operand = value->binary_rhs;
+    } else {
+        return false;
+    }
+    (void)factor;
+    factor_bits = integer_unsigned_value(factor_value, value->type);
+    if (factor_bits == 0u || (factor_bits & (factor_bits - 1u)) != 0u) {
+        return false;
+    }
+    while ((factor_bits >> shift_count) > 1u) ++shift_count;
+    if (shift_count >= (uint64_t)width) return false;
+
+    shift = expr_int((int64_t)shift_count, value->loc);
+    shift->type = type_int;
+    replacement = expr_binary(EXPR_LSHIFT, operand, shift, value->loc);
+    replacement->type = value->type;
+    *expression = replacement;
+    return true;
 }
 
 static bool single_integer_return(const Stmt* statement, int64_t* value) {
@@ -1317,6 +1365,7 @@ static void optimize_expr(Expr** expression) {
     }
 
     if (simplify_integer_identity(expression)) return;
+    if (simplify_unsigned_power_of_two(expression)) return;
 
     switch (value->kind) {
         case EXPR_NEG:

@@ -101,6 +101,10 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "algebraic_integer_identities"));
     assert(function_extent(optimized, "algebraic_integer_zero") <
            function_extent(unoptimized, "algebraic_integer_zero"));
+    assert(function_extent(optimized, "strength_reduce_unsigned_right") <
+           function_extent(unoptimized, "strength_reduce_unsigned_right"));
+    assert(function_extent(optimized, "strength_reduce_unsigned_left") <
+           function_extent(unoptimized, "strength_reduce_unsigned_left"));
     assert(function_extent(optimized, "preserved_algebraic_side_effect") <
            function_extent(unoptimized, "preserved_algebraic_side_effect"));
     assert(function_extent(optimized, "removed_after_return") <
@@ -188,6 +192,10 @@ int main(int argc, char** argv)
             object, "algebraic_integer_identities");
         ObjSymbol* algebraic_integer_zero_symbol = function_symbol(
             object, "algebraic_integer_zero");
+        ObjSymbol* strength_reduce_unsigned_right_symbol = function_symbol(
+            object, "strength_reduce_unsigned_right");
+        ObjSymbol* strength_reduce_unsigned_left_symbol = function_symbol(
+            object, "strength_reduce_unsigned_left");
         ObjSymbol* inlined_argument_call_symbol = function_symbol(
             object, "inlined_argument_call");
         ObjSymbol* preserved_algebraic_side_effect_symbol = function_symbol(
@@ -270,6 +278,8 @@ int main(int argc, char** argv)
         int (*folded_mixed_unsigned_comparison)(void);
         int (*algebraic_integer_identities)(int);
         int (*algebraic_integer_zero)(int);
+        uint32_t (*strength_reduce_unsigned_right)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_left)(uint32_t);
         int (*inlined_argument_call)(int);
         int (*preserved_algebraic_side_effect)(int*);
         int (*removed_after_return)(int*);
@@ -350,6 +360,12 @@ int main(int argc, char** argv)
         address = mapping + algebraic_integer_zero_symbol->value;
         memcpy(&algebraic_integer_zero, &address,
                sizeof(algebraic_integer_zero));
+        address = mapping + strength_reduce_unsigned_right_symbol->value;
+        memcpy(&strength_reduce_unsigned_right, &address,
+               sizeof(strength_reduce_unsigned_right));
+        address = mapping + strength_reduce_unsigned_left_symbol->value;
+        memcpy(&strength_reduce_unsigned_left, &address,
+               sizeof(strength_reduce_unsigned_left));
         address = mapping + inlined_argument_call_symbol->value;
         memcpy(&inlined_argument_call, &address,
                sizeof(inlined_argument_call));
@@ -463,6 +479,8 @@ int main(int argc, char** argv)
         assert(folded_mixed_unsigned_comparison() == 0);
         assert(algebraic_integer_identities(-17) == -17);
         assert(algebraic_integer_zero(123) == 7);
+        assert(strength_reduce_unsigned_right(123u) == 984u);
+        assert(strength_reduce_unsigned_left(123u) == 1968u);
         assert(inlined_argument_call(-8) == -7);
         value = 10;
         assert(preserved_algebraic_side_effect(&value) == 0);
