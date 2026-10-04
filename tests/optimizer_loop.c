@@ -69,3 +69,21 @@ int loop_constant_zero_unsigned(void)
     }
     return result;
 }
+
+int do_constant_zero(void)
+{
+    int result = 0;
+    do {
+        result += 37;
+    } while (0);
+    return result;
+}
+
+int do_constant_zero_continue(void)
+{
+    int result = 41;
+    do {
+        continue;
+    } while (0);
+    return result;
+}

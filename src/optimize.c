@@ -1262,6 +1262,21 @@ static bool statement_contains_loop_transfer(const Stmt* statement) {
     }
 }
 
+static bool eliminate_zero_condition_do(Stmt* statement) {
+    int64_t condition;
+    Stmt* body;
+    if (!statement || statement->kind != STMT_DO ||
+        !statement->while_body || !statement->while_cond ||
+        !integer_literal(statement->while_cond, &condition) ||
+        condition != 0 ||
+        statement_contains_loop_transfer(statement->while_body)) {
+        return false;
+    }
+    body = statement->while_body;
+    *statement = *body;
+    return true;
+}
+
 static bool eliminate_zero_iteration_for(Stmt* statement) {
     Stmt* initializer;
     Decl* induction;
@@ -3135,6 +3150,7 @@ static void optimize_stmt(Stmt* statement) {
         case STMT_DO:
             optimize_expr(&statement->while_cond);
             optimize_stmt(statement->while_body);
+            eliminate_zero_condition_do(statement);
             break;
         case STMT_FOR:
             optimize_stmt(statement->for_init);

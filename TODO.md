@@ -320,6 +320,8 @@
   - [x] 定数初期値・定数境界で必ず0回になる副作用なし`for`を、符号付き／符号なし
         整数の比較規則を保持してinitializerだけのblockへ縮約し、両archの
         code-sizeと実行結果を回帰検証
+  - [x] 定数`while (0)`の`do`本体を、loop-transferを含まない場合だけ一回実行の
+        bodyへ縮約し、`continue`を含む本体は保持したまま両archの実行を回帰検証
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
