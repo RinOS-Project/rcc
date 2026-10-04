@@ -1416,6 +1416,29 @@ static const ModuleSymbol* debug_find_global_symbol(const Module* mod,
     return NULL;
 }
 
+static const Decl* debug_find_global_decl(const Module* mod,
+                                          const ModuleSymbol* symbol) {
+    const Decl* tentative = NULL;
+    const Decl* external = NULL;
+    if (!mod || !mod->debug_ast || !symbol || !symbol->name) return NULL;
+    for (DeclList* item = mod->debug_ast->decls; item; item = item->next) {
+        const Decl* declaration = item->decl;
+        const char* link_name;
+        if (!declaration || declaration->kind != DECL_VAR ||
+            !declaration->var_is_global) continue;
+        link_name = declaration->link_name
+                        ? declaration->link_name : declaration->name;
+        if (!link_name || strcmp(link_name, symbol->name) != 0) continue;
+        if (declaration->var_init) return declaration;
+        if (declaration->storage != STORAGE_EXTERN) {
+            if (!tentative) tentative = declaration;
+        } else if (!external) {
+            external = declaration;
+        }
+    }
+    return tentative ? tentative : external;
+}
+
 static void debug_emit_function_locals(ObjSection* info, ObjSection* strings,
                                        DebugTypeContext* types,
                                        const char* const* files, int file_count,
@@ -1659,7 +1682,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          item; item = item->next) {
         Decl* declaration = item->decl;
         const ModuleSymbol* symbol = debug_find_global_symbol(mod, declaration);
-        if (!symbol || !declaration->loc.filename ||
+        if (!symbol || debug_find_global_decl(mod, symbol) != declaration ||
+            !declaration->loc.filename ||
             declaration->loc.filename[0] == '\0' || declaration->loc.line == 0) {
             continue;
         }
@@ -1865,7 +1889,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          item; item = item->next) {
         Decl* declaration = item->decl;
         const ModuleSymbol* symbol = debug_find_global_symbol(mod, declaration);
-        if (!symbol || !declaration->loc.filename ||
+        if (!symbol || debug_find_global_decl(mod, symbol) != declaration ||
+            !declaration->loc.filename ||
             declaration->loc.filename[0] == '\0' || declaration->loc.line == 0) {
             continue;
         }

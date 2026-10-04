@@ -75,6 +75,25 @@ static uint64_t find_global_variable_die(const ObjSection* info,
     return UINT64_MAX;
 }
 
+static unsigned count_global_variable_dies(const ObjSection* info,
+                                           const ObjSection* strings,
+                                           const char* variable_name)
+{
+    unsigned count = 0u;
+    if (!info || !strings || !variable_name) return 0u;
+    for (uint64_t offset = 11u; offset + 5u < info->size; ++offset) {
+        uint32_t name_offset;
+        if (info->data[offset] != 9u) continue;
+        name_offset = read_u32(info->data, offset + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) == 0) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 static bool has_relocation(const ObjSection* section, uint64_t offset,
                            const char* symbol_name, RelocType type)
 {
@@ -106,6 +125,7 @@ static void verify_global_variable(const ObjSection* info,
     uint32_t linkage_offset;
 
     assert(die_offset != UINT64_MAX);
+    assert(count_global_variable_dies(info, strings, variable_name) == 1u);
     offset = die_offset + 1u;
     assert(read_u32(info->data, offset + 4u) < info->size);
     assert(info->data[offset + 4u] != 0u);
