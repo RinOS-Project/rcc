@@ -210,7 +210,7 @@ endif
 -include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-inline-asm-validation test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
-.PHONY: test-c17 test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz
+.PHONY: test-c17 test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-variable-templates
@@ -530,6 +530,56 @@ test: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello.rin tests/hello.c
 	@echo "RCC test completed"
+
+# Keep the production regression gate explicit.  The language aggregates cover
+# their complete C17/C++20 prerequisite lists; this target adds the independent
+# ABI, image, and assembler checks that cannot be reached through those lists.
+# Sanitizer and AQC suites remain separate jobs because they use different host
+# runtimes/toolchains.  Hardware validation is intentionally not implied here.
+TEST_CI_TARGETS = \
+	test-c17 \
+	test-cxx \
+	test-ir \
+	test-ir-lowering \
+	test-verified-backend \
+	test-optimize \
+	test-aggregate-union-abi \
+	test-aggregate-flexible-abi \
+	test-aggregate-sse-abi \
+	test-aggregate-nested-abi \
+	test-inline-asm \
+	test-inline-asm-validation \
+	test-executable-imports \
+	test-signing \
+	test-comdat-link \
+	test-pic-direct-internal \
+	test-pic-tls \
+	test-pic-got \
+	test-pic-plt \
+	test-link \
+	test-archive \
+	test-archive-link \
+	test-format-validation \
+	test-golden-artifacts \
+	test-determinism \
+	test-property-gate \
+	test-fuzz \
+	test-global-initializers \
+	test-global-finalizers \
+	test-manifest \
+	test-driver-policy \
+	test-weak-link \
+	test-object-width \
+	test-special-sections \
+	test-tls \
+	test-direct-relocation \
+	test-bootstrap-core \
+	test-bootstrap-link \
+	test-bootstrap-execute \
+	test-bootstrap-stage2
+
+test-ci: $(TEST_CI_TARGETS)
+	@echo "RCC production C17/C++20, IR, ABI, image, and bootstrap regression gate completed"
 
 test-c17: $(RCC_TARGET) $(C17_REGRESSION_TARGETS)
 	@echo "RCC C17 conformance compile-and-run suite completed"

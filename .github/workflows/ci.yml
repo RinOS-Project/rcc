@@ -107,35 +107,8 @@ jobs:
       - name: Build complete host toolchain
         run: make -j2 all
 
-      - name: Run aggregate language and IR gates
-        run: |
-          make test-c17
-          make test-cxx
-          make test-ir
-          make test-ir-lowering
-          make test-verified-backend
-          make test-optimize
-
-      - name: Run image, relocation, and bootstrap gates
-        run: |
-          make test-pic-direct-internal
-          make test-pic-tls
-          make test-pic-got
-          make test-pic-plt
-          make test-link
-          make test-archive
-          make test-archive-link
-          make test-format-validation
-          make test-golden-artifacts
-          make test-determinism
-          make test-property-gate
-          make test-fuzz
-          make test-global-initializers
-          make test-global-finalizers
-          make test-bootstrap-core
-          make test-bootstrap-link
-          make test-bootstrap-execute
-          make test-bootstrap-stage2
+      - name: Run complete production regression gate
+        run: make test-ci
 
   sanitizer-gate:
     name: sanitizer-regression-gate
