@@ -509,3 +509,8 @@
       host-native object verifiers, and explicit i686 inspect-only coverage;
       x64 cleanup execution remains fully enabled, while i686 execution stays
       dependent on a 32-bit host runtime or an available RinOS/WSL runner.
+- [x] Make native Windows compiler-builtin, C++ builtin, MMX, and SSE runtime
+      fixtures execute their i686 assembly through a freestanding `main`
+      entry when MinGW's 32-bit CRT is absent, and route all expected-failure
+      diagnostics through the shell-neutral helper so `test-compiler-builtins`
+      passes under `cmd.exe` without skipping x86 execution.

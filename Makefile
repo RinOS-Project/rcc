@@ -88,6 +88,23 @@ CXX_CLEANUP_X86_BUILD = $(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimize
 CXX_CLEANUP_X86_RUN = $(TEST_OUT)/optimize/cxx-cleanup-run-x86 $(TEST_OUT)/optimize/cxx-cleanup-x86.ro
 endif
 
+# Host-side compiler-builtin fixtures execute the assembly produced by RCC.
+# These fixtures intentionally use no CRT/API symbols, so native Windows
+# MinGW can link them as freestanding 32-bit PE images even when its 32-bit
+# CRT is not installed.  An unresolved compiler-generated reference remains
+# a link error; this is not an inspect-only or skipped execution path.
+ifeq ($(OS),Windows_NT)
+define RUN_COMPILER_BUILTINS_X86
+$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' -o $(1) $(2)
+$(1)
+endef
+else
+define RUN_COMPILER_BUILTINS_X86
+$(CC) -m32 -no-pie -o $(1) $(2)
+$(1)
+endef
+endif
+
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
                       src/ir.c src/ir_pass.c src/mir.c src/mir_alloc.c \
@@ -7046,9 +7063,7 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
-	$(CC) -m32 -no-pie -o $(TEST_OUT)/compiler-builtins/c-x86 \
-		$(TEST_OUT)/compiler-builtins/c-x86.s
-	$(TEST_OUT)/compiler-builtins/c-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/c-x86,$(TEST_OUT)/compiler-builtins/c-x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x64.s tests/compiler_builtins.c
 	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/c-x64 \
@@ -7057,9 +7072,7 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/compiler-builtins/cxx-x86.s \
 		tests/cxx_compiler_builtins.cpp
-	$(CC) -m32 -no-pie -o $(TEST_OUT)/compiler-builtins/cxx-x86 \
-		$(TEST_OUT)/compiler-builtins/cxx-x86.s
-	$(TEST_OUT)/compiler-builtins/cxx-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/cxx-x86,$(TEST_OUT)/compiler-builtins/cxx-x86.s)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/compiler-builtins/cxx-x64.s \
 		tests/cxx_compiler_builtins.cpp
@@ -7072,9 +7085,7 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/compiler-builtins/intrin-x64.ro tests/intrin_all_test.c
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -S \
 		-o $(TEST_OUT)/compiler-builtins/mmx-x86.s tests/mmx_intrin.c
-	$(CC) -m32 -no-pie -o $(TEST_OUT)/compiler-builtins/mmx-x86 \
-		$(TEST_OUT)/compiler-builtins/mmx-x86.s
-	$(TEST_OUT)/compiler-builtins/mmx-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/mmx-x86,$(TEST_OUT)/compiler-builtins/mmx-x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -S \
 		-o $(TEST_OUT)/compiler-builtins/mmx-x64.s tests/mmx_intrin.c
 	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/mmx-x64 \
@@ -7082,9 +7093,7 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/compiler-builtins/mmx-x64
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -S \
 		-o $(TEST_OUT)/compiler-builtins/sse-x86.s tests/sse_intrin.c
-	$(CC) -m32 -no-pie -o $(TEST_OUT)/compiler-builtins/sse-x86 \
-		$(TEST_OUT)/compiler-builtins/sse-x86.s
-	$(TEST_OUT)/compiler-builtins/sse-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse-x86,$(TEST_OUT)/compiler-builtins/sse-x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -S \
 		-o $(TEST_OUT)/compiler-builtins/sse-x64.s tests/sse_intrin.c
 	$(CC) -no-pie -o $(TEST_OUT)/compiler-builtins/sse-x64 \
@@ -7104,46 +7113,23 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-DEXPECT_NO_SSE2 -c \
 		-o $(TEST_OUT)/compiler-builtins/no-sse2-features-x64.ro \
 		tests/sse_feature_macros.c
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -mno-sse \
-		-Iinclude -c -o $(TEST_OUT)/compiler-builtins/no-sse-x86.ro \
-		tests/sse_intrin.c >$(TEST_OUT)/compiler-builtins/no-sse-x86.log 2>&1; then \
-		echo "SSE unexpectedly compiled with -mno-sse"; exit 1; \
-	fi
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -mno-sse -Iinclude -c -o $(TEST_OUT)/compiler-builtins/no-sse-x86.ro tests/sse_intrin.c,$(TEST_OUT)/compiler-builtins/no-sse-x86.log)
 	$(GREP) -F -q "requires SSE; enable it with -msse" \
 		$(TEST_OUT)/compiler-builtins/no-sse-x86.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -mno-sse2 \
-		-Iinclude -c -o $(TEST_OUT)/compiler-builtins/no-sse2-x64.ro \
-		tests/sse_intrin.c >$(TEST_OUT)/compiler-builtins/no-sse2-x64.log 2>&1; then \
-		echo "SSE2 unexpectedly compiled with -mno-sse2"; exit 1; \
-	fi
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/no-sse2-x64.ro tests/sse_intrin.c,$(TEST_OUT)/compiler-builtins/no-sse2-x64.log)
 	$(GREP) -F -q "requires SSE2; enable it with -msse2" \
 		$(TEST_OUT)/compiler-builtins/no-sse2-x64.log
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -c \
-		-o $(TEST_OUT)/compiler-builtins/invalid-sse-x86.ro \
-		tests/invalid_sse_intrin.c \
-		>$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log 2>&1; then \
-		echo "invalid SSE intrinsic fixture unexpectedly compiled"; exit 1; \
-	fi
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse-x86.ro tests/invalid_sse_intrin.c,$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log)
 	$(GREP) -F -q "expects 2 arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log
 	$(GREP) -F -q "requires an integer constant immediate" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -c \
-		-o $(TEST_OUT)/compiler-builtins/invalid-sse-x64.ro \
-		tests/invalid_sse_intrin.c \
-		>$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log 2>&1; then \
-		echo "invalid SSE intrinsic fixture unexpectedly compiled"; exit 1; \
-	fi
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse-x64.ro tests/invalid_sse_intrin.c,$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log)
 	$(GREP) -F -q "expects 2 arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log
 	$(GREP) -F -q "requires an integer constant immediate" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
-		-o $(TEST_OUT)/compiler-builtins/invalid-x86.ro \
-		tests/invalid_compiler_builtins.c \
-		>$(TEST_OUT)/compiler-builtins/invalid-x86.log 2>&1; then \
-		echo "invalid compiler builtin fixture unexpectedly compiled"; exit 1; \
-	fi
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x86.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x86.log)
 	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_trap expects no arguments, got 1" \
@@ -7154,12 +7140,7 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
-		-o $(TEST_OUT)/compiler-builtins/invalid-x64.ro \
-		tests/invalid_compiler_builtins.c \
-		>$(TEST_OUT)/compiler-builtins/invalid-x64.log 2>&1; then \
-		echo "invalid compiler builtin fixture unexpectedly compiled"; exit 1; \
-	fi
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x64.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x64.log)
 	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_trap expects no arguments, got 1" \
