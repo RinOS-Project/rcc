@@ -819,10 +819,13 @@ static void debug_line_sleb(ObjSection* section, int64_t value) {
 }
 
 static uint32_t debug_str_add(ObjSection* strings, const char* value);
+static void debug_expr_member_location(ObjSection* info, int offset);
 
 typedef struct DebugTypeEntry {
     const Type* type;
     uint32_t offset;
+    bool collecting;
+    bool recursive;
 } DebugTypeEntry;
 
 typedef struct DebugTypeContext {
@@ -870,11 +873,46 @@ static DebugTypeEntry* debug_type_add(DebugTypeContext* context,
     entry = &context->entries[context->count++];
     entry->type = type;
     entry->offset = 0u;
+    entry->collecting = false;
+    entry->recursive = false;
     return entry;
 }
 
 static void debug_type_collect(DebugTypeContext* context, const Type* type) {
-    if (!context || !type || debug_type_find(context, type)) return;
+    DebugTypeEntry* entry;
+    size_t entry_index;
+    if (!context || !type) return;
+    entry = debug_type_find(context, type);
+    if (entry) {
+        if (entry->collecting) entry->recursive = true;
+        return;
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        /* Add before visiting fields so self-referential aggregates
+         * terminate.  Non-recursive aggregates are moved after their
+         * member types, making their DW_AT_type references ready when the
+         * DIEs are emitted. */
+        entry = debug_type_add(context, type);
+        entry->collecting = true;
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (field->type) debug_type_collect(context, field->type);
+            entry = debug_type_find(context, type);
+            if (field->is_bitfield) entry->recursive = true;
+        }
+        entry = debug_type_find(context, type);
+        entry->collecting = false;
+        if (entry->recursive) return;
+        entry_index = (size_t)(entry - context->entries);
+        if (entry_index + 1u < context->count) {
+            DebugTypeEntry saved = *entry;
+            memmove(&context->entries[entry_index],
+                    &context->entries[entry_index + 1u],
+                    (context->count - entry_index - 1u) *
+                        sizeof(*context->entries));
+            context->entries[context->count - 1u] = saved;
+        }
+        return;
+    }
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
         type->kind == TYPE_VECTOR) {
         debug_type_collect(context, type->base);
@@ -1145,12 +1183,50 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             rcc_fatal("DWARF type DIE offset exceeds 32-bit range");
         }
         entry->offset = (uint32_t)info->size;
-        if (type->kind == TYPE_PTR) {
+        if (entry->recursive) {
+            /* Recursive aggregates and bit-fields require additional DIE
+             * attributes and forward-reference patching.  Keep the type
+             * honest as opaque instead of emitting a misleading partial
+             * member list. */
+            section_add_byte(info, 7u);        /* DW_TAG_unspecified_type */
+            debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
+            section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
+                                             (type->size < 0 ? 0 : type->size)));
+        } else if (type->kind == TYPE_PTR) {
             section_add_byte(info, 6u);        /* DW_TAG_pointer_type */
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
                                              (type->size < 0 ? 0 : type->size)));
             DebugTypeEntry* base = debug_type_find(context, type->base);
             debug_line_u32(info, base ? base->offset : 0u);
+        } else if (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
+            DebugTypeEntry* base = debug_type_find(context, type->base);
+            section_add_byte(info, 10u);       /* DW_TAG_array_type */
+            debug_line_u32(info, base ? base->offset : 0u);
+            if (type->array_len >= 0) {
+                section_add_byte(info, 11u);   /* DW_TAG_subrange_type */
+                debug_line_u32(info, type->array_len > 0
+                                     ? (uint32_t)type->array_len - 1u : 0u);
+                section_add_byte(info, 0u);
+            }
+            section_add_byte(info, 0u);
+        } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            section_add_byte(info, type->kind == TYPE_UNION ? 13u : 12u);
+            debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
+            debug_line_u32(info, (uint32_t)(type->size < 0 ? 0 : type->size));
+            for (TypeField* field = type->fields; field; field = field->next) {
+                DebugTypeEntry* field_type;
+                if (!field->name || !field->type) continue;
+                field_type = debug_type_find(context, field->type);
+                if (!field_type) {
+                    rcc_fatal("DWARF aggregate field type was not collected");
+                    return;
+                }
+                section_add_byte(info, 14u);  /* DW_TAG_member */
+                debug_line_u32(info, debug_str_add(strings, field->name));
+                debug_line_u32(info, field_type->offset);
+                debug_expr_member_location(info, field->offset);
+            }
+            section_add_byte(info, 0u);
         } else if (debug_type_encoding(type) != 0xffu) {
             section_add_byte(info, 5u);        /* DW_TAG_base_type */
             debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
@@ -1210,6 +1286,13 @@ static void debug_expr_addr(ObjectFile* obj, ObjSection* info,
     }
     objfile_add_reloc(obj, info_section, address_offset, symbol,
                       address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U, 0);
+}
+
+static void debug_expr_member_location(ObjSection* info, int offset) {
+    uint64_t value = offset < 0 ? 0u : (uint64_t)offset;
+    debug_line_uleb(info, 2u);
+    section_add_byte(info, 0x23u); /* DW_OP_plus_uconst */
+    debug_line_uleb(info, value);
 }
 
 static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
@@ -1974,6 +2057,52 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_AT_byte_size */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Abbreviations 10-14 describe the aggregate type DIEs emitted below:
+     * arrays with a bounded subrange, structures/unions with children, and
+     * ordinary data members with a DW_OP_plus_uconst location. */
+    debug_line_uleb(abbrev, 10u);
+    debug_line_uleb(abbrev, 0x01u);     /* DW_TAG_array_type */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 11u);
+    debug_line_uleb(abbrev, 0x21u);     /* DW_TAG_subrange_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x2fu);     /* DW_AT_upper_bound */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 12u);
+    debug_line_uleb(abbrev, 0x13u);     /* DW_TAG_structure_type */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_AT_byte_size */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 13u);
+    debug_line_uleb(abbrev, 0x17u);     /* DW_TAG_union_type */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_AT_byte_size */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 14u);
+    debug_line_uleb(abbrev, 0x0du);     /* DW_TAG_member */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x02u);     /* DW_AT_data_member_location */
+    debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

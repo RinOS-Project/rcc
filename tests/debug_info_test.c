@@ -335,8 +335,15 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_bytes(strings->data, strings->size, "right"));
         assert(contains_bytes(strings->data, strings->size, "sum"));
         assert(contains_bytes(strings->data, strings->size, "pointer"));
+        assert(contains_bytes(strings->data, strings->size,
+                              "debug_aggregate"));
+        assert(contains_bytes(strings->data, strings->size, "first"));
+        assert(contains_bytes(strings->data, strings->size, "second"));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x05u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x34u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x13u, 0x01u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0du, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x01u, 0x01u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x49u, 0x13u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x3au, 0x06u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x3bu, 0x06u));
@@ -346,6 +353,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0fu, 0x00u));
         assert(contains_byte(info->data, info->size,
                              architecture == ARCH_X64 ? 0x76u : 0x75u));
+        assert(contains_byte(info->data, info->size, 0x23u));
         {
             bool pointer_type_referenced = false;
             for (uint64_t offset = 0u; offset + 9u < info->size; ++offset) {

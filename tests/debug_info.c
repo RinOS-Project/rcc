@@ -2,6 +2,29 @@ int debug_global_data = 7;
 extern int debug_global_data;
 static int debug_file_static;
 
+struct debug_aggregate {
+    int first;
+    int second;
+};
+
+struct debug_aggregate debug_aggregate_data = {1, 2};
+int debug_array_data[2] = {8, 9};
+struct debug_recursive {
+    int value;
+    struct debug_recursive* next;
+};
+struct debug_recursive* debug_recursive_root;
+struct debug_bits {
+    unsigned first : 3;
+    unsigned second : 5;
+};
+struct debug_bits debug_bits_data;
+static int debug_aggregate_sum(void)
+{
+    struct debug_aggregate local = {3, 4};
+    return local.first + local.second;
+}
+
 static int debug_line_helper(void)
 {
     return 3;
@@ -23,5 +46,6 @@ int debug_info_parameters(int left, int right)
 {
     int sum = left + right;
     int* pointer = &sum;
-    return *pointer;
+    return *pointer + debug_aggregate_sum() +
+           debug_aggregate_data.first + debug_array_data[0];
 }
