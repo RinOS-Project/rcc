@@ -126,7 +126,40 @@ jobs:
           make test-archive
           make test-archive-link
           make test-format-validation
+          make test-golden-artifacts
           make test-bootstrap-core
           make test-bootstrap-link
           make test-bootstrap-execute
           make test-bootstrap-stage2
+
+  sanitizer-gate:
+    name: sanitizer-regression-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CC: gcc
+    defaults:
+      run:
+        working-directory: public-base/toolchain/RinCompiler
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: public-base/toolchain/RinCompiler
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinOS-SDK
+          path: public-base/RinOS-SDK
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinGPU
+          path: public-base/libs/RinGPU
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/rinvalidate
+          path: public-base/toolchain/rinvalidate
+
+      - name: Run ASan and UBSan regression suite
+        run: make -j2 test-sanitize
