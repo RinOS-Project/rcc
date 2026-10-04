@@ -565,3 +565,6 @@
       i686/x86_64 RCC output through freestanding `main` entries, while
       retaining `.ro` generation, invalid-member diagnostics, and the POSIX
       object-loader path.
+- [x] Make the native Windows floating static/TLS initializer gate inspect
+      generated assembly through the shared file-based text helper, preserving
+      both positive and negative IEEE-754 byte-pattern checks.
