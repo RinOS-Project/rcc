@@ -132,6 +132,22 @@ public:
     }
 };
 
+template<int N>
+class ConstrainedNumber {
+public:
+    int kind() {
+        return 1;
+    }
+};
+
+template<int N> requires (N > 3)
+class ConstrainedNumber<N> {
+public:
+    int kind() {
+        return 50;
+    }
+};
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};
@@ -143,6 +159,8 @@ int main() {
     Pair<long, 4> specialized_pair;
     Select<long, 3> ordinary_select;
     Select<int, 3> specialized_select;
+    ConstrainedNumber<2> constrained_primary;
+    ConstrainedNumber<5> constrained_specialized;
     DefaultType<int> default_type{5};
     AggregateBox<int> aggregate_box = make_aggregate_box(20, 22);
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
@@ -154,6 +172,8 @@ int main() {
                    specialized_pair.kind() == 40 &&
                    ordinary_select.kind() == 3 &&
                    specialized_select.kind() == 103 &&
+                   constrained_primary.kind() == 1 &&
+                   constrained_specialized.kind() == 50 &&
                    default_type.kind() == 9 &&
                    aggregate_box.first + aggregate_box.second == 42 &&
                    constexpr_aggregate_box.first +

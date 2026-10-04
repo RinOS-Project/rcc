@@ -187,8 +187,8 @@
         共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
   - [x] bounded class-template partial specialization matching for pointer
         patterns and exact integral patterns, including mixed type/non-type
-        patterns and ambiguity diagnostics with dual-architecture regression
-        coverage
+        patterns, requires-clause viability, and ambiguity diagnostics with
+        dual-architecture regression coverage
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance

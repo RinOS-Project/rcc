@@ -8570,6 +8570,15 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 }
             }
             if (matches) {
+                if (specialization->constraint &&
+                    !cxx_template_constraint_satisfied(
+                        specialization, specialization_arguments,
+                        specialization_values, specialization_value_present,
+                        loc, false)) {
+                    matches = false;
+                }
+            }
+            if (matches) {
                 if (specificity > selected_specificity) {
                     selected = specialization;
                     selected_specificity = specificity;
