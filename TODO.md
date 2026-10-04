@@ -398,7 +398,7 @@
   - [x] 非再帰のstruct／union／固定長array／vector型について、実フィールド・
         要素型・byte size・member locationを持つDWARF type DIEを出力し、
         i686/AMD64のobject・link回帰で検証。bit-fieldにはbit size／offsetも
-        出力し、再帰aggregateだけは未対応のforward referenceを捏造せず
+        出力し、aggregate先頭からのdata bit offsetを記録する。再帰aggregateだけは未対応のforward referenceを捏造せず
         opaque DIEへ保持
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed constant valueを出力し、i686/AMD64のobject・link回帰で検証

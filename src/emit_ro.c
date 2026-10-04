@@ -1214,6 +1214,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             debug_line_u32(info, (uint32_t)(type->size < 0 ? 0 : type->size));
             for (TypeField* field = type->fields; field; field = field->next) {
                 DebugTypeEntry* field_type;
+                uint64_t data_bit_offset;
                 if (!field->name || !field->type) continue;
                 field_type = debug_type_find(context, field->type);
                 if (!field_type) {
@@ -1225,8 +1226,17 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 debug_line_u32(info, field_type->offset);
                 debug_expr_member_location(info, field->offset);
                 if (field->is_bitfield) {
+                    if (field->offset < 0 ||
+                        (uint64_t)field->offset > UINT32_MAX / 8u ||
+                        (uint64_t)field->offset * 8u + field->bit_offset >
+                            UINT32_MAX) {
+                        rcc_fatal("DWARF bit-field offset exceeds 32-bit range");
+                        return;
+                    }
+                    data_bit_offset = (uint64_t)field->offset * 8u +
+                                      field->bit_offset;
                     debug_line_u32(info, field->bit_width);
-                    debug_line_u32(info, field->bit_offset);
+                    debug_line_u32(info, (uint32_t)data_bit_offset);
                 }
             }
             section_add_byte(info, 0u);
@@ -2151,7 +2161,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0x0du);     /* DW_AT_bit_size */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
-    debug_line_uleb(abbrev, 0x0cu);     /* DW_AT_bit_offset */
+    debug_line_uleb(abbrev, 0x6bu);     /* DW_AT_data_bit_offset */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
