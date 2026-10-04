@@ -1595,7 +1595,9 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     if (info_section < 0) rcc_fatal("DWARF info section is detached");
 
     /* Abbreviation 1: compile unit with producer, language, line table, and
-     * source name.  Abbreviation 2: a source-level function DIE. */
+     * source name.  Abbreviation 2: a source-level function DIE.  The
+     * DW_AT_inline value records the source declaration property; it does
+     * not claim that a call site was actually inlined. */
     debug_line_uleb(abbrev, 1u);
     debug_line_uleb(abbrev, 0x11u);    /* DW_TAG_compile_unit */
     section_add_byte(abbrev, 1u);
@@ -1630,6 +1632,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
     debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 3u);
@@ -1712,6 +1716,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     for (int index = 0; index < function_count; ++index) {
         const ModuleSymbol* function = functions[index];
         const char* symbol_name = function->name;
+        Decl* function_decl = debug_find_function_decl(mod, function);
         char* scoped_name = NULL;
         int file_index = debug_line_file_index(
             files, file_count, function->source_file);
@@ -1743,6 +1748,10 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          * unwind ranges remain a separate debug/unwind feature. */
         debug_expr_breg(info, g_opts.target_arch == ARCH_X64
                                ? ARCH_X64 : ARCH_X86, 0);
+        /* DW_INL_declared_inlined is 3.  This is deliberately based on the
+         * parsed declaration, not on a guessed call-site optimization state. */
+        section_add_byte(info, function_decl && function_decl->func_is_inline
+                                ? 3u : 0u);
         debug_emit_function_locals(
             info, strings, &types, files, file_count, mod, function,
             g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);

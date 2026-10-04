@@ -64,9 +64,25 @@ static uint64_t find_function_die(const ObjSection* info,
     return UINT64_MAX;
 }
 
+static uint8_t read_inline_attribute(const ObjSection* info,
+                                     uint64_t function_offset,
+                                     uint64_t address_size)
+{
+    uint64_t offset = function_offset + 1u + 4u + address_size + 4u + 1u +
+                      4u + 4u + 1u + 4u;
+    assert(info != NULL);
+    assert(offset + 4u < info->size);
+    /* DW_FORM_exprloc for the current frame-base expression is two bytes:
+     * length 1 followed by DW_OP_breg{5,6} and a zero SLEB displacement. */
+    assert(info->data[offset] == 2u);
+    offset += 3u;
+    return info->data[offset];
+}
+
 static void verify_debug_object(const char* path, uint16_t architecture,
                                 uint16_t language, const char* source_file,
-                                const char* function_name)
+                                const char* function_name,
+                                const char* inline_function_name)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* line;
@@ -104,6 +120,14 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(info->data[function_offset] == 2u);
         assert(info->size >= column_offset + 4u);
         assert(read_u32(info->data, column_offset) == 1u);
+        assert(read_inline_attribute(info, function_offset, address_size) == 0u);
+        if (inline_function_name) {
+            uint64_t inline_offset = find_function_die(
+                info, strings, inline_function_name, address_size);
+            assert(inline_offset != UINT64_MAX);
+            assert(read_inline_attribute(info, inline_offset, address_size) ==
+                   3u);
+        }
     }
     assert(abbrev->size > 8u && strings->size > 1u && strings->data[0] == 0u);
     assert(contains_bytes(strings->data, strings->size, function_name));
@@ -158,11 +182,13 @@ int main(int argc, char** argv)
 {
     assert(argc == 5);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
-                        "tests/debug_info.c", "debug_line_entry");
+                        "tests/debug_info.c", "debug_line_entry",
+                        "debug_declared_inline");
     verify_debug_object(argv[2], ARCH_X64, 0x000cu,
-                        "tests/debug_info.c", "debug_line_entry");
+                        "tests/debug_info.c", "debug_line_entry",
+                        "debug_declared_inline");
     verify_debug_object(argv[3], ARCH_X64, 0x0021u,
-                        "tests/hello.cpp", "main");
+                        "tests/hello.cpp", "main", NULL);
     verify_without_debug(argv[4]);
     return 0;
 }

@@ -323,6 +323,9 @@
         line/infoで共有してC/i686・C/x86_64回帰で検証
   - [x] 現行のframe-pointer ABIに合わせてsubprogramへ`DW_AT_frame_base`を
         出力し、i686/AMD64のEBP/RBP base expressionをdebug-info回帰で検証
+  - [x] `inline`宣言を実インライン化済みと誤認せず、subprogram DIEへ
+        `DW_AT_inline=DW_INL_declared_inlined`を記録し、非inline関数の
+        `DW_INL_not_inlined`と両archのdebug-info回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
