@@ -7880,6 +7880,14 @@ test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
 
 test-bootstrap-execute: test-bootstrap-link
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/execute)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(BOOTSTRAP_ROOT)/execute/reference-i686.ro tests/hello.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro tests/hello.c
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "& wsl.exe -d Ubuntu-24.04 bash -lc 'set -e; cd $(WSL_RINCOMPILER_ROOT); gcc -m32 $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -rdynamic -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-i686 $(WSL_RINCOMPILER_ROOT)/tests/bootstrap_stage_runner.c -ldl; gcc $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -rdynamic -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-x86_64 $(WSL_RINCOMPILER_ROOT)/tests/bootstrap_stage_runner.c -ldl; $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-i686 $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-i686.rin rcc-stage1 --target i686-unknown-rinos -c -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-i686.ro tests/hello.c; cmp $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/reference-i686.ro $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-i686.ro; $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-x86_64 $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-x86_64.rin rcc-stage1 --target x86_64-unknown-rinos -c -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro tests/hello.c; cmp $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro'"
+	@echo "Dual-architecture linked stage1 execution bootstrap completed"
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -rdynamic \
 		-o $(BOOTSTRAP_ROOT)/execute/run-i686 \
 		tests/bootstrap_stage_runner.c -ldl
@@ -7903,6 +7911,7 @@ test-bootstrap-execute: test-bootstrap-link
 	cmp $(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro \
 		$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro
 	@echo "Dual-architecture linked stage1 execution bootstrap completed"
+endif
 
 test-bootstrap-stage2: test-bootstrap-execute
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage2)
