@@ -67,6 +67,8 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "loop_volatile_increment"));
     assert(function_extent(optimized, "loop_descending_two") <
            function_extent(unoptimized, "loop_descending_two"));
+    assert(function_extent(optimized, "loop_descending_assignment_two") <
+           function_extent(unoptimized, "loop_descending_assignment_two"));
     assert(function_extent(optimized, "loop_descending_two_unsigned") <
            function_extent(unoptimized, "loop_descending_two_unsigned"));
     /* Unrolling three iterations can increase code size on this backend;
@@ -109,6 +111,8 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_volatile_increment");
         ObjSymbol* descending_two_symbol = objfile_find_symbol(
             optimized, "loop_descending_two");
+        ObjSymbol* descending_assignment_two_symbol = objfile_find_symbol(
+            optimized, "loop_descending_assignment_two");
         ObjSymbol* descending_two_unsigned_symbol = objfile_find_symbol(
             optimized, "loop_descending_two_unsigned");
         ObjSymbol* three_le_symbol = objfile_find_symbol(
@@ -136,6 +140,7 @@ static void verify_pair(const char* unoptimized_path,
         int (*assignment_function)(void);
         int (*volatile_function)(void);
         int (*descending_two_function)(void);
+        int (*descending_assignment_two_function)(void);
         int (*descending_two_unsigned_function)(void);
         int (*three_le_function)(void);
         int (*zero_function)(void);
@@ -150,6 +155,7 @@ static void verify_pair(const char* unoptimized_path,
                compound_symbol != NULL && assignment_symbol != NULL &&
                volatile_symbol != NULL &&
                descending_two_symbol != NULL &&
+               descending_assignment_two_symbol != NULL &&
                descending_two_unsigned_symbol != NULL &&
                three_le_symbol != NULL && zero_symbol != NULL &&
                zero_le_symbol != NULL && zero_unsigned_symbol != NULL &&
@@ -183,6 +189,9 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + descending_two_symbol->value;
         memcpy(&descending_two_function, &address,
                sizeof(descending_two_function));
+        address = mapping + descending_assignment_two_symbol->value;
+        memcpy(&descending_assignment_two_function, &address,
+               sizeof(descending_assignment_two_function));
         address = mapping + descending_two_unsigned_symbol->value;
         memcpy(&descending_two_unsigned_function, &address,
                sizeof(descending_two_unsigned_function));
@@ -211,6 +220,7 @@ static void verify_pair(const char* unoptimized_path,
         assert(assignment_function() == 58);
         assert(volatile_function() == 62);
         assert(descending_two_function() == 74);
+        assert(descending_assignment_two_function() == 94);
         assert(descending_two_unsigned_function() == 82);
         assert(three_le_function() == 21);
         assert(zero_function() == 5);

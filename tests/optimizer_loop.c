@@ -89,6 +89,15 @@ int loop_descending_two(void)
     return result;
 }
 
+int loop_descending_assignment_two(void)
+{
+    int result = 0;
+    for (int index = 3; index > 1; index = index - 1) {
+        result += 47;
+    }
+    return result;
+}
+
 int loop_descending_two_unsigned(void)
 {
     int result = 0;
