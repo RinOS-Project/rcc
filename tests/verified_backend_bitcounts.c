@@ -13,6 +13,18 @@ int verified_builtin_popcount32(unsigned int value)
     return __builtin_popcount(value);
 }
 
+int verified_builtin_prefetch_read(int* value)
+{
+    __builtin_prefetch(value, 0, 3);
+    return *value;
+}
+
+int verified_builtin_prefetch_write(int* value)
+{
+    __builtin_prefetch(value, 1, 0);
+    return *value;
+}
+
 #if defined(__x86_64__)
 int verified_builtin_clz64(unsigned long long value)
 {

@@ -2693,6 +2693,43 @@ static RccIrLowerValue lower_builtin_call(
         return lower_invalid_value();
     }
     name = expression->call_func->ident_name;
+    if (strcmp(name, "__builtin_prefetch") == 0) {
+        const ExprList* first = expression->call_args;
+        const ExprList* second = first ? first->next : NULL;
+        const ExprList* third = second ? second->next : NULL;
+        int64_t rw = 0;
+        int64_t locality = 3;
+        RccIrLowerValue address;
+        RccIrInstruction* instruction;
+        RccIrLowerValue result;
+        RccIrValue operand;
+        if (!expression->type || expression->type->kind != TYPE_VOID ||
+            !first || !first->expr || (third && third->next) ||
+            (second && (!second->expr ||
+                        !expr_eval_integer_constant(second->expr, &rw))) ||
+            (third && (!third->expr ||
+                       !expr_eval_integer_constant(third->expr, &locality))) ||
+            rw < 0 || rw > 1 || locality < 0 || locality > 3) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        address = lower_expression(context, first->expr);
+        if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        operand = address.value;
+        instruction = lower_append(context, RCC_IR_PREFETCH,
+                                   rcc_ir_type_void(), &operand, 1u,
+                                   NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        instruction->immediate = (uint64_t)(rw != 0 ? 4 : 0) |
+            (uint64_t)(locality == 0 ? 0 : 4 - locality);
+        result.type = rcc_ir_type_void();
+        result.is_unsigned = false;
+        result.valid = true;
+        return result;
+    }
     if (strcmp(name, "__builtin_clz") == 0 ||
         strcmp(name, "__builtin_clzl") == 0 ||
         strcmp(name, "__builtin_clzll") == 0 ||
@@ -3154,6 +3191,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_unreachable") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_trap") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_prefetch") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_clz") == 0 ||
                  strcmp(expression->call_func->ident_name,

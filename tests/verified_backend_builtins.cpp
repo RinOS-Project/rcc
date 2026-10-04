@@ -45,6 +45,12 @@ extern "C" int verified_cxx_builtin_popcountll(unsigned long long value)
     return __builtin_popcountll(value);
 }
 
+extern "C" int verified_cxx_builtin_prefetch(int* value)
+{
+    __builtin_prefetch(value, 1, 0);
+    return *value;
+}
+
 extern "C" int main(void)
 {
     if (verified_cxx_builtin_expect(31) != 31) return 1;
@@ -56,5 +62,9 @@ extern "C" int main(void)
     if (verified_cxx_builtin_clzll(1ULL) != 63) return 7;
     if (verified_cxx_builtin_ctzll(1ULL << 40) != 40) return 8;
     if (verified_cxx_builtin_popcountll(0xf00000000000000FULL) != 8) return 9;
+    {
+        int value = 37;
+        if (verified_cxx_builtin_prefetch(&value) != 37) return 10;
+    }
     return 0;
 }

@@ -364,6 +364,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_BRANCH: return "branch";
         case RCC_IR_COND_BRANCH: return "cond_branch";
         case RCC_IR_RETURN: return "return";
+        case RCC_IR_PREFETCH: return "prefetch";
         case RCC_IR_UNREACHABLE: return "unreachable";
     }
     return "invalid";
@@ -686,6 +687,16 @@ static bool ir_verify_instruction_types(
                                        "unreachable has invalid type or shape");
             }
             return true;
+        case RCC_IR_PREFETCH:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !rcc_ir_type_equal(instruction->type, void_type) ||
+                instruction->immediate > 7u) {
+                return ir_verify_error(
+                    verifier, "prefetch has invalid type, shape, or hint");
+            }
+            return ir_operand_has_type(
+                verifier, instruction, 0u,
+                rcc_ir_type_pointer(0u));
         case RCC_IR_ADD:
         case RCC_IR_SUB:
         case RCC_IR_MUL:

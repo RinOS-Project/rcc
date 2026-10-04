@@ -1385,6 +1385,7 @@ static bool ir_pass_cse_candidate(const RccIrInstruction* instruction) {
         case RCC_IR_BRANCH:
         case RCC_IR_COND_BRANCH:
         case RCC_IR_RETURN:
+        case RCC_IR_PREFETCH:
         case RCC_IR_UNREACHABLE:
             return false;
     }
@@ -1596,6 +1597,7 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_BRANCH:
         case RCC_IR_COND_BRANCH:
         case RCC_IR_RETURN:
+        case RCC_IR_PREFETCH:
         case RCC_IR_UNREACHABLE:
             return false;
     }

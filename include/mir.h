@@ -59,6 +59,7 @@ typedef enum {
     RCC_MIR_BRANCH,
     RCC_MIR_COND_BRANCH,
     RCC_MIR_RETURN,
+    RCC_MIR_PREFETCH,
     RCC_MIR_UNREACHABLE,
 } RccMirOpcode;
 

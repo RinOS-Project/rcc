@@ -120,8 +120,8 @@
         `__builtin_{clz,ctz,popcount}{,l,ll}` into verified typed-SSA
         operations with deterministic zero handling, target-width validation,
         dual-arch emission, and x86_64 execution coverage. `__builtin_prefetch`
-        remains an explicit legacy-backend boundary with its diagnostic
-        fallback; it is not represented as an empty verified-SSA stub.
+        is also lowered to validated x86 read/write prefetch hints with
+        optional-argument defaults and dual-arch object/runtime coverage.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] atomic-qualified整数の`&=`／`|=`／`^=`を一回評価のCAS retry loopでloweringし、

@@ -783,6 +783,39 @@ static bool x86_emit_indirect_modrm(
     return x86_emit_u8(encoder, x86_modrm(0u, reg, low));
 }
 
+static bool x86_emit_prefetch(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value address = instruction->operands[0];
+    unsigned hint = (unsigned)(instruction->immediate & 3u);
+    bool write = (instruction->immediate & 4u) != 0u;
+    unsigned extension = write ? 1u : hint;
+    uint8_t opcode = write ? 0x0du : 0x18u;
+    RccX86HardwareGpr address_register;
+    bool preserve;
+    if (instruction->immediate > 7u || address.size !=
+            encoder->function->pointer_size) {
+        return x86_encode_error(encoder,
+                                "x86 prefetch hint or address is invalid");
+    }
+    preserve = address.kind != RCC_X86_VALUE_GPR;
+    address_register = preserve
+        ? x86_choose_scratch(address, address) : address.gpr;
+    if (preserve && !x86_emit_push(encoder, address_register)) return false;
+    if (preserve && !x86_emit_load(
+            encoder, address_register, address,
+            encoder->function->pointer_size)) return false;
+    if (!x86_emit_rex(
+            encoder, false, (RccX86HardwareGpr)extension,
+            address_register, false) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, opcode) ||
+        !x86_emit_indirect_modrm(encoder, extension, address_register)) {
+        return false;
+    }
+    return !preserve || x86_emit_pop(encoder, address_register);
+}
+
 static bool x86_emit_indirect_load(
     RccX86Encoder* encoder, RccX86HardwareGpr destination,
     RccX86HardwareGpr address, uint16_t size) {
@@ -1336,6 +1369,8 @@ static bool x86_emit_instruction(
             return x86_emit_capture_return_pair(encoder, instruction);
         case RCC_X86_SELECT:
             return x86_emit_select(encoder, instruction);
+        case RCC_X86_PREFETCH:
+            return x86_emit_prefetch(encoder, instruction);
         case RCC_X86_JUMP:
             return x86_emit_u8(encoder, 0xe9u) &&
                 x86_add_fixup(encoder, instruction->targets[0]);

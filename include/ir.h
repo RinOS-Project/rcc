@@ -65,6 +65,7 @@ typedef enum {
     RCC_IR_BRANCH,
     RCC_IR_COND_BRANCH,
     RCC_IR_RETURN,
+    RCC_IR_PREFETCH,
     RCC_IR_UNREACHABLE,
 } RccIrOpcode;
 

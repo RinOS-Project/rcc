@@ -9121,7 +9121,7 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-builtins-x64.ro \
 		tests/verified_backend_builtins.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
 	@echo "Verified backend terminating/prediction builtin tests completed"
 
@@ -9131,13 +9131,13 @@ test-verified-bitcounts: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/bitcounts-x86.ro \
 		tests/verified_backend_bitcounts.c \
 		>$(TEST_OUT)/verified-backend/bitcounts-x86.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bitcounts-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bitcounts-x64.ro \
 		tests/verified_backend_bitcounts.c \
 		>$(TEST_OUT)/verified-backend/bitcounts-x64.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bitcounts-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/bitcounts-run \

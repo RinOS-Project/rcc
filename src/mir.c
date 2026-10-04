@@ -375,6 +375,12 @@ static bool mir_verify_instruction_type(
         case RCC_MIR_UNREACHABLE:
             return mir_shape(verifier, instruction, 0u, 0u) &&
                 rcc_mir_type_equal(instruction->type, void_type);
+        case RCC_MIR_PREFETCH:
+            return mir_shape(verifier, instruction, 1u, 0u) &&
+                rcc_mir_type_equal(instruction->type, void_type) &&
+                instruction->immediate <= 7u &&
+                mir_operand_type(verifier, instruction, 0u,
+                                 rcc_mir_type_pointer());
         case RCC_MIR_ADD:
         case RCC_MIR_SUB:
         case RCC_MIR_MUL:

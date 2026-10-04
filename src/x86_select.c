@@ -208,6 +208,7 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_BRANCH: return RCC_X86_JUMP;
         case RCC_MIR_COND_BRANCH: return RCC_X86_JUMP_IF;
         case RCC_MIR_RETURN: return RCC_X86_RETURN;
+        case RCC_MIR_PREFETCH: return RCC_X86_PREFETCH;
         case RCC_MIR_UNREACHABLE: return RCC_X86_TRAP;
         case RCC_MIR_PHI: break;
     }
@@ -427,6 +428,13 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
             return !instruction->has_destination &&
                 instruction->operand_count <= 2u &&
                 instruction->target_count == 0u;
+        case RCC_X86_PREFETCH:
+            return !instruction->has_destination &&
+                instruction->operand_count == 1u &&
+                instruction->target_count == 0u &&
+                instruction->type.kind == RCC_MIR_TYPE_VOID &&
+                instruction->operand_types[0].kind == RCC_MIR_TYPE_POINTER &&
+                instruction->immediate <= 7u;
         case RCC_X86_TRAP:
             return !instruction->has_destination &&
                 instruction->operand_count == 0u &&

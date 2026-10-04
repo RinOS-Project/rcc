@@ -40,6 +40,7 @@ typedef enum {
     RCC_X86_JUMP,
     RCC_X86_JUMP_IF,
     RCC_X86_RETURN,
+    RCC_X86_PREFETCH,
     RCC_X86_TRAP,
 } RccX86Opcode;
 
