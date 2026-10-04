@@ -1783,7 +1783,10 @@ static bool ir_pass_licm(
                 for (predecessor = 0u; predecessor < block_count;
                      ++predecessor) {
                     if (!predecessors[current * block_count + predecessor] ||
-                        loop[predecessor]) continue;
+                        loop[predecessor] ||
+                        !dominators[predecessor * block_count + header]) {
+                        continue;
+                    }
                     loop[predecessor] = true;
                     stack[stack_count++] = predecessor;
                 }
