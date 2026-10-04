@@ -83,6 +83,9 @@
     - [x] C17の旧式identifier-list function declaration/definitionを型付き
           parameter declarationへ接続し、既定int・array/function parameter
           adjustment・未知parameter診断と両arch compile/run回帰を追加
+  - [x] 一つのC17宣言文に複数のobject／pointer／array／function prototype／
+        typedef declaratorを許可し、同一source scopeの個別Declへ分解して
+        global/local initializerとpointer／array型を両archで実行・object回帰する
   - [x] function prototype scopeの`[*]`を未指定VLAとして保持し、
         definition／local／typedef／type-nameでの誤用を診断
   - [x] type-nameの`sizeof(int[count])`でVLA boundを意味解析し、

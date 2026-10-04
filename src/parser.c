@@ -3533,6 +3533,151 @@ static Stmt* parse_statement(void) {
  * Declaration Parsing
  * ═══════════════════════════════════════ */
 
+static Stmt* parser_declaration_list_result(StmtList* declarations,
+                                            SourceLoc loc) {
+    Stmt* result;
+    if (!declarations) return stmt_null(loc);
+    if (!declarations->next) return declarations->stmt;
+    result = stmt_block(declarations, loc);
+    /* A comma-separated declaration is one source-scope declaration list,
+     * not a nested compound statement.  Keeping this marker prevents the
+     * semantic and code-generation scope stacks from being changed while
+     * still reusing the existing statement-list representation. */
+    result->block_no_scope = true;
+    return result;
+}
+
+static Expr* parser_parse_variable_initializer(Type* type, SourceLoc loc) {
+    Expr* init = NULL;
+    if (match(TOK_ASSIGN)) {
+        init = parse_initializer();
+    } else if (parser_cxx_mode && check(TOK_LBRACE)) {
+        init = parse_initializer();
+    } else if (parser_cxx_mode && type && type->kind == TYPE_ARRAY &&
+               match(TOK_LPAREN)) {
+        ExprList* arguments = NULL;
+        if (!check(TOK_RPAREN)) {
+            do {
+                exprlist_append(&arguments, parse_assignment_expression());
+            } while (match(TOK_COMMA));
+        }
+        expect(TOK_RPAREN, ")");
+        if (!rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(loc,
+                      "C++20 aggregate parenthesized initialization requires C++20 or newer");
+        }
+        init = expr_initializer_list(arguments, loc);
+        init->compound_type = type;
+        init->compound_paren_init = true;
+    }
+    /* A declaration-level C++ braced initializer carries the declared class
+     * type, just like a direct-list expression parsed in an expression or
+     * local-declaration context. */
+    if (parser_cxx_mode && init && init->kind == EXPR_COMPOUND &&
+        !init->compound_type) {
+        init->compound_type = type;
+    }
+    if (parser_cxx_mode && rcc_parser_validate_cxx_object_type) {
+        rcc_parser_validate_cxx_object_type(type, loc);
+    }
+    rcc_parser_validate_cxx_constructor_initializer(type, init);
+    return init;
+}
+
+static Decl* parser_make_variable_decl(const char* name, Type* type,
+                                       Expr* init, SourceLoc loc,
+                                       StorageClass storage,
+                                       bool is_thread_local,
+                                       bool is_constexpr,
+                                       bool is_constinit,
+                                       bool is_inline, bool is_noreturn,
+                                       bool is_consteval) {
+    Decl* declaration = decl_var(name, type, init, loc);
+    declaration->storage = storage;
+    declaration->var_is_thread_local = is_thread_local;
+    declaration->var_is_constexpr = is_constexpr;
+    declaration->var_is_constinit = is_constinit;
+    declaration->var_is_inline = is_inline;
+    if (parser_cxx_mode && is_inline &&
+        !rcc_parser_cxx_standard_at_least(17)) {
+        rcc_error(loc, "inline variables require C++17 or newer");
+    }
+    if (is_noreturn) {
+        rcc_error(loc, "_Noreturn declaration must declare a function");
+    }
+    if (is_consteval) {
+        rcc_error(loc, "consteval declaration must declare a function");
+    }
+    if (parser_cxx_mode && rcc_parser_cxx_add_value_binding) {
+        rcc_parser_cxx_add_value_binding(name, type);
+    }
+    return declaration;
+}
+
+static Decl* parser_make_function_decl(const char* name, Type* type,
+                                       DeclList* parameters, Stmt* body,
+                                       SourceLoc loc, StorageClass storage,
+                                       bool is_inline, bool is_constexpr,
+                                       bool is_noreturn, bool is_noexcept,
+                                       Expr* noexcept_expr,
+                                       bool is_consteval) {
+    Decl* declaration = decl_func(name, type, parameters, body, loc);
+    declaration->storage = storage;
+    declaration->func_is_inline = is_inline;
+    declaration->func_is_constexpr = is_constexpr;
+    declaration->func_is_noreturn = is_noreturn;
+    declaration->func_is_noexcept = is_noexcept;
+    declaration->func_noexcept_expr = noexcept_expr;
+    declaration->func_is_consteval = is_consteval;
+    return declaration;
+}
+
+static void parser_apply_old_style_parameter_decl(
+    Decl* parameter_declaration, DeclList* parameters, Type* function_type,
+    SourceLoc loc) {
+    DeclList* parameter;
+    Type* parameter_type;
+    if (!parameter_declaration || !parameters || !function_type) return;
+    if (parameter_declaration->kind != DECL_VAR &&
+        parameter_declaration->kind != DECL_FUNC) {
+        rcc_error(loc,
+                  "old-style parameter declaration must declare one parameter");
+        return;
+    }
+    parameter = parameters;
+    while (parameter &&
+           (!parameter->decl->name ||
+            strcmp(parameter->decl->name, parameter_declaration->name) != 0)) {
+        parameter = parameter->next;
+    }
+    if (!parameter) {
+        rcc_error(parameter_declaration->loc,
+                  "old-style parameter declaration names an unknown parameter '%s'",
+                  parameter_declaration->name);
+        return;
+    }
+    if (parameter_declaration->kind == DECL_VAR &&
+        parameter_declaration->var_init) {
+        rcc_error(parameter_declaration->loc,
+                  "old-style parameter declaration cannot have an initializer");
+    }
+    parameter_type = parameter_declaration->type;
+    if (parameter_type && parameter_type->kind == TYPE_ARRAY) {
+        parameter_type = type_ptr(parameter_type->base);
+    } else if (parameter_type && parameter_type->kind == TYPE_FUNC) {
+        parameter_type = type_ptr(parameter_type);
+    }
+    parameter->decl->type = parameter_type;
+    {
+        TypeParam* type_parameter = function_type->params;
+        while (type_parameter && type_parameter->name &&
+               strcmp(type_parameter->name, parameter_declaration->name) != 0) {
+            type_parameter = type_parameter->next;
+        }
+        if (type_parameter) type_parameter->type = parameter_type;
+    }
+}
+
 Stmt* parse_declaration(void) {
     bool is_typedef = false;
     bool is_inline = false;
@@ -3696,15 +3841,38 @@ Stmt* parse_declaration(void) {
     }
 
     if (is_typedef) {
+        StmtList* declarations = NULL;
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a typedef");
         }
         if (is_constinit) {
             rcc_error(loc, "constinit declaration must declare a variable");
         }
-        expect(TOK_SEMICOLON, ";");
         parser_define_type(declaration_name, type);
-        return stmt_decl(decl_typedef(declaration_name, type, loc), loc);
+        stmtlist_append(&declarations,
+                        stmt_decl(decl_typedef(declaration_name, type, loc),
+                                  loc));
+        while (match(TOK_COMMA)) {
+            const char* next_name = NULL;
+            DeclList* next_parameters = NULL;
+            Type* next_type = parse_declarator(
+                base_type, &next_name, &next_parameters);
+            (void)next_parameters;
+            next_type = parse_declarator_attributes(next_type);
+            next_type = apply_explicit_alignment(
+                next_type, explicit_alignment, loc);
+            if (!next_name) {
+                rcc_error(loc, "expected identifier in declaration list");
+                synchronize();
+                break;
+            }
+            parser_define_type(next_name, next_type);
+            stmtlist_append(&declarations,
+                            stmt_decl(decl_typedef(next_name, next_type,
+                                                   loc), loc));
+        }
+        expect(TOK_SEMICOLON, ";");
+        return parser_declaration_list_result(declarations, loc);
     }
 
     /* Function declaration? */
@@ -3726,9 +3894,6 @@ Stmt* parse_declaration(void) {
             while (!check(TOK_LBRACE) && !check(TOK_SEMICOLON) &&
                    !at_end()) {
                 Stmt* parameter_statement;
-                Decl* parameter_declaration;
-                DeclList* parameter;
-                Type* parameter_type;
                 if (!is_type_start()) {
                     rcc_error(peek()->loc,
                               "expected old-style parameter declaration");
@@ -3736,50 +3901,29 @@ Stmt* parse_declaration(void) {
                     break;
                 }
                 parameter_statement = parse_declaration();
-                if (!parameter_statement ||
-                    parameter_statement->kind != STMT_DECL ||
-                    !parameter_statement->decl ||
-                    (parameter_statement->decl->kind != DECL_VAR &&
-                     parameter_statement->decl->kind != DECL_FUNC)) {
+                if (!parameter_statement) {
                     rcc_error(loc,
                               "old-style parameter declaration must declare one parameter");
                     continue;
                 }
-                parameter_declaration = parameter_statement->decl;
-                parameter = parameters;
-                while (parameter &&
-                       (!parameter->decl->name ||
-                        strcmp(parameter->decl->name,
-                               parameter_declaration->name) != 0)) {
-                    parameter = parameter->next;
-                }
-                if (!parameter) {
-                    rcc_error(parameter_declaration->loc,
-                              "old-style parameter declaration names an unknown parameter '%s'",
-                              parameter_declaration->name);
-                    continue;
-                }
-                if (parameter_declaration->kind == DECL_VAR &&
-                    parameter_declaration->var_init) {
-                    rcc_error(parameter_declaration->loc,
-                              "old-style parameter declaration cannot have an initializer");
-                }
-                parameter_type = parameter_declaration->type;
-                if (parameter_type && parameter_type->kind == TYPE_ARRAY) {
-                    parameter_type = type_ptr(parameter_type->base);
-                } else if (parameter_type &&
-                           parameter_type->kind == TYPE_FUNC) {
-                    parameter_type = type_ptr(parameter_type);
-                }
-                parameter->decl->type = parameter_type;
-                {
-                    TypeParam* type_parameter = type->params;
-                    while (type_parameter && type_parameter->name &&
-                           strcmp(type_parameter->name,
-                                  parameter_declaration->name) != 0) {
-                        type_parameter = type_parameter->next;
+                if (parameter_statement->kind == STMT_BLOCK &&
+                    parameter_statement->block_no_scope) {
+                    for (StmtList* item = parameter_statement->block_stmts;
+                         item; item = item->next) {
+                        if (item->stmt && item->stmt->kind == STMT_DECL) {
+                            parser_apply_old_style_parameter_decl(
+                                item->stmt->decl, parameters, type, loc);
+                        } else {
+                            rcc_error(loc,
+                                      "old-style parameter declaration must declare one parameter");
+                        }
                     }
-                    if (type_parameter) type_parameter->type = parameter_type;
+                } else if (parameter_statement->kind == STMT_DECL) {
+                    parser_apply_old_style_parameter_decl(
+                        parameter_statement->decl, parameters, type, loc);
+                } else {
+                    rcc_error(loc,
+                              "old-style parameter declaration must declare one parameter");
                 }
             }
         }
@@ -3794,95 +3938,117 @@ Stmt* parse_declaration(void) {
                 rcc_parser_cxx_end_function_parameters();
             }
         } else {
+            StmtList* declarations = NULL;
+            declaration = parser_make_function_decl(
+                declaration_name, type, parameters, NULL, loc, storage,
+                is_inline, is_constexpr, is_noreturn, is_noexcept,
+                noexcept_expr, is_consteval);
+            stmtlist_append(&declarations, stmt_decl(declaration, loc));
+            while (match(TOK_COMMA)) {
+                const char* next_name = NULL;
+                DeclList* next_parameters = NULL;
+                Type* next_type = parse_declarator(
+                    base_type, &next_name, &next_parameters);
+                next_type = parse_declarator_attributes(next_type);
+                next_type = apply_explicit_alignment(
+                    next_type, explicit_alignment, loc);
+                if (!next_name) {
+                    rcc_error(loc, "expected identifier in declaration list");
+                    synchronize();
+                    break;
+                }
+                if (next_type && next_type->kind == TYPE_FUNC) {
+                    if (is_thread_local) {
+                        rcc_error(loc,
+                                  "thread-local storage is not valid on a function");
+                    }
+                    stmtlist_append(
+                        &declarations,
+                        stmt_decl(parser_make_function_decl(
+                                      next_name, next_type, next_parameters,
+                                      NULL, loc, storage, is_inline,
+                                      is_constexpr, is_noreturn, is_noexcept,
+                                      noexcept_expr, is_consteval), loc));
+                } else {
+                    Expr* next_init = parser_parse_variable_initializer(
+                        next_type, loc);
+                    stmtlist_append(
+                        &declarations,
+                        stmt_decl(parser_make_variable_decl(
+                                      next_name, next_type, next_init, loc,
+                                      storage, is_thread_local, is_constexpr,
+                                      is_constinit, is_inline, is_noreturn,
+                                      is_consteval), loc));
+                }
+            }
             expect(TOK_SEMICOLON, ";");
+            return parser_declaration_list_result(declarations, loc);
         }
 
-        declaration = decl_func(declaration_name, type, parameters, body, loc);
-        declaration->storage = storage;
-        declaration->func_is_inline = is_inline;
-        declaration->func_is_constexpr = is_constexpr;
-        declaration->func_is_noreturn = is_noreturn;
-        declaration->func_is_noexcept = is_noexcept;
-        declaration->func_noexcept_expr = noexcept_expr;
-        declaration->func_is_consteval = is_consteval;
+        declaration = parser_make_function_decl(
+            declaration_name, type, parameters, body, loc, storage,
+            is_inline, is_constexpr, is_noreturn, is_noexcept,
+            noexcept_expr, is_consteval);
         return stmt_decl(declaration, loc);
     }
 
-    /* Variable initializer */
-    Expr* init = NULL;
-    if (match(TOK_ASSIGN)) {
-        init = parse_initializer();
-    } else if (parser_cxx_mode && check(TOK_LBRACE)) {
-        init = parse_initializer();
-    } else if (parser_cxx_mode && type && type->kind == TYPE_ARRAY &&
-               match(TOK_LPAREN)) {
-        ExprList* arguments = NULL;
-        if (!check(TOK_RPAREN)) {
-            do {
-                exprlist_append(&arguments, parse_assignment_expression());
-            } while (match(TOK_COMMA));
-        }
-        expect(TOK_RPAREN, ")");
-        if (!rcc_parser_cxx_standard_at_least(20)) {
-            rcc_error(loc,
-                      "C++20 aggregate parenthesized initialization requires C++20 or newer");
-        }
-        init = expr_initializer_list(arguments, loc);
-        init->compound_type = type;
-        init->compound_paren_init = true;
-    }
-    /* A declaration-level C++ braced initializer carries the declared class
-     * type, just like a direct-list expression parsed in an expression or
-     * local-declaration context.  Preserve that type so validated direct
-     * constructors, including static-storage cleanup wrappers, are selected
-     * consistently at semantic analysis time. */
-    if (parser_cxx_mode && init && init->kind == EXPR_COMPOUND &&
-        !init->compound_type) {
-        init->compound_type = type;
-    }
-    if (parser_cxx_mode && rcc_parser_validate_cxx_object_type) {
-        rcc_parser_validate_cxx_object_type(type, loc);
-    }
-    rcc_parser_validate_cxx_constructor_initializer(type, init);
+    /* Variable declarators share the declaration specifiers but retain their
+     * own pointer/array type and initializer. */
+    {
+        StmtList* declarations = NULL;
+        Expr* init = parser_parse_variable_initializer(type, loc);
+        declaration = parser_make_variable_decl(
+            declaration_name, type, init, loc, storage, is_thread_local,
+            is_constexpr, is_constinit, is_inline, is_noreturn, is_consteval);
+        stmtlist_append(&declarations, stmt_decl(declaration, loc));
 
-    expect(TOK_SEMICOLON, ";");
-
-    declaration = decl_var(declaration_name, type, init, loc);
-    declaration->storage = storage;
-    declaration->var_is_thread_local = is_thread_local;
-    declaration->var_is_constexpr = is_constexpr;
-    declaration->var_is_constinit = is_constinit;
-    declaration->var_is_inline = is_inline;
-    if (parser_cxx_mode && is_inline &&
-        !rcc_parser_cxx_standard_at_least(17)) {
-        rcc_error(loc, "inline variables require C++17 or newer");
+        while (match(TOK_COMMA)) {
+            const char* next_name = NULL;
+            DeclList* next_parameters = NULL;
+            Type* next_type = parse_declarator(
+                base_type, &next_name, &next_parameters);
+            next_type = parse_declarator_attributes(next_type);
+            next_type = apply_explicit_alignment(
+                next_type, explicit_alignment, loc);
+            if (!next_name) {
+                rcc_error(loc, "expected identifier in declaration list");
+                synchronize();
+                break;
+            }
+            if (next_type && next_type->kind == TYPE_FUNC) {
+                if (is_thread_local) {
+                    rcc_error(loc,
+                              "thread-local storage is not valid on a function");
+                }
+                stmtlist_append(
+                    &declarations,
+                    stmt_decl(decl_func(next_name, next_type,
+                                        next_parameters, NULL, loc), loc));
+                continue;
+            }
+            init = parser_parse_variable_initializer(next_type, loc);
+            declaration = parser_make_variable_decl(
+                next_name, next_type, init, loc, storage, is_thread_local,
+                is_constexpr, is_constinit, is_inline, is_noreturn,
+                is_consteval);
+            stmtlist_append(&declarations, stmt_decl(declaration, loc));
+        }
+        expect(TOK_SEMICOLON, ";");
+        return parser_declaration_list_result(declarations, loc);
     }
-    if (is_noreturn) {
-        rcc_error(loc, "_Noreturn declaration must declare a function");
-    }
-    if (is_consteval) {
-        rcc_error(loc, "consteval declaration must declare a function");
-    }
-    if (parser_cxx_mode && rcc_parser_cxx_add_value_binding) {
-        rcc_parser_cxx_add_value_binding(declaration_name, type);
-    }
-    return stmt_decl(declaration, loc);
 }
 
 /* ═══════════════════════════════════════
  * Top-level Parsing
  * ═══════════════════════════════════════ */
 
-static Decl* parse_toplevel(void) {
+static Stmt* parse_toplevel(void) {
     if (match(TOK_PRAGMA_PACK)) {
         parser_apply_pack(previous());
         return NULL;
     }
     Stmt* s = parse_declaration();
-    if (s && s->kind == STMT_DECL) {
-        return s->decl;
-    }
-    return NULL;
+    return s;
 }
 
 /* Main parser function */
@@ -3914,9 +4080,15 @@ AST* rcc_parse(TokenList* tokens) {
         Token* iteration_start = parser.cur;
         int errors_before = g_error_count;
         bool preserve_recovery_boundary = false;
-        Decl* d = parse_toplevel();
-        if (d) {
-            ast_add_decl(ast, d);
+        Stmt* s = parse_toplevel();
+        if (s && s->kind == STMT_DECL) {
+            ast_add_decl(ast, s->decl);
+        } else if (s && s->kind == STMT_BLOCK && s->block_no_scope) {
+            for (StmtList* item = s->block_stmts; item; item = item->next) {
+                if (item->stmt && item->stmt->kind == STMT_DECL) {
+                    ast_add_decl(ast, item->stmt->decl);
+                }
+            }
         }
         if (g_error_count > errors_before && parser.cur == iteration_start) {
             if (parser_is_recovery_declaration_start(parser.cur) &&

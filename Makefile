@@ -169,7 +169,7 @@ RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 -include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-execute test-inline-asm-validation test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override
-.PHONY: test-c17 test-c-old-style test-restrict-qualifier test-determinism test-property-gate test-fuzz
+.PHONY: test-c17 test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-variable-templates
@@ -434,7 +434,7 @@ C17_REGRESSION_TARGETS = \
 	test-pragma-pack \
 	test-string-embedded-nul
 
-C17_REGRESSION_TARGETS += test-c-old-style
+C17_REGRESSION_TARGETS += test-c-old-style test-c-multi-declarator
 
 # `-g` currently emits a relocatable DWARF line table.  Keep this gate in the
 # C17 aggregate so the option cannot silently regress to a no-op.
@@ -509,6 +509,23 @@ test-c-old-style: $(RCC_TARGET)
 	powershell -NoProfile -Command "& '$(RCC_TARGET)' --target i686-unknown-rinos -std=c17 -c -o '$(TEST_OUT)/c-old-style/invalid.ro' tests/c_old_style_invalid.c *> '$(TEST_OUT)/c-old-style/invalid.log'; if ($$LASTEXITCODE -eq 0) { Write-Error 'invalid old-style parameter declaration unexpectedly compiled'; exit 1 } else { exit 0 }"
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'old-style parameter declaration names an unknown parameter' -Path '$(TEST_OUT)/c-old-style/invalid.log')) { exit 1 }"
 	@echo "C17 old-style function declaration tests completed"
+
+test-c-multi-declarator: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c-multi-declarator)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/c-multi-declarator/x64.s tests/c_multi_declarator.c
+	$(CC) -no-pie -o $(TEST_OUT)/c-multi-declarator/x64 \
+		$(TEST_OUT)/c-multi-declarator/x64.s
+	$(TEST_OUT)/c-multi-declarator/x64
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/c-multi-declarator/x86.s tests/c_multi_declarator.c
+	$(CC) -m32 -c -o $(TEST_OUT)/c-multi-declarator/x86.o \
+		$(TEST_OUT)/c-multi-declarator/x86.s
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/c-multi-declarator/x86.ro tests/c_multi_declarator.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/c-multi-declarator/x64.ro tests/c_multi_declarator.c
+	@echo "C17 comma-separated declarator tests completed"
 
 test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/debug-info)
