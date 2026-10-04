@@ -116,10 +116,12 @@
   - [x] Lower `__builtin_trap` as a validated no-argument terminating
         intrinsic with real i686/AMD64 trap instructions and diagnostic
         coverage.
-  - [x] Lower common scalar builtins `__builtin_bswap{16,32,64}`,
-        `__builtin_{clz,ctz,popcount}{,ll}`, and `__builtin_prefetch` with
-        target instructions, constant-argument validation, and dual-arch C/C++
-        regression coverage.
+  - [x] Lower common scalar builtins `__builtin_bswap{16,32,64}` and
+        `__builtin_{clz,ctz,popcount}{,l,ll}` into verified typed-SSA
+        operations with deterministic zero handling, target-width validation,
+        dual-arch emission, and x86_64 execution coverage. `__builtin_prefetch`
+        remains an explicit legacy-backend boundary with its diagnostic
+        fallback; it is not represented as an empty verified-SSA stub.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] atomic-qualified整数の`&=`／`|=`／`^=`を一回評価のCAS retry loopでloweringし、

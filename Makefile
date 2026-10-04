@@ -9069,7 +9069,7 @@ test-ir-lowering: $(RCC_TARGET)
 	$(GREP) -F -q 'Typed SSA shadow verification: 4 function(s)' $(TEST_OUT)/ir-lowering/x64.log
 	@echo "Dual-architecture scalar AST to typed SSA lowering tests completed"
 
-.PHONY: test-verified-goto test-verified-builtins
+.PHONY: test-verified-goto test-verified-builtins test-verified-bitcounts
 
 test-verified-goto: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
@@ -9121,11 +9121,33 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-builtins-x64.ro \
 		tests/verified_backend_builtins.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
 	@echo "Verified backend terminating/prediction builtin tests completed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins
+test-verified-bitcounts: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/bitcounts-x86.ro \
+		tests/verified_backend_bitcounts.c \
+		>$(TEST_OUT)/verified-backend/bitcounts-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/bitcounts-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/bitcounts-x64.ro \
+		tests/verified_backend_bitcounts.c \
+		>$(TEST_OUT)/verified-backend/bitcounts-x64.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/bitcounts-x64.log
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/bitcounts-run \
+		tests/verified_backend_bitcounts_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/bitcounts-run \
+		$(TEST_OUT)/verified-backend/bitcounts-x64.ro
+	@echo "Verified backend clz/ctz/popcount tests completed"
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins test-verified-bitcounts
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

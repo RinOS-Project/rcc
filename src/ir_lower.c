@@ -2473,6 +2473,211 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                        expression->type->is_unsigned);
 }
 
+static RccIrLowerValue lower_builtin_integer_binary(
+    RccIrLowerContext* context, RccIrOpcode opcode,
+    RccIrLowerValue left, RccIrLowerValue right) {
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!context || !left.valid || !right.valid ||
+        !rcc_ir_type_equal(left.type, right.type) ||
+        left.type.kind != RCC_IR_TYPE_INTEGER) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = left.value;
+    operands[1] = right.value;
+    instruction = lower_append(context, opcode, left.type,
+                               operands, 2u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    return lower_value(instruction->result, left.type, left.is_unsigned);
+}
+
+static RccIrLowerValue lower_builtin_bit_count(
+    RccIrLowerContext* context, const Expr* expression, const char* name) {
+    const ExprList* argument;
+    const Type* argument_type;
+    RccIrType source_type;
+    RccIrType result_type;
+    RccIrLowerValue source;
+    RccIrLowerValue result;
+    bool leading = false;
+    bool population = false;
+    unsigned width = 0u;
+    unsigned index;
+
+    if (!context || !expression || !name ||
+        !expression->type || !lower_type(expression->type, &result_type) ||
+        result_type.kind != RCC_IR_TYPE_INTEGER ||
+        result_type.bit_width != 32u) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (strcmp(name, "__builtin_clz") == 0) {
+        leading = true;
+        width = 32u;
+    } else if (strcmp(name, "__builtin_clzl") == 0) {
+        leading = true;
+        width = g_opts.target_arch == ARCH_X64 ? 64u : 32u;
+    } else if (strcmp(name, "__builtin_clzll") == 0) {
+        leading = true;
+        width = 64u;
+    } else if (strcmp(name, "__builtin_ctz") == 0) {
+        width = 32u;
+    } else if (strcmp(name, "__builtin_ctzl") == 0) {
+        width = g_opts.target_arch == ARCH_X64 ? 64u : 32u;
+    } else if (strcmp(name, "__builtin_ctzll") == 0) {
+        width = 64u;
+    } else if (strcmp(name, "__builtin_popcount") == 0) {
+        population = true;
+        width = 32u;
+    } else if (strcmp(name, "__builtin_popcountl") == 0) {
+        population = true;
+        width = g_opts.target_arch == ARCH_X64 ? 64u : 32u;
+    } else if (strcmp(name, "__builtin_popcountll") == 0) {
+        population = true;
+        width = 64u;
+    } else {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    argument = expression->call_args;
+    if (!argument || !argument->expr || argument->next ||
+        !argument->expr->type || !type_is_integer(argument->expr->type) ||
+        !lower_type(argument->expr->type, &source_type) ||
+        source_type.kind != RCC_IR_TYPE_INTEGER ||
+        source_type.bit_width != width ||
+        (width == 64u && g_opts.target_arch != ARCH_X64)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    argument_type = argument->expr->type;
+    source = lower_expression(context, argument->expr);
+    source = lower_cast(context, source, argument_type);
+    if (!source.valid || !rcc_ir_type_equal(source.type, source_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (population) {
+        static const uint64_t masks[] = {
+            UINT64_C(0x5555555555555555),
+            UINT64_C(0x3333333333333333),
+            UINT64_C(0x0f0f0f0f0f0f0f0f),
+        };
+        static const unsigned shifts[] = {1u, 2u, 4u};
+        for (index = 0u; index < 3u; ++index) {
+            RccIrLowerValue shifted;
+            RccIrLowerValue shift = lower_integer_constant(
+                context, source_type, true, shifts[index]);
+            RccIrLowerValue mask = lower_integer_constant(
+                context, source_type, true,
+                width == 32u ? (masks[index] & UINT64_C(0xffffffff))
+                             : masks[index]);
+            if (!shift.valid || !mask.valid) return lower_invalid_value();
+            shifted = lower_builtin_integer_binary(
+                context, RCC_IR_LSHR, source, shift);
+            shifted = lower_builtin_integer_binary(
+                context, RCC_IR_AND, shifted, mask);
+            if (!shifted.valid) return lower_invalid_value();
+            if (index == 0u) {
+                source = lower_builtin_integer_binary(
+                    context, RCC_IR_SUB, source, shifted);
+            } else {
+                RccIrLowerValue masked = lower_builtin_integer_binary(
+                    context, RCC_IR_AND, source, mask);
+                if (!masked.valid) return lower_invalid_value();
+                source = lower_builtin_integer_binary(
+                    context, RCC_IR_ADD, masked, shifted);
+            }
+            if (!source.valid) return lower_invalid_value();
+        }
+        {
+            static const unsigned extra_shifts[] = {8u, 16u, 32u};
+            unsigned extra_count = width == 64u ? 3u : 2u;
+            for (index = 0u; index < extra_count; ++index) {
+                RccIrLowerValue shift = lower_integer_constant(
+                    context, source_type, true, extra_shifts[index]);
+                RccIrLowerValue shifted;
+                if (!shift.valid) return lower_invalid_value();
+                shifted = lower_builtin_integer_binary(
+                    context, RCC_IR_LSHR, source, shift);
+                source = lower_builtin_integer_binary(
+                    context, RCC_IR_ADD, source, shifted);
+                if (!source.valid) return lower_invalid_value();
+            }
+        }
+        {
+            RccIrLowerValue mask = lower_integer_constant(
+                context, source_type, true,
+                width == 64u ? UINT64_C(0x7f) : UINT64_C(0x3f));
+            if (!mask.valid) return lower_invalid_value();
+            source = lower_builtin_integer_binary(
+                context, RCC_IR_AND, source, mask);
+        }
+        return lower_cast(context, source, expression->type);
+    }
+    result = lower_integer_constant(
+        context, result_type, true, (uint64_t)width);
+    if (!result.valid) return lower_invalid_value();
+    for (index = 0u; index < width; ++index) {
+        unsigned bit_index = leading ? width - 1u - index : index;
+        RccIrLowerValue shift = lower_integer_constant(
+            context, source_type, true, bit_index);
+        RccIrLowerValue one = lower_integer_constant(
+            context, source_type, true, 1u);
+        RccIrLowerValue zero = lower_integer_constant(
+            context, source_type, true, 0u);
+        RccIrLowerValue shifted;
+        RccIrLowerValue bit;
+        RccIrLowerValue set;
+        RccIrLowerValue limit = lower_integer_constant(
+            context, result_type, true, (uint64_t)width);
+        RccIrLowerValue unused;
+        RccIrValue operands[3];
+        RccIrInstruction* instruction;
+        RccIrLowerValue candidate = lower_integer_constant(
+            context, result_type, true, index);
+        if (!shift.valid || !one.valid || !zero.valid || !limit.valid ||
+            !candidate.valid) return lower_invalid_value();
+        shifted = lower_builtin_integer_binary(
+            context, RCC_IR_LSHR, source, shift);
+        bit = lower_builtin_integer_binary(
+            context, RCC_IR_AND, shifted, one);
+        if (!shifted.valid || !bit.valid) return lower_invalid_value();
+        operands[0] = bit.value;
+        operands[1] = zero.value;
+        instruction = lower_append(context, RCC_IR_ICMP,
+                                   rcc_ir_type_integer(1u), operands, 2u,
+                                   NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        rcc_ir_set_predicate(instruction, RCC_IR_ICMP_NE);
+        set = lower_value(instruction->result,
+                          rcc_ir_type_integer(1u), true);
+        operands[0] = result.value;
+        operands[1] = limit.value;
+        instruction = lower_append(context, RCC_IR_ICMP,
+                                   rcc_ir_type_integer(1u), operands, 2u,
+                                   NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        rcc_ir_set_predicate(instruction, RCC_IR_ICMP_EQ);
+        unused = lower_value(instruction->result,
+                             rcc_ir_type_integer(1u), true);
+        operands[0] = unused.value;
+        operands[1] = set.value;
+        instruction = lower_append(context, RCC_IR_AND,
+                                   rcc_ir_type_integer(1u), operands, 2u,
+                                   NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        operands[0] = instruction->result;
+        operands[1] = candidate.value;
+        operands[2] = result.value;
+        instruction = lower_append(context, RCC_IR_SELECT, result_type,
+                                   operands, 3u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        result = lower_value(instruction->result, result_type, true);
+    }
+    return result;
+}
+
 static RccIrLowerValue lower_builtin_call(
     RccIrLowerContext* context, const Expr* expression) {
     const ExprList* first;
@@ -2488,6 +2693,17 @@ static RccIrLowerValue lower_builtin_call(
         return lower_invalid_value();
     }
     name = expression->call_func->ident_name;
+    if (strcmp(name, "__builtin_clz") == 0 ||
+        strcmp(name, "__builtin_clzl") == 0 ||
+        strcmp(name, "__builtin_clzll") == 0 ||
+        strcmp(name, "__builtin_ctz") == 0 ||
+        strcmp(name, "__builtin_ctzl") == 0 ||
+        strcmp(name, "__builtin_ctzll") == 0 ||
+        strcmp(name, "__builtin_popcount") == 0 ||
+        strcmp(name, "__builtin_popcountl") == 0 ||
+        strcmp(name, "__builtin_popcountll") == 0) {
+        return lower_builtin_bit_count(context, expression, name);
+    }
     if (strcmp(name, "__builtin_bswap16") == 0 ||
         strcmp(name, "__builtin_bswap32") == 0 ||
         strcmp(name, "__builtin_bswap64") == 0) {
@@ -2938,6 +3154,24 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_unreachable") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_trap") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_clz") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_clzl") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_clzll") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_ctz") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_ctzl") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_ctzll") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_popcount") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_popcountl") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_popcountll") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap16") == 0 ||
                  strcmp(expression->call_func->ident_name,
