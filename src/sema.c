@@ -8878,6 +8878,22 @@ static Type* sema_expr(Expr* expr) {
         } else {
             object_type = sema_expr(expr->call_func);
         }
+        if ((expr->call_func->kind == EXPR_MEMBER ||
+             expr->call_func->kind == EXPR_PTR_MEMBER) &&
+            expr->call_func->member_base &&
+            expr->call_func->member_base->kind == EXPR_CXX_TYPEID &&
+            object_type == rcc_cxx_type_info_type() &&
+            strcmp(expr->call_func->member_name, "hash_code") == 0) {
+            if (expr->call_args) {
+                rcc_error(expr->loc,
+                          "type_info::hash_code() takes no arguments");
+            } else {
+                expr->cxx_typeinfo_hash_code = true;
+                expr->type = g_opts.target_arch == ARCH_X64
+                    ? type_ulong : type_uint;
+                return expr->type;
+            }
+        }
         if (sema_rewrite_cxx_call_operator(expr, object_type)) {
             return sema_expr(expr);
         }

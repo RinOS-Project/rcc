@@ -2469,8 +2469,10 @@ static void codegen_emit_cxx_vbase_tables_in_namespace(Module* mod,
 
 void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     static const uint8_t zero[8] = {0};
+    uint8_t hash_bytes[8];
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     uint32_t offset;
+    uint64_t hash = UINT64_C(1469598103934665603);
     const ModuleSymbol* existing;
     if (!mod || !symbol || !symbol[0]) return;
     existing = module_lookup_symbol(mod, symbol);
@@ -2480,11 +2482,18 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
      * must be promoted in place so weak RTTI references cannot escape the TU
      * unresolved. */
     if (existing && existing->is_defined) return;
+    for (const unsigned char* p = (const unsigned char*)symbol; *p; ++p) {
+        hash ^= (uint64_t)*p;
+        hash *= UINT64_C(1099511628211);
+    }
+    for (unsigned index = 0; index < sizeof(hash_bytes); ++index) {
+        hash_bytes[index] = (uint8_t)(hash >> (index * 8u));
+    }
     while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
         emit_rodata(mod, zero, 1u);
     }
     offset = (uint32_t)mod->rodata.size;
-    emit_rodata(mod, zero, pointer_size);
+    emit_rodata(mod, hash_bytes, pointer_size);
     module_add_symbol(mod, symbol, offset, true,
                       MODULE_SYMBOL_RODATA, true);
     module_mark_symbol_weak(mod, symbol);
@@ -10052,6 +10061,11 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_CALL: {
+            if (expr->cxx_typeinfo_hash_code) {
+                gen_expr(mod, expr->call_func->member_base);
+                emit_mov_reg_mem(mod, EAX, EAX, 0);
+                break;
+            }
             gen_call(mod, expr);
             break;
         }

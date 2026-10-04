@@ -6224,6 +6224,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_CALL: {
+            if (expr->cxx_typeinfo_hash_code) {
+                gen64_expr(mod, expr->call_func->member_base);
+                emit64_mov_reg_mem(mod, RAX, RAX, 0);
+                break;
+            }
             if (expr->call_is_new) {
                 gen64_cxx_new(mod, expr);
                 break;

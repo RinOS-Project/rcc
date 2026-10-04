@@ -496,6 +496,8 @@ struct Expr {
     /* `typeid(expr)` on a glvalue of polymorphic class type resolves through
      * the most-derived vtable metadata at runtime. */
     bool cxx_typeid_dynamic;
+    /* Bounded `type_info::hash_code()` call lowered from a typeid result. */
+    bool cxx_typeinfo_hash_code;
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;
@@ -635,10 +637,9 @@ struct Expr {
         };
 
         /* EXPR_CXX_TYPEID.  The expression is an lvalue-like reference to
-         * the compiler's stable RinOS RTTI identity object.  The bounded
-         * implementation accepts type operands and non-polymorphic
-         * expression operands; polymorphic dynamic lookup is diagnosed until
-         * its null/bad_typeid path is complete. */
+         * the compiler's stable RinOS RTTI identity object.  Polymorphic
+         * glvalues use the most-derived identity from their vtable metadata;
+         * unsupported polymorphic prvalues remain a semantic diagnostic. */
         struct {
             Type* cxx_typeid_operand_type;
             Expr* cxx_typeid_operand;

@@ -646,6 +646,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_result_offset = 0;
     e->call_method = NULL;
     e->cxx_call_is_noexcept = false;
+    e->cxx_typeinfo_hash_code = false;
     e->call_is_virtual = false;
     e->call_virtual_index = -1;
     e->call_virtual_object = NULL;

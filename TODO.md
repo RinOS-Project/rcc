@@ -219,6 +219,9 @@
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
         non-null identity、null catch、`.ro`、unsigned-v3 `.rin`、
         `rinvalidate`を回帰検証する
+  - [x] bounded `type_info::hash_code()`をtypeinfo identity objectからの
+        pointer-sized hash loadへlowerし、同一型一致・異型分離・引数付き
+        呼出しの明示診断をi686/AMD64で回帰検証する
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
 - [ ] remaining full Itanium ABI、`type_info` API、complete static/TLS
       destructor semantics
