@@ -40,8 +40,7 @@ static size_t inline_pure_integer_expression_cost(const Expr* expression);
 
 static bool statement_contains_loop_transfer(const Stmt* statement);
 static bool statement_contains_declaration(const Stmt* statement);
-static bool is_unit_for_increment(const Expr* increment,
-                                  const Decl* induction);
+static int unit_for_step(const Expr* increment, const Decl* induction);
 static bool constant_for_iteration_count(const Stmt* statement,
                                          unsigned* count);
 static Expr* clone_unrolled_expr(const Expr* expression);
@@ -1318,43 +1317,69 @@ static bool statement_contains_declaration(const Stmt* statement) {
     }
 }
 
-static bool is_unit_for_increment(const Expr* increment,
-                                  const Decl* induction) {
+static int unit_for_step(const Expr* increment, const Decl* induction) {
     const Expr* lhs;
     const Expr* rhs;
     int64_t value;
-    if (!increment || !induction) return false;
+    if (!increment || !induction) return 0;
     if ((increment->kind == EXPR_PREINC ||
          increment->kind == EXPR_POSTINC) &&
         increment->unary_operand &&
         increment->unary_operand->kind == EXPR_IDENT &&
         increment->unary_operand->ident_decl == induction) {
-        return true;
+        return 1;
+    }
+    if ((increment->kind == EXPR_PREDEC ||
+         increment->kind == EXPR_POSTDEC) &&
+        increment->unary_operand &&
+        increment->unary_operand->kind == EXPR_IDENT &&
+        increment->unary_operand->ident_decl == induction) {
+        return -1;
     }
     if (increment->kind == EXPR_ADD_ASSIGN &&
         increment->binary_lhs && increment->binary_rhs &&
         increment->binary_lhs->kind == EXPR_IDENT &&
         increment->binary_lhs->ident_decl == induction &&
         integer_literal(increment->binary_rhs, &value)) {
-        return value == 1;
+        return value == 1 ? 1 : value == -1 ? -1 : 0;
+    }
+    if (increment->kind == EXPR_SUB_ASSIGN &&
+        increment->binary_lhs && increment->binary_rhs &&
+        increment->binary_lhs->kind == EXPR_IDENT &&
+        increment->binary_lhs->ident_decl == induction &&
+        integer_literal(increment->binary_rhs, &value)) {
+        return value == 1 ? -1 : 0;
     }
     if (increment->kind != EXPR_ASSIGN || !increment->binary_lhs ||
         !increment->binary_rhs || increment->binary_lhs->kind != EXPR_IDENT ||
         increment->binary_lhs->ident_decl != induction ||
         increment->binary_rhs->kind != EXPR_ADD) {
-        return false;
+        if (increment->kind != EXPR_ASSIGN || !increment->binary_lhs ||
+            !increment->binary_rhs ||
+            increment->binary_lhs->kind != EXPR_IDENT ||
+            increment->binary_lhs->ident_decl != induction ||
+            increment->binary_rhs->kind != EXPR_SUB) {
+            return 0;
+        }
+        lhs = increment->binary_rhs->binary_lhs;
+        rhs = increment->binary_rhs->binary_rhs;
+        if (lhs && lhs->kind == EXPR_IDENT &&
+            lhs->ident_decl == induction && integer_literal(rhs, &value)) {
+            return value == 1 ? -1 : 0;
+        }
+        return 0;
     }
     lhs = increment->binary_rhs->binary_lhs;
     rhs = increment->binary_rhs->binary_rhs;
     if (lhs && lhs->kind == EXPR_IDENT &&
         lhs->ident_decl == induction && integer_literal(rhs, &value)) {
-        return value == 1;
+        return value == 1 ? 1 : 0;
     }
     if (rhs && rhs->kind == EXPR_IDENT &&
         rhs->ident_decl == induction && integer_literal(lhs, &value)) {
-        return value == 1;
+        return value == 1 ? 1 : 0;
     }
-    return false;
+    return 0;
 }
 
 static bool eliminate_zero_condition_do(Stmt* statement) {
@@ -1379,6 +1404,7 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     Expr* increment;
     int64_t initial_value;
     int64_t bound_value;
+    int step;
     bool zero_iterations;
     StmtList* only;
     if (!statement || statement->kind != STMT_FOR ||
@@ -1393,14 +1419,18 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     induction = initializer->decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
+    step = unit_for_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
         !integer_literal(induction->var_init, &initial_value) ||
-        (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
+        !((step > 0 && (condition->kind == EXPR_LT ||
+                        condition->kind == EXPR_LE)) ||
+          (step < 0 && (condition->kind == EXPR_GT ||
+                        condition->kind == EXPR_GE))) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
         !integer_literal(condition->binary_rhs, &bound_value) ||
-        !is_unit_for_increment(increment, induction) ||
+        step == 0 ||
         statement_contains_label(statement->for_body)) {
         return false;
     }
@@ -1409,11 +1439,21 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
             initial_value, induction->type);
         uint64_t bound_bits = integer_unsigned_value(
             bound_value, induction->type);
-        zero_iterations = condition->kind == EXPR_LT
-            ? initial_bits >= bound_bits : initial_bits > bound_bits;
+        if (step > 0) {
+            zero_iterations = condition->kind == EXPR_LT
+                ? initial_bits >= bound_bits : initial_bits > bound_bits;
+        } else {
+            zero_iterations = condition->kind == EXPR_GT
+                ? initial_bits <= bound_bits : initial_bits < bound_bits;
+        }
     } else {
-        zero_iterations = condition->kind == EXPR_LT
-            ? initial_value >= bound_value : initial_value > bound_value;
+        if (step > 0) {
+            zero_iterations = condition->kind == EXPR_LT
+                ? initial_value >= bound_value : initial_value > bound_value;
+        } else {
+            zero_iterations = condition->kind == EXPR_GT
+                ? initial_value <= bound_value : initial_value < bound_value;
+        }
     }
     if (!zero_iterations) return false;
     only = ast_arena_alloc(sizeof(*only));
@@ -1432,6 +1472,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
     const Expr* increment;
     int64_t initial_value;
     int64_t bound_value;
+    int step;
     unsigned iterations;
     if (!statement || !count || statement->kind != STMT_FOR ||
         !statement->for_init || statement->for_init->kind != STMT_DECL ||
@@ -1449,14 +1490,18 @@ static bool constant_for_iteration_count(const Stmt* statement,
     induction = initializer->decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
+    step = unit_for_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
         !integer_literal(induction->var_init, &initial_value) ||
-        (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
+        !((step > 0 && (condition->kind == EXPR_LT ||
+                        condition->kind == EXPR_LE)) ||
+          (step < 0 && (condition->kind == EXPR_GT ||
+                        condition->kind == EXPR_GE))) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
         !integer_literal(condition->binary_rhs, &bound_value) ||
-        !is_unit_for_increment(increment, induction)) {
+        step == 0) {
         return false;
     }
     iterations = 0u;
@@ -1467,14 +1512,23 @@ static bool constant_for_iteration_count(const Stmt* statement,
             bound_value, induction->type);
         uint64_t mask = integer_mask(induction->type);
         while (iterations <= 4u) {
-            bool runs = condition->kind == EXPR_LT
-                ? current < bound : current <= bound;
+            bool runs;
+            if (step > 0) {
+                runs = condition->kind == EXPR_LT
+                    ? current < bound : current <= bound;
+            } else {
+                runs = condition->kind == EXPR_GT
+                    ? current > bound : current >= bound;
+            }
             if (!runs) {
                 *count = iterations;
                 return iterations >= 2u;
             }
-            if (current == mask) return false;
-            current = (current + 1u) & mask;
+            if ((step > 0 && current == mask) ||
+                (step < 0 && current == 0u)) return false;
+            current = step > 0
+                ? (current + 1u) & mask
+                : (current - 1u) & mask;
             ++iterations;
         }
     } else {
@@ -1488,14 +1542,21 @@ static bool constant_for_iteration_count(const Stmt* statement,
             return false;
         }
         while (iterations <= 4u) {
-            bool runs = condition->kind == EXPR_LT
-                ? current < bound : current <= bound;
+            bool runs;
+            if (step > 0) {
+                runs = condition->kind == EXPR_LT
+                    ? current < bound : current <= bound;
+            } else {
+                runs = condition->kind == EXPR_GT
+                    ? current > bound : current >= bound;
+            }
             if (!runs) {
                 *count = iterations;
                 return iterations >= 2u;
             }
-            if (current == maximum) return false;
-            ++current;
+            if ((step > 0 && current == maximum) ||
+                (step < 0 && current == minimum)) return false;
+            current = step > 0 ? current + 1 : current - 1;
             ++iterations;
         }
     }
@@ -1746,6 +1807,7 @@ static bool unroll_single_iteration_for(Stmt* statement) {
     Expr* increment;
     int64_t initial_value;
     int64_t bound_value;
+    int step;
     StmtList* first;
     StmtList** tail;
     if (!statement || statement->kind != STMT_FOR ||
@@ -1760,21 +1822,51 @@ static bool unroll_single_iteration_for(Stmt* statement) {
     induction = initializer->decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
+    step = unit_for_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) || !induction->var_init ||
         !integer_literal(induction->var_init, &initial_value) ||
-        (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
+        !((step > 0 && (condition->kind == EXPR_LT ||
+                        condition->kind == EXPR_LE)) ||
+          (step < 0 && (condition->kind == EXPR_GT ||
+                        condition->kind == EXPR_GE))) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
         !integer_literal(condition->binary_rhs, &bound_value) ||
-        !is_unit_for_increment(increment, induction) ||
+        step == 0 ||
         statement_contains_loop_transfer(statement->for_body) ||
         statement_contains_label(statement->for_body)) {
         return false;
     }
-    if ((condition->kind == EXPR_LT &&
-         (initial_value == INT64_MAX || bound_value != initial_value + 1)) ||
-        (condition->kind == EXPR_LE && bound_value != initial_value)) {
+    if (induction->type->is_unsigned) {
+        uint64_t initial_bits = integer_unsigned_value(
+            initial_value, induction->type);
+        uint64_t bound_bits = integer_unsigned_value(
+            bound_value, induction->type);
+        uint64_t mask = integer_mask(induction->type);
+        uint64_t expected = step > 0
+            ? (initial_bits + 1u) & mask
+            : (initial_bits - 1u) & mask;
+        if ((step > 0 && condition->kind == EXPR_LT &&
+             (initial_bits == mask || bound_bits != expected)) ||
+            (step > 0 && condition->kind == EXPR_LE &&
+             bound_bits != initial_bits) ||
+            (step < 0 && condition->kind == EXPR_GT &&
+             (initial_bits == 0u || bound_bits != expected)) ||
+            (step < 0 && condition->kind == EXPR_GE &&
+             bound_bits != initial_bits)) {
+            return false;
+        }
+    } else if ((step > 0 && condition->kind == EXPR_LT &&
+                (initial_value == INT64_MAX ||
+                 bound_value != initial_value + 1)) ||
+               (step > 0 && condition->kind == EXPR_LE &&
+                bound_value != initial_value) ||
+               (step < 0 && condition->kind == EXPR_GT &&
+                (initial_value == INT64_MIN ||
+                 bound_value != initial_value - 1)) ||
+               (step < 0 && condition->kind == EXPR_GE &&
+                bound_value != initial_value)) {
         return false;
     }
     first = ast_arena_alloc(sizeof(*first));

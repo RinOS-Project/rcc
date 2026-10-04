@@ -80,6 +80,24 @@ int loop_volatile_increment(void)
     return result;
 }
 
+int loop_descending_two(void)
+{
+    int result = 0;
+    for (int index = 3; index > 1; --index) {
+        result += 37;
+    }
+    return result;
+}
+
+int loop_descending_two_unsigned(void)
+{
+    int result = 0;
+    for (unsigned index = 2u; index >= 1u; index -= 1u) {
+        result += 41;
+    }
+    return result;
+}
+
 int loop_constant_three_le(void)
 {
     int result = 0;

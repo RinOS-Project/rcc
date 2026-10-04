@@ -331,6 +331,9 @@
   - [x] `i += 1`／`i = i + 1`（`1 + i`を含む）をunit-step inductionとして
         同じzero-trip／2〜4-trip proofへ接続し、volatile induction variableは
         observable accessを壊さないようunroll対象から除外して両arch回帰を追加
+  - [x] `--i`／`i -= 1`／`i = i - 1`をdescending unit-step inductionとして
+        signed／unsignedのzero-trip／2〜4-trip proofへ接続し、両archの
+        code-sizeと実行回帰を追加
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
