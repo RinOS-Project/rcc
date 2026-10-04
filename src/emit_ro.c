@@ -835,6 +835,70 @@ typedef struct DebugTypeContext {
     size_t capacity;
 } DebugTypeContext;
 
+typedef struct DebugTypePatch {
+    uint64_t offset;
+    DebugTypeEntry* target;
+} DebugTypePatch;
+
+typedef struct DebugTypePatchContext {
+    DebugTypePatch* patches;
+    size_t count;
+    size_t capacity;
+} DebugTypePatchContext;
+
+static void debug_type_patch_add(DebugTypePatchContext* context,
+                                 uint64_t offset, DebugTypeEntry* target) {
+    size_t capacity;
+    if (!context || !target) return;
+    if (context->count == context->capacity) {
+        capacity = context->capacity == 0u ? 16u : context->capacity * 2u;
+        if (capacity < context->count ||
+            capacity > SIZE_MAX / sizeof(*context->patches)) {
+            rcc_fatal("DWARF type patch table is too large");
+        }
+        context->patches = rcc_realloc(
+            context->patches, capacity * sizeof(*context->patches));
+        context->capacity = capacity;
+    }
+    context->patches[context->count].offset = offset;
+    context->patches[context->count].target = target;
+    ++context->count;
+}
+
+static void debug_type_ref(ObjSection* info,
+                           DebugTypePatchContext* patches,
+                           DebugTypeEntry* target) {
+    uint64_t offset;
+    if (!info) return;
+    offset = info->size;
+    debug_line_u32(info, target && target->offset != 0u
+                         ? target->offset : 0u);
+    if (target && target->offset == 0u) {
+        debug_type_patch_add(patches, offset, target);
+    }
+}
+
+static void debug_type_patches_apply(ObjSection* info,
+                                     DebugTypePatchContext* context) {
+    if (!info || !context) return;
+    for (size_t index = 0u; index < context->count; ++index) {
+        DebugTypePatch* patch = &context->patches[index];
+        if (!patch->target || patch->target->offset == 0u) {
+            rcc_fatal("DWARF type forward reference was not resolved");
+            return;
+        }
+        debug_line_patch_u32(info, patch->offset, patch->target->offset);
+    }
+}
+
+static void debug_type_patches_free(DebugTypePatchContext* context) {
+    if (!context) return;
+    rcc_free(context->patches);
+    context->patches = NULL;
+    context->count = 0u;
+    context->capacity = 0u;
+}
+
 static void debug_type_context_free(DebugTypeContext* context) {
     if (!context) return;
     for (size_t index = 0u; index < context->count; ++index) {
@@ -1218,7 +1282,8 @@ static uint8_t debug_type_encoding(const Type* type) {
 }
 
 static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
-                                 DebugTypeContext* context) {
+                                 DebugTypeContext* context,
+                                 DebugTypePatchContext* patches) {
     if (!info || !strings || !context) return;
     for (size_t index = 0u; index < context->count; ++index) {
         DebugTypeEntry* entry = &context->entries[index];
@@ -1227,16 +1292,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             rcc_fatal("DWARF type DIE offset exceeds 32-bit range");
         }
         entry->offset = (uint32_t)info->size;
-        if (entry->recursive) {
-            /* Recursive aggregates and bit-fields require additional DIE
-             * attributes and forward-reference patching.  Keep the type
-             * honest as opaque instead of emitting a misleading partial
-             * member list. */
-            section_add_byte(info, 7u);        /* DW_TAG_unspecified_type */
-            debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
-            section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
-                                             (type->size < 0 ? 0 : type->size)));
-        } else if (entry->qualifier_base) {
+        if (entry->qualifier_base) {
             DebugTypeEntry* base =
                 debug_type_find(context, entry->qualifier_base);
             if (!base) {
@@ -1252,17 +1308,17 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             } else {
                 section_add_byte(info, 23u);  /* DW_TAG_atomic_type */
             }
-            debug_line_u32(info, base->offset);
+            debug_type_ref(info, patches, base);
         } else if (type->kind == TYPE_PTR) {
             section_add_byte(info, 6u);        /* DW_TAG_pointer_type */
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
                                              (type->size < 0 ? 0 : type->size)));
             DebugTypeEntry* base = debug_type_find(context, type->base);
-            debug_line_u32(info, base ? base->offset : 0u);
+            debug_type_ref(info, patches, base);
         } else if (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
             DebugTypeEntry* base = debug_type_find(context, type->base);
             section_add_byte(info, 10u);       /* DW_TAG_array_type */
-            debug_line_u32(info, base ? base->offset : 0u);
+            debug_type_ref(info, patches, base);
             if (type->array_len >= 0) {
                 section_add_byte(info, 11u);   /* DW_TAG_subrange_type */
                 debug_line_u32(info, type->array_len > 0
@@ -1278,7 +1334,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 return;
             }
             section_add_byte(info, 18u);       /* DW_TAG_subroutine_type */
-            debug_line_u32(info, return_type->offset);
+            debug_type_ref(info, patches, return_type);
             for (TypeParam* parameter = type->params; parameter;
                  parameter = parameter->next) {
                 DebugTypeEntry* parameter_type =
@@ -1289,7 +1345,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                     return;
                 }
                 section_add_byte(info, 19u);   /* DW_TAG_formal_parameter */
-                debug_line_u32(info, parameter_type->offset);
+                debug_type_ref(info, patches, parameter_type);
             }
             section_add_byte(info, 0u);
         } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
@@ -1307,7 +1363,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 }
                 section_add_byte(info, field->is_bitfield ? 17u : 14u);
                 debug_line_u32(info, debug_str_add(strings, field->name));
-                debug_line_u32(info, field_type->offset);
+                debug_type_ref(info, patches, field_type);
                 debug_expr_member_location(info, field->offset);
                 if (field->is_bitfield) {
                     if (field->offset < 0 ||
@@ -1353,6 +1409,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                                              (type->size < 0 ? 0 : type->size)));
         }
     }
+    debug_type_patches_apply(info, patches);
 }
 
 static void debug_expr_breg(ObjSection* section, int architecture,
@@ -1953,6 +2010,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     const ModuleSymbol** functions;
     const char** files;
     DebugTypeContext types = {0};
+    DebugTypePatchContext type_patches = {0};
     ObjSection* strings;
     ObjSection* abbrev;
     ObjSection* info;
@@ -2305,7 +2363,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_u32(info, 0u);          /* .debug_line offset */
     debug_line_u32(info, unit_name_offset);
 
-    debug_emit_type_dies(info, strings, &types);
+    debug_emit_type_dies(info, strings, &types, &type_patches);
+    debug_type_patches_free(&type_patches);
 
     for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
          item; item = item->next) {

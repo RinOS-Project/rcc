@@ -57,6 +57,56 @@ static uint64_t read_uleb(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
+static void verify_recursive_aggregate_type(const ObjSection* info,
+                                             const ObjSection* strings)
+{
+    uint64_t aggregate_offset = UINT64_MAX;
+    uint64_t next_type_offset = UINT64_MAX;
+    assert(info != NULL && strings != NULL);
+    for (uint64_t offset = 11u; offset + 9u < info->size; ++offset) {
+        uint32_t name_offset;
+        if (info->data[offset] != 12u) continue;
+        name_offset = read_u32(info->data, offset + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_recursive") == 0) {
+            aggregate_offset = offset;
+            break;
+        }
+    }
+    assert(aggregate_offset != UINT64_MAX);
+    {
+        uint64_t child = aggregate_offset + 9u;
+        bool found_next = false;
+        while (child < info->size && info->data[child] != 0u) {
+            uint8_t tag = info->data[child];
+            uint32_t name_offset;
+            uint64_t expression_offset;
+            uint64_t expression_size;
+            assert(tag == 14u || tag == 17u);
+            assert(child + 9u <= info->size);
+            name_offset = read_u32(info->data, child + 1u);
+            if (name_offset < strings->size &&
+                strcmp((const char*)strings->data + name_offset,
+                       "next") == 0) {
+                next_type_offset = read_u32(info->data, child + 5u);
+                found_next = true;
+            }
+            expression_offset = child + 9u;
+            expression_size = read_uleb(
+                info->data, info->size, &expression_offset);
+            assert(expression_offset + expression_size <= info->size);
+            child = expression_offset + expression_size +
+                (tag == 17u ? 8u : 0u);
+        }
+        assert(child < info->size && info->data[child] == 0u);
+        assert(found_next && next_type_offset < info->size);
+    }
+    assert(info->data[next_type_offset] == 6u);
+    assert(next_type_offset + 6u <= info->size);
+    assert(read_u32(info->data, next_type_offset + 2u) == aggregate_offset);
+}
+
 static void verify_subroutine_type(const ObjSection* info)
 {
     if (!info) return;
@@ -373,6 +423,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_bytes(strings->data, strings->size, "first"));
         assert(contains_bytes(strings->data, strings->size, "second"));
         assert(contains_bytes(strings->data, strings->size, "debug_enum"));
+        verify_recursive_aggregate_type(info, strings);
         assert(contains_bytes(strings->data, strings->size,
                               "DEBUG_ENUM_NEGATIVE"));
         assert(contains_bytes(strings->data, strings->size,
