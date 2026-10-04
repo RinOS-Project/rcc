@@ -14,8 +14,9 @@ static void eliminate_block_dead_stores(Stmt* statement);
 
 /* A bounded fixed point is used only to resolve declaration-order
  * dependencies between the conservative pure-integer inline candidates.
- * Recursive, aggregate, exception, and cost-based inline forms remain
- * outside this pass. */
+ * Recursive, aggregate, exception, and whole-program cost-based inline forms
+ * remain outside this pass; local expression expansion has an explicit node
+ * budget below. */
 static bool optimize_inline_changed;
 static AST* optimize_inline_ast;
 
@@ -33,6 +34,8 @@ static uint64_t integer_mask(const Type* type);
 static uint64_t integer_unsigned_value(int64_t value, const Type* type);
 static Expr* clone_inline_pure_integer_expression(const Expr* expression);
 static size_t inline_pure_integer_expression_cost(const Expr* expression);
+
+enum { INLINE_PURE_INTEGER_EXPANSION_LIMIT = 64 };
 
 static void replace_integer_with_side_effect(Expr** expression,
                                               Expr* side_effect) {
@@ -650,6 +653,33 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         if (cost == (size_t)-1 ||
             cost > 16u / bindings[index].uses) {
             return false;
+        }
+    }
+    {
+        size_t expansion_cost = inline_pure_integer_expression_cost(returned);
+        if (expansion_cost == (size_t)-1 ||
+            expansion_cost > INLINE_PURE_INTEGER_EXPANSION_LIMIT) {
+            return false;
+        }
+        /* The return expression cost counts each parameter identifier as one
+         * node.  Charge the additional nodes introduced by each substituted
+         * pure argument so a large expression cannot bypass the per-argument
+         * repeated-use guard merely by using many distinct parameters. */
+        for (index = 0u; index < binding_count; ++index) {
+            size_t uses = bindings[index].uses;
+            size_t cost = inline_pure_integer_expression_cost(
+                bindings[index].argument);
+            size_t additional;
+            if (uses == 0u || cost <= 1u) continue;
+            if (cost == (size_t)-1 ||
+                uses > ((size_t)-1) / (cost - 1u)) return false;
+            additional = uses * (cost - 1u);
+            if (expansion_cost > (size_t)-1 - additional ||
+                expansion_cost + additional >
+                    INLINE_PURE_INTEGER_EXPANSION_LIMIT) {
+                return false;
+            }
+            expansion_cost += additional;
         }
     }
     {

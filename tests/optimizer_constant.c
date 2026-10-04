@@ -113,6 +113,23 @@ int inlined_conditional_cast_call(int value)
     return inline_conditional_cast(value);
 }
 
+static int inline_large_pure_body(int value)
+{
+    return ((value ? value : value) + (value ? value : value)) +
+           ((value ? value : value) + (value ? value : value)) +
+           ((value ? value : value) + (value ? value : value)) +
+           ((value ? value : value) + (value ? value : value)) +
+           ((value ? value : value) + (value ? value : value)) +
+           ((value ? value : value) + (value ? value : value)) +
+           ((value ? value : value) + (value ? value : value)) +
+           ((value ? value : value) + (value ? value : value));
+}
+
+int preserved_large_inline_call(int value)
+{
+    return inline_large_pure_body(value);
+}
+
 static int inline_add_pair(int left, int right)
 {
     return left + right;
