@@ -797,6 +797,7 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
+static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression);
 static void gen64_cxx_dynamic_cast_runtime(Module* mod, Expr* expr);
 static void emit64_normalize_atomic_value(Module* mod, int reg,
                                           const Type* type);
@@ -2856,11 +2857,7 @@ static bool gen64_local_initializer(Module* mod, Type* type,
     if (gen64_aggregate_zero_initializer(type, initializer)) return true;
     if (type->kind == TYPE_PTR && type->is_reference) {
         gen64_lvalue(mod, initializer);
-        if (initializer->cxx_pointer_adjustment_valid &&
-            initializer->cxx_pointer_adjustment != 0) {
-            emit64_add_reg_imm(mod, RAX,
-                               initializer->cxx_pointer_adjustment);
-        }
+        gen64_cxx_reference_adjustment(mod, initializer);
         emit64_store_typed(mod, RBP, displacement, RAX, type);
         return true;
     }
@@ -5307,6 +5304,38 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
     emit64_label(mod, done);
 }
 
+static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression) {
+    if (!expression) return;
+    if (expression->cxx_virtual_base_adjustment) {
+        int end_label;
+        if (!expression->cxx_virtual_base_source_class ||
+            expression->cxx_virtual_base_pointer_offset < 0 ||
+            expression->cxx_virtual_base_index < 0 ||
+            expression->cxx_virtual_base_index >=
+                expression->cxx_virtual_base_source_class->virtual_base_count) {
+            rcc_error(expression->loc,
+                      "reference virtual-base conversion has incomplete vbtable metadata");
+            return;
+        }
+        end_label = new_label64();
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, end_label);
+        emit64_mov_reg_mem(mod, RDX, RAX,
+                           expression->cxx_virtual_base_pointer_offset);
+        emit64_mov_reg_mem(mod, RCX, RDX,
+                           expression->cxx_virtual_base_index * 8);
+        emit64_add_reg_reg(mod, RAX, RCX);
+        if (expression->cxx_virtual_base_nested_adjustment != 0) {
+            emit64_add_reg_imm(mod, RAX,
+                               expression->cxx_virtual_base_nested_adjustment);
+        }
+        emit64_label(mod, end_label);
+    } else if (expression->cxx_pointer_adjustment_valid &&
+               expression->cxx_pointer_adjustment != 0) {
+        emit64_add_reg_imm(mod, RAX, expression->cxx_pointer_adjustment);
+    }
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -6360,6 +6389,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                     } else {
                         gen64_lvalue(mod, argument);
+                        gen64_cxx_reference_adjustment(mod, argument);
                         emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                     }
                 } else {

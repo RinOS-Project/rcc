@@ -412,6 +412,36 @@ static bool sema_cxx_virtual_base_conversion(Type* source, Type* target,
     return false;
 }
 
+/* The reference form of a derived-to-virtual-base conversion starts with an
+ * object lvalue rather than a pointer expression.  Keep its metadata on the
+ * same expression so call lowering can read the source object's vbptr just as
+ * it does for an explicit pointer conversion. */
+static bool sema_cxx_virtual_object_conversion(Type* source, Type* target,
+                                               int* virtual_index,
+                                               int* nested_adjustment) {
+    CxxClass* cls;
+    if (!source || !target ||
+        (source->kind != TYPE_STRUCT && source->kind != TYPE_UNION) ||
+        (target->kind != TYPE_STRUCT && target->kind != TYPE_UNION)) {
+        return false;
+    }
+    cls = source->cxx_class;
+    if (!cls) return false;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxVirtualBaseInfo* item = &cls->virtual_bases[index];
+        int nested = 0;
+        if (!item->base || !item->public_path || !item->base->type ||
+            !sema_cxx_public_base(item->base->type, target,
+                                  &nested, 0)) {
+            continue;
+        }
+        if (virtual_index) *virtual_index = index;
+        if (nested_adjustment) *nested_adjustment = nested;
+        return true;
+    }
+    return false;
+}
+
 static bool sema_cxx_set_pointer_conversion(Expr* expression, Type* source,
                                             Type* target, int* adjustment) {
     int virtual_index;
@@ -1382,6 +1412,19 @@ static Type* implicit_cast(Expr* e, Type* target) {
             (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
             (referred->kind == TYPE_STRUCT || referred->kind == TYPE_UNION)) {
             int adjustment = 0;
+            int virtual_index;
+            int nested_adjustment;
+            e->cxx_virtual_base_adjustment = false;
+            if (sema_cxx_virtual_object_conversion(
+                    source, referred, &virtual_index, &nested_adjustment)) {
+                e->cxx_virtual_base_adjustment = true;
+                e->cxx_virtual_base_index = virtual_index;
+                e->cxx_virtual_base_nested_adjustment = nested_adjustment;
+                e->cxx_virtual_base_source_class = source->cxx_class;
+                e->cxx_virtual_base_pointer_offset = source->cxx_class
+                    ? source->cxx_class->virtual_base_pointer_offset : -1;
+                return target;
+            }
             if (sema_cxx_public_base(source, referred, &adjustment, 0)) {
                 /* Reference binding keeps the source lvalue address but uses
                  * the same fixed public-base displacement as a pointer
@@ -5938,6 +5981,17 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
             return -1;
         }
         if (cxx_same_parameter_type(source, target_base, false)) return 0;
+        if (rcc_parser_is_cxx_mode() &&
+            (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
+            (target_base->kind == TYPE_STRUCT ||
+             target_base->kind == TYPE_UNION) &&
+            sema_cxx_public_base(source, target_base, NULL, 0)) {
+            /* Binding a reference to a public base subobject is a standard
+             * conversion.  implicit_cast() records the actual subobject
+             * displacement; keep the conversion rank here so overload
+             * resolution can distinguish Derived& from Base&. */
+            return 2;
+        }
         return type_is_compatible(source, target_base) ? 1 : -1;
     }
     if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {

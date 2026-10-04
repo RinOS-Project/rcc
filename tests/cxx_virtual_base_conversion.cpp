@@ -13,6 +13,12 @@ public:
     int most;
 };
 
+int read_virtual_root(Most& object) {
+    Root& root = object;
+    root.root = 11;
+    return root.root;
+}
+
 int main() {
     Most object;
     Middle* middle = &object;
@@ -20,5 +26,6 @@ int main() {
     root->root = 7;
     object.middle = 3;
     object.most = 5;
-    return root->root == 7 && object.middle == 3 && object.most == 5 ? 0 : 1;
+    return read_virtual_root(object) == 11 && root->root == 11 &&
+                   object.middle == 3 && object.most == 5 ? 0 : 1;
 }

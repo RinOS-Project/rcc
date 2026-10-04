@@ -172,6 +172,9 @@
         更新し、浮動小数点promotion、pointer/nullptr-to-bool conversion、
         直交した変換列の曖昧性をi686/AMD64で回帰検証。テンプレート候補の
         全partial orderingと標準の全conversion rankは未完了
+  - [x] publicな非virtual/virtual派生クラスlvalueを基底クラス参照へ束縛する
+        標準変換、vbptrを含む参照引数のsubobject調整、およびDerived&が
+        Base&より優先されるbounded overload選択を両archで回帰検証
   - [x] bounded function-template overload candidatesで固定・非依存関数
         parameterの標準変換をdeduction後のviabilityへ分離し、候補間の
         conversion vectorを引数ごとに比較。直交したテンプレート候補の

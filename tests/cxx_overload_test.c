@@ -39,10 +39,26 @@ static void verify_overloads(const char* path, uint16_t architecture)
     objfile_free(object);
 }
 
+static void verify_derived_base_references(const char* path,
+                                           uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    assert(object != NULL && object->arch == architecture);
+    text = objfile_get_section(object, ".text");
+    assert(text != NULL);
+    assert(relocation_count(text, "_Z13take_ref_baseR7RefBase") == 1u);
+    assert(relocation_count(text, "_Z16take_ref_derivedR10RefDerived") == 1u);
+    assert(relocation_count(text, "_Z19take_const_ref_baseR7RefBase") == 2u);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
-    assert(argc == 3);
+    assert(argc == 5);
     verify_overloads(argv[1], ARCH_X86);
     verify_overloads(argv[2], ARCH_X64);
+    verify_derived_base_references(argv[3], ARCH_X86);
+    verify_derived_base_references(argv[4], ARCH_X64);
     return 0;
 }

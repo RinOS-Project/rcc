@@ -3005,6 +3005,7 @@ static void gen_shift_integer64_from_stack(Module* mod, Expr* lhs,
 static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
 static void gen_call(Module* mod, Expr* expr);
 static void gen_lvalue(Module* mod, Expr* expr);
+static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression);
 static void emit_normalize_atomic_value(Module* mod, int reg,
                                          const Type* type);
 static void emit_atomic_cmpxchg_width(Module* mod, int desired, int address,
@@ -8687,6 +8688,38 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
     return false;
 }
 
+static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression) {
+    if (!expression) return;
+    if (expression->cxx_virtual_base_adjustment) {
+        int end_label;
+        if (!expression->cxx_virtual_base_source_class ||
+            expression->cxx_virtual_base_pointer_offset < 0 ||
+            expression->cxx_virtual_base_index < 0 ||
+            expression->cxx_virtual_base_index >=
+                expression->cxx_virtual_base_source_class->virtual_base_count) {
+            rcc_error(expression->loc,
+                      "reference virtual-base conversion has incomplete vbtable metadata");
+            return;
+        }
+        end_label = new_label();
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, end_label);
+        emit_mov_reg_mem(mod, EDX, EAX,
+                         expression->cxx_virtual_base_pointer_offset);
+        emit_mov_reg_mem(mod, ECX, EDX,
+                         expression->cxx_virtual_base_index * 4);
+        emit_add_reg_reg(mod, EAX, ECX);
+        if (expression->cxx_virtual_base_nested_adjustment != 0) {
+            emit_add_reg_imm(mod, EAX,
+                             expression->cxx_virtual_base_nested_adjustment);
+        }
+        emit_label(mod, end_label);
+    } else if (expression->cxx_pointer_adjustment_valid &&
+               expression->cxx_pointer_adjustment != 0) {
+        emit_add_reg_imm(mod, EAX, expression->cxx_pointer_adjustment);
+    }
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int temporary_bytes = 0;
@@ -8825,6 +8858,7 @@ static void gen_call(Module* mod, Expr* expr) {
                 continue;
             }
             gen_lvalue(mod, argument);
+            gen_cxx_reference_adjustment32(mod, argument);
             emit_push_reg(mod, EAX);
             argument_bytes += 4;
             continue;
@@ -11132,11 +11166,7 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
     }
     if (type->kind == TYPE_PTR && type->is_reference) {
         gen_lvalue(mod, initializer);
-        if (initializer->cxx_pointer_adjustment_valid &&
-            initializer->cxx_pointer_adjustment != 0) {
-            emit_add_reg_imm(mod, EAX,
-                             initializer->cxx_pointer_adjustment);
-        }
+        gen_cxx_reference_adjustment32(mod, initializer);
         emit_store_typed32(mod, EBP, displacement, EAX, type);
         return true;
     }
