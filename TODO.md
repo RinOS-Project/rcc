@@ -526,3 +526,6 @@
       entry when MinGW's 32-bit CRT is absent, and route all expected-failure
       diagnostics through the shell-neutral helper so `test-compiler-builtins`
       passes under `cmd.exe` without skipping x86 execution.
+- [x] Make the native Windows integer-literal gate execute real i686/x86_64
+      RCC output through freestanding `main` entries, while retaining `.ro`
+      generation and shell-neutral negative diagnostic checks.
