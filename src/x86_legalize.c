@@ -1087,8 +1087,9 @@ static bool x86_legal_selected_shape(
                 instruction->operand_count == 1u &&
                 instruction->target_count == 0u &&
                 instruction->type.kind == RCC_MIR_TYPE_VOID &&
-                instruction->immediate >= 9u &&
-                instruction->immediate <= 16u;
+                (instruction->immediate == 8u ||
+                 (instruction->immediate >= 9u &&
+                  instruction->immediate <= 16u));
         case RCC_X86_JUMP:
             return !instruction->has_destination &&
                 instruction->operand_count == 0u &&
@@ -1468,7 +1469,13 @@ bool rcc_x86_verify_legal_function(
                 (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                  instruction->selected_opcode ==
                      RCC_X86_CAPTURE_RETURN_PAIR &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
+                 ((function->target == RCC_X86_TARGET_I686 &&
+                   instruction->immediate != 8u) ||
+                  (function->target == RCC_X86_TARGET_X86_64 &&
+                   (instruction->immediate < 9u ||
+                    instruction->immediate > 16u)) ||
+                  (function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_POINTER ||
                   !instruction->previous ||

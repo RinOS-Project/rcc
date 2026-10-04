@@ -331,8 +331,9 @@ static bool mir_verify_instruction_type(
         case RCC_MIR_CAPTURE_RETURN_PAIR:
             return mir_shape(verifier, instruction, 1u, 0u) &&
                 rcc_mir_type_equal(instruction->type, void_type) &&
-                instruction->immediate >= 9u &&
-                instruction->immediate <= 16u &&
+                (instruction->immediate == 8u ||
+                 (instruction->immediate >= 9u &&
+                  instruction->immediate <= 16u)) &&
                 instruction->previous &&
                 instruction->previous->opcode == RCC_MIR_CALL &&
                 instruction->previous->type.kind == RCC_MIR_TYPE_VOID &&

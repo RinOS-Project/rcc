@@ -88,3 +88,13 @@ unsigned long long verified_wide_scalar_mul(unsigned long long value)
 {
     return value * 0x0000000100000001ULL;
 }
+
+unsigned long long verified_wide_scalar_identity(unsigned long long value)
+{
+    return value;
+}
+
+unsigned long long verified_wide_scalar_call(unsigned long long value)
+{
+    return verified_wide_scalar_identity(value);
+}

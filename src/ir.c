@@ -617,8 +617,9 @@ static bool ir_verify_instruction_types(
         case RCC_IR_CAPTURE_RETURN_PAIR:
             if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
                 !rcc_ir_type_equal(instruction->type, void_type) ||
-                instruction->immediate < 9u ||
-                instruction->immediate > 16u ||
+                (instruction->immediate != 8u &&
+                 (instruction->immediate < 9u ||
+                  instruction->immediate > 16u)) ||
                 !instruction->previous ||
                 instruction->previous->opcode != RCC_IR_CALL ||
                 instruction->previous->type.kind != RCC_IR_TYPE_VOID) {

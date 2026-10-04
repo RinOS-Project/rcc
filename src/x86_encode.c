@@ -821,19 +821,29 @@ static bool x86_emit_capture_return_pair(
     RccX86Value address = instruction->operands[0];
     RccX86HardwareGpr address_register = address.kind == RCC_X86_VALUE_GPR
         ? address.gpr : RCC_X86_GPR_R11;
-    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
-        instruction->immediate < 9u || instruction->immediate > 16u) {
+    if ((encoder->function->target == RCC_X86_TARGET_I686 &&
+         instruction->immediate != 8u) ||
+        (encoder->function->target == RCC_X86_TARGET_X86_64 &&
+         (instruction->immediate < 9u || instruction->immediate > 16u)) ||
+        (encoder->function->target != RCC_X86_TARGET_I686 &&
+         encoder->function->target != RCC_X86_TARGET_X86_64)) {
         return x86_encode_error(
             encoder, "x86 return-pair capture is invalid");
     }
-    if (address.kind != RCC_X86_VALUE_GPR &&
-        !x86_emit_load(encoder, address_register, address, 8u)) {
-        return false;
+    {
+        uint16_t word_size = encoder->function->target ==
+            RCC_X86_TARGET_I686 ? 4u : 8u;
+        if (address.kind != RCC_X86_VALUE_GPR &&
+            !x86_emit_load(encoder, address_register, address, word_size)) {
+            return false;
+        }
+        return x86_emit_indirect_store_displacement(
+                   encoder, address_register, 0, RCC_X86_GPR_AX,
+                   word_size) &&
+            x86_emit_indirect_store_displacement(
+                encoder, address_register, word_size,
+                RCC_X86_GPR_DX, word_size);
     }
-    return x86_emit_indirect_store_displacement(
-               encoder, address_register, 0, RCC_X86_GPR_AX, 8u) &&
-        x86_emit_indirect_store_displacement(
-               encoder, address_register, 8, RCC_X86_GPR_DX, 8u);
 }
 
 static bool x86_emit_stack_address(

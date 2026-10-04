@@ -377,6 +377,8 @@ static void verify_return_pair_contract(void)
                              NULL, 0u, NULL, 0u) != NULL);
         assert(rcc_ir_verify_module(module, error, sizeof(error)));
         capture->immediate = 8u;
+        assert(rcc_ir_verify_module(module, error, sizeof(error)));
+        capture->immediate = 7u;
         assert(!rcc_ir_verify_module(module, error, sizeof(error)));
         assert(strstr(error, "return-pair capture") != NULL);
         rcc_ir_module_destroy(module);

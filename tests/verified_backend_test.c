@@ -102,6 +102,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* conditional_symbol;
     ObjSymbol* truth_conditional_symbol;
     ObjSymbol* mul_symbol;
+    ObjSymbol* call_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -135,6 +136,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     truth_conditional_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_truth_conditional");
     mul_symbol = objfile_find_symbol(object, "verified_wide_scalar_mul");
+    call_symbol = objfile_find_symbol(object, "verified_wide_scalar_call");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -186,6 +188,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            truth_conditional_symbol->section == 0);
     assert(mul_symbol != NULL && mul_symbol->type == SYM_GLOBAL &&
            mul_symbol->binding == BIND_CODE && mul_symbol->section == 0);
+    assert(call_symbol != NULL && call_symbol->type == SYM_GLOBAL &&
+           call_symbol->binding == BIND_CODE && call_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -209,6 +213,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long (*conditional_function)(int);
         unsigned long long (*truth_conditional_function)(unsigned long long);
         unsigned long long (*mul_function)(unsigned long long);
+        unsigned long long (*call_function)(unsigned long long);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
         assert(function() == 0x1122334455667788ULL);
@@ -284,6 +289,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
                0x6688aacc55667788ULL);
         assert(mul_function(0xffffffffffffffffULL) ==
                0xfffffffeffffffffULL);
+        address = symbol_address(memory, call_symbol);
+        memcpy(&call_function, &address, sizeof(call_function));
+        assert(call_function(0x8899aabbccddeeffULL) ==
+               0x8899aabbccddeeffULL);
         assert(munmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

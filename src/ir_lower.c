@@ -77,6 +77,9 @@ static RccIrLowerValue lower_wide_scalar_truth(
 static bool lower_wide_scalar_conditional_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result);
+static bool lower_wide_scalar_call(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result);
 static bool lower_wide_scalar_store(
     RccIrLowerContext* context, RccIrLowerValue address,
     RccIrLowerWideValue value);
@@ -1393,6 +1396,10 @@ static bool lower_wide_scalar_expression(
         return lower_wide_scalar_conditional_expression(
             context, expression, result);
     }
+    if (expression->kind == EXPR_CALL &&
+        lower_i686_wide_scalar_type(expression->type)) {
+        return lower_wide_scalar_call(context, expression, result);
+    }
     if (expression->kind == EXPR_MUL &&
         lower_i686_wide_scalar_type(expression->type) &&
         lower_wide_scalar_expression(
@@ -2040,6 +2047,110 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     }
     return lower_value(call->result, return_type,
                        expression->type->is_unsigned);
+}
+
+static bool lower_wide_scalar_call(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    const Decl* callee;
+    Type* function_type;
+    const ExprList* argument;
+    TypeParam* parameter;
+    size_t argument_count = 0u;
+    size_t index = 0u;
+    RccIrValue* operands = NULL;
+    RccIrInstruction* allocation;
+    RccIrInstruction* call;
+    RccIrInstruction* capture;
+    RccIrLowerValue address;
+    if (result) memset(result, 0, sizeof(*result));
+    if (!context || !expression || !result ||
+        expression->cxx_close_call || !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !lower_i686_wide_scalar_type(expression->type)) {
+        return false;
+    }
+    callee = expression->call_func->ident_decl;
+    function_type = callee ? callee->type : NULL;
+    if (!callee || callee->kind != DECL_FUNC || !function_type ||
+        function_type->kind != TYPE_FUNC || function_type->variadic ||
+        !function_type->ret_type ||
+        !lower_i686_wide_scalar_type(function_type->ret_type) ||
+        !type_is_compatible(function_type->ret_type, expression->type)) {
+        return false;
+    }
+    parameter = function_type->params;
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        size_t units;
+        if (!parameter || !argument->expr || !argument->expr->type ||
+            lower_abi_is_aggregate(parameter->type)) return false;
+        units = lower_i686_wide_scalar_type(parameter->type) ? 2u : 1u;
+        if (units > SIZE_MAX - argument_count) return false;
+        argument_count += units;
+        parameter = parameter->next;
+    }
+    if (parameter || argument_count > SIZE_MAX / sizeof(*operands)) {
+        return false;
+    }
+    if (argument_count != 0u) {
+        operands = rcc_alloc(argument_count * sizeof(*operands));
+    }
+    parameter = function_type->params;
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        if (lower_i686_wide_scalar_type(parameter->type)) {
+            RccIrLowerWideValue value;
+            if (!lower_wide_scalar_expression(
+                    context, argument->expr, &value)) {
+                rcc_free(operands);
+                return false;
+            }
+            operands[index++] = value.low.value;
+            operands[index++] = value.high.value;
+        } else {
+            RccIrLowerValue value = lower_expression(
+                context, argument->expr);
+            RccIrType parameter_type;
+            if (!lower_type(parameter->type, &parameter_type) ||
+                (parameter_type.kind == RCC_IR_TYPE_INTEGER &&
+                 parameter_type.bit_width > 32u) ||
+                !value.valid) {
+                rcc_free(operands);
+                return false;
+            }
+            value = lower_cast(context, value, parameter->type);
+            if (!value.valid) {
+                rcc_free(operands);
+                return false;
+            }
+            operands[index++] = value.value;
+        }
+        parameter = parameter->next;
+    }
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) {
+        rcc_free(operands);
+        return false;
+    }
+    rcc_ir_set_immediate(allocation, 8u);
+    address = lower_value(allocation->result,
+                          rcc_ir_type_pointer(0u), true);
+    call = lower_append(
+        context, RCC_IR_CALL, rcc_ir_type_void(), operands,
+        argument_count, NULL, 0u);
+    rcc_free(operands);
+    if (!call) return false;
+    rcc_ir_set_callee(call, decl_link_name(callee));
+    capture = lower_append(
+        context, RCC_IR_CAPTURE_RETURN_PAIR, rcc_ir_type_void(),
+        &address.value, 1u, NULL, 0u);
+    if (!capture) return false;
+    rcc_ir_set_immediate(capture, 8u);
+    return lower_wide_scalar_load(context, address,
+                                  expression->type->is_unsigned, result);
 }
 
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
