@@ -57,6 +57,27 @@ static uint64_t read_uleb(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
+static void verify_subroutine_type(const ObjSection* info)
+{
+    if (!info) return;
+    for (uint64_t offset = 11u; offset + 10u < info->size; ++offset) {
+        uint32_t return_type;
+        uint64_t child;
+        if (info->data[offset] != 18u) continue;
+        return_type = read_u32(info->data, offset + 1u);
+        assert(return_type < offset);
+        child = offset + 5u;
+        if (info->data[child] != 19u) continue;
+        while (child + 5u < info->size && info->data[child] == 19u) {
+            assert(read_u32(info->data, child + 1u) < offset);
+            child += 5u;
+        }
+        assert(child < info->size && info->data[child] == 0u);
+        return;
+    }
+    assert(0 && "missing parameterized subroutine type DIE");
+}
+
 static uint64_t find_global_variable_die(const ObjSection* info,
                                          const ObjSection* strings,
                                          const char* variable_name)
@@ -361,7 +382,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0fu, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x15u, 0x01u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x05u, 0x00u));
-        assert(contains_byte(info->data, info->size, 18u));
+        verify_subroutine_type(info);
         assert(contains_byte(info->data, info->size,
                              architecture == ARCH_X64 ? 0x76u : 0x75u));
         assert(contains_byte(info->data, info->size, 0x23u));
