@@ -41,14 +41,16 @@ static bool ro_section_policy(uint16_t arch, const RoSection* section) {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
     uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC |
                              SECT_FLAG_ALLOC | SECT_FLAG_COMDAT;
-    if (section->type < SECT_CODE || section->type > SECT_DEBUG_LINE ||
+    if (section->type < SECT_CODE || section->type > SECT_DEBUG_STR ||
         (section->flags & ~allowed_flags) != 0u ||
         (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
             (SECT_FLAG_WRITE | SECT_FLAG_EXEC) ||
-        (section->type != SECT_DEBUG_LINE &&
+        (!(section->type >= SECT_DEBUG_LINE &&
+           section->type <= SECT_DEBUG_STR) &&
          (section->flags & SECT_FLAG_ALLOC) == 0u)) return false;
 
-    if (section->type == SECT_DEBUG_LINE) {
+    if (section->type >= SECT_DEBUG_LINE &&
+        section->type <= SECT_DEBUG_STR) {
         return section->flags == 0u &&
                section->size == section->memory_size;
     }
@@ -948,6 +950,180 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
     rcc_free(files);
 }
 
+static uint32_t debug_str_add(ObjSection* strings, const char* value) {
+    uint64_t offset = 0u;
+    size_t length;
+    if (!strings || !value) return 0u;
+    while (offset < strings->size) {
+        const char* current = (const char*)strings->data + offset;
+        size_t current_length = strlen(current);
+        if (strcmp(current, value) == 0) {
+            if (offset > UINT32_MAX) {
+                rcc_fatal("DWARF string table exceeds 32-bit offsets");
+            }
+            return (uint32_t)offset;
+        }
+        offset += current_length + 1u;
+    }
+    length = strlen(value) + 1u;
+    if (strings->size > UINT32_MAX - length) {
+        rcc_fatal("DWARF string table exceeds 32-bit offsets");
+    }
+    section_add_bytes(strings, (const uint8_t*)value, length);
+    return (uint32_t)offset;
+}
+
+static uint32_t debug_function_size(const Module* mod,
+                                    const ModuleSymbol* function) {
+    uint32_t size;
+    if (!mod || !function || function->offset > mod->code.size ||
+        mod->code.size - function->offset > UINT32_MAX) return 0u;
+    size = (uint32_t)(mod->code.size - function->offset);
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        const ModuleSymbol* candidate = &mod->symbols[index];
+        if (!candidate->is_defined ||
+            candidate->section != MODULE_SYMBOL_CODE ||
+            !candidate->source_file || candidate->source_line == 0u ||
+            candidate->offset <= function->offset) continue;
+        if (candidate->offset - function->offset < size) {
+            size = candidate->offset - function->offset;
+        }
+    }
+    return size;
+}
+
+static void module_emit_debug_info(ObjectFile* obj, Module* mod,
+                                   const char* filename) {
+    const ModuleSymbol** functions;
+    const char** files;
+    ObjSection* strings;
+    ObjSection* abbrev;
+    ObjSection* info;
+    int function_count = 0;
+    int file_count = 0;
+    int info_section;
+    uint64_t unit_length_offset;
+    uint32_t producer_offset;
+    uint32_t unit_name_offset;
+
+    if (!g_opts.debug_info || !obj || !mod || mod->symbol_count <= 0) return;
+    functions = rcc_alloc((size_t)mod->symbol_count * sizeof(*functions));
+    files = rcc_alloc((size_t)mod->symbol_count * sizeof(*files));
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        ModuleSymbol* symbol = &mod->symbols[index];
+        if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
+            !symbol->source_file || symbol->source_file[0] == '\0' ||
+            symbol->source_line == 0u) continue;
+        functions[function_count++] = symbol;
+        if (debug_line_file_index(files, file_count,
+                                  symbol->source_file) == 0) {
+            files[file_count++] = symbol->source_file;
+        }
+    }
+    if (function_count == 0) {
+        rcc_free(functions);
+        rcc_free(files);
+        return;
+    }
+
+    strings = objfile_add_section(obj, ".debug_str", SECT_DEBUG_STR, 0u);
+    abbrev = objfile_add_section(obj, ".debug_abbrev", SECT_DEBUG_ABBREV, 0u);
+    info = objfile_add_section(obj, ".debug_info", SECT_DEBUG_INFO, 0u);
+    strings->align = abbrev->align = info->align = 1u;
+    section_add_byte(strings, 0u);
+    producer_offset = debug_str_add(strings, "RCC");
+    unit_name_offset = debug_str_add(strings, filename);
+    info_section = objfile_section_index(obj, info);
+    if (info_section < 0) rcc_fatal("DWARF info section is detached");
+
+    /* Abbreviation 1: compile unit with producer, language, line table, and
+     * source name.  Abbreviation 2: a source-level function DIE. */
+    debug_line_uleb(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x11u);    /* DW_TAG_compile_unit */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x25u);    /* DW_AT_producer */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_AT_language */
+    debug_line_uleb(abbrev, 0x05u);    /* DW_FORM_data2 */
+    debug_line_uleb(abbrev, 0x10u);    /* DW_AT_stmt_list */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 2u);
+    debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
+    debug_line_uleb(abbrev, 0x01u);    /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3fu);    /* DW_AT_external */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    section_add_byte(abbrev, 0u);
+
+    unit_length_offset = info->size;
+    debug_line_u32(info, 0u);
+    debug_line_u16(info, 4u);
+    debug_line_u32(info, 0u);          /* .debug_abbrev offset */
+    section_add_byte(info, (uint8_t)(g_opts.target_arch == ARCH_X64 ? 8 : 4));
+    section_add_byte(info, 1u);        /* compile-unit abbreviation */
+    debug_line_u32(info, producer_offset);
+    debug_line_u16(info, g_opts.cxx_mode ? 0x0021u : 0x000cu);
+                                      /* DW_LANG_C_plus_plus_14 / C99 */
+    debug_line_u32(info, 0u);          /* .debug_line offset */
+    debug_line_u32(info, unit_name_offset);
+
+    for (int index = 0; index < function_count; ++index) {
+        const ModuleSymbol* function = functions[index];
+        const char* symbol_name = function->name;
+        char* scoped_name = NULL;
+        int file_index = debug_line_file_index(
+            files, file_count, function->source_file);
+        uint64_t address_offset;
+        uint32_t name_offset = debug_str_add(strings, function->name);
+        section_add_byte(info, 2u);
+        debug_line_u32(info, name_offset);
+        address_offset = info->size;
+        for (int byte = 0; byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4);
+             ++byte) {
+            section_add_byte(info, 0u);
+        }
+        if (!function->is_global) {
+            scoped_name = module_scoped_symbol(filename, function->name);
+            symbol_name = scoped_name;
+        }
+        objfile_add_reloc(
+            obj, info_section, address_offset, symbol_name,
+            g_opts.target_arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U, 0);
+        rcc_free(scoped_name);
+        debug_line_u32(info, debug_function_size(mod, function));
+        section_add_byte(info, (uint8_t)file_index);
+        debug_line_u32(info, function->source_line);
+        section_add_byte(info, function->is_global ? 1u : 0u);
+        debug_line_u32(info, debug_str_add(strings, function->name));
+    }
+    section_add_byte(info, 0u);        /* end of compile-unit children */
+    section_add_byte(info, 0u);        /* end of compile-unit DIE */
+    if (info->size - unit_length_offset - 4u > UINT32_MAX) {
+        rcc_fatal("DWARF info section is too large");
+    }
+    debug_line_patch_u32(info, unit_length_offset,
+                         (uint32_t)(info->size - unit_length_offset - 4u));
+    rcc_free(functions);
+    rcc_free(files);
+}
+
 ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjectFile* obj = objfile_new(filename, g_opts.target_arch);
     int next_section = 1;
@@ -1066,6 +1242,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     }
 
     module_emit_debug_line(obj, mod, filename);
+    module_emit_debug_info(obj, mod, filename);
 
     /* Add relocations */
     for (int i = 0; i < mod->reloc_count; i++) {

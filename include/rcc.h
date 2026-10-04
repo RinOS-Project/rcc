@@ -63,6 +63,7 @@ typedef struct {
     bool target_explicit;
     int opt_level;              /* 0-3 */
     bool debug_info;
+    bool cxx_mode;
     bool warnings_as_errors;
     bool verbose;
 

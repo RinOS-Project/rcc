@@ -261,6 +261,8 @@
 - [ ] DWARF debug/unwind
   - [x] `-g`でrelocatable `.ro`へ関数開始・source file・lineを持つ最小DWARF
         `.debug_line`を出力し、両archのread/link回帰を追加
+  - [x] 最小compile unit／subprogram DIE、`.debug_abbrev`／`.debug_str`、
+        `low_pc` relocationを追加し、両archのobject/link回帰へ接続
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

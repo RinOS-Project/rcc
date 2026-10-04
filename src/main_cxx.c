@@ -743,6 +743,7 @@ static int compile_current_input(char** argv) {
 
 int main(int argc, char** argv) {
     const char* extension;
+    g_opts.cxx_mode = true;
     if (argc < 2) {
         print_usage_cxx();
         return 1;

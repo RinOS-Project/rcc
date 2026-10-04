@@ -470,12 +470,14 @@ test: $(RCC_TARGET)
 test-c17: $(RCC_TARGET) $(C17_REGRESSION_TARGETS)
 	@echo "RCC C17 conformance compile-and-run suite completed"
 
-test-debug-info: $(RCC_TARGET) $(RLD_TARGET)
+test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	mkdir -p $(TEST_OUT)/debug-info
 	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
 		-o $(TEST_OUT)/debug-info/x86-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -c \
 		-o $(TEST_OUT)/debug-info/x64-g.ro tests/debug_info.c
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -g -c \
+		-o $(TEST_OUT)/debug-info/cxx-g.ro tests/hello.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -484,6 +486,7 @@ test-debug-info: $(RCC_TARGET) $(RLD_TARGET)
 	$(TEST_OUT)/debug-info/verify \
 		$(TEST_OUT)/debug-info/x86-g.ro \
 		$(TEST_OUT)/debug-info/x64-g.ro \
+		$(TEST_OUT)/debug-info/cxx-g.ro \
 		$(TEST_OUT)/debug-info/x86-no-g.ro
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
