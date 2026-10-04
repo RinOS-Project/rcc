@@ -543,3 +543,7 @@
       output through freestanding `main` entries, while retaining `.ro`
       generation, invalid-varargs diagnostics, and the POSIX object-loader
       path.
+- [x] Make the native Windows scalar-comparison and scalar-truth gate execute
+      real i686/x86_64 RCC output through freestanding `main` entries, while
+      retaining `.ro` generation, invalid-comparison diagnostics, and the
+      POSIX object-loader path.
