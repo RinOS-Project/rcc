@@ -44,7 +44,8 @@ static bool contains_bytes(const uint8_t* data, uint64_t size,
     return false;
 }
 
-static void verify(const char* path, uint16_t architecture)
+static void verify(const char* path, uint16_t architecture,
+                   const char* function_name)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
@@ -55,7 +56,7 @@ static void verify(const char* path, uint16_t architecture)
 
     assert(object != NULL && object->arch == architecture);
     code = code_section(object);
-    function = objfile_find_symbol(object, "asm_placeholder_move");
+    function = objfile_find_symbol(object, function_name);
     assert(code != NULL && function != NULL && function->section >= 0);
     end = function_end(object, function);
     assert(end > function->value && end <= code->size);
@@ -69,8 +70,9 @@ static void verify(const char* path, uint16_t architecture)
 
 int main(int argc, char** argv)
 {
-    assert(argc == 3);
-    verify(argv[1], ARCH_X86);
-    verify(argv[2], ARCH_X64);
+    assert(argc == 4);
+    verify(argv[1], ARCH_X86, "asm_placeholder_move");
+    verify(argv[2], ARCH_X64, "asm_placeholder_move");
+    verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
     return 0;
 }
