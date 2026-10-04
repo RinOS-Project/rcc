@@ -67,3 +67,19 @@ int comma_argument(void) {
     struct Pair source = { 1, 2 };
     return sum_pair((source, (struct Pair){ 5, 6 }));
 }
+
+int main(void)
+{
+    struct Pair pair = { 4, 7 };
+    if (copy_local(3, 8) != 38 ||
+        copy_pointer(&pair) != 47 ||
+        assign_chain(3, 8) != 3838 ||
+        assign_odd(7, 0xab) != 7171 ||
+        anonymous_members(1, 2, 3) != 123 ||
+        conditional_argument(0) != 47 ||
+        conditional_argument(1) != 38 ||
+        comma_argument() != 56) {
+        return 1;
+    }
+    return 0;
+}

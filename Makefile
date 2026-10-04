@@ -7671,6 +7671,20 @@ test-aggregate-copy: $(RCC_TARGET)
 		-o $(TEST_OUT)/aggregate-copy/x86.ro tests/aggregate_copy.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/aggregate-copy/x64.ro tests/aggregate_copy.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-copy/x86.s tests/aggregate_copy.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/aggregate-copy/run-test-x86 \
+		$(TEST_OUT)/aggregate-copy/x86.s
+	$(TEST_OUT)/aggregate-copy/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-copy/x64.s tests/aggregate_copy.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/aggregate-copy/run-test-x64 \
+		$(TEST_OUT)/aggregate-copy/x64.s
+	$(TEST_OUT)/aggregate-copy/run-test-x64
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/aggregate-copy/run-test-x86 \
 		tests/aggregate_copy_run_test.c src/emit_ro.c src/utils.c
@@ -7679,12 +7693,11 @@ test-aggregate-copy: $(RCC_TARGET)
 		tests/aggregate_copy_run_test.c src/emit_ro.c src/utils.c
 	$(TEST_OUT)/aggregate-copy/run-test-x86 $(TEST_OUT)/aggregate-copy/x86.ro
 	$(TEST_OUT)/aggregate-copy/run-test-x64 $(TEST_OUT)/aggregate-copy/x64.ro
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/aggregate-copy/invalid.ro \
-		tests/invalid_anonymous_aggregate.c \
-		>$(TEST_OUT)/aggregate-copy/invalid.log 2>&1; then \
-		echo "duplicate anonymous member unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_anonymous_aggregate.c,$(TEST_OUT)/aggregate-copy/invalid.log)
 	$(GREP) -q "duplicate member 'duplicate' from anonymous aggregate" \
 		$(TEST_OUT)/aggregate-copy/invalid.log
 	@echo "Dual-architecture C17 aggregate copy tests completed"
