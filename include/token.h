@@ -112,6 +112,7 @@ typedef enum {
     TOK_DYNAMIC_CAST,   /* dynamic_cast */
     TOK_REINTERPRET_CAST, /* reinterpret_cast */
     TOK_CONST_CAST,     /* const_cast */
+    TOK_TYPEID,         /* typeid */
 
     /* Operators and punctuation */
     TOK_LPAREN,         /* ( */

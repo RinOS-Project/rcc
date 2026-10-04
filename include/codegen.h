@@ -192,6 +192,7 @@ void codegen_emit_cxx_vtable_thunks32(Module* mod,
                                       struct CxxNamespace* ns);
 void codegen_emit_cxx_vtable_thunks64(Module* mod,
                                       struct CxxNamespace* ns);
+void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol);
 void module_add_tls_relocation(Module* mod,
                                ModuleSymbolSection source_section,
                                uint32_t offset, const char* symbol_name);

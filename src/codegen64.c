@@ -3412,6 +3412,15 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
         case EXPR_CXX_THIS:
             emit64_mov_reg_reg(mod, RAX, RCX);
             break;
+        case EXPR_CXX_TYPEID:
+            if (!expr->cxx_typeid_symbol) {
+                rcc_error(expr->loc,
+                          "typeid has no validated typeinfo identity");
+                return;
+            }
+            codegen_emit_cxx_typeinfo_symbol(mod, expr->cxx_typeid_symbol);
+            gen64_symbol_address(mod, expr->cxx_typeid_symbol, 0u);
+            break;
         case EXPR_IDENT: {
             Decl* decl = expr->ident_decl;
             if (!decl) {
@@ -5352,6 +5361,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             emit64_mov_reg_imm32(mod, RAX,
                                  expr->cxx_noexcept_value ? 1u : 0u);
+            break;
+
+        case EXPR_CXX_TYPEID:
+            if (!expr->cxx_typeid_symbol) {
+                rcc_error(expr->loc,
+                          "typeid has no validated typeinfo identity");
+                return;
+            }
+            codegen_emit_cxx_typeinfo_symbol(mod, expr->cxx_typeid_symbol);
+            gen64_symbol_address(mod, expr->cxx_typeid_symbol, 0u);
             break;
 
         case EXPR_CHAR_LIT:

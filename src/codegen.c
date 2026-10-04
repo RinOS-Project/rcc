@@ -2467,29 +2467,36 @@ static void codegen_emit_cxx_vbase_tables_in_namespace(Module* mod,
     }
 }
 
-static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
+void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     static const uint8_t zero[8] = {0};
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     uint32_t offset;
+    if (!mod || !symbol || !symbol[0] ||
+        module_lookup_symbol(mod, symbol)) return;
+    while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
+        emit_rodata(mod, zero, 1u);
+    }
+    offset = (uint32_t)mod->rodata.size;
+    emit_rodata(mod, zero, pointer_size);
+    module_add_symbol(mod, symbol, offset, true,
+                      MODULE_SYMBOL_RODATA, true);
+    module_mark_symbol_weak(mod, symbol);
+}
+
+static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
     if (!mod || !cls || !cls->type) return;
     if (!cls->type->cxx_typeinfo_symbol) {
         rcc_error((SourceLoc){"<cxx-rtti>", 0, 0},
                   "C++ class has no typeinfo identity");
         return;
     }
-    while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
-        emit_rodata(mod, zero, 1u);
-    }
-    offset = (uint32_t)mod->rodata.size;
-    emit_rodata(mod, zero, pointer_size);
-    module_add_symbol(mod, cls->type->cxx_typeinfo_symbol, offset, true,
-                      MODULE_SYMBOL_RODATA, true);
     /* A class type has one structural RTTI identity across translation units.
      * Every TU that sees the definition may materialize the same metadata, so
      * keep the external object weak just like an inline/COMDAT definition.
-     * This lets provider/consumer RLLs share the identity without a duplicate
-     * definition while preserving one address for runtime comparisons. */
-    module_mark_symbol_weak(mod, cls->type->cxx_typeinfo_symbol);
+     * This lets provider/consumer RLLs share the identity while preserving
+     * one address for runtime comparisons. */
+    codegen_emit_cxx_typeinfo_symbol(
+        mod, cls->type->cxx_typeinfo_symbol);
 }
 
 static void codegen_add_vtable_pointer(Module* mod,
@@ -5649,6 +5656,7 @@ static bool gen_expr_is_lvalue(Expr* expression) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:
+        case EXPR_CXX_TYPEID:
             return true;
         case EXPR_CALL:
             return expression->call_method &&
@@ -5698,6 +5706,15 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 rcc_fatal("constructor this argument has no saved object");
             }
             emit_mov_reg_mem(mod, EAX, ESP, expr->cxx_this_stack_offset);
+            break;
+        case EXPR_CXX_TYPEID:
+            if (!expr->cxx_typeid_symbol) {
+                rcc_error(expr->loc,
+                          "typeid has no validated typeinfo identity");
+                return;
+            }
+            codegen_emit_cxx_typeinfo_symbol(mod, expr->cxx_typeid_symbol);
+            gen_symbol_address(mod, expr->cxx_typeid_symbol, 0u);
             break;
         case EXPR_IDENT: {
             /* Use decl set during semantic analysis */
@@ -9001,6 +9018,16 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             emit_mov_reg_imm(mod, EAX,
                              expr->cxx_noexcept_value ? 1u : 0u);
+            break;
+
+        case EXPR_CXX_TYPEID:
+            if (!expr->cxx_typeid_symbol) {
+                rcc_error(expr->loc,
+                          "typeid has no validated typeinfo identity");
+                return;
+            }
+            codegen_emit_cxx_typeinfo_symbol(mod, expr->cxx_typeid_symbol);
+            gen_symbol_address(mod, expr->cxx_typeid_symbol, 0u);
             break;
 
         case EXPR_CHAR_LIT:

@@ -1505,6 +1505,32 @@ static Expr* parse_postfix(void) {
 static Expr* parse_unary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (parser_cxx_mode && match(TOK_TYPEID)) {
+        Token* operand_start_cur;
+        Token* operand_start_prev;
+        Type* operand_type = NULL;
+        Expr* operand;
+
+        expect(TOK_LPAREN, "(");
+        operand_start_cur = parser.cur;
+        operand_start_prev = parser.prev;
+        if (rcc_parse_cxx_type_name && is_type_start()) {
+            operand_type = rcc_parse_cxx_type_name();
+            if (operand_type && match(TOK_RPAREN)) {
+                return parse_postfix_tail(expr_cxx_typeid(
+                    operand_type, NULL, true, loc));
+            }
+            /* A type-name parse is speculative here: `typeid(value)` may
+             * begin with an identifier that is not a type in this scope. */
+            parser.cur = operand_start_cur;
+            parser.prev = operand_start_prev;
+        }
+        operand = parse_expression();
+        expect(TOK_RPAREN, ")");
+        return parse_postfix_tail(expr_cxx_typeid(
+            NULL, operand, false, loc));
+    }
+
     if (parser_cxx_mode && match(TOK_NOEXCEPT)) {
         Expr* operand;
         expect(TOK_LPAREN, "(");

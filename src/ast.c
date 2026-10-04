@@ -131,6 +131,7 @@ Type* type_ullong = &builtin_ullong;
 Type* type_float  = &builtin_float;
 Type* type_double = &builtin_double;
 Type* type_nullptr = &builtin_nullptr;
+static Type* builtin_cxx_type_info;
 
 void type_configure_target(TargetArch architecture) {
     int long_size = architecture == ARCH_X64 ? 8 : 4;
@@ -140,6 +141,21 @@ void type_configure_target(TargetArch architecture) {
     builtin_ulong.align = long_size;
     builtin_nullptr.size = long_size;
     builtin_nullptr.align = long_size;
+    if (builtin_cxx_type_info) {
+        builtin_cxx_type_info->size = long_size;
+        builtin_cxx_type_info->align = long_size;
+    }
+}
+
+Type* rcc_cxx_type_info_type(void) {
+    if (!builtin_cxx_type_info) {
+        builtin_cxx_type_info = type_struct("__rcc_type_info");
+        builtin_cxx_type_info->size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+        builtin_cxx_type_info->align = builtin_cxx_type_info->size;
+        builtin_cxx_type_info->is_complete = true;
+        builtin_cxx_type_info->is_const = true;
+    }
+    return builtin_cxx_type_info;
 }
 
 /* ═══════════════════════════════════════
@@ -686,6 +702,19 @@ Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc) {
     e->cast_expr = expr;
     e->cast_type = type;
     e->type = type;
+    return e;
+}
+
+Expr* expr_cxx_typeid(Type* operand_type, Expr* operand,
+                      bool operand_is_type, SourceLoc loc) {
+    Expr* e = rcc_alloc(sizeof(Expr));
+    e->kind = EXPR_CXX_TYPEID;
+    e->loc = loc;
+    e->cxx_typeid_operand_type = operand_type;
+    e->cxx_typeid_operand = operand;
+    e->cxx_typeid_symbol = NULL;
+    e->cxx_typeid_is_type = operand_is_type;
+    e->type = NULL;
     return e;
 }
 

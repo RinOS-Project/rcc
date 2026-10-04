@@ -260,6 +260,81 @@ static bool sema_cxx_is_polymorphic(Type* type) {
     return cls && (cls->vtable_size > 0 || cls->secondary_vtable_count > 0);
 }
 
+static uint64_t sema_cxx_typeinfo_hash_text(uint64_t hash,
+                                            const char* text) {
+    if (!text) return hash ^ UINT64_C(0xff);
+    while (*text) {
+        hash ^= (uint8_t)*text++;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash ^ UINT64_C(0x9d);
+}
+
+static uint64_t sema_cxx_typeinfo_hash(const Type* type, unsigned depth) {
+    uint64_t hash;
+    if (!type || depth > 32u) return UINT64_C(0x4f1bbcdcaa55ee11);
+    hash = UINT64_C(1469598103934665603);
+    hash ^= (uint64_t)type->kind;
+    hash *= UINT64_C(1099511628211);
+    hash ^= (uint64_t)(uint32_t)type->size;
+    hash *= UINT64_C(1099511628211);
+    hash ^= (uint64_t)(uint32_t)type->align;
+    hash *= UINT64_C(1099511628211);
+    hash ^= type->is_unsigned ? UINT64_C(0x31) : UINT64_C(0x17);
+    hash *= UINT64_C(1099511628211);
+    switch (type->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            hash ^= sema_cxx_typeinfo_hash(type->base, depth + 1u);
+            hash *= UINT64_C(1099511628211);
+            if (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
+                hash ^= (uint64_t)(uint32_t)type->array_len;
+                hash *= UINT64_C(1099511628211);
+            }
+            break;
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            hash = sema_cxx_typeinfo_hash_text(hash, type->tag);
+            if (type->cxx_typeinfo_symbol) {
+                hash = sema_cxx_typeinfo_hash_text(
+                    hash, type->cxx_typeinfo_symbol);
+            }
+            break;
+        case TYPE_ENUM:
+            hash = sema_cxx_typeinfo_hash_text(hash, type->enum_tag);
+            break;
+        case TYPE_FUNC:
+            hash ^= sema_cxx_typeinfo_hash(type->ret_type, depth + 1u);
+            hash *= UINT64_C(1099511628211);
+            break;
+        default:
+            break;
+    }
+    return hash;
+}
+
+static const char* sema_cxx_typeinfo_symbol(Type* type, SourceLoc loc) {
+    char* symbol;
+    uint64_t hash;
+    if (!type) return NULL;
+    if (type->cxx_typeinfo_symbol) return type->cxx_typeinfo_symbol;
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
+        type->size <= 0) {
+        rcc_error(loc,
+                  "typeid requires a complete object type operand");
+        return NULL;
+    }
+    hash = sema_cxx_typeinfo_hash(type, 0u);
+    symbol = ast_arena_alloc(32u);
+    if (snprintf(symbol, 32u, "__rcc_typeinfo_%016llx",
+                 (unsigned long long)hash) < 0) {
+        rcc_fatal("C++ typeinfo symbol formatting failed");
+    }
+    type->cxx_typeinfo_symbol = symbol;
+    return symbol;
+}
+
 static void sema_validate_static_integer_expression(Expr* expression);
 static bool sema_compiler_builtin_call(Expr* expr);
 static bool sema_atomic_builtin_call(Expr* expr);
@@ -1072,6 +1147,7 @@ static bool is_lvalue(Expr* e) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:
+        case EXPR_CXX_TYPEID:
             return true;
         case EXPR_CALL:
             return e->call_method && e->call_method->return_type &&
@@ -8665,6 +8741,8 @@ static bool sema_noexcept_expr(Expr* expression) {
             return true;
         case EXPR_NOEXCEPT:
             return expression->cxx_noexcept_value_valid;
+        case EXPR_CXX_TYPEID:
+            return true;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -9033,6 +9111,8 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "cannot take address of rvalue");
             }
             if (expr->unary_operand &&
+                (expr->unary_operand->kind == EXPR_MEMBER ||
+                 expr->unary_operand->kind == EXPR_PTR_MEMBER) &&
                 expr->unary_operand->member_field &&
                 expr->unary_operand->member_field->is_bitfield) {
                 rcc_error(expr->loc, "cannot take address of a bit-field");
@@ -9318,6 +9398,26 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_ALIGNOF:
             expr->type = type_uint;
             break;
+
+        case EXPR_CXX_TYPEID: {
+            Type* operand_type = expr->cxx_typeid_is_type
+                ? expr->cxx_typeid_operand_type
+                : sema_expr(expr->cxx_typeid_operand);
+            expr->type = rcc_cxx_type_info_type();
+            if (!operand_type) {
+                rcc_error(expr->loc, "typeid operand has no type");
+                break;
+            }
+            if (!expr->cxx_typeid_is_type &&
+                sema_cxx_is_polymorphic(operand_type)) {
+                rcc_error(expr->loc,
+                          "typeid of a polymorphic expression is unsupported; use typeid(T) until dynamic bad_typeid lowering is available");
+                break;
+            }
+            expr->cxx_typeid_symbol = sema_cxx_typeinfo_symbol(
+                operand_type, expr->loc);
+            break;
+        }
 
         case EXPR_NOEXCEPT:
             sema_expr(expr->unary_operand);

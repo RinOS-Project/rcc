@@ -293,6 +293,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic);
 Type* type_struct(const char* tag);
 Type* type_union(const char* tag);
 Type* type_enum(const char* tag);
+Type* rcc_cxx_type_info_type(void);
 
 /* Type utilities */
 bool type_is_integer(Type* t);
@@ -335,6 +336,7 @@ typedef enum {
     EXPR_SIZEOF,        /* sizeof(x) */
     EXPR_ALIGNOF,       /* _Alignof(x) */
     EXPR_NOEXCEPT,      /* noexcept(x) */
+    EXPR_CXX_TYPEID,    /* typeid(T) / typeid(non-polymorphic-expression) */
     EXPR_CAST,          /* (type)x */
 
     /* Binary */
@@ -629,6 +631,18 @@ struct Expr {
             CxxCastKind cxx_cast_kind;
         };
 
+        /* EXPR_CXX_TYPEID.  The expression is an lvalue-like reference to
+         * the compiler's stable RinOS RTTI identity object.  The bounded
+         * implementation accepts type operands and non-polymorphic
+         * expression operands; polymorphic dynamic lookup is diagnosed until
+         * its null/bad_typeid path is complete. */
+        struct {
+            Type* cxx_typeid_operand_type;
+            Expr* cxx_typeid_operand;
+            const char* cxx_typeid_symbol;
+            bool cxx_typeid_is_type;
+        };
+
         /* EXPR_COMPOUND */
         struct {
             Type* compound_type;
@@ -687,6 +701,8 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc);
 Expr* expr_index(Expr* base, Expr* index, SourceLoc loc);
 Expr* expr_member(Expr* base, const char* name, SourceLoc loc);
 Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc);
+Expr* expr_cxx_typeid(Type* operand_type, Expr* operand,
+                      bool operand_is_type, SourceLoc loc);
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc);
 Expr* expr_sizeof_type(Type* type, SourceLoc loc);
 Expr* expr_sizeof_pack(const char* name, SourceLoc loc);

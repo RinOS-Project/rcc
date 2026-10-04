@@ -212,8 +212,12 @@
         conformance
 - [ ] C++20 modules、coroutines
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
+  - [x] `typeid(T)`と非多相式の静的typeinfo identityをi686/AMD64で生成し、
+        同一型のidentity共有・異なる型の分離を実行回帰。多相式は未完の
+        null／`bad_typeid` runtime経路を捏造せず、明示診断する
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
-- [ ] remaining full Itanium ABI、RTTI/typeid、complete static/TLS destructor semantics
+- [ ] remaining full Itanium ABI、動的`typeid`/type_info API、complete static/TLS
+      destructor semantics
 - [ ] thread-local destructor and exception cleanup interaction
 
 ## 4. IR / optimization

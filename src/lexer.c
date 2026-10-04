@@ -125,6 +125,7 @@ static struct {
     {"dynamic_cast", TOK_DYNAMIC_CAST},
     {"reinterpret_cast", TOK_REINTERPRET_CAST},
     {"const_cast", TOK_CONST_CAST},
+    {"typeid", TOK_TYPEID},
     /* C++ alternative operator spellings.  These are keywords only in C++;
      * lex_identifier maps them back to ordinary identifiers for C17. */
     {"and", TOK_AND},

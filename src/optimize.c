@@ -831,6 +831,7 @@ static bool expression_mentions_decl(const Expr* expression,
         case EXPR_CHAR_LIT:
         case EXPR_STRING_LIT:
         case EXPR_CXX_THIS:
+        case EXPR_CXX_TYPEID:
             return false;
     }
     return false;
@@ -882,6 +883,8 @@ static bool expression_modifies_decl(const Expr* expression,
         case EXPR_NOEXCEPT:
             return expression_modifies_decl(expression->unary_operand,
                                             declaration);
+        case EXPR_CXX_TYPEID:
+            return false;
         case EXPR_CAST:
             return expression_modifies_decl(expression->cast_expr,
                                             declaration);
@@ -1069,6 +1072,7 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
         case EXPR_CXX_THIS:
+        case EXPR_CXX_TYPEID:
             return false;
         case EXPR_IDENT:
             return expression->type && expression->type->is_volatile;
@@ -1951,6 +1955,7 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
             }
             return;
         case EXPR_CXX_THIS:
+        case EXPR_CXX_TYPEID:
             return;
         case EXPR_NEG:
         case EXPR_NOT:
@@ -2359,6 +2364,10 @@ static void mark_address_escapes_expr(const Expr* expression,
             /* Its operand is unevaluated and cannot make a local address
              * escape from the containing expression. */
             return;
+        case EXPR_CXX_TYPEID:
+            /* Non-polymorphic typeid operands are unevaluated in this
+             * bounded implementation and carry only a static identity. */
+            return;
         case EXPR_CXX_FOLD:
             return;
         case EXPR_ADDR:
@@ -2621,6 +2630,9 @@ static void mark_dead_store_reads(const Expr* expression,
             return;
         case EXPR_NOEXCEPT:
             /* The operand is unevaluated; it does not read local storage. */
+            return;
+        case EXPR_CXX_TYPEID:
+            /* Static typeid has no evaluated operand and no local read. */
             return;
         case EXPR_CXX_FOLD:
             return;
