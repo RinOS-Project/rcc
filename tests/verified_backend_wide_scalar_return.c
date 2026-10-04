@@ -124,6 +124,30 @@ long long verified_wide_scalar_expect(long long value)
     return __builtin_expect(value, 1LL);
 }
 
+unsigned long long verified_wide_scalar_assignment(
+    unsigned long long value)
+{
+    unsigned long long target = 0ULL;
+    target = value;
+    return target;
+}
+
+unsigned long long verified_wide_scalar_compound(
+    unsigned long long value)
+{
+    unsigned long long target = value;
+    target += 0x0000000100000001ULL;
+    target ^= 0x00000000ffffffffULL;
+    return target;
+}
+
+unsigned long long verified_wide_scalar_postincrement(
+    unsigned long long value)
+{
+    unsigned long long target = value;
+    return target++;
+}
+
 unsigned long long verified_wide_scalar_udiv(unsigned long long value)
 {
     return value / 0x0000000100000001ULL;

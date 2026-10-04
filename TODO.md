@@ -356,6 +356,9 @@
   - [x] `__builtin_bswap16/32/64`をtyped-SSAのmask／shift／論理演算へlowerし、
         x64の16/32/64-bit実行値、i686の16/32/64-bit fallbackなしを
         回帰検証
+  - [x] i686 wide-scalarの代入、複合代入、pre/post incrementをpair
+        load/storeとcarry/borrow付き演算へlowerし、両archのobject・x64
+        実行回帰で検証
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

@@ -79,6 +79,7 @@ static bool lower_collect_labels(RccIrLowerContext* context,
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
 static bool lower_i686_wide_scalar_type(const Type* type);
+static ExprKind lower_compound_binary_kind(ExprKind kind);
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result);
@@ -1840,6 +1841,110 @@ static bool lower_wide_scalar_expression(
             return result->valid;
         }
         return false;
+    }
+    if (expression->kind == EXPR_ASSIGN &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        lower_i686_wide_scalar_type(expression->binary_lhs->type)) {
+        RccIrLowerWideValue value;
+        address = lower_lvalue_address(context, expression->binary_lhs);
+        if (!lower_wide_scalar_expression(
+                context, expression->binary_rhs, &value) ||
+            !lower_wide_scalar_store(context, address, value)) {
+            return false;
+        }
+        *result = value;
+        return true;
+    }
+    if ((expression->kind == EXPR_ADD_ASSIGN ||
+         expression->kind == EXPR_SUB_ASSIGN ||
+         expression->kind == EXPR_MUL_ASSIGN ||
+         expression->kind == EXPR_DIV_ASSIGN ||
+         expression->kind == EXPR_MOD_ASSIGN ||
+         expression->kind == EXPR_AND_ASSIGN ||
+         expression->kind == EXPR_OR_ASSIGN ||
+         expression->kind == EXPR_XOR_ASSIGN ||
+         expression->kind == EXPR_LSHIFT_ASSIGN ||
+         expression->kind == EXPR_RSHIFT_ASSIGN) &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        lower_i686_wide_scalar_type(expression->binary_lhs->type)) {
+        RccIrLowerWideValue left;
+        RccIrLowerWideValue right;
+        RccIrLowerWideValue value;
+        ExprKind binary_kind = lower_compound_binary_kind(expression->kind);
+        address = lower_lvalue_address(context, expression->binary_lhs);
+        if (!lower_wide_scalar_load(
+                context, address, expression->binary_lhs->type->is_unsigned,
+                &left)) {
+            return false;
+        }
+        if (binary_kind == EXPR_LSHIFT || binary_kind == EXPR_RSHIFT) {
+            scalar = lower_expression(context, expression->binary_rhs);
+            if (!scalar.valid || !lower_wide_scalar_shift(
+                    context, binary_kind, left, scalar,
+                    expression->type->is_unsigned, &value)) {
+                return false;
+            }
+        } else if (!lower_wide_scalar_expression(
+                       context, expression->binary_rhs, &right)) {
+            return false;
+        } else if (binary_kind == EXPR_MUL &&
+                   !lower_wide_scalar_multiply(
+                       context, left, right,
+                       expression->type->is_unsigned, &value)) {
+            return false;
+        } else if ((binary_kind == EXPR_DIV ||
+                    binary_kind == EXPR_MOD) &&
+                   !lower_wide_scalar_divmod(
+                       context, binary_kind, left, right,
+                       expression->type->is_unsigned, &value)) {
+            return false;
+        } else if (!lower_wide_scalar_binary(
+                       context, binary_kind, left, right,
+                       expression->type->is_unsigned, &value)) {
+            return false;
+        }
+        if (!lower_wide_scalar_store(context, address, value)) return false;
+        *result = value;
+        return true;
+    }
+    if ((expression->kind == EXPR_PREINC ||
+         expression->kind == EXPR_PREDEC ||
+         expression->kind == EXPR_POSTINC ||
+         expression->kind == EXPR_POSTDEC) &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        expression->unary_operand &&
+        lower_i686_wide_scalar_type(expression->unary_operand->type)) {
+        RccIrLowerWideValue old_value;
+        RccIrLowerWideValue one;
+        RccIrLowerWideValue new_value;
+        bool increment = expression->kind == EXPR_PREINC ||
+            expression->kind == EXPR_POSTINC;
+        bool postfix = expression->kind == EXPR_POSTINC ||
+            expression->kind == EXPR_POSTDEC;
+        address = lower_lvalue_address(context, expression->unary_operand);
+        if (!lower_wide_scalar_load(
+                context, address,
+                expression->unary_operand->type->is_unsigned,
+                &old_value)) {
+            return false;
+        }
+        one.low = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 1u);
+        one.high = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        one.is_unsigned = true;
+        one.valid = one.low.valid && one.high.valid;
+        if (!one.valid || !lower_wide_scalar_binary(
+                context, increment ? EXPR_ADD : EXPR_SUB,
+                old_value, one, expression->type->is_unsigned,
+                &new_value) ||
+            !lower_wide_scalar_store(context, address, new_value)) {
+            return false;
+        }
+        *result = postfix ? old_value : new_value;
+        return true;
     }
     if (expression->kind == EXPR_COND &&
         lower_i686_wide_scalar_type(expression->type)) {
@@ -5692,7 +5797,14 @@ static bool lower_statement(RccIrLowerContext* context,
         case STMT_NULL:
             return true;
         case STMT_EXPR:
-            (void)lower_expression(context, statement->expr);
+            if (statement->expr && lower_i686_wide_scalar_type(
+                    statement->expr->type)) {
+                RccIrLowerWideValue value;
+                (void)lower_wide_scalar_expression(
+                    context, statement->expr, &value);
+            } else {
+                (void)lower_expression(context, statement->expr);
+            }
             return !context->unsupported;
         case STMT_BLOCK:
             return lower_block(context, statement);

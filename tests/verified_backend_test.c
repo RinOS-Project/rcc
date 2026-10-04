@@ -171,6 +171,9 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* mul_symbol;
     ObjSymbol* call_symbol;
     ObjSymbol* expect_symbol;
+    ObjSymbol* assignment_symbol;
+    ObjSymbol* compound_symbol;
+    ObjSymbol* postincrement_symbol;
     ObjSymbol* udiv_symbol;
     ObjSymbol* udiv_small_symbol;
     ObjSymbol* umod_symbol;
@@ -220,6 +223,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     call_symbol = objfile_find_symbol(object, "verified_wide_scalar_call");
     expect_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_expect");
+    assignment_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_assignment");
+    compound_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_compound");
+    postincrement_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_postincrement");
     udiv_symbol = objfile_find_symbol(object, "verified_wide_scalar_udiv");
     udiv_small_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_udiv_small");
@@ -297,6 +306,17 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            call_symbol->binding == BIND_CODE && call_symbol->section == 0);
     assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
            expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
+    assert(assignment_symbol != NULL &&
+           assignment_symbol->type == SYM_GLOBAL &&
+           assignment_symbol->binding == BIND_CODE &&
+           assignment_symbol->section == 0);
+    assert(compound_symbol != NULL && compound_symbol->type == SYM_GLOBAL &&
+           compound_symbol->binding == BIND_CODE &&
+           compound_symbol->section == 0);
+    assert(postincrement_symbol != NULL &&
+           postincrement_symbol->type == SYM_GLOBAL &&
+           postincrement_symbol->binding == BIND_CODE &&
+           postincrement_symbol->section == 0);
     assert(udiv_symbol != NULL && udiv_symbol->type == SYM_GLOBAL &&
            udiv_symbol->binding == BIND_CODE && udiv_symbol->section == 0);
     assert(udiv_small_symbol != NULL &&
@@ -338,6 +358,9 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*mul_function)(unsigned long long);
         unsigned long long RINOS_ABI (*call_function)(unsigned long long);
         long long RINOS_ABI (*expect_function)(long long);
+        unsigned long long RINOS_ABI (*assignment_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*compound_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*postincrement_function)(unsigned long long);
         unsigned long long RINOS_ABI (*udiv_function)(unsigned long long);
         unsigned long long RINOS_ABI (*udiv_small_function)(unsigned long long);
         unsigned long long RINOS_ABI (*umod_function)(unsigned long long);
@@ -448,6 +471,19 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
                0x0000000100000005LL);
         assert(expect_function(-0x0000000100000005LL) ==
                -0x0000000100000005LL);
+        address = symbol_address(memory, assignment_symbol);
+        memcpy(&assignment_function, &address, sizeof(assignment_function));
+        assert(assignment_function(0x8899aabbccddeeffULL) ==
+               0x8899aabbccddeeffULL);
+        address = symbol_address(memory, compound_symbol);
+        memcpy(&compound_function, &address, sizeof(compound_function));
+        assert(compound_function(0x0000000200000002ULL) ==
+               0x00000003fffffffcULL);
+        address = symbol_address(memory, postincrement_symbol);
+        memcpy(&postincrement_function, &address,
+               sizeof(postincrement_function));
+        assert(postincrement_function(0xffffffffffffffffULL) ==
+               0xffffffffffffffffULL);
         address = symbol_address(memory, udiv_symbol);
         memcpy(&udiv_function, &address, sizeof(udiv_function));
         assert(udiv_function(0x0000000200000002ULL) == 2ULL);
