@@ -89,6 +89,9 @@
   - [x] C++の複数declarator宣言も同じscope-preserving経路で展開し、global/local
         object、pointer、array、function prototypeの混在をx64実行と両arch
         object回帰で検証する
+  - [x] C++ `auto`／`decltype(auto)`の宣言initializerをassignment-expression
+        境界で分離し、同一宣言文の複数推論declaratorを順序どおりscopeへ登録
+        してx64実行・両arch object回帰を通す
   - [x] function prototype scopeの`[*]`を未指定VLAとして保持し、
         definition／local／typedef／type-nameでの誤用を診断
   - [x] type-nameの`sizeof(int[count])`でVLA boundを意味解析し、

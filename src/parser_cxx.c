@@ -12309,9 +12309,9 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
 
 static Stmt* parse_cxx_dependent_local_declaration(void) {
     SourceLoc loc = peek()->loc;
-    Type* type;
+    Type* base_type = NULL;
     Token* name;
-    Expr* initializer = NULL;
+    StmtList* declarations = NULL;
     bool is_decltype_auto = check(TOK_DECLTYPE) && parser.cur->next &&
         parser.cur->next->type == TOK_LPAREN && parser.cur->next->next &&
         parser.cur->next->next->type == TOK_AUTO &&
@@ -12319,39 +12319,67 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
         parser.cur->next->next->next->type == TOK_RPAREN;
     bool is_auto_const = match(TOK_CONST);
     bool is_auto = match(TOK_AUTO);
-    bool direct_list_initializer = false;
-    bool is_auto_reference = false;
-    bool is_auto_rvalue_reference = false;
-    bool is_auto_pointer = false;
 
     if (is_decltype_auto) {
         advance();
         advance();
         advance();
         advance();
-        type = NULL;
     } else if (is_auto) {
-        if (match(TOK_STAR)) {
-            is_auto_pointer = true;
-        } else if (match(TOK_AMP)) {
-            is_auto_reference = true;
-        } else if (match(TOK_AND)) {
-            is_auto_reference = true;
-            is_auto_rvalue_reference = true;
-        }
-        type = NULL;
     } else {
-        type = parse_cxx_type_spec();
+        base_type = parse_cxx_type_spec();
     }
-    name = expect(TOK_IDENT, "local variable name");
-    if (!name) return NULL;
-    if (match(TOK_ASSIGN)) {
-        if (is_decltype_auto && check(TOK_LBRACE)) {
+
+    for (;;) {
+        Type* type = base_type;
+        Expr* initializer = NULL;
+        bool direct_list_initializer = false;
+        bool is_auto_reference = false;
+        bool is_auto_rvalue_reference = false;
+        bool is_auto_pointer = false;
+
+        if (is_auto) {
+            if (match(TOK_STAR)) {
+                is_auto_pointer = true;
+            } else if (match(TOK_AMP)) {
+                is_auto_reference = true;
+            } else if (match(TOK_AND)) {
+                is_auto_reference = true;
+                is_auto_rvalue_reference = true;
+            }
+        }
+        name = expect(TOK_IDENT, "local variable name");
+        if (!name) return NULL;
+        if (match(TOK_ASSIGN)) {
+            if (is_decltype_auto && check(TOK_LBRACE)) {
+                rcc_error(peek()->loc,
+                          "decltype(auto) variable requires an expression initializer");
+                skip_balanced(TOK_LBRACE, TOK_RBRACE);
+            } else if (check(TOK_LBRACE)) {
+                if (check_next(TOK_RBRACE)) {
+                    SourceLoc initializer_loc = peek()->loc;
+                    advance();
+                    advance();
+                    initializer = expr_initializer_list(
+                        exprlist_new(expr_int(0, initializer_loc)),
+                        initializer_loc);
+                    initializer->compound_type = type;
+                    initializer->type = type;
+                    initializer->compound_value_init = true;
+                } else {
+                    skip_balanced(TOK_LBRACE, TOK_RBRACE);
+                }
+            } else {
+                /* A declaration initializer is an assignment-expression.
+                 * Stop before the comma that begins the next declarator. */
+                initializer = parse_assignment_expression();
+            }
+        } else if (is_decltype_auto && check(TOK_LBRACE)) {
             rcc_error(peek()->loc,
                       "decltype(auto) variable requires an expression initializer");
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
         } else if (check(TOK_LBRACE)) {
-            if (check_next(TOK_RBRACE)) {
+            if (!is_auto && check_next(TOK_RBRACE)) {
                 SourceLoc initializer_loc = peek()->loc;
                 advance();
                 advance();
@@ -12361,62 +12389,56 @@ static Stmt* parse_cxx_dependent_local_declaration(void) {
                 initializer->compound_type = type;
                 initializer->type = type;
                 initializer->compound_value_init = true;
+            } else if (is_auto) {
+                direct_list_initializer = true;
+                initializer = rcc_parser_parse_initializer();
             } else {
                 skip_balanced(TOK_LBRACE, TOK_RBRACE);
             }
-        } else {
-            initializer = parse_cxx_expression();
         }
-    } else if (is_decltype_auto && check(TOK_LBRACE)) {
-        rcc_error(peek()->loc,
-                  "decltype(auto) variable requires an expression initializer");
-        skip_balanced(TOK_LBRACE, TOK_RBRACE);
-    } else if (check(TOK_LBRACE)) {
-        if (!is_auto && check_next(TOK_RBRACE)) {
-            SourceLoc initializer_loc = peek()->loc;
-            advance();
-            advance();
-            initializer = expr_initializer_list(
-                exprlist_new(expr_int(0, initializer_loc)),
-                initializer_loc);
-            initializer->compound_type = type;
-            initializer->type = type;
-            initializer->compound_value_init = true;
-        } else if (is_auto) {
-            direct_list_initializer = true;
-            initializer = rcc_parser_parse_initializer();
-        } else {
-            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        if (direct_list_initializer) {
+            ExprList* item = initializer && initializer->kind == EXPR_COMPOUND
+                ? initializer->compound_init : NULL;
+            if (!item || item->next || item->designator_kind !=
+                    INIT_DESIGNATOR_NONE) {
+                rcc_error(name->loc,
+                          "direct-list auto initialization requires one initializer expression");
+                initializer = NULL;
+            } else {
+                initializer = item->expr;
+            }
         }
+        if (is_auto && initializer) {
+            type = initializer->type;
+            if (!type && initializer->kind == EXPR_COMPOUND) {
+                type = initializer->compound_type;
+            }
+        }
+
+        {
+            Decl* declaration = decl_var(name->value.str_val, type,
+                                          initializer, loc);
+            declaration->var_is_auto = is_auto;
+            declaration->var_is_decltype_auto = is_decltype_auto;
+            declaration->var_is_auto_reference = is_auto_reference;
+            declaration->var_is_auto_rvalue_reference = is_auto_rvalue_reference;
+            declaration->var_is_auto_pointer = is_auto_pointer;
+            declaration->var_is_auto_const = is_auto_const;
+            rcc_parser_cxx_add_value_binding(declaration->name,
+                                             declaration->type);
+            stmtlist_append(&declarations, stmt_decl(declaration, loc));
+        }
+        if (!match(TOK_COMMA)) break;
     }
-    if (direct_list_initializer) {
-        ExprList* item = initializer && initializer->kind == EXPR_COMPOUND
-            ? initializer->compound_init : NULL;
-        if (!item || item->next || item->designator_kind !=
-                INIT_DESIGNATOR_NONE) {
-            rcc_error(name->loc,
-                      "direct-list auto initialization requires one initializer expression");
-            initializer = NULL;
-        } else {
-            initializer = item->expr;
-        }
-    }
-    if (is_auto && initializer) {
-        type = initializer->type;
-        if (!type && initializer->kind == EXPR_COMPOUND) {
-            type = initializer->compound_type;
-        }
-    }
+
     expect(TOK_SEMICOLON, ";");
-    Decl* declaration = decl_var(name->value.str_val, type, initializer, loc);
-    declaration->var_is_auto = is_auto;
-    declaration->var_is_decltype_auto = is_decltype_auto;
-    declaration->var_is_auto_reference = is_auto_reference;
-    declaration->var_is_auto_rvalue_reference = is_auto_rvalue_reference;
-    declaration->var_is_auto_pointer = is_auto_pointer;
-    declaration->var_is_auto_const = is_auto_const;
-    rcc_parser_cxx_add_value_binding(declaration->name, declaration->type);
-    return stmt_decl(declaration, loc);
+    if (!declarations) return NULL;
+    if (!declarations->next) return declarations->stmt;
+    {
+        Stmt* result = stmt_block(declarations, loc);
+        result->block_no_scope = true;
+        return result;
+    }
 }
 
 Stmt* rcc_parse_cxx_auto_local_declaration(void) {
