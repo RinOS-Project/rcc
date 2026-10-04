@@ -443,3 +443,7 @@
 - [x] Make C++ language-linkage symbol checks use the shared host text helper,
       and run namespace parser-recovery diagnostics through a bounded Windows
       PowerShell process monitor as well as the POSIX timeout path.
+- [x] Make the native Windows `cmd.exe` C17 preprocessing and language-boundary
+      gates use the shared directory/expected-failure helpers, native tool names,
+      and a committed PowerShell text matcher; i686 runtime execution remains
+      explicitly dependent on a 32-bit host runtime or RinOS/WSL runner.

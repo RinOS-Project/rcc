@@ -47,12 +47,14 @@ CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
 CHECK_FINI_ARRAY = findstr /c:".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
 CHECK_TEXT = findstr /c:"$(1)" "$(subst /,\,$(2))" >NUL
+GREP = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
 else
-CHECK_INIT_ARRAY = grep -F -q ".section .init_array"
+CHECK_INIT_ARRAY = $(GREP) -F -q ".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(1)
-CHECK_FINI_ARRAY = grep -F -q ".section .fini_array"
+CHECK_FINI_ARRAY = $(GREP) -F -q ".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(1)
-CHECK_TEXT = grep -F -q "$(1)" "$(2)"
+CHECK_TEXT = $(GREP) -F -q "$(1)" "$(2)"
+GREP = grep
 endif
 
 ifeq ($(OS),Windows_NT)
@@ -128,19 +130,29 @@ COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 # RCC (C compiler)
 RCC_SRCS = $(SRCDIR)/main.c
 RCC_OBJS = $(RCC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-RCC_TARGET = $(BINDIR)/rcc$(EXE_SUFFIX)
 
 # RCC++ (C++ compiler)
 RCXX_SRCS = $(SRCDIR)/main_cxx.c $(SRCDIR)/ast_cxx.c $(SRCDIR)/parser_cxx.c
 RCXX_OBJS = $(RCXX_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+
+ifeq ($(OS),Windows_NT)
+RCC_TARGET = rcc$(EXE_SUFFIX)
+RCXX_TARGET = rcc++$(EXE_SUFFIX)
+else
+RCC_TARGET = $(BINDIR)/rcc$(EXE_SUFFIX)
 RCXX_TARGET = $(BINDIR)/rcc++$(EXE_SUFFIX)
+endif
 
 # RLD (Linker) - uses minimal common code
 RLD_COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/emit_ro.c $(SRCDIR)/archive.c $(SRCDIR)/build_manifest.c
 RLD_COMMON_OBJS = $(RLD_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RLD_SRCS = $(SRCDIR)/main_rld.c $(SRCDIR)/linker.c
 RLD_OBJS = $(RLD_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+ifeq ($(OS),Windows_NT)
+RLD_TARGET = rld$(EXE_SUFFIX)
+else
 RLD_TARGET = $(BINDIR)/rld$(EXE_SUFFIX)
+endif
 
 # Native v3 image validator used by the format audit target.  Keep this as a
 # sibling checkout by default, while allowing CI and package builds to point
@@ -155,14 +167,22 @@ endif
 # public RinGPU checkout selected by RINGPU_ROOT.
 AQC_SRCS = $(SRCDIR)/main_aqc.c $(SRCDIR)/aqc.c
 AQC_OBJS = $(AQC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o) $(OBJDIR)/ringpu_shader.o
+ifeq ($(OS),Windows_NT)
+AQC_TARGET = aqc$(EXE_SUFFIX)
+else
 AQC_TARGET = $(BINDIR)/aqc$(EXE_SUFFIX)
+endif
 
 # RAR (Archiver) - uses minimal common code
 RAR_COMMON_SRCS = $(SRCDIR)/utils.c
 RAR_COMMON_OBJS = $(RAR_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+ifeq ($(OS),Windows_NT)
+RAR_TARGET = rar$(EXE_SUFFIX)
+else
 RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
+endif
 
 # Keep object/header dependencies in the build tree so a changed public
 # header can never leave incompatible compiler objects mixed together.
@@ -582,7 +602,7 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	@echo "Relocatable DWARF line-table, info, and frame-CFI tests completed"
 
 test-aqc: $(AQC_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(AQC_TARGET) -o $(TEST_OUT)/passthrough_vertex.rsh \
 		$(RINOS_ROOT)/resources/shaders/passthrough_vertex.aq
 	$(AQC_TARGET) -o $(TEST_OUT)/sample_fragment.rsh \
@@ -628,13 +648,13 @@ test-cxx-predefined-function-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.ro \
 		tests/predefined_function_invalid.c \
 		>$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.log 2>&1
-	grep -q "__func__ is only valid within a function body" \
+	$(GREP) -q "__func__ is only valid within a function body" \
 		$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-c.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.ro \
 		tests/predefined_function_invalid.c \
 		>$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log 2>&1
-	grep -q "__func__ is only valid within a function body" \
+	$(GREP) -q "__func__ is only valid within a function body" \
 		$(TEST_OUT)/cxx-predefined-function-identifiers/invalid-cxx.log
 	@echo "C/C++ predefined function identifier tests completed"
 
@@ -642,16 +662,16 @@ test-preprocessor-date-time: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-date-time)
 	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) -E tests/preprocessor_date_time.c > \
 		$(TEST_OUT)/preprocessor-date-time/c.i
-	grep -F -q 'const char rcc_preprocessor_date[] = "Jan  1 1970";' \
+	$(GREP) -F -q 'const char rcc_preprocessor_date[] = "Jan  1 1970";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
-	grep -F -q 'const char rcc_preprocessor_time[] = "00:00:00";' \
+	$(GREP) -F -q 'const char rcc_preprocessor_time[] = "00:00:00";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
 	SOURCE_DATE_EPOCH=0 $(RCXX_TARGET) -std=c++20 -E \
 		tests/preprocessor_date_time.cpp > \
 		$(TEST_OUT)/preprocessor-date-time/cxx.i
-	grep -F -q 'const char rcc_cpp_preprocessor_date[] = "Jan  1 1970";' \
+	$(GREP) -F -q 'const char rcc_cpp_preprocessor_date[] = "Jan  1 1970";' \
 		$(TEST_OUT)/preprocessor-date-time/cxx.i
-	grep -F -q 'const char rcc_cpp_preprocessor_time[] = "00:00:00";' \
+	$(GREP) -F -q 'const char rcc_cpp_preprocessor_time[] = "00:00:00";' \
 		$(TEST_OUT)/preprocessor-date-time/cxx.i
 	SOURCE_DATE_EPOCH=0 $(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-date-time/c-x86.ro \
@@ -670,7 +690,7 @@ test-preprocessor-date-time: $(RCC_TARGET) $(RCXX_TARGET)
 		 >$(TEST_OUT)/preprocessor-date-time/invalid.log 2>&1; then \
 		exit 1; \
 	fi
-	grep -F -q "invalid SOURCE_DATE_EPOCH value 'not-a-timestamp'" \
+	$(GREP) -F -q "invalid SOURCE_DATE_EPOCH value 'not-a-timestamp'" \
 		$(TEST_OUT)/preprocessor-date-time/invalid.log
 	@echo "C17/C++20 __DATE__/__TIME__ tests completed"
 
@@ -678,20 +698,20 @@ test-preprocessor-standard-macros: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-standard-macros)
 	$(RCC_TARGET) -E tests/preprocessor_standard_macros.c > \
 		$(TEST_OUT)/preprocessor-standard-macros/c-hosted.i
-	grep -F -q 'int rcc_standard_hosted_value = 1;' \
+	$(GREP) -F -q 'int rcc_standard_hosted_value = 1;' \
 		$(TEST_OUT)/preprocessor-standard-macros/c-hosted.i
 	$(RCC_TARGET) -ffreestanding -E tests/preprocessor_freestanding_macros.c > \
 		$(TEST_OUT)/preprocessor-standard-macros/c-freestanding.i
-	grep -F -q 'int rcc_freestanding_hosted_value = 0;' \
+	$(GREP) -F -q 'int rcc_freestanding_hosted_value = 0;' \
 		$(TEST_OUT)/preprocessor-standard-macros/c-freestanding.i
 	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_standard_macros.cpp > \
 		$(TEST_OUT)/preprocessor-standard-macros/cxx-hosted.i
-	grep -F -q 'constexpr int rcc_cpp_standard_hosted_value = 1;' \
+	$(GREP) -F -q 'constexpr int rcc_cpp_standard_hosted_value = 1;' \
 		$(TEST_OUT)/preprocessor-standard-macros/cxx-hosted.i
 	$(RCXX_TARGET) -std=c++20 -ffreestanding -E \
 		tests/preprocessor_freestanding_macros.cpp > \
 		$(TEST_OUT)/preprocessor-standard-macros/cxx-freestanding.i
-	grep -F -q 'constexpr int rcc_cpp_freestanding_hosted_value = 0;' \
+	$(GREP) -F -q 'constexpr int rcc_cpp_freestanding_hosted_value = 0;' \
 		$(TEST_OUT)/preprocessor-standard-macros/cxx-freestanding.i
 	$(RCC_TARGET) --target i686-unknown-rinos -ffreestanding -c \
 		-o $(TEST_OUT)/preprocessor-standard-macros/c-x86.ro \
@@ -724,13 +744,13 @@ test-universal-character-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 	! $(RCC_TARGET) -c -o $(TEST_OUT)/universal-character-identifiers/invalid-c.ro \
 		tests/invalid_universal_character_name.c \
 		>$(TEST_OUT)/universal-character-identifiers/invalid-c.log 2>&1
-	grep -q "universal character names are not supported by the RinOS byte-string ABI" \
+	$(GREP) -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/universal-character-identifiers/invalid-c.log
 	! $(RCXX_TARGET) -std=c++20 -c \
 		-o $(TEST_OUT)/universal-character-identifiers/invalid-cxx.ro \
 		tests/invalid_universal_character_name.c \
 		>$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log 2>&1
-	grep -q "universal character names are not supported by the RinOS byte-string ABI" \
+	$(GREP) -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/universal-character-identifiers/invalid-cxx.log
 	@echo "C17/C++20 universal character identifier tests completed"
 
@@ -738,11 +758,11 @@ test-preprocessor-has-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-has-include)
 	$(RCC_TARGET) -E tests/preprocessor_has_include.c > \
 		$(TEST_OUT)/preprocessor-has-include/c.i
-	grep -F -q 'int preprocessor_has_include_c(void)' \
+	$(GREP) -F -q 'int preprocessor_has_include_c(void)' \
 		$(TEST_OUT)/preprocessor-has-include/c.i
 	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_has_include.cpp > \
 		$(TEST_OUT)/preprocessor-has-include/cxx.i
-	grep -F -q 'int preprocessor_has_include_cxx()' \
+	$(GREP) -F -q 'int preprocessor_has_include_cxx()' \
 		$(TEST_OUT)/preprocessor-has-include/cxx.i
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-has-include/c-x86.ro \
@@ -760,13 +780,13 @@ test-preprocessor-has-include: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/preprocessor-has-include/invalid-c.ro \
 		tests/invalid_preprocessor_has_include.c \
 		>$(TEST_OUT)/preprocessor-has-include/invalid-c.log 2>&1
-	grep -F -q 'invalid #if expression' \
+	$(GREP) -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-has-include/invalid-c.log
 	! $(RCXX_TARGET) -std=c++20 -c \
 		-o $(TEST_OUT)/preprocessor-has-include/invalid-cxx.ro \
 		tests/invalid_preprocessor_has_include.c \
 		>$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log 2>&1
-	grep -F -q 'invalid #if expression' \
+	$(GREP) -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log
 	@echo "C17/C++20 __has_include tests completed"
 
@@ -774,7 +794,7 @@ test-preprocessor-attributes: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-attributes)
 	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_attributes.cpp > \
 		$(TEST_OUT)/preprocessor-attributes/cxx.i
-	grep -F -q 'int preprocessor_attribute_probe(int value)' \
+	$(GREP) -F -q 'int preprocessor_attribute_probe(int value)' \
 		$(TEST_OUT)/preprocessor-attributes/cxx.i
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/preprocessor-attributes/cxx-x86.ro \
@@ -786,13 +806,13 @@ test-preprocessor-attributes: $(RCXX_TARGET)
 		-o $(TEST_OUT)/preprocessor-attributes/invalid-cxx.ro \
 		tests/invalid_preprocessor_attributes.cpp \
 		>$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log 2>&1
-	grep -F -q 'invalid #if expression' \
+	$(GREP) -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-attributes/invalid-cxx.log
 	! $(RCXX_TARGET) -std=c++17 -c \
 		-o $(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.ro \
 		tests/invalid_cxx_standard_attributes.cpp \
 		>$(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.log 2>&1
-	grep -F -q '[[likely]] and [[unlikely]] require C++20 or newer' \
+	$(GREP) -F -q '[[likely]] and [[unlikely]] require C++20 or newer' \
 		$(TEST_OUT)/preprocessor-attributes/invalid-standard-attribute.log
 	@echo "C++20 __has_cpp_attribute tests completed"
 
@@ -822,45 +842,45 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.ro \
 		tests/cxx_standard_cpp14_invalid.cpp \
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log 2>&1
-	grep -q "structured bindings require C++17 or newer" \
+	$(GREP) -q "structured bindings require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	grep -q "generic lambda parameters require C++14 or newer" \
+	$(GREP) -q "generic lambda parameters require C++14 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	grep -q "lambda init-captures require C++14 or newer" \
+	$(GREP) -q "lambda init-captures require C++14 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	grep -q "fold expressions require C++17 or newer" \
+	$(GREP) -q "fold expressions require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	grep -q "inline variables require C++17 or newer" \
+	$(GREP) -q "inline variables require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
-	grep -q "C++ designated initializers require C++20 or newer" \
+	$(GREP) -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx11.log
 	! $(RCXX_TARGET) -std=c++14 -c \
 		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.ro \
 		tests/cxx_standard_cpp17_invalid.cpp \
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log 2>&1
-	grep -q "if constexpr requires C++17 or newer" \
+	$(GREP) -q "if constexpr requires C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	grep -q "constexpr lambda specifiers require C++17 or newer" \
+	$(GREP) -q "constexpr lambda specifiers require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	grep -q "fold expressions require C++17 or newer" \
+	$(GREP) -q "fold expressions require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	grep -q "template<auto> parameters require C++17 or newer" \
+	$(GREP) -q "template<auto> parameters require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	grep -q "nested namespace definitions require C++17 or newer" \
+	$(GREP) -q "nested namespace definitions require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	grep -q "inline variables require C++17 or newer" \
+	$(GREP) -q "inline variables require C++17 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
-	grep -q "C++ designated initializers require C++20 or newer" \
+	$(GREP) -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx14.log
 	! $(RCXX_TARGET) -std=c++17 -c \
 		-o $(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.ro \
 		tests/cxx_standard_cpp20_invalid.cpp \
 		>$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log 2>&1
-	grep -q "requires C++20 or newer" \
+	$(GREP) -q "requires C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
-	grep -q "C++ designated initializers require C++20 or newer" \
+	$(GREP) -q "C++ designated initializers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
-	grep -q "consteval lambda specifiers require C++20 or newer" \
+	$(GREP) -q "consteval lambda specifiers require C++20 or newer" \
 		$(TEST_OUT)/preprocessor-cxx-features/invalid-cxx17.log
 	@echo "C++ standard-version gates and feature-test macros completed"
 
@@ -959,28 +979,28 @@ test-property-gate: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/property-gate/invalid-c-x86.log 2>&1; status=$$?; \
 	set -e; test $$status -ne 0; \
 	test -s $(TEST_OUT)/property-gate/invalid-c-x86.log; \
-	grep -q "error:" $(TEST_OUT)/property-gate/invalid-c-x86.log
+	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-c-x86.log
 	@set +e; \
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/property-gate/invalid-c-x64.ro tests/property_invalid.c \
 		>$(TEST_OUT)/property-gate/invalid-c-x64.log 2>&1; status=$$?; \
 	set -e; test $$status -ne 0; \
 	test -s $(TEST_OUT)/property-gate/invalid-c-x64.log; \
-	grep -q "error:" $(TEST_OUT)/property-gate/invalid-c-x64.log
+	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-c-x64.log
 	@set +e; \
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/property-gate/invalid-cxx-x86.ro tests/property_invalid.cpp \
 		>$(TEST_OUT)/property-gate/invalid-cxx-x86.log 2>&1; status=$$?; \
 	set -e; test $$status -ne 0; \
 	test -s $(TEST_OUT)/property-gate/invalid-cxx-x86.log; \
-	grep -q "error:" $(TEST_OUT)/property-gate/invalid-cxx-x86.log
+	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-cxx-x86.log
 	@set +e; \
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/property-gate/invalid-cxx-x64.ro tests/property_invalid.cpp \
 		>$(TEST_OUT)/property-gate/invalid-cxx-x64.log 2>&1; status=$$?; \
 	set -e; test $$status -ne 0; \
 	test -s $(TEST_OUT)/property-gate/invalid-cxx-x64.log; \
-	grep -q "error:" $(TEST_OUT)/property-gate/invalid-cxx-x64.log
+	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-cxx-x64.log
 	@echo "C/C++ dual-architecture property corpus gate completed"
 
 test-fuzz: $(RCC_TARGET) $(RCXX_TARGET)
@@ -1022,32 +1042,32 @@ test-cxx-enum-class: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-enum-class/invalid-x86.ro \
 		tests/cxx_enum_class_invalid.cpp \
 		>$(TEST_OUT)/cxx-enum-class/invalid-x86.log 2>&1
-	grep -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
+	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-enum-class/invalid-x64.ro \
 		tests/cxx_enum_class_invalid.cpp \
 		>$(TEST_OUT)/cxx-enum-class/invalid-x64.log 2>&1
-	grep -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x64.log
+	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x64.log
 	@echo "RCC++ scoped enum test completed"
 
 test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -O3 -c -MMD \
 		-MF $(TEST_OUT)/cxx_cli_options.d -nostdinc -Itests/include \
 		-DRCC_CXX_CLI_VALUE=23 -DRCC_CXX_REMOVE_ME -URCC_CXX_REMOVE_ME \
 		-o $(TEST_OUT)/cxx_cli_options.ro tests/cxx_cli_options.cpp
 	! $(RCC_TARGET) -O4 -c -o $(TEST_OUT)/invalid-o-c.ro tests/hello.c \
 		>$(TEST_OUT)/invalid-o-c.log 2>&1
-	grep -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-c.log
+	$(GREP) -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-c.log
 	! $(RCC_TARGET) -Wunknown -c -o $(TEST_OUT)/invalid-w-c.ro tests/hello.c \
 		>$(TEST_OUT)/invalid-w-c.log 2>&1
-	grep -q 'unsupported warning option' $(TEST_OUT)/invalid-w-c.log
+	$(GREP) -q 'unsupported warning option' $(TEST_OUT)/invalid-w-c.log
 	! $(RCC_TARGET) -funknown -c -o $(TEST_OUT)/invalid-f-c.ro tests/hello.c \
 		>$(TEST_OUT)/invalid-f-c.log 2>&1
-	grep -q 'unsupported code-generation option' $(TEST_OUT)/invalid-f-c.log
+	$(GREP) -q 'unsupported code-generation option' $(TEST_OUT)/invalid-f-c.log
 	! $(RCXX_TARGET) -Ofoo -c -o $(TEST_OUT)/invalid-o-cxx.ro \
 		tests/cxx_cli_options.cpp >$(TEST_OUT)/invalid-o-cxx.log 2>&1
-	grep -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-cxx.log
+	$(GREP) -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-cxx.log
 	@echo "RCC++ command-line compatibility test completed"
 
 test-cxx-language-core: $(RCXX_TARGET)
@@ -1115,13 +1135,13 @@ endif
 		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x86.ro \
 		tests/cxx_new_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log 2>&1
-	grep -q 'array new has no lowerable constructor for its element initializers' \
+	$(GREP) -q 'array new has no lowerable constructor for its element initializers' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/invalid-array-new-x64.ro \
 		tests/cxx_new_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log 2>&1
-	grep -q 'array new has no lowerable constructor for its element initializers' \
+	$(GREP) -q 'array new has no lowerable constructor for its element initializers' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	@echo "RCC++ core language tests completed"
 
@@ -1371,13 +1391,13 @@ test-cxx-protected-member: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-protected-member/rejected-x86.ro \
 		tests/cxx_protected_member_rejected.cpp \
 		>$(TEST_OUT)/cxx-protected-member/rejected-x86.log 2>&1
-	grep -q "member 'counter' is not accessible" \
+	$(GREP) -q "member 'counter' is not accessible" \
 		$(TEST_OUT)/cxx-protected-member/rejected-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-protected-member/rejected-x64.ro \
 		tests/cxx_protected_member_rejected.cpp \
 		>$(TEST_OUT)/cxx-protected-member/rejected-x64.log 2>&1
-	grep -q "member 'counter' is not accessible" \
+	$(GREP) -q "member 'counter' is not accessible" \
 		$(TEST_OUT)/cxx-protected-member/rejected-x64.log
 	@echo "C++ protected-member access tests completed"
 
@@ -1607,21 +1627,21 @@ test-cxx-constexpr: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-constexpr/invalid-x86.ro \
 		tests/cxx_constexpr_invalid.cpp \
 		>$(TEST_OUT)/cxx-constexpr/invalid-x86.log 2>&1
-	grep -q "constexpr variable requires an initializer" \
+	$(GREP) -q "constexpr variable requires an initializer" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
-	grep -q "constexpr variable initializer is not a supported constant expression" \
+	$(GREP) -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
-	grep -q "consteval call is not a constant expression" \
+	$(GREP) -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-constexpr/invalid-x64.ro \
 		tests/cxx_constexpr_invalid.cpp \
 		>$(TEST_OUT)/cxx-constexpr/invalid-x64.log 2>&1
-	grep -q "constexpr variable requires an initializer" \
+	$(GREP) -q "constexpr variable requires an initializer" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
-	grep -q "constexpr variable initializer is not a supported constant expression" \
+	$(GREP) -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
-	grep -q "consteval call is not a constant expression" \
+	$(GREP) -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	@echo "RCC++ scalar constexpr folding tests completed"
 
@@ -1744,7 +1764,7 @@ else
 		>$(TEST_OUT)/cxx-new-array/invalid.log 2>&1; then \
 		echo "parenthesized array-new initializer unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "array new element initializers require braces" \
+	$(GREP) -q "array new element initializers require braces" \
 		$(TEST_OUT)/cxx-new-array/invalid.log
 endif
 
@@ -1767,12 +1787,12 @@ test-cxx-language-linkage: $(RCXX_TARGET)
 ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch '_Z14linkage_importi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }"
 else
-	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | grep -x -q '_Z14linkage_importi'
+	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_Z14linkage_importi'
 endif
 	@echo "RCC++ C/C++ language-linkage tests completed"
 
 test-cxx-member-specifiers: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-member-specifiers
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-specifiers)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-member-specifiers/x86.ro \
 		tests/cxx_member_specifiers.cpp
@@ -1800,17 +1820,17 @@ test-cxx-function-templates: $(RCXX_TARGET)
 	$(CC) -c -o $(TEST_OUT)/cxx-function-templates/x64.o \
 		$(TEST_OUT)/cxx-function-templates/x64.s
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		grep -F -x -q '_ZN8identityEi'
+		$(GREP) -F -x -q '_ZN8identityEi'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		grep -F -x -q '_ZN8identityEl'
+		$(GREP) -F -x -q '_ZN8identityEl'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		grep -F -x -q '_ZN6detail16pointer_identityEPi'
+		$(GREP) -F -x -q '_ZN6detail16pointer_identityEPi'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		grep -F -x -q '_ZN6detail15default_deducedEIlEi'
+		$(GREP) -F -x -q '_ZN6detail15default_deducedEIlEi'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		grep -F -x -q '_ZN6detail18type_only_templateEIiEv'
+		$(GREP) -F -x -q '_ZN6detail18type_only_templateEIiEv'
 	strings $(TEST_OUT)/cxx-function-templates/x86.ro | \
-		grep -F -x -q '_ZN6detail18type_only_templateEIlEv'
+		$(GREP) -F -x -q '_ZN6detail18type_only_templateEIlEv'
 	@echo "RCC++ function template syntax tests completed"
 
 test-cxx-variable-templates: $(RCXX_TARGET)
@@ -1845,7 +1865,7 @@ test-cxx-variable-templates: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-variable-templates/invalid-x86.log 2>&1; then \
 		echo "C++11 variable template unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "variable templates require C++14 or newer" \
+	$(GREP) -q "variable templates require C++14 or newer" \
 		$(TEST_OUT)/cxx-variable-templates/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -c \
 		-o $(TEST_OUT)/cxx-variable-templates/invalid-x64.ro \
@@ -1853,7 +1873,7 @@ test-cxx-variable-templates: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-variable-templates/invalid-x64.log 2>&1; then \
 		echo "C++11 variable template unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "variable templates require C++14 or newer" \
+	$(GREP) -q "variable templates require C++14 or newer" \
 		$(TEST_OUT)/cxx-variable-templates/invalid-x64.log
 	@echo "RCC++ variable-template specialization tests completed"
 
@@ -1888,14 +1908,14 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
 		>$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log 2>&1; status=$$?; set -e; \
 		test $$status -ne 0
-	grep -q "ambiguous function template overload for 'select_template'" \
+	$(GREP) -q "ambiguous function template overload for 'select_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro \
 		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
 		>$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log 2>&1; status=$$?; set -e; \
 		test $$status -ne 0
-	grep -q "ambiguous function template overload for 'select_template'" \
+	$(GREP) -q "ambiguous function template overload for 'select_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	@echo "RCC++ function-template overload and expression-deduction tests completed"
 
@@ -1929,7 +1949,7 @@ test-cxx-function-template-references: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-function-template-references/invalid.ro \
 		tests/cxx_function_template_references_invalid.cpp \
 		>$(TEST_OUT)/cxx-function-template-references/invalid.log 2>&1
-	grep -q "no matching function template overload for 'read_rvalue'" \
+	$(GREP) -q "no matching function template overload for 'read_rvalue'" \
 		$(TEST_OUT)/cxx-function-template-references/invalid.log
 	@echo "RCC++ function-template reference and function-pointer deduction tests completed"
 
@@ -1965,7 +1985,7 @@ test-cxx-constraints: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constraints/invalid-x86.log 2>&1; then \
 		echo "invalid constrained template unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-constraints/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-constraints/invalid-x64.ro \
@@ -1973,7 +1993,7 @@ test-cxx-constraints: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constraints/invalid-x64.log 2>&1; then \
 		echo "invalid constrained template unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-constraints/invalid-x64.log
 	@echo "RCC++ integral template constraint tests completed"
 
@@ -2009,7 +2029,7 @@ test-cxx-named-concepts: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-named-concepts/invalid-x86.log 2>&1; then \
 		echo "parameter-pack named concept unexpectedly compiled on i686"; exit 1; \
 	fi
-	grep -q "named concepts do not support parameter packs" \
+	$(GREP) -q "named concepts do not support parameter packs" \
 		$(TEST_OUT)/cxx-named-concepts/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-named-concepts/invalid-x64.ro \
@@ -2017,7 +2037,7 @@ test-cxx-named-concepts: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-named-concepts/invalid-x64.log 2>&1; then \
 		echo "parameter-pack named concept unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "named concepts do not support parameter packs" \
+	$(GREP) -q "named concepts do not support parameter packs" \
 		$(TEST_OUT)/cxx-named-concepts/invalid-x64.log
 	@echo "RCC++ bounded named concept tests completed"
 
@@ -2051,13 +2071,13 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x86.log 2>&1
-	grep -q "alias template parameter packs are not supported" \
+	$(GREP) -q "alias template parameter packs are not supported" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x64.log 2>&1
-	grep -q "alias template parameter packs are not supported" \
+	$(GREP) -q "alias template parameter packs are not supported" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x64.log
 	@echo "RCC++ bounded alias template tests completed"
 
@@ -2125,7 +2145,7 @@ test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.log 2>&1; then \
 		echo "ambiguous class template specialization unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "ambiguous class template partial specialization" \
+	$(GREP) -q "ambiguous class template partial specialization" \
 		$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.ro \
@@ -2133,7 +2153,7 @@ test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log 2>&1; then \
 		echo "ambiguous class template specialization unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "ambiguous class template partial specialization" \
+	$(GREP) -q "ambiguous class template partial specialization" \
 		$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log
 	@echo "RCC++ ambiguous class-template specialization diagnostic completed"
 
@@ -2145,7 +2165,7 @@ test-cxx-class-template-specialization-partial-order-invalid: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.log 2>&1; then \
 		echo "incomparable partial specializations unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "ambiguous class template partial specialization" \
+	$(GREP) -q "ambiguous class template partial specialization" \
 		$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.ro \
@@ -2153,7 +2173,7 @@ test-cxx-class-template-specialization-partial-order-invalid: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log 2>&1; then \
 		echo "incomparable partial specializations unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "ambiguous class template partial specialization" \
+	$(GREP) -q "ambiguous class template partial specialization" \
 		$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log
 	@echo "RCC++ incomparable partial-specialization diagnostic completed"
 
@@ -2165,7 +2185,7 @@ test-cxx-class-template-specialization-constraint-invalid: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.log 2>&1; then \
 		echo "unsupported partial specialization constraint unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "constraint could not be evaluated" \
+	$(GREP) -q "constraint could not be evaluated" \
 		$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.ro \
@@ -2173,7 +2193,7 @@ test-cxx-class-template-specialization-constraint-invalid: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.log 2>&1; then \
 		echo "unsupported partial specialization constraint unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "constraint could not be evaluated" \
+	$(GREP) -q "constraint could not be evaluated" \
 		$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.log
 	@echo "RCC++ unsupported partial-specialization constraint diagnostic completed"
 
@@ -2332,9 +2352,9 @@ else
 		echo "non-mutable lambda capture unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "assignment requires modifiable lvalue" \
+	$(GREP) -q "assignment requires modifiable lvalue" \
 		$(TEST_OUT)/cxx-lambda-invalid/x86.log
-	grep -q "assignment requires modifiable lvalue" \
+	$(GREP) -q "assignment requires modifiable lvalue" \
 		$(TEST_OUT)/cxx-lambda-invalid/x64.log
 	@echo "RCC++ non-mutable lambda capture diagnostics completed"
 
@@ -2357,9 +2377,9 @@ else
 		echo "reference lambda init-capture unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "lambda init-capture cannot initialize a reference or this capture" \
+	$(GREP) -q "lambda init-capture cannot initialize a reference or this capture" \
 		$(TEST_OUT)/cxx-lambda-init-capture-invalid/x86.log
-	grep -q "lambda init-capture cannot initialize a reference or this capture" \
+	$(GREP) -q "lambda init-capture cannot initialize a reference or this capture" \
 		$(TEST_OUT)/cxx-lambda-init-capture-invalid/x64.log
 	@echo "RCC++ reference lambda init-capture diagnostics completed"
 
@@ -2410,13 +2430,13 @@ else
 		echo "invalid structured binding field count unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "structured binding count does not match aggregate fields" \
+	$(GREP) -q "structured binding count does not match aggregate fields" \
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log
-	grep -q "structured binding count does not match aggregate fields" \
+	$(GREP) -q "structured binding count does not match aggregate fields" \
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log
-	grep -q "direct-list structured binding requires one initializer expression" \
+	$(GREP) -q "direct-list structured binding requires one initializer expression" \
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x86.log
-	grep -q "direct-list structured binding requires one initializer expression" \
+	$(GREP) -q "direct-list structured binding requires one initializer expression" \
 		$(TEST_OUT)/cxx-structured-bindings-invalid/x64.log
 	@echo "RCC++ structured binding diagnostics completed"
 
@@ -2463,9 +2483,9 @@ else
 		echo "invalid C++ alignas unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "_Alignas alignment must be a power of two" \
+	$(GREP) -q "_Alignas alignment must be a power of two" \
 		$(TEST_OUT)/cxx-alignas-invalid/x86.log
-	grep -q "_Alignas alignment must be a power of two" \
+	$(GREP) -q "_Alignas alignment must be a power of two" \
 		$(TEST_OUT)/cxx-alignas-invalid/x64.log
 	@echo "RCC++ alignas diagnostics completed"
 
@@ -2532,21 +2552,21 @@ else
 		echo "constinit function unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "constinit variable initializer is not a supported constant expression" \
+	$(GREP) -q "constinit variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constinit-invalid/x86.log
-	grep -q "constinit variable requires static or thread storage duration" \
+	$(GREP) -q "constinit variable requires static or thread storage duration" \
 		$(TEST_OUT)/cxx-constinit-invalid/x86.log
-	grep -q "constinit cannot be combined with constexpr" \
+	$(GREP) -q "constinit cannot be combined with constexpr" \
 		$(TEST_OUT)/cxx-constinit-invalid/x86.log
-	grep -q "constinit variable initializer is not a supported constant expression" \
+	$(GREP) -q "constinit variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constinit-invalid/x64.log
-	grep -q "constinit variable requires static or thread storage duration" \
+	$(GREP) -q "constinit variable requires static or thread storage duration" \
 		$(TEST_OUT)/cxx-constinit-invalid/x64.log
-	grep -q "constinit cannot be combined with constexpr" \
+	$(GREP) -q "constinit cannot be combined with constexpr" \
 		$(TEST_OUT)/cxx-constinit-invalid/x64.log
-	grep -q "constinit declaration must declare a variable" \
+	$(GREP) -q "constinit declaration must declare a variable" \
 		$(TEST_OUT)/cxx-constinit-invalid/function-x86.log
-	grep -q "constinit declaration must declare a variable" \
+	$(GREP) -q "constinit declaration must declare a variable" \
 		$(TEST_OUT)/cxx-constinit-invalid/function-x64.log
 	@echo "RCC++ constinit diagnostics completed"
 
@@ -2595,9 +2615,9 @@ else
 		echo "conflicting using enum unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "using enum introduces a conflicting enumerator 'shared'" \
+	$(GREP) -q "using enum introduces a conflicting enumerator 'shared'" \
 		$(TEST_OUT)/cxx-using-enum-invalid/x86.log
-	grep -q "using enum introduces a conflicting enumerator 'shared'" \
+	$(GREP) -q "using enum introduces a conflicting enumerator 'shared'" \
 		$(TEST_OUT)/cxx-using-enum-invalid/x64.log
 	@echo "RCC++ using enum diagnostics completed"
 
@@ -2648,9 +2668,9 @@ else
 		echo "mismatched template-template argument unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "template-template argument does not match its parameter list" \
+	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x86.log
-	grep -q "template-template argument does not match its parameter list" \
+	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x64.log
 	@echo "RCC++ template-template parameter diagnostics completed"
 
@@ -2673,13 +2693,13 @@ else
 		echo "unresolved dependent template-template value unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "dependent template-template non-type argument must be an integer constant expression" \
+	$(GREP) -q "dependent template-template non-type argument must be an integer constant expression" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
-	grep -q "dependent template-template non-type argument must be an integer constant expression" \
+	$(GREP) -q "dependent template-template non-type argument must be an integer constant expression" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
-	grep -q "template-template argument does not match its parameter list" \
+	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
-	grep -q "template-template argument does not match its parameter list" \
+	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
 	@echo "RCC++ dependent template-template value diagnostics completed"
 
@@ -2783,7 +2803,7 @@ test-cxx-spaceship: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-spaceship/invalid-x86.log 2>&1; then \
 		echo "built-in <=> unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" \
+	$(GREP) -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-spaceship/invalid-x64.ro \
@@ -2791,11 +2811,11 @@ test-cxx-spaceship: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-spaceship/invalid-x64.log 2>&1; then \
 		echo "built-in <=> unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" \
+	$(GREP) -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x64.log
-	grep -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" \
+	$(GREP) -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x86.log
-	grep -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" \
+	$(GREP) -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x64.log
 	@echo "C++20 user-defined spaceship operator tests completed"
 
@@ -2826,14 +2846,14 @@ test-cxx-final: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-final/invalid-x86.log 2>&1; then \
 		echo "derivation from final class unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot derive from final class 'FinalBase'" \
+	$(GREP) -q "cannot derive from final class 'FinalBase'" \
 		$(TEST_OUT)/cxx-final/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-final/invalid-x64.ro tests/cxx_final_invalid.cpp \
 		>$(TEST_OUT)/cxx-final/invalid-x64.log 2>&1; then \
 		echo "derivation from final class unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot derive from final class 'FinalBase'" \
+	$(GREP) -q "cannot derive from final class 'FinalBase'" \
 		$(TEST_OUT)/cxx-final/invalid-x64.log
 	@echo "C++ final class semantics tests completed"
 
@@ -2845,9 +2865,9 @@ test-cxx-override: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-override/invalid-x86.log 2>&1; then \
 		echo "invalid override declarations unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "marked override but does not override a base class method" \
+	$(GREP) -q "marked override but does not override a base class method" \
 		$(TEST_OUT)/cxx-override/invalid-x86.log
-	grep -q "cannot override final method 'final_value'" \
+	$(GREP) -q "cannot override final method 'final_value'" \
 		$(TEST_OUT)/cxx-override/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-override/invalid-x64.ro \
@@ -2855,9 +2875,9 @@ test-cxx-override: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-override/invalid-x64.log 2>&1; then \
 		echo "invalid override declarations unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "marked override but does not override a base class method" \
+	$(GREP) -q "marked override but does not override a base class method" \
 		$(TEST_OUT)/cxx-override/invalid-x64.log
-	grep -q "cannot override final method 'final_value'" \
+	$(GREP) -q "cannot override final method 'final_value'" \
 		$(TEST_OUT)/cxx-override/invalid-x64.log
 	@echo "C++ override and final method semantics tests completed"
 
@@ -2893,7 +2913,7 @@ test-cxx-conditional-explicit: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-conditional-explicit/old-x86.log 2>&1; then \
 		echo "conditional explicit unexpectedly compiled before C++20 on i686"; exit 1; \
 	fi
-	grep -q "conditional explicit specifiers require C++20 or newer" \
+	$(GREP) -q "conditional explicit specifiers require C++20 or newer" \
 		$(TEST_OUT)/cxx-conditional-explicit/old-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-conditional-explicit/old-x64.ro \
@@ -2901,7 +2921,7 @@ test-cxx-conditional-explicit: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-conditional-explicit/old-x64.log 2>&1; then \
 		echo "conditional explicit unexpectedly compiled before C++20 on AMD64"; exit 1; \
 	fi
-	grep -q "conditional explicit specifiers require C++20 or newer" \
+	$(GREP) -q "conditional explicit specifiers require C++20 or newer" \
 		$(TEST_OUT)/cxx-conditional-explicit/old-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.ro \
@@ -2909,7 +2929,7 @@ test-cxx-conditional-explicit: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.log 2>&1; then \
 		echo "non-constant conditional explicit unexpectedly compiled on i686"; exit 1; \
 	fi
-	grep -q "conditional explicit specifier requires an integral constant expression" \
+	$(GREP) -q "conditional explicit specifier requires an integral constant expression" \
 		$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.ro \
@@ -2917,7 +2937,7 @@ test-cxx-conditional-explicit: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log 2>&1; then \
 		echo "non-constant conditional explicit unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "conditional explicit specifier requires an integral constant expression" \
+	$(GREP) -q "conditional explicit specifier requires an integral constant expression" \
 		$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log
 	@echo "C++20 conditional explicit tests completed"
 
@@ -2953,7 +2973,7 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-deduction/old-x86.log 2>&1; then \
 		echo "class template argument deduction unexpectedly compiled before C++17 on i686"; exit 1; \
 	fi
-	grep -q "class template argument deduction requires C++17 or newer" \
+	$(GREP) -q "class template argument deduction requires C++17 or newer" \
 		$(TEST_OUT)/cxx-class-template-deduction/old-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c \
 		-o $(TEST_OUT)/cxx-class-template-deduction/old-x64.ro \
@@ -2961,7 +2981,7 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-deduction/old-x64.log 2>&1; then \
 		echo "class template argument deduction unexpectedly compiled before C++17 on AMD64"; exit 1; \
 	fi
-	grep -q "class template argument deduction requires C++17 or newer" \
+	$(GREP) -q "class template argument deduction requires C++17 or newer" \
 		$(TEST_OUT)/cxx-class-template-deduction/old-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++14 -c \
 		-o $(TEST_OUT)/cxx-class-template-deduction/guide-old-x86.ro \
@@ -2969,7 +2989,7 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-deduction/guide-old-x86.log 2>&1; then \
 		echo "deduction guide unexpectedly compiled before C++17 on i686"; exit 1; \
 	fi
-	grep -q "deduction guides require C++17 or newer" \
+	$(GREP) -q "deduction guides require C++17 or newer" \
 		$(TEST_OUT)/cxx-class-template-deduction/guide-old-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c \
 		-o $(TEST_OUT)/cxx-class-template-deduction/guide-old-x64.ro \
@@ -2977,7 +2997,7 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-deduction/guide-old-x64.log 2>&1; then \
 		echo "deduction guide unexpectedly compiled before C++17 on AMD64"; exit 1; \
 	fi
-	grep -q "deduction guides require C++17 or newer" \
+	$(GREP) -q "deduction guides require C++17 or newer" \
 		$(TEST_OUT)/cxx-class-template-deduction/guide-old-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.ro \
@@ -2985,7 +3005,7 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.log 2>&1; then \
 		echo "pre-C++20 aggregate paren CTAD unexpectedly compiled on i686"; exit 1; \
 	fi
-	grep -q "aggregate class template argument deduction requires braced initialization before C++20" \
+	$(GREP) -q "aggregate class template argument deduction requires braced initialization before C++20" \
 		$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.ro \
@@ -2993,7 +3013,7 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.log 2>&1; then \
 		echo "pre-C++20 aggregate paren CTAD unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "aggregate class template argument deduction requires braced initialization before C++20" \
+	$(GREP) -q "aggregate class template argument deduction requires braced initialization before C++20" \
 		$(TEST_OUT)/cxx-class-template-deduction/aggregate-old-x64.log
 	@echo "C++17 class template argument deduction tests completed"
 
@@ -3027,7 +3047,7 @@ test-cxx-pure-virtual: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-pure-virtual/invalid-x86.log 2>&1; then \
 		echo "abstract class instantiation unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot instantiate abstract class 'AbstractValue'" \
+	$(GREP) -q "cannot instantiate abstract class 'AbstractValue'" \
 		$(TEST_OUT)/cxx-pure-virtual/invalid-x86.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-pure-virtual/invalid-new-x86.ro \
@@ -3035,7 +3055,7 @@ test-cxx-pure-virtual: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-pure-virtual/invalid-new-x86.log 2>&1; then \
 		echo "new abstract class unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot allocate abstract class 'AbstractValue'" \
+	$(GREP) -q "cannot allocate abstract class 'AbstractValue'" \
 		$(TEST_OUT)/cxx-pure-virtual/invalid-new-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-pure-virtual/invalid-x64.ro \
@@ -3043,7 +3063,7 @@ test-cxx-pure-virtual: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-pure-virtual/invalid-x64.log 2>&1; then \
 		echo "abstract class instantiation unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot instantiate abstract class 'AbstractValue'" \
+	$(GREP) -q "cannot instantiate abstract class 'AbstractValue'" \
 		$(TEST_OUT)/cxx-pure-virtual/invalid-x64.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-pure-virtual/invalid-new-x64.ro \
@@ -3051,7 +3071,7 @@ test-cxx-pure-virtual: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-pure-virtual/invalid-new-x64.log 2>&1; then \
 		echo "new abstract class unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot allocate abstract class 'AbstractValue'" \
+	$(GREP) -q "cannot allocate abstract class 'AbstractValue'" \
 		$(TEST_OUT)/cxx-pure-virtual/invalid-new-x64.log
 	@echo "C++ pure virtual and abstract class tests completed"
 
@@ -3064,13 +3084,13 @@ test-cxx-non-type-templates: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-non-type-templates/x64.ro \
 		tests/cxx_non_type_templates.cpp
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		grep -F -x -q '_ZN12add_constantEILi3EEi'
+		$(GREP) -F -x -q '_ZN12add_constantEILi3EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		grep -F -x -q '_ZN12add_constantEILin2EEi'
+		$(GREP) -F -x -q '_ZN12add_constantEILin2EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x64.ro | \
-		grep -F -x -q '_ZN20add_default_constantEILi4EEi'
+		$(GREP) -F -x -q '_ZN20add_default_constantEILi4EEi'
 	strings $(TEST_OUT)/cxx-non-type-templates/x86.ro | \
-		grep -F -x -q '_ZN22add_default_from_valueEILi3ELi4EEi'
+		$(GREP) -F -x -q '_ZN22add_default_from_valueEILi3ELi4EEi'
 	@echo "RCC++ non-type integer template tests completed"
 
 test-cxx-auto-non-type-template: $(RCXX_TARGET)
@@ -3106,7 +3126,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-range-for/x86.s \
 		tests/cxx_function_pointer_probe.cpp
-	grep -F -x -q '.globl _Z12call_pointerPFiiEi' \
+	$(GREP) -F -x -q '.globl _Z12call_pointerPFiiEi' \
 		$(TEST_OUT)/cxx-range-for/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-range-for/x86.o \
 		$(TEST_OUT)/cxx-range-for/x86.s
@@ -3118,7 +3138,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-range-for/x64.s \
 		tests/cxx_function_pointer_probe.cpp
-	grep -F -x -q '.globl _Z12call_pointerPFiiEi' \
+	$(GREP) -F -x -q '.globl _Z12call_pointerPFiiEi' \
 		$(TEST_OUT)/cxx-range-for/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-range-for/x64.o \
 		$(TEST_OUT)/cxx-range-for/x64.s
@@ -3133,7 +3153,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-range-for/invalid.log 2>&1; then \
 		echo "const auto&& range-for unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "const auto&& range variable cannot bind to an array lvalue" \
+	$(GREP) -q "const auto&& range variable cannot bind to an array lvalue" \
 		$(TEST_OUT)/cxx-range-for/invalid.log
 	@echo "C++ array-lvalue range-for tests completed"
 
@@ -3169,7 +3189,7 @@ test-cxx-iterator-range-for: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-iterator-range-for/invalid.log 2>&1; then \
 		echo "unsupported iterator range-for unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "requires one public non-overloaded begin() and end() member" \
+	$(GREP) -q "requires one public non-overloaded begin() and end() member" \
 		$(TEST_OUT)/cxx-iterator-range-for/invalid.log
 	@echo "C++ bounded iterator range-for tests completed"
 
@@ -3211,9 +3231,9 @@ test-cxx-operator-arrow: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log 2>&1; then \
 		echo "invalid operator-> return type unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "operator-> must return a pointer in the bounded RCC++ profile" \
+	$(GREP) -q "operator-> must return a pointer in the bounded RCC++ profile" \
 		$(TEST_OUT)/cxx-operator-arrow/invalid-x86.log
-	grep -q "operator-> must return a pointer in the bounded RCC++ profile" \
+	$(GREP) -q "operator-> must return a pointer in the bounded RCC++ profile" \
 		$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log
 	@echo "C++ overloaded operator-> tests completed"
 
@@ -3255,13 +3275,13 @@ test-cxx-requires-expression: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-requires-expression/invalid-x64.log 2>&1; then \
 		echo "parameter-list requires-expression unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "requires-expression parameters cannot have defaults" \
+	$(GREP) -q "requires-expression parameters cannot have defaults" \
 		$(TEST_OUT)/cxx-requires-expression/invalid-x86.log
-	grep -q "requires-expression parameters cannot have defaults" \
+	$(GREP) -q "requires-expression parameters cannot have defaults" \
 		$(TEST_OUT)/cxx-requires-expression/invalid-x64.log
-	grep -q "unsupported C++20 requires-expression return constraint" \
+	$(GREP) -q "unsupported C++20 requires-expression return constraint" \
 		$(TEST_OUT)/cxx-requires-expression/invalid-x86.log
-	grep -q "unsupported C++20 requires-expression return constraint" \
+	$(GREP) -q "unsupported C++20 requires-expression return constraint" \
 		$(TEST_OUT)/cxx-requires-expression/invalid-x64.log
 	@echo "C++20 bounded requires-expression and return-constraint tests completed"
 
@@ -3407,17 +3427,17 @@ test-cxx-namespace-alias: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-namespace-alias/invalid-x86.ro \
 		tests/cxx_namespace_alias_invalid.cpp \
 		>$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log 2>&1
-	grep -q "unknown namespace alias target" \
+	$(GREP) -q "unknown namespace alias target" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
-	grep -q "namespace alias 'api' conflicts" \
+	$(GREP) -q "namespace alias 'api' conflicts" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-namespace-alias/invalid-x64.ro \
 		tests/cxx_namespace_alias_invalid.cpp \
 		>$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log 2>&1
-	grep -q "unknown namespace alias target" \
+	$(GREP) -q "unknown namespace alias target" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
-	grep -q "namespace alias 'api' conflicts" \
+	$(GREP) -q "namespace alias 'api' conflicts" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 	@echo "C++ namespace alias tests completed"
 
@@ -3451,13 +3471,13 @@ test-cxx-friend-function: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-friend-function/invalid-x86.ro \
 		tests/cxx_friend_class_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-function/invalid-x86.log 2>&1
-	grep -q "member 'value' is not accessible" \
+	$(GREP) -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-friend-function/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/invalid-x64.ro \
 		tests/cxx_friend_class_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-function/invalid-x64.log 2>&1
-	grep -q "member 'value' is not accessible" \
+	$(GREP) -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-friend-function/invalid-x64.log
 	@echo "C++ friend function and class access tests completed"
 
@@ -3471,9 +3491,9 @@ test-cxx-nodiscard: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-nodiscard/x64.s \
 		tests/cxx_nodiscard.cpp \
 		>$(TEST_OUT)/cxx-nodiscard/x64.log 2>&1
-	test "$$(grep -c "ignoring return value of nodiscard function" \
+	test "$$($(GREP) -c "ignoring return value of nodiscard function" \
 		$(TEST_OUT)/cxx-nodiscard/x86.log)" -eq 2
-	test "$$(grep -c "ignoring return value of nodiscard function" \
+	test "$$($(GREP) -c "ignoring return value of nodiscard function" \
 		$(TEST_OUT)/cxx-nodiscard/x64.log)" -eq 2
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-nodiscard/x86.o \
 		$(TEST_OUT)/cxx-nodiscard/x86.s
@@ -3505,9 +3525,9 @@ test-cxx-deprecated: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-deprecated/x64.s \
 		tests/cxx_deprecated.cpp \
 		>$(TEST_OUT)/cxx-deprecated/x64.log 2>&1
-	test "$$(grep -c "use of deprecated" \
+	test "$$($(GREP) -c "use of deprecated" \
 		$(TEST_OUT)/cxx-deprecated/x86.log)" -eq 4
-	test "$$(grep -c "use of deprecated" \
+	test "$$($(GREP) -c "use of deprecated" \
 		$(TEST_OUT)/cxx-deprecated/x64.log)" -eq 4
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-deprecated/x86.o \
 		$(TEST_OUT)/cxx-deprecated/x86.s
@@ -3559,13 +3579,13 @@ test-cxx-friend-class: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-friend-class/invalid-x86.ro \
 		tests/cxx_friend_class_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-class/invalid-x86.log 2>&1
-	grep -q "member 'value' is not accessible" \
+	$(GREP) -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-friend-class/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-class/invalid-x64.ro \
 		tests/cxx_friend_class_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-class/invalid-x64.log 2>&1
-	grep -q "member 'value' is not accessible" \
+	$(GREP) -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-friend-class/invalid-x64.log
 	@echo "C++ friend class access tests completed"
 
@@ -3627,25 +3647,25 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.ro \
 		tests/cxx_aggregate_paren_init_invalid.cpp \
 		>$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log 2>&1
-	grep -q "too many initializers for aggregate" \
+	$(GREP) -q "too many initializers for aggregate" \
 		$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.ro \
 		tests/cxx_aggregate_paren_init_invalid.cpp \
 		>$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.log 2>&1
-	grep -q "too many initializers for aggregate" \
+	$(GREP) -q "too many initializers for aggregate" \
 		$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.ro \
 		tests/cxx_aggregate_paren_init.cpp \
 		>$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.log 2>&1
-	grep -q "C++20 aggregate parenthesized initialization requires C++20 or newer" \
+	$(GREP) -q "C++20 aggregate parenthesized initialization requires C++20 or newer" \
 		$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.ro \
 		tests/cxx_aggregate_paren_init.cpp \
 		>$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log 2>&1
-	grep -q "C++20 aggregate parenthesized initialization requires C++20 or newer" \
+	$(GREP) -q "C++20 aggregate parenthesized initialization requires C++20 or newer" \
 		$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log
 	@echo "C++20 aggregate parenthesized initialization tests completed"
 
@@ -3705,11 +3725,11 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-designated-initializer/invalid-nested-x64.log 2>&1; then \
 		echo "C++ designated initializer nested case unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "declaration order" \
+	$(GREP) -q "declaration order" \
 		$(TEST_OUT)/cxx-designated-initializer/invalid-order-x86.log
-	grep -q "cannot mix designated and positional" \
+	$(GREP) -q "cannot mix designated and positional" \
 		$(TEST_OUT)/cxx-designated-initializer/invalid-mixed-x64.log
-	grep -q "nested designators" \
+	$(GREP) -q "nested designators" \
 		$(TEST_OUT)/cxx-designated-initializer/invalid-nested-x86.log
 	@echo "C++20 designated initializer tests completed"
 
@@ -3745,7 +3765,7 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-x64.log 2>&1; then \
 		echo "unsupported prefixed literal case unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "wide, UTF-16, and UTF-32 literals are not supported" \
+	$(GREP) -q "wide, UTF-16, and UTF-32 literals are not supported" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.ro \
@@ -3753,7 +3773,7 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log 2>&1; then \
 		echo "mixed-encoding string literal case unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "adjacent ordinary and UTF-8 string literals cannot be concatenated" \
+	$(GREP) -q "adjacent ordinary and UTF-8 string literals cannot be concatenated" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.ro \
@@ -3761,7 +3781,7 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log 2>&1; then \
 		echo "mismatched character array encoding unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "character array initializer encoding does not match the element type" \
+	$(GREP) -q "character array initializer encoding does not match the element type" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.ro \
@@ -3769,7 +3789,7 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log 2>&1; then \
 		echo "mismatched character array encoding unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "character array initializer encoding does not match the element type" \
+	$(GREP) -q "character array initializer encoding does not match the element type" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log
 	@echo "C++ UTF-8 literal tests completed"
 
@@ -3849,13 +3869,13 @@ test-cxx-generic-lambda: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.ro \
 		tests/cxx_lambda_explicit_template_invalid.cpp \
 		>$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.log 2>&1
-	grep -q "cannot deduce generic lambda non-type parameter pack value" \
+	$(GREP) -q "cannot deduce generic lambda non-type parameter pack value" \
 		$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.ro \
 		tests/cxx_lambda_explicit_template_invalid.cpp \
 		>$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.log 2>&1
-	grep -q "cannot deduce generic lambda non-type parameter pack value" \
+	$(GREP) -q "cannot deduce generic lambda non-type parameter pack value" \
 		$(TEST_OUT)/cxx-generic-lambda/invalid-explicit-x64.log
 	@echo "C++ generic lambda deduction tests completed"
 
@@ -3878,9 +3898,9 @@ else
 		echo "stored generic lambda unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	grep -q "stored generic lambda must be directly invoked" \
+	$(GREP) -q "stored generic lambda must be directly invoked" \
 		$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x86.log
-	grep -q "stored generic lambda must be directly invoked" \
+	$(GREP) -q "stored generic lambda must be directly invoked" \
 		$(TEST_OUT)/cxx-generic-lambda-stored-invalid/x64.log
 	@echo "C++ stored generic lambda diagnostics completed"
 
@@ -3901,8 +3921,8 @@ test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
 	test -f $(TEST_OUT)/multiple-inputs/c/second.s
 	(cd $(TEST_OUT)/multiple-inputs/c && $(abspath $(RCC_TARGET)) \
 		--target x86_64-unknown-rinos -E first.c second.c > combined.i)
-	grep -q "int main" $(TEST_OUT)/multiple-inputs/c/combined.i
-	grep -q "struct Pair" $(TEST_OUT)/multiple-inputs/c/combined.i
+	$(GREP) -q "int main" $(TEST_OUT)/multiple-inputs/c/combined.i
+	$(GREP) -q "struct Pair" $(TEST_OUT)/multiple-inputs/c/combined.i
 	cp tests/cxx_function_templates.cpp $(TEST_OUT)/multiple-inputs/cxx/first.cpp
 	cp tests/cxx_lambda.cpp $(TEST_OUT)/multiple-inputs/cxx/second.cpp
 	(cd $(TEST_OUT)/multiple-inputs/cxx && $(abspath $(RCXX_TARGET)) \
@@ -3915,7 +3935,7 @@ test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/multiple-inputs/c/second.c \
 		>$(TEST_OUT)/multiple-inputs/invalid-o-c.log 2>&1; \
 	status=$$?; set -e; test $$status -ne 0
-	grep -q -- "-o cannot name one output for multiple input files" \
+	$(GREP) -q -- "-o cannot name one output for multiple input files" \
 		$(TEST_OUT)/multiple-inputs/invalid-o-c.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-c -o $(TEST_OUT)/multiple-inputs/one-cxx.ro \
@@ -3923,7 +3943,7 @@ test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/multiple-inputs/cxx/second.cpp \
 		>$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log 2>&1; \
 	status=$$?; set -e; test $$status -ne 0
-	grep -q -- "-o cannot name one output for multiple input files" \
+	$(GREP) -q -- "-o cannot name one output for multiple input files" \
 		$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log
 	@echo "RCC/RCC++ multiple-input compilation tests completed"
 
@@ -3952,7 +3972,7 @@ test-cxx-if-constexpr: $(RCXX_TARGET)
 		tests/cxx_if_constexpr_nonconstant.cpp \
 		>$(TEST_OUT)/cxx-if-constexpr/nonconstant.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "if constexpr condition is not a constant expression" \
+	$(GREP) -q "if constexpr condition is not a constant expression" \
 		$(TEST_OUT)/cxx-if-constexpr/nonconstant.log
 	@echo "C++ if constexpr selection and diagnostics tests completed"
 
@@ -4042,13 +4062,13 @@ test-cxx-using-overload-namespaces: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x86.ro \
 		tests/cxx_using_overload_ambiguous.cpp \
 		>$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x86.log 2>&1
-	grep -q "ambiguous overload for 'choose'" \
+	$(GREP) -q "ambiguous overload for 'choose'" \
 		$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.ro \
 		tests/cxx_using_overload_ambiguous.cpp \
 		>$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.log 2>&1
-	grep -q "ambiguous overload for 'choose'" \
+	$(GREP) -q "ambiguous overload for 'choose'" \
 		$(TEST_OUT)/cxx-using-overload-namespaces/ambiguous-x64.log
 	@echo "C++ using-namespace overload tests completed"
 
@@ -4180,13 +4200,13 @@ test-cxx-template-parameter-pack: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.ro \
 		tests/cxx_template_parameter_pack_invalid.cpp \
 		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log 2>&1
-	grep -q "only a single class-template parameter pack is supported" \
+	$(GREP) -q "only a single class-template parameter pack is supported" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.ro \
 		tests/cxx_template_parameter_pack_invalid.cpp \
 		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log 2>&1
-	grep -q "only a single class-template parameter pack is supported" \
+	$(GREP) -q "only a single class-template parameter pack is supported" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
 	@echo "C++ type parameter pack arity tests completed"
 
@@ -4386,33 +4406,33 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/cxx-typeid/invalid-x86.ro \
 		tests/cxx_typeid_polymorphic_invalid.cpp \
 		>$(TEST_OUT)/cxx-typeid/invalid-x86.log 2>&1
-	grep -q "typeid of a polymorphic expression requires a glvalue" \
+	$(GREP) -q "typeid of a polymorphic expression requires a glvalue" \
 		$(TEST_OUT)/cxx-typeid/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/invalid-x64.ro \
 		tests/cxx_typeid_polymorphic_invalid.cpp \
 		>$(TEST_OUT)/cxx-typeid/invalid-x64.log 2>&1
-	grep -q "typeid of a polymorphic expression requires a glvalue" \
+	$(GREP) -q "typeid of a polymorphic expression requires a glvalue" \
 		$(TEST_OUT)/cxx-typeid/invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/hash-invalid-x86.ro \
 		tests/cxx_typeid_hash_invalid.cpp \
 		>$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log 2>&1
-	grep -q "type_info::hash_code() takes no arguments" \
+	$(GREP) -q "type_info::hash_code() takes no arguments" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
-	grep -q "type_info::name() takes no arguments" \
+	$(GREP) -q "type_info::name() takes no arguments" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
-	grep -q "comparison requires arithmetic or pointer operands" \
+	$(GREP) -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/hash-invalid-x64.ro \
 		tests/cxx_typeid_hash_invalid.cpp \
 		>$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log 2>&1
-	grep -q "type_info::hash_code() takes no arguments" \
+	$(GREP) -q "type_info::hash_code() takes no arguments" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
-	grep -q "type_info::name() takes no arguments" \
+	$(GREP) -q "type_info::name() takes no arguments" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
-	grep -q "comparison requires arithmetic or pointer operands" \
+	$(GREP) -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
 	@echo "C++ static typeid identity tests completed"
 
@@ -4499,9 +4519,9 @@ test-cxx-auto-return: $(RCXX_TARGET)
 		tests/cxx_auto_return_invalid.cpp \
 		>$(TEST_OUT)/cxx-auto-return/invalid.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "inconsistent deduction for auto return type" \
+	$(GREP) -q "inconsistent deduction for auto return type" \
 		$(TEST_OUT)/cxx-auto-return/invalid.log
-	grep -q "auto return type requires a function definition" \
+	$(GREP) -q "auto return type requires a function definition" \
 		$(TEST_OUT)/cxx-auto-return/invalid.log
 	@echo "C++ auto return deduction tests completed"
 
@@ -4552,7 +4572,7 @@ test-cxx-decltype-auto: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-decltype-auto/invalid.log 2>&1; then \
 		echo "decltype(auto) declaration unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "auto return type requires a function definition" \
+	$(GREP) -q "auto return type requires a function definition" \
 		$(TEST_OUT)/cxx-decltype-auto/invalid.log
 	@echo "C++ decltype(auto) tests completed"
 
@@ -4582,12 +4602,12 @@ test-cxx-auto-local-refs: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-auto-local-refs/invalid.log 2>&1; then \
 		echo "auto& temporary unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "auto& initializer must be an lvalue" \
+	$(GREP) -q "auto& initializer must be an lvalue" \
 		$(TEST_OUT)/cxx-auto-local-refs/invalid.log
-	grep -q "auto\* initializer must be a pointer or array" \
+	$(GREP) -q "auto\* initializer must be a pointer or array" \
 		$(TEST_OUT)/cxx-auto-local-refs/invalid.log
 	@echo "C++ local auto reference tests completed"
-	grep -q "unsupported operator in decltype expression" \
+	$(GREP) -q "unsupported operator in decltype expression" \
 		$(TEST_OUT)/cxx-decltype/invalid.log
 	@echo "C++ decltype tests completed"
 
@@ -4605,9 +4625,9 @@ test-cxx-auto-direct-list-invalid: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log 2>&1; then \
 		echo "multi-element direct-list auto initialization unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "direct-list auto initialization requires one initializer expression" \
+	$(GREP) -q "direct-list auto initialization requires one initializer expression" \
 		$(TEST_OUT)/cxx-auto-direct-list-invalid/x86.log
-	grep -q "direct-list auto initialization requires one initializer expression" \
+	$(GREP) -q "direct-list auto initialization requires one initializer expression" \
 		$(TEST_OUT)/cxx-auto-direct-list-invalid/x64.log
 	@echo "C++ direct-list auto diagnostics completed"
 
@@ -4643,9 +4663,9 @@ test-cxx-decltype-auto-local: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.log 2>&1; then \
 		echo "invalid decltype(auto) local declarations unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "decltype(auto) variable requires an expression initializer" \
+	$(GREP) -q "decltype(auto) variable requires an expression initializer" \
 		$(TEST_OUT)/cxx-decltype-auto-local/invalid-x86.log
-	grep -q "decltype(auto) variable requires an expression initializer" \
+	$(GREP) -q "decltype(auto) variable requires an expression initializer" \
 		$(TEST_OUT)/cxx-decltype-auto-local/invalid-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-decltype-auto-local/missing-x86.ro \
@@ -4659,9 +4679,9 @@ test-cxx-decltype-auto-local: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-decltype-auto-local/missing-x64.log 2>&1; then \
 		echo "uninitialized decltype(auto) unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "decltype(auto) variable requires an initializer" \
+	$(GREP) -q "decltype(auto) variable requires an initializer" \
 		$(TEST_OUT)/cxx-decltype-auto-local/missing-x86.log
-	grep -q "decltype(auto) variable requires an initializer" \
+	$(GREP) -q "decltype(auto) variable requires an initializer" \
 		$(TEST_OUT)/cxx-decltype-auto-local/missing-x64.log
 	@echo "C++ local decltype(auto) tests completed"
 
@@ -4735,9 +4755,9 @@ test-cxx-abbreviated-function-template-invalid: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log 2>&1; then \
 		echo "C++20 abbreviated function template unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "abbreviated function templates require C++20 or newer" \
+	$(GREP) -q "abbreviated function templates require C++20 or newer" \
 		$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x86.log
-	grep -q "abbreviated function templates require C++20 or newer" \
+	$(GREP) -q "abbreviated function templates require C++20 or newer" \
 		$(TEST_OUT)/cxx-abbreviated-function-template-invalid/x64.log
 	@echo "C++20 abbreviated function-template diagnostics completed"
 
@@ -4779,9 +4799,9 @@ test-cxx-trailing-requires: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-trailing-requires/invalid-x64.log 2>&1; then \
 		echo "unsatisfied trailing requires-clause unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-trailing-requires/invalid-x86.log
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-trailing-requires/invalid-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-trailing-requires/old-x86.ro \
@@ -4789,7 +4809,7 @@ test-cxx-trailing-requires: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-trailing-requires/old-x86.log 2>&1; then \
 		echo "trailing requires-clause unexpectedly compiled as C++17 on i686"; exit 1; \
 	fi
-	grep -q "requires-expressions and requires-clauses require C++20 or newer" \
+	$(GREP) -q "requires-expressions and requires-clauses require C++20 or newer" \
 		$(TEST_OUT)/cxx-trailing-requires/old-x86.log
 	@echo "C++20 trailing requires-clause tests completed"
 
@@ -4831,13 +4851,13 @@ test-cxx-constrained-abbreviated: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constrained-abbreviated/invalid-x64.log 2>&1; then \
 		echo "invalid constrained abbreviated template unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-constrained-abbreviated/invalid-x86.log
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-constrained-abbreviated/invalid-x64.log
-	grep -q "requires a known named concept" \
+	$(GREP) -q "requires a known named concept" \
 		$(TEST_OUT)/cxx-constrained-abbreviated/invalid-x86.log
-	grep -q "requires a known named concept" \
+	$(GREP) -q "requires a known named concept" \
 		$(TEST_OUT)/cxx-constrained-abbreviated/invalid-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-constrained-abbreviated/old-x86.ro \
@@ -4845,7 +4865,7 @@ test-cxx-constrained-abbreviated: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constrained-abbreviated/old-x86.log 2>&1; then \
 		echo "constrained abbreviated template unexpectedly compiled as C++17"; exit 1; \
 	fi
-	grep -q "abbreviated function templates require C++20 or newer" \
+	$(GREP) -q "abbreviated function templates require C++20 or newer" \
 		$(TEST_OUT)/cxx-constrained-abbreviated/old-x86.log
 	@echo "C++20 constrained abbreviated-template tests completed"
 
@@ -4887,9 +4907,9 @@ test-cxx-constrained-class-template: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constrained-class-template/invalid-x64.log 2>&1; then \
 		echo "invalid constrained class template unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-constrained-class-template/invalid-x86.log
-	grep -q "template constraints are not satisfied" \
+	$(GREP) -q "template constraints are not satisfied" \
 		$(TEST_OUT)/cxx-constrained-class-template/invalid-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/cxx-constrained-class-template/old-x86.ro \
@@ -4897,7 +4917,7 @@ test-cxx-constrained-class-template: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constrained-class-template/old-x86.log 2>&1; then \
 		echo "constrained class template unexpectedly compiled as C++17"; exit 1; \
 	fi
-	grep -q "requires-expressions and requires-clauses require C++20 or newer" \
+	$(GREP) -q "requires-expressions and requires-clauses require C++20 or newer" \
 		$(TEST_OUT)/cxx-constrained-class-template/old-x86.log
 	@echo "C++20 constrained class-template tests completed"
 
@@ -4939,9 +4959,9 @@ test-cxx-raw-strings: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-raw-strings/invalid-x64.log 2>&1; then \
 		echo "invalid raw string source unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	grep -q "wide, UTF-16, and UTF-32 literals are not supported" \
+	$(GREP) -q "wide, UTF-16, and UTF-32 literals are not supported" \
 		$(TEST_OUT)/cxx-raw-strings/invalid-x86.log
-	grep -q "unterminated raw string literal" \
+	$(GREP) -q "unterminated raw string literal" \
 		$(TEST_OUT)/cxx-raw-strings/invalid-x86.log
 	@echo "C++11 raw string literal tests completed"
 
@@ -5008,7 +5028,7 @@ test-initializer-brace-elision: $(RCC_TARGET)
 	@echo "RCC C17 brace-elided initializer tests completed"
 
 test-initializer-mixed: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/initializer-mixed
+	$(call MKDIR_P,$(TEST_OUT)/initializer-mixed)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/initializer-mixed/x86.ro \
 		tests/initializer_mixed.c
@@ -5056,13 +5076,13 @@ test-flexible-arrays: $(RCC_TARGET)
 		-o $(TEST_OUT)/flexible-arrays/invalid-initializer-x64.ro \
 		tests/invalid_flexible_initializer.c \
 		>$(TEST_OUT)/flexible-arrays/invalid-initializer-x64.log 2>&1
-	grep -q "flexible array member requires another named member" \
+	$(GREP) -q "flexible array member requires another named member" \
 		$(TEST_OUT)/flexible-arrays/invalid-x86.log
-	grep -q "flexible array member must be the last member" \
+	$(GREP) -q "flexible array member must be the last member" \
 		$(TEST_OUT)/flexible-arrays/invalid-x86.log
-	grep -q "flexible array member is not allowed in a union" \
+	$(GREP) -q "flexible array member is not allowed in a union" \
 		$(TEST_OUT)/flexible-arrays/invalid-x86.log
-	grep -q "flexible array member cannot be initialized" \
+	$(GREP) -q "flexible array member cannot be initialized" \
 		$(TEST_OUT)/flexible-arrays/invalid-initializer-x86.log
 	@echo "Dual-architecture C17 flexible array member tests completed"
 
@@ -5077,8 +5097,8 @@ test-floating-static-initializers: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/floating-static-initializers/x64.s \
 		tests/floating_static_initializers.c
-	strings $(TEST_OUT)/floating-static-initializers/x64.s | grep -F -q "0x00, 0x00, 0xe0, 0x3f"
-	strings $(TEST_OUT)/floating-static-initializers/x64.s | grep -F -q "0x00, 0x00, 0xf8, 0xbf"
+	strings $(TEST_OUT)/floating-static-initializers/x64.s | $(GREP) -F -q "0x00, 0x00, 0xe0, 0x3f"
+	strings $(TEST_OUT)/floating-static-initializers/x64.s | $(GREP) -F -q "0x00, 0x00, 0xf8, 0xbf"
 	@echo "RCC C17 floating static/TLS initializer tests completed"
 
 test-numeric-literals: $(RCC_TARGET)
@@ -5109,7 +5129,7 @@ test-numeric-literals: $(RCC_TARGET)
 		>$(TEST_OUT)/numeric-literals/invalid-x86.log 2>&1; then \
 		echo "universal character name unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "universal character names are not supported by the RinOS byte-string ABI" \
+	$(GREP) -F -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/numeric-literals/invalid-x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/numeric-literals/invalid-x64.ro \
@@ -5117,7 +5137,7 @@ test-numeric-literals: $(RCC_TARGET)
 		>$(TEST_OUT)/numeric-literals/invalid-x64.log 2>&1; then \
 		echo "universal character name unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "universal character names are not supported by the RinOS byte-string ABI" \
+	$(GREP) -F -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/numeric-literals/invalid-x64.log
 	@echo "C17 decimal and hexadecimal floating literal tests completed"
 
@@ -5202,13 +5222,13 @@ test-restrict-qualifier: $(RCC_TARGET)
 		-o $(TEST_OUT)/restrict-qualifier/invalid-x64.ro \
 		tests/invalid_restrict_qualifier.c \
 		>$(TEST_OUT)/restrict-qualifier/invalid-x64.log 2>&1; then exit 1; fi
-	grep -q 'restrict qualifier is only valid on pointer types' \
+	$(GREP) -q 'restrict qualifier is only valid on pointer types' \
 		$(TEST_OUT)/restrict-qualifier/invalid-x86.log
-	grep -q 'restrict-qualified pointer must point to an object or incomplete type' \
+	$(GREP) -q 'restrict-qualified pointer must point to an object or incomplete type' \
 		$(TEST_OUT)/restrict-qualifier/invalid-x86.log
-	grep -q 'restrict qualifier is only valid on pointer types' \
+	$(GREP) -q 'restrict qualifier is only valid on pointer types' \
 		$(TEST_OUT)/restrict-qualifier/invalid-x64.log
-	grep -q 'restrict-qualified pointer must point to an object or incomplete type' \
+	$(GREP) -q 'restrict-qualified pointer must point to an object or incomplete type' \
 		$(TEST_OUT)/restrict-qualifier/invalid-x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/restrict-qualifier/invalid-nested-x86.ro \
@@ -5218,8 +5238,8 @@ test-restrict-qualifier: $(RCC_TARGET)
 		-o $(TEST_OUT)/restrict-qualifier/invalid-nested-x64.ro \
 		tests/invalid_nested_pointer_qualifier.c \
 		>$(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log 2>&1
-	test "$$(grep -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x86.log)" -eq 2
-	test "$$(grep -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log)" -eq 2
+	test "$$($(GREP) -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x86.log)" -eq 2
+	test "$$($(GREP) -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log)" -eq 2
 	@echo "C17 restrict qualifier tests completed"
 
 ifeq ($(OS),Windows_NT)
@@ -5278,30 +5298,30 @@ test-vla-semantics: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/vla-semantics)
 	if $(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-x86.ro tests/invalid_vla_goto.c >$(TEST_OUT)/vla-semantics/invalid-x86.log 2>&1; then exit 1; fi
 	if $(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-x64.ro tests/invalid_vla_goto.c >$(TEST_OUT)/vla-semantics/invalid-x64.log 2>&1; then exit 1; fi
-	grep -q 'goto enters a variable-length array scope' $(TEST_OUT)/vla-semantics/invalid-x86.log
-	grep -q 'goto enters a variable-length array scope' $(TEST_OUT)/vla-semantics/invalid-x64.log
+	$(GREP) -q 'goto enters a variable-length array scope' $(TEST_OUT)/vla-semantics/invalid-x86.log
+	$(GREP) -q 'goto enters a variable-length array scope' $(TEST_OUT)/vla-semantics/invalid-x64.log
 	if $(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-array-x86.ro tests/invalid_array_parameter_qualifiers.c >$(TEST_OUT)/vla-semantics/invalid-array-x86.log 2>&1; then exit 1; fi
 	if $(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-array-x64.ro tests/invalid_array_parameter_qualifiers.c >$(TEST_OUT)/vla-semantics/invalid-array-x64.log 2>&1; then exit 1; fi
-	grep -q 'array parameter qualifiers are only valid' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
-	grep -q 'array parameter qualifiers are only valid' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
-	grep -q 'static array parameter requires a bound expression' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
-	grep -q 'static array parameter requires a bound expression' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
-	grep -q 'unspecified variable-length array is only valid' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
-	grep -q 'unspecified variable-length array is only valid' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	$(GREP) -q 'array parameter qualifiers are only valid' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	$(GREP) -q 'array parameter qualifiers are only valid' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	$(GREP) -q 'static array parameter requires a bound expression' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	$(GREP) -q 'static array parameter requires a bound expression' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	$(GREP) -q 'unspecified variable-length array is only valid' $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	$(GREP) -q 'unspecified variable-length array is only valid' $(TEST_OUT)/vla-semantics/invalid-array-x64.log
 	@echo "Dual-architecture VLA goto semantic tests completed"
 endif
 
 test-cxx-qualified-namespaces: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-qualified-namespaces
+	$(call MKDIR_P,$(TEST_OUT)/cxx-qualified-namespaces)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-qualified-namespaces/x86.ro \
 		tests/cxx_qualified_namespace.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-qualified-namespaces/x64.ro \
 		tests/cxx_qualified_namespace.cpp
-	grep -a -q '_ZN3api9transformEi' \
+	$(GREP) -a -q '_ZN3api9transformEi' \
 		$(TEST_OUT)/cxx-qualified-namespaces/x86.ro
-	grep -a -q '_ZN3api6nested5applyEi' \
+	$(GREP) -a -q '_ZN3api6nested5applyEi' \
 		$(TEST_OUT)/cxx-qualified-namespaces/x64.ro
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/cxx-qualified-namespaces/c-mode.ro \
@@ -5365,7 +5385,7 @@ test-cxx-user-defined-literals: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-user-defined-literals/x86.s \
 		tests/cxx_user_defined_literals.cpp
-	grep -a -q '_Zli7_answery' \
+	$(GREP) -a -q '_Zli7_answery' \
 		$(TEST_OUT)/cxx-user-defined-literals/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-user-defined-literals/x86.o \
 		$(TEST_OUT)/cxx-user-defined-literals/x86.s
@@ -5379,7 +5399,7 @@ test-cxx-user-defined-literals: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-user-defined-literals/x64.s \
 		tests/cxx_user_defined_literals.cpp
-	grep -a -q '_Zli7_answery' \
+	$(GREP) -a -q '_Zli7_answery' \
 		$(TEST_OUT)/cxx-user-defined-literals/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-user-defined-literals/x64.o \
 		$(TEST_OUT)/cxx-user-defined-literals/x64.s
@@ -5394,13 +5414,13 @@ test-cxx-user-defined-literals: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-user-defined-literals/invalid-x86.ro \
 		tests/cxx_user_defined_literals_invalid.cpp \
 		>$(TEST_OUT)/cxx-user-defined-literals/invalid-x86.log 2>&1
-	grep -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
+	$(GREP) -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
 		$(TEST_OUT)/cxx-user-defined-literals/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-user-defined-literals/invalid-x64.ro \
 		tests/cxx_user_defined_literals_invalid.cpp \
 		>$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log 2>&1
-	grep -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
+	$(GREP) -F -q "bounded RCC++ user-defined literal operators require one unsigned long long, double, char, or const char*/size_t parameter form" \
 		$(TEST_OUT)/cxx-user-defined-literals/invalid-x64.log
 	@echo "RCC++ user-defined literal tests completed"
 
@@ -5677,21 +5697,21 @@ test-vla-declarations: $(RCC_TARGET)
 		-o $(TEST_OUT)/vla-declarations/invalid-initializer-x64.ro \
 		tests/invalid_vla_initializer.c \
 		>$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log 2>&1
-	grep -q "variably modified object cannot have linkage" \
+	$(GREP) -q "variably modified object cannot have linkage" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
-	grep -q "variably modified typedef is only valid at block scope" \
+	$(GREP) -q "variably modified typedef is only valid at block scope" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
-	grep -q "variably modified type is not allowed for struct/union member" \
+	$(GREP) -q "variably modified type is not allowed for struct/union member" \
 		$(TEST_OUT)/vla-declarations/invalid-member-x86.log
-	grep -q "variably modified object cannot have linkage" \
+	$(GREP) -q "variably modified object cannot have linkage" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log
-	grep -q "variably modified typedef is only valid at block scope" \
+	$(GREP) -q "variably modified typedef is only valid at block scope" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log
-	grep -q "variably modified type is not allowed for struct/union member" \
+	$(GREP) -q "variably modified type is not allowed for struct/union member" \
 		$(TEST_OUT)/vla-declarations/invalid-member-x64.log
-	grep -q "variable-length array cannot have an initializer" \
+	$(GREP) -q "variable-length array cannot have an initializer" \
 		$(TEST_OUT)/vla-declarations/invalid-initializer-x86.log
-	grep -q "variable-length array cannot have an initializer" \
+	$(GREP) -q "variable-length array cannot have an initializer" \
 		$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log
 	@echo "C17 invalid variably modified declaration tests completed"
 
@@ -5821,13 +5841,13 @@ test-cxx-default-member-initializer: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.ro \
 		tests/cxx_default_member_initializer_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log 2>&1
-	grep -q "new requires scalar constant default member initializers" \
+	$(GREP) -q "new requires scalar constant default member initializers" \
 		$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.ro \
 		tests/cxx_default_member_initializer_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log 2>&1
-	grep -q "new requires scalar constant default member initializers" \
+	$(GREP) -q "new requires scalar constant default member initializers" \
 		$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
 	@echo "C++ default member initializer tests completed"
 
@@ -5851,13 +5871,13 @@ test-cxx-delegating-constructor: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-delegating-constructor/invalid-x86.ro \
 		tests/cxx_delegating_constructor_invalid.cpp \
 		>$(TEST_OUT)/cxx-delegating-constructor/invalid-x86.log 2>&1
-	grep -q "cyclic C++ delegating constructor" \
+	$(GREP) -q "cyclic C++ delegating constructor" \
 		$(TEST_OUT)/cxx-delegating-constructor/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-delegating-constructor/invalid-x64.ro \
 		tests/cxx_delegating_constructor_invalid.cpp \
 		>$(TEST_OUT)/cxx-delegating-constructor/invalid-x64.log 2>&1
-	grep -q "cyclic C++ delegating constructor" \
+	$(GREP) -q "cyclic C++ delegating constructor" \
 		$(TEST_OUT)/cxx-delegating-constructor/invalid-x64.log
 	@echo "C++ delegating constructor tests completed"
 
@@ -5881,13 +5901,13 @@ test-cxx-converting-constructor: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-converting-constructor/invalid-x86.ro \
 		tests/cxx_explicit_copy_initialization_invalid.cpp \
 		>$(TEST_OUT)/cxx-converting-constructor/invalid-x86.log 2>&1
-	grep -q "no safely lowerable constructor accepts the C++ initializer" \
+	$(GREP) -q "no safely lowerable constructor accepts the C++ initializer" \
 		$(TEST_OUT)/cxx-converting-constructor/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-converting-constructor/invalid-x64.ro \
 		tests/cxx_explicit_copy_initialization_invalid.cpp \
 		>$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log 2>&1
-	grep -q "no safely lowerable constructor accepts the C++ initializer" \
+	$(GREP) -q "no safely lowerable constructor accepts the C++ initializer" \
 		$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
 	@echo "C++ converting constructor tests completed"
 
@@ -5911,49 +5931,49 @@ test-cxx-inherited-constructor: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro \
 		tests/cxx_inherited_constructor_invalid_virtual.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log 2>&1
-	grep -q "using-base constructor cannot name a virtual base" \
+	$(GREP) -q "using-base constructor cannot name a virtual base" \
 		$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.ro \
 		tests/cxx_inherited_constructor_invalid_virtual.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log 2>&1
-	grep -q "using-base constructor cannot name a virtual base" \
+	$(GREP) -q "using-base constructor cannot name a virtual base" \
 		$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/access-x86.ro \
 		tests/cxx_inherited_constructor_invalid_access.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/access-x86.log 2>&1
-	grep -q "using-base constructor requires a public direct base" \
+	$(GREP) -q "using-base constructor requires a public direct base" \
 		$(TEST_OUT)/cxx-inherited-constructor/access-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/access-x64.ro \
 		tests/cxx_inherited_constructor_invalid_access.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/access-x64.log 2>&1
-	grep -q "using-base constructor requires a public direct base" \
+	$(GREP) -q "using-base constructor requires a public direct base" \
 		$(TEST_OUT)/cxx-inherited-constructor/access-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/member-x86.ro \
 		tests/cxx_inherited_constructor_invalid_member.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/member-x86.log 2>&1
-	grep -q "using-base constructors require scalar derived fields" \
+	$(GREP) -q "using-base constructors require scalar derived fields" \
 		$(TEST_OUT)/cxx-inherited-constructor/member-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/member-x64.ro \
 		tests/cxx_inherited_constructor_invalid_member.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/member-x64.log 2>&1
-	grep -q "using-base constructors require scalar derived fields" \
+	$(GREP) -q "using-base constructors require scalar derived fields" \
 		$(TEST_OUT)/cxx-inherited-constructor/member-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/unknown-x86.ro \
 		tests/cxx_inherited_constructor_invalid_unknown.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log 2>&1
-	grep -q "using-base constructor names an unknown direct base" \
+	$(GREP) -q "using-base constructor names an unknown direct base" \
 		$(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/unknown-x64.ro \
 		tests/cxx_inherited_constructor_invalid_unknown.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log 2>&1
-	grep -q "using-base constructor names an unknown direct base" \
+	$(GREP) -q "using-base constructor names an unknown direct base" \
 		$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log
 	@echo "C++ inherited constructor tests completed"
 
@@ -6116,7 +6136,7 @@ test-cxx-overloads: $(RCXX_TARGET)
 	@echo "RCC++ overload resolution tests completed"
 
 test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-inline-aggregates
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inline-aggregates)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/x86.ro \
 		tests/cxx_inline_aggregate.cpp
@@ -6147,70 +6167,70 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/cxx_private_member_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/private.log 2>&1; status=$$?; set -e; \
 		test $$status -ne 0
-	grep -q "member 'value' is not accessible" \
+	$(GREP) -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-inline-aggregates/private.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/arity.ro \
 		tests/cxx_constructor_arity_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/arity.log 2>&1; status=$$?; set -e; \
 		test $$status -ne 0
-	grep -q "no safely lowerable constructor accepts 0 arguments" \
+	$(GREP) -q "no safely lowerable constructor accepts 0 arguments" \
 		$(TEST_OUT)/cxx-inline-aggregates/arity.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/const-reference.ro \
 		tests/cxx_const_reference_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/const-reference.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "incompatible type for argument 1 to 'reference_test::mutable_reference'" \
+	$(GREP) -q "incompatible type for argument 1 to 'reference_test::mutable_reference'" \
 		$(TEST_OUT)/cxx-inline-aggregates/const-reference.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/private-method.ro \
 		tests/cxx_private_method_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/private-method.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "method 'secret' is not accessible" \
+	$(GREP) -q "method 'secret' is not accessible" \
 		$(TEST_OUT)/cxx-inline-aggregates/private-method.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/template-arity.ro \
 		tests/cxx_template_constructor_arity_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/template-arity.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "no safely lowerable constructor accepts 1 argument" \
+	$(GREP) -q "no safely lowerable constructor accepts 1 argument" \
 		$(TEST_OUT)/cxx-inline-aggregates/template-arity.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.ro \
 		tests/cxx_versioned_template_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "function template 'unsafe_versioned' is not safely lowerable" \
+	$(GREP) -q "function template 'unsafe_versioned' is not safely lowerable" \
 		$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/auto-rejected.ro \
 		tests/cxx_auto_initializer_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "auto variable requires an initializer" \
+	$(GREP) -q "auto variable requires an initializer" \
 		$(TEST_OUT)/cxx-inline-aggregates/auto-rejected.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.ro \
 		tests/cxx_cleanup_copy_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "C++ scope-cleanup object requires a validated direct constructor" \
+	$(GREP) -q "C++ scope-cleanup object requires a validated direct constructor" \
 		$(TEST_OUT)/cxx-inline-aggregates/cleanup-copy.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.ro \
 		tests/cxx_cleanup_control_flow_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "goto enters a C++ scope-cleanup object lifetime" \
+	$(GREP) -q "goto enters a C++ scope-cleanup object lifetime" \
 		$(TEST_OUT)/cxx-inline-aggregates/cleanup-flow.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.ro \
 		tests/cxx_cleanup_switch_scope_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "case label crosses C++ scope-cleanup object initialization" \
+	$(GREP) -q "case label crosses C++ scope-cleanup object initialization" \
 		$(TEST_OUT)/cxx-inline-aggregates/cleanup-switch-scope.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/external-destructor.ro \
@@ -6232,14 +6252,14 @@ test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/cxx_unsafe_move_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-move.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "C++ move construction requires a validated release constructor" \
+	$(GREP) -q "C++ move construction requires a validated release constructor" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.ro \
 		tests/cxx_unsafe_move_assignment_rejected.cpp \
 		>$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log 2>&1; \
 		status=$$?; set -e; test $$status -ne 0
-	grep -q "no matching member overload for 'operator='" \
+	$(GREP) -q "no matching member overload for 'operator='" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
@@ -6264,13 +6284,13 @@ ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid.log')) { exit 1 }"
 	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid.log') { exit 1 }"
 else
-	grep -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid.log
-	! grep -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid.log
+	$(GREP) -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid.log
+	! $(GREP) -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid.log
 endif
 	@echo "RCC++ namespace parser recovery test completed"
 
 test-cxx-exceptions: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-exceptions
+	$(call MKDIR_P,$(TEST_OUT)/cxx-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exceptions/x86.s tests/cxx_exceptions_rejected.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
@@ -6323,18 +6343,18 @@ test-cxx-exceptions: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-exceptions/invalid-order-x86.ro \
 		tests/cxx_exceptions_invalid.cpp \
 		>$(TEST_OUT)/cxx-exceptions/invalid-order-x86.log 2>&1
-	grep -q "C++ catch-all handler must be the last handler" \
+	$(GREP) -q "C++ catch-all handler must be the last handler" \
 		$(TEST_OUT)/cxx-exceptions/invalid-order-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-exceptions/invalid-order-x64.ro \
 		tests/cxx_exceptions_invalid.cpp \
 		>$(TEST_OUT)/cxx-exceptions/invalid-order-x64.log 2>&1
-	grep -q "C++ catch-all handler must be the last handler" \
+	$(GREP) -q "C++ catch-all handler must be the last handler" \
 		$(TEST_OUT)/cxx-exceptions/invalid-order-x64.log
 	@echo "RCC++ exception propagation and nested handler tests completed"
 
 test-cxx-object-exceptions: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-object-exceptions
+	$(call MKDIR_P,$(TEST_OUT)/cxx-object-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-object-exceptions/x86.s tests/cxx_object_exceptions.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-object-exceptions/x86.o \
@@ -6510,7 +6530,7 @@ test-cxx-cross-translation-unit-virtual: $(RCXX_TARGET)
 	@echo "RCC++ cross-translation-unit virtual/ODR tests completed"
 
 test-cxx-exception-cleanup: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-exception-cleanup
+	$(call MKDIR_P,$(TEST_OUT)/cxx-exception-cleanup)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x86.s \
 		tests/cxx_exception_cleanup.cpp
@@ -6562,7 +6582,7 @@ test-cxx-exception-cleanup: $(RCXX_TARGET)
 	@echo "RCC++ cross-call exception cleanup registration tests completed"
 
 test-cxx-nontrivial-object-exceptions: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-nontrivial-object-exceptions
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nontrivial-object-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s \
 		tests/cxx_nontrivial_object_exceptions.cpp
@@ -6590,7 +6610,7 @@ test-cxx-nontrivial-object-exceptions: $(RCXX_TARGET)
 	@echo "RCC++ non-trivial object exception ownership tests completed"
 
 test-cxx-const-member-overload: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-const-member-overload
+	$(call MKDIR_P,$(TEST_OUT)/cxx-const-member-overload)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-const-member-overload/x86.s \
 		tests/cxx_const_member_overload.cpp
@@ -6618,7 +6638,7 @@ test-cxx-const-member-overload: $(RCXX_TARGET)
 	@echo "RCC++ const member overload tests completed"
 
 test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/tool-relative/cwd
+	$(call MKDIR_P,$(TEST_OUT)/tool-relative/cwd)
 	cd $(TEST_OUT)/tool-relative/cwd && \
 		$(abspath $(RCC_TARGET)) --target i686-unknown-rinos -c \
 		-o c-x86.ro $(abspath tests/tool_relative_include.c)
@@ -6626,9 +6646,9 @@ test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
 		$(abspath $(RCXX_TARGET)) --target x86_64-unknown-rinos \
 		-std=c++20 -c -o cxx-x64.ro \
 		$(abspath tests/tool_relative_include.cpp)
-	mkdir -p $(TEST_OUT)/tool-relative/install/bin \
-		$(TEST_OUT)/tool-relative/install/include \
-		$(TEST_OUT)/tool-relative/install/cwd
+	$(call MKDIR_P,$(TEST_OUT)/tool-relative/install/bin)
+	$(call MKDIR_P,$(TEST_OUT)/tool-relative/install/include)
+	$(call MKDIR_P,$(TEST_OUT)/tool-relative/install/cwd)
 	cp $(RCC_TARGET) $(RCXX_TARGET) $(TEST_OUT)/tool-relative/install/bin/
 	cp -R include/rcc $(TEST_OUT)/tool-relative/install/include/
 	cd $(TEST_OUT)/tool-relative/install/cwd && \
@@ -6641,7 +6661,7 @@ test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "RCC/RCC++ executable-relative include tests completed"
 
 test-preprocessor-continuation: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-DRCC_CONTINUATION_LEFT -DRCC_CONTINUATION_RIGHT \
 		-o $(TEST_OUT)/preprocessor-continuation-x86.ro \
@@ -6659,28 +6679,24 @@ test-preprocessor-continuation: $(RCC_TARGET)
 	@echo "C17 backslash-newline splicing tests completed"
 
 test-preprocessor-if: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-if-x86.ro \
 		tests/preprocessor_if.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-if-x64.ro \
 		tests/preprocessor_if.c
-	if $(RCC_TARGET) --target i686-unknown-rinos -c \
-		-o $(TEST_OUT)/invalid-preprocessor-if-x86.ro \
-		tests/invalid_preprocessor_if.c >$(TEST_OUT)/invalid-preprocessor-if-x86.log 2>&1; then exit 1; fi
-	grep -F -q 'invalid #if expression' $(TEST_OUT)/invalid-preprocessor-if-x86.log
-	if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/invalid-preprocessor-if-x64.ro \
-		tests/invalid_preprocessor_if.c >$(TEST_OUT)/invalid-preprocessor-if-x64.log 2>&1; then exit 1; fi
-	grep -F -q 'invalid #if expression' $(TEST_OUT)/invalid-preprocessor-if-x64.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/invalid-preprocessor-if-x86.ro tests/invalid_preprocessor_if.c,$(TEST_OUT)/invalid-preprocessor-if-x86.log)
+	$(GREP) -F -q 'invalid #if expression' $(TEST_OUT)/invalid-preprocessor-if-x86.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/invalid-preprocessor-if-x64.ro tests/invalid_preprocessor_if.c,$(TEST_OUT)/invalid-preprocessor-if-x64.log)
+	$(GREP) -F -q 'invalid #if expression' $(TEST_OUT)/invalid-preprocessor-if-x64.log
 	@echo "C17 #if integer constant expression tests completed"
 
 test-preprocessor-line: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -E tests/preprocessor_line.c > \
 		$(TEST_OUT)/preprocessor-line.i
-	grep -F -q '#line 77 "rcc-line-marker.c"' \
+	$(GREP) -F -q '#line 77 "rcc-line-marker.c"' \
 		$(TEST_OUT)/preprocessor-line.i
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-line-x86.ro tests/preprocessor_line.c
@@ -6694,13 +6710,13 @@ test-preprocessor-line: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/invalid-preprocessor-line-x86.ro \
 		tests/invalid_preprocessor_line.c > \
 		$(TEST_OUT)/invalid-preprocessor-line-x86.log 2>&1
-	grep -F -q 'expected a positive line number' \
+	$(GREP) -F -q 'expected a positive line number' \
 		$(TEST_OUT)/invalid-preprocessor-line-x86.log
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/invalid-preprocessor-line-x64.ro \
 		tests/invalid_preprocessor_line.c > \
 		$(TEST_OUT)/invalid-preprocessor-line-x64.log 2>&1
-	grep -F -q 'expected a positive line number' \
+	$(GREP) -F -q 'expected a positive line number' \
 		$(TEST_OUT)/invalid-preprocessor-line-x64.log
 	@echo "C17/C++20 #line marker tests completed"
 
@@ -6708,14 +6724,14 @@ test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -E -Itests tests/preprocessor_include.c > \
 		$(TEST_OUT)/preprocessor-include-c.i
-	grep -F -q 'int preprocessor_include_c =' \
+	$(GREP) -F -q 'int preprocessor_include_c =' \
 		$(TEST_OUT)/preprocessor-include-c.i
-	grep -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-c.i
+	$(GREP) -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-c.i
 	$(RCXX_TARGET) -E -Itests tests/preprocessor_include.cpp > \
 		$(TEST_OUT)/preprocessor-include-cxx.i
-	grep -F -q 'constexpr int preprocessor_include_cxx =' \
+	$(GREP) -F -q 'constexpr int preprocessor_include_cxx =' \
 		$(TEST_OUT)/preprocessor-include-cxx.i
-	grep -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-cxx.i
+	$(GREP) -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-cxx.i
 	$(RCC_TARGET) --target i686-unknown-rinos -Itests -c \
 		-o $(TEST_OUT)/preprocessor-include-c-x86.ro \
 		tests/preprocessor_include.c
@@ -6732,7 +6748,7 @@ test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/invalid-preprocessor-include.ro \
 		tests/invalid_preprocessor_include.c > \
 		$(TEST_OUT)/invalid-preprocessor-include.log 2>&1
-	grep -F -q 'unexpected tokens after #include path' \
+	$(GREP) -F -q 'unexpected tokens after #include path' \
 		$(TEST_OUT)/invalid-preprocessor-include.log
 	@echo "C17/C++20 macro-expanded #include tests completed"
 
@@ -6740,19 +6756,19 @@ test-preprocessor-line-macro: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -E tests/preprocessor_line_macro.c > \
 		$(TEST_OUT)/preprocessor-line-macro.i
-	grep -F -q '#line 77 "rcc-macro-line.c"' \
+	$(GREP) -F -q '#line 77 "rcc-macro-line.c"' \
 		$(TEST_OUT)/preprocessor-line-macro.i
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/preprocessor-line-macro-c-x86.s \
 		tests/preprocessor_line_macro.c
-	grep -F -q '0x4d, 0x00, 0x00, 0x00' \
+	$(GREP) -F -q '0x4d, 0x00, 0x00, 0x00' \
 		$(TEST_OUT)/preprocessor-line-macro-c-x86.s
-	grep -F -q '0x72, 0x63, 0x63, 0x2d, 0x6d, 0x61, 0x63, 0x72' \
+	$(GREP) -F -q '0x72, 0x63, 0x63, 0x2d, 0x6d, 0x61, 0x63, 0x72' \
 		$(TEST_OUT)/preprocessor-line-macro-c-x86.s
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/preprocessor-line-macro-c-x64.s \
 		tests/preprocessor_line_macro.c
-	grep -F -q '0x4d, 0x00, 0x00, 0x00' \
+	$(GREP) -F -q '0x4d, 0x00, 0x00, 0x00' \
 		$(TEST_OUT)/preprocessor-line-macro-c-x64.s
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/preprocessor-line-macro-cxx-x86.ro \
@@ -6763,13 +6779,13 @@ test-preprocessor-line-macro: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "C17/C++20 macro-expanded #line tests completed"
 
 test-preprocessor-operators: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -E tests/preprocessor_operators.c > $(TEST_OUT)/preprocessor-operators.i
-	grep -F -q 'raw_string[] = "WORD + 1"' $(TEST_OUT)/preprocessor-operators.i
-	grep -F -q 'expanded_string[] = "42 + 1"' $(TEST_OUT)/preprocessor-operators.i
-	grep -F -q 'variadic_string[] = "one, two"' $(TEST_OUT)/preprocessor-operators.i
-	grep -F -q 'pasted_identifier = 77' $(TEST_OUT)/preprocessor-operators.i
-	grep -F -q 'pasted_number = 123' $(TEST_OUT)/preprocessor-operators.i
+	$(GREP) -F -q 'raw_string[] = "WORD + 1"' $(TEST_OUT)/preprocessor-operators.i
+	$(GREP) -F -q 'expanded_string[] = "42 + 1"' $(TEST_OUT)/preprocessor-operators.i
+	$(GREP) -F -q 'variadic_string[] = "one, two"' $(TEST_OUT)/preprocessor-operators.i
+	$(GREP) -F -q 'pasted_identifier = 77' $(TEST_OUT)/preprocessor-operators.i
+	$(GREP) -F -q 'pasted_number = 123' $(TEST_OUT)/preprocessor-operators.i
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-operators-x86.ro \
 		tests/preprocessor_operators.c
@@ -6779,10 +6795,10 @@ test-preprocessor-operators: $(RCC_TARGET)
 	@echo "C17 #/## replacement-list operator tests completed"
 
 test-preprocessor-va-opt: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -E tests/preprocessor_va_opt.c > $(TEST_OUT)/preprocessor-va-opt.i
-	grep -F -q 'optional_empty = (7 );' $(TEST_OUT)/preprocessor-va-opt.i
-	grep -F -q 'optional_value = (7 + 8);' $(TEST_OUT)/preprocessor-va-opt.i
+	$(GREP) -F -q 'optional_empty = (7 );' $(TEST_OUT)/preprocessor-va-opt.i
+	$(GREP) -F -q 'optional_value = (7 + 8);' $(TEST_OUT)/preprocessor-va-opt.i
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-va-opt-x86.ro tests/preprocessor_va_opt.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -6790,7 +6806,8 @@ test-preprocessor-va-opt: $(RCC_TARGET)
 	@echo "C++20 __VA_OPT__ replacement-list tests completed"
 
 test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)/atomic-x86 $(TEST_OUT)/atomic-x64
+	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)
+	$(call MKDIR_P,$(TEST_OUT)/atomic-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/atomic.ro tests/atomic_builtin.c
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
@@ -6828,7 +6845,8 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	@echo "Dual-architecture integer/pointer atomic tests completed"
 
 test-atomic-language: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/atomic-language-x86 $(TEST_OUT)/atomic-language-x64
+	$(call MKDIR_P,$(TEST_OUT)/atomic-language-x86)
+	$(call MKDIR_P,$(TEST_OUT)/atomic-language-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x86/atomic.ro tests/atomic_language.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
@@ -6849,7 +6867,7 @@ test-atomic-language: $(RCC_TARGET)
 		>$(TEST_OUT)/atomic-language-x86/invalid.log 2>&1; then \
 		echo "invalid _Atomic fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "_Atomic requires an unqualified scalar object type" \
+	$(GREP) -F -q "_Atomic requires an unqualified scalar object type" \
 		$(TEST_OUT)/atomic-language-x86/invalid.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x64/invalid.ro \
@@ -6857,7 +6875,7 @@ test-atomic-language: $(RCC_TARGET)
 		>$(TEST_OUT)/atomic-language-x64/invalid.log 2>&1; then \
 		echo "invalid _Atomic fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "_Atomic requires an unqualified scalar object type" \
+	$(GREP) -F -q "_Atomic requires an unqualified scalar object type" \
 		$(TEST_OUT)/atomic-language-x64/invalid.log
 	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x86/invalid-rmw.ro \
@@ -6865,7 +6883,7 @@ test-atomic-language: $(RCC_TARGET)
 		>$(TEST_OUT)/atomic-language-x86/invalid-rmw.log 2>&1; then \
 		echo "invalid atomic RMW fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "atomic ++/-- requires an integer or pointer object" \
+	$(GREP) -F -q "atomic ++/-- requires an integer or pointer object" \
 		$(TEST_OUT)/atomic-language-x86/invalid-rmw.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x64/invalid-rmw.ro \
@@ -6873,12 +6891,12 @@ test-atomic-language: $(RCC_TARGET)
 		>$(TEST_OUT)/atomic-language-x64/invalid-rmw.log 2>&1; then \
 		echo "invalid atomic RMW fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "atomic ++/-- requires an integer or pointer object" \
+	$(GREP) -F -q "atomic ++/-- requires an integer or pointer object" \
 		$(TEST_OUT)/atomic-language-x64/invalid-rmw.log
 	@echo "C17 language _Atomic syntax and lowering tests completed"
 
 test-x86-wide-scalar: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/x86-wide-scalar
+	$(call MKDIR_P,$(TEST_OUT)/x86-wide-scalar)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/x86-wide-scalar/scalar.ro \
 		tests/x86_wide_scalar.c
@@ -6893,140 +6911,68 @@ test-x86-wide-scalar: $(RCC_TARGET)
 	@echo "i686 64-bit scalar ABI test completed"
 
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/language-boundaries
-	@if $(RCC_TARGET) --target i686-unknown-rinos -c \
-		-o $(TEST_OUT)/language-boundaries/c-x86.ro \
-		tests/unsupported_long_double.c \
-		>$(TEST_OUT)/language-boundaries/c-x86.log 2>&1; then \
-		echo "C long double fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double is not supported by the RinOS floating-point ABI" \
+	$(call MKDIR_P,$(TEST_OUT)/language-boundaries)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-x86.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/c-x86.log)
+	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x86.log
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/language-boundaries/c17-x86.ro tests/integer_literal.c
-	@if $(RCC_TARGET) --target i686-unknown-rinos -c \
-		-o $(TEST_OUT)/language-boundaries/c-literal-x86.ro \
-		tests/unsupported_long_double_literal.c \
-		>$(TEST_OUT)/language-boundaries/c-literal-x86.log 2>&1; then \
-		echo "C long double literal fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-literal-x86.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/c-literal-x86.log)
+	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-literal-x86.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/language-boundaries/c-x64.ro \
-		tests/unsupported_long_double.c \
-		>$(TEST_OUT)/language-boundaries/c-x64.log 2>&1; then \
-		echo "C long double fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double is not supported by the RinOS floating-point ABI" \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-x64.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/c-x64.log)
+	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos --std=gnu17 -c \
 		-o $(TEST_OUT)/language-boundaries/c17-x64.ro tests/integer_literal.c
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/language-boundaries/c-literal-x64.ro \
-		tests/unsupported_long_double_literal.c \
-		>$(TEST_OUT)/language-boundaries/c-literal-x64.log 2>&1; then \
-		echo "C long double literal fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-literal-x64.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/c-literal-x64.log)
+	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-literal-x64.log
-	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/language-boundaries/cxx-x86.ro \
-		tests/unsupported_long_double.c \
-		>$(TEST_OUT)/language-boundaries/cxx-x86.log 2>&1; then \
-		echo "C++ long double fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double is not supported by the RinOS floating-point ABI" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-x86.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/cxx-x86.log)
+	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-x86.log
-	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/language-boundaries/cxx-literal-x86.ro \
-		tests/unsupported_long_double_literal.c \
-		>$(TEST_OUT)/language-boundaries/cxx-literal-x86.log 2>&1; then \
-		echo "C++ long double literal fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-literal-x86.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/cxx-literal-x86.log)
+	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-literal-x86.log
-	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/language-boundaries/cxx-x64.ro \
-		tests/unsupported_long_double.c \
-		>$(TEST_OUT)/language-boundaries/cxx-x64.log 2>&1; then \
-		echo "C++ long double fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double is not supported by the RinOS floating-point ABI" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-x64.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/cxx-x64.log)
+	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-x64.log
-	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/language-boundaries/cxx-literal-x64.ro \
-		tests/unsupported_long_double_literal.c \
-		>$(TEST_OUT)/language-boundaries/cxx-literal-x64.log 2>&1; then \
-		echo "C++ long double literal fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "long double literals are not supported by the RinOS floating-point ABI" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-literal-x64.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/cxx-literal-x64.log)
+	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/cxx-literal-x64.log
-	@for fixture in complex imaginary; do \
-		case "$$fixture" in \
-			complex) message="_Complex is not supported by the RinOS floating-point ABI" ;; \
-			imaginary) message="_Imaginary is not supported by the RinOS floating-point ABI" ;; \
-		esac; \
-		if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
-			-o $(TEST_OUT)/language-boundaries/$$fixture-x86.ro \
-			tests/unsupported_$$fixture.c \
-			>$(TEST_OUT)/language-boundaries/$$fixture-x86.log 2>&1; then \
-			echo "C $$fixture fixture unexpectedly compiled"; exit 1; \
-		fi; \
-		grep -q "$$message" $(TEST_OUT)/language-boundaries/$$fixture-x86.log; \
-		if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
-			-o $(TEST_OUT)/language-boundaries/$$fixture-x64.ro \
-			tests/unsupported_$$fixture.c \
-			>$(TEST_OUT)/language-boundaries/$$fixture-x64.log 2>&1; then \
-			echo "C $$fixture fixture unexpectedly compiled"; exit 1; \
-		fi; \
-		grep -q "$$message" $(TEST_OUT)/language-boundaries/$$fixture-x64.log; \
-	done
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/complex-x86.ro tests/unsupported_complex.c,$(TEST_OUT)/language-boundaries/complex-x86.log)
+	$(GREP) -q "_Complex is not supported by the RinOS floating-point ABI" $(TEST_OUT)/language-boundaries/complex-x86.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/complex-x64.ro tests/unsupported_complex.c,$(TEST_OUT)/language-boundaries/complex-x64.log)
+	$(GREP) -q "_Complex is not supported by the RinOS floating-point ABI" $(TEST_OUT)/language-boundaries/complex-x64.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/imaginary-x86.ro tests/unsupported_imaginary.c,$(TEST_OUT)/language-boundaries/imaginary-x86.log)
+	$(GREP) -q "_Imaginary is not supported by the RinOS floating-point ABI" $(TEST_OUT)/language-boundaries/imaginary-x86.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/imaginary-x64.ro tests/unsupported_imaginary.c,$(TEST_OUT)/language-boundaries/imaginary-x64.log)
+	$(GREP) -q "_Imaginary is not supported by the RinOS floating-point ABI" $(TEST_OUT)/language-boundaries/imaginary-x64.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/language-boundaries/dynamic-cast-x86.ro \
 		tests/unsupported_dynamic_cast.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/language-boundaries/dynamic-cast-x64.ro \
 		tests/unsupported_dynamic_cast.cpp
-	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/language-boundaries/const-cast-x86.ro \
-		tests/unsupported_const_cast.cpp \
-		>$(TEST_OUT)/language-boundaries/const-cast-x86.log 2>&1; then \
-		echo "C++ const_cast fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "const_cast requires the same object type" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/const-cast-x86.ro tests/unsupported_const_cast.cpp,$(TEST_OUT)/language-boundaries/const-cast-x86.log)
+	$(GREP) -q "const_cast requires the same object type" \
 		$(TEST_OUT)/language-boundaries/const-cast-x86.log
-	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/language-boundaries/const-cast-x64.ro \
-		tests/unsupported_const_cast.cpp \
-		>$(TEST_OUT)/language-boundaries/const-cast-x64.log 2>&1; then \
-		echo "C++ const_cast fixture unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "const_cast requires the same object type" \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/const-cast-x64.ro tests/unsupported_const_cast.cpp,$(TEST_OUT)/language-boundaries/const-cast-x64.log)
+	$(GREP) -q "const_cast requires the same object type" \
 		$(TEST_OUT)/language-boundaries/const-cast-x64.log
 	@echo "RCC/RCC++ unsupported language and floating-point boundary diagnostics completed"
 
 test-noreturn: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/noreturn
+	$(call MKDIR_P,$(TEST_OUT)/noreturn)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/noreturn/x86.ro tests/noreturn.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/noreturn/x64.ro tests/noreturn.c
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
-		-o $(TEST_OUT)/noreturn/invalid-x86.ro \
-		tests/unsupported_noreturn_object.c \
-		>$(TEST_OUT)/noreturn/invalid-x86.log 2>&1; then \
-		echo "_Noreturn object unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "_Noreturn declaration must declare a function" \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/noreturn/invalid-x86.ro tests/unsupported_noreturn_object.c,$(TEST_OUT)/noreturn/invalid-x86.log)
+	$(GREP) -q "_Noreturn declaration must declare a function" \
 		$(TEST_OUT)/noreturn/invalid-x86.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
-		-o $(TEST_OUT)/noreturn/invalid-x64.ro \
-		tests/unsupported_noreturn_object.c \
-		>$(TEST_OUT)/noreturn/invalid-x64.log 2>&1; then \
-		echo "_Noreturn object unexpectedly compiled"; exit 1; \
-	fi
-	grep -q "_Noreturn declaration must declare a function" \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/noreturn/invalid-x64.ro tests/unsupported_noreturn_object.c,$(TEST_OUT)/noreturn/invalid-x64.log)
+	$(GREP) -q "_Noreturn declaration must declare a function" \
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
@@ -7097,14 +7043,14 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/sse_intrin.c >$(TEST_OUT)/compiler-builtins/no-sse-x86.log 2>&1; then \
 		echo "SSE unexpectedly compiled with -mno-sse"; exit 1; \
 	fi
-	grep -F -q "requires SSE; enable it with -msse" \
+	$(GREP) -F -q "requires SSE; enable it with -msse" \
 		$(TEST_OUT)/compiler-builtins/no-sse-x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -mno-sse2 \
 		-Iinclude -c -o $(TEST_OUT)/compiler-builtins/no-sse2-x64.ro \
 		tests/sse_intrin.c >$(TEST_OUT)/compiler-builtins/no-sse2-x64.log 2>&1; then \
 		echo "SSE2 unexpectedly compiled with -mno-sse2"; exit 1; \
 	fi
-	grep -F -q "requires SSE2; enable it with -msse2" \
+	$(GREP) -F -q "requires SSE2; enable it with -msse2" \
 		$(TEST_OUT)/compiler-builtins/no-sse2-x64.log
 	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -Iinclude -c \
 		-o $(TEST_OUT)/compiler-builtins/invalid-sse-x86.ro \
@@ -7112,9 +7058,9 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log 2>&1; then \
 		echo "invalid SSE intrinsic fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "expects 2 arguments, got 1" \
+	$(GREP) -F -q "expects 2 arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log
-	grep -F -q "requires an integer constant immediate" \
+	$(GREP) -F -q "requires an integer constant immediate" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -Iinclude -c \
 		-o $(TEST_OUT)/compiler-builtins/invalid-sse-x64.ro \
@@ -7122,9 +7068,9 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log 2>&1; then \
 		echo "invalid SSE intrinsic fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "expects 2 arguments, got 1" \
+	$(GREP) -F -q "expects 2 arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log
-	grep -F -q "requires an integer constant immediate" \
+	$(GREP) -F -q "requires an integer constant immediate" \
 		$(TEST_OUT)/compiler-builtins/invalid-sse-x64.log
 	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/compiler-builtins/invalid-x86.ro \
@@ -7132,15 +7078,15 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/compiler-builtins/invalid-x86.log 2>&1; then \
 		echo "invalid compiler builtin fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "__builtin_expect expected value must have integer type" \
+	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
-	grep -F -q "__builtin_trap expects no arguments, got 1" \
+	$(GREP) -F -q "__builtin_trap expects no arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
-	grep -F -q "__builtin_bswap16 expects an integer argument no wider than 2 bytes" \
+	$(GREP) -F -q "__builtin_bswap16 expects an integer argument no wider than 2 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
-	grep -F -q "__builtin_clz expects an integer argument no wider than 4 bytes" \
+	$(GREP) -F -q "__builtin_clz expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
-	grep -F -q "__builtin_prefetch rw argument must be 0 or 1" \
+	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/compiler-builtins/invalid-x64.ro \
@@ -7148,15 +7094,15 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/compiler-builtins/invalid-x64.log 2>&1; then \
 		echo "invalid compiler builtin fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -F -q "__builtin_expect expected value must have integer type" \
+	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
-	grep -F -q "__builtin_trap expects no arguments, got 1" \
+	$(GREP) -F -q "__builtin_trap expects no arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
-	grep -F -q "__builtin_bswap16 expects an integer argument no wider than 2 bytes" \
+	$(GREP) -F -q "__builtin_bswap16 expects an integer argument no wider than 2 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
-	grep -F -q "__builtin_clz expects an integer argument no wider than 4 bytes" \
+	$(GREP) -F -q "__builtin_clz expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
-	grep -F -q "__builtin_prefetch rw argument must be 0 or 1" \
+	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
 
@@ -7180,9 +7126,9 @@ test-cxx-const-cast: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-const-cast/x64.ro tests/cxx_const_cast.cpp \
 		>$(TEST_OUT)/cxx-const-cast/x64.log 2>&1
-	grep -q "Verified backend: 1 function(s) emitted" \
+	$(GREP) -q "Verified backend: 1 function(s) emitted" \
 		$(TEST_OUT)/cxx-const-cast/x86.log
-	grep -q "Verified backend: 1 function(s) emitted" \
+	$(GREP) -q "Verified backend: 1 function(s) emitted" \
 		$(TEST_OUT)/cxx-const-cast/x64.log
 	@echo "C++ cv-only const_cast tests completed"
 
@@ -7206,9 +7152,9 @@ test-cxx-dynamic-cast: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-dynamic-cast/x64.ro tests/cxx_dynamic_cast_verified.cpp \
 		>$(TEST_OUT)/cxx-dynamic-cast/x64.log 2>&1
-	grep -q "Verified backend: 3 function(s) emitted" \
+	$(GREP) -q "Verified backend: 3 function(s) emitted" \
 		$(TEST_OUT)/cxx-dynamic-cast/x86.log
-	grep -q "Verified backend: 3 function(s) emitted" \
+	$(GREP) -q "Verified backend: 3 function(s) emitted" \
 		$(TEST_OUT)/cxx-dynamic-cast/x64.log
 	@echo "C++ statically known public-upcast dynamic_cast tests completed"
 
@@ -7297,7 +7243,7 @@ test-cxx-dynamic-cast-reference: $(RCXX_TARGET)
 	@echo "C++ reference dynamic_cast success and bad_cast tests completed"
 
 test-integer-literals: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/integer-literals
+	$(call MKDIR_P,$(TEST_OUT)/integer-literals)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/integer-literals/x86.ro tests/integer_literal.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7324,7 +7270,7 @@ test-integer-literals: $(RCC_TARGET)
 	@echo "C17 integer literal type and value tests completed"
 
 test-integer-promotions: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/integer-promotions
+	$(call MKDIR_P,$(TEST_OUT)/integer-promotions)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/integer-promotions/x86.ro tests/integer_promotion.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7345,18 +7291,18 @@ test-integer-promotions: $(RCC_TARGET)
 		>$(TEST_OUT)/integer-promotions/invalid.log 2>&1; then \
 		echo "invalid integer-operator fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "remainder operator requires integer operands" \
+	$(GREP) -q "remainder operator requires integer operands" \
 		$(TEST_OUT)/integer-promotions/invalid.log
-	grep -q "bitwise complement requires integer operand" \
+	$(GREP) -q "bitwise complement requires integer operand" \
 		$(TEST_OUT)/integer-promotions/invalid.log
-	grep -q "shift operator requires integer operands" \
+	$(GREP) -q "shift operator requires integer operands" \
 		$(TEST_OUT)/integer-promotions/invalid.log
-	grep -q "logical not requires scalar operand" \
+	$(GREP) -q "logical not requires scalar operand" \
 		$(TEST_OUT)/integer-promotions/invalid.log
 	@echo "Dual-architecture C17 integer promotion tests completed"
 
 test-integer-conversions: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/integer-conversions
+	$(call MKDIR_P,$(TEST_OUT)/integer-conversions)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/integer-conversions/x86.ro tests/integer_conversion.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7374,7 +7320,7 @@ test-integer-conversions: $(RCC_TARGET)
 	@echo "Dual-architecture C17 integer conversion tests completed"
 
 test-function-calls: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/function-calls
+	$(call MKDIR_P,$(TEST_OUT)/function-calls)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/function-calls/x86.ro tests/function_call.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7395,11 +7341,11 @@ test-function-calls: $(RCC_TARGET)
 		>$(TEST_OUT)/function-calls/invalid-call.log 2>&1; then \
 		echo "invalid function calls unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "too few arguments to function call" \
+	$(GREP) -q "too few arguments to function call" \
 		$(TEST_OUT)/function-calls/invalid-call.log
-	grep -q "too many arguments to function call" \
+	$(GREP) -q "too many arguments to function call" \
 		$(TEST_OUT)/function-calls/invalid-call.log
-	grep -q "incompatible type for argument 1" \
+	$(GREP) -q "incompatible type for argument 1" \
 		$(TEST_OUT)/function-calls/invalid-call.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/function-calls/invalid-parameters.ro \
@@ -7407,9 +7353,9 @@ test-function-calls: $(RCC_TARGET)
 		>$(TEST_OUT)/function-calls/invalid-parameters.log 2>&1; then \
 		echo "invalid parameter lists unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "ellipsis requires at least one named parameter" \
+	$(GREP) -q "ellipsis requires at least one named parameter" \
 		$(TEST_OUT)/function-calls/invalid-parameters.log
-	grep -q "expected parameter declaration after ','" \
+	$(GREP) -q "expected parameter declaration after ','" \
 		$(TEST_OUT)/function-calls/invalid-parameters.log
 	@echo "Dual-architecture C17 function call contract tests completed"
 
@@ -7433,7 +7379,7 @@ test-inline-asm-execute: $(RCC_TARGET)
 		>$(TEST_OUT)/inline-asm/invalid.log 2>&1; then \
 		echo "unsupported AMD64 inline asm unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "unsupported AMD64 inline asm instruction" \
+	$(GREP) -q "unsupported AMD64 inline asm instruction" \
 		$(TEST_OUT)/inline-asm/invalid.log
 	@if $(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/inline-asm/invalid-x86.ro \
@@ -7441,7 +7387,7 @@ test-inline-asm-execute: $(RCC_TARGET)
 		>$(TEST_OUT)/inline-asm/invalid-x86.log 2>&1; then \
 		echo "unsupported i686 inline asm unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "unsupported i686 inline asm instruction" \
+	$(GREP) -q "unsupported i686 inline asm instruction" \
 		$(TEST_OUT)/inline-asm/invalid-x86.log
 	@echo "Dual-architecture fixed-register inline asm tests completed"
 
@@ -7461,23 +7407,23 @@ test-inline-asm-validation: $(RCC_TARGET)
 		>$(TEST_OUT)/inline-asm-validation/x86.log 2>&1; then \
 		echo "invalid i686 inline asm constraints unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "unsupported i686 inline asm output register constraint 'k'" \
+	$(GREP) -q "unsupported i686 inline asm output register constraint 'k'" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "modifiable lvalue" \
+	$(GREP) -q "modifiable lvalue" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "unsupported i686 inline asm clobber 'not_a_register'" \
+	$(GREP) -q "unsupported i686 inline asm clobber 'not_a_register'" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "outputs use the same fixed register" \
+	$(GREP) -q "outputs use the same fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "inputs use the same fixed register" \
+	$(GREP) -q "inputs use the same fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "clobber conflicts with an operand fixed register" \
+	$(GREP) -q "clobber conflicts with an operand fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "clobbers list the same register twice" \
+	$(GREP) -q "clobbers list the same register twice" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "operand placeholders" \
+	$(GREP) -q "operand placeholders" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	grep -q "scalar integer or pointer" \
+	$(GREP) -q "scalar integer or pointer" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/inline-asm-validation/x64.ro \
@@ -7485,17 +7431,17 @@ test-inline-asm-validation: $(RCC_TARGET)
 		>$(TEST_OUT)/inline-asm-validation/x64.log 2>&1; then \
 		echo "invalid AMD64 inline asm constraints unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "unsupported AMD64 inline asm output register constraint 'k'" \
+	$(GREP) -q "unsupported AMD64 inline asm output register constraint 'k'" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
-	grep -q "unsupported AMD64 inline asm clobber 'not_a_register'" \
+	$(GREP) -q "unsupported AMD64 inline asm clobber 'not_a_register'" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
-	grep -q "outputs use the same fixed register" \
+	$(GREP) -q "outputs use the same fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
-	grep -q "inputs use the same fixed register" \
+	$(GREP) -q "inputs use the same fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
-	grep -q "clobber conflicts with an operand fixed register" \
+	$(GREP) -q "clobber conflicts with an operand fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
-	grep -q "clobbers list the same register twice" \
+	$(GREP) -q "clobbers list the same register twice" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	@echo "Dual-architecture inline asm constraint validation tests completed"
 
@@ -7540,23 +7486,23 @@ test-varargs: $(RCC_TARGET)
 		>$(TEST_OUT)/varargs/invalid.log 2>&1; then \
 		echo "invalid varargs unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "va_start is only valid in a variadic function" \
+	$(GREP) -q "va_start is only valid in a variadic function" \
 		$(TEST_OUT)/varargs/invalid.log
-	grep -q "va_start requires the final named parameter" \
+	$(GREP) -q "va_start requires the final named parameter" \
 		$(TEST_OUT)/varargs/invalid.log
-	grep -q "va_copy requires two va_list objects" \
+	$(GREP) -q "va_copy requires two va_list objects" \
 		$(TEST_OUT)/varargs/invalid.log
-	grep -q "va_end requires a va_list object" \
+	$(GREP) -q "va_end requires a va_list object" \
 		$(TEST_OUT)/varargs/invalid.log
-	grep -q "va_arg requires a va_list object" \
+	$(GREP) -q "va_arg requires a va_list object" \
 		$(TEST_OUT)/varargs/invalid.log
-	grep -q "va_arg requires a complete fixed scalar or aggregate object type" \
+	$(GREP) -q "va_arg requires a complete fixed scalar or aggregate object type" \
 		$(TEST_OUT)/varargs/invalid.log
 	@echo "Dual-architecture C17 scalar varargs tests completed"
 endif
 
 test-scalar-comparisons: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/scalar-comparisons
+	$(call MKDIR_P,$(TEST_OUT)/scalar-comparisons)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/scalar-comparisons/x86.ro tests/scalar_comparison.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7577,14 +7523,14 @@ test-scalar-comparisons: $(RCC_TARGET)
 		>$(TEST_OUT)/scalar-comparisons/invalid.log 2>&1; then \
 		echo "invalid scalar comparisons unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "comparison requires arithmetic or pointer operands" \
+	$(GREP) -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/scalar-comparisons/invalid.log
-	grep -q "logical operator requires scalar operands" \
+	$(GREP) -q "logical operator requires scalar operands" \
 		$(TEST_OUT)/scalar-comparisons/invalid.log
 	@echo "Dual-architecture C17 scalar comparison tests completed"
 
 test-aggregate-copy: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/aggregate-copy
+	$(call MKDIR_P,$(TEST_OUT)/aggregate-copy)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/aggregate-copy/x86.ro tests/aggregate_copy.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7603,12 +7549,12 @@ test-aggregate-copy: $(RCC_TARGET)
 		>$(TEST_OUT)/aggregate-copy/invalid.log 2>&1; then \
 		echo "duplicate anonymous member unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "duplicate member 'duplicate' from anonymous aggregate" \
+	$(GREP) -q "duplicate member 'duplicate' from anonymous aggregate" \
 		$(TEST_OUT)/aggregate-copy/invalid.log
 	@echo "Dual-architecture C17 aggregate copy tests completed"
 
 test-aggregate-returns: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/aggregate-returns
+	$(call MKDIR_P,$(TEST_OUT)/aggregate-returns)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/aggregate-returns/x86.ro tests/aggregate_return.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7626,7 +7572,7 @@ test-aggregate-returns: $(RCC_TARGET)
 	@echo "Dual-architecture C17 aggregate return ABI tests completed"
 
 test-aggregate-packed-abi: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/aggregate-packed-abi
+	$(call MKDIR_P,$(TEST_OUT)/aggregate-packed-abi)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/aggregate-packed-abi/x86.ro \
 		tests/aggregate_packed_abi.c
@@ -7646,7 +7592,7 @@ test-aggregate-packed-abi: $(RCC_TARGET)
 	@echo "SysV packed aggregate ABI tests completed"
 
 test-compound-literals: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/compound-literals
+	$(call MKDIR_P,$(TEST_OUT)/compound-literals)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/compound-literals/x86.ro tests/compound_literal.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7667,7 +7613,7 @@ test-compound-literals: $(RCC_TARGET)
 		>$(TEST_OUT)/compound-literals/invalid.log 2>&1; then \
 		echo "incomplete compound literal unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "compound literal requires a complete object type" \
+	$(GREP) -q "compound literal requires a complete object type" \
 		$(TEST_OUT)/compound-literals/invalid.log
 	@echo "Dual-architecture C17 automatic compound literal tests completed"
 
@@ -7802,7 +7748,8 @@ test-tls-block-scope: $(RCC_TARGET) $(RINVALIDATE)
 	@echo "Dual-architecture C11 block-scope TLS declaration tests completed"
 
 test-bootstrap-core: $(RCC_TARGET)
-	mkdir -p $(BOOTSTRAP_ROOT)/stage1-a $(BOOTSTRAP_ROOT)/stage1-b
+	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage1-a)
+	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage1-b)
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
 		for source in $(BOOTSTRAP_CORE_SRCS); do \
@@ -7819,7 +7766,7 @@ test-bootstrap-core: $(RCC_TARGET)
 	@echo "Reproducible dual-architecture stage0 core object bootstrap completed"
 
 test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
-	mkdir -p $(BOOTSTRAP_ROOT)/images
+	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/images)
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
 		arch=$${target%%-*}; \
@@ -7839,7 +7786,7 @@ test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
 	@echo "Reproducible dual-architecture linked stage1 rcc images completed"
 
 test-bootstrap-execute: test-bootstrap-link
-	mkdir -p $(BOOTSTRAP_ROOT)/execute
+	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/execute)
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -rdynamic \
 		-o $(BOOTSTRAP_ROOT)/execute/run-i686 \
 		tests/bootstrap_stage_runner.c -ldl
@@ -7865,7 +7812,7 @@ test-bootstrap-execute: test-bootstrap-link
 	@echo "Dual-architecture linked stage1 execution bootstrap completed"
 
 test-bootstrap-stage2: test-bootstrap-execute
-	mkdir -p $(BOOTSTRAP_ROOT)/stage2
+	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage2)
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
 		arch=$${target%%-*}; \
@@ -7891,7 +7838,7 @@ test-bootstrap-stage2: test-bootstrap-execute
 	@echo "Reproducible dual-architecture stage1-to-stage2 compiler rebuild completed"
 
 test-pragma-pack: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/pragma-pack
+	$(call MKDIR_P,$(TEST_OUT)/pragma-pack)
 	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc \
 		-Ibootstrap/include -c -o $(TEST_OUT)/pragma-pack/x86.ro \
 		tests/pragma_pack.c
@@ -7931,7 +7878,7 @@ test-pragma-pack: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "Dual-architecture pragma-pack and offsetof tests completed"
 
 test-bitfields: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/bitfields
+	$(call MKDIR_P,$(TEST_OUT)/bitfields)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/bitfields/x86.s tests/bitfields.c
 	$(CC) -m32 -c -o $(TEST_OUT)/bitfields/x86.o \
@@ -7957,14 +7904,14 @@ test-bitfields: $(RCC_TARGET)
 		>$(TEST_OUT)/bitfields/invalid.log 2>&1; then \
 		echo "invalid bit-field fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "bit-field width" $(TEST_OUT)/bitfields/invalid.log
+	$(GREP) -q "bit-field width" $(TEST_OUT)/bitfields/invalid.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/bitfields/invalid-address.ro \
 		tests/invalid_bitfield_address.c \
 		>$(TEST_OUT)/bitfields/invalid-address.log 2>&1; then \
 		echo "invalid bit-field address fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot take address of a bit-field" \
+	$(GREP) -q "cannot take address of a bit-field" \
 		$(TEST_OUT)/bitfields/invalid-address.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/bitfields/invalid-offsetof.ro \
@@ -7972,7 +7919,7 @@ test-bitfields: $(RCC_TARGET)
 		>$(TEST_OUT)/bitfields/invalid-offsetof.log 2>&1; then \
 		echo "invalid bit-field offsetof fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "cannot compute offsetof for a bit-field" \
+	$(GREP) -q "cannot compute offsetof for a bit-field" \
 		$(TEST_OUT)/bitfields/invalid-offsetof.log
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/bitfields/tls-x86.ro tests/bitfields_tls.c
@@ -7981,7 +7928,7 @@ test-bitfields: $(RCC_TARGET)
 	@echo "Dual-architecture C17 bit-field tests completed"
 
 test-cxx-bitfields: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-bitfields
+	$(call MKDIR_P,$(TEST_OUT)/cxx-bitfields)
 	$(RCXX_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/cxx-bitfields/x86.s tests/cxx_bitfields.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-bitfields/x86.o \
@@ -8007,11 +7954,11 @@ test-cxx-bitfields: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-bitfields/invalid.log 2>&1; then \
 		echo "invalid C++ bit-field fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "C++ bit-field width" $(TEST_OUT)/cxx-bitfields/invalid.log
+	$(GREP) -q "C++ bit-field width" $(TEST_OUT)/cxx-bitfields/invalid.log
 	@echo "Dual-architecture C++ bit-field tests completed"
 
 test-compound-assignment: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/compound-assignment
+	$(call MKDIR_P,$(TEST_OUT)/compound-assignment)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/compound-assignment/x86.ro \
 		tests/compound_assignment.c
@@ -8034,7 +7981,7 @@ test-compound-assignment: $(RCC_TARGET)
 	@echo "Dual-architecture C17 compound assignment tests completed"
 
 test-switch-statement: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/switch-statement
+	$(call MKDIR_P,$(TEST_OUT)/switch-statement)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/switch-statement/x86.ro tests/switch_statement.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -8055,20 +8002,20 @@ test-switch-statement: $(RCC_TARGET)
 		>$(TEST_OUT)/switch-statement/invalid.log 2>&1; then \
 		echo "invalid switch fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "case label is not within a switch" \
+	$(GREP) -q "case label is not within a switch" \
 		$(TEST_OUT)/switch-statement/invalid.log
-	grep -q "default label is not within a switch" \
+	$(GREP) -q "default label is not within a switch" \
 		$(TEST_OUT)/switch-statement/invalid.log
-	grep -q "duplicate case value" $(TEST_OUT)/switch-statement/invalid.log
-	grep -q "multiple default labels" $(TEST_OUT)/switch-statement/invalid.log
-	grep -q "case label must be an integer constant expression" \
+	$(GREP) -q "duplicate case value" $(TEST_OUT)/switch-statement/invalid.log
+	$(GREP) -q "multiple default labels" $(TEST_OUT)/switch-statement/invalid.log
+	$(GREP) -q "case label must be an integer constant expression" \
 		$(TEST_OUT)/switch-statement/invalid.log
-	grep -q "switch controlling expression must have integer type" \
+	$(GREP) -q "switch controlling expression must have integer type" \
 		$(TEST_OUT)/switch-statement/invalid.log
 	@echo "Dual-architecture C17 switch statement tests completed"
 
 test-control-flow: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/control-flow
+	$(call MKDIR_P,$(TEST_OUT)/control-flow)
 	$(RCC_TARGET) --target i686-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/control-flow/x86.ro tests/control_flow.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
@@ -8087,18 +8034,18 @@ test-control-flow: $(RCC_TARGET)
 		>$(TEST_OUT)/control-flow/invalid.log 2>&1; then \
 		echo "invalid control-flow fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "break statement is not within a loop or switch" \
+	$(GREP) -q "break statement is not within a loop or switch" \
 		$(TEST_OUT)/control-flow/invalid.log
-	grep -q "continue statement is not within a loop" \
+	$(GREP) -q "continue statement is not within a loop" \
 		$(TEST_OUT)/control-flow/invalid.log
-	grep -q "undefined label 'missing'" \
+	$(GREP) -q "undefined label 'missing'" \
 		$(TEST_OUT)/control-flow/invalid.log
-	grep -q "redefinition of label 'duplicate'" \
+	$(GREP) -q "redefinition of label 'duplicate'" \
 		$(TEST_OUT)/control-flow/invalid.log
 	@echo "Dual-architecture C17 goto/label tests completed"
 
 test-parser-recovery: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/parser-recovery
+	$(call MKDIR_P,$(TEST_OUT)/parser-recovery)
 	@set +e; timeout 10s $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/parser-recovery/invalid.ro \
 		tests/parser_recovery.c \
@@ -8109,15 +8056,15 @@ test-parser-recovery: $(RCC_TARGET)
 		if [ $$status -eq 124 ] || [ $$status -eq 139 ]; then \
 			echo "parser recovery timed out or crashed (status $$status)"; exit 1; \
 		fi
-	grep -q "expected parameter type specifier" \
+	$(GREP) -q "expected parameter type specifier" \
 		$(TEST_OUT)/parser-recovery/invalid.log
-	grep -q "expected field type specifier" \
+	$(GREP) -q "expected field type specifier" \
 		$(TEST_OUT)/parser-recovery/invalid.log
-	grep -q "expected expression" $(TEST_OUT)/parser-recovery/invalid.log
+	$(GREP) -q "expected expression" $(TEST_OUT)/parser-recovery/invalid.log
 	@echo "C17 parser progress and null-type recovery tests completed"
 
 test-link: $(RCC_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -c -o $(TEST_OUT)/main.ro tests/main.c
 	$(RCC_TARGET) -c -o $(TEST_OUT)/lib.ro tests/lib.c
 	$(RLD_TARGET) -v --emit-unsigned-v3 -o $(TEST_OUT)/linked.rin \
@@ -8125,7 +8072,7 @@ test-link: $(RCC_TARGET) $(RLD_TARGET)
 	@echo "RLD link test completed"
 
 test-executable-imports: $(RCC_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)/executable-imports
+	$(call MKDIR_P,$(TEST_OUT)/executable-imports)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/executable-imports/x86.ro \
 		tests/executable_import.c
@@ -8151,14 +8098,15 @@ test-executable-imports: $(RCC_TARGET) $(RLD_TARGET)
 	@echo "Dual-architecture executable import contract test completed"
 
 test-archive: $(RCC_TARGET) $(RAR_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -c -o $(TEST_OUT)/lib.ro tests/lib.c
 	$(RAR_TARGET) r $(TEST_OUT)/libtest.ra $(TEST_OUT)/lib.ro
 	$(RAR_TARGET) t $(TEST_OUT)/libtest.ra
 	@echo "RAR archive test completed"
 
 test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
-	mkdir -p $(TEST_OUT)/archive-x86 $(TEST_OUT)/archive-x64
+	$(call MKDIR_P,$(TEST_OUT)/archive-x86)
+	$(call MKDIR_P,$(TEST_OUT)/archive-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/main.ro tests/archive_link_main.c
 	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/helper.ro tests/archive_link_helper.c
 	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/unused.ro tests/archive_link_unused.c
@@ -8191,13 +8139,13 @@ test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 	@echo "RLD unresolved-symbol archive selection tests completed"
 
 test-static-assert: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -c -o $(TEST_OUT)/static_assert_pass.ro tests/static_assert_pass.c
 	! $(RCC_TARGET) -c -o $(TEST_OUT)/static_assert_fail.ro tests/static_assert_fail.c
 	@echo "C17 static assertion test completed"
 
 test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/build_manifest_test \
 		tests/build_manifest_test.c $(SRCDIR)/build_manifest.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/build_manifest_test
@@ -8223,7 +8171,7 @@ test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	@echo "Versioned build manifest conflict tests completed"
 
 test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
-	mkdir -p "$(SIGN_TEST_DIR)/argv ; spaces"
+	$(call MKDIR_P,"$(SIGN_TEST_DIR)/argv ; spaces")
 	cp tests/fake_rinsign.py "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py"
 	$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
 		--python python3 --rinsign "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py" \
@@ -8356,7 +8304,7 @@ test-pic-plt: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	! $(RCC_TARGET) --target x86_64-unknown-rinos -fPIC \
 		--emit-unsigned-v3 -o $(TEST_OUT)/pic-plt/forbidden.rin \
 		tests/pic_external.c >$(TEST_OUT)/pic-plt/forbidden.log 2>&1
-	grep -q "direct RIN v3 output cannot contain unresolved relative relocation" \
+	$(GREP) -q "direct RIN v3 output cannot contain unresolved relative relocation" \
 		$(TEST_OUT)/pic-plt/forbidden.log
 	@echo "PIC/PIE PLT32 object and RLD import-thunk tests completed"
 
@@ -8586,7 +8534,7 @@ test-sanitize:
 		tests/cxx_parser_recovery.cpp \
 		>$(SANITIZER_ROOT)/tests/cxx-invalid.log 2>&1; status=$$?; set -e; \
 		test $$status -ne 0
-	! grep -q "too many errors" $(SANITIZER_ROOT)/tests/cxx-invalid.log
+	! $(GREP) -q "too many errors" $(SANITIZER_ROOT)/tests/cxx-invalid.log
 	$(SANITIZER_ROOT)/bin/rcc --target i686-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/direct-x86.ro tests/direct_relocation.c
 	$(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -O1 -c \
@@ -8701,9 +8649,9 @@ test-sanitize:
 		>$(SANITIZER_ROOT)/tests/parser-recovery.log 2>&1; then \
 		echo "parser recovery fixture unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "expected parameter type specifier" \
+	$(GREP) -q "expected parameter type specifier" \
 		$(SANITIZER_ROOT)/tests/parser-recovery.log
-	grep -q "expected field type specifier" \
+	$(GREP) -q "expected field type specifier" \
 		$(SANITIZER_ROOT)/tests/parser-recovery.log
 	! $(SANITIZER_ROOT)/bin/rcc --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/invalid.ro \
@@ -8713,7 +8661,7 @@ test-sanitize:
 	@echo "ASan/UBSan and translation-unit lifetime tests completed"
 
 test-driver-policy: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) --target i686-unknown-rinos -driver --emit-unsigned-v3 \
 		-o $(TEST_OUT)/driver_policy_x86.drv tests/driver_policy_ok.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --emit-unsigned-v3 \
@@ -8733,7 +8681,7 @@ test-driver-policy: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "NDRV FPU/SIMD policy tests completed"
 
 test-weak-link:
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/weak_link_test \
 		tests/weak_link_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
@@ -8741,7 +8689,7 @@ test-weak-link:
 	@echo "Weak-to-strong linker replacement test completed"
 
 test-comdat-link:
-	mkdir -p $(TEST_OUT)/comdat
+	$(call MKDIR_P,$(TEST_OUT)/comdat)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/comdat_link_test \
 		tests/comdat_link_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
@@ -8756,7 +8704,7 @@ test-comdat-link:
 	@echo "COMDAT ANY group selection and metadata rejection tests completed"
 
 test-object-width: $(RCC_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/object_width_test \
 		tests/object_width_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
@@ -8773,7 +8721,7 @@ test-object-width: $(RCC_TARGET) $(RLD_TARGET)
 	@echo "64-bit object/linker width and typed relocation tests completed"
 
 test-special-sections:
-	mkdir -p $(TEST_OUT)/special
+	$(call MKDIR_P,$(TEST_OUT)/special)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/special_sections_test \
 		tests/special_sections_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
@@ -8785,7 +8733,7 @@ test-special-sections:
 	@echo "TLS/unwind/init/fini section propagation tests completed"
 
 test-tls: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)/tls
+	$(call MKDIR_P,$(TEST_OUT)/tls)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/tls/x86.ro tests/tls.c
 	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
@@ -8826,7 +8774,7 @@ test-tls: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	@echo "C17/C++20 local-exec TLS tests completed"
 
 test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)/direct
+	$(call MKDIR_P,$(TEST_OUT)/direct)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/x86.ro tests/direct_relocation.c
 	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
@@ -8963,7 +8911,7 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 	@echo "Direct RIN/NDRV v3 symbol relocation tests completed"
 
 test-ir:
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_test-x86 \
 		tests/ir_test.c $(SRCDIR)/ir.c $(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_test-x64 \
@@ -9014,36 +8962,36 @@ test-ir:
 		$(TEST_OUT)/encoded-native-x64.ro
 
 test-ir-lowering: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/ir-lowering
+	$(call MKDIR_P,$(TEST_OUT)/ir-lowering)
 	$(RCC_TARGET) --target i686-unknown-rinos -O1 -v -c \
 		-o $(TEST_OUT)/ir-lowering/x86.ro tests/ir_lowering.c \
 		>$(TEST_OUT)/ir-lowering/x86.log
-	grep -q 'Typed SSA shadow verification: 4 function(s)' \
+	$(GREP) -q 'Typed SSA shadow verification: 4 function(s)' \
 		$(TEST_OUT)/ir-lowering/x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O3 -v -c \
 		-o $(TEST_OUT)/ir-lowering/x64.ro tests/ir_lowering.c \
 		>$(TEST_OUT)/ir-lowering/x64.log
-	grep -q 'Typed SSA shadow verification: 4 function(s)' \
+	$(GREP) -q 'Typed SSA shadow verification: 4 function(s)' \
 		$(TEST_OUT)/ir-lowering/x64.log
 	@echo "Dual-architecture scalar AST to typed SSA lowering tests completed"
 
 test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/verified-backend
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x64.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x64.log
-	grep -q 'Verified backend: 38 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 38 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/x86.log
-	grep -q 'Verified backend: 38 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 38 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/x64.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-x64.ro \
 		tests/verified_backend.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-x64.log
-	grep -q 'Verified backend: 1 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/globals-x86.ro \
@@ -9053,63 +9001,63 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/globals-x64.ro \
 		tests/verified_backend_globals.c \
 		>$(TEST_OUT)/verified-backend/globals-x64.log
-	grep -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/globals-x86.log
-	grep -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/globals-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/fallback.ro \
 		tests/verified_backend_fallback.c \
 		>$(TEST_OUT)/verified-backend/fallback.log
-	grep -q 'Verified backend fallback: translation unit contains thread-local data' \
+	$(GREP) -q 'Verified backend fallback: translation unit contains thread-local data' \
 		$(TEST_OUT)/verified-backend/fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/switch-fallback.ro \
 		tests/verified_backend_switch_fallback.c \
 		>$(TEST_OUT)/verified-backend/switch-fallback.log
-	grep -q "Verified backend fallback: function 'verified_switch_nested_label_fallback' is outside the typed SSA subset" \
+	$(GREP) -q "Verified backend fallback: function 'verified_switch_nested_label_fallback' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/switch-fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/array-fallback.ro \
 		tests/verified_backend_array_fallback.c \
 		>$(TEST_OUT)/verified-backend/array-fallback.log
-	grep -q "Verified backend fallback: function 'verified_aggregate_return_fallback' is outside the typed SSA subset" \
+	$(GREP) -q "Verified backend fallback: function 'verified_aggregate_return_fallback' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/array-fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/aggregate-straddle-fallback.ro \
 		tests/verified_backend_aggregate_straddle_fallback.c \
 		>$(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
-	grep -q "Verified backend fallback: function 'verified_aggregate_register_straddle_fallback' is outside the typed SSA subset" \
+	$(GREP) -q "Verified backend fallback: function 'verified_aggregate_register_straddle_fallback' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/packed-argument-fallback.ro \
 		tests/verified_backend_packed_argument_fallback.c \
 		>$(TEST_OUT)/verified-backend/packed-argument-fallback.log
-	grep -q "Verified backend fallback: function 'verified_packed_argument_fallback' is outside the typed SSA subset" \
+	$(GREP) -q "Verified backend fallback: function 'verified_packed_argument_fallback' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/packed-argument-fallback.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-x86.ro \
 		tests/verified_backend_wide_scalar_fallback.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-x86.log
-	grep -q 'Verified backend: 1 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/wide-scalar-x86.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
-	grep -q 'Verified backend: 28 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 28 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-x64.ro \
 		tests/verified_backend_wide_scalar_fallback.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-x64.log
-	grep -q 'Verified backend: 1 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/wide-scalar-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
-	grep -q 'Verified backend: 28 function(s) emitted' \
+	$(GREP) -q 'Verified backend: 28 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \
@@ -9136,7 +9084,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "Verified backend production object and fallback tests completed"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/optimize
+	$(call MKDIR_P,$(TEST_OUT)/optimize)
 	$(RCC_TARGET) --target i686-unknown-rinos -O0 -c \
 		-o $(TEST_OUT)/optimize/loop-x86-o0.ro tests/optimizer_loop.c
 	$(RCC_TARGET) --target i686-unknown-rinos -O1 -c \
@@ -9173,13 +9121,13 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 		>$(TEST_OUT)/optimize/invalid-qualifiers.log 2>&1; status=$$?; \
 		set -e; if [ $$status -eq 0 ]; then \
 		echo "const-qualified writes unexpectedly compiled"; exit 1; fi
-	test "$$(grep -c 'requires modifiable lvalue' \
+	test "$$($(GREP) -c 'requires modifiable lvalue' \
 		$(TEST_OUT)/optimize/invalid-qualifiers.log)" -eq 4
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/qualifier-conversions.ro \
 		tests/qualifier_conversions.c \
 		>$(TEST_OUT)/optimize/qualifier-conversions.log 2>&1
-	test "$$(grep -c 'incompatible return type' \
+	test "$$($(GREP) -c 'incompatible return type' \
 		$(TEST_OUT)/optimize/qualifier-conversions.log)" -eq 2
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/optimizer_run_test-x86 \
@@ -9221,7 +9169,7 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "Dual-architecture AST integer folding and dead-code tests completed"
 
 test-generic: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/generic
+	$(call MKDIR_P,$(TEST_OUT)/generic)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/generic/x86.ro tests/generic_selection.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -9239,7 +9187,7 @@ test-generic: $(RCC_TARGET)
 	@echo "C17 generic selection tests completed"
 
 test-initializer-overrides: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/initializer-overrides
+	$(call MKDIR_P,$(TEST_OUT)/initializer-overrides)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/initializer-overrides/x86.ro \
 		tests/initializer_override.c
@@ -9256,7 +9204,7 @@ test-initializer-overrides: $(RCC_TARGET)
 	@echo "C17 initializer override tests completed"
 
 test-alignof: $(RCC_TARGET)
-	mkdir -p $(TEST_OUT)/alignof
+	$(call MKDIR_P,$(TEST_OUT)/alignof)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/alignof/x86.ro tests/alignof.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -9296,7 +9244,7 @@ test-alignas: $(RCC_TARGET)
 		>$(TEST_OUT)/alignas/invalid.log 2>&1; then \
 		echo "invalid _Alignas unexpectedly compiled"; exit 1; \
 	fi
-	grep -q "_Alignas alignment must be a power of two" \
+	$(GREP) -q "_Alignas alignment must be a power of two" \
 		$(TEST_OUT)/alignas/invalid.log
 	@echo "C17 _Alignas tests completed"
 
