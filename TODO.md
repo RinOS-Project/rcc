@@ -362,7 +362,7 @@
 - [x] Make the C++ overload regression recipe use the shared host-shell
       helpers for directory creation, expected failures, and fixed diagnostic
       matching; the complete target passes with native Windows `cmd.exe`.
-- [ ] Make automatic GCC dependency files safe to reuse between native
-      Windows and WSL/POSIX builds; existing Windows-generated `obj/*.d` files
-      containing drive-letter prerequisites can still stop WSL before a test
-      recipe starts.
+- [x] Keep host-specific object and GCC dependency files in separate ignored
+      `obj/windows` and `obj/posix` outputs so an existing native Windows
+      `obj/*.d` file with drive-letter prerequisites cannot stop WSL before a
+      test recipe starts.

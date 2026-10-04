@@ -20,7 +20,16 @@ endif
 # Directories
 SRCDIR = src
 INCDIR = include
-OBJDIR = obj
+ifeq ($(OS),Windows_NT)
+HOST_BUILD_TAG ?= windows
+else
+HOST_BUILD_TAG ?= posix
+endif
+# Object files and GCC dependency files contain host-specific format and
+# paths. Keep native Windows and POSIX/WSL builds in separate ignored output
+# directories so one checkout can be reused without cross-host make parsing
+# or linker contamination.
+OBJDIR ?= obj/$(HOST_BUILD_TAG)
 BINDIR = .
 RINOS_ROOT ?= ..
 RINOS_SDK_ROOT ?= ../../RinOS-SDK
