@@ -3820,18 +3820,21 @@ static bool lower_statement(RccIrLowerContext* context,
                 RccIrLowerValue low;
                 RccIrLowerValue high;
                 RccIrValue return_values[2];
+                int64_t constant_value;
                 uint64_t value;
                 RccIrInstruction* return_instruction;
                 /* i686 cdecl returns an unsigned/signed 64-bit scalar in
                  * EDX:EAX.  Keep this verified-SSA bridge deliberately
-                 * literal-only until the two-word value model is available
-                 * for non-constant expressions and parameters. */
+                 * limited to side-effect-free integer constant expressions
+                 * until the two-word value model is available for non-
+                 * constant expressions and parameters. */
                 if (!statement->return_val ||
-                    statement->return_val->kind != EXPR_INT_LIT) {
+                    !expr_eval_integer_constant(
+                        statement->return_val, &constant_value)) {
                     context->unsupported = true;
                     return false;
                 }
-                value = (uint64_t)statement->return_val->int_val;
+                value = (uint64_t)constant_value;
                 low = lower_integer_constant(
                     context, word_type, true, (uint32_t)value);
                 high = lower_integer_constant(
