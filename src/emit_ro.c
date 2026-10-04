@@ -897,7 +897,6 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
         for (TypeField* field = type->fields; field; field = field->next) {
             if (field->type) debug_type_collect(context, field->type);
             entry = debug_type_find(context, type);
-            if (field->is_bitfield) entry->recursive = true;
         }
         entry = debug_type_find(context, type);
         entry->collecting = false;
@@ -1221,10 +1220,14 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                     rcc_fatal("DWARF aggregate field type was not collected");
                     return;
                 }
-                section_add_byte(info, 14u);  /* DW_TAG_member */
+                section_add_byte(info, field->is_bitfield ? 17u : 14u);
                 debug_line_u32(info, debug_str_add(strings, field->name));
                 debug_line_u32(info, field_type->offset);
                 debug_expr_member_location(info, field->offset);
+                if (field->is_bitfield) {
+                    debug_line_u32(info, field->bit_width);
+                    debug_line_u32(info, field->bit_offset);
+                }
             }
             section_add_byte(info, 0u);
         } else if (type->kind == TYPE_ENUM) {
@@ -2135,6 +2138,21 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x1cu);     /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0du);     /* DW_FORM_sdata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 17u);
+    debug_line_uleb(abbrev, 0x0du);     /* DW_TAG_member */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x02u);     /* DW_AT_data_member_location */
+    debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x0du);     /* DW_AT_bit_size */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x0cu);     /* DW_AT_bit_offset */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

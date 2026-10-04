@@ -397,8 +397,9 @@
         epilogueのCFA復帰とsaved FP復元を両archのdebug-info回帰で検証
   - [x] 非再帰のstruct／union／固定長array／vector型について、実フィールド・
         要素型・byte size・member locationを持つDWARF type DIEを出力し、
-        i686/AMD64のobject・link回帰で検証。再帰aggregateとbit-fieldは
-        未対応属性を捏造せずopaque DIEへ保持
+        i686/AMD64のobject・link回帰で検証。bit-fieldにはbit size／offsetも
+        出力し、再帰aggregateだけは未対応のforward referenceを捏造せず
+        opaque DIEへ保持
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed constant valueを出力し、i686/AMD64のobject・link回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind

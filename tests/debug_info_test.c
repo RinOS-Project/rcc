@@ -351,6 +351,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x01u, 0x01u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x04u, 0x01u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x28u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x11u, 0x0du));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x49u, 0x13u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x3au, 0x06u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x3bu, 0x06u));
