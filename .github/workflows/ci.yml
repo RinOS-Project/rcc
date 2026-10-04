@@ -126,7 +126,7 @@ jobs:
           make test-archive
           make test-archive-link
           make test-format-validation
-          make test-golden-artifacts
+          make test-determinism
           make test-bootstrap-core
           make test-bootstrap-link
           make test-bootstrap-execute
