@@ -1192,6 +1192,26 @@ static void debug_expr_breg(ObjSection* section, int architecture,
     section_add_bytes(section, expression, size);
 }
 
+static void debug_expr_addr(ObjectFile* obj, ObjSection* info,
+                            int info_section, const char* symbol,
+                            int architecture) {
+    uint64_t address_offset;
+    uint32_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+
+    if (!obj || !info || info_section < 0 || !symbol || symbol[0] == '\0') {
+        rcc_fatal("DWARF global variable location is missing a symbol");
+        return;
+    }
+    debug_line_uleb(info, (uint64_t)address_size + 1u);
+    section_add_byte(info, 0x03u); /* DW_OP_addr */
+    address_offset = info->size;
+    for (uint32_t byte = 0u; byte < address_size; ++byte) {
+        section_add_byte(info, 0u);
+    }
+    objfile_add_reloc(obj, info_section, address_offset, symbol,
+                      address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U, 0);
+}
+
 static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
                                     DebugTypeContext* types,
                                     const char* const* files, int file_count,
@@ -1215,6 +1235,44 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
     debug_line_u32(info, declaration->loc.line);
     debug_line_u32(info, declaration->loc.column);
     debug_expr_breg(info, architecture, declaration->var_offset);
+}
+
+static void debug_emit_global_variable_die(
+    ObjectFile* obj, ObjSection* info, ObjSection* strings,
+    DebugTypeContext* types, const char* const* files, int file_count,
+    const Module* mod, const ModuleSymbol* symbol, const Decl* declaration,
+    const char* filename, int info_section, int architecture) {
+    DebugTypeEntry* type_entry;
+    const char* symbol_name;
+    char* scoped_name = NULL;
+    int file_index;
+
+    if (!obj || !info || !strings || !types || !mod || !symbol ||
+        !declaration || declaration->kind != DECL_VAR ||
+        !declaration->name || declaration->name[0] == '\0') {
+        return;
+    }
+    type_entry = debug_type_find(types, declaration->type);
+    if (!type_entry) {
+        rcc_fatal("DWARF global variable type was not collected");
+        return;
+    }
+    file_index = debug_line_file_index(files, file_count,
+                                       declaration->loc.filename);
+    section_add_byte(info, 9u);
+    debug_line_u32(info, debug_str_add(strings, declaration->name));
+    debug_line_u32(info, type_entry->offset);
+    debug_line_u32(info, (uint32_t)file_index);
+    debug_line_u32(info, declaration->loc.line);
+    debug_line_u32(info, declaration->loc.column);
+    section_add_byte(info, symbol->is_global ? 1u : 0u);
+    symbol_name = symbol->name;
+    if (!symbol->is_global) {
+        scoped_name = module_scoped_symbol(filename, symbol->name);
+        symbol_name = scoped_name;
+    }
+    debug_expr_addr(obj, info, info_section, symbol_name, architecture);
+    rcc_free(scoped_name);
 }
 
 static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
@@ -1333,6 +1391,26 @@ static Decl* debug_find_function_decl(const Module* mod,
                         ? declaration->link_name : declaration->name;
         if (!link_name || strcmp(link_name, symbol->name) != 0) continue;
         return declaration;
+    }
+    return NULL;
+}
+
+static const ModuleSymbol* debug_find_global_symbol(const Module* mod,
+                                                     const Decl* declaration) {
+    const char* link_name;
+    if (!mod || !declaration || declaration->kind != DECL_VAR ||
+        !declaration->var_is_global) return NULL;
+    link_name = declaration->link_name
+                    ? declaration->link_name : declaration->name;
+    if (!link_name || link_name[0] == '\0') return NULL;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        const ModuleSymbol* symbol = &mod->symbols[index];
+        if (!symbol->is_defined || strcmp(symbol->name, link_name) != 0 ||
+            (symbol->section != MODULE_SYMBOL_DATA &&
+             symbol->section != MODULE_SYMBOL_BSS)) {
+            continue;
+        }
+        return symbol;
     }
     return NULL;
 }
@@ -1554,6 +1632,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     ObjSection* abbrev;
     ObjSection* info;
     int function_count = 0;
+    int global_count = 0;
     int file_count = 0;
     size_t file_capacity;
     int info_section;
@@ -1575,7 +1654,20 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_file_add(&files, &file_count, &file_capacity,
                        symbol->source_file);
     }
-    if (function_count == 0) {
+    for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
+         item; item = item->next) {
+        Decl* declaration = item->decl;
+        const ModuleSymbol* symbol = debug_find_global_symbol(mod, declaration);
+        if (!symbol || !declaration->loc.filename ||
+            declaration->loc.filename[0] == '\0' || declaration->loc.line == 0) {
+            continue;
+        }
+        ++global_count;
+        debug_collect_decl_type(&types, declaration);
+        debug_file_add(&files, &file_count, &file_capacity,
+                       declaration->loc.filename);
+    }
+    if (function_count == 0 && global_count == 0) {
         rcc_free(functions);
         rcc_free(files);
         return;
@@ -1704,6 +1796,25 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 9u);
+    debug_line_uleb(abbrev, 0x34u);     /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);     /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);     /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3fu);     /* DW_AT_external */
+    debug_line_uleb(abbrev, 0x0cu);     /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x02u);     /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 5u);
     debug_line_uleb(abbrev, 0x24u);     /* DW_TAG_base_type */
     section_add_byte(abbrev, 0u);
@@ -1746,6 +1857,20 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_u32(info, unit_name_offset);
 
     debug_emit_type_dies(info, strings, &types);
+
+    for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
+         item; item = item->next) {
+        Decl* declaration = item->decl;
+        const ModuleSymbol* symbol = debug_find_global_symbol(mod, declaration);
+        if (!symbol || !declaration->loc.filename ||
+            declaration->loc.filename[0] == '\0' || declaration->loc.line == 0) {
+            continue;
+        }
+        debug_emit_global_variable_die(
+            obj, info, strings, &types, files, file_count, mod, symbol,
+            declaration, filename, info_section,
+            g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
+    }
 
     for (int index = 0; index < function_count; ++index) {
         const ModuleSymbol* function = functions[index];

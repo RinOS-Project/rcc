@@ -41,6 +41,87 @@ static uint32_t read_u32(const uint8_t* data, uint64_t offset)
            ((uint32_t)data[offset + 3u] << 24);
 }
 
+static uint64_t read_uleb(const uint8_t* data, uint64_t size,
+                          uint64_t* offset)
+{
+    uint64_t value = 0u;
+    unsigned shift = 0u;
+    assert(data != NULL && offset != NULL);
+    while (*offset < size && shift < 64u) {
+        uint8_t byte = data[(*offset)++];
+        value |= (uint64_t)(byte & 0x7fu) << shift;
+        if ((byte & 0x80u) == 0u) return value;
+        shift += 7u;
+    }
+    assert(0 && "invalid ULEB128");
+    return 0u;
+}
+
+static uint64_t find_global_variable_die(const ObjSection* info,
+                                         const ObjSection* strings,
+                                         const char* variable_name)
+{
+    if (!info || !strings || !variable_name) return UINT64_MAX;
+    for (uint64_t offset = 11u; offset + 22u < info->size; ++offset) {
+        uint32_t name_offset;
+        if (info->data[offset] != 9u) continue;
+        name_offset = read_u32(info->data, offset + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) == 0) {
+            return offset;
+        }
+    }
+    return UINT64_MAX;
+}
+
+static bool has_relocation(const ObjSection* section, uint64_t offset,
+                           const char* symbol_name, RelocType type)
+{
+    if (!section) return false;
+    for (const ObjReloc* relocation = section->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset == offset && relocation->type == type &&
+            relocation->symbol_name &&
+            (!symbol_name || strcmp(relocation->symbol_name, symbol_name) == 0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void verify_global_variable(const ObjSection* info,
+                                   const ObjSection* strings,
+                                   const char* variable_name,
+                                   const char* relocation_symbol,
+                                   uint64_t address_size,
+                                   bool external)
+{
+    uint64_t die_offset = find_global_variable_die(
+        info, strings, variable_name);
+    uint64_t offset;
+    uint64_t expression_size;
+    uint64_t address_offset;
+
+    assert(die_offset != UINT64_MAX);
+    offset = die_offset + 1u;
+    assert(read_u32(info->data, offset + 4u) < info->size);
+    assert(info->data[offset + 4u] != 0u);
+    offset += 4u + 4u + 4u + 4u + 4u;
+    assert(info->data[offset] == (external ? 1u : 0u));
+    ++offset;
+    expression_size = read_uleb(info->data, info->size, &offset);
+    assert(expression_size == address_size + 1u);
+    assert(offset + expression_size <= info->size);
+    assert(info->data[offset++] == 0x03u); /* DW_OP_addr */
+    address_offset = offset;
+    for (uint64_t byte = 0u; byte < address_size; ++byte) {
+        assert(info->data[offset++] == 0u);
+    }
+    assert(has_relocation(info, address_offset, relocation_symbol,
+                          address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U));
+}
+
 static void verify_first_frame_fde(const ObjSection* frame,
                                    uint16_t architecture)
 {
@@ -208,6 +289,11 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(abbrev->size > 8u && strings->size > 1u && strings->data[0] == 0u);
     assert(contains_bytes(strings->data, strings->size, function_name));
     if (language == 0x000cu) {
+        verify_global_variable(info, strings, "debug_global_data",
+                               "debug_global_data",
+                               architecture == ARCH_X64 ? 8u : 4u, true);
+        verify_global_variable(info, strings, "debug_file_static", NULL,
+                               architecture == ARCH_X64 ? 8u : 4u, false);
         assert(contains_bytes(strings->data, strings->size,
                               "debug_info_parameters"));
         assert(contains_bytes(strings->data, strings->size, "left"));
