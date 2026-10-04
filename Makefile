@@ -5286,14 +5286,8 @@ test-restrict-qualifier: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/restrict-qualifier/valid-x64.ro \
 		tests/restrict_qualifier.c
-	if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
-		-o $(TEST_OUT)/restrict-qualifier/invalid-x86.ro \
-		tests/invalid_restrict_qualifier.c \
-		>$(TEST_OUT)/restrict-qualifier/invalid-x86.log 2>&1; then exit 1; fi
-	if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
-		-o $(TEST_OUT)/restrict-qualifier/invalid-x64.ro \
-		tests/invalid_restrict_qualifier.c \
-		>$(TEST_OUT)/restrict-qualifier/invalid-x64.log 2>&1; then exit 1; fi
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/restrict-qualifier/invalid-x86.ro tests/invalid_restrict_qualifier.c,$(TEST_OUT)/restrict-qualifier/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/restrict-qualifier/invalid-x64.ro tests/invalid_restrict_qualifier.c,$(TEST_OUT)/restrict-qualifier/invalid-x64.log)
 	$(GREP) -q 'restrict qualifier is only valid on pointer types' \
 		$(TEST_OUT)/restrict-qualifier/invalid-x86.log
 	$(GREP) -q 'restrict-qualified pointer must point to an object or incomplete type' \
@@ -5310,8 +5304,8 @@ test-restrict-qualifier: $(RCC_TARGET)
 		-o $(TEST_OUT)/restrict-qualifier/invalid-nested-x64.ro \
 		tests/invalid_nested_pointer_qualifier.c \
 		>$(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log 2>&1
-	test "$$($(GREP) -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x86.log)" -eq 2
-	test "$$($(GREP) -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log)" -eq 2
+	$(call CHECK_COUNT,incompatible return type,$(TEST_OUT)/restrict-qualifier/invalid-nested-x86.log,2)
+	$(call CHECK_COUNT,incompatible return type,$(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log,2)
 	@echo "C17 restrict qualifier tests completed"
 
 ifeq ($(OS),Windows_NT)
