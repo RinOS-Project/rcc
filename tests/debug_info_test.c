@@ -15,6 +15,16 @@ static bool contains_bytes(const uint8_t* data, uint64_t size,
     return false;
 }
 
+static bool contains_byte_pair(const uint8_t* data, uint64_t size,
+                               uint8_t first, uint8_t second)
+{
+    if (size < 2u) return false;
+    for (uint64_t offset = 0u; offset + 1u < size; ++offset) {
+        if (data[offset] == first && data[offset + 1u] == second) return true;
+    }
+    return false;
+}
+
 static void verify_debug_object(const char* path, uint16_t architecture,
                                 uint16_t language, const char* source_file,
                                 const char* function_name)
@@ -34,6 +44,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(line->data[4] == 4u && line->data[5] == 0u);
     assert(line->relocs != NULL);
     assert(contains_bytes(line->data, line->size, source_file));
+    assert(contains_byte_pair(line->data, line->size, 5u, 1u));
     info = objfile_get_section(object, ".debug_info");
     abbrev = objfile_get_section(object, ".debug_abbrev");
     strings = objfile_get_section(object, ".debug_str");

@@ -933,6 +933,10 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
         rcc_free(scoped_name);
         section_add_byte(line, 4u);    /* DW_LNS_set_file */
         debug_line_uleb(line, (uint64_t)file_index);
+        if (function->source_column > 0u) {
+            section_add_byte(line, 5u); /* DW_LNS_set_column */
+            debug_line_uleb(line, function->source_column);
+        }
         section_add_byte(line, 3u);    /* DW_LNS_advance_line */
         debug_line_sleb(line, line_delta);
         current_line = function->source_line;
