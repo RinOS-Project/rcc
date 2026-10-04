@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
     unsigned level;
     size_t simplify_rounds;
+    size_t hoisted_instructions;
     RccIrMem2RegStats mem2reg;
     RccIrSimplifyStats simplify;
 } RccIrOptimizationStats;

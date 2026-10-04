@@ -1649,6 +1649,210 @@ static bool ir_pass_remove_dead_instructions(
     return ir_pass_compact_values(function, NULL, 0u, error, error_size);
 }
 
+static void ir_pass_detach_instruction(RccIrInstruction* instruction) {
+    RccIrBlock* block;
+    if (!instruction || !instruction->block) return;
+    block = instruction->block;
+    if (instruction->previous) {
+        instruction->previous->next = instruction->next;
+    } else {
+        block->first = instruction->next;
+    }
+    if (instruction->next) {
+        instruction->next->previous = instruction->previous;
+    } else {
+        block->last = instruction->previous;
+    }
+    instruction->previous = NULL;
+    instruction->next = NULL;
+    instruction->block = NULL;
+}
+
+static void ir_pass_insert_before_terminator(
+    RccIrBlock* block, RccIrInstruction* instruction) {
+    RccIrInstruction* terminator;
+    if (!block || !instruction || !block->last) return;
+    terminator = block->last;
+    instruction->block = block;
+    instruction->next = terminator;
+    instruction->previous = terminator->previous;
+    if (terminator->previous) {
+        terminator->previous->next = instruction;
+    } else {
+        block->first = instruction;
+    }
+    terminator->previous = instruction;
+}
+
+static bool ir_pass_licm_candidate(const RccIrInstruction* instruction) {
+    if (!instruction || instruction->result == RCC_IR_VALUE_NONE ||
+        instruction->target_count != 0u ||
+        instruction->opcode == RCC_IR_CONST_INT) {
+        return false;
+    }
+    return ir_pass_cse_candidate(instruction);
+}
+
+static bool ir_pass_licm(
+    RccIrFunction* function, size_t* hoisted_out,
+    char* error, size_t error_size) {
+    RccIrBlock** blocks = NULL;
+    bool* predecessors = NULL;
+    bool* dominators = NULL;
+    size_t* immediate = NULL;
+    bool* children = NULL;
+    size_t* definition_blocks = NULL;
+    bool* loop = NULL;
+    size_t* stack = NULL;
+    size_t block_count;
+    size_t value_count;
+    size_t source;
+    size_t index;
+    bool result = false;
+
+    if (hoisted_out) *hoisted_out = 0u;
+    if (!function || function->block_count < 2u) return true;
+    block_count = function->block_count;
+    value_count = function->value_count;
+    if (block_count > SIZE_MAX / sizeof(*loop) ||
+        block_count > SIZE_MAX / sizeof(*stack) ||
+        (value_count != 0u &&
+         value_count > SIZE_MAX / sizeof(*definition_blocks))) {
+        return ir_pass_error(error, error_size,
+                             "SSA LICM tables are too large");
+    }
+    if (!ir_pass_collect_blocks(function, &blocks, error, error_size) ||
+        !ir_pass_build_cfg(blocks, block_count, &predecessors,
+                           error, error_size) ||
+        !ir_pass_compute_dominators(predecessors, block_count,
+                                    &dominators, &immediate, &children,
+                                    error, error_size)) {
+        goto cleanup;
+    }
+    if (value_count != 0u) {
+        definition_blocks = rcc_alloc(
+            value_count * sizeof(*definition_blocks));
+        for (index = 0u; index < value_count; ++index) {
+            definition_blocks[index] = SIZE_MAX;
+        }
+    }
+    loop = rcc_alloc(block_count * sizeof(*loop));
+    stack = rcc_alloc(block_count * sizeof(*stack));
+    for (index = 0u; index < block_count; ++index) {
+        RccIrInstruction* instruction;
+        for (instruction = blocks[index]->first; instruction;
+             instruction = instruction->next) {
+            if (instruction->result == RCC_IR_VALUE_NONE) continue;
+            if (instruction->result >= value_count ||
+                definition_blocks[instruction->result] != SIZE_MAX) {
+                ir_pass_error(error, error_size,
+                              "SSA LICM found an invalid value definition");
+                goto cleanup;
+            }
+            definition_blocks[instruction->result] = index;
+        }
+    }
+    for (source = 0u; source < block_count; ++source) {
+        RccIrInstruction* terminator = blocks[source]->last;
+        size_t target_index;
+        if (!terminator) {
+            ir_pass_error(error, error_size,
+                          "SSA LICM found an unterminated block");
+            goto cleanup;
+        }
+        for (target_index = 0u; target_index < terminator->target_count;
+             ++target_index) {
+            RccIrBlockId header = terminator->targets[target_index];
+            size_t stack_count = 0u;
+            size_t preheader = SIZE_MAX;
+            size_t outside_predecessors = 0u;
+            bool changed;
+            if (header >= block_count ||
+                !dominators[source * block_count + header]) {
+                continue;
+            }
+            memset(loop, 0, block_count * sizeof(*loop));
+            loop[header] = true;
+            if (!loop[source]) {
+                loop[source] = true;
+                stack[stack_count++] = source;
+            }
+            while (stack_count != 0u) {
+                size_t current = stack[--stack_count];
+                size_t predecessor;
+                for (predecessor = 0u; predecessor < block_count;
+                     ++predecessor) {
+                    if (!predecessors[current * block_count + predecessor] ||
+                        loop[predecessor]) continue;
+                    loop[predecessor] = true;
+                    stack[stack_count++] = predecessor;
+                }
+            }
+            for (size_t predecessor = 0u; predecessor < block_count;
+                 ++predecessor) {
+                if (predecessors[header * block_count + predecessor] &&
+                    !loop[predecessor]) {
+                    preheader = predecessor;
+                    ++outside_predecessors;
+                }
+            }
+            if (outside_predecessors != 1u) continue;
+            do {
+                changed = false;
+                for (index = 0u; index < block_count; ++index) {
+                    RccIrInstruction* instruction;
+                    if (!loop[index]) continue;
+                    instruction = blocks[index]->first;
+                    while (instruction) {
+                        RccIrInstruction* next = instruction->next;
+                        bool invariant = true;
+                        size_t operand;
+                        if (!ir_pass_licm_candidate(instruction)) {
+                            instruction = next;
+                            continue;
+                        }
+                        for (operand = 0u;
+                             operand < instruction->operand_count; ++operand) {
+                            RccIrValue value = instruction->operands[operand];
+                            if (value >= value_count) {
+                                ir_pass_error(
+                                    error, error_size,
+                                    "SSA LICM found an invalid operand");
+                                goto cleanup;
+                            }
+                            if (definition_blocks[value] != SIZE_MAX &&
+                                loop[definition_blocks[value]]) {
+                                invariant = false;
+                                break;
+                            }
+                        }
+                        if (invariant) {
+                            ir_pass_detach_instruction(instruction);
+                            ir_pass_insert_before_terminator(
+                                blocks[preheader], instruction);
+                            definition_blocks[instruction->result] = preheader;
+                            if (hoisted_out) ++*hoisted_out;
+                            changed = true;
+                        }
+                        instruction = next;
+                    }
+                }
+            } while (changed);
+        }
+    }
+    result = true;
+cleanup:
+    rcc_free(stack);
+    rcc_free(loop);
+    rcc_free(definition_blocks);
+    rcc_free(children);
+    rcc_free(immediate);
+    rcc_free(dominators);
+    rcc_free(predecessors);
+    rcc_free(blocks);
+    return result;
+}
+
 static bool ir_pass_simplify(RccIrFunction* function, bool enable_gvn,
                              RccIrSimplifyStats* stats,
                              char* error, size_t error_size) {
@@ -1704,6 +1908,11 @@ bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
     }
     if (!rcc_ir_mem2reg(function, &local_stats.mem2reg,
                         error, error_size)) {
+        return false;
+    }
+    if (level >= 2u && !ir_pass_licm(
+            function, &local_stats.hoisted_instructions,
+            error, error_size)) {
         return false;
     }
     round_limit = level == 3u ? 8u : 1u;

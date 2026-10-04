@@ -14,6 +14,17 @@ static RccIrValue append_const(RccIrBlock* block, RccIrType type,
     return instruction->result;
 }
 
+static RccIrValue append_binary(RccIrBlock* block, RccIrOpcode opcode,
+                                RccIrType type, RccIrValue left,
+                                RccIrValue right)
+{
+    RccIrValue operands[] = {left, right};
+    RccIrInstruction* instruction = rcc_ir_append(
+        block, opcode, type, operands, 2u, NULL, 0u);
+    assert(instruction != NULL);
+    return instruction->result;
+}
+
 static RccIrValue append_alloca(RccIrBlock* block, uint64_t size)
 {
     RccIrInstruction* instruction = rcc_ir_append(
@@ -671,6 +682,71 @@ static void verify_sibling_values_are_not_commoned(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_loop_invariant_code_motion(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32, i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "loop_licm", i32, parameters, 3u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* header = rcc_ir_block_add(function, "header");
+    RccIrBlock* body = rcc_ir_block_add(function, "body");
+    RccIrBlock* exit = rcc_ir_block_add(function, "exit");
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue invariant;
+    RccIrValue next;
+    RccIrValue compare_operands[2];
+    RccIrValue condition[1];
+    RccIrValue phi_operands[2];
+    RccIrBlockId phi_predecessors[2];
+    RccIrBlockId branch_targets[2];
+    RccIrInstruction* phi;
+    RccIrInstruction* compare;
+    RccIrOptimizationStats stats;
+    char error[256];
+
+    append_branch(entry, header->id);
+    phi_operands[0] = zero;
+    phi_operands[1] = RCC_IR_VALUE_NONE;
+    phi_predecessors[0] = entry->id;
+    phi_predecessors[1] = body->id;
+    phi = rcc_ir_append(header, RCC_IR_PHI, i32, phi_operands, 2u,
+                        phi_predecessors, 2u);
+    assert(phi != NULL);
+    compare_operands[0] = phi->result;
+    compare_operands[1] = function->parameters[2];
+    compare = rcc_ir_append(header, RCC_IR_ICMP, i1,
+                            compare_operands, 2u, NULL, 0u);
+    assert(compare != NULL);
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_SLT);
+    condition[0] = compare->result;
+    branch_targets[0] = body->id;
+    branch_targets[1] = exit->id;
+    assert(rcc_ir_append(header, RCC_IR_COND_BRANCH,
+                         rcc_ir_type_void(), condition, 1u,
+                         branch_targets, 2u) != NULL);
+
+    invariant = append_binary(body, RCC_IR_ADD, i32,
+                              function->parameters[0],
+                              function->parameters[1]);
+    next = append_binary(body, RCC_IR_ADD, i32,
+                         phi->result, invariant);
+    append_branch(body, header->id);
+    phi->operands[1] = next;
+    append_return(exit, phi->result);
+
+    assert(rcc_ir_optimize_function(function, 2u, &stats,
+                                    error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.hoisted_instructions == 1u);
+    assert(function->first_block->first->opcode == RCC_IR_CONST_INT);
+    assert(function->first_block->first->next->opcode == RCC_IR_ADD);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 int main(void)
 {
     verify_optimization_level_pipeline();
@@ -686,6 +762,7 @@ int main(void)
     verify_memory_is_not_commoned();
     verify_dominator_scoped_gvn();
     verify_sibling_values_are_not_commoned();
+    verify_loop_invariant_code_motion();
     puts("Typed SSA mem2reg and simplification tests passed");
     return 0;
 }
