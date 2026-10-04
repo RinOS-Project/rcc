@@ -339,11 +339,18 @@ static void verify_debug_object(const char* path, uint16_t architecture,
                               "debug_aggregate"));
         assert(contains_bytes(strings->data, strings->size, "first"));
         assert(contains_bytes(strings->data, strings->size, "second"));
+        assert(contains_bytes(strings->data, strings->size, "debug_enum"));
+        assert(contains_bytes(strings->data, strings->size,
+                              "DEBUG_ENUM_NEGATIVE"));
+        assert(contains_bytes(strings->data, strings->size,
+                              "DEBUG_ENUM_POSITIVE"));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x05u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x34u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x13u, 0x01u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0du, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x01u, 0x01u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x04u, 0x01u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x28u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x49u, 0x13u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x3au, 0x06u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x3bu, 0x06u));

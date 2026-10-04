@@ -399,6 +399,8 @@
         要素型・byte size・member locationを持つDWARF type DIEを出力し、
         i686/AMD64のobject・link回帰で検証。再帰aggregateとbit-fieldは
         未対応属性を捏造せずopaque DIEへ保持
+  - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
+        signed constant valueを出力し、i686/AMD64のobject・link回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

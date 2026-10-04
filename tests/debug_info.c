@@ -19,6 +19,11 @@ struct debug_bits {
     unsigned second : 5;
 };
 struct debug_bits debug_bits_data;
+enum debug_enum {
+    DEBUG_ENUM_NEGATIVE = -2,
+    DEBUG_ENUM_POSITIVE = 6
+};
+enum debug_enum debug_enum_data = DEBUG_ENUM_POSITIVE;
 static int debug_aggregate_sum(void)
 {
     struct debug_aggregate local = {3, 4};
