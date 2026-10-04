@@ -5781,30 +5781,24 @@ test-cxx-static-locals: $(RCXX_TARGET)
 
 test-vla-declarations: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/vla-declarations)
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-storage-x86.ro \
-		tests/invalid_vla_storage.c \
-		>$(TEST_OUT)/vla-declarations/invalid-storage-x86.log 2>&1
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/invalid_vla_storage.c,$(TEST_OUT)/vla-declarations/invalid-storage-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-member-x86.ro \
-		tests/invalid_vla_member.c \
-		>$(TEST_OUT)/vla-declarations/invalid-member-x86.log 2>&1
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_vla_member.c,$(TEST_OUT)/vla-declarations/invalid-member-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-storage-x64.ro \
-		tests/invalid_vla_storage.c \
-		>$(TEST_OUT)/vla-declarations/invalid-storage-x64.log 2>&1
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_vla_storage.c,$(TEST_OUT)/vla-declarations/invalid-storage-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-member-x64.ro \
-		tests/invalid_vla_member.c \
-		>$(TEST_OUT)/vla-declarations/invalid-member-x64.log 2>&1
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/invalid_vla_member.c,$(TEST_OUT)/vla-declarations/invalid-member-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-initializer-x86.ro \
-		tests/invalid_vla_initializer.c \
-		>$(TEST_OUT)/vla-declarations/invalid-initializer-x86.log 2>&1
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_vla_initializer.c,$(TEST_OUT)/vla-declarations/invalid-initializer-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-initializer-x64.ro \
-		tests/invalid_vla_initializer.c \
-		>$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log 2>&1
+		tests/invalid_vla_initializer.c,$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log)
 	$(GREP) -q "variably modified object cannot have linkage" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
 	$(GREP) -q "variably modified typedef is only valid at block scope" \
