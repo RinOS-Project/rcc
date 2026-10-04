@@ -8314,6 +8314,51 @@ static bool cxx_class_specialization_type_equal(const Type* pattern,
     return type_is_compatible((Type*)pattern, (Type*)actual);
 }
 
+/* This is a bounded partial-ordering rank, not a claim of full standard
+ * ordering.  It is deliberately structural: a nested pointer/array pattern
+ * is more constrained than a bare parameter, and a concrete type or value is
+ * more constrained than its dependent counterpart.  Keeping one rank per
+ * template argument lets orthogonal patterns such as `X<T, 4>` and
+ * `X<int, N>` remain ambiguous instead of letting an arbitrary scalar score
+ * choose one. */
+static int cxx_class_specialization_type_rank(const Type* pattern) {
+    int rank = 0;
+    if (!pattern) return 0;
+    if (pattern->is_const) ++rank;
+    if (pattern->is_volatile) ++rank;
+    if (pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY) {
+        return rank + 1 + cxx_class_specialization_type_rank(pattern->base);
+    }
+    if (pattern->cxx_dependent) return rank;
+    return rank + 3;
+}
+
+static int cxx_class_specialization_value_rank(const CxxTemplate* tmpl,
+                                               const Expr* pattern) {
+    if (tmpl && pattern && pattern->kind == EXPR_IDENT &&
+        pattern->ident_name) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            const TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                strcmp(parameter->name, pattern->ident_name) == 0) {
+                return 0;
+            }
+        }
+    }
+    return pattern ? 3 : 0;
+}
+
+static bool cxx_class_specialization_rank_dominates(
+    const int* left, const int* right, int count) {
+    bool strictly_greater = false;
+    if (!left || !right || count < 0) return false;
+    for (int index = 0; index < count; ++index) {
+        if (left[index] < right[index]) return false;
+        if (left[index] > right[index]) strictly_greater = true;
+    }
+    return strictly_greater;
+}
+
 static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                                               Type* pattern, Type* actual,
                                               Type** arguments,
@@ -8560,7 +8605,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
     Type* selected_arguments[32] = { NULL };
     int64_t selected_values[32] = { 0 };
     bool selected_value_present[32] = { false };
-    int selected_specificity = -1;
+    int selected_ranks[32] = { 0 };
     for (int index = 0; index < tmpl->specialization_count; ++index) {
         CxxTemplate* specialization = tmpl->specializations[index];
         bool matches = specialization &&
@@ -8568,11 +8613,20 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         Type* specialization_arguments[32] = { NULL };
         int64_t specialization_values[32] = { 0 };
         bool specialization_value_present[32] = { false };
+        int specialization_ranks[32] = { 0 };
         int specificity = specialization && specialization->param_count == 0
             ? 100000 : 0;
         for (int argument_index = 0; matches &&
              argument_index < argument_count; ++argument_index) {
             if (tmpl->params[argument_index].kind == TPARAM_NONTYPE) {
+                specialization_ranks[argument_index] =
+                    specialization->param_count == 0 ? 100000 :
+                    cxx_class_specialization_value_rank(
+                        specialization,
+                        specialization->specialization_value_args
+                            ? specialization->specialization_value_args[
+                                argument_index]
+                            : NULL);
                 matches = specialization->specialization_value_args &&
                     specialization->specialization_value_args[argument_index] &&
                     deduce_class_specialization_value(
@@ -8583,6 +8637,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                         specialization_values,
                         specialization_value_present, &specificity);
             } else if (specialization->param_count == 0) {
+                specialization_ranks[argument_index] = 100000;
                 matches = specialization->specialization_args &&
                     cxx_class_specialization_type_equal(
                         specialization->specialization_args[argument_index],
@@ -8590,6 +8645,9 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
             } else if (specialization->param_count <=
                        (int)(sizeof(specialization_arguments) /
                              sizeof(specialization_arguments[0]))) {
+                specialization_ranks[argument_index] =
+                    cxx_class_specialization_type_rank(
+                        specialization->specialization_args[argument_index]);
                 matches = deduce_class_specialization_type(
                     specialization,
                     specialization->specialization_args[argument_index],
@@ -8628,16 +8686,25 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 }
             }
             if (matches) {
-                if (specificity > selected_specificity) {
+                bool current_dominates = selected &&
+                    cxx_class_specialization_rank_dominates(
+                        specialization_ranks, selected_ranks,
+                        argument_count);
+                bool selected_dominates = selected &&
+                    cxx_class_specialization_rank_dominates(
+                        selected_ranks, specialization_ranks,
+                        argument_count);
+                if (!selected || current_dominates) {
                     selected = specialization;
-                    selected_specificity = specificity;
+                    memcpy(selected_ranks, specialization_ranks,
+                           sizeof(selected_ranks));
                     memcpy(selected_arguments, specialization_arguments,
                            sizeof(selected_arguments));
                     memcpy(selected_values, specialization_values,
                            sizeof(selected_values));
                     memcpy(selected_value_present, specialization_value_present,
                            sizeof(selected_value_present));
-                } else if (specificity == selected_specificity) {
+                } else if (!selected_dominates) {
                     rcc_error(loc,
                               "ambiguous class template partial specialization "
                               "for '%s'",

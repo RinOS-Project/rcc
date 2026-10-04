@@ -185,11 +185,12 @@
         宣言属性を保持し、most-vexing parseの関数宣言を誤認せず、C++20
         designated/nested initializerとconstexpr aggregate member accessを
         共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
-  - [x] bounded class-template partial specialization matching for pointer
-        patterns, cv-qualified pointer patterns, cv-sensitive explicit and
-        exact integral patterns, including mixed type/non-type patterns,
-        requires-clause viability, unsupported-constraint diagnostics, and
-        ambiguity diagnostics with dual-architecture regression coverage
+  - [x] bounded class-template partial specialization matching and
+        per-argument partial ordering for pointer patterns, cv-qualified
+        pointer patterns, cv-sensitive explicit and exact integral patterns,
+        mixed type/non-type patterns, requires-clause viability,
+        unsupported-constraint diagnostics, and orthogonal ambiguity
+        diagnostics with dual-architecture regression coverage
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance
