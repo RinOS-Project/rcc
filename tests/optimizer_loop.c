@@ -24,3 +24,21 @@ int loop_mutates_condition(int input)
     }
     return remaining;
 }
+
+int loop_constant_one(void)
+{
+    int result = 0;
+    for (int index = 0; index < 1; ++index) {
+        result += 17;
+    }
+    return result;
+}
+
+int loop_constant_one_le(void)
+{
+    int result = 0;
+    for (int index = 3; index <= 3; ++index) {
+        result += 19;
+    }
+    return result;
+}

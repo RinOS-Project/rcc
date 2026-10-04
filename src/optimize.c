@@ -35,6 +35,9 @@ static uint64_t integer_unsigned_value(int64_t value, const Type* type);
 static Expr* clone_inline_pure_integer_expression(const Expr* expression);
 static size_t inline_pure_integer_expression_cost(const Expr* expression);
 
+static bool statement_contains_loop_transfer(const Stmt* statement);
+static bool unroll_single_iteration_for(Stmt* statement);
+
 enum { INLINE_PURE_INTEGER_EXPANSION_LIMIT = 64 };
 
 static void replace_integer_with_side_effect(Expr** expression,
@@ -1211,6 +1214,108 @@ static bool statement_transfers_control(const Stmt* statement) {
         default:
             return false;
     }
+}
+
+static bool statement_contains_loop_transfer(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+            return true;
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (statement_contains_loop_transfer(item->stmt)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return statement_contains_loop_transfer(statement->if_then) ||
+                statement_contains_loop_transfer(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return statement_contains_loop_transfer(statement->while_body);
+        case STMT_FOR:
+            return statement_contains_loop_transfer(statement->for_init) ||
+                statement_contains_loop_transfer(statement->for_body);
+        case STMT_SWITCH:
+            return statement_contains_loop_transfer(statement->switch_body);
+        case STMT_CASE:
+            return statement_contains_loop_transfer(statement->case_stmt);
+        case STMT_DEFAULT:
+            return statement_contains_loop_transfer(statement->default_stmt);
+        case STMT_LABEL:
+            return statement_contains_loop_transfer(statement->label_stmt);
+        case STMT_TRY:
+            if (statement_contains_loop_transfer(statement->try_body)) {
+                return true;
+            }
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (statement_contains_loop_transfer(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
+static bool unroll_single_iteration_for(Stmt* statement) {
+    Stmt* initializer;
+    Decl* induction;
+    Expr* condition;
+    Expr* increment;
+    int64_t initial_value;
+    int64_t bound_value;
+    StmtList* first;
+    StmtList* second;
+    if (!statement || statement->kind != STMT_FOR ||
+        !statement->for_init || statement->for_init->kind != STMT_DECL ||
+        !statement->for_init->decl ||
+        statement->for_init->decl->kind != DECL_VAR ||
+        !statement->for_init->decl->var_init || !statement->for_cond ||
+        !statement->for_inc || !statement->for_body) {
+        return false;
+    }
+    initializer = statement->for_init;
+    induction = initializer->decl;
+    condition = statement->for_cond;
+    increment = statement->for_inc;
+    if (!induction->var_init ||
+        !integer_literal(induction->var_init, &initial_value) ||
+        (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
+        !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
+        condition->binary_lhs->ident_decl != induction ||
+        !integer_literal(condition->binary_rhs, &bound_value) ||
+        (increment->kind != EXPR_PREINC &&
+         increment->kind != EXPR_POSTINC) ||
+        !increment->unary_operand ||
+        increment->unary_operand->kind != EXPR_IDENT ||
+        increment->unary_operand->ident_decl != induction ||
+        statement_contains_loop_transfer(statement->for_body) ||
+        statement_contains_label(statement->for_body)) {
+        return false;
+    }
+    if ((condition->kind == EXPR_LT &&
+         (initial_value == INT64_MAX || bound_value != initial_value + 1)) ||
+        (condition->kind == EXPR_LE && bound_value != initial_value)) {
+        return false;
+    }
+    first = ast_arena_alloc(sizeof(*first));
+    second = ast_arena_alloc(sizeof(*second));
+    first->stmt = statement->for_init;
+    first->next = second;
+    second->stmt = statement->for_body;
+    second->next = NULL;
+    statement->kind = STMT_BLOCK;
+    statement->block_stmts = first;
+    statement->for_init = NULL;
+    statement->for_cond = NULL;
+    statement->for_inc = NULL;
+    statement->for_body = NULL;
+    return true;
 }
 
 static void optimize_block(Stmt* statement) {
@@ -2995,6 +3100,9 @@ static void optimize_stmt(Stmt* statement) {
             }
             optimize_expr(&statement->for_inc);
             optimize_stmt(statement->for_body);
+            if (unroll_single_iteration_for(statement)) {
+                optimize_block(statement);
+            }
             break;
         case STMT_SWITCH:
             optimize_expr(&statement->switch_expr);
