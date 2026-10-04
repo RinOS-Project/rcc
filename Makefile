@@ -8989,8 +8989,8 @@ test-tls: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/tls/cxx-x64.ro tests/tls.cpp
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/tls_codegen_test \
 		tests/tls_codegen_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/tls/invalid-local.ro tests/tls_invalid_local.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/tls/invalid-local.ro tests/tls_invalid_local.c,$(TEST_OUT)/tls/invalid-local.log)
 	$(RCC_TARGET) --target i686-unknown-rinos -shared \
 		--emit-unsigned-v3 -o $(TEST_OUT)/tls/x86.rll tests/tls.c
 	$(RLD_TARGET) -m32 -shared --emit-unsigned-v3 \
@@ -9006,8 +9006,8 @@ test-tls: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/tls/cxx-x86.ro $(TEST_OUT)/tls/cxx-x64.ro \
 		$(TEST_OUT)/tls/x86.rll $(TEST_OUT)/tls/x86-linked.rll \
 		$(TEST_OUT)/tls/x64.rll $(TEST_OUT)/tls/x64-linked.rll
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -driver \
-		--emit-unsigned-v3 -o $(TEST_OUT)/tls/invalid.drv tests/tls.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -driver \
+		--emit-unsigned-v3 -o $(TEST_OUT)/tls/invalid.drv tests/tls.c,$(TEST_OUT)/tls/invalid-driver.log)
 	@echo "C17/C++20 local-exec TLS tests completed"
 
 test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
