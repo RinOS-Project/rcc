@@ -23,3 +23,30 @@ void invalid_type(double value)
 {
     __asm__ __volatile__("nop" : : "a"(value));
 }
+
+void invalid_duplicate_output(int left, int right)
+{
+    int first;
+    int second;
+    __asm__ __volatile__("nop" : "=a"(first), "=a"(second));
+}
+
+void invalid_duplicate_input(int left, int right)
+{
+    __asm__ __volatile__("nop" : : "a"(left), "a"(right));
+}
+
+void invalid_duplicate_generic_input(int left, int right)
+{
+    __asm__ __volatile__("nop" : : "r"(left), "r"(right));
+}
+
+void invalid_clobber_conflict(int value)
+{
+    __asm__ __volatile__("nop" : : "a"(value) : "eax");
+}
+
+void invalid_duplicate_clobber(void)
+{
+    __asm__ __volatile__("nop" : : : "eax", "eax");
+}

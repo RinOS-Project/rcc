@@ -333,6 +333,9 @@
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         未実装placeholderをsemaで明示診断し、未知制約の黙殺を禁止
+  - [x] 固定レジスタoperand同士、operandとclobber、重複clobberの衝突を
+        backendへ渡す前に診断し、既存の`=a`出力と`a`入力のtie相当だけを
+        維持する両arch回帰を追加
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend

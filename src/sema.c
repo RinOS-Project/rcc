@@ -1225,6 +1225,113 @@ static bool sema_asm_clobber_supported(const char* name, SourceLoc loc) {
     return false;
 }
 
+/* The bounded backend assigns every fixed-register operand directly.  Keep
+ * the conflict check here, before code generation can silently let one pop
+ * overwrite another operand.  The current AMD64 backend materializes every
+ * generic input class in one dedicated scratch register, so duplicate generic
+ * inputs are conflicts as well. */
+static int sema_asm_fixed_register_id(const char* name) {
+    if (!name || !name[0]) return -1;
+    if (g_opts.target_arch == ARCH_X64 &&
+        (strcmp(name, "r") == 0 || strcmp(name, "X") == 0)) return 6;
+    if (strcmp(name, "a") == 0 || strcmp(name, "eax") == 0 ||
+        strcmp(name, "rax") == 0 || strcmp(name, "ax") == 0 ||
+        strcmp(name, "al") == 0 || strcmp(name, "ah") == 0 ||
+        strcmp(name, "{eax}") == 0 || strcmp(name, "{rax}") == 0) return 0;
+    if (strcmp(name, "b") == 0 || strcmp(name, "ebx") == 0 ||
+        strcmp(name, "rbx") == 0 || strcmp(name, "bx") == 0 ||
+        strcmp(name, "bl") == 0 || strcmp(name, "bh") == 0 ||
+        strcmp(name, "{ebx}") == 0 || strcmp(name, "{rbx}") == 0) return 1;
+    if (strcmp(name, "c") == 0 || strcmp(name, "ecx") == 0 ||
+        strcmp(name, "rcx") == 0 || strcmp(name, "cx") == 0 ||
+        strcmp(name, "cl") == 0 || strcmp(name, "ch") == 0 ||
+        strcmp(name, "{ecx}") == 0 || strcmp(name, "{rcx}") == 0) return 2;
+    if (strcmp(name, "d") == 0 || strcmp(name, "edx") == 0 ||
+        strcmp(name, "rdx") == 0 || strcmp(name, "dx") == 0 ||
+        strcmp(name, "dl") == 0 || strcmp(name, "dh") == 0 ||
+        strcmp(name, "{edx}") == 0 || strcmp(name, "{rdx}") == 0) return 3;
+    if (strcmp(name, "S") == 0 || strcmp(name, "esi") == 0 ||
+        strcmp(name, "rsi") == 0 || strcmp(name, "si") == 0 ||
+        strcmp(name, "{esi}") == 0 || strcmp(name, "{rsi}") == 0) return 4;
+    if (strcmp(name, "D") == 0 || strcmp(name, "edi") == 0 ||
+        strcmp(name, "rdi") == 0 || strcmp(name, "di") == 0 ||
+        strcmp(name, "{edi}") == 0 || strcmp(name, "{rdi}") == 0) return 5;
+    return -1;
+}
+
+static int sema_asm_constraint_fixed_register_id(const char* constraint) {
+    const char* name = constraint;
+    if (!name) return -1;
+    while (*name == '=' || *name == '+' || *name == '&') ++name;
+    return sema_asm_fixed_register_id(name);
+}
+
+static void sema_asm_validate_conflicts(Stmt* stmt) {
+    AsmOperand* output;
+    AsmOperand* input;
+    if (!stmt) return;
+    for (output = stmt->asm_outputs; output; output = output->next) {
+        int output_id = sema_asm_constraint_fixed_register_id(
+            output->constraint);
+        for (AsmOperand* later = output->next; later; later = later->next) {
+            if (output_id >= 0 && output_id ==
+                sema_asm_constraint_fixed_register_id(later->constraint)) {
+                rcc_error(stmt->loc,
+                          "inline asm outputs use the same fixed register");
+            }
+        }
+        for (input = stmt->asm_inputs; input; input = input->next) {
+            int input_id = sema_asm_constraint_fixed_register_id(
+                input->constraint);
+            if (output_id < 0 || output_id != input_id) continue;
+            if (output->constraint[0] != '=') {
+                rcc_error(stmt->loc,
+                          "inline asm read-write output conflicts with a duplicate fixed-register input");
+            }
+        }
+    }
+    for (input = stmt->asm_inputs; input; input = input->next) {
+        int input_id = sema_asm_constraint_fixed_register_id(
+            input->constraint);
+        for (AsmOperand* later = input->next; later; later = later->next) {
+            if (input_id >= 0 && input_id ==
+                sema_asm_constraint_fixed_register_id(later->constraint)) {
+                rcc_error(stmt->loc,
+                          "inline asm inputs use the same fixed register");
+            }
+        }
+    }
+    for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
+         clobber = clobber->next) {
+        int clobber_id = sema_asm_fixed_register_id(clobber->reg);
+        for (AsmClobber* earlier = stmt->asm_clobbers; earlier != clobber;
+             earlier = earlier->next) {
+            int earlier_id = sema_asm_fixed_register_id(earlier->reg);
+            if ((clobber_id >= 0 && clobber_id == earlier_id) ||
+                (clobber_id < 0 && earlier_id < 0 &&
+                 strcmp(clobber->reg, earlier->reg) == 0)) {
+                rcc_error(stmt->loc,
+                          "inline asm clobbers list the same register twice");
+                break;
+            }
+        }
+        for (output = stmt->asm_outputs; output; output = output->next) {
+            if (clobber_id >= 0 && clobber_id ==
+                sema_asm_constraint_fixed_register_id(output->constraint)) {
+                rcc_error(stmt->loc,
+                          "inline asm clobber conflicts with an operand fixed register");
+            }
+        }
+        for (input = stmt->asm_inputs; input; input = input->next) {
+            if (clobber_id >= 0 && clobber_id ==
+                sema_asm_constraint_fixed_register_id(input->constraint)) {
+                rcc_error(stmt->loc,
+                          "inline asm clobber conflicts with an operand fixed register");
+            }
+        }
+    }
+}
+
 static void sema_asm_stmt(Stmt* stmt) {
     const char* cursor;
 
@@ -1262,6 +1369,7 @@ static void sema_asm_stmt(Stmt* stmt) {
          clobber = clobber->next) {
         (void)sema_asm_clobber_supported(clobber->reg, stmt->loc);
     }
+    sema_asm_validate_conflicts(stmt);
 }
 
 static bool sema_is_scoped_enum(Type* type) {

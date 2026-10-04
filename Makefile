@@ -7361,6 +7361,14 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	grep -q "unsupported i686 inline asm clobber 'not_a_register'" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
+	grep -q "outputs use the same fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
+	grep -q "inputs use the same fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
+	grep -q "clobber conflicts with an operand fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
+	grep -q "clobbers list the same register twice" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
 	grep -q "operand placeholders" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	grep -q "scalar integer or pointer" \
@@ -7374,6 +7382,14 @@ test-inline-asm-validation: $(RCC_TARGET)
 	grep -q "unsupported AMD64 inline asm output register constraint 'k'" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	grep -q "unsupported AMD64 inline asm clobber 'not_a_register'" \
+		$(TEST_OUT)/inline-asm-validation/x64.log
+	grep -q "outputs use the same fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x64.log
+	grep -q "inputs use the same fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x64.log
+	grep -q "clobber conflicts with an operand fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x64.log
+	grep -q "clobbers list the same register twice" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	@echo "Dual-architecture inline asm constraint validation tests completed"
 
