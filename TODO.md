@@ -287,6 +287,9 @@
   - [x] stack declarationへ`DW_AT_type`を付与し、基本型・ポインタ型の
         v4 type DIEと、未対応の複合型をscalarと偽らないopaque DIEとして
         i686/AMD64 object回帰で検証
+  - [x] stack declarationへ`DW_AT_decl_file`／`DW_AT_decl_line`／
+        `DW_AT_decl_column`を追加し、関数・変数ごとのsource file tableを
+        line/infoで共有してC/i686・C/x86_64回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

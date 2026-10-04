@@ -960,6 +960,130 @@ static void debug_collect_function_types(DebugTypeContext* context,
     debug_collect_stmt_types(context, function->func_body);
 }
 
+static int debug_line_file_index(const char* const* files, int file_count,
+                                 const char* file);
+
+static void debug_file_add(const char*** files, int* file_count,
+                           size_t* file_capacity, const char* file) {
+    size_t capacity;
+    if (!files || !*files || !file_count || !file_capacity || !file ||
+        file[0] == '\0' || debug_line_file_index(*files, *file_count, file) != 0) {
+        return;
+    }
+    if ((size_t)*file_count == *file_capacity) {
+        capacity = *file_capacity == 0u ? 16u : *file_capacity * 2u;
+        if (capacity < (size_t)*file_count ||
+            capacity > SIZE_MAX / sizeof(**files)) {
+            rcc_fatal("DWARF file table is too large");
+        }
+        *files = rcc_realloc((void*)*files, capacity * sizeof(**files));
+        *file_capacity = capacity;
+    }
+    (*files)[(*file_count)++] = file;
+}
+
+static void debug_collect_stmt_files(const Stmt* statement,
+                                     const char*** files, int* file_count,
+                                     size_t* file_capacity);
+
+static void debug_collect_decl_file(const Decl* declaration,
+                                    const char*** files, int* file_count,
+                                    size_t* file_capacity) {
+    if (!declaration) return;
+    debug_file_add(files, file_count, file_capacity,
+                   declaration->loc.filename);
+}
+
+static void debug_collect_catch_files(const CxxCatch* handler,
+                                      const char*** files, int* file_count,
+                                      size_t* file_capacity) {
+    for (; handler; handler = handler->next) {
+        debug_collect_decl_file(handler->parameter, files, file_count,
+                                file_capacity);
+        debug_collect_stmt_files(handler->body, files, file_count,
+                                 file_capacity);
+    }
+}
+
+static void debug_collect_stmt_files(const Stmt* statement,
+                                     const char*** files, int* file_count,
+                                     size_t* file_capacity) {
+    const StmtList* item;
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                debug_collect_stmt_files(item->stmt, files, file_count,
+                                         file_capacity);
+            }
+            break;
+        case STMT_IF:
+            debug_collect_stmt_files(statement->if_then, files, file_count,
+                                     file_capacity);
+            debug_collect_stmt_files(statement->if_else, files, file_count,
+                                     file_capacity);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            debug_collect_stmt_files(statement->while_body, files, file_count,
+                                     file_capacity);
+            break;
+        case STMT_FOR:
+            debug_collect_stmt_files(statement->for_init, files, file_count,
+                                     file_capacity);
+            debug_collect_stmt_files(statement->for_body, files, file_count,
+                                     file_capacity);
+            break;
+        case STMT_SWITCH:
+            debug_collect_stmt_files(statement->switch_body, files, file_count,
+                                     file_capacity);
+            break;
+        case STMT_CASE:
+            debug_collect_stmt_files(statement->case_stmt, files, file_count,
+                                     file_capacity);
+            break;
+        case STMT_DEFAULT:
+            debug_collect_stmt_files(statement->default_stmt, files, file_count,
+                                     file_capacity);
+            break;
+        case STMT_LABEL:
+            debug_collect_stmt_files(statement->label_stmt, files, file_count,
+                                     file_capacity);
+            break;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR &&
+                !statement->decl->var_is_global &&
+                !statement->decl->var_is_static_local) {
+                debug_collect_decl_file(statement->decl, files, file_count,
+                                        file_capacity);
+            }
+            break;
+        case STMT_TRY:
+            debug_collect_stmt_files(statement->try_body, files, file_count,
+                                     file_capacity);
+            debug_collect_catch_files(statement->try_catches, files,
+                                      file_count, file_capacity);
+            break;
+        default:
+            break;
+    }
+}
+
+static void debug_collect_function_files(const Decl* function,
+                                         const char*** files, int* file_count,
+                                         size_t* file_capacity) {
+    if (!function) return;
+    debug_collect_decl_file(function->func_this_param, files, file_count,
+                            file_capacity);
+    for (const DeclList* parameter = function->func_params; parameter;
+         parameter = parameter->next) {
+        debug_collect_decl_file(parameter->decl, files, file_count,
+                                file_capacity);
+    }
+    debug_collect_stmt_files(function->func_body, files, file_count,
+                             file_capacity);
+}
+
 static const char* debug_type_name(const Type* type) {
     if (!type) return "<missing type>";
     switch (type->kind) {
@@ -1066,9 +1190,11 @@ static void debug_expr_breg(ObjSection* section, int architecture,
 
 static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
                                     DebugTypeContext* types,
+                                    const char* const* files, int file_count,
                                     const Decl* declaration,
                                     uint8_t abbreviation, int architecture) {
     DebugTypeEntry* type_entry;
+    int file_index;
     if (!info || !strings || !declaration || !declaration->name ||
         declaration->name[0] == '\0') return;
     type_entry = debug_type_find(types, declaration->type);
@@ -1076,76 +1202,93 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
         rcc_fatal("DWARF variable type was not collected");
         return;
     }
+    file_index = debug_line_file_index(files, file_count,
+                                       declaration->loc.filename);
     section_add_byte(info, abbreviation);
     debug_line_u32(info, debug_str_add(strings, declaration->name));
     debug_line_u32(info, type_entry->offset);
+    debug_line_u32(info, (uint32_t)file_index);
+    debug_line_u32(info, declaration->loc.line);
+    debug_line_u32(info, declaration->loc.column);
     debug_expr_breg(info, architecture, declaration->var_offset);
 }
 
 static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
                                    DebugTypeContext* types,
+                                   const char* const* files, int file_count,
                                    const Stmt* statement, int architecture);
 
 static void debug_emit_catch_locals(ObjSection* info, ObjSection* strings,
                                      DebugTypeContext* types,
+                                     const char* const* files, int file_count,
                                     const CxxCatch* handler,
                                     int architecture) {
     for (; handler; handler = handler->next) {
         if (handler->parameter && handler->parameter->kind == DECL_PARAM) {
             debug_emit_variable_die(info, strings, types,
+                                    files, file_count,
                                     handler->parameter, 3u,
                                     architecture);
         }
-        debug_emit_stmt_locals(info, strings, types, handler->body,
+        debug_emit_stmt_locals(info, strings, types, files, file_count,
+                               handler->body,
                                architecture);
     }
 }
 
 static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
                                     DebugTypeContext* types,
+                                    const char* const* files, int file_count,
                                    const Stmt* statement, int architecture) {
     const StmtList* item;
     if (!statement) return;
     switch (statement->kind) {
         case STMT_BLOCK:
             for (item = statement->block_stmts; item; item = item->next) {
-                debug_emit_stmt_locals(info, strings, types, item->stmt,
+                debug_emit_stmt_locals(info, strings, types, files, file_count,
+                                       item->stmt,
                                        architecture);
             }
             break;
         case STMT_IF:
-            debug_emit_stmt_locals(info, strings, types, statement->if_then,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
+                                   statement->if_then,
                                    architecture);
-            debug_emit_stmt_locals(info, strings, types, statement->if_else,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
+                                   statement->if_else,
                                    architecture);
             break;
         case STMT_WHILE:
         case STMT_DO:
-            debug_emit_stmt_locals(info, strings, types, statement->while_body,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
+                                   statement->while_body,
                                    architecture);
             break;
         case STMT_FOR:
-            debug_emit_stmt_locals(info, strings, types, statement->for_init,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
+                                   statement->for_init,
                                    architecture);
-            debug_emit_stmt_locals(info, strings, types, statement->for_body,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
+                                   statement->for_body,
                                    architecture);
             break;
         case STMT_SWITCH:
-            debug_emit_stmt_locals(info, strings, types,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
                                    statement->switch_body,
                                    architecture);
             break;
         case STMT_CASE:
-            debug_emit_stmt_locals(info, strings, types, statement->case_stmt,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
+                                   statement->case_stmt,
                                    architecture);
             break;
         case STMT_DEFAULT:
-            debug_emit_stmt_locals(info, strings, types,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
                                    statement->default_stmt,
                                    architecture);
             break;
         case STMT_LABEL:
-            debug_emit_stmt_locals(info, strings, types,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
                                    statement->label_stmt,
                                    architecture);
             break;
@@ -1154,15 +1297,16 @@ static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
                 !statement->decl->var_is_global &&
                 !statement->decl->var_is_static_local) {
                 debug_emit_variable_die(info, strings, types,
+                                        files, file_count,
                                         statement->decl, 4u,
                                         architecture);
             }
             break;
         case STMT_TRY:
-            debug_emit_stmt_locals(info, strings, types,
+            debug_emit_stmt_locals(info, strings, types, files, file_count,
                                    statement->try_body,
                                    architecture);
-            debug_emit_catch_locals(info, strings, types,
+            debug_emit_catch_locals(info, strings, types, files, file_count,
                                     statement->try_catches,
                                     architecture);
             break;
@@ -1191,22 +1335,25 @@ static Decl* debug_find_function_decl(const Module* mod,
 
 static void debug_emit_function_locals(ObjSection* info, ObjSection* strings,
                                        DebugTypeContext* types,
+                                       const char* const* files, int file_count,
                                        const Module* mod,
                                        const ModuleSymbol* symbol,
                                        int architecture) {
     Decl* function = debug_find_function_decl(mod, symbol);
     if (!function) return;
     if (function->func_this_param) {
-        debug_emit_variable_die(info, strings, types,
+        debug_emit_variable_die(info, strings, types, files, file_count,
                                 function->func_this_param, 3u,
                                 architecture);
     }
     for (DeclList* parameter = function->func_params; parameter;
          parameter = parameter->next) {
-        debug_emit_variable_die(info, strings, types, parameter->decl, 3u,
+        debug_emit_variable_die(info, strings, types, files, file_count,
+                                parameter->decl, 3u,
                                 architecture);
     }
-    debug_emit_stmt_locals(info, strings, types, function->func_body,
+    debug_emit_stmt_locals(info, strings, types, files, file_count,
+                           function->func_body,
                            architecture);
 }
 
@@ -1235,6 +1382,7 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
     ObjSection* line;
     int function_count = 0;
     int file_count = 0;
+    size_t file_capacity;
     int line_section;
     int address_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
     uint64_t unit_length_offset;
@@ -1244,17 +1392,22 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
 
     if (!g_opts.debug_info || !obj || !mod || mod->symbol_count <= 0) return;
     functions = rcc_alloc((size_t)mod->symbol_count * sizeof(*functions));
-    files = rcc_alloc((size_t)mod->symbol_count * sizeof(*files));
+    file_capacity = (size_t)mod->symbol_count;
+    if (file_capacity == 0u) file_capacity = 1u;
+    files = rcc_alloc(file_capacity * sizeof(*files));
     for (int index = 0; index < mod->symbol_count; ++index) {
         ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
             !symbol->source_file || symbol->source_file[0] == '\0' ||
             symbol->source_line == 0u) continue;
         functions[function_count++] = symbol;
-        if (debug_line_file_index(files, file_count,
-                                  symbol->source_file) == 0) {
-            files[file_count++] = symbol->source_file;
-        }
+        debug_file_add(&files, &file_count, &file_capacity,
+                       symbol->source_file);
+    }
+    for (int index = 0; index < function_count; ++index) {
+        debug_collect_function_files(
+            debug_find_function_decl(mod, functions[index]), &files,
+            &file_count, &file_capacity);
     }
     if (function_count == 0) {
         rcc_free(functions);
@@ -1398,6 +1551,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     ObjSection* info;
     int function_count = 0;
     int file_count = 0;
+    size_t file_capacity;
     int info_section;
     uint64_t unit_length_offset;
     uint32_t producer_offset;
@@ -1405,17 +1559,17 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
 
     if (!g_opts.debug_info || !obj || !mod || mod->symbol_count <= 0) return;
     functions = rcc_alloc((size_t)mod->symbol_count * sizeof(*functions));
-    files = rcc_alloc((size_t)mod->symbol_count * sizeof(*files));
+    file_capacity = (size_t)mod->symbol_count;
+    if (file_capacity == 0u) file_capacity = 1u;
+    files = rcc_alloc(file_capacity * sizeof(*files));
     for (int index = 0; index < mod->symbol_count; ++index) {
         ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
             !symbol->source_file || symbol->source_file[0] == '\0' ||
             symbol->source_line == 0u) continue;
         functions[function_count++] = symbol;
-        if (debug_line_file_index(files, file_count,
-                                  symbol->source_file) == 0) {
-            files[file_count++] = symbol->source_file;
-        }
+        debug_file_add(&files, &file_count, &file_capacity,
+                       symbol->source_file);
     }
     if (function_count == 0) {
         rcc_free(functions);
@@ -1426,6 +1580,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     for (int index = 0; index < function_count; ++index) {
         Decl* function = debug_find_function_decl(mod, functions[index]);
         debug_collect_function_types(&types, function);
+        debug_collect_function_files(function, &files, &file_count,
+                                     &file_capacity);
     }
 
     strings = objfile_add_section(obj, ".debug_str", SECT_DEBUG_STR, 0u);
@@ -1481,6 +1637,12 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
     debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);     /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);     /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x02u);     /* DW_AT_location */
     debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
@@ -1492,6 +1654,12 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
     debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);     /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);     /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x02u);     /* DW_AT_location */
     debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
@@ -1569,7 +1737,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         section_add_byte(info, function->is_global ? 1u : 0u);
         debug_line_u32(info, debug_str_add(strings, function->name));
         debug_emit_function_locals(
-            info, strings, &types, mod, function,
+            info, strings, &types, files, file_count, mod, function,
             g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
         section_add_byte(info, 0u);    /* end of subprogram children */
     }
