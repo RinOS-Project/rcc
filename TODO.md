@@ -574,3 +574,6 @@
 - [x] Make the native Windows numeric-literal gate execute its own C17
       fixture main through freestanding i686/x86_64 outputs, while retaining
       POSIX execution and invalid universal-character diagnostics.
+- [x] Make the native Windows VLA runtime gate execute real i686/x86_64 RCC
+      output through freestanding `main` entries without WSL, retaining the
+      POSIX syscall-start path and the full VLA runtime result checks.
