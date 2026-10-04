@@ -561,3 +561,7 @@
       i686/x86_64 RCC output through freestanding `main` entries, while
       retaining `.ro` generation, incomplete-type diagnostics, and the POSIX
       object-loader path.
+- [x] Make the native Windows flexible-array-member gate execute real
+      i686/x86_64 RCC output through freestanding `main` entries, while
+      retaining `.ro` generation, invalid-member diagnostics, and the POSIX
+      object-loader path.
