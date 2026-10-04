@@ -129,6 +129,7 @@ jobs:
           make test-golden-artifacts
           make test-determinism
           make test-property-gate
+          make test-fuzz
           make test-global-initializers
           make test-global-finalizers
           make test-bootstrap-core

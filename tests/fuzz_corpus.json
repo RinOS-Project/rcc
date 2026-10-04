@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "c17-hello",
+      "language": "C17",
+      "source": "tests/hello.c"
+    },
+    {
+      "id": "c17-property",
+      "language": "C17",
+      "source": "tests/property_valid.c"
+    },
+    {
+      "id": "cxx20-hello",
+      "language": "C++20",
+      "source": "tests/hello.cpp"
+    },
+    {
+      "id": "cxx20-property",
+      "language": "C++20",
+      "source": "tests/property_valid.cpp"
+    }
+  ]
+}

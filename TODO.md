@@ -352,6 +352,9 @@
   - [x] RCC単体checkoutから実行できるbounded C17/C++20 golden manifestで、
         i686/AMD64の`.ro`、unsigned-v3`.rin`、`.rll`、`.drv`を2回再生成し、
         SHA-256をCIで固定検証する
+  - [x] RCC単体checkoutから実行できる決定的parser/compiler fuzz gateで、
+        C17/C++20の有効変異を両archで再現コンパイルし、無効変異のsignal／
+        timeout／空診断／誤った成果物を拒否する
 - [x] host stage0 -> rcc stage1 -> rcc stage2再現build
   - [x] stage0による閉じたfrontend/sema/backend subset `.ro`の両arch再現生成
   - [x] build manifest、host process shim、rcc/rcc++/rld/rar entry pointまでの再現object生成
