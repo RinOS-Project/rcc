@@ -571,3 +571,6 @@
 - [x] Make the native Windows i686 floating-runtime gate execute RCC output
       through a freestanding `main` without WSL, while retaining the Linux
       syscall start path and checking the floating/ABI calculation result.
+- [x] Make the native Windows numeric-literal gate execute its own C17
+      fixture main through freestanding i686/x86_64 outputs, while retaining
+      POSIX execution and invalid universal-character diagnostics.
