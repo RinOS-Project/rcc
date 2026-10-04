@@ -333,6 +333,38 @@ static void verify_integer_simplification(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_constant_branch_pruning(void)
+{
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "constant_branch", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* dead = rcc_ir_block_add(function, "dead");
+    RccIrBlock* live = rcc_ir_block_add(function, "live");
+    RccIrValue condition = append_const(entry, i1, 0u);
+    RccIrValue dead_value = append_const(dead, i32, 99u);
+    RccIrValue live_value = append_const(live, i32, 7u);
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    append_cond_branch(entry, condition, dead->id, live->id);
+    append_return(dead, dead_value);
+    append_return(live, live_value);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions == 1u);
+    assert(stats.removed_blocks == 1u);
+    assert(function->block_count == 2u);
+    assert(function->first_block->last->opcode == RCC_IR_BRANCH);
+    assert(function->first_block->last->targets[0] == 1u);
+    assert(count_opcode(function, RCC_IR_COND_BRANCH) == 0u);
+    assert(count_opcode(function, RCC_IR_RETURN) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_undefined_folds_are_preserved(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -521,6 +553,7 @@ int main(void)
     verify_loop_promotion();
     verify_escape_is_not_promoted();
     verify_integer_simplification();
+    verify_constant_branch_pruning();
     verify_undefined_folds_are_preserved();
     verify_block_local_cse();
     verify_memory_is_not_commoned();

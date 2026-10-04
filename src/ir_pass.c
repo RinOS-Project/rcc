@@ -949,6 +949,24 @@ static void ir_pass_make_integer_constant(RccIrInstruction* instruction,
         ir_pass_integer_mask(instruction->type.bit_width);
 }
 
+static void ir_pass_make_unconditional_branch(
+    RccIrInstruction* instruction, size_t selected_target) {
+    RccIrBlockId target;
+    if (!instruction || instruction->target_count != 2u ||
+        selected_target >= instruction->target_count) {
+        return;
+    }
+    target = instruction->targets[selected_target];
+    rcc_free(instruction->operands);
+    rcc_free(instruction->callee);
+    instruction->operands = NULL;
+    instruction->operand_count = 0u;
+    instruction->targets[0] = target;
+    instruction->target_count = 1u;
+    instruction->callee = NULL;
+    instruction->opcode = RCC_IR_BRANCH;
+}
+
 static bool ir_pass_fold_constants(RccIrFunction* function,
                                    RccIrSimplifyStats* stats) {
     bool* known;
@@ -966,6 +984,15 @@ static bool ir_pass_fold_constants(RccIrFunction* function,
             if (instruction->opcode == RCC_IR_CONST_INT) {
                 known[instruction->result] = true;
                 constants[instruction->result] = instruction->immediate;
+                continue;
+            }
+            if (instruction->opcode == RCC_IR_COND_BRANCH &&
+                instruction->operand_count == 1u &&
+                known[instruction->operands[0]]) {
+                ir_pass_make_unconditional_branch(
+                    instruction,
+                    constants[instruction->operands[0]] != 0u ? 0u : 1u);
+                ++stats->folded_instructions;
                 continue;
             }
             if (ir_pass_is_binary_integer(instruction->opcode) &&
@@ -1010,6 +1037,154 @@ static bool ir_pass_fold_constants(RccIrFunction* function,
     }
     rcc_free(known);
     rcc_free(constants);
+    return true;
+}
+
+static void ir_pass_destroy_block(RccIrBlock* block) {
+    if (!block) return;
+    while (block->first) {
+        ir_pass_unlink_instruction(block->first);
+    }
+    rcc_free(block->name);
+    rcc_free(block);
+}
+
+static bool ir_pass_prune_unreachable(
+    RccIrFunction* function, RccIrSimplifyStats* stats,
+    char* error, size_t error_size) {
+    RccIrBlock** blocks;
+    bool* reachable;
+    size_t* queue;
+    size_t* mapping;
+    size_t count;
+    size_t head = 0u;
+    size_t tail = 0u;
+    size_t index;
+    size_t new_count = 0u;
+    RccIrBlock* block;
+    RccIrBlock* previous = NULL;
+
+    if (!function || function->block_count == 0u) return true;
+    count = function->block_count;
+    if (count > SIZE_MAX / sizeof(*blocks) ||
+        count > SIZE_MAX / sizeof(*queue) ||
+        count > SIZE_MAX / sizeof(*mapping)) {
+        return ir_pass_error(error, error_size,
+                             "SSA CFG pruning table is too large");
+    }
+    blocks = rcc_alloc(count * sizeof(*blocks));
+    reachable = rcc_alloc(count * sizeof(*reachable));
+    queue = rcc_alloc(count * sizeof(*queue));
+    mapping = rcc_alloc(count * sizeof(*mapping));
+    for (block = function->first_block; block; block = block->next) {
+        if (block->id >= count) {
+            rcc_free(blocks);
+            rcc_free(reachable);
+            rcc_free(queue);
+            rcc_free(mapping);
+            return ir_pass_error(error, error_size,
+                                 "SSA CFG pruning found an invalid block id");
+        }
+        blocks[block->id] = block;
+    }
+    reachable[0] = true;
+    queue[tail++] = 0u;
+    while (head < tail) {
+        RccIrBlock* current = blocks[queue[head++]];
+        RccIrInstruction* terminator = current->last;
+        if (!terminator) {
+            rcc_free(blocks);
+            rcc_free(reachable);
+            rcc_free(queue);
+            rcc_free(mapping);
+            return ir_pass_error(error, error_size,
+                                 "SSA CFG pruning found an unterminated block");
+        }
+        for (index = 0u; index < terminator->target_count; ++index) {
+            RccIrBlockId target = terminator->targets[index];
+            if (target >= count) {
+                rcc_free(blocks);
+                rcc_free(reachable);
+                rcc_free(queue);
+                rcc_free(mapping);
+                return ir_pass_error(error, error_size,
+                                     "SSA CFG pruning found an invalid edge");
+            }
+            if (!reachable[target]) {
+                reachable[target] = true;
+                queue[tail++] = target;
+            }
+        }
+    }
+    for (index = 0u; index < count; ++index) {
+        mapping[index] = reachable[index] ? new_count++ : SIZE_MAX;
+    }
+    if (new_count == count) {
+        rcc_free(blocks);
+        rcc_free(reachable);
+        rcc_free(queue);
+        rcc_free(mapping);
+        return true;
+    }
+
+    for (index = 0u; index < count; ++index) {
+        if (!reachable[index]) continue;
+        for (RccIrInstruction* instruction = blocks[index]->first;
+             instruction; instruction = instruction->next) {
+            size_t write = 0u;
+            if (instruction->opcode == RCC_IR_PHI) {
+                for (size_t incoming = 0u;
+                     incoming < instruction->target_count; ++incoming) {
+                    RccIrBlockId predecessor = instruction->targets[incoming];
+                    if (predecessor >= count || !reachable[predecessor]) {
+                        continue;
+                    }
+                    instruction->targets[write] = mapping[predecessor];
+                    instruction->operands[write] =
+                        instruction->operands[incoming];
+                    ++write;
+                }
+                instruction->target_count = write;
+                instruction->operand_count = write;
+            } else {
+                for (size_t target = 0u;
+                     target < instruction->target_count; ++target) {
+                    RccIrBlockId destination = instruction->targets[target];
+                    if (destination >= count || !reachable[destination]) {
+                        rcc_free(blocks);
+                        rcc_free(reachable);
+                        rcc_free(queue);
+                        rcc_free(mapping);
+                        return ir_pass_error(
+                            error, error_size,
+                            "SSA CFG pruning found an unreachable live edge");
+                    }
+                    instruction->targets[target] = mapping[destination];
+                }
+            }
+        }
+    }
+
+    block = function->first_block;
+    while (block) {
+        RccIrBlock* next = block->next;
+        if (!reachable[block->id]) {
+            if (previous) previous->next = next;
+            else function->first_block = next;
+            if (!next) function->last_block = previous;
+            ir_pass_destroy_block(block);
+        } else {
+            block->id = mapping[block->id];
+            previous = block;
+        }
+        block = next;
+    }
+    function->block_count = new_count;
+    stats->removed_blocks += count - new_count;
+    rcc_free(blocks);
+    rcc_free(reachable);
+    rcc_free(queue);
+    rcc_free(mapping);
     return true;
 }
 
@@ -1325,6 +1500,8 @@ static bool ir_pass_simplify(RccIrFunction* function, bool enable_gvn,
         return false;
     }
     if (!ir_pass_fold_constants(function, &local_stats) ||
+        !ir_pass_prune_unreachable(function, &local_stats,
+                                   error, error_size) ||
         (enable_gvn &&
          !ir_pass_common_subexpressions(function, &local_stats,
                                         error, error_size)) ||
@@ -1381,10 +1558,12 @@ bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
             current.commoned_instructions;
         local_stats.simplify.removed_instructions +=
             current.removed_instructions;
+        local_stats.simplify.removed_blocks += current.removed_blocks;
         ++local_stats.simplify_rounds;
         changed = current.folded_instructions != 0u ||
             current.commoned_instructions != 0u ||
-            current.removed_instructions != 0u;
+            current.removed_instructions != 0u ||
+            current.removed_blocks != 0u;
         if (level != 3u || changed == 0u) break;
     }
     if (!rcc_ir_verify_function(function, error, error_size)) return false;
