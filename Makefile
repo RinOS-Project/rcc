@@ -1862,7 +1862,7 @@ test-cxx-named-concepts: $(RCXX_TARGET)
 
 test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alias-templates)
-	./rcc++ --target i686-unknown-rinos -std=c++20 -S \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-alias-templates/x86.s \
 		tests/cxx_alias_templates.cpp
 	gcc -m32 -c -o $(TEST_OUT)/cxx-alias-templates/x86.o \
@@ -1874,7 +1874,7 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-alias-templates/start-x86.o \
 		$(TEST_OUT)/cxx-alias-templates/x86.o
 	$(TEST_OUT)/cxx-alias-templates/x86
-	./rcc++ --target x86_64-unknown-rinos -std=c++20 -S \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-alias-templates/x64.s \
 		tests/cxx_alias_templates.cpp
 	gcc -c -o $(TEST_OUT)/cxx-alias-templates/x64.o \
@@ -1886,13 +1886,13 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-alias-templates/start-x64.o \
 		$(TEST_OUT)/cxx-alias-templates/x64.o
 	$(TEST_OUT)/cxx-alias-templates/x64
-	! ./rcc++ --target i686-unknown-rinos -std=c++20 -c \
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x86.log 2>&1
 	grep -q "alias template parameter packs are not supported" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x86.log
-	! ./rcc++ --target x86_64-unknown-rinos -std=c++20 -c \
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x64.log 2>&1
