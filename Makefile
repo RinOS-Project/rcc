@@ -8563,6 +8563,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_parity expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_ffs expects an integer argument no wider than 4 bytes" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x64.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x64.log)
@@ -8575,6 +8577,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "__builtin_clz expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_parity expects an integer argument no wider than 4 bytes" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_ffs expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
@@ -10831,13 +10835,13 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/builtins-x86.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x86.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/builtins-x64.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bswap64-x86.ro \
@@ -10861,9 +10865,9 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-builtins-x64.ro \
 		tests/verified_backend_builtins.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 16 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
-	@echo "Verified backend terminating/prediction builtin tests completed"
+	@echo "Verified backend terminating/prediction/ffs builtin tests completed"
 
 test-verified-bitcounts: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
@@ -10871,13 +10875,13 @@ test-verified-bitcounts: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/bitcounts-x86.ro \
 		tests/verified_backend_bitcounts.c \
 		>$(TEST_OUT)/verified-backend/bitcounts-x86.log
-	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bitcounts-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bitcounts-x64.ro \
 		tests/verified_backend_bitcounts.c \
 		>$(TEST_OUT)/verified-backend/bitcounts-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bitcounts-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/bitcounts-run \
@@ -10885,7 +10889,7 @@ test-verified-bitcounts: $(RCC_TARGET)
 		$(SRCDIR)/utils.c
 	$(TEST_OUT)/verified-backend/bitcounts-run \
 		$(TEST_OUT)/verified-backend/bitcounts-x64.ro
-	@echo "Verified backend clz/ctz/popcount tests completed"
+	@echo "Verified backend clz/ctz/popcount/ffs tests completed"
 
 test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins test-verified-bitcounts
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

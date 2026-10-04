@@ -2734,6 +2734,7 @@ static RccIrLowerValue lower_builtin_bit_count(
     bool leading = false;
     bool population = false;
     bool parity = false;
+    bool first_set = false;
     unsigned width = 0u;
     unsigned index;
 
@@ -2779,6 +2780,15 @@ static RccIrLowerValue lower_builtin_bit_count(
     } else if (strcmp(name, "__builtin_parityll") == 0) {
         population = true;
         parity = true;
+        width = 64u;
+    } else if (strcmp(name, "__builtin_ffs") == 0) {
+        first_set = true;
+        width = 32u;
+    } else if (strcmp(name, "__builtin_ffsl") == 0) {
+        first_set = true;
+        width = g_opts.target_arch == ARCH_X64 ? 64u : 32u;
+    } else if (strcmp(name, "__builtin_ffsll") == 0) {
+        first_set = true;
         width = 64u;
     } else {
         context->unsupported = true;
@@ -2861,7 +2871,7 @@ static RccIrLowerValue lower_builtin_bit_count(
         return lower_cast(context, source, expression->type);
     }
     result = lower_integer_constant(
-        context, result_type, true, (uint64_t)width);
+        context, result_type, true, first_set ? 0u : (uint64_t)width);
     if (!result.valid) return lower_invalid_value();
     for (index = 0u; index < width; ++index) {
         unsigned bit_index = leading ? width - 1u - index : index;
@@ -2875,12 +2885,13 @@ static RccIrLowerValue lower_builtin_bit_count(
         RccIrLowerValue bit;
         RccIrLowerValue set;
         RccIrLowerValue limit = lower_integer_constant(
-            context, result_type, true, (uint64_t)width);
+            context, result_type, true, first_set ? 0u : (uint64_t)width);
         RccIrLowerValue unused;
         RccIrValue operands[3];
         RccIrInstruction* instruction;
         RccIrLowerValue candidate = lower_integer_constant(
-            context, result_type, true, index);
+            context, result_type, true,
+            first_set ? (uint64_t)index + 1u : (uint64_t)index);
         if (!shift.valid || !one.valid || !zero.valid || !limit.valid ||
             !candidate.valid) return lower_invalid_value();
         shifted = lower_builtin_integer_binary(
@@ -2986,7 +2997,10 @@ static RccIrLowerValue lower_builtin_call(
         strcmp(name, "__builtin_popcountll") == 0 ||
         strcmp(name, "__builtin_parity") == 0 ||
         strcmp(name, "__builtin_parityl") == 0 ||
-        strcmp(name, "__builtin_parityll") == 0) {
+        strcmp(name, "__builtin_parityll") == 0 ||
+        strcmp(name, "__builtin_ffs") == 0 ||
+        strcmp(name, "__builtin_ffsl") == 0 ||
+        strcmp(name, "__builtin_ffsll") == 0) {
         return lower_builtin_bit_count(context, expression, name);
     }
     if (strcmp(name, "__builtin_bswap16") == 0 ||
@@ -3476,6 +3490,12 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_parityl") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_parityll") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_ffs") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_ffsl") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_ffsll") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap16") == 0 ||
                  strcmp(expression->call_func->ident_name,

@@ -18,6 +18,8 @@
 
 typedef int RINOS_ABI (*BitCount32Function)(unsigned int);
 typedef int RINOS_ABI (*BitCount64Function)(unsigned long long);
+typedef int RINOS_ABI (*Ffs32Function)(unsigned int);
+typedef int RINOS_ABI (*Ffs64Function)(unsigned long long);
 typedef int RINOS_ABI (*PrefetchFunction)(int*);
 
 static void* map_text(const ObjSection* text, size_t* mapped_size)
@@ -81,19 +83,23 @@ int main(int argc, char** argv)
     ObjSymbol* clz32_symbol;
     ObjSymbol* ctz32_symbol;
     ObjSymbol* pop32_symbol;
+    ObjSymbol* ffs32_symbol;
     ObjSymbol* prefetch_read_symbol;
     ObjSymbol* prefetch_write_symbol;
     ObjSymbol* clz64_symbol;
     ObjSymbol* ctz64_symbol;
     ObjSymbol* pop64_symbol;
+    ObjSymbol* ffs64_symbol;
     BitCount32Function clz32;
     BitCount32Function ctz32;
     BitCount32Function pop32;
+    Ffs32Function ffs32;
     PrefetchFunction prefetch_read;
     PrefetchFunction prefetch_write;
     BitCount64Function clz64;
     BitCount64Function ctz64;
     BitCount64Function pop64;
+    Ffs64Function ffs64;
     void* memory;
     size_t mapped_size;
     void* address;
@@ -104,6 +110,7 @@ int main(int argc, char** argv)
     clz32_symbol = objfile_find_symbol(object, "verified_builtin_clz32");
     ctz32_symbol = objfile_find_symbol(object, "verified_builtin_ctz32");
     pop32_symbol = objfile_find_symbol(object, "verified_builtin_popcount32");
+    ffs32_symbol = objfile_find_symbol(object, "verified_builtin_ffs32");
     prefetch_read_symbol = objfile_find_symbol(
         object, "verified_builtin_prefetch_read");
     prefetch_write_symbol = objfile_find_symbol(
@@ -111,11 +118,13 @@ int main(int argc, char** argv)
     clz64_symbol = objfile_find_symbol(object, "verified_builtin_clz64");
     ctz64_symbol = objfile_find_symbol(object, "verified_builtin_ctz64");
     pop64_symbol = objfile_find_symbol(object, "verified_builtin_popcount64");
+    ffs64_symbol = objfile_find_symbol(object, "verified_builtin_ffs64");
     assert(text != NULL && clz32_symbol != NULL &&
            ctz32_symbol != NULL && pop32_symbol != NULL &&
+           ffs32_symbol != NULL &&
            prefetch_read_symbol != NULL && prefetch_write_symbol != NULL &&
            clz64_symbol != NULL && ctz64_symbol != NULL &&
-           pop64_symbol != NULL);
+           pop64_symbol != NULL && ffs64_symbol != NULL);
     memory = map_text(text, &mapped_size);
     address = function_address(text, clz32_symbol, memory);
     memcpy(&clz32, &address, sizeof(clz32));
@@ -123,6 +132,8 @@ int main(int argc, char** argv)
     memcpy(&ctz32, &address, sizeof(ctz32));
     address = function_address(text, pop32_symbol, memory);
     memcpy(&pop32, &address, sizeof(pop32));
+    address = function_address(text, ffs32_symbol, memory);
+    memcpy(&ffs32, &address, sizeof(ffs32));
     address = function_address(text, prefetch_read_symbol, memory);
     memcpy(&prefetch_read, &address, sizeof(prefetch_read));
     address = function_address(text, prefetch_write_symbol, memory);
@@ -133,12 +144,16 @@ int main(int argc, char** argv)
     memcpy(&ctz64, &address, sizeof(ctz64));
     address = function_address(text, pop64_symbol, memory);
     memcpy(&pop64, &address, sizeof(pop64));
+    address = function_address(text, ffs64_symbol, memory);
+    memcpy(&ffs64, &address, sizeof(ffs64));
     assert(clz32(0x00100000u) == 11);
     assert(clz32(0x80000000u) == 0);
     assert(ctz32(0x00001000u) == 12);
     assert(ctz32(0x80000000u) == 31);
     assert(pop32(0xf0f00f0fu) == 16);
     assert(pop32(0xffffffffu) == 32);
+    assert(ffs32(0u) == 0);
+    assert(ffs32(0x00001000u) == 13);
     {
         int value = 41;
         assert(prefetch_read(&value) == 41);
@@ -150,6 +165,7 @@ int main(int argc, char** argv)
     assert(ctz64(UINT64_C(0x8000000000000000)) == 63);
     assert(pop64(UINT64_C(0xf00000000000000f)) == 8);
     assert(pop64(UINT64_MAX) == 64);
+    assert(ffs64(UINT64_C(1) << 40) == 41);
     unmap_text(memory, mapped_size);
     objfile_free(object);
     puts("Verified backend bit-count execution passed");

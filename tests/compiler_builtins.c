@@ -52,6 +52,18 @@ int builtin_parityll(unsigned long long value) {
     return __builtin_parityll(value);
 }
 
+int builtin_ffs(int value) {
+    return __builtin_ffs(value);
+}
+
+int builtin_ffsl(unsigned long value) {
+    return __builtin_ffsl(value);
+}
+
+int builtin_ffsll(unsigned long long value) {
+    return __builtin_ffsll(value);
+}
+
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
     if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 2;
@@ -68,5 +80,9 @@ int main(void) {
     if (builtin_parity(0x80000003u) != 1) return 9;
     if (builtin_parityl(0x80000003UL) != 1) return 10;
     if (builtin_parityll(0x8000000000000003ULL) != 1) return 11;
+    if (builtin_ffs(0) != 0) return 12;
+    if (builtin_ffs(0x100) != 9) return 13;
+    if (builtin_ffsl(0x100UL) != 9) return 14;
+    if (builtin_ffsll(1ULL << 40) != 41) return 15;
     return 0;
 }

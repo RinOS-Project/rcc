@@ -21,3 +21,7 @@ void invalid_builtin_prefetch(int *value) {
 int invalid_builtin_parity(void) {
     return __builtin_parity(1LL);
 }
+
+int invalid_builtin_ffs(void) {
+    return __builtin_ffs(1LL);
+}

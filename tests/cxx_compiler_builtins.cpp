@@ -23,6 +23,10 @@ extern "C" int cxx_scalar_builtins(int *value) {
     if (__builtin_popcountll(0xF00000000000000FULL) != 8) return 47;
     if (__builtin_parity(0x80000003u) != 1) return 48;
     if (__builtin_parityl(0x80000003UL) != 1) return 49;
+    if (__builtin_ffs(0) != 0) return 50;
+    if (__builtin_ffs(0x100) != 9) return 51;
+    if (__builtin_ffsl(0x100UL) != 9) return 52;
+    if (__builtin_ffsll(1ULL << 40) != 41) return 53;
     return *value;
 }
 

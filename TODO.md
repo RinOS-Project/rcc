@@ -117,14 +117,14 @@
         intrinsic with real i686/AMD64 trap instructions and diagnostic
         coverage.
   - [x] Lower common scalar builtins `__builtin_bswap{16,32,64}` and
-        `__builtin_{clz,ctz,popcount,parity}{,l,ll}` with target-width
-        validation. The bit-count and parity operations use verified typed-SSA
-        lowering where the target representation is available and direct
-        x86/x86-64 lowering for the complete supported family, with
-        deterministic zero handling, dual-arch emission, and x86_64 execution
-        coverage. `__builtin_prefetch` is also lowered to validated x86
-        read/write prefetch hints with optional-argument defaults and
-        dual-arch object/runtime coverage.
+        `__builtin_{clz,ctz,popcount,parity,ffs}{,l,ll}` with target-width
+        validation. The bit-count, parity, and first-set-bit operations use
+        verified typed-SSA lowering where the target representation is
+        available and direct x86/x86-64 lowering for the complete supported
+        family, with deterministic zero handling, dual-arch emission, and
+        x86_64 execution coverage. `__builtin_prefetch` is also lowered to
+        validated x86 read/write prefetch hints with optional-argument
+        defaults and dual-arch object/runtime coverage.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] atomic-qualified整数の`&=`／`|=`／`^=`を一回評価のCAS retry loopでloweringし、
@@ -529,11 +529,13 @@
       entry when MinGW's 32-bit CRT is absent, and route all expected-failure
       diagnostics through the shell-neutral helper so `test-compiler-builtins`
       passes under `cmd.exe` without skipping x86 execution.
-- [x] Cover the GCC-compatible `__builtin_parity`, `__builtin_parityl`, and
-      `__builtin_parityll` family in C and C++: semantic width diagnostics,
-      SWAR parity lowering, direct x86/x86-64 code generation, verified-backend
-      C/C++ fixtures for the supported typed-SSA widths, and negative checks
-      are gated by `test-compiler-builtins` and `test-verified-builtins`.
+- [x] Cover the GCC-compatible `__builtin_parity`, `__builtin_parityl`,
+      `__builtin_parityll`, `__builtin_ffs`, `__builtin_ffsl`, and
+      `__builtin_ffsll` families in C and C++: semantic width diagnostics,
+      SWAR/direct x86/x86-64 code generation, verified-backend C/C++ fixtures
+      for the supported typed-SSA widths, zero/one-based result coverage, and
+      negative checks are gated by `test-compiler-builtins` and
+      `test-verified-builtins`.
 - [x] Make the native Windows integer-literal gate execute real i686/x86_64
       RCC output through freestanding `main` entries, while retaining `.ro`
       generation and shell-neutral negative diagnostic checks.

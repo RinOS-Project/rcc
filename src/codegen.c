@@ -8673,10 +8673,25 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         strcmp(function->ident_name, "__builtin_clzl") == 0 ||
         strcmp(function->ident_name, "__builtin_ctzl") == 0 ||
         strcmp(function->ident_name, "__builtin_popcountl") == 0 ||
-        strcmp(function->ident_name, "__builtin_parityl") == 0) {
+        strcmp(function->ident_name, "__builtin_parityl") == 0 ||
+        strcmp(function->ident_name, "__builtin_ffs") == 0 ||
+        strcmp(function->ident_name, "__builtin_ffsl") == 0) {
         argument = call_argument(expr, 0);
         gen_expr(mod, argument);
-        if (strcmp(function->ident_name, "__builtin_popcount") == 0 ||
+        if (strcmp(function->ident_name, "__builtin_ffs") == 0 ||
+            strcmp(function->ident_name, "__builtin_ffsl") == 0) {
+            int zero_label = new_label();
+            int end_label = new_label();
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_E, zero_label);
+            emit_bsf_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_reg(mod, EAX, ECX);
+            emit_add_reg_imm(mod, EAX, 1);
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, zero_label);
+            emit_xor_reg_reg(mod, EAX, EAX);
+            emit_label(mod, end_label);
+        } else if (strcmp(function->ident_name, "__builtin_popcount") == 0 ||
             strcmp(function->ident_name, "__builtin_parity") == 0 ||
             strcmp(function->ident_name, "__builtin_popcountl") == 0 ||
             strcmp(function->ident_name, "__builtin_parityl") == 0) {
@@ -8698,7 +8713,8 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
     if (strcmp(function->ident_name, "__builtin_clzll") == 0 ||
         strcmp(function->ident_name, "__builtin_ctzll") == 0 ||
         strcmp(function->ident_name, "__builtin_popcountll") == 0 ||
-        strcmp(function->ident_name, "__builtin_parityll") == 0) {
+        strcmp(function->ident_name, "__builtin_parityll") == 0 ||
+        strcmp(function->ident_name, "__builtin_ffsll") == 0) {
         argument = call_argument(expr, 0);
         if (argument && argument->type && argument->type->size == 8) {
             gen_expr_as_integer64(mod, argument);
@@ -8706,7 +8722,30 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
             gen_expr(mod, argument);
             emit_xor_reg_reg(mod, EDX, EDX);
         }
-        if (strcmp(function->ident_name, "__builtin_popcountll") == 0 ||
+        if (strcmp(function->ident_name, "__builtin_ffsll") == 0) {
+            int low_label = new_label();
+            int high_label = new_label();
+            int zero_label = new_label();
+            int end_label = new_label();
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_NE, low_label);
+            emit_test_reg_reg(mod, EDX, EDX);
+            emit_jcc_label(mod, CC_NE, high_label);
+            emit_jmp_label(mod, zero_label);
+            emit_label(mod, low_label);
+            emit_bsf_reg_reg(mod, ECX, EAX);
+            emit_mov_reg_reg(mod, EAX, ECX);
+            emit_add_reg_imm(mod, EAX, 1);
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, high_label);
+            emit_bsf_reg_reg(mod, ECX, EDX);
+            emit_mov_reg_reg(mod, EAX, ECX);
+            emit_add_reg_imm(mod, EAX, 33);
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, zero_label);
+            emit_xor_reg_reg(mod, EAX, EAX);
+            emit_label(mod, end_label);
+        } else if (strcmp(function->ident_name, "__builtin_popcountll") == 0 ||
             strcmp(function->ident_name, "__builtin_parityll") == 0) {
             emit_push_reg(mod, EDX);
             emit_popcount32(mod);
