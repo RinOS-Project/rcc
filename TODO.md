@@ -15,13 +15,15 @@
 - [x] typed importとdependency metadata
 - [x] external `rinsign`必須の最終link
 - [x] versioned build manifestとCLI矛盾検査
-- [ ] COMDAT、weak symbol、完全なarchive選択規則
+- [x] `.ro v2`契約内のCOMDAT、weak symbol、archive選択規則
     - [x] `.ro v2` COMDAT ANY groupの決定的選択と破損metadata拒否
     - [x] weak→strong置換時のsection/binding/size/RVA更新
     - [x] 入力順を保つ未解決symbol駆動の`.ra v2` member推移選択
-- [ ] TLS、INIT/FINI、UNWIND sectionの完全link
+    - [ ] 他形式・全ABI edge caseを含む完全なCOMDAT/weak/archive互換性
+- [x] `.ro v2`からRIN v3へ伝播するTLS、INIT/FINI、UNWIND section metadata
     - [x] `.ro v2` typed sectionのRIN v3伝播、W^X/幅/metadata検証
     - [x] BSSとTLS zero-fill tailのfile size / memory size分離
+    - [ ] 実行時TLS destructorと完全なUNWIND personality/runtime連携
 
 ## 2. C17 frontend
 
@@ -138,7 +140,7 @@
 
 - [x] `rcc++` entrypointとC++20既定mode
 - [x] C frontendと共通のtarget/preprocessor CLI
-- [ ] class、継承、virtual dispatchの完全実装
+- [x] bounded class、継承、virtual dispatch実装
   - [x] 非static・非virtualメンバー関数の`this`引数、暗黙field参照、
         `obj.method`／`ptr->method`呼び出しと両arch実行
   - [x] staticメンバー関数をqualified source lookup（`Class::func()`）と
@@ -151,7 +153,8 @@
         `ptr->method`を両archで実行検証
   - [x] primary vptr、class vtable、local/global vptr初期化、virtual
         callの間接分岐を実装し、overrideを含むi686/AMD64実行を検証
-- [ ] overload resolution、namespace、ADL、two-phase lookup
+  - [ ] 標準C++の全class layout、特殊メンバー、virtual ABI互換性
+- [x] bounded overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完
   - [x] parser-knownなnamespace所属class型の引数からqualified symbolをADLで
@@ -162,7 +165,8 @@
         bounded scalar/pointer ABIへ接続し、`double`、`char/char8_t`、
         `const char*/size_t`の生成・実行を検証。long doubleおよび未対応署名は
         明示診断する
-- [ ] templates、concepts、constexpr/consteval、lambda
+  - [ ] 標準C++の全conversion rank、ADL、two-phase lookup互換性
+- [x] bounded templates、concepts、constexpr/consteval、lambda
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化
   - [x] 先行非型引数を参照する整数constant-expression defaultの評価
@@ -174,16 +178,20 @@
         宣言属性を保持し、most-vexing parseの関数宣言を誤認せず、C++20
         designated/nested initializerとconstexpr aggregate member accessを
         共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
+  - [ ] partial specialization、parameter pack、未対応constexpr評価を含む完全準拠
 - [ ] modules、coroutines、atomics、TLS
-- [ ] Itanium ABI mangling、exceptions、RTTI、static initialization
+- [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
+- [ ] 全Itanium ABI、cross-library exceptions、RTTI/typeid、完全なstatic initialization
 - [ ] cross-library exceptionとthread-local destructor
 
 ## 4. IR / optimization
 
-- [ ] typed SSA IRとCFG
+- [x] scalar typed SSA IRとCFGの検証済みsubset
   - [x] scalar/pointer SSA value、basic block、phi、terminator、dominance/use-def/type verifier
   - [x] scalar ASTのalloca/load/store、scaled pointer GEP、短絡条件・論理式SSA loweringとif/while/do/for/switch CFG verification
   - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
+- [x] 定数条件分岐のSSA branch化、到達不能blockと不要phi入力の除去
+- [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
@@ -241,7 +249,9 @@
 - [x] SysV aggregate分類、floating-point/aggregate variadic ABI
 - [x] i686 cdeclとAMD64 SysVのfloating scalar variadic引数について、既定昇格、
       XMM register-save領域、`va_arg`のregister/overflow経路を実装
-- [ ] PIC/PIE、GOT/PLT、TLS relocation
+- [x] bounded PIC/PIE、GOT/PLT、TLS relocation
+  - [x] direct/internal、GOT/PLT、local-exec TLSの両arch relocation検証
+  - [ ] 全visibility、interposition、TLS model、shared-library ABI互換性
 - [ ] DWARF debug/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
@@ -265,7 +275,8 @@
 - [x] SDK v1を両archの`.ra/.rll`へpackageする統合経路
 - [x] production validatorによる署名付き成果物検査
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
-- [ ] golden `.ro/.ra/.rin/.rll/.drv`とfuzz corpus
+- [x] C17/C++20 aggregate、IR/MIR、verified backend、optimizerをhost CIでgate
+- [ ] clang/gcc互換の全golden `.ro/.ra/.rin/.rll/.drv` corpusとfuzz corpus
 - [x] host stage0 -> rcc stage1 -> rcc stage2再現build
   - [x] stage0による閉じたfrontend/sema/backend subset `.ro`の両arch再現生成
   - [x] build manifest、host process shim、rcc/rcc++/rld/rar entry pointまでの再現object生成
