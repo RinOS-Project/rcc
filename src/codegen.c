@@ -10090,6 +10090,19 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_mov_reg_mem(mod, EAX, EAX, 4);
                 break;
             }
+            if (expr->cxx_typeinfo_before) {
+                gen_expr(mod, expr->call_func->member_base);
+                emit_push_reg(mod, EAX);
+                gen_expr(mod, expr->call_args->expr);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EAX);
+                emit_cmp_reg_reg(mod, EAX, ECX);
+                emit_setcc(mod, CC_B, EAX);
+                emit_byte(mod, 0x0F);
+                emit_byte(mod, 0xB6);
+                emit_byte(mod, modrm(3, EAX, EAX));
+                break;
+            }
             gen_call(mod, expr);
             break;
         }

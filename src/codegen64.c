@@ -6234,6 +6234,17 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_mov_reg_mem(mod, RAX, RAX, 8);
                 break;
             }
+            if (expr->cxx_typeinfo_before) {
+                gen64_expr(mod, expr->call_func->member_base);
+                emit64_push_reg(mod, RAX);
+                gen64_expr(mod, expr->call_args->expr);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_pop_reg(mod, RAX);
+                emit64_cmp_reg_reg(mod, RAX, RCX);
+                emit64_setcc(mod, CC64_B, RAX);
+                emit64_movzx_r64_r8(mod, RAX, RAX);
+                break;
+            }
             if (expr->call_is_new) {
                 gen64_cxx_new(mod, expr);
                 break;

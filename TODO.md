@@ -227,6 +227,9 @@
         NUL終端文字列ポインタへlowerし、静的・多相dynamic `typeid`の
         非空name、引数付き呼出し診断、両archの`.ro`／unsigned-v3／
         `rinvalidate`回帰を追加する
+  - [x] bounded `type_info::before()`をtypeinfo identity addressの
+        実装定義順序比較へlowerし、同一型false・異型の相互排他を
+        i686/AMD64の実行回帰で検証する
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
 - [ ] remaining full Itanium ABI、`type_info` API、complete static/TLS
       destructor semantics

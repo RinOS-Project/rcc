@@ -7,6 +7,9 @@ extern "C" int main() {
     const char* int_name = typeid(int).name();
     const char* long_name = typeid(long).name();
     bool names_differ = false;
+    bool same_before = typeid(int).before(typeid(int));
+    bool opposite_before = typeid(int).before(typeid(long)) !=
+                           typeid(long).before(typeid(int));
     if (int_name && long_name) {
         for (int index = 0; index < 64; ++index) {
             if (int_name[index] != long_name[index]) {
@@ -28,6 +31,7 @@ extern "C" int main() {
             typeid(int) != typeid(long) &&
             int_name && int_name[0] != '\0' &&
             long_name && long_name[0] != '\0' && names_differ &&
+            !same_before && opposite_before &&
             typeid(int).hash_code() == typeid(int).hash_code() &&
             typeid(int).hash_code() != typeid(long).hash_code()) ? 0 : 1;
 }

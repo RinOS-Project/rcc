@@ -500,6 +500,8 @@ struct Expr {
     bool cxx_typeinfo_hash_code;
     /* Bounded `type_info::name()` call lowered from a typeid result. */
     bool cxx_typeinfo_name;
+    /* Bounded `type_info::before()` call lowered from two typeid identities. */
+    bool cxx_typeinfo_before;
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;

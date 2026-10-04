@@ -8884,20 +8884,42 @@ static Type* sema_expr(Expr* expr) {
             expr->call_func->member_base->kind == EXPR_CXX_TYPEID &&
             object_type == rcc_cxx_type_info_type() &&
             (strcmp(expr->call_func->member_name, "hash_code") == 0 ||
-             strcmp(expr->call_func->member_name, "name") == 0)) {
+             strcmp(expr->call_func->member_name, "name") == 0 ||
+             strcmp(expr->call_func->member_name, "before") == 0)) {
+            if (strcmp(expr->call_func->member_name, "before") == 0) {
+                Type* argument_type = NULL;
+                if (expr->call_args && !expr->call_args->next &&
+                    expr->call_args->expr) {
+                    argument_type = sema_expr(expr->call_args->expr);
+                }
+                if (!argument_type || argument_type != rcc_cxx_type_info_type()) {
+                    rcc_error(expr->loc,
+                              "type_info::before() requires one type_info argument");
+                } else {
+                    expr->cxx_typeinfo_before = true;
+                }
+                expr->type = type_bool;
+                return expr->type;
+            }
             if (expr->call_args) {
                 rcc_error(expr->loc,
                           strcmp(expr->call_func->member_name, "hash_code") == 0
                               ? "type_info::hash_code() takes no arguments"
-                              : "type_info::name() takes no arguments");
+                              : strcmp(expr->call_func->member_name, "name") == 0
+                                  ? "type_info::name() takes no arguments"
+                                  : "type_info::before() requires one type_info argument");
             } else {
                 if (strcmp(expr->call_func->member_name, "hash_code") == 0) {
                     expr->cxx_typeinfo_hash_code = true;
                     expr->type = g_opts.target_arch == ARCH_X64
                         ? type_ulong : type_uint;
-                } else {
+                } else if (strcmp(expr->call_func->member_name, "name") == 0) {
                     expr->cxx_typeinfo_name = true;
                     expr->type = type_ptr(type_char);
+                } else {
+                    rcc_error(expr->loc,
+                              "type_info::before() requires one type_info argument");
+                    expr->type = type_bool;
                 }
                 return expr->type;
             }
