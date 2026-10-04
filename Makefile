@@ -5826,7 +5826,15 @@ test-vla-declarator-variants: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/vla-declarator-variants/x64.s \
 		tests/vla_declarator_variants.c
-	@echo "Dual-architecture VLA declarator variant assembly generation completed; runtime execution is verified by the direct WSL host check"
+	$(CC) -m32 -nostdlib -no-pie -Wl,--entry,main \
+		-o $(TEST_OUT)/vla-declarator-variants/x86 \
+		$(TEST_OUT)/vla-declarator-variants/x86.s
+	$(TEST_OUT)/vla-declarator-variants/x86
+	$(CC) -nostdlib -no-pie -Wl,--entry,main \
+		-o $(TEST_OUT)/vla-declarator-variants/x64 \
+		$(TEST_OUT)/vla-declarator-variants/x64.s
+	$(TEST_OUT)/vla-declarator-variants/x64
+	@echo "Dual-architecture VLA declarator variant lowering tests completed"
 else
 test-vla-declarator-variants: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/vla-declarator-variants)
@@ -7879,7 +7887,14 @@ test-static-locals: $(RCC_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/static-locals/x86.rin tests/static_locals.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/static-locals/x64.rin tests/static_locals.c
-	powershell -NoProfile -Command "& wsl.exe -d Ubuntu-24.04 bash -lc 'set -e; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x86.o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x86.s; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x86-start.o $(WSL_RINCOMPILER_ROOT)/tests/vla_runtime_i686_start.s; gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x86 $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x86-start.o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x86.o; $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x86; gcc -c -o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x64.o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x64.s; gcc -c -o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x64-start.o $(WSL_RINCOMPILER_ROOT)/tests/vla_runtime_x64_start.s; gcc -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x64 $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x64-start.o $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x64.o; $(WSL_RINCOMPILER_ROOT)/$(TEST_OUT)/static-locals/x64'"
+	$(CC) -m32 -nostdlib -no-pie -Wl,--entry,main \
+		-o $(TEST_OUT)/static-locals/x86 \
+		$(TEST_OUT)/static-locals/x86.s
+	$(TEST_OUT)/static-locals/x86
+	$(CC) -nostdlib -no-pie -Wl,--entry,main \
+		-o $(TEST_OUT)/static-locals/x64 \
+		$(TEST_OUT)/static-locals/x64.s
+	$(TEST_OUT)/static-locals/x64
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/static-locals/x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
