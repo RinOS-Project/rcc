@@ -856,6 +856,119 @@ static RccIrLowerValue lower_wide_scalar_word_operation(
                        rcc_ir_type_integer(32u), true);
 }
 
+static RccIrLowerWideValue lower_wide_scalar_word_pair(
+    RccIrLowerContext* context, RccIrLowerValue word) {
+    RccIrLowerWideValue result;
+    result.low = word;
+    result.high = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    result.is_unsigned = true;
+    result.valid = result.low.valid && result.high.valid;
+    return result;
+}
+
+static bool lower_wide_scalar_multiply(
+    RccIrLowerContext* context, RccIrLowerWideValue left,
+    RccIrLowerWideValue right, bool is_unsigned,
+    RccIrLowerWideValue* result) {
+    RccIrLowerValue mask16;
+    RccIrLowerValue shift16;
+    RccIrLowerValue zero;
+    RccIrLowerValue left0;
+    RccIrLowerValue left1;
+    RccIrLowerValue right0;
+    RccIrLowerValue right1;
+    RccIrLowerValue product0;
+    RccIrLowerValue product1;
+    RccIrLowerValue product2;
+    RccIrLowerValue product3;
+    RccIrLowerValue cross_left;
+    RccIrLowerValue cross_right;
+    RccIrLowerWideValue term0;
+    RccIrLowerWideValue term1;
+    RccIrLowerWideValue term2;
+    RccIrLowerWideValue term3;
+    RccIrLowerWideValue term4;
+    RccIrLowerWideValue term5;
+    RccIrLowerWideValue sum;
+    if (!result) return false;
+    memset(result, 0, sizeof(*result));
+    if (!left.valid || !right.valid) return false;
+    mask16 = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0xffffu);
+    shift16 = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 16u);
+    zero = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    if (!mask16.valid || !shift16.valid || !zero.valid) return false;
+    left0 = lower_wide_scalar_word_operation(
+        context, RCC_IR_AND, left.low, mask16);
+    left1 = lower_wide_scalar_word_operation(
+        context, RCC_IR_LSHR, left.low, shift16);
+    right0 = lower_wide_scalar_word_operation(
+        context, RCC_IR_AND, right.low, mask16);
+    right1 = lower_wide_scalar_word_operation(
+        context, RCC_IR_LSHR, right.low, shift16);
+    if (!left0.valid || !left1.valid || !right0.valid || !right1.valid) {
+        return false;
+    }
+    product0 = lower_wide_scalar_word_operation(
+        context, RCC_IR_MUL, left0, right0);
+    product1 = lower_wide_scalar_word_operation(
+        context, RCC_IR_MUL, left0, right1);
+    product2 = lower_wide_scalar_word_operation(
+        context, RCC_IR_MUL, left1, right0);
+    product3 = lower_wide_scalar_word_operation(
+        context, RCC_IR_MUL, left1, right1);
+    cross_left = lower_wide_scalar_word_operation(
+        context, RCC_IR_MUL, left.low, right.high);
+    cross_right = lower_wide_scalar_word_operation(
+        context, RCC_IR_MUL, left.high, right.low);
+    if (!product0.valid || !product1.valid ||
+        !product2.valid || !product3.valid ||
+        !cross_left.valid || !cross_right.valid) return false;
+    term0 = lower_wide_scalar_word_pair(context, product0);
+    term1.low = lower_wide_scalar_word_operation(
+        context, RCC_IR_SHL, product1, shift16);
+    term1.high = lower_wide_scalar_word_operation(
+        context, RCC_IR_LSHR, product1, shift16);
+    term1.is_unsigned = true;
+    term1.valid = term1.low.valid && term1.high.valid;
+    term2.low = lower_wide_scalar_word_operation(
+        context, RCC_IR_SHL, product2, shift16);
+    term2.high = lower_wide_scalar_word_operation(
+        context, RCC_IR_LSHR, product2, shift16);
+    term2.is_unsigned = true;
+    term2.valid = term2.low.valid && term2.high.valid;
+    term3.low = zero;
+    term3.high = product3;
+    term3.is_unsigned = true;
+    term3.valid = true;
+    term4.low = zero;
+    term4.high = cross_left;
+    term4.is_unsigned = true;
+    term4.valid = true;
+    term5.low = zero;
+    term5.high = cross_right;
+    term5.is_unsigned = true;
+    term5.valid = true;
+    if (!term0.valid || !term1.valid || !term2.valid || !term3.valid ||
+        !term4.valid || !term5.valid ||
+        !lower_wide_scalar_binary(
+            context, EXPR_ADD, term0, term1, true, &sum) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_ADD, sum, term2, true, &sum) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_ADD, sum, term3, true, &sum) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_ADD, sum, term4, true, &sum) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_ADD, sum, term5, is_unsigned, result)) {
+        return false;
+    }
+    return true;
+}
+
 static RccIrLowerValue lower_wide_scalar_compare_words(
     RccIrLowerContext* context, RccIrLowerValue left,
     RccIrLowerValue right, RccIrIntPredicate predicate) {
@@ -1279,6 +1392,15 @@ static bool lower_wide_scalar_expression(
         lower_i686_wide_scalar_type(expression->type)) {
         return lower_wide_scalar_conditional_expression(
             context, expression, result);
+    }
+    if (expression->kind == EXPR_MUL &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_lhs, &left) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_rhs, &right)) {
+        return lower_wide_scalar_multiply(
+            context, left, right, expression->type->is_unsigned, result);
     }
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_BITAND || expression->kind == EXPR_BITOR ||

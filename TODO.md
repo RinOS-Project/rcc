@@ -224,7 +224,7 @@
   - [x] i686 cdeclの64-bit整数を、EDX:EAXのverified SSA return-pair、8-byte引数、
         local/global load、narrow cast、加減算のcarry/borrow、bitwise、
         signed/unsigned比較、0..63-bit shiftへ接続し、実行回帰で検証
-  - [ ] i686 wide-scalarのcall、mul/div/mod、完全な
+  - [ ] i686 wide-scalarのcall、div/mod、完全な
         first-class two-word SSA value model
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier

@@ -83,3 +83,8 @@ unsigned long long verified_wide_scalar_truth_conditional(
 {
     return value ? 0x1122334455667788ULL : 0x8877665544332211ULL;
 }
+
+unsigned long long verified_wide_scalar_mul(unsigned long long value)
+{
+    return value * 0x0000000100000001ULL;
+}
