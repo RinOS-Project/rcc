@@ -7743,6 +7743,22 @@ test-aggregate-packed-abi: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/aggregate-packed-abi/x64.ro \
 		tests/aggregate_packed_abi.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-packed-abi/x86.s \
+		tests/aggregate_packed_abi.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/aggregate-packed-abi/run-test-x86 \
+		$(TEST_OUT)/aggregate-packed-abi/x86.s
+	$(TEST_OUT)/aggregate-packed-abi/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-packed-abi/x64.s \
+		tests/aggregate_packed_abi.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/aggregate-packed-abi/run-test-x64 \
+		$(TEST_OUT)/aggregate-packed-abi/x64.s
+	$(TEST_OUT)/aggregate-packed-abi/run-test-x64
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/aggregate-packed-abi/run-test-x86 \
 		tests/aggregate_packed_abi_host.c src/emit_ro.c src/utils.c
@@ -7753,6 +7769,7 @@ test-aggregate-packed-abi: $(RCC_TARGET)
 		$(TEST_OUT)/aggregate-packed-abi/x86.ro
 	$(TEST_OUT)/aggregate-packed-abi/run-test-x64 \
 		$(TEST_OUT)/aggregate-packed-abi/x64.ro
+endif
 	@echo "SysV packed aggregate ABI tests completed"
 
 test-compound-literals: $(RCC_TARGET)
