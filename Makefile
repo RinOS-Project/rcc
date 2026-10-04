@@ -7778,6 +7778,20 @@ test-compound-literals: $(RCC_TARGET)
 		-o $(TEST_OUT)/compound-literals/x86.ro tests/compound_literal.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/compound-literals/x64.ro tests/compound_literal.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/compound-literals/x86.s tests/compound_literal.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/compound-literals/run-test-x86 \
+		$(TEST_OUT)/compound-literals/x86.s
+	$(TEST_OUT)/compound-literals/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/compound-literals/x64.s tests/compound_literal.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/compound-literals/run-test-x64 \
+		$(TEST_OUT)/compound-literals/x64.s
+	$(TEST_OUT)/compound-literals/run-test-x64
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/compound-literals/run-test-x86 \
 		tests/compound_literal_run_test.c src/emit_ro.c src/utils.c
@@ -7788,12 +7802,11 @@ test-compound-literals: $(RCC_TARGET)
 		$(TEST_OUT)/compound-literals/x86.ro
 	$(TEST_OUT)/compound-literals/run-test-x64 \
 		$(TEST_OUT)/compound-literals/x64.ro
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/compound-literals/invalid.ro \
-		tests/invalid_compound_literal.c \
-		>$(TEST_OUT)/compound-literals/invalid.log 2>&1; then \
-		echo "incomplete compound literal unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_compound_literal.c,$(TEST_OUT)/compound-literals/invalid.log)
 	$(GREP) -q "compound literal requires a complete object type" \
 		$(TEST_OUT)/compound-literals/invalid.log
 	@echo "Dual-architecture C17 automatic compound literal tests completed"

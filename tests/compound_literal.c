@@ -27,3 +27,17 @@ int compound_scalar(int value) {
 int compound_side_effect(int* counter) {
     return consume_triple((struct Triple){ (*counter)++, 2, 3 });
 }
+
+int main(void)
+{
+    int counter = 4;
+    if (compound_member(7) != 7 ||
+        compound_argument(4, 5, 6) != 456 ||
+        compound_array(3, 8) != 8 ||
+        compound_scalar(9) != 11 ||
+        compound_side_effect(&counter) != 423 ||
+        counter != 5) {
+        return 1;
+    }
+    return 0;
+}
