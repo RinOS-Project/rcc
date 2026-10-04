@@ -93,6 +93,10 @@ static void verify_smaller(const char* unoptimized_path,
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_constant_call",
                                    0xe8u));
+    assert(function_extent(optimized, "algebraic_integer_identities") <
+           function_extent(unoptimized, "algebraic_integer_identities"));
+    assert(function_extent(optimized, "algebraic_integer_zero") <
+           function_extent(unoptimized, "algebraic_integer_zero"));
     assert(function_extent(optimized, "removed_after_return") <
            function_extent(unoptimized, "removed_after_return"));
     assert(function_extent(optimized, "removed_after_goto") <
@@ -174,6 +178,12 @@ int main(int argc, char** argv)
             object, "folded_unsigned_unary");
         ObjSymbol* mixed_unsigned_comparison_symbol = function_symbol(
             object, "folded_mixed_unsigned_comparison");
+        ObjSymbol* algebraic_integer_identities_symbol = function_symbol(
+            object, "algebraic_integer_identities");
+        ObjSymbol* algebraic_integer_zero_symbol = function_symbol(
+            object, "algebraic_integer_zero");
+        ObjSymbol* preserved_algebraic_side_effect_symbol = function_symbol(
+            object, "preserved_algebraic_side_effect");
         ObjSymbol* removed_after_return_symbol = function_symbol(
             object, "removed_after_return");
         ObjSymbol* removed_after_goto_symbol = function_symbol(
@@ -250,6 +260,9 @@ int main(int argc, char** argv)
         uint32_t (*folded_unsigned_narrow)(void);
         uint64_t (*folded_unsigned_unary)(void);
         int (*folded_mixed_unsigned_comparison)(void);
+        int (*algebraic_integer_identities)(int);
+        int (*algebraic_integer_zero)(int);
+        int (*preserved_algebraic_side_effect)(int*);
         int (*removed_after_return)(int*);
         int (*removed_after_goto)(int*);
         int (*preserved_nested_label)(int);
@@ -322,6 +335,15 @@ int main(int argc, char** argv)
         address = mapping + mixed_unsigned_comparison_symbol->value;
         memcpy(&folded_mixed_unsigned_comparison, &address,
                sizeof(folded_mixed_unsigned_comparison));
+        address = mapping + algebraic_integer_identities_symbol->value;
+        memcpy(&algebraic_integer_identities, &address,
+               sizeof(algebraic_integer_identities));
+        address = mapping + algebraic_integer_zero_symbol->value;
+        memcpy(&algebraic_integer_zero, &address,
+               sizeof(algebraic_integer_zero));
+        address = mapping + preserved_algebraic_side_effect_symbol->value;
+        memcpy(&preserved_algebraic_side_effect, &address,
+               sizeof(preserved_algebraic_side_effect));
         address = mapping + removed_after_return_symbol->value;
         memcpy(&removed_after_return, &address,
                sizeof(removed_after_return));
@@ -427,6 +449,12 @@ int main(int argc, char** argv)
         assert(folded_unsigned_narrow() == UINT32_C(5));
         assert(folded_unsigned_unary() == UINT64_C(0));
         assert(folded_mixed_unsigned_comparison() == 0);
+        assert(algebraic_integer_identities(-17) == -17);
+        assert(algebraic_integer_zero(123) == 7);
+        value = 10;
+        assert(preserved_algebraic_side_effect(&value) == 0);
+        assert(value == 11);
+        value = 3;
         assert(removed_after_return(&value) == 7);
         assert(value == 3);
         assert(removed_after_goto(&value) == 3);

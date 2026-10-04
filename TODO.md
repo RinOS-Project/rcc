@@ -93,7 +93,7 @@
   - [x] struct/unionの通常・連鎖代入と端数byteを含む両arch copy codegen
   - [x] automatic storageのscalar/array/aggregate compound literal
   - [x] i686/AMD64のaggregate returnと戻り値からのmember/argument連鎖
-- [ ] `_Generic`、atomics、thread-local storage
+- [x] bounded `_Generic`、atomics、thread-local storage
   - [x] Lower the commonly used GCC compatibility builtins
           `__builtin_expect` and `__builtin_unreachable` as validated intrinsics
           on i686/AMD64, including real undefined-path trapping and C/C++
@@ -179,10 +179,11 @@
         designated/nested initializerとconstexpr aggregate member accessを
         共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
   - [ ] partial specialization、parameter pack、未対応constexpr評価を含む完全準拠
-- [ ] modules、coroutines、atomics、TLS
+- [ ] C++20 modules、coroutines
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
-- [ ] 全Itanium ABI、cross-library exceptions、RTTI/typeid、完全なstatic initialization
-- [ ] cross-library exceptionとthread-local destructor
+- [x] cross-library exception transport and cleanup across `.rll` boundaries
+- [ ] remaining full Itanium ABI、RTTI/typeid、complete static/TLS destructor semantics
+- [ ] thread-local destructor and exception cleanup interaction
 
 ## 4. IR / optimization
 
@@ -195,7 +196,7 @@
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
-- [ ] constant propagation / folding
+- [x] bounded constant propagation / folding
   - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
   - [x] 8/16/32/64-bit unsigned modulo演算・shift・比較・narrow cast folding
   - [x] alias/control-flow barrier付きblock-local整数constant propagation
@@ -203,6 +204,9 @@
   - [x] typed SSAの同一定数PHI／定数条件SELECT foldingとverifier/native回帰
   - [x] 変更・escapeのない局所整数に限定したwhile/do-while/forの
         loop-invariant constant propagationと両arch実行回帰
+  - [x] side-effect-free integer algebraic identities (`+0`、`-0`、`*1`、`/1`、
+        bitwise identity、zero folding)を型互換性と副作用保持付きで実装し、
+        両archの最適化・実行回帰へ接続
 - [x] mem2reg、DCE、CSE/GVN
   - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
     （`goto`および`case/default`からのentryを保持）
@@ -219,10 +223,11 @@
 - [x] `-O0..3`ごとのpass pipeline
   - [x] O0検証のみ、O1 mem2reg/fold/DCE、O2 GVN追加、O3固定点反復
   - [x] rcc/rcc++共通の厳密な`-O0..3` CLI検証と範囲外fail-closed
-- [ ] linear-scan / graph-coloring register allocation
+- [x] bounded linear-scan register allocation
   - [x] phi edge/call crossing対応MIR live intervalとpolicy駆動linear-scan/spill配置
   - [x] 非レイアウト順successor/back-edge対応CFG fixed-point liveness
   - [x] DIV/REMのAX:DXと可変shiftのCXを命令位置だけ予約するfixed-register制約
+  - [ ] graph-coloring allocation and whole-program spill heuristics
 
 ## 5. backend
 

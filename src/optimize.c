@@ -21,6 +21,99 @@ static bool statement_modifies_decl(const Stmt* statement,
                                     const Decl* declaration);
 static bool integer_literal(const Expr* expression, int64_t* value);
 static void replace_integer(Expr* expression, int64_t value);
+static uint64_t integer_mask(const Type* type);
+static uint64_t integer_unsigned_value(int64_t value, const Type* type);
+
+static bool integer_expression_type_matches(const Expr* expression,
+                                            const Type* type) {
+    return expression && expression->type && type &&
+           type_is_integer(expression->type) && type_is_integer((Type*)type) &&
+           type_is_compatible(expression->type, (Type*)type);
+}
+
+static bool simplify_integer_identity(Expr** expression) {
+    Expr* value;
+    Expr* left;
+    Expr* right;
+    int64_t left_value;
+    int64_t right_value;
+    uint64_t mask;
+
+    if (!expression || !*expression) return false;
+    value = *expression;
+    switch (value->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+            break;
+        default:
+            return false;
+    }
+    left = value->binary_lhs;
+    right = value->binary_rhs;
+    if (!left || !right || !type_is_integer(value->type) ||
+        !integer_expression_type_matches(left, value->type) ||
+        !integer_expression_type_matches(right, value->type)) {
+        return false;
+    }
+    mask = integer_mask(value->type);
+    if (integer_literal(right, &right_value)) {
+        uint64_t right_bits = integer_unsigned_value(right_value, value->type);
+        if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB ||
+             value->kind == EXPR_BITOR || value->kind == EXPR_BITXOR ||
+             value->kind == EXPR_LSHIFT || value->kind == EXPR_RSHIFT) &&
+            right_bits == 0u) {
+            *expression = left;
+            return true;
+        }
+        if (value->kind == EXPR_MUL && right_bits == 1u) {
+            *expression = left;
+            return true;
+        }
+        if (value->kind == EXPR_DIV && right_bits == 1u) {
+            *expression = left;
+            return true;
+        }
+        if (value->kind == EXPR_BITAND && right_bits == mask) {
+            *expression = left;
+            return true;
+        }
+        if ((value->kind == EXPR_MUL || value->kind == EXPR_BITAND) &&
+            right_bits == 0u && !expression_has_side_effect(left)) {
+            replace_integer(value, 0);
+            return true;
+        }
+    }
+    if (integer_literal(left, &left_value)) {
+        uint64_t left_bits = integer_unsigned_value(left_value, value->type);
+        if ((value->kind == EXPR_ADD || value->kind == EXPR_BITOR ||
+             value->kind == EXPR_BITXOR) && left_bits == 0u) {
+            *expression = right;
+            return true;
+        }
+        if (value->kind == EXPR_MUL && left_bits == 1u) {
+            *expression = right;
+            return true;
+        }
+        if (value->kind == EXPR_BITAND && left_bits == mask) {
+            *expression = right;
+            return true;
+        }
+        if ((value->kind == EXPR_MUL || value->kind == EXPR_BITAND) &&
+            left_bits == 0u && !expression_has_side_effect(right)) {
+            replace_integer(value, 0);
+            return true;
+        }
+    }
+    return false;
+}
 
 static bool single_integer_return(const Stmt* statement, int64_t* value) {
     const StmtList* item;
@@ -1048,6 +1141,8 @@ static void optimize_expr(Expr** expression) {
         default:
             break;
     }
+
+    if (simplify_integer_identity(expression)) return;
 
     switch (value->kind) {
         case EXPR_NEG:
