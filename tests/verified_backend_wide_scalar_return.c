@@ -72,3 +72,14 @@ long long verified_wide_scalar_ashr(long long value, unsigned int count)
 {
     return value >> count;
 }
+
+unsigned long long verified_wide_scalar_conditional(int condition)
+{
+    return condition ? 0x1122334455667788ULL : 0x8877665544332211ULL;
+}
+
+unsigned long long verified_wide_scalar_truth_conditional(
+    unsigned long long value)
+{
+    return value ? 0x1122334455667788ULL : 0x8877665544332211ULL;
+}

@@ -72,6 +72,11 @@ static bool lower_i686_wide_scalar_type(const Type* type);
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result);
+static RccIrLowerValue lower_wide_scalar_truth(
+    RccIrLowerContext* context, RccIrLowerWideValue value);
+static bool lower_wide_scalar_conditional_expression(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result);
 static bool lower_wide_scalar_store(
     RccIrLowerContext* context, RccIrLowerValue address,
     RccIrLowerWideValue value);
@@ -1101,6 +1106,108 @@ static bool lower_wide_scalar_shift(
     return true;
 }
 
+static RccIrLowerValue lower_wide_scalar_truth(
+    RccIrLowerContext* context, RccIrLowerWideValue value) {
+    RccIrLowerValue zero;
+    RccIrLowerValue high_nonzero;
+    RccIrLowerValue low_nonzero;
+    if (!value.valid) return lower_invalid_value();
+    zero = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    if (!zero.valid) return lower_invalid_value();
+    high_nonzero = lower_wide_scalar_compare_words(
+        context, value.high, zero, RCC_IR_ICMP_NE);
+    low_nonzero = lower_wide_scalar_compare_words(
+        context, value.low, zero, RCC_IR_ICMP_NE);
+    if (!high_nonzero.valid || !low_nonzero.valid) {
+        return lower_invalid_value();
+    }
+    return lower_wide_scalar_bool_operation(
+        context, RCC_IR_OR, high_nonzero, low_nonzero);
+}
+
+static bool lower_wide_scalar_conditional_expression(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    RccIrLowerValue condition;
+    RccIrLowerWideValue condition_wide;
+    RccIrLowerWideValue then_value;
+    RccIrLowerWideValue else_value;
+    RccIrBlock* then_block;
+    RccIrBlock* else_block;
+    RccIrBlock* merge_block;
+    RccIrBlock* then_end;
+    RccIrBlock* else_end;
+    RccIrValue operands[2];
+    RccIrBlockId targets[2];
+    RccIrInstruction* low_phi;
+    RccIrInstruction* high_phi;
+    if (result) memset(result, 0, sizeof(*result));
+    if (!context || !expression || !result || !expression->type ||
+        !lower_i686_wide_scalar_type(expression->type)) return false;
+    if (expression->cond_test && lower_i686_wide_scalar_type(
+            expression->cond_test->type)) {
+        if (!lower_wide_scalar_expression(
+                context, expression->cond_test, &condition_wide)) {
+            return false;
+        }
+        condition = lower_wide_scalar_truth(context, condition_wide);
+    } else {
+        condition = lower_expression(context, expression->cond_test);
+    }
+    if (!condition.valid) return false;
+    then_block = rcc_ir_block_add(context->function, "wide.cond.then");
+    else_block = rcc_ir_block_add(context->function, "wide.cond.else");
+    merge_block = rcc_ir_block_add(context->function, "wide.cond.end");
+    if (!then_block || !else_block || !merge_block ||
+        !lower_conditional_branch(context, condition, then_block->id,
+                                  else_block->id)) {
+        return false;
+    }
+
+    context->current = then_block;
+    context->terminated = false;
+    if (!lower_wide_scalar_expression(
+            context, expression->cond_then, &then_value) ||
+        context->terminated || !lower_branch(context, merge_block->id)) {
+        return false;
+    }
+    then_end = context->current;
+
+    context->current = else_block;
+    context->terminated = false;
+    if (!lower_wide_scalar_expression(
+            context, expression->cond_else, &else_value) ||
+        context->terminated || !lower_branch(context, merge_block->id)) {
+        return false;
+    }
+    else_end = context->current;
+
+    context->current = merge_block;
+    context->terminated = false;
+    operands[0] = then_value.low.value;
+    operands[1] = else_value.low.value;
+    targets[0] = then_end->id;
+    targets[1] = else_end->id;
+    low_phi = lower_append(
+        context, RCC_IR_PHI, rcc_ir_type_integer(32u), operands, 2u,
+        targets, 2u);
+    if (!low_phi) return false;
+    operands[0] = then_value.high.value;
+    operands[1] = else_value.high.value;
+    high_phi = lower_append(
+        context, RCC_IR_PHI, rcc_ir_type_integer(32u), operands, 2u,
+        targets, 2u);
+    if (!high_phi) return false;
+    result->low = lower_value(
+        low_phi->result, rcc_ir_type_integer(32u), true);
+    result->high = lower_value(
+        high_phi->result, rcc_ir_type_integer(32u), true);
+    result->is_unsigned = expression->type->is_unsigned;
+    result->valid = true;
+    return true;
+}
+
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
@@ -1167,6 +1274,11 @@ static bool lower_wide_scalar_expression(
             return result->valid;
         }
         return false;
+    }
+    if (expression->kind == EXPR_COND &&
+        lower_i686_wide_scalar_type(expression->type)) {
+        return lower_wide_scalar_conditional_expression(
+            context, expression, result);
     }
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_BITAND || expression->kind == EXPR_BITOR ||

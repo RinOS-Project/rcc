@@ -99,6 +99,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* lshift_symbol;
     ObjSymbol* lshr_symbol;
     ObjSymbol* ashr_symbol;
+    ObjSymbol* conditional_symbol;
+    ObjSymbol* truth_conditional_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -127,6 +129,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_lshr");
     ashr_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_ashr");
+    conditional_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_conditional");
+    truth_conditional_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_truth_conditional");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -168,6 +174,14 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            lshr_symbol->binding == BIND_CODE && lshr_symbol->section == 0);
     assert(ashr_symbol != NULL && ashr_symbol->type == SYM_GLOBAL &&
            ashr_symbol->binding == BIND_CODE && ashr_symbol->section == 0);
+    assert(conditional_symbol != NULL &&
+           conditional_symbol->type == SYM_GLOBAL &&
+           conditional_symbol->binding == BIND_CODE &&
+           conditional_symbol->section == 0);
+    assert(truth_conditional_symbol != NULL &&
+           truth_conditional_symbol->type == SYM_GLOBAL &&
+           truth_conditional_symbol->binding == BIND_CODE &&
+           truth_conditional_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -188,6 +202,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long (*lshr_function)(unsigned long long,
                                             unsigned int);
         long long (*ashr_function)(long long, unsigned int);
+        unsigned long long (*conditional_function)(int);
+        unsigned long long (*truth_conditional_function)(unsigned long long);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
         assert(function() == 0x1122334455667788ULL);
@@ -244,6 +260,17 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&ashr_function, &address, sizeof(ashr_function));
         assert(ashr_function(-0x0000000100000000LL, 32u) == -1LL);
         assert(ashr_function(0x4000000000000000LL, 62u) == 1LL);
+        address = symbol_address(memory, conditional_symbol);
+        memcpy(&conditional_function, &address, sizeof(conditional_function));
+        assert(conditional_function(0) == 0x8877665544332211ULL);
+        assert(conditional_function(1) == 0x1122334455667788ULL);
+        address = symbol_address(memory, truth_conditional_symbol);
+        memcpy(&truth_conditional_function, &address,
+               sizeof(truth_conditional_function));
+        assert(truth_conditional_function(0ULL) ==
+               0x8877665544332211ULL);
+        assert(truth_conditional_function(1ULL) ==
+               0x1122334455667788ULL);
         assert(munmap(memory, mapping_size) == 0);
     }
     objfile_free(object);
