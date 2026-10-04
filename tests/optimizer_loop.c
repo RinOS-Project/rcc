@@ -43,6 +43,24 @@ int loop_constant_one_le(void)
     return result;
 }
 
+int loop_constant_two(void)
+{
+    int result = 0;
+    for (int index = 0; index < 2; ++index) {
+        result += 13;
+    }
+    return result;
+}
+
+int loop_constant_three_le(void)
+{
+    int result = 0;
+    for (unsigned index = 1; index <= 3; ++index) {
+        result += 7;
+    }
+    return result;
+}
+
 int loop_constant_zero(void)
 {
     int result = 5;

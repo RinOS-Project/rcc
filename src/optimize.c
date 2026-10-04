@@ -32,10 +32,19 @@ static int integer_width(const Type* type);
 static void replace_integer(Expr* expression, int64_t value);
 static uint64_t integer_mask(const Type* type);
 static uint64_t integer_unsigned_value(int64_t value, const Type* type);
+static int64_t integer_signed_value(int64_t value, const Type* type);
+static bool signed_type_limits(const Type* type, int64_t* minimum,
+                               int64_t* maximum);
 static Expr* clone_inline_pure_integer_expression(const Expr* expression);
 static size_t inline_pure_integer_expression_cost(const Expr* expression);
 
 static bool statement_contains_loop_transfer(const Stmt* statement);
+static bool statement_contains_declaration(const Stmt* statement);
+static bool constant_for_iteration_count(const Stmt* statement,
+                                         unsigned* count);
+static Expr* clone_unrolled_expr(const Expr* expression);
+static Stmt* clone_unrolled_stmt(const Stmt* statement);
+static bool unroll_constant_for(Stmt* statement, unsigned count);
 static bool unroll_single_iteration_for(Stmt* statement);
 
 enum { INLINE_PURE_INTEGER_EXPANSION_LIMIT = 64 };
@@ -1262,6 +1271,50 @@ static bool statement_contains_loop_transfer(const Stmt* statement) {
     }
 }
 
+static bool statement_contains_declaration(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_DECL:
+            return true;
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (statement_contains_declaration(item->stmt)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return statement_contains_declaration(statement->if_then) ||
+                statement_contains_declaration(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return statement_contains_declaration(statement->while_body);
+        case STMT_FOR:
+            return statement_contains_declaration(statement->for_init) ||
+                statement_contains_declaration(statement->for_body);
+        case STMT_SWITCH:
+            return statement_contains_declaration(statement->switch_body);
+        case STMT_CASE:
+            return statement_contains_declaration(statement->case_stmt);
+        case STMT_DEFAULT:
+            return statement_contains_declaration(statement->default_stmt);
+        case STMT_LABEL:
+            return statement_contains_declaration(statement->label_stmt);
+        case STMT_TRY:
+            if (statement_contains_declaration(statement->try_body)) {
+                return true;
+            }
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (statement_contains_declaration(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
 static bool eliminate_zero_condition_do(Stmt* statement) {
     int64_t condition;
     Stmt* body;
@@ -1329,6 +1382,311 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     only->next = NULL;
     statement->kind = STMT_BLOCK;
     statement->block_stmts = only;
+    statement->for_init = NULL;
+    statement->for_cond = NULL;
+    statement->for_inc = NULL;
+    statement->for_body = NULL;
+    return true;
+}
+
+static bool constant_for_iteration_count(const Stmt* statement,
+                                         unsigned* count) {
+    const Stmt* initializer;
+    const Decl* induction;
+    const Expr* condition;
+    const Expr* increment;
+    int64_t initial_value;
+    int64_t bound_value;
+    unsigned iterations;
+    if (!statement || !count || statement->kind != STMT_FOR ||
+        !statement->for_init || statement->for_init->kind != STMT_DECL ||
+        !statement->for_init->decl ||
+        statement->for_init->decl->kind != DECL_VAR ||
+        !statement->for_init->decl->var_init || !statement->for_cond ||
+        !statement->for_inc || !statement->for_body ||
+        rcc_parser_is_cxx_mode() ||
+        statement_contains_loop_transfer(statement->for_body) ||
+        statement_contains_label(statement->for_body) ||
+        statement_contains_declaration(statement->for_body)) {
+        return false;
+    }
+    initializer = statement->for_init;
+    induction = initializer->decl;
+    condition = statement->for_cond;
+    increment = statement->for_inc;
+    if (!induction->type || !type_is_integer(induction->type) ||
+        !integer_literal(induction->var_init, &initial_value) ||
+        (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
+        !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
+        condition->binary_lhs->ident_decl != induction ||
+        !integer_literal(condition->binary_rhs, &bound_value) ||
+        (increment->kind != EXPR_PREINC &&
+         increment->kind != EXPR_POSTINC) ||
+        !increment->unary_operand ||
+        increment->unary_operand->kind != EXPR_IDENT ||
+        increment->unary_operand->ident_decl != induction) {
+        return false;
+    }
+    iterations = 0u;
+    if (induction->type->is_unsigned) {
+        uint64_t current = integer_unsigned_value(
+            initial_value, induction->type);
+        uint64_t bound = integer_unsigned_value(
+            bound_value, induction->type);
+        uint64_t mask = integer_mask(induction->type);
+        while (iterations <= 4u) {
+            bool runs = condition->kind == EXPR_LT
+                ? current < bound : current <= bound;
+            if (!runs) {
+                *count = iterations;
+                return iterations >= 2u;
+            }
+            if (current == mask) return false;
+            current = (current + 1u) & mask;
+            ++iterations;
+        }
+    } else {
+        int64_t current = integer_signed_value(
+            initial_value, induction->type);
+        int64_t bound = integer_signed_value(
+            bound_value, induction->type);
+        int64_t minimum;
+        int64_t maximum;
+        if (!signed_type_limits(induction->type, &minimum, &maximum)) {
+            return false;
+        }
+        while (iterations <= 4u) {
+            bool runs = condition->kind == EXPR_LT
+                ? current < bound : current <= bound;
+            if (!runs) {
+                *count = iterations;
+                return iterations >= 2u;
+            }
+            if (current == maximum) return false;
+            ++current;
+            ++iterations;
+        }
+    }
+    return false;
+}
+
+static ExprList* clone_unrolled_expr_list(const ExprList* list) {
+    ExprList* result = NULL;
+    ExprList** tail = &result;
+    for (; list; list = list->next) {
+        ExprList* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *list;
+        copy->expr = clone_unrolled_expr(list->expr);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return result;
+}
+
+static GenericAssociation* clone_unrolled_generic_associations(
+    const GenericAssociation* list) {
+    GenericAssociation* result = NULL;
+    GenericAssociation** tail = &result;
+    for (; list; list = list->next) {
+        GenericAssociation* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *list;
+        copy->expr = clone_unrolled_expr(list->expr);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return result;
+}
+
+static Expr* clone_unrolled_expr(const Expr* expression) {
+    Expr* copy;
+    if (!expression) return NULL;
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *expression;
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            copy->unary_operand = clone_unrolled_expr(
+                expression->unary_operand);
+            break;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            copy->binary_lhs = clone_unrolled_expr(expression->binary_lhs);
+            copy->binary_rhs = clone_unrolled_expr(expression->binary_rhs);
+            break;
+        case EXPR_COND:
+            copy->cond_test = clone_unrolled_expr(expression->cond_test);
+            copy->cond_then = clone_unrolled_expr(expression->cond_then);
+            copy->cond_else = clone_unrolled_expr(expression->cond_else);
+            break;
+        case EXPR_CALL:
+            copy->call_func = clone_unrolled_expr(expression->call_func);
+            copy->call_args = clone_unrolled_expr_list(expression->call_args);
+            copy->call_new_count = clone_unrolled_expr(
+                expression->call_new_count);
+            copy->call_new_args = clone_unrolled_expr_list(
+                expression->call_new_args);
+            break;
+        case EXPR_INDEX:
+            copy->index_base = clone_unrolled_expr(expression->index_base);
+            copy->index_expr = clone_unrolled_expr(expression->index_expr);
+            break;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            copy->member_base = clone_unrolled_expr(expression->member_base);
+            break;
+        case EXPR_CAST:
+            copy->cast_expr = clone_unrolled_expr(expression->cast_expr);
+            break;
+        case EXPR_COMPOUND:
+            copy->compound_init = clone_unrolled_expr_list(
+                expression->compound_init);
+            break;
+        case EXPR_GENERIC:
+            copy->generic_control = clone_unrolled_expr(
+                expression->generic_control);
+            copy->generic_associations =
+                clone_unrolled_generic_associations(
+                    expression->generic_associations);
+            break;
+        case EXPR_CXX_TYPEID:
+            copy->cxx_typeid_operand = clone_unrolled_expr(
+                expression->cxx_typeid_operand);
+            break;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            copy->va_list_operand = clone_unrolled_expr(
+                expression->va_list_operand);
+            copy->va_second_operand = clone_unrolled_expr(
+                expression->va_second_operand);
+            break;
+        default:
+            break;
+    }
+    return copy;
+}
+
+static StmtList* clone_unrolled_stmt_list(const StmtList* list) {
+    StmtList* result = NULL;
+    StmtList** tail = &result;
+    for (; list; list = list->next) {
+        StmtList* copy = ast_arena_alloc(sizeof(*copy));
+        copy->stmt = clone_unrolled_stmt(list->stmt);
+        if (list->stmt && !copy->stmt) return NULL;
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return result;
+}
+
+static Stmt* clone_unrolled_stmt(const Stmt* statement) {
+    Stmt* copy;
+    if (!statement) return NULL;
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *statement;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            copy->expr = clone_unrolled_expr(statement->expr);
+            break;
+        case STMT_BLOCK:
+            copy->block_stmts = clone_unrolled_stmt_list(
+                statement->block_stmts);
+            if (statement->block_stmts && !copy->block_stmts) return NULL;
+            break;
+        case STMT_IF:
+            copy->if_cond = clone_unrolled_expr(statement->if_cond);
+            copy->if_then = clone_unrolled_stmt(statement->if_then);
+            copy->if_else = clone_unrolled_stmt(statement->if_else);
+            if ((statement->if_then && !copy->if_then) ||
+                (statement->if_else && !copy->if_else)) return NULL;
+            break;
+        case STMT_RETURN:
+            copy->return_val = clone_unrolled_expr(statement->return_val);
+            break;
+        case STMT_NULL:
+            break;
+        default:
+            return NULL;
+    }
+    return copy;
+}
+
+static bool unroll_constant_for(Stmt* statement, unsigned count) {
+    StmtList* head;
+    StmtList** tail;
+    if (!statement || statement->kind != STMT_FOR || count < 2u ||
+        count > 4u || !statement->for_init || !statement->for_body ||
+        !statement->for_inc || !clone_unrolled_stmt(statement->for_body)) {
+        return false;
+    }
+    head = ast_arena_alloc(sizeof(*head));
+    head->stmt = statement->for_init;
+    head->next = NULL;
+    tail = &head->next;
+    for (unsigned index = 0u; index < count; ++index) {
+        StmtList* body = ast_arena_alloc(sizeof(*body));
+        body->stmt = index == 0u
+            ? statement->for_body
+            : clone_unrolled_stmt(statement->for_body);
+        body->next = NULL;
+        *tail = body;
+        tail = &body->next;
+        if (index + 1u < count) {
+            StmtList* increment = ast_arena_alloc(sizeof(*increment));
+            increment->stmt = stmt_expr(
+                index == 0u
+                    ? statement->for_inc
+                    : clone_unrolled_expr(statement->for_inc),
+                statement->for_inc->loc);
+            increment->next = NULL;
+            *tail = increment;
+            tail = &increment->next;
+        }
+    }
+    statement->kind = STMT_BLOCK;
+    statement->block_stmts = head;
     statement->for_init = NULL;
     statement->for_cond = NULL;
     statement->for_inc = NULL;
@@ -3177,8 +3535,15 @@ static void optimize_stmt(Stmt* statement) {
             optimize_stmt(statement->for_body);
             if (eliminate_zero_iteration_for(statement)) {
                 optimize_block(statement);
-            } else if (unroll_single_iteration_for(statement)) {
-                optimize_block(statement);
+            } else {
+                unsigned iteration_count = 0u;
+                if (constant_for_iteration_count(
+                        statement, &iteration_count) &&
+                    unroll_constant_for(statement, iteration_count)) {
+                    optimize_block(statement);
+                } else if (unroll_single_iteration_for(statement)) {
+                    optimize_block(statement);
+                }
             }
             break;
         case STMT_SWITCH:
