@@ -325,6 +325,11 @@ static void verify_debug_object(const char* path, uint16_t architecture,
             }
             assert(pointer_type_referenced);
         }
+    } else if (language == 0x0021u) {
+        verify_global_variable(info, strings, "debug_cpp_global", NULL,
+                               architecture == ARCH_X64 ? 8u : 4u, true);
+        verify_global_variable(info, strings, "debug_cpp_static", NULL,
+                               architecture == ARCH_X64 ? 8u : 4u, false);
     }
     objfile_free(object);
 }
