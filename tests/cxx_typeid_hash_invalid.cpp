@@ -1,3 +1,4 @@
 extern "C" int main() {
-    return (int)typeid(int).hash_code(1);
+    return (int)typeid(int).hash_code(1) +
+           (typeid(int) < typeid(long));
 }

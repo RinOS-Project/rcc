@@ -9720,6 +9720,9 @@ static Type* sema_expr(Expr* expr) {
             Type* left_value = generic_selection_type(left);
             Type* right_value = generic_selection_type(right);
             bool equality = expr->kind == EXPR_EQ || expr->kind == EXPR_NE;
+            bool typeinfo_equality = equality &&
+                left_value == rcc_cxx_type_info_type() &&
+                right_value == rcc_cxx_type_info_type();
             bool left_nullptr =
                 sema_is_cxx_nullptr_expr(expr->binary_lhs);
             bool right_nullptr =
@@ -9758,6 +9761,7 @@ static Type* sema_expr(Expr* expr) {
                  (type_is_pointer(right_value) &&
                   (left_nullptr || left_zero)));
             if (!arithmetic && !pointers && !pointer_null &&
+                !typeinfo_equality &&
                 !nullptr_equality) {
                 rcc_error(expr->loc,
                           "comparison requires arithmetic or pointer operands");
