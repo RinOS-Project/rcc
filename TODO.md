@@ -532,3 +532,6 @@
 - [x] Make the native Windows integer-promotion gate execute real i686/x86_64
       RCC output through freestanding `main` entries, while retaining `.ro`
       generation and shell-neutral negative diagnostic checks.
+- [x] Make the native Windows integer-conversion gate execute real i686/x86_64
+      RCC output through freestanding `main` entries, while retaining `.ro`
+      generation and the POSIX object-loader path.
