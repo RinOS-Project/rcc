@@ -213,6 +213,9 @@
   - [x] alias-free整数・cast・GEP・select・symbol addressのbasic-block内CSE
   - [x] dominator scopeと兄弟分岐隔離を持つSSA global value numbering
 - [ ] loop optimization、inlining
+  - [x] 副作用なし・引数なし・単一整数returnの直接呼出しをO1で限定inline
+  - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
+        callのinline
 - [x] `-O0..3`ごとのpass pipeline
   - [x] O0検証のみ、O1 mem2reg/fold/DCE、O2 GVN追加、O3固定点反復
   - [x] rcc/rcc++共通の厳密な`-O0..3` CLI検証と範囲外fail-closed

@@ -50,6 +50,18 @@ static uint64_t function_extent(ObjectFile* object, const char* name)
     return end - function->value;
 }
 
+static bool function_contains_byte(ObjectFile* object, const char* name,
+                                   uint8_t value)
+{
+    ObjSection* code = code_section(object);
+    ObjSymbol* function = function_symbol(object, name);
+    uint64_t extent = function_extent(object, name);
+    for (uint64_t offset = 0u; offset < extent; ++offset) {
+        if (code->data[function->value + offset] == value) return true;
+    }
+    return false;
+}
+
 static void verify_smaller(const char* unoptimized_path,
                            const char* optimized_path,
                            uint16_t architecture)
@@ -77,6 +89,10 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "folded_unsigned_unary"));
     assert(function_extent(optimized, "folded_mixed_unsigned_comparison") <
            function_extent(unoptimized, "folded_mixed_unsigned_comparison"));
+    assert(function_contains_byte(unoptimized, "inlined_constant_call",
+                                  0xe8u));
+    assert(!function_contains_byte(optimized, "inlined_constant_call",
+                                   0xe8u));
     assert(function_extent(optimized, "removed_after_return") <
            function_extent(unoptimized, "removed_after_return"));
     assert(function_extent(optimized, "removed_after_goto") <

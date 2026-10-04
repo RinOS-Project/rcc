@@ -50,6 +50,16 @@ int folded_mixed_unsigned_comparison(void)
     return -1LL < 1ULL;
 }
 
+static int inline_constant_leaf(void)
+{
+    return 37;
+}
+
+int inlined_constant_call(void)
+{
+    return inline_constant_leaf();
+}
+
 int removed_after_return(int* value)
 {
     return 7;

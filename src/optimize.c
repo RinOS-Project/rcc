@@ -19,6 +19,44 @@ static bool expression_modifies_decl(const Expr* expression,
                                      const Decl* declaration);
 static bool statement_modifies_decl(const Stmt* statement,
                                     const Decl* declaration);
+static bool integer_literal(const Expr* expression, int64_t* value);
+static void replace_integer(Expr* expression, int64_t value);
+
+static bool single_integer_return(const Stmt* statement, int64_t* value) {
+    const StmtList* item;
+    if (!statement || !value) return false;
+    if (statement->kind == STMT_RETURN) {
+        return integer_literal(statement->return_val, value);
+    }
+    if (statement->kind != STMT_BLOCK) return false;
+    item = statement->block_stmts;
+    if (!item || !item->stmt || item->next) return false;
+    return single_integer_return(item->stmt, value);
+}
+
+static bool inline_side_effect_free_integer_call(Expr* expression) {
+    Decl* function;
+    int64_t value;
+    if (!expression || expression->kind != EXPR_CALL ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        expression->call_func->ident_decl == NULL ||
+        expression->call_args != NULL || expression->call_new_args != NULL ||
+        expression->call_new_count != NULL || expression->call_is_new ||
+        expression->call_is_delete || expression->call_is_virtual ||
+        expression->cxx_close_call != NULL) {
+        return false;
+    }
+    function = expression->call_func->ident_decl;
+    if (function->kind != DECL_FUNC || !function->func_body ||
+        function->func_params != NULL || function->func_this_param != NULL ||
+        !type_is_integer(expression->type) ||
+        !single_integer_return(function->func_body, &value)) {
+        return false;
+    }
+    replace_integer(expression, value);
+    return true;
+}
 
 static bool expression_list_mentions_decl(const ExprList* list,
                                           const Decl* declaration) {
@@ -982,6 +1020,7 @@ static void optimize_expr(Expr** expression) {
             if (value->cxx_close_call) {
                 optimize_expr(&value->cxx_close_call->cleanup);
             }
+            if (inline_side_effect_free_integer_call(value)) return;
             break;
         case EXPR_INDEX:
             optimize_expr(&value->index_base);
