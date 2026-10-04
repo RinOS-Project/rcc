@@ -94,6 +94,7 @@ static void verify_global_variable(const ObjSection* info,
                                    const ObjSection* strings,
                                    const char* variable_name,
                                    const char* relocation_symbol,
+                                   const char* linkage_name,
                                    uint64_t address_size,
                                    bool external)
 {
@@ -102,6 +103,7 @@ static void verify_global_variable(const ObjSection* info,
     uint64_t offset;
     uint64_t expression_size;
     uint64_t address_offset;
+    uint32_t linkage_offset;
 
     assert(die_offset != UINT64_MAX);
     offset = die_offset + 1u;
@@ -110,6 +112,14 @@ static void verify_global_variable(const ObjSection* info,
     offset += 4u + 4u + 4u + 4u + 4u;
     assert(info->data[offset] == (external ? 1u : 0u));
     ++offset;
+    linkage_offset = read_u32(info->data, offset);
+    assert(linkage_offset < strings->size &&
+           strings->data[linkage_offset] != 0u);
+    if (linkage_name) {
+        assert(strcmp((const char*)strings->data + linkage_offset,
+                      linkage_name) == 0);
+    }
+    offset += 4u;
     expression_size = read_uleb(info->data, info->size, &offset);
     assert(expression_size == address_size + 1u);
     assert(offset + expression_size <= info->size);
@@ -291,8 +301,10 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     if (language == 0x000cu) {
         verify_global_variable(info, strings, "debug_global_data",
                                "debug_global_data",
+                               "debug_global_data",
                                architecture == ARCH_X64 ? 8u : 4u, true);
         verify_global_variable(info, strings, "debug_file_static", NULL,
+                               NULL,
                                architecture == ARCH_X64 ? 8u : 4u, false);
         assert(contains_bytes(strings->data, strings->size,
                               "debug_info_parameters"));
@@ -327,8 +339,10 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         }
     } else if (language == 0x0021u) {
         verify_global_variable(info, strings, "debug_cpp_global", NULL,
+                               NULL,
                                architecture == ARCH_X64 ? 8u : 4u, true);
         verify_global_variable(info, strings, "debug_cpp_static", NULL,
+                               NULL,
                                architecture == ARCH_X64 ? 8u : 4u, false);
     }
     objfile_free(object);

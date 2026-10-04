@@ -1266,6 +1266,7 @@ static void debug_emit_global_variable_die(
     debug_line_u32(info, declaration->loc.line);
     debug_line_u32(info, declaration->loc.column);
     section_add_byte(info, symbol->is_global ? 1u : 0u);
+    debug_line_u32(info, debug_str_add(strings, symbol->name));
     symbol_name = symbol->name;
     if (!symbol->is_global) {
         scoped_name = module_scoped_symbol(filename, symbol->name);
@@ -1811,6 +1812,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3fu);     /* DW_AT_external */
     debug_line_uleb(abbrev, 0x0cu);     /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x6eu);     /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x02u);     /* DW_AT_location */
     debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
