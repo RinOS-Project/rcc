@@ -227,6 +227,8 @@
   - [x] dominator scopeと兄弟分岐隔離を持つSSA global value numbering
 - [ ] loop optimization、inlining
   - [x] 副作用なし・引数なし・単一整数returnの直接呼出しをO1で限定inline
+  - [x] 副作用なし・単一整数returnの純粋整数式を最大8個の引数へ展開し、
+        各引数の評価を一回に限定したO1 inlineと両arch実行・call除去回帰
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
