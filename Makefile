@@ -7569,7 +7569,16 @@ test-varargs: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc \
 		-Ibootstrap/include -c -o $(TEST_OUT)/varargs/x64.ro \
 		tests/varargs.c
-	wsl -d Ubuntu-24.04 bash -lc "gcc -m32 $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -o $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x86 $(WSL_RINCOMPILER_ROOT)/tests/varargs_run_test.c $(WSL_RINCOMPILER_ROOT)/src/emit_ro.c $(WSL_RINCOMPILER_ROOT)/src/utils.c; gcc $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -o $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x64 $(WSL_RINCOMPILER_ROOT)/tests/varargs_run_test.c $(WSL_RINCOMPILER_ROOT)/src/emit_ro.c $(WSL_RINCOMPILER_ROOT)/src/utils.c; $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x86 $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/x86.ro; $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/run-test-x64 $(WSL_RINCOMPILER_ROOT)/build/tests/varargs/x64.ro"
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include -S \
+		-o $(TEST_OUT)/varargs/x86.s tests/varargs.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/varargs/run-test-x86 $(TEST_OUT)/varargs/x86.s
+	$(TEST_OUT)/varargs/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -S \
+		-o $(TEST_OUT)/varargs/x64.s tests/varargs.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/varargs/run-test-x64 $(TEST_OUT)/varargs/x64.s
+	$(TEST_OUT)/varargs/run-test-x64
 	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -c -o '$(TEST_OUT)/varargs/invalid.ro' tests/invalid_varargs.c *> '$(TEST_OUT)/varargs/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
 	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_start is only valid in a variadic function' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"
 	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'va_start requires the final named parameter' '$(TEST_OUT)/varargs/invalid.log')) { exit 1 }"

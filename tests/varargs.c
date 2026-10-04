@@ -191,3 +191,33 @@ double generated_mixed_varargs(void)
     struct Mixed value = {3, 4.5};
     return sum_mixed(0, value);
 }
+
+int main(void)
+{
+    int value = 91;
+    if (generated_register_varargs() != 15 ||
+        generated_stack_varargs() != 36 ||
+        generated_wide_varargs() != 0x1122334455667788LL ||
+        generated_floating_varargs() < 7.4999 ||
+        generated_floating_varargs() > 7.5001 ||
+        generated_float_promotion_varargs() < 7.4999 ||
+        generated_float_promotion_varargs() > 7.5001 ||
+        generated_fixed_float_conversion() != 3 ||
+        generated_named_floating() < 6.9999 ||
+        generated_named_floating() > 7.0001 ||
+        generated_stack_floating() < 44.9999 ||
+        generated_stack_floating() > 45.0001 ||
+        generated_copy_varargs() != 447 ||
+        generated_pointer_varargs() != 73 ||
+        generated_pair_varargs() != 42 ||
+        generated_mixed_varargs() < 7.4999 ||
+        generated_mixed_varargs() > 7.5001 ||
+        sum_values(8, 1, 2, 3, 4, 5, 6, 7, 8) != 36 ||
+        select_wide_value(0, 0x1020304050607080LL) !=
+            0x1020304050607080LL ||
+        copy_values(0, 3, 9) != 339 ||
+        pointer_value(0, &value) != 91) {
+        return 1;
+    }
+    return 0;
+}
