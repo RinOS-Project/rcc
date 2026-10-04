@@ -1262,6 +1262,65 @@ static bool statement_contains_loop_transfer(const Stmt* statement) {
     }
 }
 
+static bool eliminate_zero_iteration_for(Stmt* statement) {
+    Stmt* initializer;
+    Decl* induction;
+    Expr* condition;
+    Expr* increment;
+    int64_t initial_value;
+    int64_t bound_value;
+    bool zero_iterations;
+    StmtList* only;
+    if (!statement || statement->kind != STMT_FOR ||
+        !statement->for_init || statement->for_init->kind != STMT_DECL ||
+        !statement->for_init->decl ||
+        statement->for_init->decl->kind != DECL_VAR ||
+        !statement->for_init->decl->var_init || !statement->for_cond ||
+        !statement->for_inc || !statement->for_body) {
+        return false;
+    }
+    initializer = statement->for_init;
+    induction = initializer->decl;
+    condition = statement->for_cond;
+    increment = statement->for_inc;
+    if (!induction->type || !type_is_integer(induction->type) ||
+        !integer_literal(induction->var_init, &initial_value) ||
+        (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
+        !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
+        condition->binary_lhs->ident_decl != induction ||
+        !integer_literal(condition->binary_rhs, &bound_value) ||
+        (increment->kind != EXPR_PREINC &&
+         increment->kind != EXPR_POSTINC) ||
+        !increment->unary_operand ||
+        increment->unary_operand->kind != EXPR_IDENT ||
+        increment->unary_operand->ident_decl != induction ||
+        statement_contains_label(statement->for_body)) {
+        return false;
+    }
+    if (induction->type->is_unsigned) {
+        uint64_t initial_bits = integer_unsigned_value(
+            initial_value, induction->type);
+        uint64_t bound_bits = integer_unsigned_value(
+            bound_value, induction->type);
+        zero_iterations = condition->kind == EXPR_LT
+            ? initial_bits >= bound_bits : initial_bits > bound_bits;
+    } else {
+        zero_iterations = condition->kind == EXPR_LT
+            ? initial_value >= bound_value : initial_value > bound_value;
+    }
+    if (!zero_iterations) return false;
+    only = ast_arena_alloc(sizeof(*only));
+    only->stmt = initializer;
+    only->next = NULL;
+    statement->kind = STMT_BLOCK;
+    statement->block_stmts = only;
+    statement->for_init = NULL;
+    statement->for_cond = NULL;
+    statement->for_inc = NULL;
+    statement->for_body = NULL;
+    return true;
+}
+
 static bool unroll_single_iteration_for(Stmt* statement) {
     Stmt* initializer;
     Decl* induction;
@@ -3100,7 +3159,9 @@ static void optimize_stmt(Stmt* statement) {
             }
             optimize_expr(&statement->for_inc);
             optimize_stmt(statement->for_body);
-            if (unroll_single_iteration_for(statement)) {
+            if (eliminate_zero_iteration_for(statement)) {
+                optimize_block(statement);
+            } else if (unroll_single_iteration_for(statement)) {
                 optimize_block(statement);
             }
             break;

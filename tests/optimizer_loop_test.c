@@ -57,6 +57,12 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "loop_constant_one"));
     assert(function_extent(optimized, "loop_constant_one_le") <
            function_extent(unoptimized, "loop_constant_one_le"));
+    assert(function_extent(optimized, "loop_constant_zero") <
+           function_extent(unoptimized, "loop_constant_zero"));
+    assert(function_extent(optimized, "loop_constant_zero_le") <
+           function_extent(unoptimized, "loop_constant_zero_le"));
+    assert(function_extent(optimized, "loop_constant_zero_unsigned") <
+           function_extent(unoptimized, "loop_constant_zero_unsigned"));
 
 #if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
 #if defined(__i386__)
@@ -76,6 +82,12 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_constant_one");
         ObjSymbol* one_le_symbol = objfile_find_symbol(
             optimized, "loop_constant_one_le");
+        ObjSymbol* zero_symbol = objfile_find_symbol(
+            optimized, "loop_constant_zero");
+        ObjSymbol* zero_le_symbol = objfile_find_symbol(
+            optimized, "loop_constant_zero_le");
+        ObjSymbol* zero_unsigned_symbol = objfile_find_symbol(
+            optimized, "loop_constant_zero_unsigned");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
@@ -84,10 +96,15 @@ static void verify_pair(const char* unoptimized_path,
         int (*mutate_function)(int);
         int (*one_function)(void);
         int (*one_le_function)(void);
+        int (*zero_function)(void);
+        int (*zero_le_function)(void);
+        int (*zero_unsigned_function)(void);
         void* address;
         assert(code != NULL && while_symbol != NULL && for_symbol != NULL &&
                mutate_symbol != NULL && one_symbol != NULL &&
-               one_le_symbol != NULL && page_size > 0);
+               one_le_symbol != NULL && zero_symbol != NULL &&
+               zero_le_symbol != NULL && zero_unsigned_symbol != NULL &&
+               page_size > 0);
         mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
                         (size_t)page_size) * (size_t)page_size;
         mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
@@ -105,12 +122,22 @@ static void verify_pair(const char* unoptimized_path,
         memcpy(&one_function, &address, sizeof(one_function));
         address = mapping + one_le_symbol->value;
         memcpy(&one_le_function, &address, sizeof(one_le_function));
+        address = mapping + zero_symbol->value;
+        memcpy(&zero_function, &address, sizeof(zero_function));
+        address = mapping + zero_le_symbol->value;
+        memcpy(&zero_le_function, &address, sizeof(zero_le_function));
+        address = mapping + zero_unsigned_symbol->value;
+        memcpy(&zero_unsigned_function, &address,
+               sizeof(zero_unsigned_function));
         assert(while_function() == 7);
         assert(for_function() == 11);
         assert(mutate_function(0) == 0);
         assert(mutate_function(3) == 0);
         assert(one_function() == 17);
         assert(one_le_function() == 19);
+        assert(zero_function() == 5);
+        assert(zero_le_function() == 7);
+        assert(zero_unsigned_function() == 11);
         munmap(mapping, mapping_size);
     }
 #endif

@@ -42,3 +42,30 @@ int loop_constant_one_le(void)
     }
     return result;
 }
+
+int loop_constant_zero(void)
+{
+    int result = 5;
+    for (int index = 3; index < 3; ++index) {
+        result += 23;
+    }
+    return result;
+}
+
+int loop_constant_zero_le(void)
+{
+    int result = 7;
+    for (int index = 3; index <= 2; ++index) {
+        result += 29;
+    }
+    return result;
+}
+
+int loop_constant_zero_unsigned(void)
+{
+    int result = 11;
+    for (unsigned index = 3u; index < 2u; ++index) {
+        result += 31;
+    }
+    return result;
+}
