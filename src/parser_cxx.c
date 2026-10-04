@@ -12813,7 +12813,21 @@ static bool cxx_abbreviated_function_starts(void) {
     int paren_depth = 0;
     bool saw_parameter_list = false;
 
+    /* `decltype(auto)` contains a parenthesized AUTO token in its type
+     * spelling.  It is not an abbreviated function parameter list; skip that
+     * prefix before looking for the declaration's actual parameter list. */
+    if (token && token->type == TOK_DECLTYPE && token->next &&
+        token->next->type == TOK_LPAREN && token->next->next &&
+        token->next->next->type == TOK_AUTO && token->next->next->next &&
+        token->next->next->next->type == TOK_RPAREN) {
+        token = token->next->next->next->next;
+    }
     for (; token && token->type != TOK_EOF; token = token->next) {
+        if (paren_depth == 0 &&
+            (token->type == TOK_ASSIGN || token->type == TOK_SEMICOLON ||
+             token->type == TOK_LBRACE)) {
+            return false;
+        }
         if (token->type == TOK_LPAREN) {
             ++paren_depth;
             if (paren_depth == 1) saw_parameter_list = true;

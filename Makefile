@@ -517,8 +517,13 @@ test-cxx-multi-declarator: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-multi-declarator/x64.s \
 		tests/cxx_multi_declarator.cpp
-	$(CC) -no-pie -o $(TEST_OUT)/cxx-multi-declarator/x64 \
-		$(TEST_OUT)/cxx-multi-declarator/x64.s
+	$(CC) -c $(TEST_OUT)/cxx-multi-declarator/x64.s \
+		-o $(TEST_OUT)/cxx-multi-declarator/x64.o
+	$(OBJCOPY) --redefine-sym main=cxx_multi_declarator_main \
+		$(TEST_OUT)/cxx-multi-declarator/x64.o
+	$(CC) $(TEST_OUT)/cxx-multi-declarator/x64.o \
+		tests/cxx_multi_declarator_host.c \
+		-o $(TEST_OUT)/cxx-multi-declarator/x64
 	$(TEST_OUT)/cxx-multi-declarator/x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-multi-declarator/x86.s \
