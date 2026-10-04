@@ -650,17 +650,24 @@ static bool ir_verify_instruction_types(
             }
             if (instruction->operand_count == 2u) {
                 RccIrType i64 = rcc_ir_type_integer(64u);
-                if (instruction->immediate < 9u ||
-                    instruction->immediate > 16u ||
+                RccIrType i32 = rcc_ir_type_integer(32u);
+                bool aggregate_pair = instruction->immediate >= 9u &&
+                    instruction->immediate <= 16u;
+                bool i686_scalar_pair = instruction->immediate == 8u;
+                if ((!i686_scalar_pair && !aggregate_pair) ||
                     !rcc_ir_type_equal(verifier->function->return_type,
                                        i64)) {
                     return ir_verify_error(
                         verifier, "return-pair has invalid ABI metadata");
                 }
-                if (!ir_operand_has_type(
-                        verifier, instruction, 0u, i64) ||
-                    !ir_operand_has_type(
-                        verifier, instruction, 1u, i64)) {
+                if (aggregate_pair &&
+                    (!ir_operand_has_type(verifier, instruction, 0u, i64) ||
+                     !ir_operand_has_type(verifier, instruction, 1u, i64))) {
+                    return false;
+                }
+                if (i686_scalar_pair &&
+                    (!ir_operand_has_type(verifier, instruction, 0u, i32) ||
+                     !ir_operand_has_type(verifier, instruction, 1u, i32))) {
                     return false;
                 }
                 return true;

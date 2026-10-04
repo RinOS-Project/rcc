@@ -3812,6 +3812,40 @@ static bool lower_statement(RccIrLowerContext* context,
                                   rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
                     return false;
                 }
+            } else if (g_opts.target_arch != ARCH_X64 &&
+                       context->ast_return_type &&
+                       type_is_integer((Type*)context->ast_return_type) &&
+                       context->ast_return_type->size == 8) {
+                RccIrType word_type = rcc_ir_type_integer(32u);
+                RccIrLowerValue low;
+                RccIrLowerValue high;
+                RccIrValue return_values[2];
+                uint64_t value;
+                RccIrInstruction* return_instruction;
+                /* i686 cdecl returns an unsigned/signed 64-bit scalar in
+                 * EDX:EAX.  Keep this verified-SSA bridge deliberately
+                 * literal-only until the two-word value model is available
+                 * for non-constant expressions and parameters. */
+                if (!statement->return_val ||
+                    statement->return_val->kind != EXPR_INT_LIT) {
+                    context->unsupported = true;
+                    return false;
+                }
+                value = (uint64_t)statement->return_val->int_val;
+                low = lower_integer_constant(
+                    context, word_type, true, (uint32_t)value);
+                high = lower_integer_constant(
+                    context, word_type, true, (uint32_t)(value >> 32u));
+                if (!low.valid || !high.valid) return false;
+                if (!lower_cxx_exception_release_frame(
+                        context, context->active_exception_frame)) return false;
+                return_values[0] = low.value;
+                return_values[1] = high.value;
+                return_instruction = lower_append(
+                    context, RCC_IR_RETURN, rcc_ir_type_void(),
+                    return_values, 2u, NULL, 0u);
+                if (!return_instruction) return false;
+                rcc_ir_set_immediate(return_instruction, 8u);
             } else {
                 RccIrLowerValue result = lower_expression(
                     context, statement->return_val);
@@ -3983,6 +4017,10 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         if (aggregate_return_kind == LOWER_ABI_RETURN_UNSUPPORTED) {
             return RCC_IR_LOWER_UNSUPPORTED;
         }
+    } else if (g_opts.target_arch != ARCH_X64 &&
+               type_is_integer(declaration->type->ret_type) &&
+               declaration->type->ret_type->size == 8) {
+        return_type = rcc_ir_type_integer(64u);
     } else if (!lower_type(declaration->type->ret_type, &return_type)) {
         return RCC_IR_LOWER_UNSUPPORTED;
     }

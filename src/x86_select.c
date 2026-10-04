@@ -49,6 +49,28 @@ static bool x86_type_supported_for_target(RccMirType type,
         type.bit_width <= maximum_width;
 }
 
+static bool x86_function_return_supported(RccMirType type,
+                                          RccX86Target target) {
+    return (target == RCC_X86_TARGET_I686 &&
+            type.kind == RCC_MIR_TYPE_INTEGER &&
+            type.bit_width == 64u) ||
+        x86_type_supported_for_target(type, target);
+}
+
+static bool x86_pair_return_supported(
+    const RccX86Instruction* instruction, RccX86Target target) {
+    uint16_t word_width = target == RCC_X86_TARGET_I686 ? 32u : 64u;
+    uint64_t metadata_low = target == RCC_X86_TARGET_I686 ? 8u : 9u;
+    uint64_t metadata_high = target == RCC_X86_TARGET_I686 ? 8u : 16u;
+    return instruction && instruction->operand_count == 2u &&
+        instruction->immediate >= metadata_low &&
+        instruction->immediate <= metadata_high &&
+        instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+        instruction->operand_types[0].bit_width == word_width &&
+        instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+        instruction->operand_types[1].bit_width == word_width;
+}
+
 static bool x86_align_frame(uint32_t value, uint16_t alignment,
                             uint32_t* result) {
     uint32_t mask;
@@ -430,7 +452,7 @@ bool rcc_x86_verify_function(
         function->stack_alignment != policy->stack_alignment ||
         function->stack_alignment == 0u ||
         function->frame_size % function->stack_alignment != 0u ||
-        !x86_type_supported_for_target(
+        !x86_function_return_supported(
             function->return_type, function->target) ||
         (function->parameter_count != 0u &&
          (!function->parameter_types || !function->parameters)) ||
@@ -479,15 +501,7 @@ bool rcc_x86_verify_function(
                   instruction->previous->opcode != RCC_X86_CALL)) ||
                 (instruction->opcode == RCC_X86_RETURN &&
                  instruction->operand_count == 2u &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
-                  instruction->immediate < 9u ||
-                  instruction->immediate > 16u ||
-                  instruction->operand_types[0].kind !=
-                      RCC_MIR_TYPE_INTEGER ||
-                  instruction->operand_types[0].bit_width != 64u ||
-                  instruction->operand_types[1].kind !=
-                      RCC_MIR_TYPE_INTEGER ||
-                  instruction->operand_types[1].bit_width != 64u)) ||
+                 !x86_pair_return_supported(instruction, function->target)) ||
                 (x86_is_terminator(instruction->opcode) &&
                  instruction->next)) {
                 return x86_select_error(error, error_size,

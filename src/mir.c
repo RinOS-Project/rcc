@@ -352,12 +352,18 @@ static bool mir_verify_instruction_type(
             }
             if (instruction->operand_count == 2u) {
                 RccMirType i64 = rcc_mir_type_integer(64u);
-                return instruction->immediate >= 9u &&
-                    instruction->immediate <= 16u &&
+                RccMirType i32 = rcc_mir_type_integer(32u);
+                bool aggregate_pair = instruction->immediate >= 9u &&
+                    instruction->immediate <= 16u;
+                bool i686_scalar_pair = instruction->immediate == 8u;
+                return (aggregate_pair || i686_scalar_pair) &&
                     rcc_mir_type_equal(verifier->function->return_type,
                                        i64) &&
-                    mir_operand_type(verifier, instruction, 0u, i64) &&
-                    mir_operand_type(verifier, instruction, 1u, i64);
+                    (aggregate_pair
+                         ? (mir_operand_type(verifier, instruction, 0u, i64) &&
+                            mir_operand_type(verifier, instruction, 1u, i64))
+                         : (mir_operand_type(verifier, instruction, 0u, i32) &&
+                            mir_operand_type(verifier, instruction, 1u, i32)));
             }
             if (verifier->function->return_type.kind == RCC_MIR_TYPE_VOID) {
                 return mir_shape(verifier, instruction, 0u, 0u);

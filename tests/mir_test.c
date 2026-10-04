@@ -911,7 +911,7 @@ static void verify_x86_native_width_contract(void)
         mir, RCC_X86_TARGET_I686, &policy, &allocation_plan,
         &phi_plan, &selected, error, sizeof(error)));
     assert(selected == NULL);
-    assert(strstr(error, "header") != NULL);
+    assert(strstr(error, "instruction shape") != NULL);
     rcc_mir_phi_plan_release(&phi_plan);
     rcc_mir_allocation_release(&allocation_plan);
     rcc_mir_function_destroy(mir);

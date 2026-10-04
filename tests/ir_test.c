@@ -420,9 +420,26 @@ static void verify_return_pair_contract(void)
         assert(return_pair != NULL);
         rcc_ir_set_immediate(return_pair, 12u);
         assert(rcc_ir_verify_module(module, error, sizeof(error)));
-        return_pair->immediate = 8u;
+        return_pair->immediate = 7u;
         assert(!rcc_ir_verify_module(module, error, sizeof(error)));
         assert(strstr(error, "return-pair") != NULL);
+        rcc_ir_module_destroy(module);
+    }
+    {
+        RccIrModule* module = rcc_ir_module_create();
+        RccIrFunction* function = rcc_ir_function_add(
+            module, "i686_scalar_return_pair", i64, NULL, 0u);
+        RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+        RccIrType i32 = rcc_ir_type_integer(32u);
+        RccIrValue values[] = {
+            append_const(entry, i32, 0x55667788u),
+            append_const(entry, i32, 0x11223344u),
+        };
+        RccIrInstruction* return_pair = rcc_ir_append(
+            entry, RCC_IR_RETURN, void_type, values, 2u, NULL, 0u);
+        assert(return_pair != NULL);
+        rcc_ir_set_immediate(return_pair, 8u);
+        assert(rcc_ir_verify_module(module, error, sizeof(error)));
         rcc_ir_module_destroy(module);
     }
 }

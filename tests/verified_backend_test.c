@@ -81,6 +81,33 @@ static void* symbol_address(void* text_memory, const ObjSymbol* symbol)
     return (uint8_t*)text_memory + symbol->value;
 }
 
+static void verify_wide_scalar_object(const char* path, uint16_t arch)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* symbol;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_constant_return");
+    assert(text != NULL && text->size != 0u &&
+           (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
+               (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
+    assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
+           symbol->binding == BIND_CODE && symbol->section == 0);
+    if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
+        (arch == ARCH_X64 && sizeof(void*) == 8u)) {
+        size_t mapping_size;
+        void* memory = map_text(object, text, &mapping_size);
+        unsigned long long (*function)(void);
+        void* address = symbol_address(memory, symbol);
+        memcpy(&function, &address, sizeof(function));
+        assert(function() == 0x1122334455667788ULL);
+        assert(munmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_object(const char* path, uint16_t arch)
 {
     ObjectFile* object = objfile_read(path);
@@ -885,7 +912,7 @@ static void verify_global_object(const char* path, uint16_t arch,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 6);
+    assert(argc == 6 || argc == 8);
     verify_object(argv[1], ARCH_X86);
     verify_object(argv[2], ARCH_X64);
     if (sizeof(void*) == 8u) {
@@ -896,6 +923,10 @@ int main(int argc, char** argv)
     verify_cxx_object(argv[3]);
     verify_global_object(argv[4], ARCH_X86, sizeof(void*) == 4u);
     verify_global_object(argv[5], ARCH_X64, sizeof(void*) == 8u);
+    if (argc == 8) {
+        verify_wide_scalar_object(argv[6], ARCH_X86);
+        verify_wide_scalar_object(argv[7], ARCH_X64);
+    }
     puts("Verified typed-SSA production .ro bridge tests passed");
     return 0;
 }

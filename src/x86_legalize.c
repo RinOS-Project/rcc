@@ -54,6 +54,28 @@ static bool x86_legal_type_supported(
         type.bit_width == 64u;
 }
 
+static bool x86_legal_return_type_supported(
+    RccMirType type, const RccX86Abi* abi) {
+    return (abi->target == RCC_X86_TARGET_I686 &&
+            type.kind == RCC_MIR_TYPE_INTEGER &&
+            type.bit_width == 64u) ||
+        x86_legal_type_supported(type, abi);
+}
+
+static bool x86_legal_pair_return_supported(
+    const RccX86Instruction* instruction, const RccX86Abi* abi) {
+    uint16_t word_width = abi->target == RCC_X86_TARGET_I686 ? 32u : 64u;
+    uint64_t metadata_low = abi->target == RCC_X86_TARGET_I686 ? 8u : 9u;
+    uint64_t metadata_high = abi->target == RCC_X86_TARGET_I686 ? 8u : 16u;
+    return instruction && instruction->operand_count == 2u &&
+        instruction->immediate >= metadata_low &&
+        instruction->immediate <= metadata_high &&
+        instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+        instruction->operand_types[0].bit_width == word_width &&
+        instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+        instruction->operand_types[1].bit_width == word_width;
+}
+
 static uint32_t x86_legal_hardware_callee_mask(const RccX86Abi* abi) {
     uint32_t mask = 0u;
     size_t index;
@@ -930,9 +952,7 @@ static bool x86_legalize_return(
     RccX86Value* operands = NULL;
     RccX86LegalInstruction* result;
     bool pair_return = source->operand_count == 2u;
-    if ((pair_return &&
-         (abi->target != RCC_X86_TARGET_X86_64 ||
-          source->immediate < 9u || source->immediate > 16u)) ||
+    if ((pair_return && !x86_legal_pair_return_supported(source, abi)) ||
         (!pair_return && source->immediate != 0u &&
          (abi->target != RCC_X86_TARGET_I686 ||
           source->immediate != abi->pointer_size))) {
@@ -969,7 +989,9 @@ static bool x86_legalize_return(
         function, block, RCC_X86_LEGAL_RETURN, RCC_X86_RETURN,
         function->return_type, NULL, NULL, NULL, 0u);
     if (result) {
-        result->immediate = source->immediate;
+        result->immediate = pair_return &&
+                abi->target == RCC_X86_TARGET_I686
+            ? 0u : source->immediate;
         result->auxiliary = pair_return ? 2u :
             (source->operand_count == 1u ? 1u : 0u);
     }
@@ -1268,9 +1290,7 @@ static bool x86_legal_verify_return(
     }
     if (function->return_type.kind != RCC_MIR_TYPE_VOID) {
         const RccX86LegalInstruction* input = instruction->previous;
-        bool pair_return = function->target == RCC_X86_TARGET_X86_64 &&
-            instruction->immediate >= 9u &&
-            instruction->immediate <= 16u;
+        bool pair_return = instruction->auxiliary == 2u;
         bool found_low = false;
         bool found_high = false;
         while (input && input->opcode == RCC_X86_LEGAL_COPY) {
@@ -1285,7 +1305,12 @@ static bool x86_legal_verify_return(
             }
             input = input->previous;
         }
-        if (pair_return && instruction->auxiliary == 2u) return true;
+        if (pair_return &&
+            ((function->target == RCC_X86_TARGET_I686 &&
+              instruction->immediate == 0u) ||
+             (function->target == RCC_X86_TARGET_X86_64 &&
+              instruction->immediate >= 9u &&
+              instruction->immediate <= 16u))) return true;
         if (!pair_return && instruction->auxiliary != 1u) {
             return x86_legal_error(error, error_size,
                                    "x86 return metadata is invalid");
@@ -1391,7 +1416,7 @@ bool rcc_x86_verify_legal_function(
             function->outgoing_stack_offset ||
         function->outgoing_stack_size != function->frame_size -
             function->outgoing_stack_offset ||
-        !x86_legal_type_supported(function->return_type, &abi) ||
+        !x86_legal_return_type_supported(function->return_type, &abi) ||
         (function->has_parallel_copy_temporary &&
          (function->parallel_copy_temporary_offset >
               function->frame_size ||
@@ -1424,7 +1449,11 @@ bool rcc_x86_verify_legal_function(
                 (instruction->target_count != 0u &&
                  !instruction->targets) ||
                 !x86_legal_instruction_shape(instruction) ||
-                !x86_legal_type_supported(instruction->type, &abi) ||
+                !((instruction->opcode == RCC_X86_LEGAL_RETURN
+                       ? x86_legal_return_type_supported(
+                             instruction->type, &abi)
+                       : x86_legal_type_supported(
+                             instruction->type, &abi))) ||
                 (instruction->opcode == RCC_X86_LEGAL_CALL &&
                  instruction->immediate != 0u &&
                  (function->target != RCC_X86_TARGET_I686 ||
@@ -1631,7 +1660,8 @@ bool rcc_x86_legalize_function(
             } else if (source->opcode == RCC_X86_RETURN &&
                        (selected->return_type.kind == RCC_MIR_TYPE_VOID ||
                         x86_legal_native_scalar(
-                            selected->return_type, &abi))) {
+                            selected->return_type, &abi) ||
+                        x86_legal_pair_return_supported(source, &abi))) {
                 if (!x86_legalize_return(
                         legal, block, source, &abi,
                         error, error_size)) goto cleanup;
