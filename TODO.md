@@ -589,3 +589,6 @@
 - [x] Execute native Windows x86_64 atomic-builtin output through VirtualAlloc,
       Win32 threads, and an explicit SysV-ABI function-pointer adapter, while
       retaining i686 object inspection and negative diagnostics.
+- [x] Execute native Windows x86_64 `_Atomic` language output through
+      VirtualAlloc and a SysV-ABI adapter, while validating i686 `.ro` layout,
+      required symbols, and both-architecture negative diagnostics.
