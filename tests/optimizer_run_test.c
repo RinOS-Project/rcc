@@ -105,6 +105,10 @@ static void verify_smaller(const char* unoptimized_path,
                                   "inlined_repeated_argument_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_repeated_argument_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "inlined_repeated_complex_argument_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_repeated_complex_argument_call", 0xe8u));
     assert(function_contains_byte(unoptimized, "inlined_two_argument_call",
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_two_argument_call",
@@ -224,6 +228,8 @@ int main(int argc, char** argv)
             object, "inlined_argument_call");
         ObjSymbol* inlined_repeated_argument_call_symbol = function_symbol(
             object, "inlined_repeated_argument_call");
+        ObjSymbol* inlined_repeated_complex_argument_call_symbol =
+            function_symbol(object, "inlined_repeated_complex_argument_call");
         ObjSymbol* inlined_forward_chain_symbol = function_symbol(
             object, "inlined_forward_chain");
         ObjSymbol* preserved_algebraic_side_effect_symbol = function_symbol(
@@ -312,6 +318,7 @@ int main(int argc, char** argv)
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         int (*inlined_argument_call)(int);
         int (*inlined_repeated_argument_call)(int);
+        int (*inlined_repeated_complex_argument_call)(int);
         int (*inlined_forward_chain)(int);
         int (*inlined_two_argument_call)(int, int);
         uint32_t (*inlined_three_argument_call)(uint32_t, uint32_t,
@@ -413,6 +420,9 @@ int main(int argc, char** argv)
         address = mapping + inlined_repeated_argument_call_symbol->value;
         memcpy(&inlined_repeated_argument_call, &address,
                sizeof(inlined_repeated_argument_call));
+        address = mapping + inlined_repeated_complex_argument_call_symbol->value;
+        memcpy(&inlined_repeated_complex_argument_call, &address,
+               sizeof(inlined_repeated_complex_argument_call));
         address = mapping + inlined_forward_chain_symbol->value;
         memcpy(&inlined_forward_chain, &address,
                sizeof(inlined_forward_chain));
@@ -546,6 +556,7 @@ int main(int argc, char** argv)
         assert(strength_reduce_unsigned_mod(123u) == 3u);
         assert(inlined_argument_call(-8) == -7);
         assert(inlined_repeated_argument_call(-8) == -16);
+        assert(inlined_repeated_complex_argument_call(-8) == -46);
         assert(inlined_forward_chain(-8) == 1);
         assert(inlined_two_argument_call(-8, 13) == 5);
         assert(inlined_three_argument_call(UINT32_C(0x55),

@@ -266,6 +266,9 @@
   - [x] 宣言順に依存しない最大8回の限定固定点で、純粋スカラーinline候補の
         前方呼出しチェーンを解決し、再帰・aggregate・exception callはこのpassの
         対象外として明示的に保持
+  - [x] 副作用のない整数引数がinline本体で複数回参照される場合も、対応する
+        式木を複製し、引数ごとの展開コストを16ノード以内に制限してO1 inlineへ
+        接続。i686/x86_64のcall除去と実行結果を回帰検証
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

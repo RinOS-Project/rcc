@@ -31,6 +31,8 @@ static int integer_width(const Type* type);
 static void replace_integer(Expr* expression, int64_t value);
 static uint64_t integer_mask(const Type* type);
 static uint64_t integer_unsigned_value(int64_t value, const Type* type);
+static Expr* clone_inline_pure_integer_expression(const Expr* expression);
+static size_t inline_pure_integer_expression_cost(const Expr* expression);
 
 static void replace_integer_with_side_effect(Expr** expression,
                                               Expr* side_effect) {
@@ -306,9 +308,13 @@ static Expr* clone_inline_integer_expression(
     if (expression->kind == EXPR_IDENT) {
         binding_index = inline_integer_binding_index(
             expression->ident_decl, bindings, binding_count);
-        return binding_index < binding_count
-                   ? bindings[binding_index].argument
-                   : NULL;
+        if (binding_index >= binding_count) return NULL;
+        if (bindings[binding_index].argument->kind == EXPR_IDENT ||
+            bindings[binding_index].argument->kind == EXPR_INT_LIT) {
+            return bindings[binding_index].argument;
+        }
+        return clone_inline_pure_integer_expression(
+            bindings[binding_index].argument);
     }
     if (expression->kind == EXPR_INT_LIT) return (Expr*)expression;
     switch (expression->kind) {
@@ -353,6 +359,148 @@ static Expr* clone_inline_integer_expression(
         }
         default:
             return NULL;
+    }
+}
+
+/* Repeatedly substituting a complex argument must not attach one AST node to
+ * multiple parents.  Keep this clone deliberately narrower than the whole
+ * expression language: only side-effect-free integer expression forms which
+ * the inline body already understands may be copied. */
+static Expr* clone_inline_pure_integer_expression(const Expr* expression) {
+    Expr* clone;
+    if (!expression) return NULL;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_IDENT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            return (Expr*)expression;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            clone = expr_unary(
+                expression->kind,
+                clone_inline_pure_integer_expression(
+                    expression->unary_operand), expression->loc);
+            if (!clone->unary_operand) return NULL;
+            clone->type = expression->type;
+            return clone;
+        case EXPR_CAST:
+            clone = expr_cast(
+                expression->cast_type,
+                clone_inline_pure_integer_expression(expression->cast_expr),
+                expression->loc);
+            if (!clone->cast_expr) return NULL;
+            clone->type = expression->type;
+            clone->cxx_cast_kind = expression->cxx_cast_kind;
+            return clone;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            clone = expr_binary(
+                expression->kind,
+                clone_inline_pure_integer_expression(
+                    expression->binary_lhs),
+                clone_inline_pure_integer_expression(
+                    expression->binary_rhs), expression->loc);
+            if (!clone->binary_lhs || !clone->binary_rhs) return NULL;
+            clone->type = expression->type;
+            return clone;
+        case EXPR_COND:
+            clone = expr_cond(
+                clone_inline_pure_integer_expression(expression->cond_test),
+                clone_inline_pure_integer_expression(expression->cond_then),
+                clone_inline_pure_integer_expression(expression->cond_else),
+                expression->loc);
+            if (!clone->cond_test || !clone->cond_then ||
+                !clone->cond_else) return NULL;
+            clone->type = expression->type;
+            return clone;
+        default:
+            return NULL;
+    }
+}
+
+static size_t inline_pure_integer_expression_cost(const Expr* expression) {
+    size_t left;
+    size_t right;
+    if (!expression) return 0u;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_IDENT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            return 1u;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            left = inline_pure_integer_expression_cost(
+                expression->unary_operand);
+            return left == (size_t)-1 || left == (size_t)-1 - 1u
+                       ? (size_t)-1 : left + 1u;
+        case EXPR_CAST:
+            left = inline_pure_integer_expression_cost(
+                expression->cast_expr);
+            return left == (size_t)-1 || left == (size_t)-1 - 1u
+                       ? (size_t)-1 : left + 1u;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            left = inline_pure_integer_expression_cost(
+                expression->binary_lhs);
+            right = inline_pure_integer_expression_cost(
+                expression->binary_rhs);
+            if (left == (size_t)-1 || right == (size_t)-1 ||
+                left > (size_t)-1 - right - 1u) return (size_t)-1;
+            return left + right + 1u;
+        case EXPR_COND:
+            left = inline_pure_integer_expression_cost(
+                expression->cond_test);
+            right = inline_pure_integer_expression_cost(
+                expression->cond_then);
+            if (left == (size_t)-1 || right == (size_t)-1 ||
+                left > (size_t)-1 - right - 1u) return (size_t)-1;
+            left += right + 1u;
+            right = inline_pure_integer_expression_cost(
+                expression->cond_else);
+            if (right == (size_t)-1 || left > (size_t)-1 - right) {
+                return (size_t)-1;
+            }
+            return left + right;
+        default:
+            return (size_t)-1;
     }
 }
 
@@ -456,14 +604,18 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         return false;
     }
     for (index = 0u; index < binding_count; ++index) {
-        /* Reusing a side-effect-free arbitrary expression would duplicate
-         * its AST ownership and can make later in-place folds observe the
-         * same node through two parents.  Plain identifiers and literals are
-         * immutable after sema, so they are safe to substitute repeatedly;
-         * keep the conservative call path for more complex expressions. */
-        if (bindings[index].uses > 1u &&
-            bindings[index].argument->kind != EXPR_IDENT &&
-            bindings[index].argument->kind != EXPR_INT_LIT) {
+        size_t cost;
+        /* Repeated pure expressions are safe only when they can be cloned
+         * and the resulting expansion stays bounded.  This is deliberately
+         * a local cost guard, not a promise of whole-program inlining. */
+        if (bindings[index].uses <= 1u ||
+            bindings[index].argument->kind == EXPR_IDENT ||
+            bindings[index].argument->kind == EXPR_INT_LIT) {
+            continue;
+        }
+        cost = inline_pure_integer_expression_cost(bindings[index].argument);
+        if (cost == (size_t)-1 ||
+            cost > 16u / bindings[index].uses) {
             return false;
         }
     }

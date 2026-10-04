@@ -98,6 +98,11 @@ int inlined_repeated_argument_call(int value)
     return inline_duplicate_value(value);
 }
 
+int inlined_repeated_complex_argument_call(int value)
+{
+    return inline_duplicate_value(value * 3 + 1);
+}
+
 static int inline_add_pair(int left, int right)
 {
     return left + right;
