@@ -12,6 +12,13 @@ static void optimize_stmt(Stmt* statement);
 static void propagate_block_constants(Stmt* statement);
 static void eliminate_block_dead_stores(Stmt* statement);
 
+/* A bounded fixed point is used only to resolve declaration-order
+ * dependencies between the conservative pure-integer inline candidates.
+ * Recursive, aggregate, exception, and cost-based inline forms remain
+ * outside this pass. */
+static bool optimize_inline_changed;
+static AST* optimize_inline_ast;
+
 static bool expression_has_side_effect(const Expr* expression);
 static bool expression_mentions_decl(const Expr* expression,
                                      const Decl* declaration);
@@ -349,6 +356,27 @@ static Expr* clone_inline_integer_expression(
     }
 }
 
+static Decl* resolve_inline_function_definition(Decl* function) {
+    if (!function || function->func_body || !optimize_inline_ast ||
+        !function->name || !function->type) {
+        return function;
+    }
+    for (DeclList* item = optimize_inline_ast->decls; item;
+         item = item->next) {
+        Decl* candidate = item->decl;
+        if (!candidate || candidate == function ||
+            candidate->kind != DECL_FUNC || !candidate->func_body ||
+            !candidate->name ||
+            strcmp(candidate->name, function->name) != 0 ||
+            candidate->func_has_cxx_linkage != function->func_has_cxx_linkage ||
+            !type_is_compatible(candidate->type, function->type)) {
+            continue;
+        }
+        return candidate;
+    }
+    return function;
+}
+
 static bool inline_side_effect_free_integer_call(Expr** expression_out) {
     Expr* expression;
     Decl* function;
@@ -373,6 +401,7 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         return false;
     }
     function = expression->call_func->ident_decl;
+    function = resolve_inline_function_definition(function);
     if (function->kind != DECL_FUNC || !function->func_body ||
         function->func_this_param != NULL || !type_is_integer(expression->type)) {
         return false;
@@ -385,6 +414,7 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
             return false;
         }
         replace_integer(expression, value);
+        optimize_inline_changed = true;
         return true;
     }
     for (DeclList* parameter = parameters; parameter;
@@ -444,6 +474,7 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         clone->type = expression->type;
         *expression_out = clone;
     }
+    optimize_inline_changed = true;
     return true;
 }
 
@@ -2788,16 +2819,24 @@ static void optimize_stmt(Stmt* statement) {
 void rcc_optimize(AST* ast) {
     char ir_error[256];
     size_t lowered_functions = 0u;
+    enum { OPTIMIZE_INLINE_PASSES = 8 };
+    unsigned pass;
     if (!ast || g_opts.opt_level <= 0) return;
-    for (DeclList* item = ast->decls; item; item = item->next) {
-        Decl* declaration = item->decl;
-        if (!declaration) continue;
-        if (declaration->kind == DECL_VAR) {
-            optimize_expr(&declaration->var_init);
-        } else if (declaration->kind == DECL_FUNC) {
-            optimize_stmt(declaration->func_body);
+    optimize_inline_ast = ast;
+    for (pass = 0u; pass < OPTIMIZE_INLINE_PASSES; ++pass) {
+        optimize_inline_changed = false;
+        for (DeclList* item = ast->decls; item; item = item->next) {
+            Decl* declaration = item->decl;
+            if (!declaration) continue;
+            if (declaration->kind == DECL_VAR) {
+                optimize_expr(&declaration->var_init);
+            } else if (declaration->kind == DECL_FUNC) {
+                optimize_stmt(declaration->func_body);
+            }
         }
+        if (!optimize_inline_changed) break;
     }
+    optimize_inline_ast = NULL;
     if (!rcc_ir_verify_ast_subset(ast, &lowered_functions, ir_error,
                                   sizeof(ir_error))) {
         rcc_fatal("typed SSA lowering failed: %s", ir_error);

@@ -259,6 +259,9 @@
   - [x] 副作用のない単純整数識別子／リテラル引数が関数本体で複数回参照される
         場合も、複雑式のAST共有は行わず安全にO1 inlineし、両archでcall除去と
         実行結果を回帰検証
+  - [x] 宣言順に依存しない最大8回の限定固定点で、純粋スカラーinline候補の
+        前方呼出しチェーンを解決し、再帰・aggregate・exception callはこのpassの
+        対象外として明示的に保持
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

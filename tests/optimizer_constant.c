@@ -70,6 +70,24 @@ int inlined_argument_call(int value)
     return inline_add_one(value);
 }
 
+static int inline_forward_wrapper(int value);
+static int inline_forward_leaf(int value);
+
+int inlined_forward_chain(int value)
+{
+    return inline_forward_wrapper(value);
+}
+
+static int inline_forward_wrapper(int value)
+{
+    return inline_forward_leaf(value);
+}
+
+static int inline_forward_leaf(int value)
+{
+    return value + 9;
+}
+
 static int inline_duplicate_value(int value)
 {
     return value + value;
