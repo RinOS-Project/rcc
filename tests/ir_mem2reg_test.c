@@ -460,6 +460,60 @@ static void verify_undefined_folds_are_preserved(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_integer_identities(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "integer_identities", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue one = append_const(entry, i32, 1u);
+    RccIrValue all_bits = append_const(entry, i32, UINT32_MAX);
+    RccIrValue operands[2];
+    RccIrInstruction* value;
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    operands[0] = function->parameters[0];
+    operands[1] = zero;
+    value = rcc_ir_append(entry, RCC_IR_ADD, i32, operands, 2u, NULL, 0u);
+    assert(value != NULL);
+    operands[0] = one;
+    operands[1] = value->result;
+    value = rcc_ir_append(entry, RCC_IR_MUL, i32, operands, 2u, NULL, 0u);
+    assert(value != NULL);
+    operands[0] = value->result;
+    operands[1] = all_bits;
+    value = rcc_ir_append(entry, RCC_IR_AND, i32, operands, 2u, NULL, 0u);
+    assert(value != NULL);
+    operands[0] = zero;
+    operands[1] = value->result;
+    value = rcc_ir_append(entry, RCC_IR_XOR, i32, operands, 2u, NULL, 0u);
+    assert(value != NULL);
+    operands[0] = value->result;
+    operands[1] = zero;
+    value = rcc_ir_append(entry, RCC_IR_SHL, i32, operands, 2u, NULL, 0u);
+    assert(value != NULL);
+    operands[0] = value->result;
+    operands[1] = one;
+    value = rcc_ir_append(entry, RCC_IR_SDIV, i32, operands, 2u, NULL, 0u);
+    assert(value != NULL);
+    append_return(entry, value->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions >= 6u);
+    assert(count_opcode(function, RCC_IR_ADD) == 0u);
+    assert(count_opcode(function, RCC_IR_MUL) == 0u);
+    assert(count_opcode(function, RCC_IR_AND) == 0u);
+    assert(count_opcode(function, RCC_IR_XOR) == 0u);
+    assert(count_opcode(function, RCC_IR_SHL) == 0u);
+    assert(count_opcode(function, RCC_IR_SDIV) == 0u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_block_local_cse(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -627,6 +681,7 @@ int main(void)
     verify_constant_branch_pruning();
     verify_constant_phi_and_select_folding();
     verify_undefined_folds_are_preserved();
+    verify_integer_identities();
     verify_block_local_cse();
     verify_memory_is_not_commoned();
     verify_dominator_scoped_gvn();

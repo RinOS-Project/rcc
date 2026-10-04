@@ -967,6 +967,139 @@ static void ir_pass_make_unconditional_branch(
     instruction->opcode = RCC_IR_BRANCH;
 }
 
+static bool ir_pass_simplify_integer_identities(
+    RccIrFunction* function, RccIrSimplifyStats* stats,
+    char* error, size_t error_size) {
+    bool* known;
+    uint64_t* constants;
+    RccIrValue* replacements;
+    RccIrBlock* block;
+    size_t index;
+    if (!function || function->value_count == 0u) return true;
+    known = rcc_alloc(function->value_count * sizeof(*known));
+    constants = rcc_alloc(function->value_count * sizeof(*constants));
+    replacements = rcc_alloc(function->value_count * sizeof(*replacements));
+    memset(known, 0, function->value_count * sizeof(*known));
+    for (index = 0u; index < function->value_count; ++index) {
+        replacements[index] = RCC_IR_VALUE_NONE;
+    }
+    for (block = function->first_block; block; block = block->next) {
+        RccIrInstruction* instruction = block->first;
+        while (instruction) {
+            RccIrInstruction* next = instruction->next;
+            size_t operand;
+            RccIrValue replacement = RCC_IR_VALUE_NONE;
+            uint64_t left = 0u;
+            uint64_t right = 0u;
+            uint64_t mask;
+            bool left_known;
+            bool right_known;
+            for (operand = 0u; operand < instruction->operand_count;
+                 ++operand) {
+                RccIrValue resolved = ir_pass_resolve(
+                    replacements, function->value_count,
+                    instruction->operands[operand]);
+                if (resolved == RCC_IR_VALUE_NONE) {
+                    rcc_free(known);
+                    rcc_free(constants);
+                    rcc_free(replacements);
+                    return ir_pass_error(
+                        error, error_size,
+                        "SSA identity simplification found a replacement cycle");
+                }
+                instruction->operands[operand] = resolved;
+            }
+            if (instruction->opcode == RCC_IR_CONST_INT &&
+                instruction->result != RCC_IR_VALUE_NONE) {
+                known[instruction->result] = true;
+                constants[instruction->result] = instruction->immediate;
+                instruction = next;
+                continue;
+            }
+            if (!ir_pass_is_binary_integer(instruction->opcode) ||
+                instruction->operand_count != 2u ||
+                instruction->result == RCC_IR_VALUE_NONE) {
+                instruction = next;
+                continue;
+            }
+            left_known = instruction->operands[0] < function->value_count &&
+                known[instruction->operands[0]];
+            right_known = instruction->operands[1] < function->value_count &&
+                known[instruction->operands[1]];
+            if (left_known) left = constants[instruction->operands[0]];
+            if (right_known) right = constants[instruction->operands[1]];
+            mask = ir_pass_integer_mask(instruction->type.bit_width);
+            switch (instruction->opcode) {
+                case RCC_IR_ADD:
+                case RCC_IR_OR:
+                case RCC_IR_XOR:
+                    if (right_known && (right & mask) == 0u) {
+                        replacement = instruction->operands[0];
+                    } else if (left_known && (left & mask) == 0u) {
+                        replacement = instruction->operands[1];
+                    }
+                    break;
+                case RCC_IR_SUB:
+                case RCC_IR_SHL:
+                case RCC_IR_LSHR:
+                case RCC_IR_ASHR:
+                    if (right_known && (right & mask) == 0u) {
+                        replacement = instruction->operands[0];
+                    }
+                    break;
+                case RCC_IR_MUL:
+                    if (right_known && (right & mask) == 1u) {
+                        replacement = instruction->operands[0];
+                    } else if (left_known && (left & mask) == 1u) {
+                        replacement = instruction->operands[1];
+                    } else if (right_known && (right & mask) == 0u) {
+                        replacement = instruction->operands[1];
+                    } else if (left_known && (left & mask) == 0u) {
+                        replacement = instruction->operands[0];
+                    }
+                    break;
+                case RCC_IR_UDIV:
+                case RCC_IR_SDIV:
+                    if (right_known && (right & mask) == 1u) {
+                        replacement = instruction->operands[0];
+                    }
+                    break;
+                case RCC_IR_AND:
+                    if (right_known && (right & mask) == mask) {
+                        replacement = instruction->operands[0];
+                    } else if (left_known && (left & mask) == mask) {
+                        replacement = instruction->operands[1];
+                    } else if (right_known && (right & mask) == 0u) {
+                        replacement = instruction->operands[1];
+                    } else if (left_known && (left & mask) == 0u) {
+                        replacement = instruction->operands[0];
+                    }
+                    break;
+                default:
+                    break;
+            }
+            if (replacement != RCC_IR_VALUE_NONE) {
+                replacements[instruction->result] = replacement;
+                ir_pass_unlink_instruction(instruction);
+                if (stats) {
+                    ++stats->folded_instructions;
+                    ++stats->removed_instructions;
+                }
+            }
+            instruction = next;
+        }
+    }
+    rcc_free(known);
+    rcc_free(constants);
+    if (!ir_pass_compact_values(function, replacements,
+                                function->value_count, error, error_size)) {
+        rcc_free(replacements);
+        return false;
+    }
+    rcc_free(replacements);
+    return true;
+}
+
 static bool ir_pass_fold_constants(RccIrFunction* function,
                                    RccIrSimplifyStats* stats) {
     bool* known;
@@ -1527,6 +1660,8 @@ static bool ir_pass_simplify(RccIrFunction* function, bool enable_gvn,
         return false;
     }
     if (!ir_pass_fold_constants(function, &local_stats) ||
+        !ir_pass_simplify_integer_identities(function, &local_stats,
+                                              error, error_size) ||
         !ir_pass_prune_unreachable(function, &local_stats,
                                    error, error_size) ||
         (enable_gvn &&
