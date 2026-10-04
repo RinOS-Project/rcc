@@ -272,6 +272,9 @@ static bool inline_integer_expression_shape(
         case EXPR_BITNOT:
             return inline_integer_expression_shape(expression->unary_operand,
                                                    bindings, binding_count);
+        case EXPR_CAST:
+            return inline_integer_expression_shape(expression->cast_expr,
+                                                   bindings, binding_count);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -293,6 +296,13 @@ static bool inline_integer_expression_shape(
             return inline_integer_expression_shape(expression->binary_lhs,
                                                    bindings, binding_count) &&
                    inline_integer_expression_shape(expression->binary_rhs,
+                                                   bindings, binding_count);
+        case EXPR_COND:
+            return inline_integer_expression_shape(expression->cond_test,
+                                                   bindings, binding_count) &&
+                   inline_integer_expression_shape(expression->cond_then,
+                                                   bindings, binding_count) &&
+                   inline_integer_expression_shape(expression->cond_else,
                                                    bindings, binding_count);
         default:
             return false;
@@ -329,6 +339,16 @@ static Expr* clone_inline_integer_expression(
             if (!clone->unary_operand) return NULL;
             clone->type = expression->type;
             return clone;
+        case EXPR_CAST:
+            clone = expr_cast(
+                expression->cast_type,
+                clone_inline_integer_expression(expression->cast_expr,
+                                                bindings, binding_count),
+                expression->loc);
+            if (!clone->cast_expr) return NULL;
+            clone->type = expression->type;
+            clone->cxx_cast_kind = expression->cxx_cast_kind;
+            return clone;
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -357,6 +377,19 @@ static Expr* clone_inline_integer_expression(
             clone->type = expression->type;
             return clone;
         }
+        case EXPR_COND:
+            clone = expr_cond(
+                clone_inline_integer_expression(expression->cond_test,
+                                                bindings, binding_count),
+                clone_inline_integer_expression(expression->cond_then,
+                                                bindings, binding_count),
+                clone_inline_integer_expression(expression->cond_else,
+                                                bindings, binding_count),
+                expression->loc);
+            if (!clone->cond_test || !clone->cond_then ||
+                !clone->cond_else) return NULL;
+            clone->type = expression->type;
+            return clone;
         default:
             return NULL;
     }

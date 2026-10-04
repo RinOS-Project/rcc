@@ -103,6 +103,16 @@ int inlined_repeated_complex_argument_call(int value)
     return inline_duplicate_value(value * 3 + 1);
 }
 
+static int inline_conditional_cast(int value)
+{
+    return (int)(value < 0 ? -value : value + 4);
+}
+
+int inlined_conditional_cast_call(int value)
+{
+    return inline_conditional_cast(value);
+}
+
 static int inline_add_pair(int left, int right)
 {
     return left + right;
