@@ -447,3 +447,7 @@
       gates use the shared directory/expected-failure helpers, native tool names,
       and a committed PowerShell text matcher; i686 runtime execution remains
       explicitly dependent on a 32-bit host runtime or RinOS/WSL runner.
+- [x] Emit file-scope data/BSS variable DIEs with source locations, type
+      references, external-linkage flags, and `DW_OP_addr` relocations for
+      external and internal-linkage symbols; verify x86/x64 `.ro` objects and
+      linked `.rin` output in `test-debug-info`.
