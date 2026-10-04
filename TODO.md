@@ -359,6 +359,8 @@
         `.debug_frame`のCIE/FDEをrelocation付きで出力し、CFA・saved FP・
         return address規則とloadable imageからの除外を両archで検証。非標準
         prologueの完全なCFIは引き続き未実装
+  - [x] CIE/FDEのPC進行を実際の`push fp; mov fp,sp`完了位置へ合わせ、
+        epilogueのCFA復帰とsaved FP復元を両archのdebug-info回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

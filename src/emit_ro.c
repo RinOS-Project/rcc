@@ -1916,7 +1916,11 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         uint64_t fde_offset = frame->size;
         uint64_t address_offset;
         uint32_t function_size = debug_function_size(mod, function);
-        uint64_t prologue_after_fp = g_opts.target_arch == ARCH_X64 ? 3u : 2u;
+        /* The location after the complete `mov fp, sp` instruction is the
+         * first PC at which the frame register is the CFA base.  The x86
+         * instruction is two bytes (89 e5), while the x64 form is three
+         * bytes (48 89 e5). */
+        uint64_t prologue_after_fp = g_opts.target_arch == ARCH_X64 ? 4u : 3u;
         uint64_t after_leave = function_size >= 1u
             ? (uint64_t)function_size - 1u : 0u;
 

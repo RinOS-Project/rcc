@@ -41,6 +41,51 @@ static uint32_t read_u32(const uint8_t* data, uint64_t offset)
            ((uint32_t)data[offset + 3u] << 24);
 }
 
+static void verify_first_frame_fde(const ObjSection* frame,
+                                   uint16_t architecture)
+{
+    uint32_t cie_length;
+    uint64_t fde_offset;
+    uint32_t fde_length;
+    uint64_t instruction_offset;
+    uint64_t instruction_end;
+    uint32_t pointer_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint8_t frame_register = architecture == ARCH_X64 ? 6u : 5u;
+
+    assert(frame != NULL && frame->size >= 8u);
+    cie_length = read_u32(frame->data, 0u);
+    assert(cie_length > 0u);
+    fde_offset = 4u + cie_length;
+    assert(fde_offset + 8u <= frame->size);
+    fde_length = read_u32(frame->data, fde_offset);
+    assert(fde_length >= 4u + pointer_size * 2u + 8u);
+    assert(fde_offset + 4u + fde_length <= frame->size);
+    assert(read_u32(frame->data, fde_offset + 4u) == 0u);
+    instruction_offset = fde_offset + 4u + 4u + pointer_size * 2u;
+    instruction_end = fde_offset + 4u + fde_length;
+    assert(instruction_offset + 8u <= instruction_end);
+    /* push fp; the saved FP is two words below the new CFA. */
+    assert(frame->data[instruction_offset++] == 0x41u);
+    assert(frame->data[instruction_offset++] == 0x0eu);
+    assert(frame->data[instruction_offset++] == (uint8_t)(pointer_size * 2u));
+    assert(frame->data[instruction_offset++] ==
+           (uint8_t)(0x80u + frame_register));
+    assert(frame->data[instruction_offset++] == 1u);
+    /* The advance must land after the complete mov fp,sp instruction. */
+    assert(frame->data[instruction_offset++] ==
+           (uint8_t)(architecture == ARCH_X64 ? 0x43u : 0x42u));
+    assert(frame->data[instruction_offset++] == 0x0du);
+    assert(frame->data[instruction_offset++] == frame_register);
+    /* The epilogue changes the CFA back to SP and restores the saved FP. */
+    assert(contains_byte_pair(frame->data + instruction_offset,
+                              instruction_end - instruction_offset,
+                              0x0du,
+                              architecture == ARCH_X64 ? 7u : 4u));
+    assert(contains_byte(frame->data + instruction_offset,
+                         instruction_end - instruction_offset,
+                         (uint8_t)(0xc0u + frame_register)));
+}
+
 static uint64_t find_function_die(const ObjSection* info,
                                   const ObjSection* strings,
                                   const char* function_name,
@@ -127,6 +172,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
            frame->data[6] == 0xffu && frame->data[7] == 0xffu);
     assert(contains_byte(frame->data, frame->size, 0x0cu));
     assert(contains_byte(frame->data, frame->size, 0x0du));
+    verify_first_frame_fde(frame, architecture);
     assert(info->relocs != NULL && info->size > 16u);
     assert(info->data[4] == 4u && info->data[5] == 0u);
     assert(info->data[16] == (uint8_t)language);
