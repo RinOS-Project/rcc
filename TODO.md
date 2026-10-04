@@ -143,6 +143,10 @@
   - [x] `()`, `[]`, `{}`の深さを追跡してネスト内の誤った同期点を避け、
         C17/C++の宣言開始点と後続宣言の回復を両archでタイムアウト・
         クラッシュなしに検証
+  - [x] missing terminatorでcursorがtypedef名、C++ `bool`/`char8_t`、
+        `requires`等の後続宣言開始点に残った場合、そのtokenを先に消費せず
+        次のparse iterationへ渡し、連続無進捗時だけ確実に同期消費する回復を
+        C17/C++20の診断fixtureで検証
 - [x] C17 conformance compile-and-run suite
 
 ## 3. C++20 frontend / ABI

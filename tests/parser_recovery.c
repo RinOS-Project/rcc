@@ -27,3 +27,12 @@ int malformed_nested_initializer(void)
     int after = 7;
     return after + value;
 }
+
+typedef int recovery_type;
+
+int malformed_missing_semicolon(void)
+{
+    int bad = 1
+    recovery_type after_missing = ;
+    return after_missing + bad;
+}

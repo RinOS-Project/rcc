@@ -326,6 +326,67 @@ static Token* expect(TokenType type, const char* msg) {
     return NULL;
 }
 
+/* A declaration can begin with a typedef name just as it can with a built-in
+ * type keyword.  Keeping this test separate from is_type_start() is
+ * intentional: recovery must not consume a known declaration start merely
+ * because the preceding construct was malformed. */
+static bool parser_is_recovery_declaration_start(const Token* token) {
+    if (!token) return false;
+    switch (token->type) {
+        case TOK_TYPEDEF:
+        case TOK_AUTO:
+        case TOK_INT:
+        case TOK_VOID:
+        case TOK_CHAR:
+        case TOK_SHORT:
+        case TOK_LONG:
+        case TOK_FLOAT:
+        case TOK_DOUBLE:
+        case TOK_SIGNED:
+        case TOK_UNSIGNED:
+        case TOK_STRUCT:
+        case TOK_UNION:
+        case TOK_ENUM:
+        case TOK_CONST:
+        case TOK_VOLATILE:
+        case TOK_RESTRICT:
+        case TOK_STATIC:
+        case TOK_EXTERN:
+        case TOK_THREAD_LOCAL:
+        case TOK__BOOL:
+        case TOK__COMPLEX:
+        case TOK__IMAGINARY:
+        case TOK__ATOMIC:
+        case TOK__NORETURN:
+        case TOK__ALIGNAS:
+        case TOK_STATIC_ASSERT:
+        case TOK_INLINE:
+        case TOK_ASM:
+            return true;
+        case TOK_CLASS:
+        case TOK_NAMESPACE:
+        case TOK_TEMPLATE:
+        case TOK_TYPENAME:
+        case TOK_USING:
+        case TOK_FRIEND:
+        case TOK_EXPLICIT:
+        case TOK_MUTABLE:
+        case TOK_CONSTEXPR:
+        case TOK_CONSTEVAL:
+        case TOK_CONSTINIT:
+        case TOK_CONCEPT:
+        case TOK_REQUIRES:
+            return parser_cxx_mode;
+        case TOK_BOOL:
+        case TOK_CHAR8_T:
+            return parser_cxx_mode;
+        case TOK_IDENT:
+            return parser_lookup_type(token->value.str_val) != NULL;
+        default:
+            return false;
+    }
+}
+
 static void synchronize(void) {
     int paren_depth = 0;
     int bracket_depth = 0;
@@ -375,42 +436,14 @@ static void synchronize(void) {
                 case TOK_CONTINUE:
                 case TOK_GOTO:
                 case TOK_RETURN:
-                case TOK_TYPEDEF:
-                case TOK_AUTO:
-                case TOK_INT:
-                case TOK_VOID:
-                case TOK_CHAR:
-                case TOK_SHORT:
-                case TOK_LONG:
-                case TOK_FLOAT:
-                case TOK_DOUBLE:
-                case TOK_SIGNED:
-                case TOK_UNSIGNED:
-                case TOK_STRUCT:
-                case TOK_UNION:
-                case TOK_ENUM:
-                case TOK_CONST:
-                case TOK_VOLATILE:
-                case TOK_STATIC:
-                case TOK_EXTERN:
-                case TOK_THREAD_LOCAL:
-                case TOK__BOOL:
-                case TOK__NORETURN:
-                case TOK__ALIGNAS:
-                case TOK_STATIC_ASSERT:
-                case TOK_INLINE:
-                case TOK_ASM:
-                case TOK_CLASS:
-                case TOK_NAMESPACE:
-                case TOK_TEMPLATE:
-                case TOK_USING:
-                case TOK_CONSTEXPR:
-                case TOK_CONSTEVAL:
-                case TOK_CONSTINIT:
                 case TOK_TRY:
+                case TOK_CATCH:
                 case TOK_THROW:
                     return;
                 default:
+                    if (parser_is_recovery_declaration_start(peek())) {
+                        return;
+                    }
                     break;
             }
         }
@@ -3129,6 +3162,7 @@ Type* rcc_parser_parse_cxx_declarator(Type* base_type, const char** name,
 static Stmt* parse_block(void) {
     SourceLoc loc = previous()->loc;
     StmtList* stmts = NULL;
+    Token* preserved_recovery_boundary = NULL;
     ParserEnumConstant* saved_enum_constants = parser_enum_constants;
     void* saved_type_names = rcc_parser_type_scope_mark();
     void* saved_cxx_using = parser_cxx_mode &&
@@ -3138,16 +3172,31 @@ static Stmt* parse_block(void) {
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* iteration_start = parser.cur;
         int errors_before = g_error_count;
+        bool preserve_recovery_boundary = false;
         Stmt* s = parser_cxx_mode && rcc_parse_cxx_statement
             ? rcc_parse_cxx_statement() : parse_declaration();
         if (s) {
             stmtlist_append(&stmts, s);
         }
         if (g_error_count > errors_before && parser.cur == iteration_start) {
-            synchronize();
+            /* A missing terminator commonly leaves the next declaration's
+             * type token at the cursor.  Leave that token for the next parse
+             * iteration; if that declaration also makes no progress, the
+             * same boundary is consumed on the following attempt. */
+            if (parser_is_recovery_declaration_start(parser.cur) &&
+                preserved_recovery_boundary != parser.cur) {
+                preserved_recovery_boundary = parser.cur;
+                preserve_recovery_boundary = true;
+            } else {
+                synchronize();
+                preserved_recovery_boundary = NULL;
+            }
+        } else if (parser.cur != iteration_start ||
+                   g_error_count == errors_before) {
+            preserved_recovery_boundary = NULL;
         }
         if (parser.cur == iteration_start && !at_end() &&
-            !check(TOK_RBRACE)) {
+            !check(TOK_RBRACE) && !preserve_recovery_boundary) {
             advance();
         }
     }
@@ -3859,18 +3908,33 @@ AST* rcc_parse(TokenList* tokens) {
     parser_pack_depth = 0;
 
     AST* ast = ast_new();
+    Token* preserved_recovery_boundary = NULL;
 
     while (!at_end()) {
         Token* iteration_start = parser.cur;
         int errors_before = g_error_count;
+        bool preserve_recovery_boundary = false;
         Decl* d = parse_toplevel();
         if (d) {
             ast_add_decl(ast, d);
         }
         if (g_error_count > errors_before && parser.cur == iteration_start) {
-            synchronize();
+            if (parser_is_recovery_declaration_start(parser.cur) &&
+                preserved_recovery_boundary != parser.cur) {
+                preserved_recovery_boundary = parser.cur;
+                preserve_recovery_boundary = true;
+            } else {
+                synchronize();
+                preserved_recovery_boundary = NULL;
+            }
+        } else if (parser.cur != iteration_start ||
+                   g_error_count == errors_before) {
+            preserved_recovery_boundary = NULL;
         }
-        if (parser.cur == iteration_start && !at_end()) advance();
+        if (parser.cur == iteration_start && !at_end() &&
+            !preserve_recovery_boundary) {
+            advance();
+        }
     }
 
     return ast;
