@@ -1068,6 +1068,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3fu);    /* DW_AT_external */
     debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
@@ -1114,6 +1116,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_line_u32(info, debug_function_size(mod, function));
         section_add_byte(info, (uint8_t)file_index);
         debug_line_u32(info, function->source_line);
+        debug_line_u32(info, function->source_column);
         section_add_byte(info, function->is_global ? 1u : 0u);
         debug_line_u32(info, debug_str_add(strings, function->name));
     }

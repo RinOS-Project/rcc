@@ -25,6 +25,14 @@ static bool contains_byte_pair(const uint8_t* data, uint64_t size,
     return false;
 }
 
+static uint32_t read_u32(const uint8_t* data, uint64_t offset)
+{
+    return (uint32_t)data[offset] |
+           ((uint32_t)data[offset + 1u] << 8) |
+           ((uint32_t)data[offset + 2u] << 16) |
+           ((uint32_t)data[offset + 3u] << 24);
+}
+
 static void verify_debug_object(const char* path, uint16_t architecture,
                                 uint16_t language, const char* source_file,
                                 const char* function_name)
@@ -55,6 +63,15 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(info->data[4] == 4u && info->data[5] == 0u);
     assert(info->data[16] == (uint8_t)language);
     assert(info->data[17] == (uint8_t)(language >> 8));
+    {
+        uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+        uint64_t function_offset = 26u;
+        uint64_t column_offset = function_offset + 1u + 4u + address_size +
+                                  4u + 1u + 4u;
+        assert(info->data[function_offset] == 2u);
+        assert(info->size >= column_offset + 4u);
+        assert(read_u32(info->data, column_offset) == 1u);
+    }
     assert(abbrev->size > 8u && strings->size > 1u && strings->data[0] == 0u);
     assert(contains_bytes(strings->data, strings->size, function_name));
     objfile_free(object);
