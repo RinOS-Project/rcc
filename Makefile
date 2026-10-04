@@ -5350,7 +5350,14 @@ test-vla-runtime: $(RCC_TARGET)
 		-o $(TEST_OUT)/vla-runtime/x86.s tests/vla_runtime.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/vla-runtime/x64.s tests/vla_runtime.c
-	wsl -d Ubuntu-24.04 bash -lc "set -e; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x86.o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x86.s; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x86-start.o $(WSL_RINCOMPILER_ROOT)/tests/vla_runtime_i686_start.s; gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x86 $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x86-start.o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x86.o; $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x86; gcc -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x64.o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x64.s; gcc -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x64-start.o $(WSL_RINCOMPILER_ROOT)/tests/vla_runtime_x64_start.s; gcc -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x64 $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x64-start.o $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x64.o; $(WSL_RINCOMPILER_ROOT)/build/tests/vla-runtime/x64"
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/vla-runtime/x86.exe \
+		$(TEST_OUT)/vla-runtime/x86.s
+	$(TEST_OUT)/vla-runtime/x86.exe
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/vla-runtime/x64.exe \
+		$(TEST_OUT)/vla-runtime/x64.s
+	$(TEST_OUT)/vla-runtime/x64.exe
 	@echo "C17 VLA runtime tests completed"
 else
 test-vla-runtime: $(RCC_TARGET)
