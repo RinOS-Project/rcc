@@ -63,6 +63,8 @@ static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
 
 static Type* sema_decltype_auto_return_type(Expr* expression);
+static bool sema_pointee_qualification_preserved(
+    const Type* source, const Type* target);
 
 static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
     if (!expression) return false;
@@ -1227,8 +1229,8 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         source_base = source->base;
         target_base = target->base;
         if (!source_base || !target_base) return -1;
-        if ((source_base->is_const && !target_base->is_const) ||
-            (source_base->is_volatile && !target_base->is_volatile)) {
+        if (!sema_pointee_qualification_preserved(
+                source_base, target_base)) {
             return -1;
         }
         if (type_is_compatible(source_base, target_base)) return 1;
@@ -1300,6 +1302,49 @@ static bool cxx_reference_object_compatible(const Type* source,
     target_unqualified.is_const = false;
     target_unqualified.is_volatile = false;
     return type_is_compatible(&source_unqualified, &target_unqualified);
+}
+
+/* C qualification conversion may add cv at the directly pointed-to object,
+ * but adding cv below an unqualified pointer-to-pointer would allow a write
+ * through the outer pointer to change the type of the object seen by the
+ * inner pointer.  A const-qualified intermediate pointer protects that
+ * deeper conversion.  Keep this structural check separate from
+ * type_is_compatible(), which intentionally ignores top-level cv. */
+static bool sema_pointee_qualification_preserved_internal(
+    const Type* source, const Type* target, bool protected_level,
+    bool nested_level) {
+    bool source_const;
+    bool target_const;
+    bool source_volatile;
+    bool target_volatile;
+    if (!source || !target) return false;
+    source_const = source->is_const;
+    target_const = target->is_const;
+    source_volatile = source->is_volatile;
+    target_volatile = target->is_volatile;
+    if ((source_const && !target_const) ||
+        (source_volatile && !target_volatile) ||
+        (nested_level && (target_const && !source_const) &&
+         !protected_level) ||
+        (nested_level && (target_volatile && !source_volatile) &&
+         !protected_level)) {
+        return false;
+    }
+    if (source->kind == TYPE_PTR || target->kind == TYPE_PTR) {
+        if (source->kind != TYPE_PTR || target->kind != TYPE_PTR) {
+            return true;
+        }
+        return sema_pointee_qualification_preserved_internal(
+            source->base, target->base,
+            target->is_const || target->is_volatile, true);
+    }
+    return true;
+}
+
+static bool sema_pointee_qualification_preserved(const Type* source,
+                                                 const Type* target) {
+    return sema_pointee_qualification_preserved_internal(
+        source, target, false, false);
 }
 
 static Type* implicit_cast(Expr* e, Type* target) {
@@ -1414,8 +1459,8 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* Array to pointer decay */
     if (type_is_array(e->type) && type_is_pointer(target)) {
-        if ((e->type->base->is_const && !target->base->is_const) ||
-            (e->type->base->is_volatile && !target->base->is_volatile)) {
+        if (!sema_pointee_qualification_preserved(
+                e->type->base, target->base)) {
             return NULL;
         }
         if ((target->base && target->base->kind == TYPE_VOID) ||
@@ -1430,8 +1475,8 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* void* conversions */
     if (type_is_pointer(e->type) && type_is_pointer(target)) {
-        if ((e->type->base->is_const && !target->base->is_const) ||
-            (e->type->base->is_volatile && !target->base->is_volatile)) {
+        if (!sema_pointee_qualification_preserved(
+                e->type->base, target->base)) {
             return NULL;
         }
         if ((e->type->base && e->type->base->kind == TYPE_VOID) ||
@@ -5914,8 +5959,8 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         source_base = source->base;
         target_base = target->base;
         if (source_base && target_base &&
-            ((source_base->is_const && !target_base->is_const) ||
-             (source_base->is_volatile && !target_base->is_volatile))) {
+            !sema_pointee_qualification_preserved(
+                source_base, target_base)) {
             return -1;
         }
         if ((target_base && target_base->kind == TYPE_VOID) ||
@@ -5932,8 +5977,8 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         if (!source_base || !target_base) return -1;
         /* Standard qualification conversion may add, but never remove,
          * pointee cv-qualification. */
-        if ((source_base->is_const && !target_base->is_const) ||
-            (source_base->is_volatile && !target_base->is_volatile)) {
+        if (!sema_pointee_qualification_preserved(
+                source_base, target_base)) {
             return -1;
         }
         if (type_is_compatible(source_base, target_base)) return 1;

@@ -5039,6 +5039,16 @@ test-restrict-qualifier: $(RCC_TARGET)
 		$(TEST_OUT)/restrict-qualifier/invalid-x64.log
 	grep -q 'restrict-qualified pointer must point to an object or incomplete type' \
 		$(TEST_OUT)/restrict-qualifier/invalid-x64.log
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/restrict-qualifier/invalid-nested-x86.ro \
+		tests/invalid_nested_pointer_qualifier.c \
+		>$(TEST_OUT)/restrict-qualifier/invalid-nested-x86.log 2>&1
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/restrict-qualifier/invalid-nested-x64.ro \
+		tests/invalid_nested_pointer_qualifier.c \
+		>$(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log 2>&1
+	test "$$(grep -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x86.log)" -eq 2
+	test "$$(grep -c 'incompatible return type' $(TEST_OUT)/restrict-qualifier/invalid-nested-x64.log)" -eq 2
 	@echo "C17 restrict qualifier tests completed"
 
 ifeq ($(OS),Windows_NT)
