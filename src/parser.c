@@ -2830,6 +2830,45 @@ static DeclList* parse_parameter_list(bool* variadic) {
     return parameters;
 }
 
+/* C still permits the obsolescent identifier-list form in a function
+ * declarator.  It is distinguishable from a typed prototype when the tokens
+ * inside the parentheses are only identifiers separated by commas.  A known
+ * typedef name remains a type specifier, so do not steal that spelling from
+ * the normal prototype parser. */
+static bool parser_is_old_style_parameter_list(void) {
+    Token* cursor = parser.cur;
+    if (parser_cxx_mode || !cursor || cursor->type == TOK_RPAREN ||
+        cursor->type != TOK_IDENT ||
+        parser_lookup_type(cursor->value.str_val) != NULL) {
+        return false;
+    }
+    for (;;) {
+        cursor = cursor->next;
+        if (!cursor || cursor->type == TOK_RPAREN) return true;
+        if (cursor->type != TOK_COMMA) return false;
+        cursor = cursor->next;
+        if (!cursor || cursor->type != TOK_IDENT ||
+            parser_lookup_type(cursor->value.str_val) != NULL) {
+            return false;
+        }
+    }
+}
+
+static DeclList* parse_old_style_parameter_list(void) {
+    DeclList* parameters = NULL;
+    int parameter_index = 0;
+    while (!check(TOK_RPAREN) && !at_end()) {
+        Token* identifier = expect(TOK_IDENT, "old-style parameter name");
+        if (identifier) {
+            Decl* parameter = decl_param(identifier->value.str_val, type_int,
+                                         parameter_index++, identifier->loc);
+            decllist_append(&parameters, parameter);
+        }
+        if (!match(TOK_COMMA)) break;
+    }
+    return parameters;
+}
+
 typedef struct ParsedPointerLevel {
     bool is_const;
     bool is_volatile;
@@ -2933,7 +2972,12 @@ static Type* parse_declarator(Type* base_type, const char** name,
         expect(TOK_RPAREN, ")");
         expect(TOK_LPAREN, "(");
         has_prototype = !check(TOK_RPAREN);
-        function_parameters = parse_parameter_list(&variadic);
+        if (parser_is_old_style_parameter_list()) {
+            function_parameters = parse_old_style_parameter_list();
+            has_prototype = false;
+        } else {
+            function_parameters = parse_parameter_list(&variadic);
+        }
         expect(TOK_RPAREN, ")");
         type = type_func(apply_pointer_levels(base_type, leading_pointers),
                          parser_type_params(function_parameters, &variadic),
@@ -3030,7 +3074,13 @@ static Type* parse_declarator(Type* base_type, const char** name,
         } else if (match(TOK_LPAREN)) {
             bool variadic = false;
             bool has_prototype = !check(TOK_RPAREN);
-            DeclList* function_parameters = parse_parameter_list(&variadic);
+            DeclList* function_parameters;
+            if (parser_is_old_style_parameter_list()) {
+                function_parameters = parse_old_style_parameter_list();
+                has_prototype = false;
+            } else {
+                function_parameters = parse_parameter_list(&variadic);
+            }
             expect(TOK_RPAREN, ")");
             type = type_func(type,
                              parser_type_params(function_parameters, &variadic),
@@ -3616,6 +3666,73 @@ Stmt* parse_declaration(void) {
         }
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a function");
+        }
+        /* In an old-style definition, parameter declarations appear between
+         * the identifier-list declarator and the compound statement.  Parse
+         * them through the ordinary declaration path, then transfer their
+         * adjusted types to both the Decl parameters and the function type's
+         * ABI parameter list. */
+        if (!parser_cxx_mode && !type->has_prototype && parameters &&
+            !check(TOK_LBRACE) && !check(TOK_SEMICOLON)) {
+            while (!check(TOK_LBRACE) && !check(TOK_SEMICOLON) &&
+                   !at_end()) {
+                Stmt* parameter_statement;
+                Decl* parameter_declaration;
+                DeclList* parameter;
+                Type* parameter_type;
+                if (!is_type_start()) {
+                    rcc_error(peek()->loc,
+                              "expected old-style parameter declaration");
+                    synchronize();
+                    break;
+                }
+                parameter_statement = parse_declaration();
+                if (!parameter_statement ||
+                    parameter_statement->kind != STMT_DECL ||
+                    !parameter_statement->decl ||
+                    (parameter_statement->decl->kind != DECL_VAR &&
+                     parameter_statement->decl->kind != DECL_FUNC)) {
+                    rcc_error(loc,
+                              "old-style parameter declaration must declare one parameter");
+                    continue;
+                }
+                parameter_declaration = parameter_statement->decl;
+                parameter = parameters;
+                while (parameter &&
+                       (!parameter->decl->name ||
+                        strcmp(parameter->decl->name,
+                               parameter_declaration->name) != 0)) {
+                    parameter = parameter->next;
+                }
+                if (!parameter) {
+                    rcc_error(parameter_declaration->loc,
+                              "old-style parameter declaration names an unknown parameter '%s'",
+                              parameter_declaration->name);
+                    continue;
+                }
+                if (parameter_declaration->kind == DECL_VAR &&
+                    parameter_declaration->var_init) {
+                    rcc_error(parameter_declaration->loc,
+                              "old-style parameter declaration cannot have an initializer");
+                }
+                parameter_type = parameter_declaration->type;
+                if (parameter_type && parameter_type->kind == TYPE_ARRAY) {
+                    parameter_type = type_ptr(parameter_type->base);
+                } else if (parameter_type &&
+                           parameter_type->kind == TYPE_FUNC) {
+                    parameter_type = type_ptr(parameter_type);
+                }
+                parameter->decl->type = parameter_type;
+                {
+                    TypeParam* type_parameter = type->params;
+                    while (type_parameter && type_parameter->name &&
+                           strcmp(type_parameter->name,
+                                  parameter_declaration->name) != 0) {
+                        type_parameter = type_parameter->next;
+                    }
+                    if (type_parameter) type_parameter->type = parameter_type;
+                }
+            }
         }
         if (match(TOK_LBRACE)) {
             if (parser_cxx_mode && rcc_parser_cxx_begin_function_parameters) {

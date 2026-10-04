@@ -80,6 +80,9 @@
   - [ ] 全宣言形式
     - [x] block-scope variably modified typedefをloweringし、linkageを持つ
           variably modified objectとstruct/union memberを両archで診断
+    - [x] C17の旧式identifier-list function declaration/definitionを型付き
+          parameter declarationへ接続し、既定int・array/function parameter
+          adjustment・未知parameter診断と両arch compile/run回帰を追加
   - [x] function prototype scopeの`[*]`を未指定VLAとして保持し、
         definition／local／typedef／type-nameでの誤用を診断
   - [x] type-nameの`sizeof(int[count])`でVLA boundを意味解析し、
