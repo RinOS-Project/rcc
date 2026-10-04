@@ -359,6 +359,8 @@
   - [x] i686 wide-scalarの代入、複合代入、pre/post incrementをpair
         load/storeとcarry/borrow付き演算へlowerし、両archのobject・x64
         実行回帰で検証
+  - [x] i686 wide-scalarのtruth、論理否定、short-circuit AND/ORを既存の
+        two-word truth reductionとCFGへ接続し、両archのobject・x64実行で検証
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

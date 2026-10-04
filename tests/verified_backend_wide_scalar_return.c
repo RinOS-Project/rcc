@@ -148,6 +148,21 @@ unsigned long long verified_wide_scalar_postincrement(
     return target++;
 }
 
+int verified_wide_scalar_logical_not(unsigned long long value)
+{
+    return !value;
+}
+
+int verified_wide_scalar_logical_and(unsigned long long value)
+{
+    return value && 7;
+}
+
+int verified_wide_scalar_logical_or(unsigned long long value)
+{
+    return value || 0;
+}
+
 unsigned long long verified_wide_scalar_udiv(unsigned long long value)
 {
     return value / 0x0000000100000001ULL;

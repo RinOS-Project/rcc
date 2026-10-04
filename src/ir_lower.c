@@ -3279,8 +3279,19 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             return lower_value(instruction->result, operand.type,
                                operand.is_unsigned);
         case EXPR_NOT:
-            operand = lower_expression(context, expression->unary_operand);
-            operand = lower_truth(context, operand);
+            if (lower_i686_wide_scalar_type(
+                    expression->unary_operand->type)) {
+                RccIrLowerWideValue wide_operand;
+                if (!lower_wide_scalar_expression(
+                        context, expression->unary_operand, &wide_operand)) {
+                    return lower_invalid_value();
+                }
+                operand = lower_wide_scalar_truth(context, wide_operand);
+            } else {
+                operand = lower_expression(
+                    context, expression->unary_operand);
+                operand = lower_truth(context, operand);
+            }
             if (!operand.valid) return lower_invalid_value();
             zero = lower_integer_constant(context, operand.type, true, 0u);
             operands[0] = operand.value;
@@ -3608,6 +3619,8 @@ static RccIrLowerValue lower_logical_expression(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue left;
     RccIrLowerValue right;
+    RccIrLowerWideValue left_wide;
+    RccIrLowerWideValue right_wide;
     RccIrLowerValue short_value;
     RccIrType result_type;
     RccIrBlock* right_block;
@@ -3625,7 +3638,15 @@ static RccIrLowerValue lower_logical_expression(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    left = lower_expression(context, expression->binary_lhs);
+    if (lower_i686_wide_scalar_type(expression->binary_lhs->type)) {
+        if (!lower_wide_scalar_expression(
+                context, expression->binary_lhs, &left_wide)) {
+            return lower_invalid_value();
+        }
+        left = lower_wide_scalar_truth(context, left_wide);
+    } else {
+        left = lower_expression(context, expression->binary_lhs);
+    }
     if (!left.valid) return lower_invalid_value();
     right_block = rcc_ir_block_add(context->function, "logic.rhs");
     short_block = rcc_ir_block_add(context->function, "logic.short");
@@ -3640,8 +3661,16 @@ static RccIrLowerValue lower_logical_expression(
 
     context->current = right_block;
     context->terminated = false;
-    right = lower_expression(context, expression->binary_rhs);
-    right = lower_truth(context, right);
+    if (lower_i686_wide_scalar_type(expression->binary_rhs->type)) {
+        if (!lower_wide_scalar_expression(
+                context, expression->binary_rhs, &right_wide)) {
+            return lower_invalid_value();
+        }
+        right = lower_wide_scalar_truth(context, right_wide);
+    } else {
+        right = lower_expression(context, expression->binary_rhs);
+        right = lower_truth(context, right);
+    }
     right = lower_cast(context, right, expression->type);
     right_end = context->current;
     if (!right.valid || context->terminated ||
