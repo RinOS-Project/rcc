@@ -62,9 +62,15 @@ MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
 # Keep expected-failure checks shell-neutral. Native Windows builds use
 # cmd.exe, while POSIX/WSL builds use a Bourne-compatible shell.
 EXPECT_FAILURE = $(subst ./,,$(1)) >$(2) 2>&1 & if not errorlevel 1 exit /b 1
+# Native MinGW installations commonly provide only the host CRT.  The
+# verifier still parses both x86 and x64 objects and executes the native x64
+# object, so do not make the whole production gate depend on unavailable
+# 32-bit Windows CRT libraries.
+VERIFIED_BACKEND_X86_HOST_CFLAGS = $(CFLAGS)
 else
 MKDIR_P = mkdir -p $(1)
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
+VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
 endif
 
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
@@ -5050,7 +5056,7 @@ test-flexible-arrays: $(RCC_TARGET)
 		-o $(TEST_OUT)/flexible-arrays/x86.ro tests/flexible_array.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/flexible-arrays/x64.ro tests/flexible_array.c
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/flexible-arrays/run-test-x86 \
 		tests/flexible_array_run_test.c src/emit_ro.c src/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -8997,16 +9003,13 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x64.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x64.log
-	$(GREP) -q 'Verified backend: 38 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/x86.log
-	$(GREP) -q 'Verified backend: 38 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/x64.log
+	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/x86.log
+	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/x64.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-x64.ro \
 		tests/verified_backend.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-x64.log
-	$(GREP) -q 'Verified backend: 1 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/globals-x86.ro \
 		tests/verified_backend_globals.c \
@@ -9015,65 +9018,54 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto
 		-o $(TEST_OUT)/verified-backend/globals-x64.ro \
 		tests/verified_backend_globals.c \
 		>$(TEST_OUT)/verified-backend/globals-x64.log
-	$(GREP) -q 'Verified backend: 8 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/globals-x86.log
-	$(GREP) -q 'Verified backend: 8 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/globals-x64.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' $(TEST_OUT)/verified-backend/globals-x86.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' $(TEST_OUT)/verified-backend/globals-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/fallback.ro \
 		tests/verified_backend_fallback.c \
 		>$(TEST_OUT)/verified-backend/fallback.log
-	$(GREP) -q 'Verified backend fallback: translation unit contains thread-local data' \
-		$(TEST_OUT)/verified-backend/fallback.log
+	$(GREP) -F -q 'Verified backend fallback: translation unit contains thread-local data' $(TEST_OUT)/verified-backend/fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/switch-fallback.ro \
 		tests/verified_backend_switch_fallback.c \
 		>$(TEST_OUT)/verified-backend/switch-fallback.log
-	$(GREP) -q "Verified backend fallback: function 'verified_switch_nested_label_fallback' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/switch-fallback.log
+	$(GREP) -F -q "Verified backend fallback: function 'verified_switch_nested_label_fallback' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/switch-fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/array-fallback.ro \
 		tests/verified_backend_array_fallback.c \
 		>$(TEST_OUT)/verified-backend/array-fallback.log
-	$(GREP) -q "Verified backend fallback: function 'verified_aggregate_return_fallback' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/array-fallback.log
+	$(GREP) -F -q "Verified backend fallback: function 'verified_aggregate_return_fallback' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/array-fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/aggregate-straddle-fallback.ro \
 		tests/verified_backend_aggregate_straddle_fallback.c \
 		>$(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
-	$(GREP) -q "Verified backend fallback: function 'verified_aggregate_register_straddle_fallback' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
+	$(GREP) -F -q "Verified backend fallback: function 'verified_aggregate_register_straddle_fallback' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/packed-argument-fallback.ro \
 		tests/verified_backend_packed_argument_fallback.c \
 		>$(TEST_OUT)/verified-backend/packed-argument-fallback.log
-	$(GREP) -q "Verified backend fallback: function 'verified_packed_argument_fallback' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/packed-argument-fallback.log
+	$(GREP) -F -q "Verified backend fallback: function 'verified_packed_argument_fallback' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/packed-argument-fallback.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-x86.ro \
 		tests/verified_backend_wide_scalar_fallback.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-x86.log
-	$(GREP) -q 'Verified backend: 1 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/wide-scalar-x86.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-x86.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
-	$(GREP) -q 'Verified backend: 28 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
+	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-x64.ro \
 		tests/verified_backend_wide_scalar_fallback.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-x64.log
-	$(GREP) -q 'Verified backend: 1 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/wide-scalar-x64.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
-	$(GREP) -q 'Verified backend: 28 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
+	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) \

@@ -8,8 +8,72 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
+
+#if defined(_WIN64)
+#define RINOS_ABI __attribute__((sysv_abi))
+#else
+#define RINOS_ABI
+#endif
+
+static size_t verified_page_size(void)
+{
+#ifdef _WIN32
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return (size_t)system_info.dwPageSize;
+#else
+    long page = sysconf(_SC_PAGESIZE);
+    return page > 0 ? (size_t)page : 0u;
+#endif
+}
+
+static void* verified_map(size_t size)
+{
+#ifdef _WIN32
+    return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT,
+                        PAGE_READWRITE);
+#else
+    void* memory = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return memory == MAP_FAILED ? NULL : memory;
+#endif
+}
+
+static int verified_protect(void* memory, size_t size,
+                            int writable, int executable)
+{
+#ifdef _WIN32
+    DWORD protection;
+    DWORD previous;
+    if (executable) {
+        protection = writable ? PAGE_EXECUTE_READWRITE : PAGE_EXECUTE_READ;
+    } else {
+        protection = writable ? PAGE_READWRITE : PAGE_READONLY;
+    }
+    return VirtualProtect(memory, size, protection, &previous) ? 0 : -1;
+#else
+    int protection = PROT_READ;
+    if (writable) protection |= PROT_WRITE;
+    if (executable) protection |= PROT_EXEC;
+    return mprotect(memory, size, protection);
+#endif
+}
+
+static int verified_unmap(void* memory, size_t size)
+{
+#ifdef _WIN32
+    (void)size;
+    return VirtualFree(memory, 0, MEM_RELEASE) ? 0 : -1;
+#else
+    return munmap(memory, size);
+#endif
+}
 
 struct VerifiedPair {
     int first;
@@ -40,16 +104,15 @@ struct VerifiedLargeReturn {
 static void* map_text(ObjectFile* object, const ObjSection* text,
                       size_t* mapping_size)
 {
-    long page = sysconf(_SC_PAGESIZE);
+    size_t page = verified_page_size();
     size_t size;
     void* memory;
-    assert(text != NULL && text->size != 0u && page > 0);
+    assert(text != NULL && text->size != 0u && page != 0u);
     assert(text->size <= (uint64_t)SIZE_MAX);
     size = ((size_t)text->size + (size_t)page - 1u) &
         ~((size_t)page - 1u);
-    memory = mmap(NULL, size, PROT_READ | PROT_WRITE,
-                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    assert(memory != MAP_FAILED);
+    memory = verified_map(size);
+    assert(memory != NULL);
     memcpy(memory, text->data, (size_t)text->size);
     for (ObjReloc* relocation = text->relocs; relocation;
          relocation = relocation->next) {
@@ -70,7 +133,7 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
         assert((int64_t)encoded == delta);
         memcpy(place, &encoded, sizeof(encoded));
     }
-    assert(mprotect(memory, size, PROT_READ | PROT_EXEC) == 0);
+    assert(verified_protect(memory, size, 0, 1) == 0);
     *mapping_size = size;
     return memory;
 }
@@ -245,35 +308,35 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
         void* memory = map_text(object, text, &mapping_size);
-        unsigned long long (*function)(void);
-        unsigned long long (*parameter_function)(unsigned long long);
-        unsigned long long (*add_function)(unsigned long long);
-        unsigned long long (*carry_function)(unsigned long long);
-        unsigned long long (*subtract_function)(unsigned long long);
-        unsigned long long (*local_function)(unsigned long long);
-        unsigned long long (*narrow_function)(unsigned int);
-        int (*equal_function)(unsigned long long);
-        int (*not_equal_function)(unsigned long long);
-        int (*unsigned_less_function)(unsigned long long);
-        int (*signed_less_function)(long long);
-        int (*unsigned_le_function)(unsigned long long);
-        int (*unsigned_ge_function)(unsigned long long);
-        int (*signed_le_function)(long long);
-        int (*signed_ge_function)(long long);
-        unsigned long long (*lshift_function)(unsigned long long,
+        unsigned long long RINOS_ABI (*function)(void);
+        unsigned long long RINOS_ABI (*parameter_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*add_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*carry_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*subtract_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*local_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*narrow_function)(unsigned int);
+        int RINOS_ABI (*equal_function)(unsigned long long);
+        int RINOS_ABI (*not_equal_function)(unsigned long long);
+        int RINOS_ABI (*unsigned_less_function)(unsigned long long);
+        int RINOS_ABI (*signed_less_function)(long long);
+        int RINOS_ABI (*unsigned_le_function)(unsigned long long);
+        int RINOS_ABI (*unsigned_ge_function)(unsigned long long);
+        int RINOS_ABI (*signed_le_function)(long long);
+        int RINOS_ABI (*signed_ge_function)(long long);
+        unsigned long long RINOS_ABI (*lshift_function)(unsigned long long,
                                               unsigned int);
-        unsigned long long (*lshr_function)(unsigned long long,
+        unsigned long long RINOS_ABI (*lshr_function)(unsigned long long,
                                             unsigned int);
-        long long (*ashr_function)(long long, unsigned int);
-        unsigned long long (*conditional_function)(int);
-        unsigned long long (*truth_conditional_function)(unsigned long long);
-        unsigned long long (*mul_function)(unsigned long long);
-        unsigned long long (*call_function)(unsigned long long);
-        unsigned long long (*udiv_function)(unsigned long long);
-        unsigned long long (*udiv_small_function)(unsigned long long);
-        unsigned long long (*umod_function)(unsigned long long);
-        long long (*sdiv_function)(long long);
-        long long (*smod_function)(long long);
+        long long RINOS_ABI (*ashr_function)(long long, unsigned int);
+        unsigned long long RINOS_ABI (*conditional_function)(int);
+        unsigned long long RINOS_ABI (*truth_conditional_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*mul_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*call_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*udiv_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*udiv_small_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*umod_function)(unsigned long long);
+        long long RINOS_ABI (*sdiv_function)(long long);
+        long long RINOS_ABI (*smod_function)(long long);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
         assert(function() == 0x1122334455667788ULL);
@@ -389,7 +452,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         address = symbol_address(memory, smod_symbol);
         memcpy(&smod_function, &address, sizeof(smod_function));
         assert(smod_function(-10LL) == -1LL);
-        assert(munmap(memory, mapping_size) == 0);
+        assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);
 }
@@ -641,35 +704,35 @@ static void verify_native_execution(const char* path, uint16_t arch)
     void* memory;
     int values[] = {11, 22, 33, 44, 55};
     int side_effect = 10;
-    int (*call_function)(int);
-    int (*pointer_function)(int*, int);
-    int (*local_array_function)(int, int, int);
-    int (*local_pointer_array_function)(int*, int*);
-    int (*local_string_array_function)(int);
-    int (*nested_array_function)(void);
-    int (*struct_function)(int, int, int*);
-    int (*struct_copy_pointer_function)(struct VerifiedPair*);
-    int (*nested_struct_function)(int, int, int*);
-    int (*union_function)(unsigned int);
-    int (*compound_struct_function)(int);
-    int (*compound_array_function)(int, int);
-    int (*compound_scalar_function)(int);
-    int (*struct_parameter_function)(struct VerifiedArgument, int);
-    int (*struct_argument_call_function)(int, int, int);
-    struct VerifiedReturnPair (*pair_return_function)(int, int);
-    int (*pair_return_call_function)(int, int);
-    struct VerifiedArgument (*triple_return_function)(int, int, int);
-    int (*triple_return_call_function)(int, int, int);
-    struct VerifiedLargeReturn (*large_return_function)(int, int, int);
-    int (*large_return_call_function)(int, int, int);
-    int (*conditional_function)(int, int*);
-    int (*pointer_compound_function)(int**, int);
-    int (*pointer_postincrement_function)(int**);
-    long (*pointer_difference_function)(int*, int*);
-    int (*switch_function)(int);
-    int (*nested_switch_function)(int, int);
-    int (*ternary_function)(int, int, int);
-    int (*switch_promotion_function)(unsigned char);
+    int RINOS_ABI (*call_function)(int);
+    int RINOS_ABI (*pointer_function)(int*, int);
+    int RINOS_ABI (*local_array_function)(int, int, int);
+    int RINOS_ABI (*local_pointer_array_function)(int*, int*);
+    int RINOS_ABI (*local_string_array_function)(int);
+    int RINOS_ABI (*nested_array_function)(void);
+    int RINOS_ABI (*struct_function)(int, int, int*);
+    int RINOS_ABI (*struct_copy_pointer_function)(struct VerifiedPair*);
+    int RINOS_ABI (*nested_struct_function)(int, int, int*);
+    int RINOS_ABI (*union_function)(unsigned int);
+    int RINOS_ABI (*compound_struct_function)(int);
+    int RINOS_ABI (*compound_array_function)(int, int);
+    int RINOS_ABI (*compound_scalar_function)(int);
+    int RINOS_ABI (*struct_parameter_function)(struct VerifiedArgument, int);
+    int RINOS_ABI (*struct_argument_call_function)(int, int, int);
+    struct VerifiedReturnPair RINOS_ABI (*pair_return_function)(int, int);
+    int RINOS_ABI (*pair_return_call_function)(int, int);
+    struct VerifiedArgument RINOS_ABI (*triple_return_function)(int, int, int);
+    int RINOS_ABI (*triple_return_call_function)(int, int, int);
+    struct VerifiedLargeReturn RINOS_ABI (*large_return_function)(int, int, int);
+    int RINOS_ABI (*large_return_call_function)(int, int, int);
+    int RINOS_ABI (*conditional_function)(int, int*);
+    int RINOS_ABI (*pointer_compound_function)(int**, int);
+    int RINOS_ABI (*pointer_postincrement_function)(int**);
+    long RINOS_ABI (*pointer_difference_function)(int*, int*);
+    int RINOS_ABI (*switch_function)(int);
+    int RINOS_ABI (*nested_switch_function)(int, int);
+    int RINOS_ABI (*ternary_function)(int, int, int);
+    int RINOS_ABI (*switch_promotion_function)(unsigned char);
     int* cursor;
     void* address;
     assert(object != NULL && object->arch == arch);
@@ -921,7 +984,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     assert(conditional_function(7, &side_effect) == 9);
     assert(side_effect == 5);
 
-    assert(munmap(memory, mapping_size) == 0);
+    assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }
 
@@ -949,8 +1012,8 @@ static MappedObject map_object(ObjectFile* object)
     MappedObject mapping = {0};
     ObjSection* section;
     int section_index = 0;
-    long page = sysconf(_SC_PAGESIZE);
-    assert(object != NULL && object->section_count > 0 && page > 0);
+    size_t page = verified_page_size();
+    assert(object != NULL && object->section_count > 0 && page != 0u);
     mapping.count = (size_t)object->section_count;
     mapping.bases = calloc(mapping.count, sizeof(*mapping.bases));
     mapping.sizes = calloc(mapping.count, sizeof(*mapping.sizes));
@@ -963,10 +1026,8 @@ static MappedObject map_object(ObjectFile* object)
                section->memory_size <= (uint64_t)SIZE_MAX);
         size = ((size_t)section->memory_size + (size_t)page - 1u) &
             ~((size_t)page - 1u);
-        mapping.bases[section_index] = mmap(
-            NULL, size, PROT_READ | PROT_WRITE,
-            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        assert(mapping.bases[section_index] != MAP_FAILED);
+        mapping.bases[section_index] = verified_map(size);
+        assert(mapping.bases[section_index] != NULL);
         mapping.sizes[section_index] = size;
         if (section->size != 0u) {
             memcpy(mapping.bases[section_index], section->data,
@@ -1017,12 +1078,14 @@ static MappedObject map_object(ObjectFile* object)
     section_index = 0;
     for (section = object->sections; section != NULL;
          section = section->next, ++section_index) {
-        int protection = PROT_READ;
+        int writable;
+        int executable;
         if (mapping.bases[section_index] == NULL) continue;
-        if ((section->flags & SECT_FLAG_WRITE) != 0u) protection |= PROT_WRITE;
-        if ((section->flags & SECT_FLAG_EXEC) != 0u) protection |= PROT_EXEC;
-        assert(mprotect(mapping.bases[section_index],
-                        mapping.sizes[section_index], protection) == 0);
+        writable = (section->flags & SECT_FLAG_WRITE) != 0u;
+        executable = (section->flags & SECT_FLAG_EXEC) != 0u;
+        assert(verified_protect(mapping.bases[section_index],
+                                mapping.sizes[section_index],
+                                writable, executable) == 0);
     }
     return mapping;
 }
@@ -1032,8 +1095,8 @@ static void unmap_object(MappedObject* mapping)
     size_t index;
     for (index = 0u; index < mapping->count; ++index) {
         if (mapping->bases[index] != NULL) {
-            assert(munmap(mapping->bases[index],
-                          mapping->sizes[index]) == 0);
+            assert(verified_unmap(mapping->bases[index],
+                                  mapping->sizes[index]) == 0);
         }
     }
     free(mapping->bases);
@@ -1153,14 +1216,14 @@ static void verify_global_object(const char* path, uint16_t arch,
     assert(absolute_relocations >= 11u && relative_relocations == 1u);
     if (execute) {
         MappedObject mapping = map_object(object);
-        int (*read_function)(void);
-        int (*write_function)(int);
-        int (*external_function)(void);
-        int (*array_read_function)(int);
-        int (*array_write_function)(int, int);
-        int (*string_function)(int);
-        int (*aggregate_read_function)(int);
-        int (*aggregate_write_function)(int);
+        int RINOS_ABI (*read_function)(void);
+        int RINOS_ABI (*write_function)(int);
+        int RINOS_ABI (*external_function)(void);
+        int RINOS_ABI (*array_read_function)(int);
+        int RINOS_ABI (*array_write_function)(int, int);
+        int RINOS_ABI (*string_function)(int);
+        int RINOS_ABI (*aggregate_read_function)(int);
+        int RINOS_ABI (*aggregate_write_function)(int);
         void* address = (uint8_t*)mapping.bases[0] + read_symbol->value;
         memcpy(&read_function, &address, sizeof(read_function));
         address = (uint8_t*)mapping.bases[0] + write_symbol->value;

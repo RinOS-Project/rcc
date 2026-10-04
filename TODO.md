@@ -459,3 +459,7 @@
 - [x] Emit static-local variable DIEs as subprogram children with absolute
       symbol relocations, source locations, and collected types; verify the
       i686/AMD64 object and linked-image debug-info path.
+- [x] Make the native Windows verified-backend bridge use VirtualAlloc/
+      VirtualProtect and SysV-ABI function-pointer adapters, so it parses both
+      target objects and executes native x64 without requiring MinGW's absent
+      32-bit CRT libraries.
