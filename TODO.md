@@ -451,3 +451,5 @@
       references, external-linkage flags, and `DW_OP_addr` relocations for
       external and internal-linkage symbols; verify x86/x64 `.ro` objects and
       linked `.rin` output in `test-debug-info`.
+- [x] Emit `DW_AT_linkage_name` for file-scope variable DIEs so C++ source
+      names retain their mangled ABI symbol identity in debug information.
