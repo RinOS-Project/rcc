@@ -539,3 +539,7 @@
       i686/x86_64 RCC output through freestanding `main` entries, while
       retaining `.ro` generation, invalid-call diagnostics, and the POSIX
       object-loader path.
+- [x] Make the native Windows varargs ABI gate execute real i686/x86_64 RCC
+      output through freestanding `main` entries, while retaining `.ro`
+      generation, invalid-varargs diagnostics, and the POSIX object-loader
+      path.
