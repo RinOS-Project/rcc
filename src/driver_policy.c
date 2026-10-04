@@ -238,6 +238,15 @@ static bool driver_validate_expr(Expr* expression)
             return driver_validate_expr(expression->unary_operand);
         case EXPR_NOEXCEPT:
             return driver_validate_expr(expression->unary_operand);
+        case EXPR_CXX_TYPEID:
+            if (driver_reject_type(
+                    expression->cxx_typeid_is_type
+                        ? expression->cxx_typeid_operand_type
+                        : expression->type,
+                    expression->loc)) return false;
+            return expression->cxx_typeid_is_type
+                ? true
+                : driver_validate_expr(expression->cxx_typeid_operand);
         case EXPR_CAST:
             if (driver_reject_type(expression->cast_type, expression->loc)) {
                 return false;

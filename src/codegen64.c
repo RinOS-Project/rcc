@@ -797,6 +797,7 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
+static void gen64_cxx_typeid(Module* mod, Expr* expr);
 static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression);
 static void gen64_cxx_dynamic_cast_runtime(Module* mod, Expr* expr);
 static void emit64_normalize_atomic_value(Module* mod, int reg,
@@ -3413,6 +3414,10 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             emit64_mov_reg_reg(mod, RAX, RCX);
             break;
         case EXPR_CXX_TYPEID:
+            if (expr->cxx_typeid_dynamic) {
+                gen64_cxx_typeid(mod, expr);
+                break;
+            }
             if (!expr->cxx_typeid_symbol) {
                 rcc_error(expr->loc,
                           "typeid has no validated typeinfo identity");
@@ -5364,6 +5369,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CXX_TYPEID:
+            if (expr->cxx_typeid_dynamic) {
+                gen64_cxx_typeid(mod, expr);
+                break;
+            }
             if (!expr->cxx_typeid_symbol) {
                 rcc_error(expr->loc,
                           "typeid has no validated typeinfo identity");
@@ -7049,6 +7058,32 @@ static void gen64_cxx_exception_unwind_cleanup(Module* mod) {
         mod, active_cxx_exception_cleanup_marker64);
 }
 
+static void gen64_cxx_typeid(Module* mod, Expr* expr) {
+    int bad_typeid_label;
+    int done_label;
+    if (!mod || !expr || !expr->cxx_typeid_dynamic ||
+        !expr->cxx_typeid_operand) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<typeid>", 0, 0},
+                  "typeid has no validated dynamic operand");
+        return;
+    }
+    bad_typeid_label = new_label64();
+    done_label = new_label64();
+    gen64_lvalue(mod, expr->cxx_typeid_operand);
+    emit64_test_reg_reg(mod, RAX, RAX);
+    emit64_jcc_label(mod, CC64_E, bad_typeid_label);
+    emit64_mov_reg_mem(mod, RAX, RAX, 0);  /* source subobject vptr */
+    emit64_mov_reg_mem(mod, RAX, RAX, -8); /* vptr[-1] metadata */
+    emit64_mov_reg_mem(mod, RAX, RAX, 0);  /* most-derived typeinfo */
+    emit64_jmp_label(mod, done_label);
+    emit64_label(mod, bad_typeid_label);
+    gen64_cxx_exception_unwind_cleanup(mod);
+    emit64_mov_reg_imm64(mod, RDI, 0u);
+    emit64_mov_reg_imm64(mod, RSI, RCC_CXX_BAD_TYPEID_TYPE_TAG);
+    gen64_cxx_exception_call(mod, "rin_cpp_exception_throw");
+    emit64_label(mod, done_label);
+}
+
 /* Share the complete-object RTTI lowering between value and lvalue
  * expressions.  A failed reference cast must enter the real exception ABI;
  * returning a null address would manufacture an invalid C++ reference. */
@@ -7070,12 +7105,12 @@ static void gen64_cxx_dynamic_cast_runtime(Module* mod, Expr* expr) {
                      reference_result ? bad_cast_label : null_label);
     emit64_mov_reg_mem(mod, RCX, RAX, 0); /* source subobject vptr */
     emit64_mov_reg_mem(mod, RDX, RCX, -8); /* vptr[-1] RTTI metadata */
-    emit64_mov_reg_mem(mod, RCX, RDX, 0); /* source offset */
+    emit64_mov_reg_mem(mod, RCX, RDX, 8); /* source offset */
     emit64_sub_reg_reg(mod, RAX, RCX);   /* complete object address */
     emit64_push_reg(mod, RAX);
-    emit64_mov_reg_mem(mod, RCX, RDX, 8); /* target-entry count */
+    emit64_mov_reg_mem(mod, RCX, RDX, 16); /* target-entry count */
     emit64_push_reg(mod, RCX);
-    emit64_add_reg_imm(mod, RDX, 16);     /* first type/offset pair */
+    emit64_add_reg_imm(mod, RDX, 24);     /* first type/offset pair */
     emit64_push_reg(mod, RDX);            /* preserve table across lookup */
     gen64_symbol_address(mod, expr->cxx_dynamic_cast_typeinfo_symbol, 0u);
     emit64_mov_reg_reg(mod, RCX, RAX);    /* target typeinfo identity */

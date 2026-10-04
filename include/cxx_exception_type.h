@@ -21,6 +21,9 @@
  * host pointer or a process-local RTTI object. */
 #define RCC_CXX_BAD_CAST_TYPE_TAG UINT64_C(0x6badca57)
 
+/* `typeid(*p)` on a null polymorphic pointer reports bad_typeid. */
+#define RCC_CXX_BAD_TYPEID_TYPE_TAG UINT64_C(0x6bad71d)
+
 static inline const Type* rcc_cxx_exception_match_type(const Type* type) {
     while (type && type->kind == TYPE_PTR && type->is_reference) {
         type = type->base;

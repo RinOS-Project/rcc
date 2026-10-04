@@ -195,7 +195,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-constexpr-pointer-mutation
 .PHONY: test-cxx-constexpr-pointer-aggregate
-.PHONY: test-cxx-noexcept-expression test-cxx-typeid
+.PHONY: test-cxx-noexcept-expression test-cxx-typeid test-cxx-typeid-dynamic
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-auto-direct-list-invalid \
 	test-cxx-decltype-auto-local \
@@ -357,6 +357,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-constexpr-pointer-aggregate \
 	test-cxx-noexcept-expression \
 	test-cxx-typeid \
+	test-cxx-typeid-dynamic \
 	test-cxx-auto-return \
 	test-cxx-decltype \
 	test-cxx-decltype-auto \
@@ -4408,15 +4409,73 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/cxx-typeid/invalid-x86.ro \
 		tests/cxx_typeid_polymorphic_invalid.cpp \
 		>$(TEST_OUT)/cxx-typeid/invalid-x86.log 2>&1
-	grep -q "typeid of a polymorphic expression is unsupported" \
+	grep -q "typeid of a polymorphic expression requires a glvalue" \
 		$(TEST_OUT)/cxx-typeid/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/invalid-x64.ro \
 		tests/cxx_typeid_polymorphic_invalid.cpp \
 		>$(TEST_OUT)/cxx-typeid/invalid-x64.log 2>&1
-	grep -q "typeid of a polymorphic expression is unsupported" \
+	grep -q "typeid of a polymorphic expression requires a glvalue" \
 		$(TEST_OUT)/cxx-typeid/invalid-x64.log
 	@echo "C++ static typeid identity tests completed"
+
+test-cxx-typeid-dynamic: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-dynamic)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid-dynamic/x86.s \
+		tests/cxx_typeid_dynamic.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-dynamic/x86.o \
+		$(TEST_OUT)/cxx-typeid-dynamic/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-dynamic/start-x86.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-typeid-dynamic/x86 \
+		$(TEST_OUT)/cxx-typeid-dynamic/start-x86.o \
+		$(TEST_OUT)/cxx-typeid-dynamic/x86.o
+	$(TEST_OUT)/cxx-typeid-dynamic/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid-dynamic/x64.s \
+		tests/cxx_typeid_dynamic.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid-dynamic/x64.o \
+		$(TEST_OUT)/cxx-typeid-dynamic/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid-dynamic/start-x64.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-typeid-dynamic/x64 \
+		$(TEST_OUT)/cxx-typeid-dynamic/start-x64.o \
+		$(TEST_OUT)/cxx-typeid-dynamic/x64.o
+	$(TEST_OUT)/cxx-typeid-dynamic/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-dynamic/x86.ro \
+		tests/cxx_typeid_dynamic.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-dynamic/x64.ro \
+		tests/cxx_typeid_dynamic.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll \
+		--import setjmp=rincrt.rll@function \
+		--import rin_cpp_exception_install=rincrt.rll@function \
+		--import rin_cpp_exception_leave=rincrt.rll@function \
+		--import rin_cpp_exception_throw=rincrt.rll@function \
+		--import rin_cpp_exception_rethrow_frame=rincrt.rll@function \
+		--import rin_cpp_exception_release_frame=rincrt.rll@function \
+		-e main -o $(TEST_OUT)/cxx-typeid-dynamic/x86.rin \
+		$(TEST_OUT)/cxx-typeid-dynamic/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll \
+		--import setjmp=rincrt.rll@function \
+		--import rin_cpp_exception_install=rincrt.rll@function \
+		--import rin_cpp_exception_leave=rincrt.rll@function \
+		--import rin_cpp_exception_throw=rincrt.rll@function \
+		--import rin_cpp_exception_rethrow_frame=rincrt.rll@function \
+		--import rin_cpp_exception_release_frame=rincrt.rll@function \
+		-e main -o $(TEST_OUT)/cxx-typeid-dynamic/x64.rin \
+		$(TEST_OUT)/cxx-typeid-dynamic/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-dynamic/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-dynamic/x64.rin
+	@echo "C++ dynamic polymorphic typeid tests completed"
 
 test-cxx-auto-return: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-return)

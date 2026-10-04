@@ -2471,8 +2471,15 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     static const uint8_t zero[8] = {0};
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     uint32_t offset;
-    if (!mod || !symbol || !symbol[0] ||
-        module_lookup_symbol(mod, symbol)) return;
+    const ModuleSymbol* existing;
+    if (!mod || !symbol || !symbol[0]) return;
+    existing = module_lookup_symbol(mod, symbol);
+    /* Code generation may have registered an undefined relocation symbol
+     * before the namespace/vtable pass reaches this identity.  Only an
+     * already-defined object suppresses materialization; an undefined entry
+     * must be promoted in place so weak RTTI references cannot escape the TU
+     * unresolved. */
+    if (existing && existing->is_defined) return;
     while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
         emit_rodata(mod, zero, 1u);
     }
@@ -2696,11 +2703,28 @@ static void codegen_emit_cxx_vtable_storage(Module* mod,
     if (!mod || !symbol || size <= 0 || !entries || !owner ||
         source_offset < 0 ||
         !codegen_cxx_rtti_collect(owner, rtti_entries, &rtti_count)) return;
+    if (!owner->type || !owner->type->cxx_typeinfo_symbol) {
+        rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                  "polymorphic class has no typeinfo identity");
+        return;
+    }
+    /* A class may be lowered through a vtable path before it is visited by
+     * the namespace-wide typeinfo pass (notably an implicitly materialized
+     * derived class).  The RTTI table owns the complete-object identity, so
+     * materialize it here as well instead of leaving an unresolved weak
+     * reference in the emitted object. */
+    codegen_emit_cxx_typeinfo(mod, owner);
     metadata_symbol = codegen_cxx_rtti_symbol(symbol);
     while ((mod->rodata.size & (pointer_size - 1u)) != 0u) {
         emit_rodata(mod, zero, 1u);
     }
     metadata_offset = (uint32_t)mod->rodata.size;
+    emit_rodata(mod, zero, pointer_size);
+    module_add_relocation(mod, MODULE_SYMBOL_RODATA, metadata_offset, 0u,
+                          false, pointer_size == 8u,
+                          owner->type->cxx_typeinfo_symbol);
+    add_reloc(mod, MODULE_SYMBOL_RODATA, metadata_offset,
+              pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     codegen_emit_signed_rodata(mod, source_offset, pointer_size);
     codegen_emit_pointer_rodata(mod, (uint32_t)rtti_count, pointer_size);
     for (int index = 0; index < rtti_count; ++index) {
@@ -2718,6 +2742,7 @@ static void codegen_emit_cxx_vtable_storage(Module* mod,
             codegen_emit_signed_rodata(mod, 0, pointer_size);
             continue;
         }
+        codegen_emit_cxx_typeinfo(mod, item->cls);
         offset = (uint32_t)mod->rodata.size;
         emit_rodata(mod, zero, pointer_size);
         module_add_relocation(mod, MODULE_SYMBOL_RODATA, offset, 0u, false,
@@ -2995,6 +3020,7 @@ static void resolve_labels(Module* mod) {
 /* Forward declaration */
 static void gen_expr(Module* mod, Expr* expr);
 static void gen_expr_raw(Module* mod, Expr* expr);
+static void gen_cxx_typeid32(Module* mod, Expr* expr);
 static void gen_cxx_dynamic_cast_runtime32(Module* mod, Expr* expr);
 static void emit_test_scalar_value(Module* mod, const Type* type);
 static void gen_expr64_pair(Module* mod, Expr* expr);
@@ -5708,6 +5734,10 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             emit_mov_reg_mem(mod, EAX, ESP, expr->cxx_this_stack_offset);
             break;
         case EXPR_CXX_TYPEID:
+            if (expr->cxx_typeid_dynamic) {
+                gen_cxx_typeid32(mod, expr);
+                break;
+            }
             if (!expr->cxx_typeid_symbol) {
                 rcc_error(expr->loc,
                           "typeid has no validated typeinfo identity");
@@ -9021,6 +9051,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CXX_TYPEID:
+            if (expr->cxx_typeid_dynamic) {
+                gen_cxx_typeid32(mod, expr);
+                break;
+            }
             if (!expr->cxx_typeid_symbol) {
                 rcc_error(expr->loc,
                           "typeid has no validated typeinfo identity");
@@ -11703,6 +11737,36 @@ static void gen_cxx_exception_unwind_cleanup32(Module* mod) {
         mod, active_cxx_exception_cleanup_marker);
 }
 
+static void gen_cxx_typeid32(Module* mod, Expr* expr) {
+    int bad_typeid_label;
+    int done_label;
+    if (!mod || !expr || !expr->cxx_typeid_dynamic ||
+        !expr->cxx_typeid_operand) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<typeid>", 0, 0},
+                  "typeid has no validated dynamic operand");
+        return;
+    }
+    bad_typeid_label = new_label();
+    done_label = new_label();
+    gen_lvalue(mod, expr->cxx_typeid_operand);
+    emit_test_reg_reg(mod, EAX, EAX);
+    emit_jcc_label(mod, CC_E, bad_typeid_label);
+    emit_mov_reg_mem(mod, EAX, EAX, 0);  /* source subobject vptr */
+    emit_mov_reg_mem(mod, EAX, EAX, -4); /* vptr[-1] metadata */
+    emit_mov_reg_mem(mod, EAX, EAX, 0);  /* most-derived typeinfo */
+    emit_jmp_label(mod, done_label);
+    emit_label(mod, bad_typeid_label);
+    gen_cxx_exception_unwind_cleanup32(mod);
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_push_reg(mod, EAX);              /* no object payload */
+    emit_mov_reg_imm(mod, EAX,
+                     (uint32_t)RCC_CXX_BAD_TYPEID_TYPE_TAG);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_throw");
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_label(mod, done_label);
+}
+
 /* The expression and lvalue paths both need the same complete-object RTTI
  * search.  Keep it in one lowering routine so a reference result cannot
  * accidentally bypass the runtime relationship check.  A pointer result
@@ -11726,12 +11790,12 @@ static void gen_cxx_dynamic_cast_runtime32(Module* mod, Expr* expr) {
     emit_jcc_label(mod, CC_E, reference_result ? bad_cast_label : null_label);
     emit_mov_reg_mem(mod, ECX, EAX, 0); /* source subobject vptr */
     emit_mov_reg_mem(mod, EDX, ECX, -4); /* vptr[-1] RTTI metadata */
-    emit_mov_reg_mem(mod, ECX, EDX, 0); /* source offset */
+    emit_mov_reg_mem(mod, ECX, EDX, 4); /* source offset */
     emit_sub_reg_reg(mod, EAX, ECX);   /* complete object address */
     emit_push_reg(mod, EAX);
-    emit_mov_reg_mem(mod, ECX, EDX, 4); /* target-entry count */
+    emit_mov_reg_mem(mod, ECX, EDX, 8); /* target-entry count */
     emit_push_reg(mod, ECX);
-    emit_add_reg_imm(mod, EDX, 8);      /* first type/offset pair */
+    emit_add_reg_imm(mod, EDX, 12);     /* first type/offset pair */
     emit_push_reg(mod, EDX);            /* preserve table across lookup */
     gen_symbol_address(mod, expr->cxx_dynamic_cast_typeinfo_symbol, 0u);
     emit_mov_reg_reg(mod, ECX, EAX);    /* target typeinfo identity */

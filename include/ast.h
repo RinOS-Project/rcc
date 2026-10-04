@@ -493,6 +493,9 @@ struct Expr {
      * noexcept expression is evaluated. */
     bool cxx_noexcept_value_valid;
     bool cxx_noexcept_value;
+    /* `typeid(expr)` on a glvalue of polymorphic class type resolves through
+     * the most-derived vtable metadata at runtime. */
+    bool cxx_typeid_dynamic;
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;

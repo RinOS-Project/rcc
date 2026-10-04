@@ -213,10 +213,14 @@
 - [ ] C++20 modules、coroutines
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
   - [x] `typeid(T)`と非多相式の静的typeinfo identityをi686/AMD64で生成し、
-        同一型のidentity共有・異なる型の分離を実行回帰。多相式は未完の
-        null／`bad_typeid` runtime経路を捏造せず、明示診断する
+        同一型のidentity共有・異なる型の分離を実行回帰。
+  - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
+        lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
+        transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
+        non-null identity、null catch、`.ro`、unsigned-v3 `.rin`、
+        `rinvalidate`を回帰検証する
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
-- [ ] remaining full Itanium ABI、動的`typeid`/type_info API、complete static/TLS
+- [ ] remaining full Itanium ABI、`type_info` API、complete static/TLS
       destructor semantics
 - [ ] thread-local destructor and exception cleanup interaction
 

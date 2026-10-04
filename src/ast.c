@@ -714,6 +714,7 @@ Expr* expr_cxx_typeid(Type* operand_type, Expr* operand,
     e->cxx_typeid_operand = operand;
     e->cxx_typeid_symbol = NULL;
     e->cxx_typeid_is_type = operand_is_type;
+    e->cxx_typeid_dynamic = false;
     e->type = NULL;
     return e;
 }

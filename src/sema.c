@@ -9410,8 +9410,12 @@ static Type* sema_expr(Expr* expr) {
             }
             if (!expr->cxx_typeid_is_type &&
                 sema_cxx_is_polymorphic(operand_type)) {
-                rcc_error(expr->loc,
-                          "typeid of a polymorphic expression is unsupported; use typeid(T) until dynamic bad_typeid lowering is available");
+                if (!is_lvalue(expr->cxx_typeid_operand)) {
+                    rcc_error(expr->loc,
+                              "typeid of a polymorphic expression requires a glvalue");
+                    break;
+                }
+                expr->cxx_typeid_dynamic = true;
                 break;
             }
             expr->cxx_typeid_symbol = sema_cxx_typeinfo_symbol(
