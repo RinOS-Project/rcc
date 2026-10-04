@@ -314,7 +314,8 @@
   - [x] bounded C17/C++20 property corpusで両archの再生成一致と不正入力の
         明示`error:`診断をCI gateする
   - [x] RCC単体checkoutから実行できるbounded C17/C++20 golden manifestで、
-        i686/AMD64の`.ro`とunsigned-v3`.rin`を2回再生成し、SHA-256をCIで固定検証する
+        i686/AMD64の`.ro`、unsigned-v3`.rin`、`.rll`、`.drv`を2回再生成し、
+        SHA-256をCIで固定検証する
 - [x] host stage0 -> rcc stage1 -> rcc stage2再現build
   - [x] stage0による閉じたfrontend/sema/backend subset `.ro`の両arch再現生成
   - [x] build manifest、host process shim、rcc/rcc++/rld/rar entry pointまでの再現object生成

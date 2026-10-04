@@ -14,6 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "tests" / "golden.json"
 TARGETS = ("i686-unknown-rinos", "x86_64-unknown-rinos")
+KINDS = ("ro", "rin", "rll", "drv")
 LANGUAGES = {
     "C17": (".c", "rcc"),
     "C++20": (".cpp", "rcc++"),
@@ -81,9 +82,9 @@ def load_cases() -> list[dict[str, object]]:
             raise GoldenError(f"golden targets are invalid: {case_id}")
         for target in TARGETS:
             values = hashes[target]
-            if (not isinstance(values, dict) or set(values) != {"ro", "rin"} or
+            if (not isinstance(values, dict) or set(values) != set(KINDS) or
                     any(not isinstance(values[key], str) or len(values[key]) != 64
-                        for key in ("ro", "rin"))):
+                        for key in KINDS)):
                 raise GoldenError(f"golden hashes are invalid: {case_id}/{target}")
         result.append({
             "id": case_id,
@@ -116,15 +117,21 @@ def run_case(case: dict[str, object], tools: dict[str, Path], timeout: int,
     for target in TARGETS:
         expected = hashes[target]
         assert isinstance(expected, dict)
-        for kind in ("ro", "rin"):
+        for kind in KINDS:
             observed: list[str] = []
             for run_index in (1, 2):
                 output = (temporary / str(case["id"]) / target /
                           f"{kind}-{run_index}.{kind}")
                 output.parent.mkdir(parents=True, exist_ok=True)
                 command = [str(tool), "--target", target, *flags]
-                command.append("-c" if kind == "ro" else
-                               "--emit-unsigned-v3")
+                if kind == "ro":
+                    command.append("-c")
+                elif kind == "rin":
+                    command.append("--emit-unsigned-v3")
+                elif kind == "rll":
+                    command.extend(("-shared", "--emit-unsigned-v3"))
+                else:
+                    command.extend(("-driver", "--emit-unsigned-v3"))
                 command.extend(["-o", str(output), source_argument])
                 completed = subprocess.run(
                     command, cwd=ROOT, capture_output=True, text=True,
