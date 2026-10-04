@@ -8298,6 +8298,25 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                                               int* specificity) {
     int nested_specificity = 0;
     if (!tmpl || !pattern || !actual || !arguments) return false;
+    /* type_is_compatible intentionally ignores top-level cv qualifiers for
+     * ordinary expression conversions.  Partial-specialization deduction is
+     * different: a concrete `const int` pattern must not match `int`, and a
+     * dependent `const T` pattern must prove that the corresponding actual is
+     * const-qualified before binding T.  Keep the check local to deduction so
+     * normal C/C++ compatibility rules are unchanged. */
+    if (pattern->cxx_dependent) {
+        if ((pattern->is_const && !actual->is_const) ||
+            (pattern->is_volatile && !actual->is_volatile)) {
+            return false;
+        }
+        if (specificity) {
+            if (pattern->is_const) *specificity += 2;
+            if (pattern->is_volatile) *specificity += 2;
+        }
+    } else if (pattern->is_const != actual->is_const ||
+               pattern->is_volatile != actual->is_volatile) {
+        return false;
+    }
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];

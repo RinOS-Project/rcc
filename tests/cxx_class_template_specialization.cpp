@@ -44,6 +44,30 @@ public:
     }
 };
 
+template<typename T>
+class Qualified {
+public:
+    int kind() {
+        return 0;
+    }
+};
+
+template<typename T>
+class Qualified<T*> {
+public:
+    int kind() {
+        return 10;
+    }
+};
+
+template<typename T>
+class Qualified<const T*> {
+public:
+    int kind() {
+        return 20;
+    }
+};
+
 template<int N>
 class Number {
 public:
@@ -153,6 +177,8 @@ int main() {
     Value<int*> pointer_value{9};
     Value<int**> pointer_pointer_value{2};
     Value<int***> pointer_pointer_pointer_value{3};
+    Qualified<int*> qualified_pointer;
+    Qualified<const int*> qualified_const_pointer;
     Number<3> ordinary_number;
     Number<7> specialized_number;
     Pair<int, 3> ordinary_pair;
@@ -166,6 +192,8 @@ int main() {
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    pointer_pointer_pointer_value.kind() == 33 &&
+                   qualified_pointer.kind() == 10 &&
+                   qualified_const_pointer.kind() == 20 &&
                    ordinary_number.kind() == 3 &&
                    specialized_number.kind() == 70 &&
                    ordinary_pair.kind() == 3 &&

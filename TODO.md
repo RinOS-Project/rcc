@@ -186,9 +186,10 @@
         designated/nested initializerとconstexpr aggregate member accessを
         共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
   - [x] bounded class-template partial specialization matching for pointer
-        patterns and exact integral patterns, including mixed type/non-type
-        patterns, requires-clause viability, unsupported-constraint diagnostics,
-        and ambiguity diagnostics with dual-architecture regression coverage
+        patterns, cv-qualified pointer patterns, and exact integral patterns,
+        including mixed type/non-type patterns, requires-clause viability,
+        unsupported-constraint diagnostics, and ambiguity diagnostics with
+        dual-architecture regression coverage
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance
