@@ -21,8 +21,28 @@ jobs:
           - clang
     env:
       CC: ${{ matrix.cc }}
+    defaults:
+      run:
+        working-directory: public-base/toolchain/RinCompiler
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: public-base/toolchain/RinCompiler
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinOS-SDK
+          path: public-base/RinOS-SDK
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinGPU
+          path: public-base/libs/RinGPU
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/rinvalidate
+          path: public-base/toolchain/rinvalidate
 
       - name: Build rcc, rcc++, rld and rar
         run: make -j2 all
@@ -30,6 +50,7 @@ jobs:
       - name: Run compiler and format smoke tests
         run: |
           make test
+          make test-c17
           make test-cxx
           make test-cxx-cli
           make test-cxx-language-linkage
@@ -53,3 +74,59 @@ jobs:
           make test-special-sections
           make test-tls
           make test-direct-relocation
+
+  regression-gate:
+    name: aggregate-regression-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CC: gcc
+    defaults:
+      run:
+        working-directory: public-base/toolchain/RinCompiler
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: public-base/toolchain/RinCompiler
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinOS-SDK
+          path: public-base/RinOS-SDK
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinGPU
+          path: public-base/libs/RinGPU
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/rinvalidate
+          path: public-base/toolchain/rinvalidate
+
+      - name: Build complete host toolchain
+        run: make -j2 all
+
+      - name: Run aggregate language and IR gates
+        run: |
+          make test-c17
+          make test-cxx
+          make test-ir
+          make test-ir-lowering
+          make test-verified-backend
+          make test-optimize
+
+      - name: Run image, relocation, and bootstrap gates
+        run: |
+          make test-pic-direct-internal
+          make test-pic-tls
+          make test-pic-got
+          make test-pic-plt
+          make test-link
+          make test-archive
+          make test-archive-link
+          make test-format-validation
+          make test-bootstrap-core
+          make test-bootstrap-link
+          make test-bootstrap-execute
+          make test-bootstrap-stage2
