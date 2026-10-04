@@ -5139,6 +5139,20 @@ test-flexible-arrays: $(RCC_TARGET)
 		-o $(TEST_OUT)/flexible-arrays/x86.ro tests/flexible_array.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/flexible-arrays/x64.ro tests/flexible_array.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/flexible-arrays/x86.s tests/flexible_array.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/flexible-arrays/run-test-x86 \
+		$(TEST_OUT)/flexible-arrays/x86.s
+	$(TEST_OUT)/flexible-arrays/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/flexible-arrays/x64.s tests/flexible_array.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/flexible-arrays/run-test-x64 \
+		$(TEST_OUT)/flexible-arrays/x64.s
+	$(TEST_OUT)/flexible-arrays/run-test-x64
+else
 	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/flexible-arrays/run-test-x86 \
 		tests/flexible_array_run_test.c src/emit_ro.c src/utils.c
@@ -5149,22 +5163,20 @@ test-flexible-arrays: $(RCC_TARGET)
 		$(TEST_OUT)/flexible-arrays/x86.ro
 	$(TEST_OUT)/flexible-arrays/run-test-x64 \
 		$(TEST_OUT)/flexible-arrays/x64.ro
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/flexible-arrays/invalid-x86.ro \
-		tests/invalid_flexible_array.c \
-		>$(TEST_OUT)/flexible-arrays/invalid-x86.log 2>&1
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_flexible_array.c,$(TEST_OUT)/flexible-arrays/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/flexible-arrays/invalid-x64.ro \
-		tests/invalid_flexible_array.c \
-		>$(TEST_OUT)/flexible-arrays/invalid-x64.log 2>&1
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/invalid_flexible_array.c,$(TEST_OUT)/flexible-arrays/invalid-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/flexible-arrays/invalid-initializer-x86.ro \
-		tests/invalid_flexible_initializer.c \
-		>$(TEST_OUT)/flexible-arrays/invalid-initializer-x86.log 2>&1
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_flexible_initializer.c,$(TEST_OUT)/flexible-arrays/invalid-initializer-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/flexible-arrays/invalid-initializer-x64.ro \
-		tests/invalid_flexible_initializer.c \
-		>$(TEST_OUT)/flexible-arrays/invalid-initializer-x64.log 2>&1
+		tests/invalid_flexible_initializer.c,$(TEST_OUT)/flexible-arrays/invalid-initializer-x64.log)
 	$(GREP) -q "flexible array member requires another named member" \
 		$(TEST_OUT)/flexible-arrays/invalid-x86.log
 	$(GREP) -q "flexible array member must be the last member" \
