@@ -119,6 +119,11 @@ unsigned long long verified_wide_scalar_call(unsigned long long value)
     return verified_wide_scalar_identity(value);
 }
 
+long long verified_wide_scalar_expect(long long value)
+{
+    return __builtin_expect(value, 1LL);
+}
+
 unsigned long long verified_wide_scalar_udiv(unsigned long long value)
 {
     return value / 0x0000000100000001ULL;

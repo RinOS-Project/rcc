@@ -1811,6 +1811,48 @@ static bool lower_wide_scalar_expression(
             context, expression, result);
     }
     if (expression->kind == EXPR_CALL &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__builtin_expect") == 0) {
+        const ExprList* value_argument = expression->call_args;
+        const ExprList* expected_argument = value_argument ?
+            value_argument->next : NULL;
+        RccIrLowerWideValue value;
+        RccIrLowerWideValue expected_wide;
+        RccIrLowerValue expected_scalar;
+        if (!value_argument || !value_argument->expr ||
+            !expected_argument || !expected_argument->expr ||
+            expected_argument->next) {
+            return false;
+        }
+        /* __builtin_expect evaluates its prediction operand before the
+         * value operand.  The prediction does not affect the returned pair,
+         * but it must still be lowered so side effects and diagnostics are
+         * preserved on the i686 wide-scalar path. */
+        if (lower_i686_wide_scalar_type(expected_argument->expr->type)) {
+            if (!lower_wide_scalar_expression(
+                    context, expected_argument->expr, &expected_wide)) {
+                return false;
+            }
+        } else {
+            expected_scalar = lower_expression(
+                context, expected_argument->expr);
+            if (!expected_scalar.valid ||
+                expected_scalar.type.kind != RCC_IR_TYPE_INTEGER) {
+                return false;
+            }
+        }
+        if (!lower_wide_scalar_expression(
+                context, value_argument->expr, &value)) {
+            return false;
+        }
+        *result = value;
+        return true;
+    }
+    if (expression->kind == EXPR_CALL &&
         lower_i686_wide_scalar_type(expression->type)) {
         return lower_wide_scalar_call(context, expression, result);
     }

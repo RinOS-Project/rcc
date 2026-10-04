@@ -170,6 +170,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* truth_conditional_symbol;
     ObjSymbol* mul_symbol;
     ObjSymbol* call_symbol;
+    ObjSymbol* expect_symbol;
     ObjSymbol* udiv_symbol;
     ObjSymbol* udiv_small_symbol;
     ObjSymbol* umod_symbol;
@@ -217,6 +218,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_truth_conditional");
     mul_symbol = objfile_find_symbol(object, "verified_wide_scalar_mul");
     call_symbol = objfile_find_symbol(object, "verified_wide_scalar_call");
+    expect_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_expect");
     udiv_symbol = objfile_find_symbol(object, "verified_wide_scalar_udiv");
     udiv_small_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_udiv_small");
@@ -292,6 +295,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            mul_symbol->binding == BIND_CODE && mul_symbol->section == 0);
     assert(call_symbol != NULL && call_symbol->type == SYM_GLOBAL &&
            call_symbol->binding == BIND_CODE && call_symbol->section == 0);
+    assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
+           expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
     assert(udiv_symbol != NULL && udiv_symbol->type == SYM_GLOBAL &&
            udiv_symbol->binding == BIND_CODE && udiv_symbol->section == 0);
     assert(udiv_small_symbol != NULL &&
@@ -332,6 +337,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*truth_conditional_function)(unsigned long long);
         unsigned long long RINOS_ABI (*mul_function)(unsigned long long);
         unsigned long long RINOS_ABI (*call_function)(unsigned long long);
+        long long RINOS_ABI (*expect_function)(long long);
         unsigned long long RINOS_ABI (*udiv_function)(unsigned long long);
         unsigned long long RINOS_ABI (*udiv_small_function)(unsigned long long);
         unsigned long long RINOS_ABI (*umod_function)(unsigned long long);
@@ -436,6 +442,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&call_function, &address, sizeof(call_function));
         assert(call_function(0x8899aabbccddeeffULL) ==
                0x8899aabbccddeeffULL);
+        address = symbol_address(memory, expect_symbol);
+        memcpy(&expect_function, &address, sizeof(expect_function));
+        assert(expect_function(0x0000000100000005LL) ==
+               0x0000000100000005LL);
+        assert(expect_function(-0x0000000100000005LL) ==
+               -0x0000000100000005LL);
         address = symbol_address(memory, udiv_symbol);
         memcpy(&udiv_function, &address, sizeof(udiv_function));
         assert(udiv_function(0x0000000200000002ULL) == 2ULL);

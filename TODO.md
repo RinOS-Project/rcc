@@ -111,8 +111,8 @@
 - [x] bounded `_Generic`、atomics、thread-local storage
   - [x] Lower the commonly used GCC compatibility builtins
           `__builtin_expect` and `__builtin_unreachable` as validated intrinsics
-          on i686/AMD64, including real undefined-path trapping and C/C++
-          compile-and-run coverage.
+          on i686/AMD64, including real undefined-path trapping, i686 wide-
+          scalar pair lowering, and C/C++ compile-and-run coverage.
   - [x] Lower `__builtin_trap` as a validated no-argument terminating
         intrinsic with real i686/AMD64 trap instructions and diagnostic
         coverage.
