@@ -2484,10 +2484,124 @@ static RccIrLowerValue lower_builtin_call(
     if (!context || !expression || !expression->call_func ||
         expression->call_func->kind != EXPR_IDENT ||
         !expression->call_func->ident_name) {
-        context->unsupported = true;
+        if (context) context->unsupported = true;
         return lower_invalid_value();
     }
     name = expression->call_func->ident_name;
+    if (strcmp(name, "__builtin_bswap16") == 0 ||
+        strcmp(name, "__builtin_bswap32") == 0 ||
+        strcmp(name, "__builtin_bswap64") == 0) {
+        unsigned width = strcmp(name, "__builtin_bswap16") == 0 ? 16u :
+            strcmp(name, "__builtin_bswap32") == 0 ? 32u : 64u;
+        const ExprList* argument = expression->call_args;
+        RccIrLowerValue source;
+        RccIrLowerValue result;
+        RccIrType type;
+        uint64_t masks[8];
+        unsigned shifts[8];
+        bool left_shift[8];
+        unsigned count;
+        if (!argument || !argument->expr || argument->next ||
+            !expression->type || !type_is_integer(expression->type) ||
+            !lower_type(expression->type, &type) ||
+            type.bit_width != width ||
+            (width == 64u && g_opts.target_arch != ARCH_X64)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        source = lower_expression(context, argument->expr);
+        source = lower_cast(context, source, expression->type);
+        if (!source.valid || source.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (width == 16u) {
+            masks[0] = UINT64_C(0x00ff);
+            masks[1] = UINT64_C(0xff00);
+            shifts[0] = 8u;
+            shifts[1] = 8u;
+            left_shift[0] = true;
+            left_shift[1] = false;
+            count = 2u;
+        } else if (width == 32u) {
+            masks[0] = UINT64_C(0x000000ff);
+            masks[1] = UINT64_C(0x0000ff00);
+            masks[2] = UINT64_C(0x00ff0000);
+            masks[3] = UINT64_C(0xff000000);
+            shifts[0] = 24u;
+            shifts[1] = 8u;
+            shifts[2] = 8u;
+            shifts[3] = 24u;
+            left_shift[0] = true;
+            left_shift[1] = true;
+            left_shift[2] = false;
+            left_shift[3] = false;
+            count = 4u;
+        } else {
+            masks[0] = UINT64_C(0x00000000000000ff);
+            masks[1] = UINT64_C(0x000000000000ff00);
+            masks[2] = UINT64_C(0x0000000000ff0000);
+            masks[3] = UINT64_C(0x00000000ff000000);
+            masks[4] = UINT64_C(0x000000ff00000000);
+            masks[5] = UINT64_C(0x0000ff0000000000);
+            masks[6] = UINT64_C(0x00ff000000000000);
+            masks[7] = UINT64_C(0xff00000000000000);
+            shifts[0] = 56u;
+            shifts[1] = 40u;
+            shifts[2] = 24u;
+            shifts[3] = 8u;
+            shifts[4] = 8u;
+            shifts[5] = 24u;
+            shifts[6] = 40u;
+            shifts[7] = 56u;
+            left_shift[0] = true;
+            left_shift[1] = true;
+            left_shift[2] = true;
+            left_shift[3] = true;
+            left_shift[4] = false;
+            left_shift[5] = false;
+            left_shift[6] = false;
+            left_shift[7] = false;
+            count = 8u;
+        }
+        result = lower_invalid_value();
+        for (unsigned index = 0u; index < count; ++index) {
+            RccIrLowerValue mask = lower_integer_constant(
+                context, type, true, masks[index]);
+            RccIrLowerValue shift = lower_integer_constant(
+                context, type, true, shifts[index]);
+            RccIrValue operands[2];
+            RccIrInstruction* instruction;
+            if (!mask.valid || !shift.valid) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            operands[0] = source.value;
+            operands[1] = mask.value;
+            instruction = lower_append(context, RCC_IR_AND, type,
+                                       operands, 2u, NULL, 0u);
+            if (!instruction) return lower_invalid_value();
+            operands[0] = instruction->result;
+            operands[1] = shift.value;
+            instruction = lower_append(
+                context, left_shift[index] ? RCC_IR_SHL : RCC_IR_LSHR,
+                type, operands, 2u, NULL, 0u);
+            if (!instruction) return lower_invalid_value();
+            if (!result.valid) {
+                result = lower_value(instruction->result, type,
+                                     expression->type->is_unsigned);
+            } else {
+                operands[0] = result.value;
+                operands[1] = instruction->result;
+                instruction = lower_append(context, RCC_IR_OR, type,
+                                           operands, 2u, NULL, 0u);
+                if (!instruction) return lower_invalid_value();
+                result = lower_value(instruction->result, type,
+                                     expression->type->is_unsigned);
+            }
+        }
+        return result;
+    }
     if (strcmp(name, "__builtin_expect") == 0) {
         first = expression->call_args;
         second = first ? first->next : NULL;
@@ -2823,7 +2937,13 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                  strcmp(expression->call_func->ident_name,
                         "__builtin_unreachable") == 0 ||
                  strcmp(expression->call_func->ident_name,
-                        "__builtin_trap") == 0)) {
+                        "__builtin_trap") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_bswap16") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_bswap32") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_bswap64") == 0)) {
                 return lower_builtin_call(context, expression);
             }
             return lower_call(context, expression);

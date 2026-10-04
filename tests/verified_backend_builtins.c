@@ -15,10 +15,22 @@ int verified_builtin_trap(int value)
     __builtin_trap();
 }
 
+unsigned short verified_builtin_bswap16(unsigned short value)
+{
+    return __builtin_bswap16(value);
+}
+
+unsigned int verified_builtin_bswap32(unsigned int value)
+{
+    return __builtin_bswap32(value);
+}
+
 int main(void)
 {
     if (verified_builtin_expect(23) != 23) return 1;
     if (verified_builtin_unreachable(1) != 17) return 2;
     if (verified_builtin_trap(1) != 29) return 3;
+    if (verified_builtin_bswap16(0x1234u) != 0x3412u) return 4;
+    if (verified_builtin_bswap32(0x12345678u) != 0x78563412u) return 5;
     return 0;
 }

@@ -351,6 +351,9 @@
   - [x] `__builtin_expect`を副作用順序付き値伝播へ、`__builtin_unreachable`／
         `__builtin_trap`をtyped-SSA終端と実UD2へlowerし、i686/AMD64の
         verified backend fallbackなし回帰を追加
+  - [x] `__builtin_bswap16/32/64`をtyped-SSAのmask／shift／論理演算へlowerし、
+        x64の16/32/64-bit実行値、i686の16/32-bit fallbackなし、i686 64-bitの
+        wide-scalar境界診断を回帰検証
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

@@ -9085,20 +9085,44 @@ test-verified-goto: $(RCC_TARGET)
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64.log
 	@echo "Verified backend goto/label tests completed"
 
-test-verified-builtins: $(RCC_TARGET)
+test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/builtins-x86.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x86.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/builtins-x64.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x64.log
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/bswap64-x86.ro \
+		tests/verified_backend_bswap64.c \
+		>$(TEST_OUT)/verified-backend/bswap64-x86.log
+	$(GREP) -F -q "Verified backend fallback: function 'verified_builtin_bswap64' is outside the typed SSA subset" \
+		$(TEST_OUT)/verified-backend/bswap64-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/bswap64-x64.ro \
+		tests/verified_backend_bswap64.c \
+		>$(TEST_OUT)/verified-backend/bswap64-x64.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/bswap64-x64.log
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/bswap64-run \
+		tests/verified_backend_bswap64_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/bswap64-run \
+		$(TEST_OUT)/verified-backend/bswap64-x64.ro
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-builtins-x64.ro \
+		tests/verified_backend_builtins.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
 	@echo "Verified backend terminating/prediction builtin tests completed"
 
 test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins
