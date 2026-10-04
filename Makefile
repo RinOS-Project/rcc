@@ -6972,6 +6972,16 @@ test-atomic-language: $(RCC_TARGET)
 		-o $(TEST_OUT)/atomic-language-x86/atomic.ro tests/atomic_language.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x64/atomic.ro tests/atomic_language.c
+
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/atomic-language-run-test \
+		tests/atomic_language_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/atomic-language-run-test \
+		$(TEST_OUT)/atomic-language-x64/atomic.ro
+	$(TEST_OUT)/atomic-language-run-test --inspect \
+		$(TEST_OUT)/atomic-language-x86/atomic.ro
+else
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/atomic-language-run-test \
 		tests/atomic_language_run_test.c src/emit_ro.c src/utils.c
@@ -6982,36 +6992,25 @@ test-atomic-language: $(RCC_TARGET)
 		tests/atomic_language_run_test.c src/emit_ro.c src/utils.c
 	$(TEST_OUT)/atomic-language-run-test-x86 \
 		$(TEST_OUT)/atomic-language-x86/atomic.ro
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x86/invalid.ro \
-		tests/invalid_atomic_language.c \
-		>$(TEST_OUT)/atomic-language-x86/invalid.log 2>&1; then \
-		echo "invalid _Atomic fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_atomic_language.c,$(TEST_OUT)/atomic-language-x86/invalid.log)
 	$(GREP) -F -q "_Atomic requires an unqualified scalar object type" \
 		$(TEST_OUT)/atomic-language-x86/invalid.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x64/invalid.ro \
-		tests/invalid_atomic_language.c \
-		>$(TEST_OUT)/atomic-language-x64/invalid.log 2>&1; then \
-		echo "invalid _Atomic fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_atomic_language.c,$(TEST_OUT)/atomic-language-x64/invalid.log)
 	$(GREP) -F -q "_Atomic requires an unqualified scalar object type" \
 		$(TEST_OUT)/atomic-language-x64/invalid.log
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x86/invalid-rmw.ro \
-		tests/invalid_atomic_rmw.c \
-		>$(TEST_OUT)/atomic-language-x86/invalid-rmw.log 2>&1; then \
-		echo "invalid atomic RMW fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_atomic_rmw.c,$(TEST_OUT)/atomic-language-x86/invalid-rmw.log)
 	$(GREP) -F -q "atomic ++/-- requires an integer or pointer object" \
 		$(TEST_OUT)/atomic-language-x86/invalid-rmw.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/atomic-language-x64/invalid-rmw.ro \
-		tests/invalid_atomic_rmw.c \
-		>$(TEST_OUT)/atomic-language-x64/invalid-rmw.log 2>&1; then \
-		echo "invalid atomic RMW fixture unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_atomic_rmw.c,$(TEST_OUT)/atomic-language-x64/invalid-rmw.log)
 	$(GREP) -F -q "atomic ++/-- requires an integer or pointer object" \
 		$(TEST_OUT)/atomic-language-x64/invalid-rmw.log
 	@echo "C17 language _Atomic syntax and lowering tests completed"
