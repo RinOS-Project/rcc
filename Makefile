@@ -6928,6 +6928,16 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/atomic-x64/atomic.rin \
 		$(TEST_OUT)/atomic-x64/atomic.ro
+
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/atomic-builtin-run-test \
+		tests/atomic_builtin_run_test.c src/emit_ro.c src/utils.c -pthread
+	$(TEST_OUT)/atomic-builtin-run-test \
+		$(TEST_OUT)/atomic-x86/atomic.ro \
+		$(TEST_OUT)/atomic-x64/atomic.ro
+
+else
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/atomic-builtin-run-test \
 		tests/atomic_builtin_run_test.c src/emit_ro.c src/utils.c -pthread
@@ -6940,18 +6950,19 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	$(TEST_OUT)/atomic-builtin-run-test \
 		$(TEST_OUT)/atomic-x86/atomic.ro \
 		$(TEST_OUT)/atomic-x64/atomic.ro
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid.ro \
-		tests/invalid_atomic_builtin.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_atomic_builtin.c,$(TEST_OUT)/atomic-x86/invalid.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \
-		tests/invalid_atomic_order.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/invalid_atomic_order.c,$(TEST_OUT)/atomic-x64/invalid-order.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid-pointer.ro \
-		tests/invalid_pointer_atomic.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_pointer_atomic.c,$(TEST_OUT)/atomic-x86/invalid-pointer.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-pointer.ro \
-		tests/invalid_pointer_atomic.c
+		tests/invalid_pointer_atomic.c,$(TEST_OUT)/atomic-x64/invalid-pointer.log)
 	@echo "Dual-architecture integer/pointer atomic tests completed"
 
 test-atomic-language: $(RCC_TARGET)

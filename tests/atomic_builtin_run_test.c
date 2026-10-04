@@ -5,10 +5,78 @@
 #include <stdio.h>
 #include <string.h>
 
-#if (defined(__x86_64__) || defined(__i386__)) && !defined(_WIN32)
+#if defined(__x86_64__) || defined(__i386__)
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <pthread.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
+
+#if defined(_WIN32)
+typedef HANDLE rcc_pthread_t;
+
+static int rcc_pthread_create(rcc_pthread_t* handle, const void* attributes,
+                               void* (*start)(void*), void* argument) {
+    (void)attributes;
+    *handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)start, argument,
+                           0, NULL);
+    return *handle != NULL ? 0 : -1;
+}
+
+static int rcc_pthread_join(rcc_pthread_t handle, void** result) {
+    DWORD status = WaitForSingleObject(handle, INFINITE);
+    if (result) *result = NULL;
+    CloseHandle(handle);
+    return status == WAIT_OBJECT_0 ? 0 : -1;
+}
+
+static long rcc_sysconf(int name) {
+    SYSTEM_INFO system_info;
+    (void)name;
+    GetSystemInfo(&system_info);
+    return (long)system_info.dwPageSize;
+}
+
+static void* rcc_mmap(void* address, size_t length, int protection, int flags,
+                      int descriptor, long offset) {
+    (void)address;
+    (void)protection;
+    (void)flags;
+    (void)descriptor;
+    (void)offset;
+    return VirtualAlloc(NULL, length, MEM_RESERVE | MEM_COMMIT,
+                        PAGE_READWRITE);
+}
+
+static int rcc_mprotect(void* address, size_t length, int protection) {
+    DWORD old_protection;
+    (void)protection;
+    return VirtualProtect(address, length, PAGE_EXECUTE_READ,
+                          &old_protection) ? 0 : -1;
+}
+
+static int rcc_munmap(void* address, size_t length) {
+    (void)length;
+    return VirtualFree(address, 0, MEM_RELEASE) ? 0 : -1;
+}
+
+#define pthread_t rcc_pthread_t
+#define pthread_create rcc_pthread_create
+#define pthread_join rcc_pthread_join
+#define sysconf rcc_sysconf
+#define mmap rcc_mmap
+#define mprotect rcc_mprotect
+#define munmap rcc_munmap
+#define MAP_FAILED ((void*)-1)
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define PROT_EXEC 4
+#define MAP_PRIVATE 2
+#define MAP_ANONYMOUS 0x20
+#define _SC_PAGESIZE 30
+#endif
 #endif
 
 static ObjSymbol* function_symbol(ObjectFile* object, const char* name) {
@@ -29,45 +97,50 @@ static int section_contains(const ObjSection* section,
     return 0;
 }
 
-#if (defined(__x86_64__) || defined(__i386__)) && !defined(_WIN32)
-typedef uint32_t (*atomic_load_fn)(volatile uint32_t*);
-typedef void (*atomic_store_fn)(volatile uint32_t*, uint32_t);
-typedef uint32_t (*atomic_binary_fn)(volatile uint32_t*, uint32_t);
-typedef int (*atomic_compare_bool_fn)(volatile uint32_t*, uint32_t, uint32_t);
-typedef uint32_t (*atomic_compare_value_fn)(volatile uint32_t*, uint32_t,
+#if defined(__x86_64__) || defined(__i386__)
+ #if defined(_WIN32) && defined(__x86_64__)
+ #define RCC_SYSV_ABI __attribute__((sysv_abi))
+ #else
+ #define RCC_SYSV_ABI
+ #endif
+typedef uint32_t (RCC_SYSV_ABI *atomic_load_fn)(volatile uint32_t*);
+typedef void (RCC_SYSV_ABI *atomic_store_fn)(volatile uint32_t*, uint32_t);
+typedef uint32_t (RCC_SYSV_ABI *atomic_binary_fn)(volatile uint32_t*, uint32_t);
+typedef int (RCC_SYSV_ABI *atomic_compare_bool_fn)(volatile uint32_t*, uint32_t, uint32_t);
+typedef uint32_t (RCC_SYSV_ABI *atomic_compare_value_fn)(volatile uint32_t*, uint32_t,
                                             uint32_t);
-typedef int (*standard_atomic_compare_fn)(volatile uint32_t*, uint32_t*,
+typedef int (RCC_SYSV_ABI *standard_atomic_compare_fn)(volatile uint32_t*, uint32_t*,
                                           uint32_t);
-typedef void (*atomic_release_fn)(volatile uint32_t*);
-typedef void (*atomic_fence_fn)(void);
-typedef uint32_t (*atomic_u8_load_fn)(volatile uint8_t*);
-typedef void (*atomic_u8_store_fn)(volatile uint8_t*, uint32_t);
-typedef uint32_t (*atomic_u8_binary_fn)(volatile uint8_t*, uint32_t);
-typedef int (*atomic_u8_compare_fn)(volatile uint8_t*, uint8_t*, uint32_t);
-typedef uint32_t (*atomic_u8_sync_compare_fn)(volatile uint8_t*, uint32_t,
+typedef void (RCC_SYSV_ABI *atomic_release_fn)(volatile uint32_t*);
+typedef void (RCC_SYSV_ABI *atomic_fence_fn)(void);
+typedef uint32_t (RCC_SYSV_ABI *atomic_u8_load_fn)(volatile uint8_t*);
+typedef void (RCC_SYSV_ABI *atomic_u8_store_fn)(volatile uint8_t*, uint32_t);
+typedef uint32_t (RCC_SYSV_ABI *atomic_u8_binary_fn)(volatile uint8_t*, uint32_t);
+typedef int (RCC_SYSV_ABI *atomic_u8_compare_fn)(volatile uint8_t*, uint8_t*, uint32_t);
+typedef uint32_t (RCC_SYSV_ABI *atomic_u8_sync_compare_fn)(volatile uint8_t*, uint32_t,
                                               uint32_t);
-typedef void (*atomic_u8_release_fn)(volatile uint8_t*);
-typedef uint32_t (*atomic_u16_load_fn)(volatile uint16_t*);
-typedef void (*atomic_u16_store_fn)(volatile uint16_t*, uint32_t);
-typedef uint32_t (*atomic_u16_binary_fn)(volatile uint16_t*, uint32_t);
-typedef int (*atomic_u16_compare_fn)(volatile uint16_t*, uint16_t*,
+typedef void (RCC_SYSV_ABI *atomic_u8_release_fn)(volatile uint8_t*);
+typedef uint32_t (RCC_SYSV_ABI *atomic_u16_load_fn)(volatile uint16_t*);
+typedef void (RCC_SYSV_ABI *atomic_u16_store_fn)(volatile uint16_t*, uint32_t);
+typedef uint32_t (RCC_SYSV_ABI *atomic_u16_binary_fn)(volatile uint16_t*, uint32_t);
+typedef int (RCC_SYSV_ABI *atomic_u16_compare_fn)(volatile uint16_t*, uint16_t*,
                                      uint32_t);
-typedef int32_t (*atomic_i8_binary_fn)(volatile int8_t*, int32_t);
-typedef int32_t (*atomic_i16_binary_fn)(volatile int16_t*, int32_t);
-typedef int (*atomic_bool_binary_fn)(volatile _Bool*, int);
-typedef void* (*atomic_pointer_load_fn)(void* volatile*);
-typedef void (*atomic_pointer_store_fn)(void* volatile*, void*);
-typedef void* (*atomic_pointer_binary_fn)(void* volatile*, void*);
-typedef int (*atomic_pointer_compare_fn)(void* volatile*, void**, void*);
-typedef uint64_t (*atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
-typedef int64_t (*atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
-typedef uint64_t (*atomic_u64_load_fn)(volatile uint64_t*);
-typedef void (*atomic_u64_store_fn)(volatile uint64_t*, uint64_t);
-typedef uint64_t (*atomic_u64_binary_fn)(volatile uint64_t*, uint64_t);
-typedef int (*atomic_u64_compare_fn)(volatile uint64_t*, uint64_t*,
+typedef int32_t (RCC_SYSV_ABI *atomic_i8_binary_fn)(volatile int8_t*, int32_t);
+typedef int32_t (RCC_SYSV_ABI *atomic_i16_binary_fn)(volatile int16_t*, int32_t);
+typedef int (RCC_SYSV_ABI *atomic_bool_binary_fn)(volatile _Bool*, int);
+typedef void* (RCC_SYSV_ABI *atomic_pointer_load_fn)(void* volatile*);
+typedef void (RCC_SYSV_ABI *atomic_pointer_store_fn)(void* volatile*, void*);
+typedef void* (RCC_SYSV_ABI *atomic_pointer_binary_fn)(void* volatile*, void*);
+typedef int (RCC_SYSV_ABI *atomic_pointer_compare_fn)(void* volatile*, void**, void*);
+typedef uint64_t (RCC_SYSV_ABI *atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
+typedef int64_t (RCC_SYSV_ABI *atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
+typedef uint64_t (RCC_SYSV_ABI *atomic_u64_load_fn)(volatile uint64_t*);
+typedef void (RCC_SYSV_ABI *atomic_u64_store_fn)(volatile uint64_t*, uint64_t);
+typedef uint64_t (RCC_SYSV_ABI *atomic_u64_binary_fn)(volatile uint64_t*, uint64_t);
+typedef int (RCC_SYSV_ABI *atomic_u64_compare_fn)(volatile uint64_t*, uint64_t*,
                                      uint64_t);
 #if defined(__i386__)
-typedef long (*atomic_long_binary_fn)(volatile long*, long);
+typedef long (RCC_SYSV_ABI *atomic_long_binary_fn)(volatile long*, long);
 #endif
 
 typedef struct {
@@ -158,7 +231,7 @@ int main(int argc, char** argv) {
     (void)function_symbol(x86_object,
                           "standard_atomic_long_fetch_xor_value");
     objfile_free(x86_object);
-#if (defined(__x86_64__) || defined(__i386__)) && !defined(_WIN32)
+#if defined(__x86_64__) || defined(__i386__)
 #if defined(__x86_64__)
     ObjectFile* object = objfile_read(argv[2]);
 #else
@@ -678,7 +751,8 @@ int main(int argc, char** argv) {
     objfile_free(object);
 #else
     (void)argv;
-    puts("atomic builtin execution test skipped on unsupported host");
+    fprintf(stderr, "atomic builtin execution test requires an x86 host\n");
+    return 2;
 #endif
     return 0;
 }
