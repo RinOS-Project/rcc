@@ -583,3 +583,6 @@
 - [x] Make native Windows VLA declarator-variant and static-local runtime
       gates execute generated i686/x86_64 code through freestanding `main`
       entries without WSL, while retaining RIN emission and validation.
+- [x] Make native Windows TLS negative checks use the shared shell-neutral
+      expected-failure helper, retaining RIN/RLL generation, RLD linking, and
+      invalid DRV diagnostics.
