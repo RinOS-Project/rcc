@@ -92,6 +92,13 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* subtract_symbol;
     ObjSymbol* local_symbol;
     ObjSymbol* narrow_symbol;
+    ObjSymbol* equal_symbol;
+    ObjSymbol* not_equal_symbol;
+    ObjSymbol* unsigned_less_symbol;
+    ObjSymbol* signed_less_symbol;
+    ObjSymbol* lshift_symbol;
+    ObjSymbol* lshr_symbol;
+    ObjSymbol* ashr_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -106,6 +113,20 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_local");
     narrow_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_narrow");
+    equal_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_equal");
+    not_equal_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_not_equal");
+    unsigned_less_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_unsigned_less");
+    signed_less_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_signed_less");
+    lshift_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_lshift");
+    lshr_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_lshr");
+    ashr_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_ashr");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -127,6 +148,26 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     assert(narrow_symbol != NULL && narrow_symbol->type == SYM_GLOBAL &&
            narrow_symbol->binding == BIND_CODE &&
            narrow_symbol->section == 0);
+    assert(equal_symbol != NULL && equal_symbol->type == SYM_GLOBAL &&
+           equal_symbol->binding == BIND_CODE && equal_symbol->section == 0);
+    assert(not_equal_symbol != NULL &&
+           not_equal_symbol->type == SYM_GLOBAL &&
+           not_equal_symbol->binding == BIND_CODE &&
+           not_equal_symbol->section == 0);
+    assert(unsigned_less_symbol != NULL &&
+           unsigned_less_symbol->type == SYM_GLOBAL &&
+           unsigned_less_symbol->binding == BIND_CODE &&
+           unsigned_less_symbol->section == 0);
+    assert(signed_less_symbol != NULL &&
+           signed_less_symbol->type == SYM_GLOBAL &&
+           signed_less_symbol->binding == BIND_CODE &&
+           signed_less_symbol->section == 0);
+    assert(lshift_symbol != NULL && lshift_symbol->type == SYM_GLOBAL &&
+           lshift_symbol->binding == BIND_CODE && lshift_symbol->section == 0);
+    assert(lshr_symbol != NULL && lshr_symbol->type == SYM_GLOBAL &&
+           lshr_symbol->binding == BIND_CODE && lshr_symbol->section == 0);
+    assert(ashr_symbol != NULL && ashr_symbol->type == SYM_GLOBAL &&
+           ashr_symbol->binding == BIND_CODE && ashr_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -138,6 +179,15 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long (*subtract_function)(unsigned long long);
         unsigned long long (*local_function)(unsigned long long);
         unsigned long long (*narrow_function)(unsigned int);
+        int (*equal_function)(unsigned long long);
+        int (*not_equal_function)(unsigned long long);
+        int (*unsigned_less_function)(unsigned long long);
+        int (*signed_less_function)(long long);
+        unsigned long long (*lshift_function)(unsigned long long,
+                                              unsigned int);
+        unsigned long long (*lshr_function)(unsigned long long,
+                                            unsigned int);
+        long long (*ashr_function)(long long, unsigned int);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
         assert(function() == 0x1122334455667788ULL);
@@ -163,6 +213,37 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         address = symbol_address(memory, narrow_symbol);
         memcpy(&narrow_function, &address, sizeof(narrow_function));
         assert(narrow_function(0xdeadbeefu) == 0x00000000deadbeefULL);
+        address = symbol_address(memory, equal_symbol);
+        memcpy(&equal_function, &address, sizeof(equal_function));
+        assert(equal_function(0x1122334455667788ULL) == 1);
+        assert(equal_function(0x1122334455667789ULL) == 0);
+        address = symbol_address(memory, not_equal_symbol);
+        memcpy(&not_equal_function, &address, sizeof(not_equal_function));
+        assert(not_equal_function(0x1122334455667788ULL) == 0);
+        assert(not_equal_function(0x1122334455667789ULL) == 1);
+        address = symbol_address(memory, unsigned_less_symbol);
+        memcpy(&unsigned_less_function, &address,
+               sizeof(unsigned_less_function));
+        assert(unsigned_less_function(0xffffffffULL) == 1);
+        assert(unsigned_less_function(0x0000000100000000ULL) == 0);
+        address = symbol_address(memory, signed_less_symbol);
+        memcpy(&signed_less_function, &address, sizeof(signed_less_function));
+        assert(signed_less_function(-1LL) == 1);
+        assert(signed_less_function(1LL) == 0);
+        address = symbol_address(memory, lshift_symbol);
+        memcpy(&lshift_function, &address, sizeof(lshift_function));
+        assert(lshift_function(1ULL, 0u) == 1ULL);
+        assert(lshift_function(1ULL, 32u) == 0x0000000100000000ULL);
+        assert(lshift_function(0x80000001ULL, 31u) ==
+               0x4000000080000000ULL);
+        address = symbol_address(memory, lshr_symbol);
+        memcpy(&lshr_function, &address, sizeof(lshr_function));
+        assert(lshr_function(0x8000000100000000ULL, 32u) == 0x80000001ULL);
+        assert(lshr_function(0x8000000000000000ULL, 63u) == 1ULL);
+        address = symbol_address(memory, ashr_symbol);
+        memcpy(&ashr_function, &address, sizeof(ashr_function));
+        assert(ashr_function(-0x0000000100000000LL, 32u) == -1LL);
+        assert(ashr_function(0x4000000000000000LL, 62u) == 1LL);
         assert(munmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

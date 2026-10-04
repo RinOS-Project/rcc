@@ -829,6 +829,278 @@ static bool lower_wide_scalar_binary(
     return true;
 }
 
+static RccIrLowerValue lower_wide_scalar_word_operation(
+    RccIrLowerContext* context, RccIrOpcode opcode,
+    RccIrLowerValue left, RccIrLowerValue right) {
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!left.valid || !right.valid ||
+        left.type.kind != RCC_IR_TYPE_INTEGER ||
+        left.type.bit_width != 32u ||
+        right.type.kind != RCC_IR_TYPE_INTEGER ||
+        right.type.bit_width != 32u) {
+        return lower_invalid_value();
+    }
+    operands[0] = left.value;
+    operands[1] = right.value;
+    instruction = lower_append(
+        context, opcode, rcc_ir_type_integer(32u), operands, 2u,
+        NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    return lower_value(instruction->result,
+                       rcc_ir_type_integer(32u), true);
+}
+
+static RccIrLowerValue lower_wide_scalar_compare_words(
+    RccIrLowerContext* context, RccIrLowerValue left,
+    RccIrLowerValue right, RccIrIntPredicate predicate) {
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!left.valid || !right.valid ||
+        left.type.kind != RCC_IR_TYPE_INTEGER ||
+        left.type.bit_width != 32u ||
+        right.type.kind != RCC_IR_TYPE_INTEGER ||
+        right.type.bit_width != 32u) {
+        return lower_invalid_value();
+    }
+    operands[0] = left.value;
+    operands[1] = right.value;
+    instruction = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u), operands, 2u,
+        NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    rcc_ir_set_predicate(instruction, predicate);
+    return lower_value(instruction->result,
+                       rcc_ir_type_integer(1u), true);
+}
+
+static RccIrLowerValue lower_wide_scalar_bool_operation(
+    RccIrLowerContext* context, RccIrOpcode opcode,
+    RccIrLowerValue left, RccIrLowerValue right) {
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!left.valid || !right.valid ||
+        left.type.kind != RCC_IR_TYPE_INTEGER ||
+        left.type.bit_width != 1u ||
+        right.type.kind != RCC_IR_TYPE_INTEGER ||
+        right.type.bit_width != 1u) {
+        return lower_invalid_value();
+    }
+    operands[0] = left.value;
+    operands[1] = right.value;
+    instruction = lower_append(
+        context, opcode, rcc_ir_type_integer(1u), operands, 2u,
+        NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    return lower_value(instruction->result,
+                       rcc_ir_type_integer(1u), true);
+}
+
+static RccIrLowerValue lower_wide_scalar_word_select(
+    RccIrLowerContext* context, RccIrLowerValue condition,
+    RccIrLowerValue then_value, RccIrLowerValue else_value) {
+    RccIrValue operands[3];
+    RccIrInstruction* instruction;
+    if (!condition.valid || !then_value.valid || !else_value.valid ||
+        condition.type.kind != RCC_IR_TYPE_INTEGER ||
+        condition.type.bit_width != 1u ||
+        then_value.type.kind != RCC_IR_TYPE_INTEGER ||
+        then_value.type.bit_width != 32u ||
+        !rcc_ir_type_equal(then_value.type, else_value.type)) {
+        return lower_invalid_value();
+    }
+    operands[0] = condition.value;
+    operands[1] = then_value.value;
+    operands[2] = else_value.value;
+    instruction = lower_append(
+        context, RCC_IR_SELECT, rcc_ir_type_integer(32u), operands, 3u,
+        NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    return lower_value(instruction->result,
+                       rcc_ir_type_integer(32u), true);
+}
+
+static bool lower_wide_scalar_compare(
+    RccIrLowerContext* context, ExprKind kind,
+    RccIrLowerWideValue left, RccIrLowerWideValue right,
+    bool is_unsigned, RccIrLowerValue* result) {
+    RccIrLowerValue high_equal;
+    RccIrLowerValue low_equal;
+    RccIrLowerValue high_not_equal;
+    RccIrLowerValue low_not_equal;
+    RccIrLowerValue high_order;
+    RccIrLowerValue low_order;
+    RccIrLowerValue ordered_low;
+    RccIrLowerValue ordered;
+    RccIrIntPredicate high_predicate;
+    RccIrIntPredicate low_predicate;
+    if (!result) return false;
+    *result = lower_invalid_value();
+    if (!left.valid || !right.valid) return false;
+    if (kind == EXPR_NE) {
+        high_not_equal = lower_wide_scalar_compare_words(
+            context, left.high, right.high, RCC_IR_ICMP_NE);
+        low_not_equal = lower_wide_scalar_compare_words(
+            context, left.low, right.low, RCC_IR_ICMP_NE);
+        if (!high_not_equal.valid || !low_not_equal.valid) return false;
+        *result = lower_wide_scalar_bool_operation(
+            context, RCC_IR_OR, high_not_equal, low_not_equal);
+        return result->valid;
+    }
+    high_equal = lower_wide_scalar_compare_words(
+        context, left.high, right.high, RCC_IR_ICMP_EQ);
+    low_equal = lower_wide_scalar_compare_words(
+        context, left.low, right.low, RCC_IR_ICMP_EQ);
+    if (!high_equal.valid || !low_equal.valid) return false;
+    if (kind == EXPR_EQ) {
+        *result = lower_wide_scalar_bool_operation(
+            context, RCC_IR_AND,
+            high_equal, low_equal);
+        return result->valid;
+    }
+    switch (kind) {
+        case EXPR_LT:
+            high_predicate = is_unsigned
+                ? RCC_IR_ICMP_ULT : RCC_IR_ICMP_SLT;
+            low_predicate = RCC_IR_ICMP_ULT;
+            break;
+        case EXPR_LE:
+            high_predicate = is_unsigned
+                ? RCC_IR_ICMP_ULE : RCC_IR_ICMP_SLE;
+            low_predicate = RCC_IR_ICMP_ULE;
+            break;
+        case EXPR_GT:
+            high_predicate = is_unsigned
+                ? RCC_IR_ICMP_UGT : RCC_IR_ICMP_SGT;
+            low_predicate = RCC_IR_ICMP_UGT;
+            break;
+        case EXPR_GE:
+            high_predicate = is_unsigned
+                ? RCC_IR_ICMP_UGE : RCC_IR_ICMP_SGE;
+            low_predicate = RCC_IR_ICMP_UGE;
+            break;
+        default:
+            return false;
+    }
+    high_order = lower_wide_scalar_compare_words(
+        context, left.high, right.high, high_predicate);
+    low_order = lower_wide_scalar_compare_words(
+        context, left.low, right.low, low_predicate);
+    ordered_low = lower_wide_scalar_bool_operation(
+        context, RCC_IR_AND, high_equal, low_order);
+    ordered = lower_wide_scalar_bool_operation(
+        context, RCC_IR_OR, high_order, ordered_low);
+    if (!ordered.valid) return false;
+    *result = ordered;
+    return true;
+}
+
+static bool lower_wide_scalar_shift(
+    RccIrLowerContext* context, ExprKind kind,
+    RccIrLowerWideValue value, RccIrLowerValue amount,
+    bool is_unsigned, RccIrLowerWideValue* result) {
+    RccIrLowerValue count;
+    RccIrLowerValue thirty_two;
+    RccIrLowerValue thirty_one;
+    RccIrLowerValue zero;
+    RccIrLowerValue low_count;
+    RccIrLowerValue cross_count;
+    RccIrLowerValue large_count;
+    RccIrLowerValue is_small;
+    RccIrLowerValue has_word_shift;
+    RccIrLowerValue small_low;
+    RccIrLowerValue small_high;
+    RccIrLowerValue large_low;
+    RccIrLowerValue large_high;
+    RccIrLowerValue cross;
+    RccIrLowerValue same_high;
+    RccIrLowerValue selected_low;
+    RccIrLowerValue selected_high;
+    RccIrOpcode low_opcode;
+    RccIrOpcode high_opcode;
+    if (!result) return false;
+    memset(result, 0, sizeof(*result));
+    if (!value.valid || !amount.valid ||
+        amount.type.kind != RCC_IR_TYPE_INTEGER ||
+        amount.type.bit_width > 32u) return false;
+    count = lower_cast(context, amount, type_uint);
+    thirty_two = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 32u);
+    thirty_one = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 31u);
+    zero = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    if (!count.valid || !thirty_two.valid || !thirty_one.valid ||
+        !zero.valid) return false;
+    low_count = lower_wide_scalar_word_operation(
+        context, RCC_IR_AND, count, thirty_one);
+    cross_count = lower_wide_scalar_word_operation(
+        context, RCC_IR_SUB, thirty_two, low_count);
+    cross_count = lower_wide_scalar_word_operation(
+        context, RCC_IR_AND, cross_count, thirty_one);
+    large_count = lower_wide_scalar_word_operation(
+        context, RCC_IR_SUB, count, thirty_two);
+    large_count = lower_wide_scalar_word_operation(
+        context, RCC_IR_AND, large_count, thirty_one);
+    is_small = lower_wide_scalar_compare_words(
+        context, count, thirty_two, RCC_IR_ICMP_ULT);
+    has_word_shift = lower_wide_scalar_compare_words(
+        context, low_count, zero, RCC_IR_ICMP_NE);
+    if (!low_count.valid || !cross_count.valid || !large_count.valid ||
+        !is_small.valid || !has_word_shift.valid) return false;
+    if (kind == EXPR_LSHIFT) {
+        low_opcode = RCC_IR_SHL;
+        high_opcode = RCC_IR_SHL;
+        small_low = lower_wide_scalar_word_operation(
+            context, low_opcode, value.low, low_count);
+        same_high = lower_wide_scalar_word_operation(
+            context, high_opcode, value.high, low_count);
+        cross = lower_wide_scalar_word_operation(
+            context, RCC_IR_LSHR, value.low, cross_count);
+        cross = lower_wide_scalar_word_select(
+            context, has_word_shift, cross, zero);
+        small_high = lower_wide_scalar_word_operation(
+            context, RCC_IR_OR, same_high, cross);
+        large_low = zero;
+        large_high = lower_wide_scalar_word_operation(
+            context, RCC_IR_SHL, value.low, large_count);
+    } else if (kind == EXPR_RSHIFT) {
+        low_opcode = RCC_IR_LSHR;
+        high_opcode = is_unsigned ? RCC_IR_LSHR : RCC_IR_ASHR;
+        small_low = lower_wide_scalar_word_operation(
+            context, low_opcode, value.low, low_count);
+        same_high = lower_wide_scalar_word_operation(
+            context, high_opcode, value.high, low_count);
+        cross = lower_wide_scalar_word_operation(
+            context, RCC_IR_SHL, value.high, cross_count);
+        cross = lower_wide_scalar_word_select(
+            context, has_word_shift, cross, zero);
+        small_low = lower_wide_scalar_word_operation(
+            context, RCC_IR_OR, small_low, cross);
+        small_high = same_high;
+        large_low = lower_wide_scalar_word_operation(
+            context, high_opcode, value.high, large_count);
+        large_high = is_unsigned
+            ? zero
+            : lower_wide_scalar_word_operation(
+                  context, RCC_IR_ASHR, value.high, thirty_one);
+    } else {
+        return false;
+    }
+    if (!small_low.valid || !small_high.valid || !large_low.valid ||
+        !large_high.valid) return false;
+    selected_low = lower_wide_scalar_word_select(
+        context, is_small, small_low, large_low);
+    selected_high = lower_wide_scalar_word_select(
+        context, is_small, small_high, large_high);
+    if (!selected_low.valid || !selected_high.valid) return false;
+    result->low = selected_low;
+    result->high = selected_high;
+    result->is_unsigned = value.is_unsigned;
+    result->valid = true;
+    return true;
+}
+
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
@@ -906,6 +1178,16 @@ static bool lower_wide_scalar_expression(
             context, expression->binary_rhs, &right)) {
         return lower_wide_scalar_binary(
             context, expression->kind, left, right,
+            expression->type->is_unsigned, result);
+    }
+    if ((expression->kind == EXPR_LSHIFT ||
+         expression->kind == EXPR_RSHIFT) &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_lhs, &left) &&
+        (shift = lower_expression(context, expression->binary_rhs)).valid) {
+        return lower_wide_scalar_shift(
+            context, expression->kind, left, shift,
             expression->type->is_unsigned, result);
     }
     if (expression->kind == EXPR_NEG &&
@@ -1012,13 +1294,30 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
                                         const Expr* expression) {
     Type* comparison_type = type_common(expression->binary_lhs->type,
                                         expression->binary_rhs->type);
-    RccIrLowerValue left = lower_expression(context,
-                                            expression->binary_lhs);
-    RccIrLowerValue right = lower_expression(context,
-                                             expression->binary_rhs);
+    RccIrLowerValue left;
+    RccIrLowerValue right;
     RccIrValue operands[2];
     RccIrInstruction* compare;
     RccIrLowerValue result;
+    if (lower_i686_wide_scalar_type(comparison_type)) {
+        RccIrLowerWideValue wide_left;
+        RccIrLowerWideValue wide_right;
+        RccIrLowerValue wide_result;
+        if (!lower_wide_scalar_expression(
+                context, expression->binary_lhs, &wide_left) ||
+            !lower_wide_scalar_expression(
+                context, expression->binary_rhs, &wide_right) ||
+            !lower_wide_scalar_compare(
+                context, expression->kind, wide_left, wide_right,
+                comparison_type->is_unsigned, &wide_result) ||
+            !wide_result.valid) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return lower_cast(context, wide_result, expression->type);
+    }
+    left = lower_expression(context, expression->binary_lhs);
+    right = lower_expression(context, expression->binary_rhs);
     if (!comparison_type || !left.valid || !right.valid) {
         context->unsupported = true;
         return lower_invalid_value();
