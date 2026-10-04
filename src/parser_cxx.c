@@ -86,7 +86,8 @@ static Type* cxx_decltype_member_type(Type* object_type,
                                       SourceLoc loc);
 static bool cxx_template_constraint_satisfied(
     CxxTemplate* tmpl, Type** arguments, const int64_t* values,
-    const bool* value_present, SourceLoc loc, bool report_errors);
+    const bool* value_present, SourceLoc loc, bool report_errors,
+    bool* unsupported);
 
 static bool cxx_type_is_aggregate(Type* type) {
     CxxClass* cls;
@@ -7923,7 +7924,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         }
     }
     if (!cxx_template_constraint_satisfied(
-            tmpl, arguments, value_args, value_present, loc, true)) {
+            tmpl, arguments, value_args, value_present, loc, true, NULL)) {
         return type_int;
     }
     for (index = 0; index < tmpl->instance_count; ++index) {
@@ -8511,7 +8512,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
      * checked when their selected definition is instantiated below. */
     if (tmpl->specialization_count > 0 &&
         !cxx_template_constraint_satisfied(
-            tmpl, arguments, values, value_present, loc, true)) {
+            tmpl, arguments, values, value_present, loc, true, NULL)) {
         return type_int;
     }
     CxxTemplate* selected = NULL;
@@ -8558,6 +8559,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
             }
         }
         if (matches && specialization->templated_class) {
+            bool constraint_unsupported = false;
             for (int parameter_index = 0;
                  parameter_index < specialization->param_count;
                  ++parameter_index) {
@@ -8574,7 +8576,13 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                     !cxx_template_constraint_satisfied(
                         specialization, specialization_arguments,
                         specialization_values, specialization_value_present,
-                        loc, false)) {
+                        loc, false, &constraint_unsupported)) {
+                    if (constraint_unsupported) {
+                        rcc_error(loc,
+                                  "class template partial specialization "
+                                  "constraint could not be evaluated");
+                        return NULL;
+                    }
                     matches = false;
                 }
             }
@@ -9643,9 +9651,11 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
                                                const int64_t* values,
                                                const bool* value_present,
                                                SourceLoc loc,
-                                               bool report_errors) {
+                                               bool report_errors,
+                                               bool* unsupported) {
     int64_t result;
     Expr* constraint;
+    if (unsupported) *unsupported = false;
     if (!tmpl || !tmpl->constraint) return true;
     constraint = cxx_template_clone_expr_with_values(
         tmpl, tmpl->constraint, arguments, tmpl->param_count, values,
@@ -9654,6 +9664,7 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
         if (report_errors) {
             rcc_error(loc, "template constraint could not be instantiated");
         }
+        if (unsupported) *unsupported = true;
         return false;
     }
     if (constraint->kind == EXPR_CXX_REQUIRES) {
@@ -9665,6 +9676,7 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
                       "requires-clause must be a supported constant constraint "
                       "over the template parameters");
         }
+        if (unsupported) *unsupported = true;
         return false;
     }
     if (!result) {
@@ -9758,7 +9770,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         return type_int;
     }
     if (!cxx_template_constraint_satisfied(
-            tmpl, arguments, values, value_present, loc, true)) {
+            tmpl, arguments, values, value_present, loc, true, NULL)) {
         return type_int;
     }
     {
@@ -9929,7 +9941,7 @@ static bool prepare_cxx_function_template_match(
     CxxTemplate* tmpl, ExprList* call_arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, CxxFunctionTemplateMatch* match,
-    bool* constraint_invalid) {
+    bool* constraint_invalid, bool* constraint_unsupported) {
     int specificity = 0;
     bool has_type_pack = false;
     bool has_value_pack = false;
@@ -10077,7 +10089,7 @@ static bool prepare_cxx_function_template_match(
 
     if (!cxx_template_constraint_satisfied(
             tmpl, match->arguments, match->values, match->value_present,
-            tmpl->func_def->loc, false)) {
+            tmpl->func_def->loc, false, constraint_unsupported)) {
         if (constraint_invalid) *constraint_invalid = true;
         return false;
     }
@@ -10516,6 +10528,7 @@ Expr* rcc_parse_cxx_template_call(void) {
         CxxFunctionTemplateMatch matches[32];
         int match_count = 0;
         bool constraint_invalid = false;
+        bool constraint_unsupported = false;
         for (int index = 0; index < candidate_count; ++index) {
             if (template_has_unsupported_versioned_shape(
                     candidate_templates[index])) {
@@ -10525,9 +10538,13 @@ Expr* rcc_parse_cxx_template_call(void) {
                     candidate_templates[index], call_arguments,
                     explicit_template_arguments ? explicit_arguments : NULL,
                     explicit_argument_count, &matches[match_count],
-                    &constraint_invalid)) {
+                    &constraint_invalid, &constraint_unsupported)) {
                 ++match_count;
             }
+        }
+        if (constraint_unsupported) {
+            rcc_error(loc, "template constraint could not be evaluated");
+            return expr_int(0, loc);
         }
         if (match_count == 0) {
             if (constraint_invalid) {

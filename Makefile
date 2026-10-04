@@ -271,6 +271,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
 	test-cxx-class-template-specialization-ambiguous \
+	test-cxx-class-template-specialization-constraint-invalid \
 	test-cxx-class-template-non-type \
 	test-cxx-non-type-templates \
 	test-cxx-auto-non-type-template \
@@ -2123,6 +2124,26 @@ test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
 	grep -q "ambiguous class template partial specialization" \
 		$(TEST_OUT)/cxx-class-template-specialization-ambiguous/x64.log
 	@echo "RCC++ ambiguous class-template specialization diagnostic completed"
+
+test-cxx-class-template-specialization-constraint-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid)
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.ro \
+		tests/cxx_class_template_specialization_constraint_invalid.cpp \
+		>$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.log 2>&1; then \
+		echo "unsupported partial specialization constraint unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "constraint could not be evaluated" \
+		$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x86.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.ro \
+		tests/cxx_class_template_specialization_constraint_invalid.cpp \
+		>$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.log 2>&1; then \
+		echo "unsupported partial specialization constraint unexpectedly compiled"; exit 1; \
+	fi
+	grep -q "constraint could not be evaluated" \
+		$(TEST_OUT)/cxx-class-template-specialization-constraint-invalid/x64.log
+	@echo "RCC++ unsupported partial-specialization constraint diagnostic completed"
 
 test-cxx-class-template-non-type: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-non-type)
@@ -5306,6 +5327,7 @@ endif
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-specialization-ambiguous
+.PHONY: test-cxx-class-template-specialization-constraint-invalid
 .PHONY: test-cxx-class-template-non-type
 .PHONY: test-cxx-operator-overload
 .PHONY: test-cxx-member-operator-forms
