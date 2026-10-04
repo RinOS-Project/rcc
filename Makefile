@@ -7337,6 +7337,20 @@ test-integer-promotions: $(RCC_TARGET)
 		-o $(TEST_OUT)/integer-promotions/x86.ro tests/integer_promotion.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/integer-promotions/x64.ro tests/integer_promotion.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/integer-promotions/x86.s tests/integer_promotion.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/integer-promotions/run-test-x86 \
+		$(TEST_OUT)/integer-promotions/x86.s
+	$(TEST_OUT)/integer-promotions/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/integer-promotions/x64.s tests/integer_promotion.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/integer-promotions/run-test-x64 \
+		$(TEST_OUT)/integer-promotions/x64.s
+	$(TEST_OUT)/integer-promotions/run-test-x64
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/integer-promotions/run-test-x86 \
 		tests/integer_promotion_run_test.c src/emit_ro.c src/utils.c
@@ -7347,20 +7361,14 @@ test-integer-promotions: $(RCC_TARGET)
 		$(TEST_OUT)/integer-promotions/x86.ro
 	$(TEST_OUT)/integer-promotions/run-test-x64 \
 		$(TEST_OUT)/integer-promotions/x64.ro
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/integer-promotions/invalid.ro \
-		tests/invalid_integer_operators.c \
-		>$(TEST_OUT)/integer-promotions/invalid.log 2>&1; then \
-		echo "invalid integer-operator fixture unexpectedly compiled"; exit 1; \
-	fi
-	$(GREP) -q "remainder operator requires integer operands" \
-		$(TEST_OUT)/integer-promotions/invalid.log
-	$(GREP) -q "bitwise complement requires integer operand" \
-		$(TEST_OUT)/integer-promotions/invalid.log
-	$(GREP) -q "shift operator requires integer operands" \
-		$(TEST_OUT)/integer-promotions/invalid.log
-	$(GREP) -q "logical not requires scalar operand" \
-		$(TEST_OUT)/integer-promotions/invalid.log
+		tests/invalid_integer_operators.c,$(TEST_OUT)/integer-promotions/invalid.log)
+	$(call CHECK_TEXT,remainder operator requires integer operands,$(TEST_OUT)/integer-promotions/invalid.log)
+	$(call CHECK_TEXT,bitwise complement requires integer operand,$(TEST_OUT)/integer-promotions/invalid.log)
+	$(call CHECK_TEXT,shift operator requires integer operands,$(TEST_OUT)/integer-promotions/invalid.log)
+	$(call CHECK_TEXT,logical not requires scalar operand,$(TEST_OUT)/integer-promotions/invalid.log)
 	@echo "Dual-architecture C17 integer promotion tests completed"
 
 test-integer-conversions: $(RCC_TARGET)
