@@ -163,6 +163,12 @@ int verified_wide_scalar_logical_or(unsigned long long value)
     return value || 0;
 }
 
+unsigned long long verified_wide_scalar_comma(unsigned long long value)
+{
+    unsigned long long target = 0ULL;
+    return (target = 1ULL, value);
+}
+
 unsigned long long verified_wide_scalar_udiv(unsigned long long value)
 {
     return value / 0x0000000100000001ULL;

@@ -177,6 +177,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* logical_not_symbol;
     ObjSymbol* logical_and_symbol;
     ObjSymbol* logical_or_symbol;
+    ObjSymbol* comma_symbol;
     ObjSymbol* udiv_symbol;
     ObjSymbol* udiv_small_symbol;
     ObjSymbol* umod_symbol;
@@ -238,6 +239,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_logical_and");
     logical_or_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_logical_or");
+    comma_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_comma");
     udiv_symbol = objfile_find_symbol(object, "verified_wide_scalar_udiv");
     udiv_small_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_udiv_small");
@@ -338,6 +341,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            logical_or_symbol->type == SYM_GLOBAL &&
            logical_or_symbol->binding == BIND_CODE &&
            logical_or_symbol->section == 0);
+    assert(comma_symbol != NULL && comma_symbol->type == SYM_GLOBAL &&
+           comma_symbol->binding == BIND_CODE && comma_symbol->section == 0);
     assert(udiv_symbol != NULL && udiv_symbol->type == SYM_GLOBAL &&
            udiv_symbol->binding == BIND_CODE && udiv_symbol->section == 0);
     assert(udiv_small_symbol != NULL &&
@@ -385,6 +390,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         int RINOS_ABI (*logical_not_function)(unsigned long long);
         int RINOS_ABI (*logical_and_function)(unsigned long long);
         int RINOS_ABI (*logical_or_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*comma_function)(unsigned long long);
         unsigned long long RINOS_ABI (*udiv_function)(unsigned long long);
         unsigned long long RINOS_ABI (*udiv_small_function)(unsigned long long);
         unsigned long long RINOS_ABI (*umod_function)(unsigned long long);
@@ -520,6 +526,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&logical_or_function, &address, sizeof(logical_or_function));
         assert(logical_or_function(0ULL) == 0);
         assert(logical_or_function(1ULL) == 1);
+        address = symbol_address(memory, comma_symbol);
+        memcpy(&comma_function, &address, sizeof(comma_function));
+        assert(comma_function(0x8899aabbccddeeffULL) ==
+               0x8899aabbccddeeffULL);
         address = symbol_address(memory, udiv_symbol);
         memcpy(&udiv_function, &address, sizeof(udiv_function));
         assert(udiv_function(0x0000000200000002ULL) == 2ULL);

@@ -1842,6 +1842,25 @@ static bool lower_wide_scalar_expression(
         }
         return false;
     }
+    if (expression->kind == EXPR_COMMA &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        expression->binary_lhs && expression->binary_rhs) {
+        RccIrLowerWideValue discarded;
+        /* Preserve the left operand's sequencing side effect when it is an
+         * i686 wide scalar.  The scalar path cannot represent that pair, so
+         * lower it before returning the right operand's pair value. */
+        if (lower_i686_wide_scalar_type(expression->binary_lhs->type)) {
+            if (!lower_wide_scalar_expression(
+                    context, expression->binary_lhs, &discarded)) {
+                return false;
+            }
+        } else {
+            (void)lower_expression(context, expression->binary_lhs);
+            if (context->unsupported) return false;
+        }
+        return lower_wide_scalar_expression(
+            context, expression->binary_rhs, result);
+    }
     if (expression->kind == EXPR_ASSIGN &&
         lower_i686_wide_scalar_type(expression->type) &&
         expression->binary_lhs && expression->binary_rhs &&
