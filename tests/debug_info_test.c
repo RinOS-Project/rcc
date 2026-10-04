@@ -359,6 +359,9 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x40u, 0x18u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x24u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0fu, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x15u, 0x01u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x05u, 0x00u));
+        assert(contains_byte(info->data, info->size, 18u));
         assert(contains_byte(info->data, info->size,
                              architecture == ARCH_X64 ? 0x76u : 0x75u));
         assert(contains_byte(info->data, info->size, 0x23u));

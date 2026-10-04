@@ -912,6 +912,32 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
         }
         return;
     }
+    if (type->kind == TYPE_FUNC) {
+        /* Function types can recursively mention themselves through a
+         * function pointer parameter.  Use the same collecting marker as
+         * aggregates so that such types remain a valid opaque DIE instead
+         * of recursing forever. */
+        entry = debug_type_add(context, type);
+        entry->collecting = true;
+        debug_type_collect(context, type->ret_type);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            debug_type_collect(context, parameter->type);
+        }
+        entry = debug_type_find(context, type);
+        entry->collecting = false;
+        if (entry->recursive) return;
+        entry_index = (size_t)(entry - context->entries);
+        if (entry_index + 1u < context->count) {
+            DebugTypeEntry saved = *entry;
+            memmove(&context->entries[entry_index],
+                    &context->entries[entry_index + 1u],
+                    (context->count - entry_index - 1u) *
+                        sizeof(*context->entries));
+            context->entries[context->count - 1u] = saved;
+        }
+        return;
+    }
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
         type->kind == TYPE_VECTOR) {
         debug_type_collect(context, type->base);
@@ -1206,6 +1232,28 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 debug_line_u32(info, type->array_len > 0
                                      ? (uint32_t)type->array_len - 1u : 0u);
                 section_add_byte(info, 0u);
+            }
+            section_add_byte(info, 0u);
+        } else if (type->kind == TYPE_FUNC) {
+            DebugTypeEntry* return_type =
+                debug_type_find(context, type->ret_type);
+            if (!return_type) {
+                rcc_fatal("DWARF function return type was not collected");
+                return;
+            }
+            section_add_byte(info, 18u);       /* DW_TAG_subroutine_type */
+            debug_line_u32(info, return_type->offset);
+            for (TypeParam* parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                DebugTypeEntry* parameter_type =
+                    debug_type_find(context, parameter->type);
+                if (!parameter_type) {
+                    rcc_fatal(
+                        "DWARF function parameter type was not collected");
+                    return;
+                }
+                section_add_byte(info, 19u);   /* DW_TAG_formal_parameter */
+                debug_line_u32(info, parameter_type->offset);
             }
             section_add_byte(info, 0u);
         } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
@@ -2163,6 +2211,20 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x6bu);     /* DW_AT_data_bit_offset */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 18u);
+    debug_line_uleb(abbrev, 0x15u);    /* DW_TAG_subroutine_type */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 19u);
+    debug_line_uleb(abbrev, 0x05u);    /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

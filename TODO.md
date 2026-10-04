@@ -402,6 +402,9 @@
         opaque DIEへ保持
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed constant valueを出力し、i686/AMD64のobject・link回帰で検証
+  - [x] 非再帰function typeへ`DW_TAG_subroutine_type`と戻り型・parameter
+        type DIEを出力し、再帰function typeはopaqueのままi686/AMD64の
+        debug-info回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
