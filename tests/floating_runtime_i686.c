@@ -11,7 +11,8 @@ int main(void) {
     double product = multiply_double((double)value, 2.0);
     int ordered = value > 3.5f;
     int truth = !!value;
-    return (int)old + (int)product + ordered + truth;
+    int result = (int)old + (int)product + ordered + truth;
+    return result == 13 ? 0 : 1;
 }
 
 float add_float(float left, float right) {

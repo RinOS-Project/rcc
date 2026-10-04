@@ -5288,7 +5288,10 @@ test-floating-runtime-i686: $(RCC_TARGET)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/floating-runtime-i686/runtime.s \
 		tests/floating_runtime_i686.c
-	wsl -d Ubuntu-24.04 bash -lc "gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/floating-runtime-i686/runtime.o $(WSL_RINCOMPILER_ROOT)/build/tests/floating-runtime-i686/runtime.s; gcc -m32 -c -o $(WSL_RINCOMPILER_ROOT)/build/tests/floating-runtime-i686/start.o $(WSL_RINCOMPILER_ROOT)/tests/floating_runtime_i686_start.s; gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start -o $(WSL_RINCOMPILER_ROOT)/build/tests/floating-runtime-i686/runtime $(WSL_RINCOMPILER_ROOT)/build/tests/floating-runtime-i686/start.o $(WSL_RINCOMPILER_ROOT)/build/tests/floating-runtime-i686/runtime.o; $(WSL_RINCOMPILER_ROOT)/build/tests/floating-runtime-i686/runtime"
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/floating-runtime-i686/runtime.exe \
+		$(TEST_OUT)/floating-runtime-i686/runtime.s
+	$(TEST_OUT)/floating-runtime-i686/runtime.exe
 	@echo "RCC i686 floating runtime and scalar ABI tests completed"
 else
 test-floating-runtime-i686: $(RCC_TARGET)

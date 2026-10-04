@@ -3,7 +3,7 @@
 .extern _rcc_entry
 _start:
     call _rcc_entry
-    cmp $13, %eax
+    cmp $0, %eax
     jne .Lfailure
     xor %ebx, %ebx
     jmp .Lexit
