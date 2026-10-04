@@ -14,8 +14,9 @@ inline int debug_declared_inline(int value)
 
 int debug_line_entry(void)
 {
+    static int debug_line_static;
     return debug_line_helper() + debug_declared_inline(1) +
-           debug_global_data + debug_file_static;
+           debug_global_data + debug_file_static + debug_line_static;
 }
 
 int debug_info_parameters(int left, int right)

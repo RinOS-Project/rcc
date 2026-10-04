@@ -935,8 +935,8 @@ static void debug_collect_stmt_types(DebugTypeContext* context,
             break;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR &&
-                !statement->decl->var_is_global &&
-                !statement->decl->var_is_static_local) {
+                (!statement->decl->var_is_global ||
+                 statement->decl->var_is_static_local)) {
                 debug_collect_decl_type(context, statement->decl);
             }
             break;
@@ -1056,8 +1056,8 @@ static void debug_collect_stmt_files(const Stmt* statement,
             break;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR &&
-                !statement->decl->var_is_global &&
-                !statement->decl->var_is_static_local) {
+                (!statement->decl->var_is_global ||
+                 statement->decl->var_is_static_local)) {
                 debug_collect_decl_file(statement->decl, files, file_count,
                                         file_capacity);
             }
@@ -1416,6 +1416,25 @@ static const ModuleSymbol* debug_find_global_symbol(const Module* mod,
     return NULL;
 }
 
+static const ModuleSymbol* debug_find_static_local_symbol(
+    const Module* mod, const Decl* declaration) {
+    const char* link_name;
+    if (!mod || !declaration || !declaration->var_is_static_local) return NULL;
+    link_name = declaration->link_name
+                    ? declaration->link_name : declaration->name;
+    if (!link_name || link_name[0] == '\0') return NULL;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        const ModuleSymbol* symbol = &mod->symbols[index];
+        if (!symbol->is_defined || strcmp(symbol->name, link_name) != 0 ||
+            (symbol->section != MODULE_SYMBOL_DATA &&
+             symbol->section != MODULE_SYMBOL_BSS)) {
+            continue;
+        }
+        return symbol;
+    }
+    return NULL;
+}
+
 static const Decl* debug_find_global_decl(const Module* mod,
                                           const ModuleSymbol* symbol) {
     const Decl* tentative = NULL;
@@ -1439,14 +1458,102 @@ static const Decl* debug_find_global_decl(const Module* mod,
     return tentative ? tentative : external;
 }
 
-static void debug_emit_function_locals(ObjSection* info, ObjSection* strings,
-                                       DebugTypeContext* types,
-                                       const char* const* files, int file_count,
-                                       const Module* mod,
-                                       const ModuleSymbol* symbol,
-                                       int architecture) {
+static void debug_emit_static_local_stmt(
+    ObjectFile* obj, ObjSection* info, ObjSection* strings,
+    DebugTypeContext* types, const char* const* files, int file_count,
+    const Module* mod, const char* filename, int info_section,
+    const Stmt* statement, int architecture) {
+    const StmtList* item;
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                debug_emit_static_local_stmt(
+                    obj, info, strings, types, files, file_count, mod,
+                    filename, info_section, item->stmt, architecture);
+            }
+            break;
+        case STMT_IF:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->if_then, architecture);
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->if_else, architecture);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->while_body, architecture);
+            break;
+        case STMT_FOR:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->for_init, architecture);
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->for_body, architecture);
+            break;
+        case STMT_SWITCH:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->switch_body, architecture);
+            break;
+        case STMT_CASE:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->case_stmt, architecture);
+            break;
+        case STMT_DEFAULT:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->default_stmt, architecture);
+            break;
+        case STMT_LABEL:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->label_stmt, architecture);
+            break;
+        case STMT_TRY:
+            debug_emit_static_local_stmt(
+                obj, info, strings, types, files, file_count, mod, filename,
+                info_section, statement->try_body, architecture);
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                debug_emit_static_local_stmt(
+                    obj, info, strings, types, files, file_count, mod,
+                    filename, info_section, handler->body, architecture);
+            }
+            break;
+        case STMT_DECL: {
+            const Decl* declaration = statement->decl;
+            const ModuleSymbol* symbol = debug_find_static_local_symbol(
+                mod, declaration);
+            if (symbol && declaration->loc.filename &&
+                declaration->loc.filename[0] != '\0' &&
+                declaration->loc.line != 0) {
+                debug_emit_global_variable_die(
+                    obj, info, strings, types, files, file_count, mod, symbol,
+                    declaration, filename, info_section, architecture);
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+static void debug_emit_function_locals(
+    ObjectFile* obj, ObjSection* info, ObjSection* strings,
+    DebugTypeContext* types, const char* const* files, int file_count,
+    const Module* mod, const char* filename, int info_section,
+    const ModuleSymbol* symbol, int architecture) {
     Decl* function = debug_find_function_decl(mod, symbol);
     if (!function) return;
+    debug_emit_static_local_stmt(
+        obj, info, strings, types, files, file_count, mod, filename,
+        info_section, function->func_body, architecture);
     if (function->func_this_param) {
         debug_emit_variable_die(info, strings, types, files, file_count,
                                 function->func_this_param, 3u,
@@ -1950,7 +2057,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         section_add_byte(info, function_decl && function_decl->func_is_inline
                                 ? 3u : 0u);
         debug_emit_function_locals(
-            info, strings, &types, files, file_count, mod, function,
+            obj, info, strings, &types, files, file_count, mod, filename,
+            info_section, function,
             g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
         section_add_byte(info, 0u);    /* end of subprogram children */
     }

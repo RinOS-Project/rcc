@@ -326,6 +326,9 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         verify_global_variable(info, strings, "debug_file_static", NULL,
                                NULL,
                                architecture == ARCH_X64 ? 8u : 4u, false);
+        verify_global_variable(info, strings, "debug_line_static", NULL,
+                               NULL,
+                               architecture == ARCH_X64 ? 8u : 4u, false);
         assert(contains_bytes(strings->data, strings->size,
                               "debug_info_parameters"));
         assert(contains_bytes(strings->data, strings->size, "left"));
