@@ -7,6 +7,7 @@ CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP \
 	-I$(RINOS_SDK_ROOT)/include
 LDFLAGS =
 OBJCOPY ?= objcopy
+comma = ,
 
 ifeq ($(OS),Windows_NT)
 # Use the ISO printf implementation so the C11 `%z` length modifier remains
@@ -5198,8 +5199,8 @@ test-floating-static-initializers: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/floating-static-initializers/x64.s \
 		tests/floating_static_initializers.c
-	strings $(TEST_OUT)/floating-static-initializers/x64.s | $(GREP) -F -q "0x00, 0x00, 0xe0, 0x3f"
-	strings $(TEST_OUT)/floating-static-initializers/x64.s | $(GREP) -F -q "0x00, 0x00, 0xf8, 0xbf"
+	$(call CHECK_TEXT,0x00$(comma) 0x00$(comma) 0xe0$(comma) 0x3f,$(TEST_OUT)/floating-static-initializers/x64.s)
+	$(call CHECK_TEXT,0x00$(comma) 0x00$(comma) 0xf8$(comma) 0xbf,$(TEST_OUT)/floating-static-initializers/x64.s)
 	@echo "RCC C17 floating static/TLS initializer tests completed"
 
 test-numeric-literals: $(RCC_TARGET)
