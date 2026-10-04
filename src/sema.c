@@ -1410,14 +1410,50 @@ static void sema_asm_validate_conflicts(Stmt* stmt) {
 
 static void sema_asm_stmt(Stmt* stmt) {
     const char* cursor;
+    int output_count = 0;
+    int input_count = 0;
+    int total_count;
 
     if (!stmt) return;
+    for (AsmOperand* op = stmt->asm_outputs; op; op = op->next) {
+        ++output_count;
+    }
+    for (AsmOperand* op = stmt->asm_inputs; op; op = op->next) {
+        ++input_count;
+    }
+    total_count = output_count + input_count;
     cursor = stmt->asm_template ? stmt->asm_template : "";
-    for (; *cursor; ++cursor) {
-        if (*cursor == '%') {
+    while (*cursor) {
+        if (*cursor != '%') {
+            ++cursor;
+            continue;
+        }
+        if (cursor[1] == '%') {
+            cursor += 2;
+            continue;
+        }
+        if (cursor[1] < '0' || cursor[1] > '9') {
             rcc_error(stmt->loc,
-                      "inline asm operand placeholders are not supported by the bounded backend");
-            break;
+                      "inline asm placeholder must be %% or %%N");
+            ++cursor;
+            continue;
+        }
+        {
+            uint64_t index = 0u;
+            const char* digit = cursor + 1;
+            while (*digit >= '0' && *digit <= '9') {
+                if (index > (UINT64_MAX - 9u) / 10u) {
+                    index = UINT64_MAX;
+                    break;
+                }
+                index = index * 10u + (uint64_t)(*digit - '0');
+                ++digit;
+            }
+            if (index >= (uint64_t)total_count) {
+                rcc_error(stmt->loc,
+                          "inline asm operand placeholder index is out of range");
+            }
+            cursor = digit;
         }
     }
     for (AsmOperand* op = stmt->asm_outputs; op; op = op->next) {

@@ -36,6 +36,7 @@ int main(int argc, char** argv)
     long page_size;
     size_t mapping_size;
     binary_function roundtrip;
+    unary_function placeholder;
     unary_function read_write;
 
     assert(argc == 2);
@@ -58,8 +59,10 @@ int main(int argc, char** argv)
     assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
 
     LOAD_FUNCTION(roundtrip, object, mapping, "asm_fixed_register_roundtrip");
+    LOAD_FUNCTION(placeholder, object, mapping, "asm_placeholder_move");
     LOAD_FUNCTION(read_write, object, mapping, "asm_read_write_accumulator");
     assert(roundtrip(37, 91) == 37);
+    assert(placeholder(83) == 83);
     assert(read_write(53) == 53);
     LOAD_FUNCTION(read_write, object, mapping, "asm_callee_saved_clobber");
     assert(read_write(71) == 71);

@@ -15,6 +15,13 @@ int asm_read_write_accumulator(int value)
     return value;
 }
 
+int asm_placeholder_move(int value)
+{
+    int result;
+    __asm__ __volatile__("mov %1, %0" : "=a"(result) : "b"(value));
+    return result;
+}
+
 int asm_callee_saved_clobber(int value)
 {
 #if defined(__x86_64__)

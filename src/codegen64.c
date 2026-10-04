@@ -7644,6 +7644,112 @@ static int codegen64_asm_register(const char* constraint)
     }
 }
 
+static const char* codegen64_asm_register_name(int reg)
+{
+    switch (reg) {
+        case RAX: return "%rax";
+        case RCX: return "%rcx";
+        case RDX: return "%rdx";
+        case RBX: return "%rbx";
+        case RSP: return "%rsp";
+        case RBP: return "%rbp";
+        case RSI: return "%rsi";
+        case RDI: return "%rdi";
+        case R10: return "%r10";
+        default: return NULL;
+    }
+}
+
+static int codegen64_asm_parse_register(const char* text, size_t length)
+{
+    if (!text || length == 0u) return -1;
+    if (*text == '%') {
+        ++text;
+        --length;
+    }
+    if ((length == 3u && strncmp(text, "eax", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rax", 3u) == 0)) return RAX;
+    if ((length == 3u && strncmp(text, "ecx", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rcx", 3u) == 0)) return RCX;
+    if ((length == 3u && strncmp(text, "edx", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rdx", 3u) == 0)) return RDX;
+    if ((length == 3u && strncmp(text, "ebx", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rbx", 3u) == 0)) return RBX;
+    if ((length == 3u && strncmp(text, "esp", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rsp", 3u) == 0)) return RSP;
+    if ((length == 3u && strncmp(text, "ebp", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rbp", 3u) == 0)) return RBP;
+    if ((length == 3u && strncmp(text, "esi", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rsi", 3u) == 0)) return RSI;
+    if ((length == 3u && strncmp(text, "edi", 3u) == 0) ||
+        (length == 3u && strncmp(text, "rdi", 3u) == 0)) return RDI;
+    if (length == 3u && strncmp(text, "r10", 3u) == 0) return R10;
+    return -1;
+}
+
+static char* codegen64_asm_expand_template(const char* source,
+                                            const int* registers,
+                                            int operand_count, SourceLoc loc)
+{
+    size_t source_length;
+    size_t capacity;
+    char* expanded;
+    size_t read = 0u;
+    size_t write = 0u;
+
+    if (!source) source = "";
+    source_length = strlen(source);
+    if (operand_count < 0 ||
+        (size_t)operand_count >
+            (SIZE_MAX - source_length - 1u) / 8u) {
+        rcc_fatal("AMD64 inline asm template is too large");
+        return NULL;
+    }
+    capacity = source_length + (size_t)operand_count * 8u + 1u;
+    expanded = rcc_alloc(capacity);
+    while (source[read]) {
+        const char* name;
+        if (source[read] != '%') {
+            expanded[write++] = source[read++];
+            continue;
+        }
+        if (source[read + 1u] == '%') {
+            expanded[write++] = '%';
+            read += 2u;
+            continue;
+        }
+        if (source[read + 1u] < '0' || source[read + 1u] > '9') {
+            rcc_error(loc, "inline asm placeholder must be %% or %%N");
+            rcc_free(expanded);
+            return NULL;
+        }
+        {
+            uint64_t index = 0u;
+            size_t digit = read + 1u;
+            while (source[digit] >= '0' && source[digit] <= '9') {
+                if (index > (UINT64_MAX - 9u) / 10u) {
+                    index = UINT64_MAX;
+                    break;
+                }
+                index = index * 10u + (uint64_t)(source[digit] - '0');
+                ++digit;
+            }
+            if (index >= (uint64_t)operand_count || !registers ||
+                !(name = codegen64_asm_register_name(
+                    registers[(size_t)index]))) {
+                rcc_error(loc,
+                          "AMD64 inline asm placeholder requires a supported register operand");
+                rcc_free(expanded);
+                return NULL;
+            }
+            while (*name) expanded[write++] = *name++;
+            read = digit;
+        }
+    }
+    expanded[write] = '\0';
+    return expanded;
+}
+
 static bool codegen64_asm_no_operands(const char* text, size_t length,
                                        const char* mnemonic)
 {
@@ -7683,6 +7789,53 @@ static bool codegen64_asm_parse_int(const char* text, size_t length,
     return true;
 }
 
+static bool codegen64_asm_emit_mov(Module* mod, const char* text,
+                                   size_t length)
+{
+    size_t cursor = 3u;
+    size_t comma;
+    size_t source_begin;
+    size_t source_length;
+    size_t destination_begin;
+    size_t destination_length;
+    int source;
+    int destination;
+
+    if (length < 4u || strncmp(text, "mov", 3u) != 0 ||
+        (text[3] != ' ' && text[3] != '\t')) return false;
+    while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
+        ++cursor;
+    }
+    source_begin = cursor;
+    comma = source_begin;
+    while (comma < length && text[comma] != ',') ++comma;
+    if (comma == length) return false;
+    source_length = comma - source_begin;
+    while (source_length > 0u &&
+           (text[source_begin + source_length - 1u] == ' ' ||
+            text[source_begin + source_length - 1u] == '\t')) {
+        --source_length;
+    }
+    destination_begin = comma + 1u;
+    while (destination_begin < length &&
+           (text[destination_begin] == ' ' || text[destination_begin] == '\t')) {
+        ++destination_begin;
+    }
+    destination_length = length - destination_begin;
+    while (destination_length > 0u &&
+           (text[destination_begin + destination_length - 1u] == ' ' ||
+            text[destination_begin + destination_length - 1u] == '\t')) {
+        --destination_length;
+    }
+    source = codegen64_asm_parse_register(text + source_begin,
+                                          source_length);
+    destination = codegen64_asm_parse_register(text + destination_begin,
+                                                destination_length);
+    if (source < 0 || destination < 0) return false;
+    emit64_mov_reg_reg(mod, destination, source);
+    return true;
+}
+
 static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
                                            size_t length)
 {
@@ -7699,6 +7852,7 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         --length;
     }
     if (length == 0u) return true;
+    if (codegen64_asm_emit_mov(mod, text, length)) return true;
     if (codegen64_asm_no_operands(text, length, "syscall")) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x05);
@@ -7791,12 +7945,19 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     AsmOperand* operand;
     AsmOperand** inputs;
     int* registers;
+    int* template_registers;
+    int output_count = 0;
+    int asm_input_count = 0;
     int input_count = 0;
     int input_index = 0;
+    int template_index = 0;
+    int template_count;
     bool preserve_rbx = false;
     const char* cursor;
+    char* expanded_template;
 
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        ++output_count;
         int reg = codegen64_asm_register(operand->constraint);
         if (reg != RAX) {
             rcc_error(stmt->loc,
@@ -7806,6 +7967,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         if (operand->constraint[0] == '+') ++input_count;
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        ++asm_input_count;
         ++input_count;
     }
     inputs = input_count > 0
@@ -7833,12 +7995,34 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         registers[input_index++] = reg;
         preserve_rbx = preserve_rbx || reg == RBX;
     }
+    template_count = output_count + asm_input_count;
+    template_registers = template_count > 0
+        ? rcc_alloc((size_t)template_count * sizeof(*template_registers))
+        : NULL;
+    for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        template_registers[template_index++] = codegen64_asm_register(
+            operand->constraint);
+    }
+    for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        template_registers[template_index++] = codegen64_asm_register(
+            operand->constraint);
+    }
     for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
          clobber = clobber->next) {
         preserve_rbx = preserve_rbx ||
             strcmp(clobber->reg, "rbx") == 0 ||
             strcmp(clobber->reg, "ebx") == 0 ||
             strcmp(clobber->reg, "bx") == 0;
+    }
+
+    expanded_template = codegen64_asm_expand_template(
+        stmt->asm_template ? stmt->asm_template : "",
+        template_registers, template_count, stmt->loc);
+    if (!expanded_template) {
+        rcc_free(template_registers);
+        rcc_free(inputs);
+        rcc_free(registers);
+        return;
     }
 
     if (preserve_rbx) emit64_push_reg(mod, RBX);
@@ -7850,7 +8034,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         emit64_pop_reg(mod, registers[index]);
     }
 
-    cursor = stmt->asm_template ? stmt->asm_template : "";
+    cursor = expanded_template;
     while (*cursor) {
         const char* begin;
         size_t length;
@@ -7872,6 +8056,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         emit64_pop_reg(mod, RAX);
         emit64_store_typed(mod, RCX, 0, RAX, operand->expr->type);
     }
+    rcc_free(expanded_template);
+    rcc_free(template_registers);
     rcc_free(inputs);
     rcc_free(registers);
 }

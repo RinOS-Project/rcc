@@ -16,7 +16,7 @@ void invalid_clobber(void)
 
 void invalid_placeholder(int value)
 {
-    __asm__ __volatile__("nop %0" : : "a"(value));
+    __asm__ __volatile__("nop %x0" : : "a"(value));
 }
 
 void invalid_type(double value)

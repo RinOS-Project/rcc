@@ -10321,10 +10321,103 @@ static bool asm_no_operands(const char* op1, const char* op2) {
     return !op1 && !op2;
 }
 
+static int asm_parse_register(const char* text) {
+    if (!text) return -1;
+    if (*text == '%') ++text;
+    if (strcmp(text, "eax") == 0) return EAX;
+    if (strcmp(text, "ecx") == 0) return ECX;
+    if (strcmp(text, "edx") == 0) return EDX;
+    if (strcmp(text, "ebx") == 0) return EBX;
+    if (strcmp(text, "esi") == 0) return ESI;
+    if (strcmp(text, "edi") == 0) return EDI;
+    return -1;
+}
+
+static const char* asm_register_name(int reg) {
+    switch (reg) {
+        case EAX: return "%eax";
+        case ECX: return "%ecx";
+        case EDX: return "%edx";
+        case EBX: return "%ebx";
+        case ESI: return "%esi";
+        case EDI: return "%edi";
+        default: return NULL;
+    }
+}
+
+static char* asm_expand_template(const char* source, const int* registers,
+                                  int operand_count, SourceLoc loc) {
+    size_t source_length;
+    size_t capacity;
+    char* expanded;
+    size_t read = 0u;
+    size_t write = 0u;
+
+    if (!source) source = "";
+    source_length = strlen(source);
+    if (operand_count < 0 ||
+        (size_t)operand_count >
+            (SIZE_MAX - source_length - 1u) / 8u) {
+        rcc_fatal("i686 inline asm template is too large");
+        return NULL;
+    }
+    capacity = source_length + (size_t)operand_count * 8u + 1u;
+    expanded = rcc_alloc(capacity);
+    while (source[read]) {
+        const char* name;
+        if (source[read] != '%') {
+            expanded[write++] = source[read++];
+            continue;
+        }
+        if (source[read + 1u] == '%') {
+            expanded[write++] = '%';
+            read += 2u;
+            continue;
+        }
+        if (source[read + 1u] < '0' || source[read + 1u] > '9') {
+            rcc_error(loc, "inline asm placeholder must be %% or %%N");
+            rcc_free(expanded);
+            return NULL;
+        }
+        {
+            uint64_t index = 0u;
+            size_t digit = read + 1u;
+            while (source[digit] >= '0' && source[digit] <= '9') {
+                if (index > (UINT64_MAX - 9u) / 10u) {
+                    index = UINT64_MAX;
+                    break;
+                }
+                index = index * 10u + (uint64_t)(source[digit] - '0');
+                ++digit;
+            }
+            if (index >= (uint64_t)operand_count ||
+                !registers || !(name = asm_register_name(
+                    registers[(size_t)index]))) {
+                rcc_error(loc,
+                          "i686 inline asm placeholder requires a fixed register operand");
+                rcc_free(expanded);
+                return NULL;
+            }
+            while (*name) expanded[write++] = *name++;
+            read = digit;
+        }
+    }
+    expanded[write] = '\0';
+    return expanded;
+}
+
 /* Encode a single x86 instruction from mnemonic and operands */
 static bool emit_asm_instruction(Module* mod, const char* mnemonic,
                                   const char* op1, const char* op2) {
     uint8_t immediate;
+
+    if (strcmp(mnemonic, "mov") == 0) {
+        int source = asm_parse_register(op1);
+        int destination = asm_parse_register(op2);
+        if (source < 0 || destination < 0) return false;
+        emit_mov_reg_reg(mod, destination, source);
+        return true;
+    }
 
     /* Common instructions used in syscall/interrupt context */
     if (strcmp(mnemonic, "int") == 0) {
@@ -10498,6 +10591,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     } OperandInfo;
 
     OperandInfo* operands = NULL;
+    int* operand_registers = NULL;
     if (total_operands > 0) {
         operands = rcc_alloc(total_operands * sizeof(OperandInfo));
 
@@ -10515,6 +10609,11 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
             operands[idx].op = op;
             operands[idx].stack_offset = 0;
             idx++;
+        }
+        operand_registers = rcc_alloc((size_t)total_operands *
+                                      sizeof(*operand_registers));
+        for (int index = 0; index < total_operands; ++index) {
+            operand_registers[index] = operands[index].reg;
         }
     }
 
@@ -10573,9 +10672,19 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         }
     }
 
-    /* Parse and emit assembly template */
-    /* Simple parser: split by ';' or '\n', then parse each instruction */
-    char* tmpl_copy = rcc_strdup(tmpl);
+    /* Parse and emit assembly template.  GCC-style numeric placeholders are
+     * expanded only to the fixed registers already assigned above; the
+     * instruction encoder still validates the resulting instruction. */
+    char* tmpl_copy = asm_expand_template(tmpl, operand_registers,
+                                           total_operands, stmt->loc);
+    if (!tmpl_copy) {
+        if (preserve_edi) emit_pop_reg(mod, EDI);
+        if (preserve_esi) emit_pop_reg(mod, ESI);
+        if (preserve_ebx) emit_pop_reg(mod, EBX);
+        if (operand_registers) rcc_free(operand_registers);
+        if (operands) rcc_free(operands);
+        return;
+    }
     char* p = tmpl_copy;
 
     while (*p) {
@@ -10677,6 +10786,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     }
 
     if (operands) {
+        if (operand_registers) rcc_free(operand_registers);
         rcc_free(operands);
     }
 }
