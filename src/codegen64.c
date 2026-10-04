@@ -5743,6 +5743,22 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_RSHIFT:
+            {
+                int64_t shift_amount = 0;
+                int width = gen64_type_width(expr->type) * 8;
+                if (expr_eval_integer_constant(expr->binary_rhs,
+                                                &shift_amount) &&
+                    shift_amount >= 0 && shift_amount < width) {
+                    gen64_expr(mod, expr->binary_lhs);
+                    if (expr->type && expr->type->is_unsigned) {
+                        emit64_shr_reg_imm(mod, RAX, (uint8_t)shift_amount);
+                    } else {
+                        emit64_sar_reg_imm(mod, RAX, (uint8_t)shift_amount);
+                    }
+                    emit64_normalize_atomic_value(mod, RAX, expr->type);
+                    break;
+                }
+            }
             gen64_expr(mod, expr->binary_lhs);
             emit64_push_reg(mod, RAX);
             gen64_expr(mod, expr->binary_rhs);

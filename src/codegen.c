@@ -9468,6 +9468,21 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_RSHIFT:
+            {
+                int64_t shift_amount = 0;
+                int width = gen_type_width32(expr->type) * 8;
+                if (expr_eval_integer_constant(expr->binary_rhs,
+                                                &shift_amount) &&
+                    shift_amount >= 0 && shift_amount < width) {
+                    gen_expr(mod, expr->binary_lhs);
+                    if (expr->type && expr->type->is_unsigned) {
+                        emit_shr_reg_imm(mod, EAX, (uint8_t)shift_amount);
+                    } else {
+                        emit_sar_reg_imm(mod, EAX, (uint8_t)shift_amount);
+                    }
+                    break;
+                }
+            }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);

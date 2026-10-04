@@ -90,6 +90,16 @@ unsigned int strength_reduce_unsigned_left(unsigned int value)
     return 16U * value;
 }
 
+unsigned int strength_reduce_unsigned_div(unsigned int value)
+{
+    return value / 8U;
+}
+
+unsigned int strength_reduce_unsigned_mod(unsigned int value)
+{
+    return value % 8U;
+}
+
 int preserved_algebraic_side_effect(int* value)
 {
     return (*value += 1) * 0;

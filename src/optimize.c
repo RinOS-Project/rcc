@@ -151,7 +151,10 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     uint64_t shift_count = 0u;
     int width;
 
-    if (!expression || !*expression || (*expression)->kind != EXPR_MUL) {
+    if (!expression || !*expression ||
+        ((*expression)->kind != EXPR_MUL &&
+         (*expression)->kind != EXPR_DIV &&
+         (*expression)->kind != EXPR_MOD)) {
         return false;
     }
     value = *expression;
@@ -165,14 +168,20 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     width = integer_width(value->type);
     if (width <= 0) return false;
 
-    if (integer_literal(value->binary_rhs, &factor_value)) {
-        operand = value->binary_lhs;
-    } else if (integer_literal(value->binary_lhs, &factor_value)) {
-        operand = value->binary_rhs;
+    if (value->kind == EXPR_MUL) {
+        if (integer_literal(value->binary_rhs, &factor_value)) {
+            operand = value->binary_lhs;
+        } else if (integer_literal(value->binary_lhs, &factor_value)) {
+            operand = value->binary_rhs;
+        } else {
+            return false;
+        }
     } else {
-        return false;
+        if (!integer_literal(value->binary_rhs, &factor_value)) {
+            return false;
+        }
+        operand = value->binary_lhs;
     }
-    (void)factor;
     factor_bits = integer_unsigned_value(factor_value, value->type);
     if (factor_bits == 0u || (factor_bits & (factor_bits - 1u)) != 0u) {
         return false;
@@ -180,9 +189,17 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     while ((factor_bits >> shift_count) > 1u) ++shift_count;
     if (shift_count >= (uint64_t)width) return false;
 
-    shift = expr_int((int64_t)shift_count, value->loc);
-    shift->type = type_int;
-    replacement = expr_binary(EXPR_LSHIFT, operand, shift, value->loc);
+    if (value->kind == EXPR_MOD) {
+        Expr* mask = expr_int((int64_t)(factor_bits - 1u), value->loc);
+        mask->type = value->type;
+        replacement = expr_binary(EXPR_BITAND, operand, mask, value->loc);
+    } else {
+        shift = expr_int((int64_t)shift_count, value->loc);
+        shift->type = type_int;
+        replacement = expr_binary(value->kind == EXPR_MUL
+                                      ? EXPR_LSHIFT : EXPR_RSHIFT,
+                                  operand, shift, value->loc);
+    }
     replacement->type = value->type;
     *expression = replacement;
     return true;

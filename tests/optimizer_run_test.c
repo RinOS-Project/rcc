@@ -105,6 +105,10 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "strength_reduce_unsigned_right"));
     assert(function_extent(optimized, "strength_reduce_unsigned_left") <
            function_extent(unoptimized, "strength_reduce_unsigned_left"));
+    assert(function_extent(optimized, "strength_reduce_unsigned_div") <
+           function_extent(unoptimized, "strength_reduce_unsigned_div"));
+    assert(function_extent(optimized, "strength_reduce_unsigned_mod") <
+           function_extent(unoptimized, "strength_reduce_unsigned_mod"));
     assert(function_extent(optimized, "preserved_algebraic_side_effect") <
            function_extent(unoptimized, "preserved_algebraic_side_effect"));
     assert(function_extent(optimized, "removed_after_return") <
@@ -196,6 +200,10 @@ int main(int argc, char** argv)
             object, "strength_reduce_unsigned_right");
         ObjSymbol* strength_reduce_unsigned_left_symbol = function_symbol(
             object, "strength_reduce_unsigned_left");
+        ObjSymbol* strength_reduce_unsigned_div_symbol = function_symbol(
+            object, "strength_reduce_unsigned_div");
+        ObjSymbol* strength_reduce_unsigned_mod_symbol = function_symbol(
+            object, "strength_reduce_unsigned_mod");
         ObjSymbol* inlined_argument_call_symbol = function_symbol(
             object, "inlined_argument_call");
         ObjSymbol* preserved_algebraic_side_effect_symbol = function_symbol(
@@ -280,6 +288,8 @@ int main(int argc, char** argv)
         int (*algebraic_integer_zero)(int);
         uint32_t (*strength_reduce_unsigned_right)(uint32_t);
         uint32_t (*strength_reduce_unsigned_left)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_div)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         int (*inlined_argument_call)(int);
         int (*preserved_algebraic_side_effect)(int*);
         int (*removed_after_return)(int*);
@@ -366,6 +376,12 @@ int main(int argc, char** argv)
         address = mapping + strength_reduce_unsigned_left_symbol->value;
         memcpy(&strength_reduce_unsigned_left, &address,
                sizeof(strength_reduce_unsigned_left));
+        address = mapping + strength_reduce_unsigned_div_symbol->value;
+        memcpy(&strength_reduce_unsigned_div, &address,
+               sizeof(strength_reduce_unsigned_div));
+        address = mapping + strength_reduce_unsigned_mod_symbol->value;
+        memcpy(&strength_reduce_unsigned_mod, &address,
+               sizeof(strength_reduce_unsigned_mod));
         address = mapping + inlined_argument_call_symbol->value;
         memcpy(&inlined_argument_call, &address,
                sizeof(inlined_argument_call));
@@ -481,6 +497,8 @@ int main(int argc, char** argv)
         assert(algebraic_integer_zero(123) == 7);
         assert(strength_reduce_unsigned_right(123u) == 984u);
         assert(strength_reduce_unsigned_left(123u) == 1968u);
+        assert(strength_reduce_unsigned_div(123u) == 15u);
+        assert(strength_reduce_unsigned_mod(123u) == 3u);
         assert(inlined_argument_call(-8) == -7);
         value = 10;
         assert(preserved_algebraic_side_effect(&value) == 0);
