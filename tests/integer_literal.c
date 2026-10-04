@@ -59,3 +59,13 @@ unsigned long long literal_mixed_suffix(void)
 {
     return 0x89abcdef01234567uLL;
 }
+
+int main(void)
+{
+    return literal_maximum_ull() == 18446744073709551615ULL &&
+           literal_large_hex() == 0xfedcba9876543210ULL &&
+           literal_decimal_boundary() == 2147483648ULL &&
+           literal_unsigned_int() == 0xffffffffULL &&
+           literal_mixed_suffix() == 0x89abcdef01234567ULL
+        ? 0 : 1;
+}
