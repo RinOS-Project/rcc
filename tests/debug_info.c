@@ -11,5 +11,6 @@ int debug_line_entry(void)
 int debug_info_parameters(int left, int right)
 {
     int sum = left + right;
-    return sum;
+    int* pointer = &sum;
+    return *pointer;
 }

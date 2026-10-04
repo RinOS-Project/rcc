@@ -41,6 +41,29 @@ static uint32_t read_u32(const uint8_t* data, uint64_t offset)
            ((uint32_t)data[offset + 3u] << 24);
 }
 
+static uint64_t find_function_die(const ObjSection* info,
+                                  const ObjSection* strings,
+                                  const char* function_name,
+                                  uint64_t address_size)
+{
+    if (!info || !strings || !function_name) return UINT64_MAX;
+    for (uint64_t offset = 11u; offset + 5u < info->size; ++offset) {
+        uint32_t name_offset;
+        if (info->data[offset] != 2u) continue;
+        name_offset = read_u32(info->data, offset + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   function_name) != 0) {
+            continue;
+        }
+        if (offset + 1u + 4u + address_size + 4u + 1u + 4u > info->size) {
+            return UINT64_MAX;
+        }
+        return offset;
+    }
+    return UINT64_MAX;
+}
+
 static void verify_debug_object(const char* path, uint16_t architecture,
                                 uint16_t language, const char* source_file,
                                 const char* function_name)
@@ -73,9 +96,11 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(info->data[17] == (uint8_t)(language >> 8));
     {
         uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
-        uint64_t function_offset = 26u;
+        uint64_t function_offset = find_function_die(
+            info, strings, function_name, address_size);
         uint64_t column_offset = function_offset + 1u + 4u + address_size +
                                   4u + 1u + 4u;
+        assert(function_offset != UINT64_MAX);
         assert(info->data[function_offset] == 2u);
         assert(info->size >= column_offset + 4u);
         assert(read_u32(info->data, column_offset) == 1u);
@@ -88,10 +113,28 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_bytes(strings->data, strings->size, "left"));
         assert(contains_bytes(strings->data, strings->size, "right"));
         assert(contains_bytes(strings->data, strings->size, "sum"));
+        assert(contains_bytes(strings->data, strings->size, "pointer"));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x05u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x34u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x49u, 0x13u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x24u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0fu, 0x00u));
         assert(contains_byte(info->data, info->size,
                              architecture == ARCH_X64 ? 0x76u : 0x75u));
+        {
+            bool pointer_type_referenced = false;
+            for (uint64_t offset = 0u; offset + 9u < info->size; ++offset) {
+                uint32_t type_offset;
+                if (info->data[offset] != 4u) continue;
+                type_offset = read_u32(info->data, offset + 5u);
+                if (type_offset < info->size &&
+                    info->data[type_offset] == 6u) {
+                    pointer_type_referenced = true;
+                    break;
+                }
+            }
+            assert(pointer_type_referenced);
+        }
     }
     objfile_free(object);
 }

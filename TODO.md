@@ -284,6 +284,9 @@
   - [x] `DW_TAG_formal_parameter`／`DW_TAG_variable`へ実在するC/C++ stack
         declarationの名前とEBP/RBP相対`DW_OP_breg` locationを出力し、
         i686/AMD64 object・RLD link回帰で検証
+  - [x] stack declarationへ`DW_AT_type`を付与し、基本型・ポインタ型の
+        v4 type DIEと、未対応の複合型をscalarと偽らないopaque DIEとして
+        i686/AMD64 object回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
