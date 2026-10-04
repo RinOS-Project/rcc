@@ -592,3 +592,7 @@
 - [x] Execute native Windows x86_64 `_Atomic` language output through
       VirtualAlloc and a SysV-ABI adapter, while validating i686 `.ro` layout,
       required symbols, and both-architecture negative diagnostics.
+- [x] Make the native Windows i686 wide-scalar ABI gate validate `.text`/
+      `.data`, ABS32 relocations, global storage, and all exported ABI symbols
+      through an explicit inspect mode, while retaining native i686 execution
+      on hosts that provide a 32-bit runtime.
