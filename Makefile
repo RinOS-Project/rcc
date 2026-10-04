@@ -5952,6 +5952,12 @@ test-cxx-overloads: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-overloads/x86.ro tests/cxx_overload.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-overloads/x64.ro tests/cxx_overload.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/pointer-bool-x86.ro \
+		tests/cxx_pointer_bool.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-overloads/pointer-bool-x64.ro \
+		tests/cxx_pointer_bool.cpp
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/cxx-overloads/verify \
 		tests/cxx_overload_test.c src/emit_ro.c src/utils.c
 	$(TEST_OUT)/cxx-overloads/verify \

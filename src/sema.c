@@ -1355,6 +1355,7 @@ static Type* implicit_cast(Expr* e, Type* target) {
      * integer/pointer conversion paths below. */
     if (e->type->kind == TYPE_NULLPTR) {
         if (target->kind == TYPE_NULLPTR) return target;
+        if (!target->is_reference && target->kind == TYPE_BOOL) return target;
         return !target->is_reference && type_is_pointer(target)
             ? target : NULL;
     }
@@ -5921,6 +5922,7 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     source = argument->type;
     if (argument->type->kind == TYPE_NULLPTR) {
         if (target->kind == TYPE_NULLPTR) return 0;
+        if (!target->is_reference && target->kind == TYPE_BOOL) return 1;
         return !target->is_reference && type_is_pointer(target) ? 1 : -1;
     }
     if (target->is_reference) {
@@ -5988,6 +5990,7 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         if (sema_cxx_pointer_conversion(source, target, NULL)) return 2;
         return -1;
     }
+    if (source->kind == TYPE_PTR && target->kind == TYPE_BOOL) return 2;
 
     if (source->kind == TYPE_FLOAT && target->kind == TYPE_DOUBLE) {
         return 1;

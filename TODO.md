@@ -169,9 +169,9 @@
         `const char*/size_t`の生成・実行を検証。long doubleおよび未対応署名は
         明示診断する
   - [x] bounded ordinary overload conversion rankingを引数ごとの優越関係へ
-        更新し、浮動小数点promotionと直交した変換列の曖昧性をi686/AMD64で
-        回帰検証。テンプレート候補の全partial orderingと標準の全conversion
-        rankは未完了
+        更新し、浮動小数点promotion、pointer/nullptr-to-bool conversion、
+        直交した変換列の曖昧性をi686/AMD64で回帰検証。テンプレート候補の
+        全partial orderingと標準の全conversion rankは未完了
   - [x] bounded function-template overload candidatesで固定・非依存関数
         parameterの標準変換をdeduction後のviabilityへ分離し、候補間の
         conversion vectorを引数ごとに比較。直交したテンプレート候補の

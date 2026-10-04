@@ -10011,6 +10011,12 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         target = target->base;
     }
     if (type_is_compatible(source, target)) return 0;
+    if (source->kind == TYPE_NULLPTR && target->kind == TYPE_BOOL) {
+        return 1;
+    }
+    if (source->kind == TYPE_PTR && target->kind == TYPE_BOOL) {
+        return 2;
+    }
     if (source->kind == TYPE_FLOAT && target->kind == TYPE_DOUBLE) {
         return 1;
     }

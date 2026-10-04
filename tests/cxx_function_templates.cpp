@@ -59,6 +59,15 @@ T passthrough(T value) {
 }
 
 template<typename T>
+int accept_bool(T value, bool flag) {
+    return flag ? (int)value : 0;
+}
+
+int call_null_bool_template() {
+    return accept_bool(3, nullptr);
+}
+
+template<typename T>
 int type_only_template() {
     return sizeof(T);
 }

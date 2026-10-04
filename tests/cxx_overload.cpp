@@ -5,6 +5,8 @@ long choose_float(double value);
 
 int pointer_kind(void* value);
 long pointer_kind(const void* value);
+int pointer_truth(bool value);
+int null_truth(bool value);
 
 int ordered(int first, long second);
 long ordered(long first, int second);
@@ -33,6 +35,14 @@ int call_mutable_pointer_overload(void* value) {
 
 long call_const_pointer_overload(const void* value) {
     return pointer_kind(value);
+}
+
+int call_pointer_truth(void* value) {
+    return pointer_truth(value);
+}
+
+int call_null_truth() {
+    return null_truth(nullptr);
 }
 
 int call_ordered_int_long(int first, long second) {

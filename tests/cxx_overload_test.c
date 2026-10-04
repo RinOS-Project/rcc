@@ -28,6 +28,8 @@ static void verify_overloads(const char* path, uint16_t architecture)
     assert(relocation_count(text, "_Z12choose_floatd") == 0u);
     assert(relocation_count(text, "_Z12pointer_kindPv") == 1u);
     assert(relocation_count(text, "_Z12pointer_kindPKv") == 1u);
+    assert(relocation_count(text, "_Z13pointer_truthb") == 1u);
+    assert(relocation_count(text, "_Z10null_truthb") == 1u);
     assert(relocation_count(text, "_Z7orderedil") == 1u);
     assert(relocation_count(text, "_Z7orderedli") == 1u);
     assert(relocation_count(text, "_Z12null_pointerPv") == 2u);
