@@ -172,6 +172,8 @@
 - [x] bounded templates、concepts、constexpr/consteval、lambda
   - [x] bounded type/non-type parameter packs、pack expansion、fold expression、
         empty-pack identity、pack-based static membersの両arch回帰
+  - [x] C++20 named conceptを`template<Concept T>`制約付きtype parameterへ
+        適用し、instantiation時のconcept評価とC++17以前のstandard gateを検証
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化
   - [x] 先行非型引数を参照する整数constant-expression defaultの評価

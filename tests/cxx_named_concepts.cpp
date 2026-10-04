@@ -25,6 +25,11 @@ int read_value(T candidate) {
     return candidate.value;
 }
 
+template<HasValue T>
+int read_value_constrained(T candidate) {
+    return candidate.value + 1;
+}
+
 struct NoValue {
 };
 
@@ -40,6 +45,7 @@ int main() {
     return positive_value<3>() == 3 &&
                    nonpositive_value<-2>() == -2 &&
                    read_value(carrier) == 41 &&
+                   read_value_constrained(carrier) == 42 &&
                    read_missing(missing) == 7
                ? 0
                : 1;

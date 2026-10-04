@@ -5519,6 +5519,26 @@ static bool cxx_constrained_auto_parameter_starts(void) {
     return token->next && token->next->type == TOK_AUTO;
 }
 
+/* A constrained type template parameter has the spelling
+ * `Concept T` (or `namespace::Concept T`).  Keep this look-ahead purely
+ * structural so an ordinary expression or a non-type parameter is not
+ * consumed while deciding which template-parameter form is present. */
+static bool cxx_constrained_type_parameter_starts(void) {
+    Token* token = parser.cur;
+
+    if (!token || (token->type != TOK_IDENT && token->type != TOK_SCOPE)) {
+        return false;
+    }
+    if (token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    while (token->next && token->next->type == TOK_SCOPE) {
+        token = token->next->next;
+        if (!token || token->type != TOK_IDENT) return false;
+    }
+    return token->next && (token->next->type == TOK_IDENT ||
+                           token->next->type == TOK_ELLIPSIS);
+}
+
 static DeclList* parse_cxx_parameter_declarations(void) {
     DeclList* params = NULL;
     int param_idx = 0;
@@ -6445,7 +6465,59 @@ CxxTemplate* parse_cxx_template(void) {
             bool type_parameter = false;
             bool parameter_pack = false;
             bool template_parameter = false;
-            if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
+            if (cxx_constrained_type_parameter_starts()) {
+                type_parameter = true;
+                const char* concept_name = parse_qualified_name();
+                CxxTemplate* concept = find_concept(concept_name);
+                const char* param_name = NULL;
+                Type* dependent_type;
+                Expr* concept_argument;
+                Expr* concept_call;
+                ExprList* concept_arguments = NULL;
+                if (!rcc_parser_cxx_standard_at_least(20)) {
+                    rcc_error(peek()->loc,
+                              "constrained type template parameters require "
+                              "C++20 or newer");
+                }
+                parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) {
+                    param_name = advance()->value.str_val;
+                } else {
+                    rcc_error(peek()->loc,
+                              "constrained type template parameter requires a "
+                              "name");
+                }
+                cxx_template_add_type_param(tmpl, param_name);
+                dependent_type = type_struct(param_name ? param_name : "<type>");
+                dependent_type->cxx_dependent = true;
+                dependent_type->cxx_template_param_index = tmpl->param_count - 1;
+                concept_argument = expr_ident(
+                    param_name ? param_name : "<type>", loc);
+                concept_argument->type = dependent_type;
+                exprlist_append(&concept_arguments, concept_argument);
+                if (!concept) {
+                    rcc_error(loc,
+                              "constrained type template parameter requires a "
+                              "known named concept");
+                } else if (concept->param_count != 1 ||
+                           concept->params[0].kind != TPARAM_TYPE ||
+                           concept->params[0].is_pack ||
+                           concept->params[0].has_default) {
+                    rcc_error(loc,
+                              "constrained type template parameter requires a "
+                              "single type-parameter concept");
+                } else {
+                    concept_call = expr_call(
+                        expr_ident(concept_name, loc), concept_arguments, loc);
+                    concept_call->cxx_concept_template = concept;
+                    if (tmpl->constraint) {
+                        tmpl->constraint = expr_binary(
+                            EXPR_AND, tmpl->constraint, concept_call, loc);
+                    } else {
+                        tmpl->constraint = concept_call;
+                    }
+                }
+            } else if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
                 /* Type parameter */
                 type_parameter = true;
                 parameter_pack = match(TOK_ELLIPSIS);
