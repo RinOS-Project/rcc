@@ -49,3 +49,19 @@ static int accept_two_arguments(int first, int second) {
 int call_nested_argument(void) {
     return accept_two_arguments(3, nested_argument_value());
 }
+
+int main(void)
+{
+    if (call_fixed_u8(0x1234U) != 0x34U ||
+        call_fixed_s8(255) != -1 ||
+        call_fixed_u16(0x12345U) != 0x2345U ||
+        call_fixed_bool(0x100000000ULL) != 1 ||
+        call_variadic(0x100000000ULL) != 77 ||
+        call_without_prototype() != 91 ||
+        call_promoted_redeclaration() != 123 ||
+        call_function_parameter() != 63 ||
+        call_nested_argument() != 35) {
+        return 1;
+    }
+    return 0;
+}

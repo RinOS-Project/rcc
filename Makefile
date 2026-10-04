@@ -7410,6 +7410,20 @@ test-function-calls: $(RCC_TARGET)
 		-o $(TEST_OUT)/function-calls/x86.ro tests/function_call.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/function-calls/x64.ro tests/function_call.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/function-calls/x86.s tests/function_call.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/function-calls/run-test-x86 \
+		$(TEST_OUT)/function-calls/x86.s
+	$(TEST_OUT)/function-calls/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/function-calls/x64.s tests/function_call.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/function-calls/run-test-x64 \
+		$(TEST_OUT)/function-calls/x64.s
+	$(TEST_OUT)/function-calls/run-test-x64
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/function-calls/run-test-x86 \
 		tests/function_call_run_test.c src/emit_ro.c src/utils.c
@@ -7420,24 +7434,19 @@ test-function-calls: $(RCC_TARGET)
 		$(TEST_OUT)/function-calls/x86.ro
 	$(TEST_OUT)/function-calls/run-test-x64 \
 		$(TEST_OUT)/function-calls/x64.ro
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/function-calls/invalid-call.ro \
-		tests/invalid_function_call.c \
-		>$(TEST_OUT)/function-calls/invalid-call.log 2>&1; then \
-		echo "invalid function calls unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_function_call.c,$(TEST_OUT)/function-calls/invalid-call.log)
 	$(GREP) -q "too few arguments to function call" \
 		$(TEST_OUT)/function-calls/invalid-call.log
 	$(GREP) -q "too many arguments to function call" \
 		$(TEST_OUT)/function-calls/invalid-call.log
 	$(GREP) -q "incompatible type for argument 1" \
 		$(TEST_OUT)/function-calls/invalid-call.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/function-calls/invalid-parameters.ro \
-		tests/invalid_parameter_list.c \
-		>$(TEST_OUT)/function-calls/invalid-parameters.log 2>&1; then \
-		echo "invalid parameter lists unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_parameter_list.c,$(TEST_OUT)/function-calls/invalid-parameters.log)
 	$(GREP) -q "ellipsis requires at least one named parameter" \
 		$(TEST_OUT)/function-calls/invalid-parameters.log
 	$(GREP) -q "expected parameter declaration after ','" \
