@@ -453,3 +453,6 @@
       linked `.rin` output in `test-debug-info`.
 - [x] Emit `DW_AT_linkage_name` for file-scope variable DIEs so C++ source
       names retain their mangled ABI symbol identity in debug information.
+- [x] Emit static-local variable DIEs as subprogram children with absolute
+      symbol relocations, source locations, and collected types; verify the
+      i686/AMD64 object and linked-image debug-info path.
