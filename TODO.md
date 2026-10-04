@@ -167,6 +167,8 @@
         明示診断する
   - [ ] 標準C++の全conversion rank、ADL、two-phase lookup互換性
 - [x] bounded templates、concepts、constexpr/consteval、lambda
+  - [x] bounded type/non-type parameter packs、pack expansion、fold expression、
+        empty-pack identity、pack-based static membersの両arch回帰
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化
   - [x] 先行非型引数を参照する整数constant-expression defaultの評価
@@ -178,7 +180,8 @@
         宣言属性を保持し、most-vexing parseの関数宣言を誤認せず、C++20
         designated/nested initializerとconstexpr aggregate member accessを
         共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
-  - [ ] partial specialization、parameter pack、未対応constexpr評価を含む完全準拠
+  - [ ] partial specialization、全parameter-pack deduction規則、未対応constexpr
+        評価を含む完全準拠
 - [ ] C++20 modules、coroutines
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
