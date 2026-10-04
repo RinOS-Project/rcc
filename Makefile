@@ -5207,38 +5207,40 @@ test-numeric-literals: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/numeric-literals)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/numeric-literals/x86.s tests/numeric_literals.c
+ifeq ($(OS),Windows_NT)
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/numeric-literals/x86 \
+		$(TEST_OUT)/numeric-literals/x86.s
+	$(TEST_OUT)/numeric-literals/x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/numeric-literals/x64.s tests/numeric_literals.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/numeric-literals/x64 \
+		$(TEST_OUT)/numeric-literals/x64.s
+	$(TEST_OUT)/numeric-literals/x64
+else
 	$(CC) -m32 -c -o $(TEST_OUT)/numeric-literals/x86.o \
 		$(TEST_OUT)/numeric-literals/x86.s
-	$(CC) -m32 -c -o $(TEST_OUT)/numeric-literals/x86-run.o \
-		tests/numeric_literals_run_test.c
 	$(CC) -m32 -no-pie -o $(TEST_OUT)/numeric-literals/x86 \
-		$(TEST_OUT)/numeric-literals/x86-run.o \
 		$(TEST_OUT)/numeric-literals/x86.o
 	$(TEST_OUT)/numeric-literals/x86
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/numeric-literals/x64.s tests/numeric_literals.c
 	$(CC) -c -o $(TEST_OUT)/numeric-literals/x64.o \
 		$(TEST_OUT)/numeric-literals/x64.s
-	$(CC) -c -o $(TEST_OUT)/numeric-literals/x64-run.o \
-		tests/numeric_literals_run_test.c
 	$(CC) -no-pie -o $(TEST_OUT)/numeric-literals/x64 \
-		$(TEST_OUT)/numeric-literals/x64-run.o \
 		$(TEST_OUT)/numeric-literals/x64.o
 	$(TEST_OUT)/numeric-literals/x64
-	@if $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/numeric-literals/invalid-x86.ro \
-		tests/invalid_universal_character_name.c \
-		>$(TEST_OUT)/numeric-literals/invalid-x86.log 2>&1; then \
-		echo "universal character name unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_universal_character_name.c,$(TEST_OUT)/numeric-literals/invalid-x86.log)
 	$(GREP) -F -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/numeric-literals/invalid-x86.log
-	@if $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/numeric-literals/invalid-x64.ro \
-		tests/invalid_universal_character_name.c \
-		>$(TEST_OUT)/numeric-literals/invalid-x64.log 2>&1; then \
-		echo "universal character name unexpectedly compiled"; exit 1; \
-	fi
+		tests/invalid_universal_character_name.c,$(TEST_OUT)/numeric-literals/invalid-x64.log)
 	$(GREP) -F -q "universal character names are not supported by the RinOS byte-string ABI" \
 		$(TEST_OUT)/numeric-literals/invalid-x64.log
 	@echo "C17 decimal and hexadecimal floating literal tests completed"

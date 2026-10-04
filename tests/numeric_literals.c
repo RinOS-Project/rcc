@@ -13,3 +13,7 @@ int numeric_literal_values(void) {
     return half == 0.5f && trailing == 1.0 &&
            hexadecimal == 3.0 && hexadecimal_float == 3.0f ? 0 : 1;
 }
+
+int main(void) {
+    return numeric_literal_values();
+}
