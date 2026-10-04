@@ -8292,6 +8292,28 @@ static bool deduce_class_specialization_value(
     return constant == actual;
 }
 
+static bool cxx_class_specialization_type_equal(const Type* pattern,
+                                                const Type* actual) {
+    if (!pattern || !actual || pattern->kind != actual->kind ||
+        pattern->is_const != actual->is_const ||
+        pattern->is_volatile != actual->is_volatile ||
+        pattern->is_reference != actual->is_reference ||
+        pattern->is_rvalue_reference != actual->is_rvalue_reference) {
+        return false;
+    }
+    if (pattern->kind == TYPE_PTR) {
+        return cxx_class_specialization_type_equal(pattern->base,
+                                                   actual->base);
+    }
+    if (pattern->kind == TYPE_ARRAY) {
+        return (pattern->array_len < 0 || actual->array_len < 0 ||
+                pattern->array_len == actual->array_len) &&
+            cxx_class_specialization_type_equal(pattern->base,
+                                                 actual->base);
+    }
+    return type_is_compatible((Type*)pattern, (Type*)actual);
+}
+
 static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                                               Type* pattern, Type* actual,
                                               Type** arguments,
@@ -8562,7 +8584,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                         specialization_value_present, &specificity);
             } else if (specialization->param_count == 0) {
                 matches = specialization->specialization_args &&
-                    type_is_compatible(
+                    cxx_class_specialization_type_equal(
                         specialization->specialization_args[argument_index],
                         arguments[argument_index]);
             } else if (specialization->param_count <=

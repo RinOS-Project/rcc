@@ -68,6 +68,22 @@ public:
     }
 };
 
+template<typename T>
+class ExactQualified {
+public:
+    int kind() {
+        return 0;
+    }
+};
+
+template<>
+class ExactQualified<const int> {
+public:
+    int kind() {
+        return 30;
+    }
+};
+
 template<int N>
 class Number {
 public:
@@ -179,6 +195,8 @@ int main() {
     Value<int***> pointer_pointer_pointer_value{3};
     Qualified<int*> qualified_pointer;
     Qualified<const int*> qualified_const_pointer;
+    ExactQualified<int> exact_unqualified;
+    ExactQualified<const int> exact_const;
     Number<3> ordinary_number;
     Number<7> specialized_number;
     Pair<int, 3> ordinary_pair;
@@ -194,6 +212,8 @@ int main() {
                    pointer_pointer_pointer_value.kind() == 33 &&
                    qualified_pointer.kind() == 10 &&
                    qualified_const_pointer.kind() == 20 &&
+                   exact_unqualified.kind() == 0 &&
+                   exact_const.kind() == 30 &&
                    ordinary_number.kind() == 3 &&
                    specialized_number.kind() == 70 &&
                    ordinary_pair.kind() == 3 &&
