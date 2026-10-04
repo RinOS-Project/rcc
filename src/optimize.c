@@ -44,6 +44,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
                                          unsigned* count);
 static Expr* clone_unrolled_expr(const Expr* expression);
 static Stmt* clone_unrolled_stmt(const Stmt* statement);
+static StmtList** append_unrolled_stmt(StmtList** tail, Stmt* statement);
 static bool unroll_constant_for(Stmt* statement, unsigned count);
 static bool unroll_single_iteration_for(Stmt* statement);
 
@@ -1382,10 +1383,6 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     only->next = NULL;
     statement->kind = STMT_BLOCK;
     statement->block_stmts = only;
-    statement->for_init = NULL;
-    statement->for_cond = NULL;
-    statement->for_inc = NULL;
-    statement->for_body = NULL;
     return true;
 }
 
@@ -1653,6 +1650,26 @@ static Stmt* clone_unrolled_stmt(const Stmt* statement) {
     return copy;
 }
 
+static StmtList** append_unrolled_stmt(StmtList** tail, Stmt* statement) {
+    if (!tail || !statement) return tail;
+    if (statement->kind == STMT_BLOCK) {
+        StmtList* item = statement->block_stmts;
+        while (item) {
+            *tail = item;
+            tail = &item->next;
+            item = item->next;
+        }
+        return tail;
+    }
+    {
+        StmtList* item = ast_arena_alloc(sizeof(*item));
+        item->stmt = statement;
+        item->next = NULL;
+        *tail = item;
+        return &item->next;
+    }
+}
+
 static bool unroll_constant_for(Stmt* statement, unsigned count) {
     StmtList* head;
     StmtList** tail;
@@ -1666,13 +1683,10 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
     head->next = NULL;
     tail = &head->next;
     for (unsigned index = 0u; index < count; ++index) {
-        StmtList* body = ast_arena_alloc(sizeof(*body));
-        body->stmt = index == 0u
+        Stmt* body = index == 0u
             ? statement->for_body
             : clone_unrolled_stmt(statement->for_body);
-        body->next = NULL;
-        *tail = body;
-        tail = &body->next;
+        tail = append_unrolled_stmt(tail, body);
         if (index + 1u < count) {
             StmtList* increment = ast_arena_alloc(sizeof(*increment));
             increment->stmt = stmt_expr(
@@ -1687,10 +1701,6 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
     }
     statement->kind = STMT_BLOCK;
     statement->block_stmts = head;
-    statement->for_init = NULL;
-    statement->for_cond = NULL;
-    statement->for_inc = NULL;
-    statement->for_body = NULL;
     return true;
 }
 
@@ -1702,7 +1712,7 @@ static bool unroll_single_iteration_for(Stmt* statement) {
     int64_t initial_value;
     int64_t bound_value;
     StmtList* first;
-    StmtList* second;
+    StmtList** tail;
     if (!statement || statement->kind != STMT_FOR ||
         !statement->for_init || statement->for_init->kind != STMT_DECL ||
         !statement->for_init->decl ||
@@ -1736,17 +1746,12 @@ static bool unroll_single_iteration_for(Stmt* statement) {
         return false;
     }
     first = ast_arena_alloc(sizeof(*first));
-    second = ast_arena_alloc(sizeof(*second));
     first->stmt = statement->for_init;
-    first->next = second;
-    second->stmt = statement->for_body;
-    second->next = NULL;
+    first->next = NULL;
+    tail = &first->next;
+    tail = append_unrolled_stmt(tail, statement->for_body);
     statement->kind = STMT_BLOCK;
     statement->block_stmts = first;
-    statement->for_init = NULL;
-    statement->for_cond = NULL;
-    statement->for_inc = NULL;
-    statement->for_body = NULL;
     return true;
 }
 
@@ -3532,7 +3537,6 @@ static void optimize_stmt(Stmt* statement) {
                 }
             }
             optimize_expr(&statement->for_inc);
-            optimize_stmt(statement->for_body);
             if (eliminate_zero_iteration_for(statement)) {
                 optimize_block(statement);
             } else {
@@ -3543,6 +3547,8 @@ static void optimize_stmt(Stmt* statement) {
                     optimize_block(statement);
                 } else if (unroll_single_iteration_for(statement)) {
                     optimize_block(statement);
+                } else {
+                    optimize_stmt(statement->for_body);
                 }
             }
             break;
