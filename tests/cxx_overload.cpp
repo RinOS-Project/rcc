@@ -1,5 +1,7 @@
 int choose(int value);
 long choose(long value);
+int choose_float(float value);
+long choose_float(double value);
 
 int pointer_kind(void* value);
 long pointer_kind(const void* value);
@@ -19,6 +21,10 @@ int call_integer_overload(int value) {
 
 long call_long_overload(long value) {
     return choose(value);
+}
+
+int call_float_overload() {
+    return choose_float(1.0f);
 }
 
 int call_mutable_pointer_overload(void* value) {

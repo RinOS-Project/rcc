@@ -5989,6 +5989,9 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         return -1;
     }
 
+    if (source->kind == TYPE_FLOAT && target->kind == TYPE_DOUBLE) {
+        return 1;
+    }
     if ((type_is_integer(source) || source->kind == TYPE_ENUM) &&
         (type_is_integer(target) || target->kind == TYPE_ENUM)) {
         if ((source->kind == TYPE_ENUM || source->kind < TYPE_INT) &&
@@ -6007,6 +6010,23 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         return 2;
     }
     return -1;
+}
+
+/* Overload conversion sequences are ordered per argument.  A scalar sum or
+ * worst-rank tie breaker is not sufficient: candidates with ranks [0, 2] and
+ * [1, 1], for example, are incomparable and must remain ambiguous. */
+static int cxx_conversion_vector_relation(const int* left, const int* right,
+                                          int count) {
+    bool left_better = false;
+    bool right_better = false;
+    if (!left || !right || count < 0) return 0;
+    for (int index = 0; index < count; ++index) {
+        if (left[index] < right[index]) left_better = true;
+        if (left[index] > right[index]) right_better = true;
+    }
+    if (left_better && !right_better) return 1;
+    if (right_better && !left_better) return -1;
+    return 0;
 }
 
 /* const_cast changes cv-qualification only; it is not a general pointer or
@@ -6678,8 +6698,7 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
     CxxConstructorInfo* best = NULL;
     ExprList* supplied_arguments = arguments ? *arguments : NULL;
     int argument_count = sema_cxx_argument_count(supplied_arguments);
-    int best_total = INT_MAX;
-    int best_worst = INT_MAX;
+    int best_ranks[32] = { 0 };
     bool ambiguous = false;
 
     if (!cls || !cls->type || argument_count < 0 || argument_count >= 32) {
@@ -6689,8 +6708,8 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
          candidate = candidate->next) {
         TypeParam* parameter;
         ExprList* argument;
-        int total = 0;
-        int worst = 0;
+        int candidate_ranks[32] = { 0 };
+        int rank_count = 0;
         bool viable = true;
         if (candidate == current || !candidate->method ||
             candidate->method->owner != cls ||
@@ -6714,8 +6733,7 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
                 viable = false;
                 break;
             }
-            total += rank;
-            if (rank > worst) worst = rank;
+            candidate_ranks[rank_count++] = rank;
             parameter = parameter->next;
             argument = argument->next;
         }
@@ -6724,14 +6742,19 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
                 candidate, argument_count))) {
             continue;
         }
-        if (!best || total < best_total ||
-            (total == best_total && worst < best_worst)) {
-            best = candidate;
-            best_total = total;
-            best_worst = worst;
-            ambiguous = false;
-        } else if (total == best_total && worst == best_worst) {
-            ambiguous = true;
+        {
+            int relation = best
+                ? cxx_conversion_vector_relation(
+                    candidate_ranks, best_ranks, rank_count)
+                : 1;
+            if (!best || (relation > 0 && !ambiguous)) {
+                best = candidate;
+                memcpy(best_ranks, candidate_ranks,
+                       sizeof(best_ranks));
+                ambiguous = false;
+            } else if (relation == 0) {
+                ambiguous = true;
+            }
         }
     }
     if (ambiguous) {
@@ -6756,8 +6779,7 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
     CxxConstructorInfo* best = NULL;
     ExprList* supplied_arguments = arguments ? *arguments : NULL;
     int argument_count = sema_cxx_argument_count(supplied_arguments);
-    int best_total = INT_MAX;
-    int best_worst = INT_MAX;
+    int best_ranks[32] = { 0 };
     bool ambiguous = false;
     uint32_t mask;
 
@@ -6770,8 +6792,8 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
          candidate = candidate->next) {
         TypeParam* parameter;
         ExprList* argument;
-        int total = 0;
-        int worst = 0;
+        int candidate_ranks[32] = { 0 };
+        int rank_count = 0;
         bool viable = true;
         if (!candidate->method || candidate->access != ACCESS_PUBLIC ||
             (!allow_explicit && candidate->method->is_explicit) ||
@@ -6798,22 +6820,26 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
                 viable = false;
                 break;
             }
-            total += rank;
-            if (rank > worst) worst = rank;
+            candidate_ranks[rank_count++] = rank;
             parameter = parameter->next;
             argument = argument->next;
         }
         if (!viable || argument ||
             (parameter && !sema_cxx_constructor_arity_has_defaults(
                 candidate, argument_count))) continue;
-        if (!best || total < best_total ||
-            (total == best_total && worst < best_worst)) {
-            best = candidate;
-            best_total = total;
-            best_worst = worst;
-            ambiguous = false;
-        } else if (total == best_total && worst == best_worst) {
-            ambiguous = true;
+        {
+            int relation = best
+                ? cxx_conversion_vector_relation(
+                    candidate_ranks, best_ranks, rank_count)
+                : 1;
+            if (!best || (relation > 0 && !ambiguous)) {
+                best = candidate;
+                memcpy(best_ranks, candidate_ranks,
+                       sizeof(best_ranks));
+                ambiguous = false;
+            } else if (relation == 0) {
+                ambiguous = true;
+            }
         }
     }
     if (ambiguous) {
@@ -7203,8 +7229,8 @@ static bool sema_append_cxx_default_arguments(
 static Decl* sema_select_cxx_overload(Expr* call) {
     Decl* candidate;
     Decl* best = NULL;
-    int best_total = INT_MAX;
-    int best_worst = INT_MAX;
+    int argument_count;
+    int* best_ranks;
     bool ambiguous = false;
 
     if (!call || !call->call_func ||
@@ -7212,13 +7238,25 @@ static Decl* sema_select_cxx_overload(Expr* call) {
         !call->call_func->ident_decl) {
         return NULL;
     }
+    argument_count = sema_cxx_argument_count(call->call_args);
+    if (argument_count < 0 || argument_count == INT_MAX) {
+        rcc_error(call->loc, "too many arguments for overload '%s'",
+                  call->call_func->ident_name);
+        return NULL;
+    }
+    best_ranks = argument_count > 0
+        ? ast_arena_alloc(sizeof(*best_ranks) * (size_t)argument_count)
+        : NULL;
     candidate = call->call_func->ident_decl;
     for (; candidate; candidate = candidate->func_overload_next) {
         TypeParam* parameter;
         DeclList* declared_parameter;
         ExprList* argument;
-        int total = 0;
-        int worst = 0;
+        int* candidate_ranks = argument_count > 0
+            ? ast_arena_alloc(sizeof(*candidate_ranks) *
+                              (size_t)argument_count)
+            : NULL;
+        int rank_count = 0;
         bool viable = true;
 
         if (candidate->kind != DECL_FUNC || !candidate->type ||
@@ -7234,8 +7272,11 @@ static Decl* sema_select_cxx_overload(Expr* call) {
                 viable = false;
                 break;
             }
-            total += rank;
-            if (rank > worst) worst = rank;
+            if (rank_count >= argument_count) {
+                viable = false;
+                break;
+            }
+            candidate_ranks[rank_count++] = rank;
             argument = argument->next;
             parameter = parameter->next;
             if (declared_parameter) {
@@ -7250,19 +7291,30 @@ static Decl* sema_select_cxx_overload(Expr* call) {
         if (argument) {
             if (!candidate->type->variadic) continue;
             while (argument) {
-                total += 8;
-                worst = 8;
+                if (rank_count >= argument_count) {
+                    viable = false;
+                    break;
+                }
+                candidate_ranks[rank_count++] = 8;
                 argument = argument->next;
             }
         }
-        if (!best || worst < best_worst ||
-            (worst == best_worst && total < best_total)) {
-            best = candidate;
-            best_total = total;
-            best_worst = worst;
-            ambiguous = false;
-        } else if (worst == best_worst && total == best_total) {
-            ambiguous = true;
+        if (!viable || rank_count != argument_count) continue;
+        {
+            int relation = best
+                ? cxx_conversion_vector_relation(
+                    candidate_ranks, best_ranks, argument_count)
+                : 1;
+            if (!best || (relation > 0 && !ambiguous)) {
+                best = candidate;
+                if (argument_count > 0) {
+                    memcpy(best_ranks, candidate_ranks,
+                           sizeof(*best_ranks) * (size_t)argument_count);
+                }
+                ambiguous = false;
+            } else if (relation == 0) {
+                ambiguous = true;
+            }
         }
     }
     if (!best) {
@@ -7321,18 +7373,27 @@ static TypeMethod* sema_select_cxx_member_method(
     Expr* call, Type* aggregate, const char* name) {
     TypeMethod* method;
     TypeMethod* best = NULL;
-    int best_total = INT_MAX;
-    int best_worst = INT_MAX;
+    int argument_count;
+    int* best_ranks;
     bool ambiguous = false;
 
     if (!call || !aggregate || !name) return NULL;
+    argument_count = sema_cxx_argument_count(call->call_args);
+    if (argument_count < 0 || argument_count == INT_MAX) {
+        rcc_error(call->loc, "too many arguments for member overload '%s'",
+                  name);
+        return NULL;
+    }
+    best_ranks = ast_arena_alloc(sizeof(*best_ranks) *
+                                 (size_t)(argument_count + 1));
     for (method = aggregate->methods; method; method = method->next) {
         Decl* function;
         TypeParam* parameter;
         DeclList* declared_parameter;
         ExprList* argument;
-        int total = 0;
-        int worst = 0;
+        int* candidate_ranks = ast_arena_alloc(
+            sizeof(*candidate_ranks) * (size_t)(argument_count + 1));
+        int rank_count = 0;
         bool viable = true;
         int object_rank;
 
@@ -7343,8 +7404,7 @@ static TypeMethod* sema_select_cxx_member_method(
         function = method->function_decl;
         object_rank = cxx_member_object_conversion_rank(aggregate, method);
         if (object_rank < 0) continue;
-        total += object_rank;
-        if (object_rank > worst) worst = object_rank;
+        candidate_ranks[rank_count++] = object_rank;
         parameter = function->type ? function->type->params : NULL;
         declared_parameter = function->func_params;
         if (function->func_this_param && parameter) parameter = parameter->next;
@@ -7355,8 +7415,11 @@ static TypeMethod* sema_select_cxx_member_method(
                 viable = false;
                 break;
             }
-            total += rank;
-            if (rank > worst) worst = rank;
+            if (rank_count > argument_count) {
+                viable = false;
+                break;
+            }
+            candidate_ranks[rank_count++] = rank;
             argument = argument->next;
             parameter = parameter->next;
             if (declared_parameter) declared_parameter =
@@ -7370,19 +7433,28 @@ static TypeMethod* sema_select_cxx_member_method(
         if (argument) {
             if (!function->type->variadic) continue;
             while (argument) {
-                total += 8;
-                worst = 8;
+                if (rank_count > argument_count) {
+                    viable = false;
+                    break;
+                }
+                candidate_ranks[rank_count++] = 8;
                 argument = argument->next;
             }
         }
-        if (!best || worst < best_worst ||
-            (worst == best_worst && total < best_total)) {
-            best = method;
-            best_total = total;
-            best_worst = worst;
-            ambiguous = false;
-        } else if (worst == best_worst && total == best_total) {
-            ambiguous = true;
+        if (!viable || rank_count != argument_count + 1) continue;
+        {
+            int relation = best
+                ? cxx_conversion_vector_relation(
+                    candidate_ranks, best_ranks, argument_count + 1)
+                : 1;
+            if (!best || (relation > 0 && !ambiguous)) {
+                best = method;
+                memcpy(best_ranks, candidate_ranks,
+                       sizeof(*best_ranks) * (size_t)(argument_count + 1));
+                ambiguous = false;
+            } else if (relation == 0) {
+                ambiguous = true;
+            }
         }
     }
     if (!best) {

@@ -168,6 +168,10 @@
         bounded scalar/pointer ABIへ接続し、`double`、`char/char8_t`、
         `const char*/size_t`の生成・実行を検証。long doubleおよび未対応署名は
         明示診断する
+  - [x] bounded ordinary overload conversion rankingを引数ごとの優越関係へ
+        更新し、浮動小数点promotionと直交した変換列の曖昧性をi686/AMD64で
+        回帰検証。テンプレート候補の全partial orderingと標準の全conversion
+        rankは未完了
   - [ ] 標準C++の全conversion rank、ADL、two-phase lookup互換性
 - [x] bounded templates、concepts、constexpr/consteval、lambda
   - [x] bounded type/non-type parameter packs、pack expansion、fold expression、
