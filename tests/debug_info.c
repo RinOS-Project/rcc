@@ -1,6 +1,10 @@
 int debug_global_data = 7;
 extern int debug_global_data;
 static int debug_file_static;
+const int debug_const_data = 4;
+volatile int debug_volatile_data;
+int * restrict debug_restrict_data;
+_Atomic int debug_atomic_data;
 
 struct debug_aggregate {
     int first;

@@ -350,6 +350,18 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         verify_global_variable(info, strings, "debug_line_static", NULL,
                                NULL,
                                architecture == ARCH_X64 ? 8u : 4u, false);
+        verify_global_variable(info, strings, "debug_const_data",
+                               "debug_const_data", "debug_const_data",
+                               architecture == ARCH_X64 ? 8u : 4u, true);
+        verify_global_variable(info, strings, "debug_volatile_data",
+                               "debug_volatile_data", "debug_volatile_data",
+                               architecture == ARCH_X64 ? 8u : 4u, true);
+        verify_global_variable(info, strings, "debug_restrict_data",
+                               "debug_restrict_data", "debug_restrict_data",
+                               architecture == ARCH_X64 ? 8u : 4u, true);
+        verify_global_variable(info, strings, "debug_atomic_data",
+                               "debug_atomic_data", "debug_atomic_data",
+                               architecture == ARCH_X64 ? 8u : 4u, true);
         assert(contains_bytes(strings->data, strings->size,
                               "debug_info_parameters"));
         assert(contains_bytes(strings->data, strings->size, "left"));
@@ -382,6 +394,10 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0fu, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x15u, 0x01u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x05u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x26u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x35u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x37u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x47u, 0x00u));
         verify_subroutine_type(info);
         assert(contains_byte(info->data, info->size,
                              architecture == ARCH_X64 ? 0x76u : 0x75u));

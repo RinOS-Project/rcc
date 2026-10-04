@@ -823,6 +823,7 @@ static void debug_expr_member_location(ObjSection* info, int offset);
 
 typedef struct DebugTypeEntry {
     const Type* type;
+    Type* qualifier_base;
     uint32_t offset;
     bool collecting;
     bool recursive;
@@ -836,6 +837,10 @@ typedef struct DebugTypeContext {
 
 static void debug_type_context_free(DebugTypeContext* context) {
     if (!context) return;
+    for (size_t index = 0u; index < context->count; ++index) {
+        rcc_free(context->entries[index].qualifier_base);
+        context->entries[index].qualifier_base = NULL;
+    }
     rcc_free(context->entries);
     context->entries = NULL;
     context->count = 0u;
@@ -872,6 +877,7 @@ static DebugTypeEntry* debug_type_add(DebugTypeContext* context,
     }
     entry = &context->entries[context->count++];
     entry->type = type;
+    entry->qualifier_base = NULL;
     entry->offset = 0u;
     entry->collecting = false;
     entry->recursive = false;
@@ -885,6 +891,19 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
     entry = debug_type_find(context, type);
     if (entry) {
         if (entry->collecting) entry->recursive = true;
+        return;
+    }
+    if (type->is_const || type->is_volatile || type->is_restrict ||
+        type->is_atomic) {
+        Type* base_type = rcc_alloc(sizeof(*base_type));
+        entry = debug_type_add(context, type);
+        *base_type = *type;
+        base_type->is_const = false;
+        base_type->is_volatile = false;
+        base_type->is_restrict = false;
+        base_type->is_atomic = false;
+        entry->qualifier_base = base_type;
+        debug_type_collect(context, base_type);
         return;
     }
     if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
@@ -1217,6 +1236,23 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
                                              (type->size < 0 ? 0 : type->size)));
+        } else if (entry->qualifier_base) {
+            DebugTypeEntry* base =
+                debug_type_find(context, entry->qualifier_base);
+            if (!base) {
+                rcc_fatal("DWARF qualified base type was not collected");
+                return;
+            }
+            if (type->is_const) {
+                section_add_byte(info, 20u);  /* DW_TAG_const_type */
+            } else if (type->is_volatile) {
+                section_add_byte(info, 21u);  /* DW_TAG_volatile_type */
+            } else if (type->is_restrict) {
+                section_add_byte(info, 22u);  /* DW_TAG_restrict_type */
+            } else {
+                section_add_byte(info, 23u);  /* DW_TAG_atomic_type */
+            }
+            debug_line_u32(info, base->offset);
         } else if (type->kind == TYPE_PTR) {
             section_add_byte(info, 6u);        /* DW_TAG_pointer_type */
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
@@ -2225,6 +2261,34 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 20u);
+    debug_line_uleb(abbrev, 0x26u);     /* DW_TAG_const_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 21u);
+    debug_line_uleb(abbrev, 0x35u);     /* DW_TAG_volatile_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 22u);
+    debug_line_uleb(abbrev, 0x37u);     /* DW_TAG_restrict_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 23u);
+    debug_line_uleb(abbrev, 0x47u);     /* DW_TAG_atomic_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

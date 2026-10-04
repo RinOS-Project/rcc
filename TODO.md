@@ -405,6 +405,9 @@
   - [x] 非再帰function typeへ`DW_TAG_subroutine_type`と戻り型・parameter
         type DIEを出力し、再帰function typeはopaqueのままi686/AMD64の
         debug-info回帰で検証
+  - [x] const／volatile／restrict／atomic修飾型を対応するDWARF qualifier
+        DIEと実在する基底型参照へlowerし、i686/AMD64のglobal variableと
+        linked-image debug-info回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
