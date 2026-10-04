@@ -356,3 +356,13 @@
   - [x] stage1によるcompiler全translation unitのstage2再生成とimage一致
 - [ ] RinOS i686セルフホスト
 - [ ] RinOS x86_64セルフホスト
+
+## Host test recipe audit (2026-10-04)
+
+- [x] Make the C++ overload regression recipe use the shared host-shell
+      helpers for directory creation, expected failures, and fixed diagnostic
+      matching; the complete target passes with native Windows `cmd.exe`.
+- [ ] Make automatic GCC dependency files safe to reuse between native
+      Windows and WSL/POSIX builds; existing Windows-generated `obj/*.d` files
+      containing drive-letter prerequisites can still stop WSL before a test
+      recipe starts.

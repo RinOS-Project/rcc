@@ -37,17 +37,23 @@ CHECK_INIT_ARRAY = findstr /c:".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
 CHECK_FINI_ARRAY = findstr /c:".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
+CHECK_TEXT = findstr /c:"$(1)" "$(subst /,\,$(2))" >NUL
 else
 CHECK_INIT_ARRAY = grep -F -q ".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(1)
 CHECK_FINI_ARRAY = grep -F -q ".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(1)
+CHECK_TEXT = grep -F -q "$(1)" "$(2)"
 endif
 
 ifeq ($(OS),Windows_NT)
 MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
+# Keep expected-failure checks shell-neutral. Native Windows builds use
+# cmd.exe, while POSIX/WSL builds use a Bourne-compatible shell.
+EXPECT_FAILURE = $(subst ./,,$(1)) >$(2) 2>&1 & if not errorlevel 1 exit /b 1
 else
 MKDIR_P = mkdir -p $(1)
+EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
 endif
 
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
@@ -473,7 +479,7 @@ test-c17: $(RCC_TARGET) $(C17_REGRESSION_TARGETS)
 	@echo "RCC C17 conformance compile-and-run suite completed"
 
 test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
-	mkdir -p $(TEST_OUT)/debug-info
+	$(call MKDIR_P,$(TEST_OUT)/debug-info)
 	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
 		-o $(TEST_OUT)/debug-info/x86-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -c \
@@ -507,7 +513,7 @@ test-aqc: $(AQC_TARGET)
 	@echo "AQC test completed"
 
 test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
-	mkdir -p $(TEST_OUT)
+	$(call MKDIR_P,$(TEST_OUT))
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
 
@@ -5947,7 +5953,7 @@ test-aggregate-nested-abi: $(RCC_TARGET)
 	@echo "SysV nested aggregate ABI tests completed"
 
 test-cxx-overloads: $(RCXX_TARGET)
-	mkdir -p $(TEST_OUT)/cxx-overloads
+	$(call MKDIR_P,$(TEST_OUT)/cxx-overloads)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-overloads/x86.ro tests/cxx_overload.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
@@ -5964,24 +5970,12 @@ test-cxx-overloads: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-overloads/derived-base-reference-x64.ro \
 		tests/cxx_derived_base_reference.cpp
-	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/ambiguous-base-x86.ro \
-		tests/cxx_ambiguous_base_conversion_invalid.cpp \
-		>$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "incompatible type for argument 1 to 'take_base'" \
-		$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log
-	grep -q "incompatible type for argument 1 to 'take_base_pointer'" \
-		$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/ambiguous-base-x64.ro \
-		tests/cxx_ambiguous_base_conversion_invalid.cpp \
-		>$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "incompatible type for argument 1 to 'take_base'" \
-		$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log
-	grep -q "incompatible type for argument 1 to 'take_base_pointer'" \
-		$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/ambiguous-base-x86.ro tests/cxx_ambiguous_base_conversion_invalid.cpp,$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log)
+	$(call CHECK_TEXT,incompatible type for argument 1 to 'take_base',$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log)
+	$(call CHECK_TEXT,incompatible type for argument 1 to 'take_base_pointer',$(TEST_OUT)/cxx-overloads/ambiguous-base-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/ambiguous-base-x64.ro tests/cxx_ambiguous_base_conversion_invalid.cpp,$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log)
+	$(call CHECK_TEXT,incompatible type for argument 1 to 'take_base',$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log)
+	$(call CHECK_TEXT,incompatible type for argument 1 to 'take_base_pointer',$(TEST_OUT)/cxx-overloads/ambiguous-base-x64.log)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/cxx-overloads/verify \
 		tests/cxx_overload_test.c src/emit_ro.c src/utils.c
 	$(TEST_OUT)/cxx-overloads/verify \
@@ -5989,75 +5983,27 @@ test-cxx-overloads: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-overloads/x64.ro \
 		$(TEST_OUT)/cxx-overloads/derived-base-reference-x86.ro \
 		$(TEST_OUT)/cxx-overloads/derived-base-reference-x64.ro
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/ambiguous.ro \
-		tests/cxx_overload_ambiguous.cpp \
-		>$(TEST_OUT)/cxx-overloads/ambiguous.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "ambiguous overload for 'ambiguous'" \
-		$(TEST_OUT)/cxx-overloads/ambiguous.log
-	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/partial-order-invalid-x86.ro \
-		tests/cxx_overload_partial_order_invalid.cpp \
-		>$(TEST_OUT)/cxx-overloads/partial-order-invalid-x86.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "ambiguous overload for 'select_rank'" \
-		$(TEST_OUT)/cxx-overloads/partial-order-invalid-x86.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/partial-order-invalid-x64.ro \
-		tests/cxx_overload_partial_order_invalid.cpp \
-		>$(TEST_OUT)/cxx-overloads/partial-order-invalid-x64.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "ambiguous overload for 'select_rank'" \
-		$(TEST_OUT)/cxx-overloads/partial-order-invalid-x64.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/nullptr-integer.ro \
-		tests/cxx_nullptr_integer_rejected.cpp \
-		>$(TEST_OUT)/cxx-overloads/nullptr-integer.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "incompatible type for argument 1 to 'consume_integer'" \
-		$(TEST_OUT)/cxx-overloads/nullptr-integer.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/nullptr-operators.ro \
-		tests/cxx_nullptr_operators_rejected.cpp \
-		>$(TEST_OUT)/cxx-overloads/nullptr-operators.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "nullptr does not support arithmetic operators" \
-		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
-	grep -q "nullptr does not support integer operators" \
-		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
-	grep -q "comparison requires arithmetic or pointer operands" \
-		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
-	grep -q "nullptr can only be assigned to a pointer" \
-		$(TEST_OUT)/cxx-overloads/nullptr-operators.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/default-arguments.ro \
-		tests/cxx_default_arguments_rejected.cpp \
-		>$(TEST_OUT)/cxx-overloads/default-arguments.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "parameter without a default follows a default argument" \
-		$(TEST_OUT)/cxx-overloads/default-arguments.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/default-redefinition.ro \
-		tests/cxx_default_redefinition_rejected.cpp \
-		>$(TEST_OUT)/cxx-overloads/default-redefinition.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "redefinition of default argument for parameter 1" \
-		$(TEST_OUT)/cxx-overloads/default-redefinition.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/default-type.ro \
-		tests/cxx_default_type_rejected.cpp \
-		>$(TEST_OUT)/cxx-overloads/default-type.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "default argument is incompatible with parameter 1" \
-		$(TEST_OUT)/cxx-overloads/default-type.log
-	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-overloads/default-function-pointer.ro \
-		tests/cxx_default_function_pointer_rejected.cpp \
-		>$(TEST_OUT)/cxx-overloads/default-function-pointer.log 2>&1; status=$$?; set -e; \
-		test $$status -ne 0
-	grep -q "too few arguments to function call" \
-		$(TEST_OUT)/cxx-overloads/default-function-pointer.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/ambiguous.ro tests/cxx_overload_ambiguous.cpp,$(TEST_OUT)/cxx-overloads/ambiguous.log)
+	$(call CHECK_TEXT,ambiguous overload for 'ambiguous',$(TEST_OUT)/cxx-overloads/ambiguous.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/partial-order-invalid-x86.ro tests/cxx_overload_partial_order_invalid.cpp,$(TEST_OUT)/cxx-overloads/partial-order-invalid-x86.log)
+	$(call CHECK_TEXT,ambiguous overload for 'select_rank',$(TEST_OUT)/cxx-overloads/partial-order-invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/partial-order-invalid-x64.ro tests/cxx_overload_partial_order_invalid.cpp,$(TEST_OUT)/cxx-overloads/partial-order-invalid-x64.log)
+	$(call CHECK_TEXT,ambiguous overload for 'select_rank',$(TEST_OUT)/cxx-overloads/partial-order-invalid-x64.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/nullptr-integer.ro tests/cxx_nullptr_integer_rejected.cpp,$(TEST_OUT)/cxx-overloads/nullptr-integer.log)
+	$(call CHECK_TEXT,incompatible type for argument 1 to 'consume_integer',$(TEST_OUT)/cxx-overloads/nullptr-integer.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/nullptr-operators.ro tests/cxx_nullptr_operators_rejected.cpp,$(TEST_OUT)/cxx-overloads/nullptr-operators.log)
+	$(call CHECK_TEXT,nullptr does not support arithmetic operators,$(TEST_OUT)/cxx-overloads/nullptr-operators.log)
+	$(call CHECK_TEXT,nullptr does not support integer operators,$(TEST_OUT)/cxx-overloads/nullptr-operators.log)
+	$(call CHECK_TEXT,comparison requires arithmetic or pointer operands,$(TEST_OUT)/cxx-overloads/nullptr-operators.log)
+	$(call CHECK_TEXT,nullptr can only be assigned to a pointer,$(TEST_OUT)/cxx-overloads/nullptr-operators.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/default-arguments.ro tests/cxx_default_arguments_rejected.cpp,$(TEST_OUT)/cxx-overloads/default-arguments.log)
+	$(call CHECK_TEXT,parameter without a default follows a default argument,$(TEST_OUT)/cxx-overloads/default-arguments.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/default-redefinition.ro tests/cxx_default_redefinition_rejected.cpp,$(TEST_OUT)/cxx-overloads/default-redefinition.log)
+	$(call CHECK_TEXT,redefinition of default argument for parameter 1,$(TEST_OUT)/cxx-overloads/default-redefinition.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/default-type.ro tests/cxx_default_type_rejected.cpp,$(TEST_OUT)/cxx-overloads/default-type.log)
+	$(call CHECK_TEXT,default argument is incompatible with parameter 1,$(TEST_OUT)/cxx-overloads/default-type.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overloads/default-function-pointer.ro tests/cxx_default_function_pointer_rejected.cpp,$(TEST_OUT)/cxx-overloads/default-function-pointer.log)
+	$(call CHECK_TEXT,too few arguments to function call,$(TEST_OUT)/cxx-overloads/default-function-pointer.log)
 	@echo "RCC++ overload resolution tests completed"
 
 test-cxx-inline-aggregates: $(RCC_TARGET) $(RCXX_TARGET)
