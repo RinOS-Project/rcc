@@ -40,7 +40,7 @@ SANITIZER_ROOT = build/sanitizers
 BOOTSTRAP_ROOT = build/bootstrap
 ifeq ($(OS),Windows_NT)
 # Override this when the checkout is mounted at a different WSL path.
-WSL_RINCOMPILER_ROOT ?= /mnt/e/RinOS/RinCompiler
+WSL_RINCOMPILER_ROOT ?= /mnt/e/RinOS/public-base/toolchain/RinCompiler
 WINDOWS_TEST_OUT = $(subst /,\,$(TEST_OUT))
 CHECK_INIT_ARRAY = findstr /c:".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
@@ -1033,124 +1033,38 @@ test-cxx-language-core: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/new-delete-x86.s \
 		tests/cxx_new_delete.cpp
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/new-delete-x86.o \
-		$(TEST_OUT)/cxx-language-core/new-delete-x86.s
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/new-delete-start-x86.o \
-		tests/cxx_new_delete_i686_start.s
-	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/new-delete-x86 \
-		$(TEST_OUT)/cxx-language-core/new-delete-start-x86.o \
-		$(TEST_OUT)/cxx-language-core/new-delete-x86.o
-	$(TEST_OUT)/cxx-language-core/new-delete-x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/new-delete-x64.s \
 		tests/cxx_new_delete.cpp
-	gcc -c -o $(TEST_OUT)/cxx-language-core/new-delete-x64.o \
-		$(TEST_OUT)/cxx-language-core/new-delete-x64.s
-	gcc -c -o $(TEST_OUT)/cxx-language-core/new-delete-start-x64.o \
-		tests/cxx_new_delete_x64_start.s
-	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/new-delete-x64 \
-		$(TEST_OUT)/cxx-language-core/new-delete-start-x64.o \
-		$(TEST_OUT)/cxx-language-core/new-delete-x64.o
-	$(TEST_OUT)/cxx-language-core/new-delete-x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/adl-x86.s \
 		tests/cxx_adl.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/adl-x64.s \
 		tests/cxx_adl.cpp
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/adl-x86.o \
-		$(TEST_OUT)/cxx-language-core/adl-x86.s
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/adl-start-x86.o \
-		tests/cxx_member_methods_i686_start.s
-	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/adl-x86 \
-		$(TEST_OUT)/cxx-language-core/adl-start-x86.o \
-		$(TEST_OUT)/cxx-language-core/adl-x86.o
-	$(TEST_OUT)/cxx-language-core/adl-x86
-	gcc -c -o $(TEST_OUT)/cxx-language-core/adl-x64.o \
-		$(TEST_OUT)/cxx-language-core/adl-x64.s
-	gcc -c -o $(TEST_OUT)/cxx-language-core/adl-start-x64.o \
-		tests/cxx_member_methods_x64_start.s
-	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/adl-x64 \
-		$(TEST_OUT)/cxx-language-core/adl-start-x64.o \
-		$(TEST_OUT)/cxx-language-core/adl-x64.o
-	$(TEST_OUT)/cxx-language-core/adl-x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.s \
 		tests/cxx_virtual_dispatch.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.s \
 		tests/cxx_virtual_dispatch.cpp
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o \
-		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.s
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x86.o \
-		tests/cxx_member_methods_i686_start.s
-	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86 \
-		$(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x86.o \
-		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o
-	$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86
-	gcc -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o \
-		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.s
-	gcc -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x64.o \
-		tests/cxx_member_methods_x64_start.s
-	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64 \
-		$(TEST_OUT)/cxx-language-core/virtual-dispatch-start-x64.o \
-		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o
-	$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64
-
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/field-initializers-x86.s \
 		tests/cxx_field_initializers.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/field-initializers-x64.s \
 		tests/cxx_field_initializers.cpp
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x86.o \
-		$(TEST_OUT)/cxx-language-core/field-initializers-x86.s
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/field-initializers-start-x86.o \
-		tests/cxx_member_methods_i686_start.s
-	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/field-initializers-x86 \
-		$(TEST_OUT)/cxx-language-core/field-initializers-start-x86.o \
-		$(TEST_OUT)/cxx-language-core/field-initializers-x86.o
-	$(TEST_OUT)/cxx-language-core/field-initializers-x86
-	gcc -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x64.o \
-		$(TEST_OUT)/cxx-language-core/field-initializers-x64.s
-	gcc -c -o $(TEST_OUT)/cxx-language-core/field-initializers-start-x64.o \
-		tests/cxx_member_methods_x64_start.s
-	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/field-initializers-x64 \
-		$(TEST_OUT)/cxx-language-core/field-initializers-start-x64.o \
-		$(TEST_OUT)/cxx-language-core/field-initializers-x64.o
-	$(TEST_OUT)/cxx-language-core/field-initializers-x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/inheritance-x86.s \
 		tests/cxx_inheritance.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-language-core/inheritance-x64.s \
 		tests/cxx_inheritance.cpp
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/inheritance-x86.o \
-		$(TEST_OUT)/cxx-language-core/inheritance-x86.s
-	gcc -m32 -c -o $(TEST_OUT)/cxx-language-core/inheritance-start-x86.o \
-		tests/cxx_member_methods_i686_start.s
-	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/inheritance-x86 \
-		$(TEST_OUT)/cxx-language-core/inheritance-start-x86.o \
-		$(TEST_OUT)/cxx-language-core/inheritance-x86.o
-	$(TEST_OUT)/cxx-language-core/inheritance-x86
-	gcc -c -o $(TEST_OUT)/cxx-language-core/inheritance-x64.o \
-		$(TEST_OUT)/cxx-language-core/inheritance-x64.s
-	gcc -c -o $(TEST_OUT)/cxx-language-core/inheritance-start-x64.o \
-		tests/cxx_member_methods_x64_start.s
-	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
-		-o $(TEST_OUT)/cxx-language-core/inheritance-x64 \
-		$(TEST_OUT)/cxx-language-core/inheritance-start-x64.o \
-		$(TEST_OUT)/cxx-language-core/inheritance-x64.o
-	$(TEST_OUT)/cxx-language-core/inheritance-x64
+ifeq ($(OS),Windows_NT)
+	wsl -d Ubuntu-24.04 bash -lc "set -e; cd $(WSL_RINCOMPILER_ROOT); bash tests/run_cxx_language_core.sh build/tests/cxx-language-core"
+else
+	bash tests/run_cxx_language_core.sh $(TEST_OUT)/cxx-language-core
+endif
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/template-call-x86.ro \
 		tests/cxx_template_call.cpp
