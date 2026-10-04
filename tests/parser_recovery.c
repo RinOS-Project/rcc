@@ -20,3 +20,10 @@ int malformed_initializer(void)
     int value = ;
     return value;
 }
+
+int malformed_nested_initializer(void)
+{
+    int value = (1 + );
+    int after = 7;
+    return after + value;
+}

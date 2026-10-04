@@ -327,44 +327,97 @@ static Token* expect(TokenType type, const char* msg) {
 }
 
 static void synchronize(void) {
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    TokenType first_type;
     if (at_end()) return;
-    advance();
+    first_type = advance()->type;
+    if (first_type == TOK_LPAREN) ++paren_depth;
+    else if (first_type == TOK_LBRACKET) ++bracket_depth;
+    else if (first_type == TOK_LBRACE) ++brace_depth;
+    if (first_type == TOK_SEMICOLON) return;
     while (!at_end()) {
-        if (previous()->type == TOK_SEMICOLON) return;
-        switch (peek()->type) {
-            case TOK_RBRACE:
-            case TOK_IF:
-            case TOK_WHILE:
-            case TOK_DO:
-            case TOK_FOR:
-            case TOK_SWITCH:
-            case TOK_BREAK:
-            case TOK_CONTINUE:
-            case TOK_GOTO:
-            case TOK_RETURN:
-            case TOK_TYPEDEF:
-            case TOK_INT:
-            case TOK_VOID:
-            case TOK_CHAR:
-            case TOK_SHORT:
-            case TOK_LONG:
-            case TOK_FLOAT:
-            case TOK_DOUBLE:
-            case TOK_SIGNED:
-            case TOK_UNSIGNED:
-            case TOK_STRUCT:
-            case TOK_UNION:
-            case TOK_ENUM:
-            case TOK_CONST:
-            case TOK_VOLATILE:
-            case TOK_STATIC:
-            case TOK_EXTERN:
-            case TOK_THREAD_LOCAL:
-            case TOK__BOOL:
-                return;
-            default:
-                advance();
+        TokenType type = peek()->type;
+        if (type == TOK_SEMICOLON && paren_depth == 0 &&
+            bracket_depth == 0 && brace_depth == 0) {
+            advance();
+            return;
         }
+        if (type == TOK_RPAREN) {
+            if (paren_depth == 0) return;
+            --paren_depth;
+            advance();
+            continue;
+        }
+        if (type == TOK_RBRACKET) {
+            if (bracket_depth == 0) return;
+            --bracket_depth;
+            advance();
+            continue;
+        }
+        if (type == TOK_RBRACE) {
+            if (brace_depth == 0 && paren_depth == 0 && bracket_depth == 0) {
+                return;
+            }
+            if (brace_depth > 0) --brace_depth;
+            advance();
+            continue;
+        }
+        if (paren_depth == 0 && bracket_depth == 0 && brace_depth == 0) {
+            switch (type) {
+                case TOK_IF:
+                case TOK_WHILE:
+                case TOK_DO:
+                case TOK_FOR:
+                case TOK_SWITCH:
+                case TOK_BREAK:
+                case TOK_CONTINUE:
+                case TOK_GOTO:
+                case TOK_RETURN:
+                case TOK_TYPEDEF:
+                case TOK_AUTO:
+                case TOK_INT:
+                case TOK_VOID:
+                case TOK_CHAR:
+                case TOK_SHORT:
+                case TOK_LONG:
+                case TOK_FLOAT:
+                case TOK_DOUBLE:
+                case TOK_SIGNED:
+                case TOK_UNSIGNED:
+                case TOK_STRUCT:
+                case TOK_UNION:
+                case TOK_ENUM:
+                case TOK_CONST:
+                case TOK_VOLATILE:
+                case TOK_STATIC:
+                case TOK_EXTERN:
+                case TOK_THREAD_LOCAL:
+                case TOK__BOOL:
+                case TOK__NORETURN:
+                case TOK__ALIGNAS:
+                case TOK_STATIC_ASSERT:
+                case TOK_INLINE:
+                case TOK_ASM:
+                case TOK_CLASS:
+                case TOK_NAMESPACE:
+                case TOK_TEMPLATE:
+                case TOK_USING:
+                case TOK_CONSTEXPR:
+                case TOK_CONSTEVAL:
+                case TOK_CONSTINIT:
+                case TOK_TRY:
+                case TOK_THROW:
+                    return;
+                default:
+                    break;
+            }
+        }
+        if (type == TOK_LPAREN) ++paren_depth;
+        else if (type == TOK_LBRACKET) ++bracket_depth;
+        else if (type == TOK_LBRACE) ++brace_depth;
+        advance();
     }
 }
 
