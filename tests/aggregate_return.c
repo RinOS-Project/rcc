@@ -39,3 +39,13 @@ int small_return_member(int first, int second, int third) {
 int large_return_member(int first, int second, int third) {
     return (int)make_large(first, second, third).third;
 }
+
+int main(void)
+{
+    if (small_return_chain(4, 5, 6) != 456 ||
+        small_return_member(7, 8, 9) != 8 ||
+        large_return_member(10, 11, 12) != 12) {
+        return 1;
+    }
+    return 0;
+}

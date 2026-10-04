@@ -7708,6 +7708,20 @@ test-aggregate-returns: $(RCC_TARGET)
 		-o $(TEST_OUT)/aggregate-returns/x86.ro tests/aggregate_return.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/aggregate-returns/x64.ro tests/aggregate_return.c
+ifeq ($(OS),Windows_NT)
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-returns/x86.s tests/aggregate_return.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/aggregate-returns/run-test-x86 \
+		$(TEST_OUT)/aggregate-returns/x86.s
+	$(TEST_OUT)/aggregate-returns/run-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/aggregate-returns/x64.s tests/aggregate_return.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/aggregate-returns/run-test-x64 \
+		$(TEST_OUT)/aggregate-returns/x64.s
+	$(TEST_OUT)/aggregate-returns/run-test-x64
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/aggregate-returns/run-test-x86 \
 		tests/aggregate_return_run_test.c src/emit_ro.c src/utils.c
@@ -7718,6 +7732,7 @@ test-aggregate-returns: $(RCC_TARGET)
 		$(TEST_OUT)/aggregate-returns/x86.ro
 	$(TEST_OUT)/aggregate-returns/run-test-x64 \
 		$(TEST_OUT)/aggregate-returns/x64.ro
+endif
 	@echo "Dual-architecture C17 aggregate return ABI tests completed"
 
 test-aggregate-packed-abi: $(RCC_TARGET)
