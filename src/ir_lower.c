@@ -48,12 +48,20 @@ typedef struct RccIrLowerSwitch {
     struct RccIrLowerSwitch* previous;
 } RccIrLowerSwitch;
 
+typedef struct RccIrLowerLabel {
+    const char* name;
+    const Stmt* statement;
+    RccIrBlock* block;
+    struct RccIrLowerLabel* next;
+} RccIrLowerLabel;
+
 typedef struct {
     RccIrModule* module;
     RccIrFunction* function;
     const Type* ast_return_type;
     RccIrBlock* current;
     RccIrLowerLocal* locals;
+    RccIrLowerLabel* labels;
     RccIrLowerSwitch* current_switch;
     RccIrBlockId break_target;
     RccIrBlockId continue_target;
@@ -66,6 +74,8 @@ typedef struct {
 
 static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement);
+static bool lower_collect_labels(RccIrLowerContext* context,
+                                 const Stmt* statement);
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
 static bool lower_i686_wide_scalar_type(const Type* type);
@@ -255,6 +265,95 @@ static void lower_release_locals(RccIrLowerLocal* local) {
         RccIrLowerLocal* next = local->next;
         rcc_free(local);
         local = next;
+    }
+}
+
+static void lower_release_labels(RccIrLowerLabel* label) {
+    while (label) {
+        RccIrLowerLabel* next = label->next;
+        rcc_free(label);
+        label = next;
+    }
+}
+
+static RccIrLowerLabel* lower_find_label_name(
+    RccIrLowerContext* context, const char* name) {
+    if (!context || !name) return NULL;
+    for (RccIrLowerLabel* label = context->labels; label;
+         label = label->next) {
+        if (strcmp(label->name, name) == 0) return label;
+    }
+    return NULL;
+}
+
+static RccIrLowerLabel* lower_find_label_statement(
+    RccIrLowerContext* context, const Stmt* statement) {
+    if (!context || !statement) return NULL;
+    for (RccIrLowerLabel* label = context->labels; label;
+         label = label->next) {
+        if (label->statement == statement) return label;
+    }
+    return NULL;
+}
+
+static bool lower_collect_labels(RccIrLowerContext* context,
+                                 const Stmt* statement) {
+    const StmtList* item;
+    if (!context || !statement) return true;
+    switch (statement->kind) {
+        case STMT_LABEL: {
+            RccIrLowerLabel* label;
+            if (!statement->label_name ||
+                lower_find_label_name(context, statement->label_name)) {
+                context->unsupported = true;
+                return false;
+            }
+            label = rcc_alloc(sizeof(*label));
+            label->name = statement->label_name;
+            label->statement = statement;
+            label->block = rcc_ir_block_add(context->function, "label");
+            if (!label->block) {
+                rcc_free(label);
+                context->unsupported = true;
+                return false;
+            }
+            label->next = context->labels;
+            context->labels = label;
+            return lower_collect_labels(context, statement->label_stmt);
+        }
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (!lower_collect_labels(context, item->stmt)) return false;
+            }
+            return true;
+        case STMT_IF:
+            return lower_collect_labels(context, statement->if_then) &&
+                lower_collect_labels(context, statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return lower_collect_labels(context, statement->while_body);
+        case STMT_FOR:
+            return lower_collect_labels(context, statement->for_init) &&
+                lower_collect_labels(context, statement->for_body);
+        case STMT_SWITCH:
+            return lower_collect_labels(context, statement->switch_body);
+        case STMT_CASE:
+            return lower_collect_labels(context, statement->case_stmt);
+        case STMT_DEFAULT:
+            return lower_collect_labels(context, statement->default_stmt);
+        case STMT_TRY:
+            if (!lower_collect_labels(context, statement->try_body)) {
+                return false;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!lower_collect_labels(context, handler->body)) {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return true;
     }
 }
 
@@ -2945,7 +3044,7 @@ static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
     }
     for (const StmtList* item = block->block_stmts; item;
          item = item->next) {
-        if (context->terminated &&
+        if (context->terminated && item->stmt->kind != STMT_LABEL &&
             (!context->current_switch ||
              !lower_statement_has_switch_label(item->stmt))) {
             continue;
@@ -4961,7 +5060,7 @@ static bool lower_statement(RccIrLowerContext* context,
         if (context) context->unsupported = true;
         return false;
     }
-    if (context->terminated &&
+    if (context->terminated && statement->kind != STMT_LABEL &&
         (!context->current_switch ||
          !lower_statement_has_switch_label(statement))) {
         return true;
@@ -5107,6 +5206,36 @@ static bool lower_statement(RccIrLowerContext* context,
             return lower_branch(context, context->break_target);
         case STMT_CONTINUE:
             return lower_branch(context, context->continue_target);
+        case STMT_GOTO: {
+            RccIrLowerLabel* label;
+            if (statement->goto_cleanup_count != 0u ||
+                statement->goto_vla_count != 0u) {
+                context->unsupported = true;
+                return false;
+            }
+            label = lower_find_label_name(context, statement->goto_label);
+            if (!label || !lower_branch(context, label->block->id)) {
+                context->unsupported = true;
+                return false;
+            }
+            return true;
+        }
+        case STMT_LABEL: {
+            RccIrLowerLabel* label = lower_find_label_statement(
+                context, statement);
+            if (!label) {
+                context->unsupported = true;
+                return false;
+            }
+            if (!context->terminated && context->current != label->block &&
+                !lower_branch(context, label->block->id)) {
+                return false;
+            }
+            context->current = label->block;
+            context->terminated = false;
+            return statement->label_stmt
+                ? lower_statement(context, statement->label_stmt) : true;
+        }
         case STMT_SWITCH:
             return lower_switch(context, statement);
         case STMT_CASE:
@@ -5116,8 +5245,6 @@ static bool lower_statement(RccIrLowerContext* context,
             return lower_cxx_try(context, statement);
         case STMT_THROW:
             return lower_cxx_throw(context, statement);
-        case STMT_GOTO:
-        case STMT_LABEL:
         case STMT_ASM:
             context->unsupported = true;
             return false;
@@ -5304,8 +5431,10 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     context.break_target = RCC_IR_BLOCK_NONE;
     context.continue_target = RCC_IR_BLOCK_NONE;
     if (!lower_parameters(&context, declaration) ||
+        !lower_collect_labels(&context, declaration->func_body) ||
         !lower_statement(&context, declaration->func_body)) {
         lower_release_locals(context.locals);
+        lower_release_labels(context.labels);
         rcc_ir_module_destroy(module);
         return context.unsupported ? RCC_IR_LOWER_UNSUPPORTED
                                    : RCC_IR_LOWER_INVALID;
@@ -5315,12 +5444,15 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             !lower_append(&context, RCC_IR_RETURN, rcc_ir_type_void(),
                           NULL, 0u, NULL, 0u)) {
             lower_release_locals(context.locals);
+            lower_release_labels(context.labels);
             rcc_ir_module_destroy(module);
             return RCC_IR_LOWER_UNSUPPORTED;
         }
         context.terminated = true;
     }
     lower_release_locals(context.locals);
+    lower_release_labels(context.labels);
+    context.labels = NULL;
     {
         RccIrOptimizationStats stats;
         if (!rcc_ir_optimize_function(

@@ -258,6 +258,9 @@
   - [x] scalar ASTのalloca/load/store、scaled pointer GEP、短絡条件・論理式SSA loweringとif/while/do/for/switch CFG verification
   - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
 - [x] 定数条件分岐のSSA branch化、到達不能blockと不要phi入力の除去
+- [x] cleanup/VLA跨ぎを伴わないC goto/labelを事前収集したSSA CFG blockへ
+      lowerし、i686/AMD64 verified backend emit回帰を追加。cleanup/VLA跨ぎは
+      引き続き明示的にverified subset外として扱う。
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
   - [x] i686 cdeclの64-bit整数を、EDX:EAXのverified SSA return-pair、8-byte引数、
         local/global load、narrow cast、加減算のcarry/borrow、bitwise、
