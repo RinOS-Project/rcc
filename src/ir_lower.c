@@ -2473,6 +2473,62 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                        expression->type->is_unsigned);
 }
 
+static RccIrLowerValue lower_builtin_call(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* first;
+    const ExprList* second;
+    RccIrLowerValue value;
+    RccIrLowerValue expected;
+    RccIrLowerValue result;
+    const char* name;
+    if (!context || !expression || !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_name) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    name = expression->call_func->ident_name;
+    if (strcmp(name, "__builtin_expect") == 0) {
+        first = expression->call_args;
+        second = first ? first->next : NULL;
+        if (!first || !first->expr || !second || !second->expr ||
+            second->next || !expression->type ||
+            !type_is_integer(expression->type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        /* Match the existing C/C++ backend contract: the prediction operand
+         * is evaluated for language-level side effects, then the value
+         * operand supplies the result.  No unresolved builtin call symbol is
+         * emitted. */
+        expected = lower_expression(context, second->expr);
+        value = lower_expression(context, first->expr);
+        if (!expected.valid || expected.type.kind != RCC_IR_TYPE_INTEGER ||
+            !value.valid || value.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return lower_cast(context, value, expression->type);
+    }
+    if (strcmp(name, "__builtin_unreachable") == 0 ||
+        strcmp(name, "__builtin_trap") == 0) {
+        if (expression->call_args || !expression->type ||
+            expression->type->kind != TYPE_VOID ||
+            !lower_append(context, RCC_IR_UNREACHABLE, rcc_ir_type_void(),
+                          NULL, 0u, NULL, 0u)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        context->terminated = true;
+        result.type = rcc_ir_type_void();
+        result.is_unsigned = false;
+        result.valid = true;
+        return result;
+    }
+    context->unsupported = true;
+    return lower_invalid_value();
+}
+
 static bool lower_wide_scalar_call(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
@@ -2759,6 +2815,17 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             (void)lower_expression(context, expression->binary_lhs);
             return lower_expression(context, expression->binary_rhs);
         case EXPR_CALL:
+            if (expression->call_func &&
+                expression->call_func->kind == EXPR_IDENT &&
+                expression->call_func->ident_name &&
+                (strcmp(expression->call_func->ident_name,
+                        "__builtin_expect") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_unreachable") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_trap") == 0)) {
+                return lower_builtin_call(context, expression);
+            }
             return lower_call(context, expression);
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
