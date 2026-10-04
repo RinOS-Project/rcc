@@ -96,6 +96,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* not_equal_symbol;
     ObjSymbol* unsigned_less_symbol;
     ObjSymbol* signed_less_symbol;
+    ObjSymbol* unsigned_le_symbol;
+    ObjSymbol* unsigned_ge_symbol;
+    ObjSymbol* signed_le_symbol;
+    ObjSymbol* signed_ge_symbol;
     ObjSymbol* lshift_symbol;
     ObjSymbol* lshr_symbol;
     ObjSymbol* ashr_symbol;
@@ -103,6 +107,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* truth_conditional_symbol;
     ObjSymbol* mul_symbol;
     ObjSymbol* call_symbol;
+    ObjSymbol* udiv_symbol;
+    ObjSymbol* udiv_small_symbol;
+    ObjSymbol* umod_symbol;
+    ObjSymbol* sdiv_symbol;
+    ObjSymbol* smod_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -125,6 +134,14 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_unsigned_less");
     signed_less_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_signed_less");
+    unsigned_le_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_unsigned_le");
+    unsigned_ge_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_unsigned_ge");
+    signed_le_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_signed_le");
+    signed_ge_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_signed_ge");
     lshift_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_lshift");
     lshr_symbol = objfile_find_symbol(
@@ -137,6 +154,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_truth_conditional");
     mul_symbol = objfile_find_symbol(object, "verified_wide_scalar_mul");
     call_symbol = objfile_find_symbol(object, "verified_wide_scalar_call");
+    udiv_symbol = objfile_find_symbol(object, "verified_wide_scalar_udiv");
+    udiv_small_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_udiv_small");
+    umod_symbol = objfile_find_symbol(object, "verified_wide_scalar_umod");
+    sdiv_symbol = objfile_find_symbol(object, "verified_wide_scalar_sdiv");
+    smod_symbol = objfile_find_symbol(object, "verified_wide_scalar_smod");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -172,6 +195,22 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            signed_less_symbol->type == SYM_GLOBAL &&
            signed_less_symbol->binding == BIND_CODE &&
            signed_less_symbol->section == 0);
+    assert(unsigned_le_symbol != NULL &&
+           unsigned_le_symbol->type == SYM_GLOBAL &&
+           unsigned_le_symbol->binding == BIND_CODE &&
+           unsigned_le_symbol->section == 0);
+    assert(unsigned_ge_symbol != NULL &&
+           unsigned_ge_symbol->type == SYM_GLOBAL &&
+           unsigned_ge_symbol->binding == BIND_CODE &&
+           unsigned_ge_symbol->section == 0);
+    assert(signed_le_symbol != NULL &&
+           signed_le_symbol->type == SYM_GLOBAL &&
+           signed_le_symbol->binding == BIND_CODE &&
+           signed_le_symbol->section == 0);
+    assert(signed_ge_symbol != NULL &&
+           signed_ge_symbol->type == SYM_GLOBAL &&
+           signed_ge_symbol->binding == BIND_CODE &&
+           signed_ge_symbol->section == 0);
     assert(lshift_symbol != NULL && lshift_symbol->type == SYM_GLOBAL &&
            lshift_symbol->binding == BIND_CODE && lshift_symbol->section == 0);
     assert(lshr_symbol != NULL && lshr_symbol->type == SYM_GLOBAL &&
@@ -190,6 +229,18 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            mul_symbol->binding == BIND_CODE && mul_symbol->section == 0);
     assert(call_symbol != NULL && call_symbol->type == SYM_GLOBAL &&
            call_symbol->binding == BIND_CODE && call_symbol->section == 0);
+    assert(udiv_symbol != NULL && udiv_symbol->type == SYM_GLOBAL &&
+           udiv_symbol->binding == BIND_CODE && udiv_symbol->section == 0);
+    assert(udiv_small_symbol != NULL &&
+           udiv_small_symbol->type == SYM_GLOBAL &&
+           udiv_small_symbol->binding == BIND_CODE &&
+           udiv_small_symbol->section == 0);
+    assert(umod_symbol != NULL && umod_symbol->type == SYM_GLOBAL &&
+           umod_symbol->binding == BIND_CODE && umod_symbol->section == 0);
+    assert(sdiv_symbol != NULL && sdiv_symbol->type == SYM_GLOBAL &&
+           sdiv_symbol->binding == BIND_CODE && sdiv_symbol->section == 0);
+    assert(smod_symbol != NULL && smod_symbol->type == SYM_GLOBAL &&
+           smod_symbol->binding == BIND_CODE && smod_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -205,6 +256,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         int (*not_equal_function)(unsigned long long);
         int (*unsigned_less_function)(unsigned long long);
         int (*signed_less_function)(long long);
+        int (*unsigned_le_function)(unsigned long long);
+        int (*unsigned_ge_function)(unsigned long long);
+        int (*signed_le_function)(long long);
+        int (*signed_ge_function)(long long);
         unsigned long long (*lshift_function)(unsigned long long,
                                               unsigned int);
         unsigned long long (*lshr_function)(unsigned long long,
@@ -214,6 +269,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long (*truth_conditional_function)(unsigned long long);
         unsigned long long (*mul_function)(unsigned long long);
         unsigned long long (*call_function)(unsigned long long);
+        unsigned long long (*udiv_function)(unsigned long long);
+        unsigned long long (*udiv_small_function)(unsigned long long);
+        unsigned long long (*umod_function)(unsigned long long);
+        long long (*sdiv_function)(long long);
+        long long (*smod_function)(long long);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
         assert(function() == 0x1122334455667788ULL);
@@ -256,6 +316,26 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&signed_less_function, &address, sizeof(signed_less_function));
         assert(signed_less_function(-1LL) == 1);
         assert(signed_less_function(1LL) == 0);
+        address = symbol_address(memory, unsigned_le_symbol);
+        memcpy(&unsigned_le_function, &address,
+               sizeof(unsigned_le_function));
+        assert(unsigned_le_function(0x0000000100000000ULL) == 1);
+        assert(unsigned_le_function(0x0000000100000001ULL) == 0);
+        address = symbol_address(memory, unsigned_ge_symbol);
+        memcpy(&unsigned_ge_function, &address,
+               sizeof(unsigned_ge_function));
+        assert(unsigned_ge_function(0x00000000ffffffffULL) == 0);
+        assert(unsigned_ge_function(0x0000000100000000ULL) == 1);
+        address = symbol_address(memory, signed_le_symbol);
+        memcpy(&signed_le_function, &address, sizeof(signed_le_function));
+        assert(signed_le_function(-1LL) == 1);
+        assert(signed_le_function(0LL) == 1);
+        assert(signed_le_function(1LL) == 0);
+        address = symbol_address(memory, signed_ge_symbol);
+        memcpy(&signed_ge_function, &address, sizeof(signed_ge_function));
+        assert(signed_ge_function(-1LL) == 0);
+        assert(signed_ge_function(0LL) == 1);
+        assert(signed_ge_function(1LL) == 1);
         address = symbol_address(memory, lshift_symbol);
         memcpy(&lshift_function, &address, sizeof(lshift_function));
         assert(lshift_function(1ULL, 0u) == 1ULL);
@@ -293,6 +373,22 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&call_function, &address, sizeof(call_function));
         assert(call_function(0x8899aabbccddeeffULL) ==
                0x8899aabbccddeeffULL);
+        address = symbol_address(memory, udiv_symbol);
+        memcpy(&udiv_function, &address, sizeof(udiv_function));
+        assert(udiv_function(0x0000000200000002ULL) == 2ULL);
+        address = symbol_address(memory, udiv_small_symbol);
+        memcpy(&udiv_small_function, &address,
+               sizeof(udiv_small_function));
+        assert(udiv_small_function(10ULL) == 3ULL);
+        address = symbol_address(memory, umod_symbol);
+        memcpy(&umod_function, &address, sizeof(umod_function));
+        assert(umod_function(0x0000000200000003ULL) == 1ULL);
+        address = symbol_address(memory, sdiv_symbol);
+        memcpy(&sdiv_function, &address, sizeof(sdiv_function));
+        assert(sdiv_function(-10LL) == -3LL);
+        address = symbol_address(memory, smod_symbol);
+        memcpy(&smod_function, &address, sizeof(smod_function));
+        assert(smod_function(-10LL) == -1LL);
         assert(munmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

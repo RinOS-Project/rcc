@@ -8991,7 +8991,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
-	grep -q 'Verified backend: 19 function(s) emitted' \
+	grep -q 'Verified backend: 28 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-x64.ro \
@@ -9003,7 +9003,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
-	grep -q 'Verified backend: 19 function(s) emitted' \
+	grep -q 'Verified backend: 28 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \

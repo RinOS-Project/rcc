@@ -80,6 +80,23 @@ static bool lower_wide_scalar_conditional_expression(
 static bool lower_wide_scalar_call(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result);
+static bool lower_wide_scalar_compare(
+    RccIrLowerContext* context, ExprKind kind,
+    RccIrLowerWideValue left, RccIrLowerWideValue right,
+    bool is_unsigned, RccIrLowerValue* result);
+static RccIrLowerValue lower_wide_scalar_word_select(
+    RccIrLowerContext* context, RccIrLowerValue condition,
+    RccIrLowerValue then_value, RccIrLowerValue else_value);
+static RccIrLowerValue lower_wide_scalar_bool_operation(
+    RccIrLowerContext* context, RccIrOpcode opcode,
+    RccIrLowerValue left, RccIrLowerValue right);
+static RccIrLowerValue lower_wide_scalar_compare_words(
+    RccIrLowerContext* context, RccIrLowerValue left,
+    RccIrLowerValue right, RccIrIntPredicate predicate);
+static bool lower_wide_scalar_shift(
+    RccIrLowerContext* context, ExprKind kind,
+    RccIrLowerWideValue value, RccIrLowerValue amount,
+    bool is_unsigned, RccIrLowerWideValue* result);
 static bool lower_wide_scalar_store(
     RccIrLowerContext* context, RccIrLowerValue address,
     RccIrLowerWideValue value);
@@ -972,6 +989,304 @@ static bool lower_wide_scalar_multiply(
     return true;
 }
 
+static RccIrLowerValue lower_wide_scalar_scratch(
+    RccIrLowerContext* context) {
+    RccIrInstruction* allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return lower_invalid_value();
+    rcc_ir_set_immediate(allocation, 8u);
+    return lower_value(allocation->result,
+                       rcc_ir_type_pointer(0u), true);
+}
+
+static bool lower_wide_scalar_unsigned_divmod(
+    RccIrLowerContext* context, RccIrLowerWideValue dividend,
+    RccIrLowerWideValue divisor, bool want_remainder,
+    RccIrLowerWideValue* result) {
+    RccIrLowerWideValue remainder;
+    RccIrLowerWideValue quotient;
+    RccIrLowerWideValue source;
+    RccIrLowerWideValue shifted_remainder;
+    RccIrLowerWideValue subtracted_remainder;
+    RccIrLowerValue zero_word;
+    RccIrLowerValue one_word;
+    RccIrLowerValue bit_shift;
+    RccIrLowerValue bit;
+    RccIrLowerValue bit_word;
+    RccIrLowerValue selected_bit;
+    RccIrLowerValue condition;
+    RccIrLowerValue remainder_address;
+    RccIrLowerValue subtracted_address;
+    RccIrLowerValue quotient_address;
+    RccIrLowerValue source_address;
+    RccIrLowerValue divisor_address;
+    RccIrLowerWideValue saved_remainder;
+    RccIrLowerWideValue saved_subtracted;
+    RccIrLowerWideValue saved_quotient;
+    RccIrLowerWideValue saved_source;
+    RccIrLowerWideValue compare_remainder;
+    RccIrLowerWideValue compare_divisor;
+    RccIrLowerWideValue current_divisor;
+    if (!result || !dividend.valid || !divisor.valid) return false;
+    memset(result, 0, sizeof(*result));
+    zero_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    one_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 1u);
+    bit_shift = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 31u);
+    if (!zero_word.valid || !one_word.valid || !bit_shift.valid) {
+        return false;
+    }
+    remainder_address = lower_wide_scalar_scratch(context);
+    subtracted_address = lower_wide_scalar_scratch(context);
+    quotient_address = lower_wide_scalar_scratch(context);
+    source_address = lower_wide_scalar_scratch(context);
+    divisor_address = lower_wide_scalar_scratch(context);
+    if (!remainder_address.valid || !subtracted_address.valid ||
+        !quotient_address.valid || !source_address.valid ||
+        !divisor_address.valid ||
+        !lower_wide_scalar_store(context, divisor_address, divisor)) {
+        return false;
+    }
+    remainder.low = zero_word;
+    remainder.high = zero_word;
+    remainder.is_unsigned = true;
+    remainder.valid = true;
+    quotient = remainder;
+    if (!lower_wide_scalar_store(
+            context, source_address, dividend) ||
+        !lower_wide_scalar_load(
+            context, source_address, true, &source)) return false;
+    for (size_t step = 0u; step < 64u; ++step) {
+        if (!lower_wide_scalar_load(
+                context, divisor_address, true, &current_divisor)) {
+            return false;
+        }
+        bit = lower_wide_scalar_word_operation(
+            context, RCC_IR_LSHR, source.high, bit_shift);
+        bit = lower_wide_scalar_word_operation(
+            context, RCC_IR_AND, bit, one_word);
+        if (!bit.valid) return false;
+        bit_word = lower_wide_scalar_word_pair(context, bit).low;
+        shifted_remainder = remainder;
+        if (!lower_wide_scalar_shift(
+                context, EXPR_LSHIFT, shifted_remainder,
+                one_word, true, &shifted_remainder)) return false;
+        shifted_remainder.low = lower_wide_scalar_word_operation(
+            context, RCC_IR_OR, shifted_remainder.low, bit_word);
+        if (!shifted_remainder.low.valid ||
+            !shifted_remainder.high.valid) {
+            return false;
+        }
+        remainder = shifted_remainder;
+        if (!lower_wide_scalar_shift(
+                context, EXPR_LSHIFT, quotient,
+                one_word, true, &quotient) ||
+            !lower_wide_scalar_shift(
+                context, EXPR_LSHIFT, source,
+                one_word, true, &source)) return false;
+        subtracted_remainder = remainder;
+        if (!lower_wide_scalar_binary(
+                context, EXPR_SUB, remainder, current_divisor,
+                true, &subtracted_remainder)) return false;
+        if (!lower_wide_scalar_store(
+                context, remainder_address, remainder) ||
+            !lower_wide_scalar_store(
+                context, subtracted_address, subtracted_remainder) ||
+            !lower_wide_scalar_store(context, quotient_address, quotient) ||
+            !lower_wide_scalar_store(context, source_address, source)) {
+            return false;
+        }
+        compare_remainder = lower_wide_scalar_load(
+            context, remainder_address, true, &compare_remainder)
+            ? compare_remainder : (RccIrLowerWideValue){0};
+        compare_divisor = lower_wide_scalar_load(
+            context, divisor_address, true, &compare_divisor)
+            ? compare_divisor : (RccIrLowerWideValue){0};
+        condition = lower_wide_scalar_compare(
+            context, EXPR_GE, compare_remainder, compare_divisor,
+            true, &condition)
+            ? condition : lower_invalid_value();
+        if (!condition.valid) return false;
+        saved_remainder = lower_wide_scalar_load(
+            context, remainder_address, true, &saved_remainder)
+            ? saved_remainder : (RccIrLowerWideValue){0};
+        saved_subtracted = lower_wide_scalar_load(
+            context, subtracted_address, true, &saved_subtracted)
+            ? saved_subtracted : (RccIrLowerWideValue){0};
+        saved_quotient = lower_wide_scalar_load(
+            context, quotient_address, true, &saved_quotient)
+            ? saved_quotient : (RccIrLowerWideValue){0};
+        saved_source = lower_wide_scalar_load(
+            context, source_address, true, &saved_source)
+            ? saved_source : (RccIrLowerWideValue){0};
+        if (!saved_remainder.valid || !saved_subtracted.valid ||
+            !saved_quotient.valid || !saved_source.valid) return false;
+        remainder.low = lower_wide_scalar_word_select(
+            context, condition, saved_subtracted.low, saved_remainder.low);
+        remainder.high = lower_wide_scalar_word_select(
+            context, condition, saved_subtracted.high, saved_remainder.high);
+        quotient = saved_quotient;
+        source = saved_source;
+        if (!remainder.low.valid || !remainder.high.valid) return false;
+        selected_bit = lower_wide_scalar_word_select(
+            context, condition, one_word, zero_word);
+        quotient.low = lower_wide_scalar_word_operation(
+            context, RCC_IR_OR, quotient.low, selected_bit);
+        if (!selected_bit.valid || !quotient.low.valid) return false;
+    }
+    *result = want_remainder ? remainder : quotient;
+    result->is_unsigned = true;
+    result->valid = result->low.valid && result->high.valid;
+    return result->valid;
+}
+
+static bool lower_wide_scalar_divmod(
+    RccIrLowerContext* context, ExprKind kind,
+    RccIrLowerWideValue dividend, RccIrLowerWideValue divisor,
+    bool is_unsigned, RccIrLowerWideValue* result) {
+    RccIrLowerValue zero_word;
+    RccIrLowerValue left_sign;
+    RccIrLowerValue right_sign;
+    RccIrLowerValue result_sign;
+    RccIrLowerValue left_address;
+    RccIrLowerValue right_address;
+    RccIrLowerValue left_sign_address;
+    RccIrLowerValue right_sign_address;
+    RccIrLowerWideValue left_saved;
+    RccIrLowerWideValue right_saved;
+    RccIrLowerWideValue left_original;
+    RccIrLowerWideValue right_original;
+    RccIrLowerWideValue zero_value;
+    RccIrLowerWideValue left_magnitude;
+    RccIrLowerWideValue right_magnitude;
+    RccIrLowerWideValue unsigned_result;
+    RccIrLowerWideValue negative_result;
+    RccIrLowerWideValue left_sign_value;
+    RccIrLowerWideValue right_sign_value;
+    RccIrLowerWideValue left_sign_mask;
+    RccIrLowerWideValue right_sign_mask;
+    RccIrLowerWideValue left_xored;
+    RccIrLowerWideValue right_xored;
+    bool want_remainder = kind == EXPR_MOD;
+    if (!result || !dividend.valid || !divisor.valid ||
+        (kind != EXPR_DIV && kind != EXPR_MOD)) return false;
+    if (is_unsigned) {
+        return lower_wide_scalar_unsigned_divmod(
+            context, dividend, divisor, want_remainder, result);
+    }
+    zero_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    if (!zero_word.valid) return false;
+    zero_value.low = zero_word;
+    zero_value.high = zero_word;
+    zero_value.is_unsigned = true;
+    zero_value.valid = true;
+    left_address = lower_wide_scalar_scratch(context);
+    right_address = lower_wide_scalar_scratch(context);
+    left_sign_address = lower_wide_scalar_scratch(context);
+    right_sign_address = lower_wide_scalar_scratch(context);
+    if (!left_address.valid || !right_address.valid ||
+        !left_sign_address.valid || !right_sign_address.valid ||
+        !lower_wide_scalar_store(context, left_address, dividend) ||
+        !lower_wide_scalar_store(context, right_address, divisor)) return false;
+    if (!lower_wide_scalar_load(
+            context, left_address, true, &left_saved)) return false;
+    left_sign = lower_wide_scalar_compare(
+        context, EXPR_LT, left_saved, zero_value, false, &left_sign)
+        ? left_sign : lower_invalid_value();
+    if (!left_sign.valid || !lower_store_address(
+            context, left_sign_address, left_sign) ||
+        !lower_wide_scalar_load(
+            context, right_address, true, &right_saved)) return false;
+    right_sign = lower_wide_scalar_compare(
+        context, EXPR_LT, right_saved, zero_value, false, &right_sign)
+        ? right_sign : lower_invalid_value();
+    if (!right_sign.valid || !lower_store_address(
+            context, right_sign_address, right_sign) ||
+        !(left_sign = lower_load_address(
+            context, left_sign_address, type_bool)).valid ||
+        !(right_sign = lower_load_address(
+            context, right_sign_address, type_bool)).valid) return false;
+    if (!lower_wide_scalar_load(
+            context, left_address, true, &left_original) ||
+        !lower_wide_scalar_load(
+            context, right_address, true, &right_original)) return false;
+    left_sign_value.low = lower_cast(context, left_sign, type_uint);
+    left_sign_value.high = zero_word;
+    left_sign_value.is_unsigned = true;
+    left_sign_value.valid = left_sign_value.low.valid;
+    right_sign_value.low = lower_cast(context, right_sign, type_uint);
+    right_sign_value.high = zero_word;
+    right_sign_value.is_unsigned = true;
+    right_sign_value.valid = right_sign_value.low.valid;
+    if (!left_sign_value.valid || !right_sign_value.valid ||
+        !lower_wide_scalar_binary(
+            context, EXPR_SUB, zero_value, left_sign_value,
+            true, &left_sign_mask) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_SUB, zero_value, right_sign_value,
+            true, &right_sign_mask) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_BITXOR, left_original, left_sign_mask,
+            true, &left_xored) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_BITXOR, right_original, right_sign_mask,
+            true, &right_xored) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_ADD, left_xored, left_sign_value,
+            true, &left_magnitude) ||
+        !lower_wide_scalar_binary(
+            context, EXPR_ADD, right_xored, right_sign_value,
+            true, &right_magnitude)) return false;
+    if (!lower_wide_scalar_unsigned_divmod(
+            context, left_magnitude, right_magnitude,
+            want_remainder, &unsigned_result)) return false;
+    if (!lower_wide_scalar_binary(
+            context, EXPR_SUB, zero_value, unsigned_result,
+            true, &negative_result)) return false;
+    if (!lower_wide_scalar_load(
+            context, left_address, true, &left_original) ||
+        !lower_wide_scalar_load(
+            context, right_address, true, &right_original)) return false;
+    left_sign = lower_wide_scalar_compare(
+        context, EXPR_LT, left_original, zero_value, false, &left_sign)
+        ? left_sign : lower_invalid_value();
+    right_sign = lower_wide_scalar_compare(
+        context, EXPR_LT, right_original, zero_value, false, &right_sign)
+        ? right_sign : lower_invalid_value();
+    result_sign = want_remainder
+        ? left_sign
+        : lower_wide_scalar_bool_operation(
+              context, RCC_IR_XOR, left_sign, right_sign);
+    if (!result_sign.valid) return false;
+    result->low = lower_wide_scalar_word_select(
+        context, result_sign, negative_result.low, unsigned_result.low);
+    if (!result->low.valid) return false;
+    if (!lower_wide_scalar_load(
+            context, left_address, true, &left_original) ||
+        !lower_wide_scalar_load(
+            context, right_address, true, &right_original)) return false;
+    left_sign = lower_wide_scalar_compare(
+        context, EXPR_LT, left_original, zero_value, false, &left_sign)
+        ? left_sign : lower_invalid_value();
+    right_sign = lower_wide_scalar_compare(
+        context, EXPR_LT, right_original, zero_value, false, &right_sign)
+        ? right_sign : lower_invalid_value();
+    result_sign = want_remainder
+        ? left_sign
+        : lower_wide_scalar_bool_operation(
+              context, RCC_IR_XOR, left_sign, right_sign);
+    if (!result_sign.valid) return false;
+    result->high = lower_wide_scalar_word_select(
+        context, result_sign, negative_result.high, unsigned_result.high);
+    result->is_unsigned = false;
+    result->valid = result->low.valid && result->high.valid;
+    return result->valid;
+}
+
 static RccIrLowerValue lower_wide_scalar_compare_words(
     RccIrLowerContext* context, RccIrLowerValue left,
     RccIrLowerValue right, RccIrIntPredicate predicate) {
@@ -1087,7 +1402,7 @@ static bool lower_wide_scalar_compare(
             break;
         case EXPR_LE:
             high_predicate = is_unsigned
-                ? RCC_IR_ICMP_ULE : RCC_IR_ICMP_SLE;
+                ? RCC_IR_ICMP_ULT : RCC_IR_ICMP_SLT;
             low_predicate = RCC_IR_ICMP_ULE;
             break;
         case EXPR_GT:
@@ -1097,7 +1412,7 @@ static bool lower_wide_scalar_compare(
             break;
         case EXPR_GE:
             high_predicate = is_unsigned
-                ? RCC_IR_ICMP_UGE : RCC_IR_ICMP_SGE;
+                ? RCC_IR_ICMP_UGT : RCC_IR_ICMP_SGT;
             low_predicate = RCC_IR_ICMP_UGE;
             break;
         default:
@@ -1408,6 +1723,16 @@ static bool lower_wide_scalar_expression(
             context, expression->binary_rhs, &right)) {
         return lower_wide_scalar_multiply(
             context, left, right, expression->type->is_unsigned, result);
+    }
+    if ((expression->kind == EXPR_DIV || expression->kind == EXPR_MOD) &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_lhs, &left) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_rhs, &right)) {
+        return lower_wide_scalar_divmod(
+            context, expression->kind, left, right,
+            expression->type->is_unsigned, result);
     }
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_BITAND || expression->kind == EXPR_BITOR ||

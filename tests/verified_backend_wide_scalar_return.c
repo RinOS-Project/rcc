@@ -56,6 +56,26 @@ int verified_wide_scalar_signed_less(long long value)
     return value < 0;
 }
 
+int verified_wide_scalar_unsigned_le(unsigned long long value)
+{
+    return value <= 0x0000000100000000ULL;
+}
+
+int verified_wide_scalar_unsigned_ge(unsigned long long value)
+{
+    return value >= 0x0000000100000000ULL;
+}
+
+int verified_wide_scalar_signed_le(long long value)
+{
+    return value <= 0;
+}
+
+int verified_wide_scalar_signed_ge(long long value)
+{
+    return value >= 0;
+}
+
 unsigned long long verified_wide_scalar_lshift(
     unsigned long long value, unsigned int count)
 {
@@ -97,4 +117,29 @@ unsigned long long verified_wide_scalar_identity(unsigned long long value)
 unsigned long long verified_wide_scalar_call(unsigned long long value)
 {
     return verified_wide_scalar_identity(value);
+}
+
+unsigned long long verified_wide_scalar_udiv(unsigned long long value)
+{
+    return value / 0x0000000100000001ULL;
+}
+
+unsigned long long verified_wide_scalar_udiv_small(unsigned long long value)
+{
+    return value / 3ULL;
+}
+
+unsigned long long verified_wide_scalar_umod(unsigned long long value)
+{
+    return value % 0x0000000100000001ULL;
+}
+
+long long verified_wide_scalar_sdiv(long long value)
+{
+    return value / 3LL;
+}
+
+long long verified_wide_scalar_smod(long long value)
+{
+    return value % 3LL;
 }
