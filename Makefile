@@ -780,7 +780,7 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 	@echo "C++ standard-version gates and feature-test macros completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
-	python3 ../../../scripts/check_rcc_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
+	python3 scripts/check_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
 
 test-determinism: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/determinism)
