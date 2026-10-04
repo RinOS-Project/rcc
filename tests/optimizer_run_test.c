@@ -97,6 +97,8 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "algebraic_integer_identities"));
     assert(function_extent(optimized, "algebraic_integer_zero") <
            function_extent(unoptimized, "algebraic_integer_zero"));
+    assert(function_extent(optimized, "preserved_algebraic_side_effect") <
+           function_extent(unoptimized, "preserved_algebraic_side_effect"));
     assert(function_extent(optimized, "removed_after_return") <
            function_extent(unoptimized, "removed_after_return"));
     assert(function_extent(optimized, "removed_after_goto") <

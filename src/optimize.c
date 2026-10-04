@@ -24,6 +24,23 @@ static void replace_integer(Expr* expression, int64_t value);
 static uint64_t integer_mask(const Type* type);
 static uint64_t integer_unsigned_value(int64_t value, const Type* type);
 
+static void replace_integer_with_side_effect(Expr** expression,
+                                              Expr* side_effect) {
+    Expr* value;
+    Expr* zero;
+    Expr* sequence;
+    if (!expression || !*expression || !side_effect) return;
+    value = *expression;
+    zero = expr_int(0, value->loc);
+    /* Preserve the original integer result type.  The semantic pass has
+     * already assigned the usual arithmetic-conversion type by the time
+     * optimization runs, while expr_int starts as plain int. */
+    zero->type = value->type;
+    sequence = expr_binary(EXPR_COMMA, side_effect, zero, value->loc);
+    sequence->type = value->type;
+    *expression = sequence;
+}
+
 static bool integer_expression_type_matches(const Expr* expression,
                                             const Type* type) {
     return expression && expression->type && type &&
@@ -86,8 +103,12 @@ static bool simplify_integer_identity(Expr** expression) {
             return true;
         }
         if ((value->kind == EXPR_MUL || value->kind == EXPR_BITAND) &&
-            right_bits == 0u && !expression_has_side_effect(left)) {
-            replace_integer(value, 0);
+            right_bits == 0u) {
+            if (expression_has_side_effect(left)) {
+                replace_integer_with_side_effect(expression, left);
+            } else {
+                replace_integer(value, 0);
+            }
             return true;
         }
     }
@@ -107,8 +128,12 @@ static bool simplify_integer_identity(Expr** expression) {
             return true;
         }
         if ((value->kind == EXPR_MUL || value->kind == EXPR_BITAND) &&
-            left_bits == 0u && !expression_has_side_effect(right)) {
-            replace_integer(value, 0);
+            left_bits == 0u) {
+            if (expression_has_side_effect(right)) {
+                replace_integer_with_side_effect(expression, right);
+            } else {
+                replace_integer(value, 0);
+            }
             return true;
         }
     }
