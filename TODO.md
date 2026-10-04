@@ -185,8 +185,13 @@
         宣言属性を保持し、most-vexing parseの関数宣言を誤認せず、C++20
         designated/nested initializerとconstexpr aggregate member accessを
         共通initializer/sema経路でi686/AMD64の全C++回帰まで検証
-  - [ ] partial specialization、全parameter-pack deduction規則、未対応constexpr
-        評価を含む完全準拠
+  - [x] bounded class-template partial specialization matching for pointer
+        patterns and exact integral patterns, including mixed type/non-type
+        patterns and ambiguity diagnostics with dual-architecture regression
+        coverage
+  - [ ] full partial ordering, all parameter-pack deduction rules, and
+        unsupported constexpr evaluation required for complete standard
+        conformance
 - [ ] C++20 modules、coroutines
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
