@@ -45,3 +45,40 @@ u64 unsigned_add_then_widen(unsigned left, unsigned right) {
 u64 unsigned_multiply_then_widen(unsigned left, unsigned right) {
     return left * right;
 }
+
+int main(void)
+{
+    unsigned char u8_output = 0;
+    signed char s8_output = 0;
+    _Bool bool_output = 0;
+    if (cast_u8(0x1234ULL) != 0x34U ||
+        cast_s8(0xffULL) != -1 ||
+        cast_u16(0x123456ULL) != 0x3456U ||
+        cast_bool(0) != 0 || cast_bool(0x100000000ULL) != 1 ||
+        cast_signed_char_to_u64((signed char)-1) !=
+            18446744073709551615ULL) {
+        return 1;
+    }
+    if (assign_u8(&u8_output, 0x1234U) != 0x34U ||
+        u8_output != 0x34U || assign_s8(&s8_output, 255) != -1 ||
+        s8_output != -1 || assign_bool(&bool_output, 0x100000000ULL) != 1 ||
+        bool_output != 1 || assign_bool(&bool_output, 0) != 0 ||
+        bool_output != 0) {
+        return 1;
+    }
+    if (return_u8(0x1234U) != 0x34U ||
+        return_bool(0x100000000ULL) != 1 ||
+        return_widen_signed(-1) != 18446744073709551615ULL ||
+        return_widen_unsigned(0xffffffffU) != 0xffffffffULL ||
+        return_truncate_wide(0x100000001ULL) != 1 ||
+        call_widen_signed(-1) != 18446744073709551615ULL ||
+        call_widen_unsigned(0xffffffffU) != 0xffffffffULL ||
+        call_truncate_u8(0x1234U) != 0x34U ||
+        call_bool(0x100000000ULL) != 1 ||
+        initialize_bool(0x100000000ULL) != 1) {
+        return 1;
+    }
+    return unsigned_add_then_widen(0xffffffffU, 2U) == 1ULL &&
+           unsigned_multiply_then_widen(0x80000001U, 2U) == 2ULL
+        ? 0 : 1;
+}
