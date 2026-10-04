@@ -296,6 +296,8 @@
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
 - [x] C17/C++20 aggregate、IR/MIR、verified backend、optimizerをhost CIでgate
 - [ ] clang/gcc互換の全golden `.ro/.ra/.rin/.rll/.drv` corpusとfuzz corpus
+  - [x] bounded C17/C++20 property corpusで両archの再生成一致と不正入力の
+        明示`error:`診断をCI gateする
 - [x] host stage0 -> rcc stage1 -> rcc stage2再現build
   - [x] stage0による閉じたfrontend/sema/backend subset `.ro`の両arch再現生成
   - [x] build manifest、host process shim、rcc/rcc++/rld/rar entry pointまでの再現object生成
