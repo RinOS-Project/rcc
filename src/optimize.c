@@ -227,23 +227,42 @@ static const Expr* single_return_expression(const Stmt* statement) {
     return single_return_expression(item->stmt);
 }
 
-static bool inline_integer_expression_shape(const Expr* expression,
-                                            const Decl* parameter,
-                                            size_t* parameter_uses) {
-    if (!expression || !parameter || !parameter_uses) return false;
+typedef struct InlineIntegerBinding {
+    const Decl* parameter;
+    Expr* argument;
+    size_t uses;
+} InlineIntegerBinding;
+
+static size_t inline_integer_binding_index(
+    const Decl* declaration, const InlineIntegerBinding* bindings,
+    size_t binding_count) {
+    size_t index;
+    if (!declaration || !bindings) return binding_count;
+    for (index = 0u; index < binding_count; ++index) {
+        if (bindings[index].parameter == declaration) return index;
+    }
+    return binding_count;
+}
+
+static bool inline_integer_expression_shape(
+    const Expr* expression, InlineIntegerBinding* bindings,
+    size_t binding_count) {
+    size_t binding_index;
+    if (!expression || !bindings || binding_count == 0u) return false;
     switch (expression->kind) {
         case EXPR_INT_LIT:
             return true;
         case EXPR_IDENT:
-            if (expression->ident_decl != parameter) return false;
-            ++*parameter_uses;
+            binding_index = inline_integer_binding_index(
+                expression->ident_decl, bindings, binding_count);
+            if (binding_index >= binding_count) return false;
+            ++bindings[binding_index].uses;
             return true;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
             return inline_integer_expression_shape(expression->unary_operand,
-                                                   parameter,
-                                                   parameter_uses);
+                                                   bindings, binding_count);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -263,23 +282,26 @@ static bool inline_integer_expression_shape(const Expr* expression,
         case EXPR_AND:
         case EXPR_OR:
             return inline_integer_expression_shape(expression->binary_lhs,
-                                                   parameter,
-                                                   parameter_uses) &&
+                                                   bindings, binding_count) &&
                    inline_integer_expression_shape(expression->binary_rhs,
-                                                   parameter,
-                                                   parameter_uses);
+                                                   bindings, binding_count);
         default:
             return false;
     }
 }
 
-static Expr* clone_inline_integer_expression(const Expr* expression,
-                                             const Decl* parameter,
-                                             Expr* argument) {
+static Expr* clone_inline_integer_expression(
+    const Expr* expression, const InlineIntegerBinding* bindings,
+    size_t binding_count) {
     Expr* clone;
-    if (!expression || !parameter || !argument) return NULL;
+    size_t binding_index;
+    if (!expression || !bindings) return NULL;
     if (expression->kind == EXPR_IDENT) {
-        return expression->ident_decl == parameter ? argument : NULL;
+        binding_index = inline_integer_binding_index(
+            expression->ident_decl, bindings, binding_count);
+        return binding_index < binding_count
+                   ? bindings[binding_index].argument
+                   : NULL;
     }
     if (expression->kind == EXPR_INT_LIT) return (Expr*)expression;
     switch (expression->kind) {
@@ -289,7 +311,7 @@ static Expr* clone_inline_integer_expression(const Expr* expression,
             clone = expr_unary(
                 expression->kind,
                 clone_inline_integer_expression(expression->unary_operand,
-                                                parameter, argument),
+                                                bindings, binding_count),
                 expression->loc);
             if (!clone->unary_operand) return NULL;
             clone->type = expression->type;
@@ -313,9 +335,9 @@ static Expr* clone_inline_integer_expression(const Expr* expression,
         case EXPR_AND:
         case EXPR_OR: {
             Expr* left = clone_inline_integer_expression(
-                expression->binary_lhs, parameter, argument);
+                expression->binary_lhs, bindings, binding_count);
             Expr* right = clone_inline_integer_expression(
-                expression->binary_rhs, parameter, argument);
+                expression->binary_rhs, bindings, binding_count);
             if (!left || !right) return NULL;
             clone = expr_binary(expression->kind, left, right,
                                 expression->loc);
@@ -330,11 +352,13 @@ static Expr* clone_inline_integer_expression(const Expr* expression,
 static bool inline_side_effect_free_integer_call(Expr** expression_out) {
     Expr* expression;
     Decl* function;
-    Decl* parameter;
     DeclList* parameters;
     ExprList* arguments;
     const Expr* returned;
-    size_t parameter_uses = 0u;
+    InlineIntegerBinding bindings[8];
+    size_t binding_count = 0u;
+    size_t parameter_count = 0u;
+    size_t index;
     int64_t value;
     if (!expression_out || !*expression_out) return false;
     expression = *expression_out;
@@ -363,26 +387,50 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         replace_integer(expression, value);
         return true;
     }
-    if (parameters->next || !parameters->decl || !arguments ||
-        arguments->next || !arguments->expr ||
-        parameters->decl->kind != DECL_PARAM ||
-        !type_is_integer(parameters->decl->type) ||
-        !type_is_compatible(parameters->decl->type, arguments->expr->type) ||
-        expression_has_side_effect(arguments->expr)) {
-        return false;
+    for (DeclList* parameter = parameters; parameter;
+         parameter = parameter->next) {
+        ++parameter_count;
     }
-    parameter = parameters->decl;
+    if (parameter_count == 0u || parameter_count > 8u) return false;
+    for (index = 0u; index < parameter_count; ++index) {
+        DeclList* parameter = parameters;
+        ExprList* argument = arguments;
+        size_t offset;
+        for (offset = 0u; offset < index; ++offset) {
+            parameter = parameter->next;
+            argument = argument ? argument->next : NULL;
+        }
+        if (!parameter || !parameter->decl || !argument || !argument->expr ||
+            parameter->decl->kind != DECL_PARAM ||
+            !type_is_integer(parameter->decl->type) ||
+            !type_is_compatible(parameter->decl->type, argument->expr->type) ||
+            expression_has_side_effect(argument->expr)) {
+            return false;
+        }
+        bindings[binding_count].parameter = parameter->decl;
+        bindings[binding_count].argument = argument->expr;
+        bindings[binding_count].uses = 0u;
+        ++binding_count;
+    }
+    {
+        ExprList* extra_argument = arguments;
+        for (index = 0u; index < parameter_count && extra_argument;
+             ++index, extra_argument = extra_argument->next) {
+        }
+        if (extra_argument) return false;
+    }
     returned = single_return_expression(function->func_body);
     if (!returned || !type_is_integer(returned->type) ||
         !type_is_compatible(returned->type, expression->type) ||
-        !inline_integer_expression_shape(returned, parameter,
-                                         &parameter_uses) ||
-        parameter_uses > 1u) {
+        !inline_integer_expression_shape(returned, bindings, binding_count)) {
         return false;
+    }
+    for (index = 0u; index < binding_count; ++index) {
+        if (bindings[index].uses > 1u) return false;
     }
     {
         Expr* clone = clone_inline_integer_expression(
-            returned, parameter, arguments->expr);
+            returned, bindings, binding_count);
         if (!clone) return false;
         clone->type = expression->type;
         *expression_out = clone;

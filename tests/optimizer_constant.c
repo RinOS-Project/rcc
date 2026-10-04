@@ -70,6 +70,30 @@ int inlined_argument_call(int value)
     return inline_add_one(value);
 }
 
+static int inline_add_pair(int left, int right)
+{
+    return left + right;
+}
+
+int inlined_two_argument_call(int left, int right)
+{
+    return inline_add_pair(left, right);
+}
+
+static unsigned int inline_mix_three(unsigned int left,
+                                     unsigned int middle,
+                                     unsigned int right)
+{
+    return (left ^ middle) + right;
+}
+
+unsigned int inlined_three_argument_call(unsigned int left,
+                                         unsigned int middle,
+                                         unsigned int right)
+{
+    return inline_mix_three(left, middle, right);
+}
+
 int algebraic_integer_identities(int value)
 {
     return (((value + 0) * 1) - 0) / 1;

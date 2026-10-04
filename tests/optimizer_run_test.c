@@ -97,6 +97,14 @@ static void verify_smaller(const char* unoptimized_path,
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_argument_call",
                                    0xe8u));
+    assert(function_contains_byte(unoptimized, "inlined_two_argument_call",
+                                  0xe8u));
+    assert(!function_contains_byte(optimized, "inlined_two_argument_call",
+                                   0xe8u));
+    assert(function_contains_byte(unoptimized,
+                                  "inlined_three_argument_call", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_three_argument_call", 0xe8u));
     assert(function_extent(optimized, "algebraic_integer_identities") <
            function_extent(unoptimized, "algebraic_integer_identities"));
     assert(function_extent(optimized, "algebraic_integer_zero") <
@@ -291,6 +299,9 @@ int main(int argc, char** argv)
         uint32_t (*strength_reduce_unsigned_div)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         int (*inlined_argument_call)(int);
+        int (*inlined_two_argument_call)(int, int);
+        uint32_t (*inlined_three_argument_call)(uint32_t, uint32_t,
+                                                uint32_t);
         int (*preserved_algebraic_side_effect)(int*);
         int (*removed_after_return)(int*);
         int (*removed_after_goto)(int*);
@@ -385,6 +396,20 @@ int main(int argc, char** argv)
         address = mapping + inlined_argument_call_symbol->value;
         memcpy(&inlined_argument_call, &address,
                sizeof(inlined_argument_call));
+        {
+            ObjSymbol* inlined_two_argument_call_symbol = function_symbol(
+                object, "inlined_two_argument_call");
+            address = mapping + inlined_two_argument_call_symbol->value;
+            memcpy(&inlined_two_argument_call, &address,
+                   sizeof(inlined_two_argument_call));
+        }
+        {
+            ObjSymbol* inlined_three_argument_call_symbol = function_symbol(
+                object, "inlined_three_argument_call");
+            address = mapping + inlined_three_argument_call_symbol->value;
+            memcpy(&inlined_three_argument_call, &address,
+                   sizeof(inlined_three_argument_call));
+        }
         address = mapping + preserved_algebraic_side_effect_symbol->value;
         memcpy(&preserved_algebraic_side_effect, &address,
                sizeof(preserved_algebraic_side_effect));
@@ -500,6 +525,10 @@ int main(int argc, char** argv)
         assert(strength_reduce_unsigned_div(123u) == 15u);
         assert(strength_reduce_unsigned_mod(123u) == 3u);
         assert(inlined_argument_call(-8) == -7);
+        assert(inlined_two_argument_call(-8, 13) == 5);
+        assert(inlined_three_argument_call(UINT32_C(0x55),
+                                           UINT32_C(0x0f),
+                                           UINT32_C(3)) == UINT32_C(93));
         value = 10;
         assert(preserved_algebraic_side_effect(&value) == 0);
         assert(value == 11);
