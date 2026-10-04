@@ -12680,31 +12680,43 @@ Stmt* rcc_parse_cxx_statement(void) {
     return parse_cxx_statement();
 }
 
-static void add_cxx_declaration(AST* ast, Stmt* statement,
-                                bool c_language_linkage) {
+static void add_cxx_declaration_one(AST* ast, Stmt* statement,
+                                    bool c_language_linkage,
+                                    bool nodiscard,
+                                    const char* deprecated_message) {
     if (statement && statement->kind == STMT_DECL) {
-        if (statement->decl->kind == DECL_FUNC && take_cxx_nodiscard()) {
+        if (statement->decl->kind == DECL_FUNC && nodiscard) {
             statement->decl->func_is_nodiscard = true;
-        } else if (statement->decl->kind != DECL_FUNC) {
-            (void)take_cxx_nodiscard();
         }
-        {
-            const char* deprecated_message = NULL;
-            bool is_deprecated = take_cxx_deprecated(&deprecated_message);
-            if (is_deprecated && statement->decl->kind == DECL_FUNC) {
-                statement->decl->func_is_deprecated = true;
-                statement->decl->func_deprecated_message = deprecated_message;
-            } else if (is_deprecated && statement->decl->kind == DECL_VAR) {
-                statement->decl->var_is_deprecated = true;
-                statement->decl->var_deprecated_message = deprecated_message;
-            }
+        if (deprecated_message && statement->decl->kind == DECL_FUNC) {
+            statement->decl->func_is_deprecated = true;
+            statement->decl->func_deprecated_message = deprecated_message;
+        } else if (deprecated_message && statement->decl->kind == DECL_VAR) {
+            statement->decl->var_is_deprecated = true;
+            statement->decl->var_deprecated_message = deprecated_message;
         }
         set_cxx_link_name(statement->decl, NULL, c_language_linkage);
         ast_add_decl(ast, statement->decl);
-    } else {
-        (void)take_cxx_nodiscard();
-        (void)take_cxx_deprecated(NULL);
     }
+}
+
+static void add_cxx_declaration(AST* ast, Stmt* statement,
+                                bool c_language_linkage) {
+    bool nodiscard = take_cxx_nodiscard();
+    const char* deprecated_message = NULL;
+    bool deprecated = take_cxx_deprecated(&deprecated_message);
+    if (!deprecated) deprecated_message = NULL;
+
+    if (statement && statement->kind == STMT_BLOCK &&
+        statement->block_no_scope) {
+        for (StmtList* item = statement->block_stmts; item; item = item->next) {
+            add_cxx_declaration_one(ast, item->stmt, c_language_linkage,
+                                    nodiscard, deprecated_message);
+        }
+        return;
+    }
+    add_cxx_declaration_one(ast, statement, c_language_linkage,
+                            nodiscard, deprecated_message);
 }
 
 /* Preserve C ABI symbol spelling inside extern "C" while extern "C++" and

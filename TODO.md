@@ -86,6 +86,9 @@
   - [x] 一つのC17宣言文に複数のobject／pointer／array／function prototype／
         typedef declaratorを許可し、同一source scopeの個別Declへ分解して
         global/local initializerとpointer／array型を両archで実行・object回帰する
+  - [x] C++の複数declarator宣言も同じscope-preserving経路で展開し、global/local
+        object、pointer、array、function prototypeの混在をx64実行と両arch
+        object回帰で検証する
   - [x] function prototype scopeの`[*]`を未指定VLAとして保持し、
         definition／local／typedef／type-nameでの誤用を診断
   - [x] type-nameの`sizeof(int[count])`でVLA boundを意味解析し、

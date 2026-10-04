@@ -218,6 +218,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
 	test-cxx-raw-strings test-cxx-alternative-tokens
 .PHONY: test-debug-info
+.PHONY: test-cxx-multi-declarator
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -233,6 +234,7 @@ CXX_REGRESSION_TARGETS = \
 	test-preprocessor-line-macro \
 	test-multiple-inputs \
 	test-cxx-language-core \
+	test-cxx-multi-declarator \
 	test-cxx-numeric-separators \
 	test-cxx-user-defined-literals \
 	test-cxx-enum-class \
@@ -509,6 +511,27 @@ test-c-old-style: $(RCC_TARGET)
 	powershell -NoProfile -Command "& '$(RCC_TARGET)' --target i686-unknown-rinos -std=c17 -c -o '$(TEST_OUT)/c-old-style/invalid.ro' tests/c_old_style_invalid.c *> '$(TEST_OUT)/c-old-style/invalid.log'; if ($$LASTEXITCODE -eq 0) { Write-Error 'invalid old-style parameter declaration unexpectedly compiled'; exit 1 } else { exit 0 }"
 	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'old-style parameter declaration names an unknown parameter' -Path '$(TEST_OUT)/c-old-style/invalid.log')) { exit 1 }"
 	@echo "C17 old-style function declaration tests completed"
+
+test-cxx-multi-declarator: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-multi-declarator)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-multi-declarator/x64.s \
+		tests/cxx_multi_declarator.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-multi-declarator/x64 \
+		$(TEST_OUT)/cxx-multi-declarator/x64.s
+	$(TEST_OUT)/cxx-multi-declarator/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-multi-declarator/x86.s \
+		tests/cxx_multi_declarator.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-multi-declarator/x86.o \
+		$(TEST_OUT)/cxx-multi-declarator/x86.s
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-multi-declarator/x86.ro \
+		tests/cxx_multi_declarator.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-multi-declarator/x64.ro \
+		tests/cxx_multi_declarator.cpp
+	@echo "C++ comma-separated declarator tests completed"
 
 test-c-multi-declarator: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c-multi-declarator)
