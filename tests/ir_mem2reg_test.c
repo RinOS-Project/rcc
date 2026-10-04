@@ -56,6 +56,17 @@ static void append_cond_branch(RccIrBlock* block, RccIrValue condition,
                          &condition, 1u, targets, 2u) != NULL);
 }
 
+static RccIrValue append_select(RccIrBlock* block, RccIrType type,
+                                RccIrValue condition, RccIrValue when_true,
+                                RccIrValue when_false)
+{
+    RccIrValue operands[] = {condition, when_true, when_false};
+    RccIrInstruction* instruction = rcc_ir_append(
+        block, RCC_IR_SELECT, type, operands, 3u, NULL, 0u);
+    assert(instruction != NULL);
+    return instruction->result;
+}
+
 static void append_return(RccIrBlock* block, RccIrValue value)
 {
     assert(rcc_ir_append(block, RCC_IR_RETURN, rcc_ir_type_void(),
@@ -365,6 +376,66 @@ static void verify_constant_branch_pruning(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_constant_phi_and_select_folding(void)
+{
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "constant_phi", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* left = rcc_ir_block_add(function, "left");
+    RccIrBlock* right = rcc_ir_block_add(function, "right");
+    RccIrBlock* merge = rcc_ir_block_add(function, "merge");
+    RccIrValue left_value;
+    RccIrValue right_value;
+    RccIrValue incoming[2];
+    RccIrBlockId targets[] = {left->id, right->id};
+    RccIrInstruction* phi;
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(function != NULL && entry != NULL && left != NULL &&
+           right != NULL && merge != NULL);
+    append_cond_branch(entry, function->parameters[0], left->id, right->id);
+    left_value = append_const(left, i32, 7u);
+    append_branch(left, merge->id);
+    right_value = append_const(right, i32, 7u);
+    append_branch(right, merge->id);
+    incoming[0] = left_value;
+    incoming[1] = right_value;
+    phi = rcc_ir_append(merge, RCC_IR_PHI, i32, incoming, 2u,
+                        targets, 2u);
+    assert(phi != NULL);
+    append_return(merge, phi->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(stats.folded_instructions >= 1u);
+    assert(count_opcode(function, RCC_IR_PHI) == 0u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+
+    module = rcc_ir_module_create();
+    function = rcc_ir_function_add(module, "constant_select", i32,
+                                   NULL, 0u);
+    entry = rcc_ir_block_add(function, "entry");
+    assert(function != NULL && entry != NULL);
+    {
+        RccIrValue condition = append_const(entry, i1, 1u);
+        RccIrValue when_true = append_const(entry, i32, 9u);
+        RccIrValue when_false = append_const(entry, i32, 11u);
+        RccIrValue selected = append_select(
+            entry, i32, condition, when_true, when_false);
+        RccIrSimplifyStats select_stats;
+        append_return(entry, selected);
+        assert(rcc_ir_simplify(function, &select_stats,
+                               error, sizeof(error)));
+        assert(select_stats.folded_instructions >= 1u);
+        assert(count_opcode(function, RCC_IR_SELECT) == 0u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    }
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_undefined_folds_are_preserved(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -554,6 +625,7 @@ int main(void)
     verify_escape_is_not_promoted();
     verify_integer_simplification();
     verify_constant_branch_pruning();
+    verify_constant_phi_and_select_folding();
     verify_undefined_folds_are_preserved();
     verify_block_local_cse();
     verify_memory_is_not_commoned();

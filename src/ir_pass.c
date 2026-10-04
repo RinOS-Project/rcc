@@ -995,7 +995,34 @@ static bool ir_pass_fold_constants(RccIrFunction* function,
                 ++stats->folded_instructions;
                 continue;
             }
-            if (ir_pass_is_binary_integer(instruction->opcode) &&
+            if (instruction->opcode == RCC_IR_PHI &&
+                instruction->type.kind == RCC_IR_TYPE_INTEGER &&
+                instruction->operand_count != 0u &&
+                instruction->operand_count == instruction->target_count) {
+                size_t operand;
+                folded = true;
+                result = 0u;
+                for (operand = 0u; operand < instruction->operand_count;
+                     ++operand) {
+                    RccIrValue value = instruction->operands[operand];
+                    if (!known[value]) {
+                        folded = false;
+                        break;
+                    }
+                    if (operand == 0u) result = constants[value];
+                    else if (constants[value] != result) folded = false;
+                }
+            } else if (instruction->opcode == RCC_IR_SELECT &&
+                       instruction->type.kind == RCC_IR_TYPE_INTEGER &&
+                       instruction->operand_count == 3u &&
+                       known[instruction->operands[0]]) {
+                RccIrValue selected = instruction->operands[
+                    constants[instruction->operands[0]] != 0u ? 1u : 2u];
+                if (known[selected]) {
+                    result = constants[selected];
+                    folded = true;
+                }
+            } else if (ir_pass_is_binary_integer(instruction->opcode) &&
                 known[instruction->operands[0]] &&
                 known[instruction->operands[1]]) {
                 folded = ir_pass_fold_binary(
