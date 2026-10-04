@@ -69,6 +69,9 @@ typedef struct ModuleSymbol {
     ModuleSymbolSection section;
     bool is_global;
     bool is_weak;
+    const char* source_file;
+    uint32_t source_line;
+    uint32_t source_column;
 } ModuleSymbol;
 
 /* Module relocation entry (for object files) */
@@ -174,6 +177,7 @@ Module* rcc_codegen64(AST* ast);
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
                        bool is_defined, ModuleSymbolSection section,
                        bool is_global);
+void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc);
 void module_mark_symbol_weak(Module* mod, const char* name);
 void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                           uint32_t offset, uint32_t target,

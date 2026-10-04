@@ -55,6 +55,7 @@ typedef enum {
     SECT_UNWIND = 6,    /* DWARF unwind records */
     SECT_INIT_ARRAY = 7,/* Process/library initializers */
     SECT_FINI_ARRAY = 8,/* Process/library finalizers */
+    SECT_DEBUG_LINE = 9,/* DWARF .debug_line (non-loadable) */
 } SectionType;
 
 /* ═══════════════════════════════════════

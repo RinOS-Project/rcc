@@ -245,6 +245,21 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
     sym->section = section;
     sym->is_global = is_global;
     sym->is_weak = false;
+    sym->source_file = NULL;
+    sym->source_line = 0u;
+    sym->source_column = 0u;
+}
+
+void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc) {
+    if (!mod || !name || !name[0]) return;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        ModuleSymbol* symbol = &mod->symbols[index];
+        if (strcmp(symbol->name, name) != 0) continue;
+        symbol->source_file = loc.filename;
+        symbol->source_line = loc.line > 0 ? (uint32_t)loc.line : 0u;
+        symbol->source_column = loc.column > 0 ? (uint32_t)loc.column : 0u;
+        return;
+    }
 }
 
 void module_mark_symbol_weak(Module* mod, const char* name) {
@@ -12742,6 +12757,8 @@ Module* rcc_codegen(AST* ast) {
             module_add_symbol(mod, decl_link_name(d->decl), func_start, true,
                               MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
+            module_set_symbol_source(mod, decl_link_name(d->decl),
+                                     d->decl->loc);
             if (d->decl->func_is_inline &&
                 d->decl->func_has_cxx_linkage) {
                 module_mark_symbol_weak(mod, decl_link_name(d->decl));

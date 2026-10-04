@@ -259,6 +259,9 @@
   - [x] direct/internal、GOT/PLT、local-exec TLSの両arch relocation検証
   - [ ] 全visibility、interposition、TLS model、shared-library ABI互換性
 - [ ] DWARF debug/unwind
+  - [x] `-g`でrelocatable `.ro`へ関数開始・source file・lineを持つ最小DWARF
+        `.debug_line`を出力し、両archのread/link回帰を追加
+  - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         未実装placeholderをsemaで明示診断し、未知制約の黙殺を禁止

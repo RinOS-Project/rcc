@@ -41,11 +41,17 @@ static bool ro_section_policy(uint16_t arch, const RoSection* section) {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
     uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC |
                              SECT_FLAG_ALLOC | SECT_FLAG_COMDAT;
-    if (section->type < SECT_CODE || section->type > SECT_FINI_ARRAY ||
+    if (section->type < SECT_CODE || section->type > SECT_DEBUG_LINE ||
         (section->flags & ~allowed_flags) != 0u ||
         (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
             (SECT_FLAG_WRITE | SECT_FLAG_EXEC) ||
-        (section->flags & SECT_FLAG_ALLOC) == 0u) return false;
+        (section->type != SECT_DEBUG_LINE &&
+         (section->flags & SECT_FLAG_ALLOC) == 0u)) return false;
+
+    if (section->type == SECT_DEBUG_LINE) {
+        return section->flags == 0u &&
+               section->size == section->memory_size;
+    }
 
     switch ((SectionType)section->type) {
     case SECT_CODE:
@@ -766,6 +772,182 @@ static char* module_scoped_symbol(const char* filename, const char* name) {
     return scoped;
 }
 
+static void debug_line_u16(ObjSection* section, uint16_t value) {
+    uint8_t bytes[2] = {(uint8_t)value, (uint8_t)(value >> 8)};
+    section_add_bytes(section, bytes, sizeof(bytes));
+}
+
+static void debug_line_u32(ObjSection* section, uint32_t value) {
+    uint8_t bytes[4] = {(uint8_t)value, (uint8_t)(value >> 8),
+                        (uint8_t)(value >> 16), (uint8_t)(value >> 24)};
+    section_add_bytes(section, bytes, sizeof(bytes));
+}
+
+static void debug_line_patch_u32(ObjSection* section, uint64_t offset,
+                                 uint32_t value) {
+    if (!section || offset > section->size ||
+        sizeof(uint32_t) > section->size - offset) {
+        rcc_fatal("DWARF line table patch is outside its section");
+    }
+    section->data[offset] = (uint8_t)value;
+    section->data[offset + 1u] = (uint8_t)(value >> 8);
+    section->data[offset + 2u] = (uint8_t)(value >> 16);
+    section->data[offset + 3u] = (uint8_t)(value >> 24);
+}
+
+static void debug_line_uleb(ObjSection* section, uint64_t value) {
+    do {
+        uint8_t byte = (uint8_t)(value & 0x7fu);
+        value >>= 7u;
+        if (value != 0u) byte |= 0x80u;
+        section_add_byte(section, byte);
+    } while (value != 0u);
+}
+
+static void debug_line_sleb(ObjSection* section, int64_t value) {
+    bool more;
+    do {
+        uint8_t byte = (uint8_t)((uint64_t)value & 0x7fu);
+        value >>= 7;
+        more = !((value == 0 && (byte & 0x40u) == 0u) ||
+                 (value == -1 && (byte & 0x40u) != 0u));
+        if (more) byte |= 0x80u;
+        section_add_byte(section, byte);
+    } while (more);
+}
+
+static int debug_line_file_index(const char* const* files, int file_count,
+                                 const char* file) {
+    for (int index = 0; index < file_count; ++index) {
+        if (strcmp(files[index], file) == 0) return index + 1;
+    }
+    return 0;
+}
+
+static int objfile_section_index(const ObjectFile* object,
+                                 const ObjSection* target) {
+    int index = 0;
+    for (const ObjSection* section = object->sections; section;
+         section = section->next, ++index) {
+        if (section == target) return index;
+    }
+    return -1;
+}
+
+static void module_emit_debug_line(ObjectFile* obj, Module* mod,
+                                   const char* filename) {
+    const ModuleSymbol** functions;
+    const char** files;
+    ObjSection* line;
+    int function_count = 0;
+    int file_count = 0;
+    int line_section;
+    int address_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+    uint64_t unit_length_offset;
+    uint64_t header_length_offset;
+    uint64_t header_start;
+    uint32_t current_line = 1u;
+
+    if (!g_opts.debug_info || !obj || !mod || mod->symbol_count <= 0) return;
+    functions = rcc_alloc((size_t)mod->symbol_count * sizeof(*functions));
+    files = rcc_alloc((size_t)mod->symbol_count * sizeof(*files));
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        ModuleSymbol* symbol = &mod->symbols[index];
+        if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
+            !symbol->source_file || symbol->source_file[0] == '\0' ||
+            symbol->source_line == 0u) continue;
+        functions[function_count++] = symbol;
+        if (debug_line_file_index(files, file_count,
+                                  symbol->source_file) == 0) {
+            files[file_count++] = symbol->source_file;
+        }
+    }
+    if (function_count == 0) {
+        rcc_free(functions);
+        rcc_free(files);
+        return;
+    }
+
+    line = objfile_add_section(obj, ".debug_line", SECT_DEBUG_LINE, 0u);
+    line->align = 1u;
+    line_section = objfile_section_index(obj, line);
+    if (line_section < 0) rcc_fatal("DWARF line section is detached");
+
+    unit_length_offset = line->size;
+    debug_line_u32(line, 0u);
+    debug_line_u16(line, 4u);
+    header_length_offset = line->size;
+    debug_line_u32(line, 0u);
+    header_start = line->size;
+    section_add_byte(line, 1u);       /* minimum_instruction_length */
+    section_add_byte(line, 1u);       /* default_is_stmt */
+    section_add_byte(line, (uint8_t)-5); /* line_base */
+    section_add_byte(line, 14u);      /* line_range */
+    section_add_byte(line, 13u);      /* opcode_base */
+    {
+        static const uint8_t standard_lengths[] = {
+            0u, 1u, 1u, 1u, 1u, 0u, 0u, 0u, 1u, 0u, 0u, 1u
+        };
+        section_add_bytes(line, standard_lengths, sizeof(standard_lengths));
+    }
+    section_add_byte(line, 0u);       /* include_directories terminator */
+    for (int index = 0; index < file_count; ++index) {
+        section_add_bytes(line, (const uint8_t*)files[index],
+                          strlen(files[index]) + 1u);
+        debug_line_uleb(line, 0u);    /* directory index */
+        debug_line_uleb(line, 0u);    /* modification time */
+        debug_line_uleb(line, 0u);    /* file size */
+    }
+    section_add_byte(line, 0u);       /* file_names terminator */
+    if (line->size - header_start > UINT32_MAX) {
+        rcc_fatal("DWARF line table header is too large");
+    }
+    debug_line_patch_u32(line, header_length_offset,
+                         (uint32_t)(line->size - header_start));
+
+    for (int index = 0; index < function_count; ++index) {
+        const ModuleSymbol* function = functions[index];
+        const char* symbol_name = function->name;
+        char* scoped_name = NULL;
+        uint64_t address_offset;
+        int file_index = debug_line_file_index(
+            files, file_count, function->source_file);
+        int64_t line_delta = (int64_t)function->source_line -
+                             (int64_t)current_line;
+        section_add_byte(line, 0u);
+        debug_line_uleb(line, (uint64_t)address_size + 1u);
+        section_add_byte(line, 2u);    /* DW_LNE_set_address */
+        address_offset = line->size;
+        for (int byte = 0; byte < address_size; ++byte) {
+            section_add_byte(line, 0u);
+        }
+        if (!function->is_global) {
+            scoped_name = module_scoped_symbol(filename, function->name);
+            symbol_name = scoped_name;
+        }
+        objfile_add_reloc(
+            obj, line_section, address_offset, symbol_name,
+            address_size == 8 ? RELOC_ABS64 : RELOC_ABS32U, 0);
+        rcc_free(scoped_name);
+        section_add_byte(line, 4u);    /* DW_LNS_set_file */
+        debug_line_uleb(line, (uint64_t)file_index);
+        section_add_byte(line, 3u);    /* DW_LNS_advance_line */
+        debug_line_sleb(line, line_delta);
+        current_line = function->source_line;
+        section_add_byte(line, 1u);    /* DW_LNS_copy */
+    }
+    section_add_byte(line, 0u);
+    debug_line_uleb(line, 1u);
+    section_add_byte(line, 1u);        /* DW_LNE_end_sequence */
+    if (line->size - unit_length_offset - 4u > UINT32_MAX) {
+        rcc_fatal("DWARF line table is too large");
+    }
+    debug_line_patch_u32(line, unit_length_offset,
+                         (uint32_t)(line->size - unit_length_offset - 4u));
+    rcc_free(functions);
+    rcc_free(files);
+}
+
 ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjectFile* obj = objfile_new(filename, g_opts.target_arch);
     int next_section = 1;
@@ -882,6 +1064,8 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                            ms->offset, 0);
         rcc_free(scoped_name);
     }
+
+    module_emit_debug_line(obj, mod, filename);
 
     /* Add relocations */
     for (int i = 0; i < mod->reloc_count; i++) {

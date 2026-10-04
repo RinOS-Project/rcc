@@ -202,6 +202,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
 	test-cxx-raw-strings test-cxx-alternative-tokens
+.PHONY: test-debug-info
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -414,6 +415,10 @@ C17_REGRESSION_TARGETS = \
 	test-pragma-pack \
 	test-string-embedded-nul
 
+# `-g` currently emits a relocatable DWARF line table.  Keep this gate in the
+# C17 aggregate so the option cannot silently regress to a no-op.
+C17_REGRESSION_TARGETS += test-debug-info
+
 all: $(OBJDIR) $(BINDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
 
 build-rcc: $(OBJDIR) $(RCC_TARGET)
@@ -464,6 +469,29 @@ test: $(RCC_TARGET)
 
 test-c17: $(RCC_TARGET) $(C17_REGRESSION_TARGETS)
 	@echo "RCC C17 conformance compile-and-run suite completed"
+
+test-debug-info: $(RCC_TARGET) $(RLD_TARGET)
+	mkdir -p $(TEST_OUT)/debug-info
+	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
+		-o $(TEST_OUT)/debug-info/x86-g.ro tests/debug_info.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -c \
+		-o $(TEST_OUT)/debug-info/x64-g.ro tests/debug_info.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/debug-info/verify \
+		tests/debug_info_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/debug-info/verify \
+		$(TEST_OUT)/debug-info/x86-g.ro \
+		$(TEST_OUT)/debug-info/x64-g.ro \
+		$(TEST_OUT)/debug-info/x86-no-g.ro
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
+		$(TEST_OUT)/debug-info/x86-g.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e debug_line_entry -o $(TEST_OUT)/debug-info/x64.rin \
+		$(TEST_OUT)/debug-info/x64-g.ro
+	@echo "Relocatable DWARF line-table tests completed"
 
 test-aqc: $(AQC_TARGET)
 	mkdir -p $(TEST_OUT)

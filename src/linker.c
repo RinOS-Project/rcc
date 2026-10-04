@@ -445,6 +445,13 @@ bool linker_merge_sections(Linker* ld) {
         int sect_idx = 0;
         for (ObjSection* sect = obj->sections; sect; sect = sect->next, sect_idx++) {
             uint32_t output_flags;
+            if (sect->type == SECT_DEBUG_LINE) {
+                /* Rin v3 has no non-loadable debug-section namespace.  Keep
+                 * DWARF in relocatable .ro objects, but never place it into
+                 * the executable image or treat its address relocations as
+                 * runtime relocations. */
+                continue;
+            }
             if (!linker_section_selected(sect)) {
                 if (g_linker_opts.verbose) {
                     printf("    %s:%s discarded (COMDAT %s)\n",
