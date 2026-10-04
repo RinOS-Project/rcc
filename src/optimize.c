@@ -13,6 +13,363 @@ static void propagate_block_constants(Stmt* statement);
 static void eliminate_block_dead_stores(Stmt* statement);
 
 static bool expression_has_side_effect(const Expr* expression);
+static bool expression_mentions_decl(const Expr* expression,
+                                     const Decl* declaration);
+static bool expression_modifies_decl(const Expr* expression,
+                                     const Decl* declaration);
+static bool statement_modifies_decl(const Stmt* statement,
+                                    const Decl* declaration);
+
+static bool expression_list_mentions_decl(const ExprList* list,
+                                          const Decl* declaration) {
+    for (; list; list = list->next) {
+        if (expression_mentions_decl(list->expr, declaration)) return true;
+    }
+    return false;
+}
+
+static bool expression_mentions_decl(const Expr* expression,
+                                     const Decl* declaration) {
+    if (!expression || !declaration) return false;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            return expression->ident_decl == declaration;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            return expression_mentions_decl(expression->unary_operand,
+                                            declaration);
+        case EXPR_CAST:
+            return expression_mentions_decl(expression->cast_expr,
+                                            declaration);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            return expression_mentions_decl(expression->binary_lhs,
+                                            declaration) ||
+                   expression_mentions_decl(expression->binary_rhs,
+                                            declaration);
+        case EXPR_COND:
+            return expression_mentions_decl(expression->cond_test,
+                                            declaration) ||
+                   expression_mentions_decl(expression->cond_then,
+                                            declaration) ||
+                   expression_mentions_decl(expression->cond_else,
+                                            declaration);
+        case EXPR_CALL:
+            return expression_mentions_decl(expression->call_func,
+                                            declaration) ||
+                   expression_list_mentions_decl(expression->call_args,
+                                                 declaration) ||
+                   expression_mentions_decl(expression->call_new_count,
+                                            declaration) ||
+                   expression_list_mentions_decl(expression->call_new_args,
+                                                 declaration);
+        case EXPR_INDEX:
+            return expression_mentions_decl(expression->index_base,
+                                            declaration) ||
+                   expression_mentions_decl(expression->index_expr,
+                                            declaration);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return expression_mentions_decl(expression->member_base,
+                                            declaration);
+        case EXPR_COMPOUND:
+            return expression_list_mentions_decl(expression->compound_init,
+                                                 declaration);
+        case EXPR_GENERIC:
+            if (expression_mentions_decl(expression->generic_control,
+                                          declaration)) {
+                return true;
+            }
+            for (const GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                if (expression_mentions_decl(association->expr,
+                                              declaration)) return true;
+            }
+            return false;
+        case EXPR_CXX_FOLD:
+            return expression_mentions_decl(expression->cxx_fold_init,
+                                            declaration) ||
+                   expression_mentions_decl(expression->cxx_fold_pattern,
+                                            declaration);
+        case EXPR_CXX_REQUIRES:
+            if (expression_list_mentions_decl(
+                    expression->cxx_requires_items, declaration) ||
+                expression_list_mentions_decl(
+                    expression->cxx_requires_nested, declaration)) {
+                return true;
+            }
+            for (const CxxCompoundRequirement* requirement =
+                     expression->cxx_requires_compound;
+                 requirement; requirement = requirement->next) {
+                if (expression_mentions_decl(requirement->expr,
+                                              declaration)) return true;
+            }
+            return false;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return expression_mentions_decl(expression->va_list_operand,
+                                            declaration) ||
+                   expression_mentions_decl(expression->va_second_operand,
+                                            declaration);
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_CXX_THIS:
+            return false;
+    }
+    return false;
+}
+
+static bool expression_modifies_decl(const Expr* expression,
+                                     const Decl* declaration) {
+    if (!expression || !declaration) return false;
+    switch (expression->kind) {
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return expression_mentions_decl(expression->unary_operand,
+                                            declaration) ||
+                   expression_modifies_decl(expression->unary_operand,
+                                            declaration);
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return expression_mentions_decl(expression->binary_lhs,
+                                            declaration) ||
+                   expression_modifies_decl(expression->binary_lhs,
+                                            declaration) ||
+                   expression_modifies_decl(expression->binary_rhs,
+                                            declaration);
+        case EXPR_CALL:
+            /* A call can mutate a local through a pointer/reference argument.
+             * Treat any mentioned local as an escape and therefore block
+             * loop-invariant propagation. */
+            return expression_mentions_decl(expression, declaration);
+        case EXPR_ADDR:
+            return expression_mentions_decl(expression->unary_operand,
+                                            declaration);
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_DEREF:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            return expression_modifies_decl(expression->unary_operand,
+                                            declaration);
+        case EXPR_CAST:
+            return expression_modifies_decl(expression->cast_expr,
+                                            declaration);
+        case EXPR_COND:
+            return expression_modifies_decl(expression->cond_test,
+                                            declaration) ||
+                   expression_modifies_decl(expression->cond_then,
+                                            declaration) ||
+                   expression_modifies_decl(expression->cond_else,
+                                            declaration);
+        case EXPR_INDEX:
+            return expression_modifies_decl(expression->index_base,
+                                            declaration) ||
+                   expression_modifies_decl(expression->index_expr,
+                                            declaration);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return expression_modifies_decl(expression->member_base,
+                                            declaration);
+        case EXPR_COMPOUND:
+            for (const ExprList* item = expression->compound_init; item;
+                 item = item->next) {
+                if (expression_modifies_decl(item->expr, declaration)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_GENERIC:
+            if (expression_modifies_decl(expression->generic_control,
+                                          declaration)) return true;
+            for (const GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                if (expression_modifies_decl(association->expr,
+                                              declaration)) return true;
+            }
+            return false;
+        case EXPR_CXX_FOLD:
+            return expression_modifies_decl(expression->cxx_fold_init,
+                                            declaration) ||
+                   expression_modifies_decl(expression->cxx_fold_pattern,
+                                            declaration);
+        case EXPR_CXX_REQUIRES:
+            return expression_list_mentions_decl(
+                       expression->cxx_requires_items, declaration) ||
+                   expression_list_mentions_decl(
+                       expression->cxx_requires_nested, declaration);
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return expression_mentions_decl(expression, declaration);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            return expression_modifies_decl(expression->binary_lhs,
+                                            declaration) ||
+                   expression_modifies_decl(expression->binary_rhs,
+                                            declaration);
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_IDENT:
+        case EXPR_CXX_THIS:
+            return false;
+    }
+    return false;
+}
+
+static bool statement_modifies_decl(const Stmt* statement,
+                                    const Decl* declaration) {
+    if (!statement || !declaration) return false;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            return expression_modifies_decl(statement->expr, declaration);
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (statement_modifies_decl(item->stmt, declaration)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_IF:
+            return expression_modifies_decl(statement->if_cond, declaration) ||
+                   statement_modifies_decl(statement->if_then, declaration) ||
+                   statement_modifies_decl(statement->if_else, declaration);
+        case STMT_WHILE:
+        case STMT_DO:
+            return expression_modifies_decl(statement->while_cond,
+                                            declaration) ||
+                   statement_modifies_decl(statement->while_body,
+                                            declaration);
+        case STMT_FOR:
+            return statement_modifies_decl(statement->for_init, declaration) ||
+                   expression_modifies_decl(statement->for_cond, declaration) ||
+                   expression_modifies_decl(statement->for_inc, declaration) ||
+                   statement_modifies_decl(statement->for_body, declaration);
+        case STMT_SWITCH:
+            return expression_modifies_decl(statement->switch_expr,
+                                            declaration) ||
+                   statement_modifies_decl(statement->switch_body,
+                                            declaration);
+        case STMT_CASE:
+            return expression_modifies_decl(statement->case_val, declaration) ||
+                   statement_modifies_decl(statement->case_stmt, declaration);
+        case STMT_DEFAULT:
+            return statement_modifies_decl(statement->default_stmt,
+                                            declaration);
+        case STMT_RETURN:
+            return expression_modifies_decl(statement->return_val,
+                                            declaration);
+        case STMT_DECL:
+            return statement->decl && statement->decl != declaration &&
+                   expression_modifies_decl(statement->decl->var_init,
+                                            declaration);
+        case STMT_ASM:
+            return true;
+        case STMT_TRY:
+            if (statement_modifies_decl(statement->try_body, declaration)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (statement_modifies_decl(handler->body, declaration)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_THROW:
+            return expression_modifies_decl(statement->throw_expr,
+                                            declaration);
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_LABEL:
+        case STMT_NULL:
+            return statement->kind == STMT_LABEL &&
+                   statement_modifies_decl(statement->label_stmt,
+                                            declaration);
+    }
+    return false;
+}
 
 static bool expression_list_has_side_effect(const ExprList* list) {
     for (const ExprList* item = list; item; item = item->next) {
@@ -761,6 +1118,22 @@ typedef struct {
     LocalConstant* bindings;
 } ConstantState;
 
+static bool loop_preserves_known_constants(
+    const ConstantState* state, const Stmt* init, const Expr* condition,
+    const Expr* increment, const Stmt* body) {
+    for (const LocalConstant* binding = state ? state->bindings : NULL;
+         binding; binding = binding->next) {
+        if (!binding->known) continue;
+        if (expression_modifies_decl(condition, binding->declaration) ||
+            expression_modifies_decl(increment, binding->declaration) ||
+            statement_modifies_decl(init, binding->declaration) ||
+            statement_modifies_decl(body, binding->declaration)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static LocalConstant* find_local_constant(ConstantState* state,
                                           const Decl* declaration) {
     LocalConstant* binding = state ? state->bindings : NULL;
@@ -1160,10 +1533,33 @@ static void propagate_block_constants(Stmt* statement) {
                 clear_local_constants(&state);
                 break;
             case STMT_WHILE:
+                if (loop_preserves_known_constants(
+                        &state, NULL, current->while_cond, NULL,
+                        current->while_body)) {
+                    propagate_constant_expr(&current->while_cond, &state);
+                    optimize_expr(&current->while_cond);
+                }
+                optimize_stmt(current);
+                clear_local_constants(&state);
+                break;
             case STMT_DO:
+                if (loop_preserves_known_constants(
+                        &state, NULL, current->while_cond, NULL,
+                        current->while_body)) {
+                    propagate_constant_expr(&current->while_cond, &state);
+                    optimize_expr(&current->while_cond);
+                }
+                optimize_stmt(current);
+                clear_local_constants(&state);
+                break;
             case STMT_FOR:
-                /* Loop conditions observe mutations from earlier iterations,
-                 * so block-entry constants are not valid in the condition. */
+                if (loop_preserves_known_constants(
+                        &state, current->for_init, current->for_cond,
+                        current->for_inc, current->for_body)) {
+                    propagate_constant_expr(&current->for_cond, &state);
+                    optimize_expr(&current->for_cond);
+                }
+                optimize_stmt(current);
                 clear_local_constants(&state);
                 break;
             case STMT_SWITCH:

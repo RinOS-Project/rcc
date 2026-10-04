@@ -8781,6 +8781,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET)
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	mkdir -p $(TEST_OUT)/optimize
 	$(RCC_TARGET) --target i686-unknown-rinos -O0 -c \
+		-o $(TEST_OUT)/optimize/loop-x86-o0.ro tests/optimizer_loop.c
+	$(RCC_TARGET) --target i686-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/loop-x86-o1.ro tests/optimizer_loop.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O0 -c \
+		-o $(TEST_OUT)/optimize/loop-x64-o0.ro tests/optimizer_loop.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/loop-x64-o1.ro tests/optimizer_loop.c
+	$(RCC_TARGET) --target i686-unknown-rinos -O0 -c \
 		-o $(TEST_OUT)/optimize/x86-o0.ro tests/optimizer_constant.c
 	$(RCC_TARGET) --target i686-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/x86-o1.ro tests/optimizer_constant.c
@@ -8827,6 +8835,22 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/optimizer_run_test-x64 \
 		$(TEST_OUT)/optimize/x86-o0.ro $(TEST_OUT)/optimize/x86-o1.ro \
 		$(TEST_OUT)/optimize/x64-o0.ro $(TEST_OUT)/optimize/x64-o1.ro
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/optimizer_loop_test-x86 \
+		tests/optimizer_loop_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/optimizer_loop_test-x64 \
+		tests/optimizer_loop_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/optimizer_loop_test-x86 \
+		$(TEST_OUT)/optimize/loop-x86-o0.ro \
+		$(TEST_OUT)/optimize/loop-x86-o1.ro \
+		$(TEST_OUT)/optimize/loop-x64-o0.ro \
+		$(TEST_OUT)/optimize/loop-x64-o1.ro
+	$(TEST_OUT)/optimizer_loop_test-x64 \
+		$(TEST_OUT)/optimize/loop-x86-o0.ro \
+		$(TEST_OUT)/optimize/loop-x86-o1.ro \
+		$(TEST_OUT)/optimize/loop-x64-o0.ro \
+		$(TEST_OUT)/optimize/loop-x64-o1.ro
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/optimize/cxx-cleanup-run-x86 \
 		tests/cxx_value_init_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
