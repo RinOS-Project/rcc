@@ -279,6 +279,9 @@
         `.debug_line`を出力し、両archのread/link回帰を追加
   - [x] 最小compile unit／subprogram DIE、`.debug_abbrev`／`.debug_str`、
         `low_pc` relocationを追加し、両archのobject/link回帰へ接続
+  - [x] `DW_TAG_formal_parameter`／`DW_TAG_variable`へ実在するC/C++ stack
+        declarationの名前とEBP/RBP相対`DW_OP_breg` locationを出力し、
+        i686/AMD64 object・RLD link回帰で検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
