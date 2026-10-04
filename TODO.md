@@ -234,6 +234,9 @@
   - [x] 一意なpreheaderを持つ自然ループに対して、純粋typed-SSA命令の
         ループ不変性を支配関係とuse-defで検証してpreheaderへ移動する限定LICMを
         O2/O3へ接続し、移動後のverifierとIR回帰を追加
+  - [x] 副作用のない単純整数識別子／リテラル引数が関数本体で複数回参照される
+        場合も、複雑式のAST共有は行わず安全にO1 inlineし、両archでcall除去と
+        実行結果を回帰検証
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

@@ -70,6 +70,16 @@ int inlined_argument_call(int value)
     return inline_add_one(value);
 }
 
+static int inline_duplicate_value(int value)
+{
+    return value + value;
+}
+
+int inlined_repeated_argument_call(int value)
+{
+    return inline_duplicate_value(value);
+}
+
 static int inline_add_pair(int left, int right)
 {
     return left + right;

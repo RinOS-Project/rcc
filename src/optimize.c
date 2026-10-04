@@ -426,7 +426,16 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         return false;
     }
     for (index = 0u; index < binding_count; ++index) {
-        if (bindings[index].uses > 1u) return false;
+        /* Reusing a side-effect-free arbitrary expression would duplicate
+         * its AST ownership and can make later in-place folds observe the
+         * same node through two parents.  Plain identifiers and literals are
+         * immutable after sema, so they are safe to substitute repeatedly;
+         * keep the conservative call path for more complex expressions. */
+        if (bindings[index].uses > 1u &&
+            bindings[index].argument->kind != EXPR_IDENT &&
+            bindings[index].argument->kind != EXPR_INT_LIT) {
+            return false;
+        }
     }
     {
         Expr* clone = clone_inline_integer_expression(
