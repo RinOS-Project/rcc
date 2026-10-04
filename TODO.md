@@ -221,8 +221,11 @@
   - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
 - [x] 定数条件分岐のSSA branch化、到達不能blockと不要phi入力の除去
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
-  - [x] i686 cdeclの64-bit整数定数式戻り値をEDX:EAXのverified SSA return-pairへ接続し、
-        それ以外のi686 wide-scalar形は明示的フォールバックとして維持
+  - [x] i686 cdeclの64-bit整数を、EDX:EAXのverified SSA return-pair、8-byte引数、
+        local/global load、narrow cast、加減算のcarry/borrow、bitwiseへ接続し、
+        実行回帰で検証
+  - [ ] i686 wide-scalarのcall、比較、shift、mul/div/mod、条件式、完全な
+        first-class two-word SSA value model
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

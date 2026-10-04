@@ -86,23 +86,83 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
     ObjSymbol* symbol;
+    ObjSymbol* parameter_symbol;
+    ObjSymbol* add_symbol;
+    ObjSymbol* carry_symbol;
+    ObjSymbol* subtract_symbol;
+    ObjSymbol* local_symbol;
+    ObjSymbol* narrow_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
         object, "verified_wide_scalar_constant_return");
+    parameter_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_parameter");
+    add_symbol = objfile_find_symbol(object, "verified_wide_scalar_add");
+    carry_symbol = objfile_find_symbol(object, "verified_wide_scalar_carry");
+    subtract_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_subtract");
+    local_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_local");
+    narrow_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_narrow");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
     assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
            symbol->binding == BIND_CODE && symbol->section == 0);
+    assert(parameter_symbol != NULL && parameter_symbol->type == SYM_GLOBAL &&
+           parameter_symbol->binding == BIND_CODE &&
+           parameter_symbol->section == 0);
+    assert(add_symbol != NULL && add_symbol->type == SYM_GLOBAL &&
+           add_symbol->binding == BIND_CODE && add_symbol->section == 0);
+    assert(carry_symbol != NULL && carry_symbol->type == SYM_GLOBAL &&
+           carry_symbol->binding == BIND_CODE && carry_symbol->section == 0);
+    assert(subtract_symbol != NULL &&
+           subtract_symbol->type == SYM_GLOBAL &&
+           subtract_symbol->binding == BIND_CODE &&
+           subtract_symbol->section == 0);
+    assert(local_symbol != NULL && local_symbol->type == SYM_GLOBAL &&
+           local_symbol->binding == BIND_CODE && local_symbol->section == 0);
+    assert(narrow_symbol != NULL && narrow_symbol->type == SYM_GLOBAL &&
+           narrow_symbol->binding == BIND_CODE &&
+           narrow_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
         void* memory = map_text(object, text, &mapping_size);
         unsigned long long (*function)(void);
+        unsigned long long (*parameter_function)(unsigned long long);
+        unsigned long long (*add_function)(unsigned long long);
+        unsigned long long (*carry_function)(unsigned long long);
+        unsigned long long (*subtract_function)(unsigned long long);
+        unsigned long long (*local_function)(unsigned long long);
+        unsigned long long (*narrow_function)(unsigned int);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
         assert(function() == 0x1122334455667788ULL);
+        address = symbol_address(memory, parameter_symbol);
+        memcpy(&parameter_function, &address, sizeof(parameter_function));
+        assert(parameter_function(0x8899aabbccddeeffULL) ==
+               0x8899aabbccddeeffULL);
+        address = symbol_address(memory, add_symbol);
+        memcpy(&add_function, &address, sizeof(add_function));
+        assert(add_function(0x1020304050607080ULL) ==
+               0x1122334455667788ULL);
+        address = symbol_address(memory, carry_symbol);
+        memcpy(&carry_function, &address, sizeof(carry_function));
+        assert(carry_function(1ULL) == 0x0000000100000000ULL);
+        address = symbol_address(memory, subtract_symbol);
+        memcpy(&subtract_function, &address, sizeof(subtract_function));
+        assert(subtract_function(0x0000000100000000ULL) ==
+               0xffffffffULL);
+        address = symbol_address(memory, local_symbol);
+        memcpy(&local_function, &address, sizeof(local_function));
+        assert(local_function(0x8899aabbccddeeffULL) ==
+               0x8899aabbccddeeffULL);
+        address = symbol_address(memory, narrow_symbol);
+        memcpy(&narrow_function, &address, sizeof(narrow_function));
+        assert(narrow_function(0xdeadbeefu) == 0x00000000deadbeefULL);
         assert(munmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

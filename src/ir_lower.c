@@ -26,6 +26,13 @@ typedef struct {
     bool valid;
 } RccIrLowerValue;
 
+typedef struct {
+    RccIrLowerValue low;
+    RccIrLowerValue high;
+    bool is_unsigned;
+    bool valid;
+} RccIrLowerWideValue;
+
 typedef struct RccIrLowerSwitchLabel {
     const Stmt* statement;
     RccIrBlock* block;
@@ -61,6 +68,13 @@ static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement);
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
+static bool lower_i686_wide_scalar_type(const Type* type);
+static bool lower_wide_scalar_expression(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result);
+static bool lower_wide_scalar_store(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    RccIrLowerWideValue value);
 static bool lower_branch(RccIrLowerContext* context,
                          RccIrBlockId target);
 static bool lower_conditional_branch(RccIrLowerContext* context,
@@ -691,6 +705,238 @@ static bool lower_store_lvalue(RccIrLowerContext* context,
                                RccIrLowerValue value) {
     RccIrLowerValue address = lower_lvalue_address(context, expression);
     return lower_store_address(context, address, value);
+}
+
+static bool lower_i686_wide_scalar_type(const Type* type) {
+    return g_opts.target_arch == ARCH_X86 && type &&
+        type_is_integer((Type*)type) && type->size == 8;
+}
+
+static bool lower_wide_scalar_constant(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    int64_t constant;
+    uint64_t bits;
+    RccIrType word_type = rcc_ir_type_integer(32u);
+    if (!expression || !result || !expr_eval_integer_constant(
+            (Expr*)expression, &constant)) return false;
+    bits = (uint64_t)constant;
+    if (expression->type && type_is_integer(expression->type) &&
+        expression->type->size > 0 && expression->type->size < 8) {
+        unsigned width = (unsigned)expression->type->size * 8u;
+        uint64_t mask = (UINT64_C(1) << width) - 1u;
+        bits &= mask;
+        if (!expression->type->is_unsigned &&
+            (bits & (UINT64_C(1) << (width - 1u))) != 0u) {
+            bits |= ~mask;
+        }
+    }
+    result->low = lower_integer_constant(
+        context, word_type, true, (uint32_t)bits);
+    result->high = lower_integer_constant(
+        context, word_type, true, (uint32_t)(bits >> 32u));
+    result->is_unsigned = expression->type && expression->type->is_unsigned;
+    result->valid = result->low.valid && result->high.valid;
+    return result->valid;
+}
+
+static bool lower_wide_scalar_load(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    bool is_unsigned, RccIrLowerWideValue* result) {
+    RccIrLowerValue high_address;
+    if (!result || !address.valid ||
+        address.type.kind != RCC_IR_TYPE_POINTER) return false;
+    high_address = lower_byte_offset_address(context, address, 4u);
+    result->low = lower_load_address(context, address, type_uint);
+    result->high = lower_load_address(context, high_address, type_uint);
+    result->is_unsigned = is_unsigned;
+    result->valid = result->low.valid && result->high.valid;
+    return result->valid;
+}
+
+static bool lower_wide_scalar_store(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    RccIrLowerWideValue value) {
+    RccIrLowerValue high_address;
+    if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER ||
+        !value.valid) return false;
+    high_address = lower_byte_offset_address(context, address, 4u);
+    return lower_store_address(context, address, value.low) &&
+        lower_store_address(context, high_address, value.high);
+}
+
+static bool lower_wide_scalar_binary(
+    RccIrLowerContext* context, ExprKind kind,
+    RccIrLowerWideValue left, RccIrLowerWideValue right,
+    bool is_unsigned, RccIrLowerWideValue* result) {
+    RccIrOpcode opcode;
+    RccIrValue operands[2];
+    RccIrInstruction* low_operation;
+    RccIrInstruction* high_operation;
+    RccIrInstruction* carry_operation;
+    RccIrInstruction* final_high;
+    RccIrLowerValue carry;
+    if (!result || !left.valid || !right.valid) return false;
+    switch (kind) {
+        case EXPR_ADD: opcode = RCC_IR_ADD; break;
+        case EXPR_SUB: opcode = RCC_IR_SUB; break;
+        case EXPR_BITAND: opcode = RCC_IR_AND; break;
+        case EXPR_BITOR: opcode = RCC_IR_OR; break;
+        case EXPR_BITXOR: opcode = RCC_IR_XOR; break;
+        default: return false;
+    }
+    operands[0] = left.low.value;
+    operands[1] = right.low.value;
+    low_operation = lower_append(
+        context, opcode, rcc_ir_type_integer(32u), operands, 2u,
+        NULL, 0u);
+    if (!low_operation) return false;
+    operands[0] = left.high.value;
+    operands[1] = right.high.value;
+    high_operation = lower_append(
+        context, opcode, rcc_ir_type_integer(32u), operands, 2u,
+        NULL, 0u);
+    if (!high_operation) return false;
+    if (kind == EXPR_ADD || kind == EXPR_SUB) {
+        operands[0] = kind == EXPR_ADD
+            ? low_operation->result : left.low.value;
+        operands[1] = kind == EXPR_ADD
+            ? left.low.value : right.low.value;
+        carry_operation = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u), operands, 2u,
+            NULL, 0u);
+        if (!carry_operation) return false;
+        rcc_ir_set_predicate(carry_operation, RCC_IR_ICMP_ULT);
+        carry = lower_value(
+            carry_operation->result, rcc_ir_type_integer(1u), true);
+        carry = lower_cast(context, carry, type_uint);
+        if (!carry.valid) return false;
+        operands[0] = high_operation->result;
+        operands[1] = carry.value;
+        final_high = lower_append(
+            context, kind == EXPR_ADD ? RCC_IR_ADD : RCC_IR_SUB,
+            rcc_ir_type_integer(32u), operands, 2u, NULL, 0u);
+    } else {
+        final_high = high_operation;
+    }
+    if (!final_high) return false;
+    result->low = lower_value(
+        low_operation->result, rcc_ir_type_integer(32u), true);
+    result->high = lower_value(
+        final_high->result, rcc_ir_type_integer(32u), true);
+    result->is_unsigned = is_unsigned;
+    result->valid = true;
+    return true;
+}
+
+static bool lower_wide_scalar_expression(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    RccIrLowerValue address;
+    RccIrLowerValue scalar;
+    RccIrLowerValue shift;
+    RccIrInstruction* high_operation;
+    RccIrLowerWideValue left;
+    RccIrLowerWideValue right;
+    if (result) memset(result, 0, sizeof(*result));
+    if (!context || !expression || !result || context->unsupported ||
+        !expression->type || !type_is_integer(expression->type) ||
+        expression->type->size <= 0) return false;
+    if (lower_wide_scalar_constant(context, expression, result)) return true;
+    if (expression->kind == EXPR_IDENT || expression->kind == EXPR_DEREF ||
+        expression->kind == EXPR_INDEX || expression->kind == EXPR_MEMBER ||
+        expression->kind == EXPR_PTR_MEMBER) {
+        if (!lower_i686_wide_scalar_type(expression->type)) return false;
+        address = lower_lvalue_address(context, expression);
+        return lower_wide_scalar_load(
+            context, address, expression->type->is_unsigned, result);
+    }
+    if (expression->kind == EXPR_CAST) {
+        if (!expression->cast_expr || !expression->cast_expr->type) {
+            return false;
+        }
+        if (lower_i686_wide_scalar_type(expression->cast_expr->type)) {
+            return lower_wide_scalar_expression(
+                context, expression->cast_expr, result);
+        }
+        if (expression->cast_expr->type &&
+            type_is_integer(expression->cast_expr->type) &&
+            expression->cast_expr->type->size > 0 &&
+            expression->cast_expr->type->size <= 4 &&
+            lower_i686_wide_scalar_type(expression->type)) {
+            scalar = lower_expression(context, expression->cast_expr);
+            if (!scalar.valid) return false;
+            scalar = lower_cast(
+                context, scalar,
+                scalar.is_unsigned ? type_uint : type_int);
+            if (!scalar.valid) return false;
+            result->low = scalar;
+            if (scalar.is_unsigned) {
+                result->high = lower_integer_constant(
+                    context, rcc_ir_type_integer(32u), true, 0u);
+            } else {
+                shift = lower_integer_constant(
+                    context, rcc_ir_type_integer(32u), true, 31u);
+                if (!shift.valid) return false;
+                {
+                    RccIrValue operands[2] = {
+                        scalar.value, shift.value
+                    };
+                    high_operation = lower_append(
+                        context, RCC_IR_ASHR, rcc_ir_type_integer(32u),
+                        operands, 2u, NULL, 0u);
+                }
+                if (!high_operation) return false;
+                result->high = lower_value(
+                    high_operation->result, rcc_ir_type_integer(32u), true);
+            }
+            result->is_unsigned = expression->type->is_unsigned;
+            result->valid = result->low.valid && result->high.valid;
+            return result->valid;
+        }
+        return false;
+    }
+    if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
+         expression->kind == EXPR_BITAND || expression->kind == EXPR_BITOR ||
+         expression->kind == EXPR_BITXOR) &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_lhs, &left) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_rhs, &right)) {
+        return lower_wide_scalar_binary(
+            context, expression->kind, left, right,
+            expression->type->is_unsigned, result);
+    }
+    if (expression->kind == EXPR_NEG &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_wide_scalar_expression(
+            context, expression->unary_operand, &right)) {
+        left.low = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        left.high = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        left.is_unsigned = true;
+        left.valid = left.low.valid && left.high.valid;
+        return lower_wide_scalar_binary(
+            context, EXPR_SUB, left, right,
+            expression->type->is_unsigned, result);
+    }
+    if (expression->kind == EXPR_BITNOT &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_wide_scalar_expression(
+            context, expression->unary_operand, &right)) {
+        left.low = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, UINT32_MAX);
+        left.high = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, UINT32_MAX);
+        left.is_unsigned = true;
+        left.valid = left.low.valid && left.high.valid;
+        return lower_wide_scalar_binary(
+            context, EXPR_BITXOR, left, right,
+            expression->type->is_unsigned, result);
+    }
+    return false;
 }
 
 static RccIrOpcode lower_binary_opcode(ExprKind kind, bool is_unsigned) {
@@ -2492,6 +2738,8 @@ static bool lower_abi_parameter_layout(
                 chunk_size;
             if (g_opts.target_arch == ARCH_X64 && count < 6u &&
                 units > 6u - count) return false;
+        } else if (lower_i686_wide_scalar_type(parameter->type)) {
+            units = 2u;
         } else if (!lower_abi_native_scalar_type(
                        parameter->type, &scalar_type)) {
             return false;
@@ -2520,6 +2768,14 @@ static bool lower_abi_parameter_layout(
             }
         } else {
             RccIrType scalar_type;
+            if (lower_i686_wide_scalar_type(parameter->type)) {
+                if (types) {
+                    types[cursor] = rcc_ir_type_integer(32u);
+                    types[cursor + 1u] = rcc_ir_type_integer(32u);
+                }
+                cursor += 2u;
+                continue;
+            }
             if (!lower_abi_native_scalar_type(
                     parameter->type, &scalar_type)) {
                 rcc_free(types);
@@ -3105,6 +3361,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         declaration->type->kind == TYPE_STRUCT;
     bool is_union = declaration && declaration->type &&
         declaration->type->kind == TYPE_UNION;
+    bool wide_scalar = declaration &&
+        lower_i686_wide_scalar_type(declaration->type);
     if (!declaration || declaration->kind != DECL_VAR ||
         declaration->var_is_global || declaration->var_is_thread_local ||
         declaration->storage == STORAGE_EXTERN ||
@@ -3119,9 +3377,9 @@ static bool lower_declaration(RccIrLowerContext* context,
                  !lower_struct_type_supported(declaration->type)) ||
                 (is_union &&
                  !lower_union_type_supported(declaration->type)))
-             : !lower_type(declaration->type, &type)) ||
+             : (!wide_scalar && !lower_type(declaration->type, &type))) ||
         (!is_array && !is_struct && !is_union &&
-         type.kind == RCC_IR_TYPE_VOID)) {
+         !wide_scalar && type.kind == RCC_IR_TYPE_VOID)) {
         context->unsupported = true;
         return false;
     }
@@ -3131,7 +3389,7 @@ static bool lower_declaration(RccIrLowerContext* context,
     rcc_ir_set_immediate(allocation,
                          declaration->type->size > 0
                              ? (uint64_t)declaration->type->size : 1u);
-    if (is_array || is_struct || is_union) {
+    if (is_array || is_struct || is_union || wide_scalar) {
         type = rcc_ir_type_pointer(0u);
     }
     if (!lower_add_local(context, declaration, allocation->result, type)) {
@@ -3152,6 +3410,20 @@ static bool lower_declaration(RccIrLowerContext* context,
         return lower_initialize_union_storage(
             context, allocation->result,
             declaration->type, declaration->var_init);
+    }
+    if (wide_scalar && declaration->var_init) {
+        RccIrLowerWideValue initializer;
+        if (!lower_wide_scalar_expression(
+                context, declaration->var_init, &initializer) ||
+            !lower_wide_scalar_store(
+                context,
+                lower_value(allocation->result,
+                            rcc_ir_type_pointer(0u), true),
+                initializer)) {
+            context->unsupported = true;
+            return false;
+        }
+        return true;
     }
     if (declaration->var_init) {
         RccIrLowerValue initializer;
@@ -3812,38 +4084,25 @@ static bool lower_statement(RccIrLowerContext* context,
                                   rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
                     return false;
                 }
-            } else if (g_opts.target_arch != ARCH_X64 &&
-                       context->ast_return_type &&
-                       type_is_integer((Type*)context->ast_return_type) &&
-                       context->ast_return_type->size == 8) {
-                RccIrType word_type = rcc_ir_type_integer(32u);
-                RccIrLowerValue low;
-                RccIrLowerValue high;
+            } else if (lower_i686_wide_scalar_type(
+                           context->ast_return_type)) {
+                RccIrLowerWideValue value;
                 RccIrValue return_values[2];
-                int64_t constant_value;
-                uint64_t value;
                 RccIrInstruction* return_instruction;
                 /* i686 cdecl returns an unsigned/signed 64-bit scalar in
-                 * EDX:EAX.  Keep this verified-SSA bridge deliberately
-                 * limited to side-effect-free integer constant expressions
-                 * until the two-word value model is available for non-
-                 * constant expressions and parameters. */
+                 * EDX:EAX.  The verified bridge represents the value as two
+                 * real i32 SSA words and only accepts operations for which
+                 * carry/borrow and memory layout are modeled explicitly. */
                 if (!statement->return_val ||
-                    !expr_eval_integer_constant(
-                        statement->return_val, &constant_value)) {
+                    !lower_wide_scalar_expression(
+                        context, statement->return_val, &value)) {
                     context->unsupported = true;
                     return false;
                 }
-                value = (uint64_t)constant_value;
-                low = lower_integer_constant(
-                    context, word_type, true, (uint32_t)value);
-                high = lower_integer_constant(
-                    context, word_type, true, (uint32_t)(value >> 32u));
-                if (!low.valid || !high.valid) return false;
                 if (!lower_cxx_exception_release_frame(
                         context, context->active_exception_frame)) return false;
-                return_values[0] = low.value;
-                return_values[1] = high.value;
+                return_values[0] = value.low.value;
+                return_values[1] = value.high.value;
                 return_instruction = lower_append(
                     context, RCC_IR_RETURN, rcc_ir_type_void(),
                     return_values, 2u, NULL, 0u);
@@ -3937,19 +4196,23 @@ static bool lower_parameters(RccIrLowerContext* context,
         RccIrInstruction* allocation;
         RccIrValue operands[2];
         bool aggregate = item && lower_abi_is_aggregate(item->type);
+        bool wide_scalar = item && lower_i686_wide_scalar_type(item->type);
         size_t units = aggregate
             ? ((size_t)item->type->size + lower_abi_chunk_size() - 1u) /
                 lower_abi_chunk_size()
-            : 1u;
+            : (wide_scalar ? 2u : 1u);
         size_t allocation_size = aggregate
             ? units * lower_abi_chunk_size()
-            : (item && item->type && item->type->size > 0
-                   ? (size_t)item->type->size : 1u);
+            : (wide_scalar ? 8u
+               : (item && item->type && item->type->size > 0
+                   ? (size_t)item->type->size : 1u));
         if (!item || item->kind != DECL_PARAM ||
             index > context->function->parameter_count ||
             units > context->function->parameter_count - index ||
             (aggregate
                  ? !lower_abi_aggregate_supported(item->type)
+                 : wide_scalar
+                 ? false
                  : !lower_abi_native_scalar_type(item->type, &type))) {
             context->unsupported = true;
             return false;
@@ -3959,7 +4222,7 @@ static bool lower_parameters(RccIrLowerContext* context,
                                   NULL, 0u);
         if (!allocation) return false;
         rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
-        if (aggregate) type = rcc_ir_type_pointer(0u);
+        if (aggregate || wide_scalar) type = rcc_ir_type_pointer(0u);
         if (!lower_add_local(context, item, allocation->result, type)) {
             context->unsupported = true;
             return false;
@@ -3980,6 +4243,19 @@ static bool lower_parameters(RccIrLowerContext* context,
                 }
                 ++index;
             }
+        } else if (wide_scalar) {
+            RccIrLowerValue base = lower_value(
+                allocation->result, rcc_ir_type_pointer(0u), true);
+            for (size_t unit = 0u; unit < 2u; ++unit) {
+                RccIrLowerValue address = lower_byte_offset_address(
+                    context, base, (uint64_t)(unit * 4u));
+                RccIrLowerValue value = lower_value(
+                    context->function->parameters[index + unit],
+                    context->function->parameter_types[index + unit], true);
+                if (!address.valid || !lower_store_address(
+                        context, address, value)) return false;
+            }
+            index += 2u;
         } else {
             operands[0] = context->function->parameters[index];
             operands[1] = allocation->result;
