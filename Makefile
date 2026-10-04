@@ -9103,7 +9103,7 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/bswap64-x86.ro \
 		tests/verified_backend_bswap64.c \
 		>$(TEST_OUT)/verified-backend/bswap64-x86.log
-	$(GREP) -F -q "Verified backend fallback: function 'verified_builtin_bswap64' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bswap64-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bswap64-x64.ro \

@@ -975,6 +975,42 @@ static RccIrLowerValue lower_wide_scalar_word_operation(
                        rcc_ir_type_integer(32u), true);
 }
 
+static RccIrLowerValue lower_wide_scalar_bswap_word(
+    RccIrLowerContext* context, RccIrLowerValue source) {
+    static const uint32_t masks[] = {
+        UINT32_C(0x000000ff), UINT32_C(0x0000ff00),
+        UINT32_C(0x00ff0000), UINT32_C(0xff000000)
+    };
+    static const unsigned shifts[] = {24u, 8u, 8u, 24u};
+    static const RccIrOpcode opcodes[] = {
+        RCC_IR_SHL, RCC_IR_SHL, RCC_IR_LSHR, RCC_IR_LSHR
+    };
+    RccIrLowerValue result = lower_invalid_value();
+    for (size_t index = 0u; index < sizeof(masks) / sizeof(masks[0]);
+         ++index) {
+        RccIrLowerValue mask = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, masks[index]);
+        RccIrLowerValue shift = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, shifts[index]);
+        RccIrLowerValue masked;
+        RccIrLowerValue shifted;
+        if (!mask.valid || !shift.valid) return lower_invalid_value();
+        masked = lower_wide_scalar_word_operation(
+            context, RCC_IR_AND, source, mask);
+        shifted = lower_wide_scalar_word_operation(
+            context, opcodes[index], masked, shift);
+        if (!shifted.valid) return lower_invalid_value();
+        if (!result.valid) {
+            result = shifted;
+        } else {
+            result = lower_wide_scalar_word_operation(
+                context, RCC_IR_OR, result, shifted);
+            if (!result.valid) return lower_invalid_value();
+        }
+    }
+    return result;
+}
+
 static RccIrLowerWideValue lower_wide_scalar_word_pair(
     RccIrLowerContext* context, RccIrLowerValue word) {
     RccIrLowerWideValue result;
@@ -1809,6 +1845,29 @@ static bool lower_wide_scalar_expression(
         lower_i686_wide_scalar_type(expression->type)) {
         return lower_wide_scalar_conditional_expression(
             context, expression, result);
+    }
+    if (expression->kind == EXPR_CALL &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__builtin_bswap64") == 0) {
+        const ExprList* argument = expression->call_args;
+        RccIrLowerWideValue source;
+        if (!argument || !argument->expr || argument->next ||
+            !lower_i686_wide_scalar_type(argument->expr->type) ||
+            !lower_wide_scalar_expression(
+                context, argument->expr, &source)) {
+            return false;
+        }
+        result->low = lower_wide_scalar_bswap_word(
+            context, source.high);
+        result->high = lower_wide_scalar_bswap_word(
+            context, source.low);
+        result->is_unsigned = expression->type->is_unsigned;
+        result->valid = result->low.valid && result->high.valid;
+        return result->valid;
     }
     if (expression->kind == EXPR_CALL &&
         lower_i686_wide_scalar_type(expression->type) &&
