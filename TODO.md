@@ -586,3 +586,6 @@
 - [x] Make native Windows TLS negative checks use the shared shell-neutral
       expected-failure helper, retaining RIN/RLL generation, RLD linking, and
       invalid DRV diagnostics.
+- [x] Execute native Windows x86_64 atomic-builtin output through VirtualAlloc,
+      Win32 threads, and an explicit SysV-ABI function-pointer adapter, while
+      retaining i686 object inspection and negative diagnostics.
