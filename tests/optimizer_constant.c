@@ -60,6 +60,16 @@ int inlined_constant_call(void)
     return inline_constant_leaf();
 }
 
+static int inline_add_one(int value)
+{
+    return value + 1;
+}
+
+int inlined_argument_call(int value)
+{
+    return inline_add_one(value);
+}
+
 int algebraic_integer_identities(int value)
 {
     return (((value + 0) * 1) - 0) / 1;

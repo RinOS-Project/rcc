@@ -93,6 +93,10 @@ static void verify_smaller(const char* unoptimized_path,
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_constant_call",
                                    0xe8u));
+    assert(function_contains_byte(unoptimized, "inlined_argument_call",
+                                  0xe8u));
+    assert(!function_contains_byte(optimized, "inlined_argument_call",
+                                   0xe8u));
     assert(function_extent(optimized, "algebraic_integer_identities") <
            function_extent(unoptimized, "algebraic_integer_identities"));
     assert(function_extent(optimized, "algebraic_integer_zero") <
@@ -184,6 +188,8 @@ int main(int argc, char** argv)
             object, "algebraic_integer_identities");
         ObjSymbol* algebraic_integer_zero_symbol = function_symbol(
             object, "algebraic_integer_zero");
+        ObjSymbol* inlined_argument_call_symbol = function_symbol(
+            object, "inlined_argument_call");
         ObjSymbol* preserved_algebraic_side_effect_symbol = function_symbol(
             object, "preserved_algebraic_side_effect");
         ObjSymbol* removed_after_return_symbol = function_symbol(
@@ -264,6 +270,7 @@ int main(int argc, char** argv)
         int (*folded_mixed_unsigned_comparison)(void);
         int (*algebraic_integer_identities)(int);
         int (*algebraic_integer_zero)(int);
+        int (*inlined_argument_call)(int);
         int (*preserved_algebraic_side_effect)(int*);
         int (*removed_after_return)(int*);
         int (*removed_after_goto)(int*);
@@ -343,6 +350,9 @@ int main(int argc, char** argv)
         address = mapping + algebraic_integer_zero_symbol->value;
         memcpy(&algebraic_integer_zero, &address,
                sizeof(algebraic_integer_zero));
+        address = mapping + inlined_argument_call_symbol->value;
+        memcpy(&inlined_argument_call, &address,
+               sizeof(inlined_argument_call));
         address = mapping + preserved_algebraic_side_effect_symbol->value;
         memcpy(&preserved_algebraic_side_effect, &address,
                sizeof(preserved_algebraic_side_effect));
@@ -453,6 +463,7 @@ int main(int argc, char** argv)
         assert(folded_mixed_unsigned_comparison() == 0);
         assert(algebraic_integer_identities(-17) == -17);
         assert(algebraic_integer_zero(123) == 7);
+        assert(inlined_argument_call(-8) == -7);
         value = 10;
         assert(preserved_algebraic_side_effect(&value) == 0);
         assert(value == 11);

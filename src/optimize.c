@@ -152,14 +152,132 @@ static bool single_integer_return(const Stmt* statement, int64_t* value) {
     return single_integer_return(item->stmt, value);
 }
 
-static bool inline_side_effect_free_integer_call(Expr* expression) {
+static const Expr* single_return_expression(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return NULL;
+    if (statement->kind == STMT_RETURN) return statement->return_val;
+    if (statement->kind != STMT_BLOCK) return NULL;
+    item = statement->block_stmts;
+    if (!item || !item->stmt || item->next) return NULL;
+    return single_return_expression(item->stmt);
+}
+
+static bool inline_integer_expression_shape(const Expr* expression,
+                                            const Decl* parameter,
+                                            size_t* parameter_uses) {
+    if (!expression || !parameter || !parameter_uses) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+            return true;
+        case EXPR_IDENT:
+            if (expression->ident_decl != parameter) return false;
+            ++*parameter_uses;
+            return true;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return inline_integer_expression_shape(expression->unary_operand,
+                                                   parameter,
+                                                   parameter_uses);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return inline_integer_expression_shape(expression->binary_lhs,
+                                                   parameter,
+                                                   parameter_uses) &&
+                   inline_integer_expression_shape(expression->binary_rhs,
+                                                   parameter,
+                                                   parameter_uses);
+        default:
+            return false;
+    }
+}
+
+static Expr* clone_inline_integer_expression(const Expr* expression,
+                                             const Decl* parameter,
+                                             Expr* argument) {
+    Expr* clone;
+    if (!expression || !parameter || !argument) return NULL;
+    if (expression->kind == EXPR_IDENT) {
+        return expression->ident_decl == parameter ? argument : NULL;
+    }
+    if (expression->kind == EXPR_INT_LIT) return (Expr*)expression;
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            clone = expr_unary(
+                expression->kind,
+                clone_inline_integer_expression(expression->unary_operand,
+                                                parameter, argument),
+                expression->loc);
+            if (!clone->unary_operand) return NULL;
+            clone->type = expression->type;
+            return clone;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR: {
+            Expr* left = clone_inline_integer_expression(
+                expression->binary_lhs, parameter, argument);
+            Expr* right = clone_inline_integer_expression(
+                expression->binary_rhs, parameter, argument);
+            if (!left || !right) return NULL;
+            clone = expr_binary(expression->kind, left, right,
+                                expression->loc);
+            clone->type = expression->type;
+            return clone;
+        }
+        default:
+            return NULL;
+    }
+}
+
+static bool inline_side_effect_free_integer_call(Expr** expression_out) {
+    Expr* expression;
     Decl* function;
+    Decl* parameter;
+    DeclList* parameters;
+    ExprList* arguments;
+    const Expr* returned;
+    size_t parameter_uses = 0u;
     int64_t value;
-    if (!expression || expression->kind != EXPR_CALL ||
+    if (!expression_out || !*expression_out) return false;
+    expression = *expression_out;
+    if (expression->kind != EXPR_CALL ||
         !expression->call_func ||
         expression->call_func->kind != EXPR_IDENT ||
         expression->call_func->ident_decl == NULL ||
-        expression->call_args != NULL || expression->call_new_args != NULL ||
+        expression->call_new_args != NULL ||
         expression->call_new_count != NULL || expression->call_is_new ||
         expression->call_is_delete || expression->call_is_virtual ||
         expression->cxx_close_call != NULL) {
@@ -167,12 +285,43 @@ static bool inline_side_effect_free_integer_call(Expr* expression) {
     }
     function = expression->call_func->ident_decl;
     if (function->kind != DECL_FUNC || !function->func_body ||
-        function->func_params != NULL || function->func_this_param != NULL ||
-        !type_is_integer(expression->type) ||
-        !single_integer_return(function->func_body, &value)) {
+        function->func_this_param != NULL || !type_is_integer(expression->type)) {
         return false;
     }
-    replace_integer(expression, value);
+    parameters = function->func_params;
+    arguments = expression->call_args;
+    if (!parameters) {
+        if (arguments != NULL ||
+            !single_integer_return(function->func_body, &value)) {
+            return false;
+        }
+        replace_integer(expression, value);
+        return true;
+    }
+    if (parameters->next || !parameters->decl || !arguments ||
+        arguments->next || !arguments->expr ||
+        parameters->decl->kind != DECL_PARAM ||
+        !type_is_integer(parameters->decl->type) ||
+        !type_is_compatible(parameters->decl->type, arguments->expr->type) ||
+        expression_has_side_effect(arguments->expr)) {
+        return false;
+    }
+    parameter = parameters->decl;
+    returned = single_return_expression(function->func_body);
+    if (!returned || !type_is_integer(returned->type) ||
+        !type_is_compatible(returned->type, expression->type) ||
+        !inline_integer_expression_shape(returned, parameter,
+                                         &parameter_uses) ||
+        parameter_uses > 1u) {
+        return false;
+    }
+    {
+        Expr* clone = clone_inline_integer_expression(
+            returned, parameter, arguments->expr);
+        if (!clone) return false;
+        clone->type = expression->type;
+        *expression_out = clone;
+    }
     return true;
 }
 
@@ -1138,7 +1287,7 @@ static void optimize_expr(Expr** expression) {
             if (value->cxx_close_call) {
                 optimize_expr(&value->cxx_close_call->cleanup);
             }
-            if (inline_side_effect_free_integer_call(value)) return;
+            if (inline_side_effect_free_integer_call(expression)) return;
             break;
         case EXPR_INDEX:
             optimize_expr(&value->index_base);
