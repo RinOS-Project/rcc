@@ -334,6 +334,8 @@
   - [x] `--i`／`i -= 1`／`i = i - 1`をdescending unit-step inductionとして
         signed／unsignedのzero-trip／2〜4-trip proofへ接続し、両archの
         code-sizeと実行回帰を追加
+  - [x] 定数境界の`i != bound`をunit-step inductionのzero-trip／2〜4-trip
+        proofへ接続し、正方向・逆方向の両arch code-size／実行回帰を追加
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

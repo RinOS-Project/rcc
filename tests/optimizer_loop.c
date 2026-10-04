@@ -107,6 +107,24 @@ int loop_descending_two_unsigned(void)
     return result;
 }
 
+int loop_not_equal_two(void)
+{
+    int result = 0;
+    for (unsigned index = 0u; index != 2u; ++index) {
+        result += 53;
+    }
+    return result;
+}
+
+int loop_not_equal_descending_two(void)
+{
+    int result = 0;
+    for (int index = 2; index != 0; index -= 1) {
+        result += 59;
+    }
+    return result;
+}
+
 int loop_constant_three_le(void)
 {
     int result = 0;

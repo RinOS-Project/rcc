@@ -71,6 +71,10 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "loop_descending_assignment_two"));
     assert(function_extent(optimized, "loop_descending_two_unsigned") <
            function_extent(unoptimized, "loop_descending_two_unsigned"));
+    assert(function_extent(optimized, "loop_not_equal_two") <
+           function_extent(unoptimized, "loop_not_equal_two"));
+    assert(function_extent(optimized, "loop_not_equal_descending_two") <
+           function_extent(unoptimized, "loop_not_equal_descending_two"));
     /* Unrolling three iterations can increase code size on this backend;
      * semantic execution below is the regression check for that case. */
     assert(function_extent(optimized, "loop_constant_three_le") > 0);
@@ -115,6 +119,10 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_descending_assignment_two");
         ObjSymbol* descending_two_unsigned_symbol = objfile_find_symbol(
             optimized, "loop_descending_two_unsigned");
+        ObjSymbol* not_equal_two_symbol = objfile_find_symbol(
+            optimized, "loop_not_equal_two");
+        ObjSymbol* not_equal_descending_two_symbol = objfile_find_symbol(
+            optimized, "loop_not_equal_descending_two");
         ObjSymbol* three_le_symbol = objfile_find_symbol(
             optimized, "loop_constant_three_le");
         ObjSymbol* zero_symbol = objfile_find_symbol(
@@ -142,6 +150,8 @@ static void verify_pair(const char* unoptimized_path,
         int (*descending_two_function)(void);
         int (*descending_assignment_two_function)(void);
         int (*descending_two_unsigned_function)(void);
+        int (*not_equal_two_function)(void);
+        int (*not_equal_descending_two_function)(void);
         int (*three_le_function)(void);
         int (*zero_function)(void);
         int (*zero_le_function)(void);
@@ -157,6 +167,8 @@ static void verify_pair(const char* unoptimized_path,
                descending_two_symbol != NULL &&
                descending_assignment_two_symbol != NULL &&
                descending_two_unsigned_symbol != NULL &&
+               not_equal_two_symbol != NULL &&
+               not_equal_descending_two_symbol != NULL &&
                three_le_symbol != NULL && zero_symbol != NULL &&
                zero_le_symbol != NULL && zero_unsigned_symbol != NULL &&
                do_zero_symbol != NULL && do_zero_continue_symbol != NULL &&
@@ -195,6 +207,11 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + descending_two_unsigned_symbol->value;
         memcpy(&descending_two_unsigned_function, &address,
                sizeof(descending_two_unsigned_function));
+        address = mapping + not_equal_two_symbol->value;
+        memcpy(&not_equal_two_function, &address, sizeof(not_equal_two_function));
+        address = mapping + not_equal_descending_two_symbol->value;
+        memcpy(&not_equal_descending_two_function, &address,
+               sizeof(not_equal_descending_two_function));
         address = mapping + three_le_symbol->value;
         memcpy(&three_le_function, &address, sizeof(three_le_function));
         address = mapping + zero_symbol->value;
@@ -222,6 +239,8 @@ static void verify_pair(const char* unoptimized_path,
         assert(descending_two_function() == 74);
         assert(descending_assignment_two_function() == 94);
         assert(descending_two_unsigned_function() == 82);
+        assert(not_equal_two_function() == 106);
+        assert(not_equal_descending_two_function() == 118);
         assert(three_le_function() == 21);
         assert(zero_function() == 5);
         assert(zero_le_function() == 7);
