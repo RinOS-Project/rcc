@@ -1886,6 +1886,20 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/start-x64.o \
 		$(TEST_OUT)/cxx-function-template-overloads/x64.o
 	$(TEST_OUT)/cxx-function-template-overloads/x64
+	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro \
+		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
+		>$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "ambiguous function template overload for 'select_template'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro \
+		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
+		>$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log 2>&1; status=$$?; set -e; \
+		test $$status -ne 0
+	grep -q "ambiguous function template overload for 'select_template'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	@echo "RCC++ function-template overload and expression-deduction tests completed"
 
 test-cxx-function-template-references: $(RCXX_TARGET)

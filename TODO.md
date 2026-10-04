@@ -172,6 +172,10 @@
         更新し、浮動小数点promotionと直交した変換列の曖昧性をi686/AMD64で
         回帰検証。テンプレート候補の全partial orderingと標準の全conversion
         rankは未完了
+  - [x] bounded function-template overload candidatesで固定・非依存関数
+        parameterの標準変換をdeduction後のviabilityへ分離し、候補間の
+        conversion vectorを引数ごとに比較。直交したテンプレート候補の
+        ambiguityと既存の両arch実行を回帰検証
   - [ ] 標準C++の全conversion rank、ADL、two-phase lookup互換性
 - [x] bounded templates、concepts、constexpr/consteval、lambda
   - [x] bounded type/non-type parameter packs、pack expansion、fold expression、

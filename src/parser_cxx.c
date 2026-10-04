@@ -9026,6 +9026,39 @@ static Type* cxx_parser_template_deduction_argument(Type* pattern,
     return adjusted;
 }
 
+static bool cxx_function_template_type_contains_parameter(
+    CxxTemplate* tmpl, Type* type) {
+    if (!tmpl || !type) return false;
+    if (type->cxx_dependent) {
+        return true;
+    }
+    if (type->kind == TYPE_STRUCT && type->tag) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            if (tmpl->params[index].kind == TPARAM_TYPE &&
+                tmpl->params[index].name &&
+                strcmp(tmpl->params[index].name, type->tag) == 0) {
+                return true;
+            }
+        }
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        return cxx_function_template_type_contains_parameter(tmpl,
+                                                              type->base);
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (cxx_function_template_type_contains_parameter(tmpl,
+                                                           type->ret_type)) {
+            return true;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_function_template_type_contains_parameter(
+                    tmpl, parameter->type)) return true;
+        }
+    }
+    return false;
+}
+
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target);
 
@@ -9543,7 +9576,11 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 tmpl, parameter->decl->type,
                 cxx_parser_template_deduction_argument(
                     parameter->decl->type, deduction_actual), template_arguments,
-                template_values, template_value_present, specificity)) {
+                template_values, template_value_present, specificity) &&
+            (cxx_function_template_type_contains_parameter(
+                 tmpl, parameter->decl->type) ||
+             cxx_parser_template_conversion_rank(
+                 argument->expr, parameter->decl->type) < 0)) {
             if (report_errors) {
                 rcc_error(argument->expr->loc,
                           "function template argument type does not match its "
@@ -9912,8 +9949,8 @@ typedef struct CxxFunctionTemplateMatch {
     bool value_present[32];
     int argument_count;
     int specificity;
-    int conversion_total;
-    int conversion_worst;
+    int conversion_ranks[32];
+    int conversion_rank_count;
     Decl* instance;
 } CxxFunctionTemplateMatch;
 
@@ -9974,6 +10011,13 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         target = target->base;
     }
     if (type_is_compatible(source, target)) return 0;
+    if (source->kind == TYPE_FLOAT && target->kind == TYPE_DOUBLE) {
+        return 1;
+    }
+    if (type_is_integer(source) && target->kind == TYPE_INT &&
+        source->kind < TYPE_INT) {
+        return 1;
+    }
     if (type_is_arithmetic(source) && type_is_arithmetic(target)) return 2;
     if (source->kind == TYPE_ARRAY && target->kind == TYPE_PTR) {
         source_base = source->base;
@@ -10006,7 +10050,8 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
 }
 
 static bool cxx_function_template_instance_viable(
-    Decl* instance, ExprList* call_arguments, int* total, int* worst) {
+    Decl* instance, ExprList* call_arguments, int* ranks, int rank_capacity,
+    int* rank_count) {
     TypeParam* parameter;
     DeclList* declaration;
     ExprList* argument;
@@ -10015,14 +10060,13 @@ static bool cxx_function_template_instance_viable(
     parameter = instance->type->params;
     declaration = instance->func_params;
     argument = call_arguments;
-    if (total) *total = 0;
-    if (worst) *worst = 0;
+    if (rank_count) *rank_count = 0;
     while (argument && parameter) {
         int rank = cxx_parser_template_conversion_rank(
             argument->expr, parameter->type);
         if (rank < 0) return false;
-        if (total) *total += rank;
-        if (worst && rank > *worst) *worst = rank;
+        if (ranks && rank_count && *rank_count >= rank_capacity) return false;
+        if (ranks && rank_count) ranks[(*rank_count)++] = rank;
         argument = argument->next;
         parameter = parameter->next;
         if (declaration) declaration = declaration->next;
@@ -10030,8 +10074,10 @@ static bool cxx_function_template_instance_viable(
     if (argument) {
         if (!instance->type->variadic) return false;
         while (argument) {
-            if (total) *total += 8;
-            if (worst && *worst < 8) *worst = 8;
+            if (ranks && rank_count && *rank_count >= rank_capacity) {
+                return false;
+            }
+            if (ranks && rank_count) ranks[(*rank_count)++] = 8;
             argument = argument->next;
         }
     }
@@ -10043,6 +10089,26 @@ static bool cxx_function_template_instance_viable(
         declaration = declaration->next;
     }
     return parameter == NULL && declaration == NULL;
+}
+
+static int cxx_template_conversion_vector_relation(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right) {
+    bool left_better = false;
+    bool right_better = false;
+    if (!left || !right || left->conversion_rank_count !=
+        right->conversion_rank_count) return 0;
+    for (int index = 0; index < left->conversion_rank_count; ++index) {
+        if (left->conversion_ranks[index] < right->conversion_ranks[index]) {
+            left_better = true;
+        }
+        if (left->conversion_ranks[index] > right->conversion_ranks[index]) {
+            right_better = true;
+        }
+    }
+    if (left_better && !right_better) return 1;
+    if (right_better && !left_better) return -1;
+    return 0;
 }
 
 static bool prepare_cxx_function_template_match(
@@ -10143,12 +10209,18 @@ static bool prepare_cxx_function_template_match(
             }
             if (argument) {
                 Type* actual = cxx_parser_expression_type(argument->expr);
-                if (!actual || !deduce_function_template_type(
-                        tmpl, parameter->decl->type,
-                        cxx_parser_template_deduction_argument(
-                            parameter->decl->type, actual),
-                        match->arguments, match->values,
-                        match->value_present, &specificity)) {
+                bool deduced = actual && deduce_function_template_type(
+                    tmpl, parameter->decl->type,
+                    cxx_parser_template_deduction_argument(
+                        parameter->decl->type, actual),
+                    match->arguments, match->values,
+                    match->value_present, &specificity);
+                if (!actual ||
+                    (!deduced &&
+                     (cxx_function_template_type_contains_parameter(
+                          tmpl, parameter->decl->type) ||
+                      cxx_parser_template_conversion_rank(
+                          argument->expr, parameter->decl->type) < 0))) {
                     return false;
                 }
             }
@@ -10216,8 +10288,10 @@ static bool prepare_cxx_function_template_match(
     tmpl->pending_pack_value_present = NULL;
     tmpl->pending_pack_count = -1;
     if (!cxx_function_template_instance_viable(
-            match->instance, call_arguments, &match->conversion_total,
-            &match->conversion_worst)) {
+            match->instance, call_arguments, match->conversion_ranks,
+            (int)(sizeof(match->conversion_ranks) /
+                  sizeof(match->conversion_ranks[0])),
+            &match->conversion_rank_count)) {
         return false;
     }
     return true;
@@ -10686,16 +10760,14 @@ Expr* rcc_parse_cxx_template_call(void) {
         for (int index = 1; index < match_count; ++index) {
             CxxFunctionTemplateMatch* best = &matches[selected];
             CxxFunctionTemplateMatch* candidate = &matches[index];
+            int conversion_relation =
+                cxx_template_conversion_vector_relation(candidate, best);
             if (candidate->specificity > best->specificity ||
                 (candidate->specificity == best->specificity &&
-                 (candidate->conversion_worst < best->conversion_worst ||
-                  (candidate->conversion_worst == best->conversion_worst &&
-                   candidate->conversion_total < best->conversion_total)))) {
-                selected = index;
-                ambiguous = false;
+                 conversion_relation > 0)) {
+                if (!ambiguous) selected = index;
             } else if (candidate->specificity == best->specificity &&
-                       candidate->conversion_worst == best->conversion_worst &&
-                       candidate->conversion_total == best->conversion_total) {
+                       conversion_relation == 0) {
                 ambiguous = true;
             }
         }
