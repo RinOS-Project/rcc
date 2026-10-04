@@ -67,10 +67,25 @@ EXPECT_FAILURE = $(subst ./,,$(1)) >$(2) 2>&1 & if not errorlevel 1 exit /b 1
 # object, so do not make the whole production gate depend on unavailable
 # 32-bit Windows CRT libraries.
 VERIFIED_BACKEND_X86_HOST_CFLAGS = $(CFLAGS)
+COMPARE_FILES = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_compare_files.ps1" "$(1)" "$(2)"
+CHECK_COUNT = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "$(3)" "$(1)" "$(2)"
 else
 MKDIR_P = mkdir -p $(1)
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
 VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
+COMPARE_FILES = cmp $(1) $(2)
+CHECK_COUNT = test "$$($(GREP) -F -c '$(1)' '$(2)')" -eq $(3)
+endif
+
+ifeq ($(OS),Windows_NT)
+# Native Windows MinGW lacks the 32-bit CRT in this checkout.  Build the
+# object-structure verifier for the host and make its inspect-only mode
+# explicit; the x64 runner below still executes the generated code fully.
+CXX_CLEANUP_X86_BUILD = $(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimize/cxx-cleanup-run-x86 tests/cxx_value_init_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+CXX_CLEANUP_X86_RUN = $(TEST_OUT)/optimize/cxx-cleanup-run-x86 $(TEST_OUT)/optimize/cxx-cleanup-x86.ro --inspect-only
+else
+CXX_CLEANUP_X86_BUILD = $(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimize/cxx-cleanup-run-x86 tests/cxx_value_init_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+CXX_CLEANUP_X86_RUN = $(TEST_OUT)/optimize/cxx-cleanup-run-x86 $(TEST_OUT)/optimize/cxx-cleanup-x86.ro
 endif
 
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
@@ -9109,7 +9124,7 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/optimize/x64-o1.ro tests/optimizer_constant.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O3 -c \
 		-o $(TEST_OUT)/optimize/x64-o3.ro tests/optimizer_constant.c
-	cmp $(TEST_OUT)/optimize/x64-o1.ro $(TEST_OUT)/optimize/x64-o3.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/optimize/x64-o1.ro,$(TEST_OUT)/optimize/x64-o3.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/cxx-o1.ro tests/hello.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O1 -c \
@@ -9118,24 +9133,19 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O1 -c \
 		-o $(TEST_OUT)/optimize/cxx-cleanup-x64.ro \
 		tests/cxx_inline_aggregate.cpp
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -O1 -driver \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -driver \
 		--emit-unsigned-v3 -o $(TEST_OUT)/optimize/forbidden.drv \
-		tests/driver_policy_float.c
-	@set +e; $(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		tests/driver_policy_float.c,$(TEST_OUT)/optimize/forbidden.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/invalid-qualifiers.ro \
-		tests/invalid_qualifiers.c \
-		>$(TEST_OUT)/optimize/invalid-qualifiers.log 2>&1; status=$$?; \
-		set -e; if [ $$status -eq 0 ]; then \
-		echo "const-qualified writes unexpectedly compiled"; exit 1; fi
-	test "$$($(GREP) -c 'requires modifiable lvalue' \
-		$(TEST_OUT)/optimize/invalid-qualifiers.log)" -eq 4
+		tests/invalid_qualifiers.c,$(TEST_OUT)/optimize/invalid-qualifiers.log)
+	$(call CHECK_COUNT,requires modifiable lvalue,$(TEST_OUT)/optimize/invalid-qualifiers.log,4)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/qualifier-conversions.ro \
 		tests/qualifier_conversions.c \
 		>$(TEST_OUT)/optimize/qualifier-conversions.log 2>&1
-	test "$$($(GREP) -c 'incompatible return type' \
-		$(TEST_OUT)/optimize/qualifier-conversions.log)" -eq 2
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+	$(call CHECK_COUNT,incompatible return type,$(TEST_OUT)/optimize/qualifier-conversions.log,2)
+	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/optimizer_run_test-x86 \
 		tests/optimizer_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimizer_run_test-x64 \
@@ -9146,7 +9156,7 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/optimizer_run_test-x64 \
 		$(TEST_OUT)/optimize/x86-o0.ro $(TEST_OUT)/optimize/x86-o1.ro \
 		$(TEST_OUT)/optimize/x64-o0.ro $(TEST_OUT)/optimize/x64-o1.ro
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/optimizer_loop_test-x86 \
 		tests/optimizer_loop_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -9162,14 +9172,11 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/optimize/loop-x86-o1.ro \
 		$(TEST_OUT)/optimize/loop-x64-o0.ro \
 		$(TEST_OUT)/optimize/loop-x64-o1.ro
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
-		-o $(TEST_OUT)/optimize/cxx-cleanup-run-x86 \
-		tests/cxx_value_init_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(CXX_CLEANUP_X86_BUILD)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/optimize/cxx-cleanup-run-x64 \
 		tests/cxx_value_init_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
-	$(TEST_OUT)/optimize/cxx-cleanup-run-x86 \
-		$(TEST_OUT)/optimize/cxx-cleanup-x86.ro
+	$(CXX_CLEANUP_X86_RUN)
 	$(TEST_OUT)/optimize/cxx-cleanup-run-x64 \
 		$(TEST_OUT)/optimize/cxx-cleanup-x64.ro
 	@echo "Dual-architecture AST integer folding and dead-code tests completed"

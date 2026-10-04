@@ -463,3 +463,11 @@
       VirtualProtect and SysV-ABI function-pointer adapters, so it parses both
       target objects and executes native x64 without requiring MinGW's absent
       32-bit CRT libraries.
+- [x] Preserve labels nested below an already-terminated parent control
+      statement by lowering explicit label entries instead of leaving an
+      unreachable or unterminated SSA block; cover the optimized nested-goto
+      regression in the dual-architecture optimizer gate.
+- [x] Make native Windows `test-optimize` use portable byte/count helpers,
+      host-native object verifiers, and explicit i686 inspect-only coverage;
+      x64 cleanup execution remains fully enabled, while i686 execution stays
+      dependent on a 32-bit host runtime or an available RinOS/WSL runner.

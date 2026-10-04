@@ -3032,9 +3032,67 @@ static bool lower_statement_has_switch_label(const Stmt* statement) {
         case STMT_FOR:
             return lower_statement_has_switch_label(statement->for_body);
         case STMT_LABEL:
-            return lower_statement_has_switch_label(statement->label_stmt);
+            return true;
         default:
             return false;
+    }
+}
+
+static bool lower_nested_label_entries(RccIrLowerContext* context,
+                                       const Stmt* statement) {
+    if (!context || !statement) return false;
+    switch (statement->kind) {
+        case STMT_LABEL: {
+            RccIrLowerLabel* label = lower_find_label_statement(
+                context, statement);
+            if (!label) {
+                context->unsupported = true;
+                return false;
+            }
+            context->current = label->block;
+            context->terminated = false;
+            return statement->label_stmt
+                ? lower_statement(context, statement->label_stmt) : true;
+        }
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (item->stmt &&
+                    lower_statement_has_switch_label(item->stmt) &&
+                    !lower_nested_label_entries(context, item->stmt)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_IF:
+            if (statement->if_then &&
+                lower_statement_has_switch_label(statement->if_then) &&
+                !lower_nested_label_entries(context, statement->if_then)) {
+                return false;
+            }
+            if (statement->if_else &&
+                lower_statement_has_switch_label(statement->if_else) &&
+                !lower_nested_label_entries(context, statement->if_else)) {
+                return false;
+            }
+            return true;
+        case STMT_WHILE:
+        case STMT_DO:
+            return statement->while_body &&
+                lower_statement_has_switch_label(statement->while_body)
+                ? lower_nested_label_entries(context, statement->while_body)
+                : true;
+        case STMT_FOR:
+            return statement->for_body &&
+                lower_statement_has_switch_label(statement->for_body)
+                ? lower_nested_label_entries(context, statement->for_body)
+                : true;
+        case STMT_SWITCH:
+            /* Nested case/default entries belong to lower_switch, not to a
+             * goto that bypasses this switch. */
+            return true;
+        default:
+            return true;
     }
 }
 
@@ -3045,8 +3103,7 @@ static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
     for (const StmtList* item = block->block_stmts; item;
          item = item->next) {
         if (context->terminated && item->stmt->kind != STMT_LABEL &&
-            (!context->current_switch ||
-             !lower_statement_has_switch_label(item->stmt))) {
+            !lower_statement_has_switch_label(item->stmt)) {
             continue;
         }
         if (!lower_statement(context, item->stmt)) return false;
@@ -5056,13 +5113,18 @@ static bool lower_cxx_try(RccIrLowerContext* context,
 
 static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement) {
+    if (context && context->terminated && statement &&
+        statement->kind != STMT_LABEL && statement->kind != STMT_CASE &&
+        statement->kind != STMT_DEFAULT && !context->current_switch &&
+        lower_statement_has_switch_label(statement)) {
+        return lower_nested_label_entries(context, statement);
+    }
     if (!context || context->unsupported || !statement) {
         if (context) context->unsupported = true;
         return false;
     }
     if (context->terminated && statement->kind != STMT_LABEL &&
-        (!context->current_switch ||
-         !lower_statement_has_switch_label(statement))) {
+        !lower_statement_has_switch_label(statement)) {
         return true;
     }
     switch (statement->kind) {

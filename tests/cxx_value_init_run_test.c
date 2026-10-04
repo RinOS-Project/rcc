@@ -3,23 +3,33 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 
 #include "objfile.h"
 
-typedef int (*nullary_function)(void);
-typedef void* (*nullary_pointer_function)(void);
-typedef int (*nullable_pointer_function)(void*);
-typedef void* (*int_nullable_pointer_function)(int, void*);
-typedef int (*binary_function)(int, int);
-typedef int (*wide_binary_function)(uint64_t, uint64_t);
-typedef uint64_t (*int_wide_function)(int, uint64_t);
-typedef uint64_t (*wide_unary_function)(uint64_t);
-typedef int (*int_pointer_function)(const int*);
-typedef int (*mutable_int_pointer_function)(int*);
-typedef int (*mutable_int_pointer_binary_function)(int*, int);
-typedef int (*mutable_int_pointer_pair_function)(int*, int*);
+#if defined(_WIN64)
+#define RINOS_ABI __attribute__((sysv_abi))
+#else
+#define RINOS_ABI
+#endif
+
+typedef int RINOS_ABI (*nullary_function)(void);
+typedef void* RINOS_ABI (*nullary_pointer_function)(void);
+typedef int RINOS_ABI (*nullable_pointer_function)(void*);
+typedef void* RINOS_ABI (*int_nullable_pointer_function)(int, void*);
+typedef int RINOS_ABI (*binary_function)(int, int);
+typedef int RINOS_ABI (*wide_binary_function)(uint64_t, uint64_t);
+typedef uint64_t RINOS_ABI (*int_wide_function)(int, uint64_t);
+typedef uint64_t RINOS_ABI (*wide_unary_function)(uint64_t);
+typedef int RINOS_ABI (*int_pointer_function)(const int*);
+typedef int RINOS_ABI (*mutable_int_pointer_function)(int*);
+typedef int RINOS_ABI (*mutable_int_pointer_binary_function)(int*, int);
+typedef int RINOS_ABI (*mutable_int_pointer_pair_function)(int*, int*);
 
 typedef struct RinSliceV1 {
     uint64_t address;
@@ -32,7 +42,52 @@ typedef struct CxxVersioned {
     uint64_t payload;
 } CxxVersioned;
 
-typedef RinSliceV1 (*reference_copy_function)(const RinSliceV1*);
+typedef RinSliceV1 RINOS_ABI (*reference_copy_function)(const RinSliceV1*);
+
+static size_t host_page_size(void)
+{
+#ifdef _WIN32
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return (size_t)system_info.dwPageSize;
+#else
+    long page = sysconf(_SC_PAGESIZE);
+    return page > 0 ? (size_t)page : 0u;
+#endif
+}
+
+static void* host_map(size_t size)
+{
+#ifdef _WIN32
+    return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT,
+                        PAGE_READWRITE);
+#else
+    void* memory = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return memory == MAP_FAILED ? NULL : memory;
+#endif
+}
+
+static int host_protect(void* memory, size_t size)
+{
+#ifdef _WIN32
+    DWORD previous;
+    return VirtualProtect(memory, size, PAGE_EXECUTE_READ, &previous)
+        ? 0 : -1;
+#else
+    return mprotect(memory, size, PROT_READ | PROT_EXEC);
+#endif
+}
+
+static int host_unmap(void* memory, size_t size)
+{
+#ifdef _WIN32
+    (void)size;
+    return VirtualFree(memory, 0, MEM_RELEASE) ? 0 : -1;
+#else
+    return munmap(memory, size);
+#endif
+}
 
 static ObjSection* code_section(ObjectFile* object)
 {
@@ -40,6 +95,84 @@ static ObjSection* code_section(ObjectFile* object)
     while (section && section->type != SECT_CODE) section = section->next;
     assert(section != NULL);
     return section;
+}
+
+static void verify_i686_object_symbols(ObjectFile* object)
+{
+    static const char* const names[] = {
+        "cxx_direct_value_init",
+        "cxx_default_arguments",
+        "cxx_default_redeclaration",
+        "cxx_default_redeclaration_accumulation",
+        "cxx_default_c_linkage",
+        "cxx_default_namespace_inline",
+        "cxx_nullptr_return",
+        "cxx_nullptr_context",
+        "cxx_nullptr_comparisons",
+        "cxx_nullptr_assignment",
+        "cxx_nullptr_auto",
+        "cxx_nullptr_size",
+        "cxx_nullptr_conditional",
+        "cxx_local_value_init",
+        "cxx_scalar_value_init",
+        "cxx_versioned_template_value",
+        "cxx_auto_function_call",
+        "cxx_class_aggregate_init",
+        "cxx_lowered_constructor_init",
+        "cxx_inline_accessor",
+        "cxx_delegated_status_bool",
+        "cxx_temporary_accessor",
+        "cxx_pointer_accessor",
+        "cxx_template_outcome_accessor",
+        "cxx_delegated_outcome_bool",
+        "cxx_template_outcome_wide_value",
+        "_ZN3rin14copy_referenceERK10RinSliceV1",
+        "cxx_reference_call",
+        "cxx_reference_overload",
+        "cxx_cleanup_block",
+        "cxx_cleanup_return",
+        "cxx_cleanup_wide",
+        "cxx_cleanup_release",
+        "cxx_cleanup_wide_release",
+        "cxx_cleanup_get",
+        "cxx_cleanup_close_call",
+        "cxx_cleanup_close_failure",
+        "cxx_cleanup_close_invalid",
+        "cxx_cleanup_reset_call",
+        "cxx_cleanup_reset_failure",
+        "cxx_cleanup_wide_reset_call",
+        "cxx_cleanup_wide_close_call",
+        "cxx_cleanup_wide_get",
+        "cxx_cleanup_break",
+        "cxx_cleanup_continue",
+        "cxx_cleanup_for_break",
+        "cxx_cleanup_for_continue",
+        "cxx_cleanup_zero_for",
+        "cxx_cleanup_switch",
+        "cxx_cleanup_goto_exit",
+        "cxx_cleanup_goto_backward",
+        "cxx_cleanup_goto_same_scope",
+        "cxx_cleanup_goto_for_init",
+        "cxx_cleanup_contextual_bool",
+        "cxx_cleanup_wide_contextual_bool",
+        "cxx_cleanup_move",
+        "cxx_cleanup_wide_move",
+        "cxx_cleanup_move_assignment",
+        "cxx_cleanup_move_self_assignment",
+        "cxx_cleanup_wide_move_assignment",
+        "cxx_cleanup_contextual_control"
+    };
+    ObjSection* code = code_section(object);
+    size_t index;
+    assert(object != NULL && object->arch == ARCH_X86);
+    assert(code != NULL && code->size != 0u &&
+           (code->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
+               (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
+    for (index = 0u; index < sizeof(names) / sizeof(names[0]); ++index) {
+        ObjSymbol* symbol = objfile_find_symbol(object, names[index]);
+        assert(symbol != NULL && symbol->binding == BIND_CODE &&
+               symbol->section >= 0);
+    }
 }
 
 #define LOAD_FUNCTION(target, object, mapping, symbol_name)                 \
@@ -54,10 +187,11 @@ static ObjSection* code_section(ObjectFile* object)
 
 int main(int argc, char** argv)
 {
+    bool inspect_only = argc == 3 && strcmp(argv[2], "--inspect-only") == 0;
     ObjectFile* object;
     ObjSection* code;
     uint8_t* mapping;
-    long page_size;
+    size_t page_size;
     size_t mapping_size;
     nullary_function direct_value_init;
     nullary_function default_arguments;
@@ -77,7 +211,7 @@ int main(int argc, char** argv)
     nullary_function versioned_template_value;
     binary_function auto_function_call;
     binary_function class_aggregate_init;
-    typedef int (*unary_function)(int);
+    typedef int RINOS_ABI (*unary_function)(int);
     unary_function lowered_constructor_init;
     unary_function inline_accessor;
     unary_function delegated_status_bool;
@@ -122,24 +256,29 @@ int main(int argc, char** argv)
     mutable_int_pointer_pair_function cleanup_wide_move_assignment;
     mutable_int_pointer_function cleanup_contextual_control;
 
-    assert(argc == 2);
+    assert(argc == 2 || inspect_only);
     object = objfile_read(argv[1]);
     assert(object != NULL);
+    if (inspect_only) {
+        verify_i686_object_symbols(object);
+        puts("Verified C++ i686 cleanup object symbols and sections");
+        objfile_free(object);
+        return 0;
+    }
 #if defined(__i386__)
     assert(object->arch == ARCH_X86);
 #else
     assert(object->arch == ARCH_X64);
 #endif
     code = code_section(object);
-    page_size = sysconf(_SC_PAGESIZE);
-    assert(page_size > 0);
+    page_size = host_page_size();
+    assert(page_size != 0u);
     mapping_size = ((size_t)code->size + (size_t)page_size - 1u) /
                    (size_t)page_size * (size_t)page_size;
-    mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    assert(mapping != MAP_FAILED);
+    mapping = host_map(mapping_size);
+    assert(mapping != NULL);
     memcpy(mapping, code->data, (size_t)code->size);
-    assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
+    assert(host_protect(mapping, mapping_size) == 0);
 
     LOAD_FUNCTION(direct_value_init, object, mapping,
                   "cxx_direct_value_init");
@@ -403,7 +542,7 @@ int main(int argc, char** argv)
         assert(value == 83);
     }
 
-    assert(munmap(mapping, mapping_size) == 0);
+    assert(host_unmap(mapping, mapping_size) == 0);
     objfile_free(object);
     puts("C++20 value-initialization execution test passed");
     return 0;
