@@ -411,13 +411,15 @@
   - [x] 非再帰のstruct／union／固定長array／vector型について、実フィールド・
         要素型・byte size・member locationを持つDWARF type DIEを出力し、
         i686/AMD64のobject・link回帰で検証。bit-fieldにはbit size／offsetも
-        出力し、aggregate先頭からのdata bit offsetを記録する。再帰aggregateだけは未対応のforward referenceを捏造せず
-        opaque DIEへ保持
+        出力し、aggregate先頭からのdata bit offsetを記録する。
+  - [x] 再帰struct／unionのmember type参照をDIE生成後のforward-reference
+        patchで解決し、自己参照pointerが実aggregate DIEを指すことを
+        i686/AMD64のobject debug-info回帰で検証
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed constant valueを出力し、i686/AMD64のobject・link回帰で検証
   - [x] 非再帰function typeへ`DW_TAG_subroutine_type`と戻り型・parameter
-        type DIEを出力し、再帰function typeはopaqueのままi686/AMD64の
-        debug-info回帰で検証
+        type DIEを出力し、再帰function typeのforward referenceもpatchで
+        解決してi686/AMD64のdebug-info回帰で検証
   - [x] const／volatile／restrict／atomic修飾型を対応するDWARF qualifier
         DIEと実在する基底型参照へlowerし、i686/AMD64のglobal variableと
         linked-image debug-info回帰で検証
