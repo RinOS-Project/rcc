@@ -127,6 +127,7 @@ jobs:
           make test-archive-link
           make test-format-validation
           make test-determinism
+          make test-property-gate
           make test-bootstrap-core
           make test-bootstrap-link
           make test-bootstrap-execute
