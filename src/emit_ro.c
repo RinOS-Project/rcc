@@ -41,16 +41,16 @@ static bool ro_section_policy(uint16_t arch, const RoSection* section) {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
     uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC |
                              SECT_FLAG_ALLOC | SECT_FLAG_COMDAT;
-    if (section->type < SECT_CODE || section->type > SECT_DEBUG_STR ||
+    if (section->type < SECT_CODE || section->type > SECT_DEBUG_FRAME ||
         (section->flags & ~allowed_flags) != 0u ||
         (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
             (SECT_FLAG_WRITE | SECT_FLAG_EXEC) ||
         (!(section->type >= SECT_DEBUG_LINE &&
-           section->type <= SECT_DEBUG_STR) &&
+           section->type <= SECT_DEBUG_FRAME) &&
          (section->flags & SECT_FLAG_ALLOC) == 0u)) return false;
 
     if (section->type >= SECT_DEBUG_LINE &&
-        section->type <= SECT_DEBUG_STR) {
+        section->type <= SECT_DEBUG_FRAME) {
         return section->flags == 0u &&
                section->size == section->memory_size;
     }
@@ -1813,6 +1813,157 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_type_context_free(&types);
 }
 
+static void debug_frame_sleb(ObjSection* section, int64_t value) {
+    uint64_t encoded = (uint64_t)value;
+    bool more;
+    do {
+        uint8_t byte = (uint8_t)(encoded & 0x7fu);
+        encoded >>= 7;
+        more = !(((encoded == 0u) && ((byte & 0x40u) == 0u)) ||
+                 ((encoded == UINT64_MAX) && ((byte & 0x40u) != 0u)));
+        if (more) byte |= 0x80u;
+        section_add_byte(section, byte);
+    } while (more);
+}
+
+static void debug_frame_advance(ObjSection* section, uint64_t delta) {
+    if (delta <= 0x3fu) {
+        section_add_byte(section, (uint8_t)(0x40u | delta));
+    } else if (delta <= UINT8_MAX) {
+        section_add_byte(section, 0x02u); /* DW_CFA_advance_loc1 */
+        section_add_byte(section, (uint8_t)delta);
+    } else if (delta <= UINT16_MAX) {
+        section_add_byte(section, 0x03u); /* DW_CFA_advance_loc2 */
+        section_add_byte(section, (uint8_t)delta);
+        section_add_byte(section, (uint8_t)(delta >> 8));
+    } else {
+        section_add_byte(section, 0x04u); /* DW_CFA_advance_loc4 */
+        debug_line_u32(section, (uint32_t)delta);
+    }
+}
+
+static bool debug_frame_has_standard_prologue(const Module* mod,
+                                              const ModuleSymbol* function) {
+    static const uint8_t x86_prologue[] = {0x55u, 0x89u, 0xe5u};
+    static const uint8_t x64_prologue[] = {0x55u, 0x48u, 0x89u, 0xe5u};
+    const uint8_t* prologue = g_opts.target_arch == ARCH_X64
+        ? x64_prologue : x86_prologue;
+    size_t size = g_opts.target_arch == ARCH_X64
+        ? sizeof(x64_prologue) : sizeof(x86_prologue);
+    if (!mod || !function || function->offset > mod->code.size ||
+        size > mod->code.size - function->offset) return false;
+    return memcmp(mod->code.data + function->offset, prologue, size) == 0;
+}
+
+static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
+                                    const char* filename) {
+    const ModuleSymbol** functions;
+    ObjSection* frame;
+    int function_count = 0;
+    int frame_section;
+    const uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    const uint32_t stack_register = g_opts.target_arch == ARCH_X64 ? 7u : 4u;
+    const uint32_t frame_register = g_opts.target_arch == ARCH_X64 ? 6u : 5u;
+    const uint32_t return_register = g_opts.target_arch == ARCH_X64 ? 16u : 8u;
+    uint64_t cie_offset;
+
+    if (!g_opts.debug_info || !obj || !mod || mod->symbol_count <= 0) return;
+    functions = rcc_alloc((size_t)mod->symbol_count * sizeof(*functions));
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        ModuleSymbol* symbol = &mod->symbols[index];
+        if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
+            !symbol->source_file || symbol->source_file[0] == '\0' ||
+            symbol->source_line == 0u ||
+            !debug_frame_has_standard_prologue(mod, symbol)) continue;
+        functions[function_count++] = symbol;
+    }
+    if (function_count == 0) {
+        rcc_free(functions);
+        return;
+    }
+
+    frame = objfile_add_section(obj, ".debug_frame", SECT_DEBUG_FRAME, 0u);
+    frame->align = 1u;
+    frame_section = objfile_section_index(obj, frame);
+    if (frame_section < 0) rcc_fatal("DWARF frame section is detached");
+
+    /* DWARF32 CIE: the initial rule describes the call-site CFA and return
+     * address.  The FDEs below then describe the fixed frame-pointer
+     * prologue/epilogue emitted by both x86 backends. */
+    cie_offset = frame->size;
+    debug_line_u32(frame, 0u);
+    debug_line_u32(frame, UINT32_MAX);
+    section_add_byte(frame, 1u);       /* DWARF CIE version */
+    section_add_byte(frame, 0u);       /* empty augmentation */
+    debug_line_uleb(frame, 1u);        /* code alignment factor */
+    debug_frame_sleb(frame, -(int64_t)pointer_size);
+    debug_line_uleb(frame, return_register);
+    section_add_byte(frame, 0x0cu);    /* DW_CFA_def_cfa */
+    debug_line_uleb(frame, stack_register);
+    debug_line_uleb(frame, pointer_size);
+    section_add_byte(frame, (uint8_t)(0x80u + return_register));
+    debug_line_uleb(frame, 1u);
+    if (frame->size - cie_offset - 4u > UINT32_MAX) {
+        rcc_fatal("DWARF CIE is too large");
+    }
+    debug_line_patch_u32(frame, cie_offset,
+                         (uint32_t)(frame->size - cie_offset - 4u));
+
+    for (int index = 0; index < function_count; ++index) {
+        const ModuleSymbol* function = functions[index];
+        const char* symbol_name = function->name;
+        char* scoped_name = NULL;
+        uint64_t fde_offset = frame->size;
+        uint64_t address_offset;
+        uint32_t function_size = debug_function_size(mod, function);
+        uint64_t prologue_after_fp = g_opts.target_arch == ARCH_X64 ? 3u : 2u;
+        uint64_t after_leave = function_size >= 1u
+            ? (uint64_t)function_size - 1u : 0u;
+
+        debug_line_u32(frame, 0u);
+        debug_line_u32(frame, (uint32_t)cie_offset);
+        address_offset = frame->size;
+        for (uint32_t byte = 0u; byte < pointer_size; ++byte) {
+            section_add_byte(frame, 0u);
+        }
+        if (!function->is_global) {
+            scoped_name = module_scoped_symbol(filename, function->name);
+            symbol_name = scoped_name;
+        }
+        objfile_add_reloc(obj, frame_section, address_offset, symbol_name,
+                          g_opts.target_arch == ARCH_X64
+                              ? RELOC_ABS64 : RELOC_ABS32U, 0);
+        rcc_free(scoped_name);
+        for (uint32_t byte = 0u; byte < pointer_size; ++byte) {
+            section_add_byte(frame, (uint8_t)(function_size >> (byte * 8u)));
+        }
+
+        /* push fp: the saved frame pointer is two words below the new CFA. */
+        debug_frame_advance(frame, 1u);
+        section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
+        debug_line_uleb(frame, pointer_size * 2u);
+        section_add_byte(frame, (uint8_t)(0x80u + frame_register));
+        debug_line_uleb(frame, 1u);
+        /* mov fp, sp: subsequent locals use the stable frame register. */
+        debug_frame_advance(frame, prologue_after_fp - 1u);
+        section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
+        debug_line_uleb(frame, frame_register);
+        if (after_leave > prologue_after_fp) {
+            debug_frame_advance(frame, after_leave - prologue_after_fp);
+            section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
+            debug_line_uleb(frame, stack_register);
+            section_add_byte(frame, (uint8_t)(0xc0u + frame_register));
+        }
+
+        if (frame->size - fde_offset - 4u > UINT32_MAX) {
+            rcc_fatal("DWARF FDE is too large");
+        }
+        debug_line_patch_u32(frame, fde_offset,
+                             (uint32_t)(frame->size - fde_offset - 4u));
+    }
+    rcc_free(functions);
+}
+
 ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     ObjectFile* obj = objfile_new(filename, g_opts.target_arch);
     int next_section = 1;
@@ -1932,6 +2083,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
 
     module_emit_debug_line(obj, mod, filename);
     module_emit_debug_info(obj, mod, filename);
+    module_emit_debug_frame(obj, mod, filename);
 
     /* Add relocations */
     for (int i = 0; i < mod->reloc_count; i++) {

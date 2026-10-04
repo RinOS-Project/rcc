@@ -511,7 +511,7 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-e debug_line_entry -o $(TEST_OUT)/debug-info/x64.rin \
 		$(TEST_OUT)/debug-info/x64-g.ro
-	@echo "Relocatable DWARF line-table tests completed"
+	@echo "Relocatable DWARF line-table, info, and frame-CFI tests completed"
 
 test-aqc: $(AQC_TARGET)
 	mkdir -p $(TEST_OUT)

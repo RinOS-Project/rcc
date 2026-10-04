@@ -101,6 +101,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     ObjSection* info;
     ObjSection* abbrev;
     ObjSection* strings;
+    ObjSection* frame;
     assert(object != NULL);
     assert(object->arch == architecture);
     line = objfile_get_section(object, ".debug_line");
@@ -115,9 +116,17 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     info = objfile_get_section(object, ".debug_info");
     abbrev = objfile_get_section(object, ".debug_abbrev");
     strings = objfile_get_section(object, ".debug_str");
+    frame = objfile_get_section(object, ".debug_frame");
     assert(info != NULL && info->type == SECT_DEBUG_INFO);
     assert(abbrev != NULL && abbrev->type == SECT_DEBUG_ABBREV);
     assert(strings != NULL && strings->type == SECT_DEBUG_STR);
+    assert(frame != NULL && frame->type == SECT_DEBUG_FRAME);
+    assert(frame->flags == 0u && frame->size == frame->memory_size);
+    assert(frame->size > 24u && frame->relocs != NULL);
+    assert(frame->data[4] == 0xffu && frame->data[5] == 0xffu &&
+           frame->data[6] == 0xffu && frame->data[7] == 0xffu);
+    assert(contains_byte(frame->data, frame->size, 0x0cu));
+    assert(contains_byte(frame->data, frame->size, 0x0du));
     assert(info->relocs != NULL && info->size > 16u);
     assert(info->data[4] == 4u && info->data[5] == 0u);
     assert(info->data[16] == (uint8_t)language);
@@ -196,6 +205,7 @@ static void verify_without_debug(const char* path)
     assert(objfile_get_section(object, ".debug_info") == NULL);
     assert(objfile_get_section(object, ".debug_abbrev") == NULL);
     assert(objfile_get_section(object, ".debug_str") == NULL);
+    assert(objfile_get_section(object, ".debug_frame") == NULL);
     objfile_free(object);
 }
 

@@ -338,6 +338,10 @@
   - [x] subprogram DIEへ実在する関数戻り型の`DW_AT_type`参照を追加し、
         AST型を持たない生成関数には型を捏造せず型無しabbrevを選択する
         両archのdebug-info回帰を追加
+  - [x] 現行のframe-pointer prologue／epilogueに対応するDWARF32
+        `.debug_frame`のCIE/FDEをrelocation付きで出力し、CFA・saved FP・
+        return address規則とloadable imageからの除外を両archで検証。非標準
+        prologueの完全なCFIは引き続き未実装
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
