@@ -4378,7 +4378,7 @@ test-cxx-noexcept-expression: $(RCXX_TARGET)
 		tests/cxx_noexcept_expression.cpp
 	@echo "C++ noexcept expression tests completed"
 
-test-cxx-typeid: $(RCXX_TARGET)
+test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-typeid/x86.s tests/cxx_typeid.cpp
@@ -4390,6 +4390,20 @@ test-cxx-typeid: $(RCXX_TARGET)
 	$(CC) -no-pie -o $(TEST_OUT)/cxx-typeid/x64 \
 		$(TEST_OUT)/cxx-typeid/x64.s
 	$(TEST_OUT)/cxx-typeid/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid/x86.ro tests/cxx_typeid.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid/x64.ro tests/cxx_typeid.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid/x86.rin \
+		$(TEST_OUT)/cxx-typeid/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid/x64.rin \
+		$(TEST_OUT)/cxx-typeid/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid/x64.rin
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/invalid-x86.ro \
 		tests/cxx_typeid_polymorphic_invalid.cpp \
