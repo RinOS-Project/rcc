@@ -52,6 +52,34 @@ int loop_constant_two(void)
     return result;
 }
 
+int loop_compound_increment(void)
+{
+    int result = 0;
+    for (int index = 0; index < 2; index += 1) {
+        result += 23;
+    }
+    return result;
+}
+
+int loop_assignment_increment(void)
+{
+    int result = 0;
+    for (int index = 0; index < 2; index = index + 1) {
+        result += 29;
+    }
+    return result;
+}
+
+int loop_volatile_increment(void)
+{
+    volatile int index = 0;
+    int result = 0;
+    for (; index < 2; index += 1) {
+        result += 31;
+    }
+    return result;
+}
+
 int loop_constant_three_le(void)
 {
     int result = 0;

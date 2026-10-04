@@ -40,6 +40,8 @@ static size_t inline_pure_integer_expression_cost(const Expr* expression);
 
 static bool statement_contains_loop_transfer(const Stmt* statement);
 static bool statement_contains_declaration(const Stmt* statement);
+static bool is_unit_for_increment(const Expr* increment,
+                                  const Decl* induction);
 static bool constant_for_iteration_count(const Stmt* statement,
                                          unsigned* count);
 static Expr* clone_unrolled_expr(const Expr* expression);
@@ -1316,6 +1318,45 @@ static bool statement_contains_declaration(const Stmt* statement) {
     }
 }
 
+static bool is_unit_for_increment(const Expr* increment,
+                                  const Decl* induction) {
+    const Expr* lhs;
+    const Expr* rhs;
+    int64_t value;
+    if (!increment || !induction) return false;
+    if ((increment->kind == EXPR_PREINC ||
+         increment->kind == EXPR_POSTINC) &&
+        increment->unary_operand &&
+        increment->unary_operand->kind == EXPR_IDENT &&
+        increment->unary_operand->ident_decl == induction) {
+        return true;
+    }
+    if (increment->kind == EXPR_ADD_ASSIGN &&
+        increment->binary_lhs && increment->binary_rhs &&
+        increment->binary_lhs->kind == EXPR_IDENT &&
+        increment->binary_lhs->ident_decl == induction &&
+        integer_literal(increment->binary_rhs, &value)) {
+        return value == 1;
+    }
+    if (increment->kind != EXPR_ASSIGN || !increment->binary_lhs ||
+        !increment->binary_rhs || increment->binary_lhs->kind != EXPR_IDENT ||
+        increment->binary_lhs->ident_decl != induction ||
+        increment->binary_rhs->kind != EXPR_ADD) {
+        return false;
+    }
+    lhs = increment->binary_rhs->binary_lhs;
+    rhs = increment->binary_rhs->binary_rhs;
+    if (lhs && lhs->kind == EXPR_IDENT &&
+        lhs->ident_decl == induction && integer_literal(rhs, &value)) {
+        return value == 1;
+    }
+    if (rhs && rhs->kind == EXPR_IDENT &&
+        rhs->ident_decl == induction && integer_literal(lhs, &value)) {
+        return value == 1;
+    }
+    return false;
+}
+
 static bool eliminate_zero_condition_do(Stmt* statement) {
     int64_t condition;
     Stmt* body;
@@ -1352,17 +1393,14 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     induction = initializer->decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
-    if (!induction->type || !type_is_integer(induction->type) ||
+    if (!induction->type || induction->type->is_volatile ||
+        !type_is_integer(induction->type) ||
         !integer_literal(induction->var_init, &initial_value) ||
         (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
         !integer_literal(condition->binary_rhs, &bound_value) ||
-        (increment->kind != EXPR_PREINC &&
-         increment->kind != EXPR_POSTINC) ||
-        !increment->unary_operand ||
-        increment->unary_operand->kind != EXPR_IDENT ||
-        increment->unary_operand->ident_decl != induction ||
+        !is_unit_for_increment(increment, induction) ||
         statement_contains_label(statement->for_body)) {
         return false;
     }
@@ -1411,17 +1449,14 @@ static bool constant_for_iteration_count(const Stmt* statement,
     induction = initializer->decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
-    if (!induction->type || !type_is_integer(induction->type) ||
+    if (!induction->type || induction->type->is_volatile ||
+        !type_is_integer(induction->type) ||
         !integer_literal(induction->var_init, &initial_value) ||
         (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
         !integer_literal(condition->binary_rhs, &bound_value) ||
-        (increment->kind != EXPR_PREINC &&
-         increment->kind != EXPR_POSTINC) ||
-        !increment->unary_operand ||
-        increment->unary_operand->kind != EXPR_IDENT ||
-        increment->unary_operand->ident_decl != induction) {
+        !is_unit_for_increment(increment, induction)) {
         return false;
     }
     iterations = 0u;
@@ -1725,17 +1760,14 @@ static bool unroll_single_iteration_for(Stmt* statement) {
     induction = initializer->decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
-    if (!induction->var_init ||
+    if (!induction->type || induction->type->is_volatile ||
+        !type_is_integer(induction->type) || !induction->var_init ||
         !integer_literal(induction->var_init, &initial_value) ||
         (condition->kind != EXPR_LT && condition->kind != EXPR_LE) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
         !integer_literal(condition->binary_rhs, &bound_value) ||
-        (increment->kind != EXPR_PREINC &&
-         increment->kind != EXPR_POSTINC) ||
-        !increment->unary_operand ||
-        increment->unary_operand->kind != EXPR_IDENT ||
-        increment->unary_operand->ident_decl != induction ||
+        !is_unit_for_increment(increment, induction) ||
         statement_contains_loop_transfer(statement->for_body) ||
         statement_contains_label(statement->for_body)) {
         return false;
