@@ -952,6 +952,10 @@ static void debug_collect_stmt_types(DebugTypeContext* context,
 static void debug_collect_function_types(DebugTypeContext* context,
                                          const Decl* function) {
     if (!context || !function) return;
+    if (function->type && function->type->kind == TYPE_FUNC) {
+        debug_type_collect(context, function->type->ret_type);
+    }
+    debug_type_collect(context, function->type);
     debug_collect_decl_type(context, function->func_this_param);
     for (const DeclList* parameter = function->func_params; parameter;
          parameter = parameter->next) {
@@ -1630,6 +1634,36 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Abbreviation 8: generated/source-less functions without a recoverable
+     * AST return type.  Keep the DIE valid without inventing a void/scalar
+     * type reference. */
+    debug_line_uleb(abbrev, 8u);
+    debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
+    debug_line_uleb(abbrev, 0x01u);    /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3fu);    /* DW_AT_external */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
     debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
@@ -1717,12 +1751,21 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         const ModuleSymbol* function = functions[index];
         const char* symbol_name = function->name;
         Decl* function_decl = debug_find_function_decl(mod, function);
+        DebugTypeEntry* return_type = NULL;
         char* scoped_name = NULL;
         int file_index = debug_line_file_index(
             files, file_count, function->source_file);
         uint64_t address_offset;
         uint32_t name_offset = debug_str_add(strings, function->name);
-        section_add_byte(info, 2u);
+        if (function_decl && function_decl->type &&
+            function_decl->type->kind == TYPE_FUNC) {
+            return_type = debug_type_find(&types,
+                                          function_decl->type->ret_type);
+            if (!return_type) {
+                rcc_fatal("DWARF function return type was not collected");
+            }
+        }
+        section_add_byte(info, return_type ? 2u : 8u);
         debug_line_u32(info, name_offset);
         address_offset = info->size;
         for (int byte = 0; byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4);
@@ -1743,6 +1786,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_line_u32(info, function->source_column);
         section_add_byte(info, function->is_global ? 1u : 0u);
         debug_line_u32(info, debug_str_add(strings, function->name));
+        if (return_type) debug_line_u32(info, return_type->offset);
         /* The current C/C++ x86 backends retain a frame pointer, so expose
          * the same EBP/RBP base used by stack-local locations.  Full CFI and
          * unwind ranges remain a separate debug/unwind feature. */

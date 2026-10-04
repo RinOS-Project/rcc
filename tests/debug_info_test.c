@@ -66,10 +66,11 @@ static uint64_t find_function_die(const ObjSection* info,
 
 static uint8_t read_inline_attribute(const ObjSection* info,
                                      uint64_t function_offset,
-                                     uint64_t address_size)
+                                     uint64_t address_size,
+                                     bool has_return_type)
 {
     uint64_t offset = function_offset + 1u + 4u + address_size + 4u + 1u +
-                      4u + 4u + 1u + 4u;
+                      4u + 4u + 1u + 4u + (has_return_type ? 4u : 0u);
     assert(info != NULL);
     assert(offset + 4u < info->size);
     /* DW_FORM_exprloc for the current frame-base expression is two bytes:
@@ -77,6 +78,17 @@ static uint8_t read_inline_attribute(const ObjSection* info,
     assert(info->data[offset] == 2u);
     offset += 3u;
     return info->data[offset];
+}
+
+static uint32_t read_return_type_ref(const ObjSection* info,
+                                     uint64_t function_offset,
+                                     uint64_t address_size)
+{
+    uint64_t offset = function_offset + 1u + 4u + address_size + 4u + 1u +
+                      4u + 4u + 1u + 4u;
+    assert(info != NULL);
+    assert(offset + 4u <= info->size);
+    return read_u32(info->data, offset);
 }
 
 static void verify_debug_object(const char* path, uint16_t architecture,
@@ -120,13 +132,22 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(info->data[function_offset] == 2u);
         assert(info->size >= column_offset + 4u);
         assert(read_u32(info->data, column_offset) == 1u);
-        assert(read_inline_attribute(info, function_offset, address_size) == 0u);
+        assert(read_return_type_ref(info, function_offset, address_size) <
+               info->size);
+        assert(info->data[read_return_type_ref(info, function_offset,
+                                               address_size)] == 5u);
+        assert(read_inline_attribute(info, function_offset, address_size,
+                                     true) == 0u);
         if (inline_function_name) {
             uint64_t inline_offset = find_function_die(
                 info, strings, inline_function_name, address_size);
             assert(inline_offset != UINT64_MAX);
-            assert(read_inline_attribute(info, inline_offset, address_size) ==
-                   3u);
+            assert(read_return_type_ref(info, inline_offset, address_size) <
+                   info->size);
+            assert(info->data[read_return_type_ref(info, inline_offset,
+                                                   address_size)] == 5u);
+            assert(read_inline_attribute(info, inline_offset, address_size,
+                                         true) == 3u);
         }
     }
     assert(abbrev->size > 8u && strings->size > 1u && strings->data[0] == 0u);

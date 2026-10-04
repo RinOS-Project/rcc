@@ -326,6 +326,9 @@
   - [x] `inline`宣言を実インライン化済みと誤認せず、subprogram DIEへ
         `DW_AT_inline=DW_INL_declared_inlined`を記録し、非inline関数の
         `DW_INL_not_inlined`と両archのdebug-info回帰で検証
+  - [x] subprogram DIEへ実在する関数戻り型の`DW_AT_type`参照を追加し、
+        AST型を持たない生成関数には型を捏造せず型無しabbrevを選択する
+        両archのdebug-info回帰を追加
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
