@@ -7512,6 +7512,8 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "placeholder must be" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
+	$(GREP) -q "placeholder index is out of range" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "scalar integer or pointer" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	@if $(RCC_TARGET) --target x86_64-unknown-rinos -c \
@@ -7531,6 +7533,8 @@ test-inline-asm-validation: $(RCC_TARGET)
 	$(GREP) -q "clobber conflicts with an operand fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(GREP) -q "clobbers list the same register twice" \
+		$(TEST_OUT)/inline-asm-validation/x64.log
+	$(GREP) -q "placeholder index is out of range" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	@echo "Dual-architecture inline asm constraint validation tests completed"
 

@@ -19,6 +19,11 @@ void invalid_placeholder(int value)
     __asm__ __volatile__("nop %x0" : : "a"(value));
 }
 
+void invalid_placeholder_index(int value)
+{
+    __asm__ __volatile__("nop %9" : : "a"(value));
+}
+
 void invalid_type(double value)
 {
     __asm__ __volatile__("nop" : : "a"(value));
