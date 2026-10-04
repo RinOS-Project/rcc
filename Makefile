@@ -7020,14 +7020,23 @@ test-x86-wide-scalar: $(RCC_TARGET)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/x86-wide-scalar/scalar.ro \
 		tests/x86_wide_scalar.c
+
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/x86-wide-scalar/run-test \
+		tests/x86_wide_scalar_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/x86-wide-scalar/run-test --inspect \
+		$(TEST_OUT)/x86-wide-scalar/scalar.ro
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/x86-wide-scalar/run-test \
 		tests/x86_wide_scalar_run_test.c src/emit_ro.c src/utils.c
 	$(TEST_OUT)/x86-wide-scalar/run-test \
 		$(TEST_OUT)/x86-wide-scalar/scalar.ro
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+endif
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/x86-wide-scalar/invalid.ro \
-		tests/invalid_x86_wide_scalar.c
+		tests/invalid_x86_wide_scalar.c,$(TEST_OUT)/x86-wide-scalar/invalid.log)
 	@echo "i686 64-bit scalar ABI test completed"
 
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)

@@ -4,32 +4,86 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 
-typedef uint64_t (*wide_nullary_fn)(void);
-typedef uint64_t (*wide_unary_fn)(uint64_t);
-typedef uint64_t (*wide_binary_fn)(uint64_t, uint64_t);
-typedef int64_t (*signed_wide_unary_fn)(int64_t);
-typedef uint64_t (*unsigned_widen_fn)(uint32_t);
-typedef int64_t (*signed_widen_fn)(int32_t);
-typedef uint64_t (*wide_narrow_binary_fn)(uint64_t, int32_t);
-typedef int (*wide_compare_fn)(uint64_t, uint64_t);
-typedef int (*signed_wide_compare_fn)(int64_t, int64_t);
-typedef int64_t (*signed_wide_binary_fn)(int64_t, int64_t);
-typedef uint64_t (*wide_shift_fn)(uint64_t, int32_t);
-typedef int64_t (*signed_wide_shift_fn)(int64_t, int32_t);
-typedef uint64_t (*atomic_wide_load_fn)(volatile uint64_t*);
-typedef void (*atomic_wide_store_fn)(volatile uint64_t*, uint64_t);
-typedef uint64_t (*atomic_wide_exchange_fn)(volatile uint64_t*, uint64_t);
-typedef int (*atomic_wide_compare_fn)(volatile uint64_t*, uint64_t*,
+#if defined(_WIN32) && defined(__x86_64__)
+#define RCC_SYSV_ABI __attribute__((sysv_abi))
+#else
+#define RCC_SYSV_ABI
+#endif
+
+#if defined(_WIN32)
+static long rcc_sysconf(int name) {
+    SYSTEM_INFO system_info;
+    (void)name;
+    GetSystemInfo(&system_info);
+    return (long)system_info.dwPageSize;
+}
+
+static void* rcc_mmap(void* address, size_t length, int protection, int flags,
+                      int descriptor, long offset) {
+    (void)address;
+    (void)protection;
+    (void)flags;
+    (void)descriptor;
+    (void)offset;
+    return VirtualAlloc(NULL, length, MEM_RESERVE | MEM_COMMIT,
+                        PAGE_READWRITE);
+}
+
+static int rcc_mprotect(void* address, size_t length, int protection) {
+    DWORD old_protection;
+    (void)protection;
+    return VirtualProtect(address, length, PAGE_EXECUTE_READ,
+                          &old_protection) ? 0 : -1;
+}
+
+static int rcc_munmap(void* address, size_t length) {
+    (void)length;
+    return VirtualFree(address, 0, MEM_RELEASE) ? 0 : -1;
+}
+
+#define sysconf rcc_sysconf
+#define mmap rcc_mmap
+#define mprotect rcc_mprotect
+#define munmap rcc_munmap
+#define MAP_FAILED ((void*)-1)
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define PROT_EXEC 4
+#define MAP_PRIVATE 2
+#define MAP_ANONYMOUS 0x20
+#define _SC_PAGESIZE 30
+#endif
+
+typedef uint64_t (RCC_SYSV_ABI *wide_nullary_fn)(void);
+typedef uint64_t (RCC_SYSV_ABI *wide_unary_fn)(uint64_t);
+typedef uint64_t (RCC_SYSV_ABI *wide_binary_fn)(uint64_t, uint64_t);
+typedef int64_t (RCC_SYSV_ABI *signed_wide_unary_fn)(int64_t);
+typedef uint64_t (RCC_SYSV_ABI *unsigned_widen_fn)(uint32_t);
+typedef int64_t (RCC_SYSV_ABI *signed_widen_fn)(int32_t);
+typedef uint64_t (RCC_SYSV_ABI *wide_narrow_binary_fn)(uint64_t, int32_t);
+typedef int (RCC_SYSV_ABI *wide_compare_fn)(uint64_t, uint64_t);
+typedef int (RCC_SYSV_ABI *signed_wide_compare_fn)(int64_t, int64_t);
+typedef int64_t (RCC_SYSV_ABI *signed_wide_binary_fn)(int64_t, int64_t);
+typedef uint64_t (RCC_SYSV_ABI *wide_shift_fn)(uint64_t, int32_t);
+typedef int64_t (RCC_SYSV_ABI *signed_wide_shift_fn)(int64_t, int32_t);
+typedef uint64_t (RCC_SYSV_ABI *atomic_wide_load_fn)(volatile uint64_t*);
+typedef void (RCC_SYSV_ABI *atomic_wide_store_fn)(volatile uint64_t*, uint64_t);
+typedef uint64_t (RCC_SYSV_ABI *atomic_wide_exchange_fn)(volatile uint64_t*, uint64_t);
+typedef int (RCC_SYSV_ABI *atomic_wide_compare_fn)(volatile uint64_t*, uint64_t*,
                                       uint64_t);
-typedef uint64_t (*wide_pointer_unary_fn)(uint64_t*);
-typedef uint64_t (*wide_pointer_binary_fn)(uint64_t*, uint64_t);
-typedef uint64_t (*wide_pointer_count_fn)(uint64_t*, int*);
-typedef int64_t (*signed_wide_pointer_binary_fn)(int64_t*, int64_t);
-typedef uint64_t (*wide_pointer_shift_fn)(uint64_t*, int32_t);
-typedef int64_t (*signed_wide_pointer_shift_fn)(int64_t*, int32_t);
+typedef uint64_t (RCC_SYSV_ABI *wide_pointer_unary_fn)(uint64_t*);
+typedef uint64_t (RCC_SYSV_ABI *wide_pointer_binary_fn)(uint64_t*, uint64_t);
+typedef uint64_t (RCC_SYSV_ABI *wide_pointer_count_fn)(uint64_t*, int*);
+typedef int64_t (RCC_SYSV_ABI *signed_wide_pointer_binary_fn)(int64_t*, int64_t);
+typedef uint64_t (RCC_SYSV_ABI *wide_pointer_shift_fn)(uint64_t*, int32_t);
+typedef int64_t (RCC_SYSV_ABI *signed_wide_pointer_shift_fn)(int64_t*, int32_t);
 
 static ObjSymbol* required_function(ObjectFile* object, const char* name) {
     ObjSymbol* symbol = objfile_find_symbol(object, name);
@@ -107,9 +161,11 @@ int main(int argc, char** argv) {
     atomic_wide_store_fn atomic_store;
     atomic_wide_exchange_fn atomic_exchange;
     atomic_wide_compare_fn atomic_compare;
+    int inspect_only;
 
-    assert(argc == 2);
-    object = objfile_read(argv[1]);
+    assert(argc == 2 || (argc == 3 && strcmp(argv[1], "--inspect") == 0));
+    inspect_only = argc == 3;
+    object = objfile_read(inspect_only ? argv[2] : argv[1]);
     assert(object != NULL && object->arch == ARCH_X86);
     code = objfile_get_section(object, ".text");
     data = objfile_get_section(object, ".data");
@@ -217,6 +273,15 @@ int main(int argc, char** argv) {
                   "abi_atomic_u64_exchange");
     LOAD_FUNCTION(atomic_compare, object, mapping,
                   "abi_atomic_u64_compare");
+
+#if defined(_WIN32)
+    if (inspect_only) {
+        assert(munmap(mapping, mapping_size) == 0);
+        objfile_free(object);
+        puts("i686 EDX:EAX scalar ABI layout and symbol inspection passed");
+        return 0;
+    }
+#endif
 
     assert(literal() == UINT64_C(0x1234567889abcdef));
     assert(identity(UINT64_C(0xfedcba9876543210)) ==
