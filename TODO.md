@@ -210,8 +210,9 @@
   - [x] side-effect-free integer algebraic identities (`+0`、`-0`、`*1`、`/1`、
         bitwise identity、zero folding)を型互換性と副作用保持付きで実装し、
         両archの最適化・実行回帰へ接続
-  - [x] unsigned integerの`x * 2^k`／`2^k * x`を型付きleft-shiftへ
-        strength reductionし、i686/x86_64の即値shift生成と実行回帰を追加
+  - [x] unsigned integerの`x * 2^k`／`2^k * x`、`x / 2^k`、`x % 2^k`を
+        型付きshift/maskへstrength reductionし、i686/x86_64の即値shift生成と
+        実行回帰を追加。signed/overflow-sensitive formは変更しない
 - [x] mem2reg、DCE、CSE/GVN
   - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
     （`goto`および`case/default`からのentryを保持）
