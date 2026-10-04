@@ -145,6 +145,9 @@ typedef struct Module {
     GlobalFinalizer* global_finalizers;
     int global_finalizer_count;
     uint32_t compound_literal_count;
+    /* Translation-unit AST retained only while emitting relocatable debug
+     * information.  The AST is owned by the frontend and is not freed here. */
+    AST* debug_ast;
 } Module;
 
 struct CxxNamespace;

@@ -117,6 +117,7 @@ Module* codegen_new(void) {
     mod->global_finalizers = NULL;
     mod->global_finalizer_count = 0;
     mod->compound_literal_count = 0u;
+    mod->debug_ast = NULL;
 
     return mod;
 }
@@ -12744,6 +12745,7 @@ static void gen_function(Module* mod, Decl* decl) {
 
 Module* rcc_codegen(AST* ast) {
     Module* mod = codegen_new();
+    mod->debug_ast = ast;
 
     /* Reset label counter and function call tracking */
     label_counter = 0;

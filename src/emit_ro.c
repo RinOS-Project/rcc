@@ -818,6 +818,156 @@ static void debug_line_sleb(ObjSection* section, int64_t value) {
     } while (more);
 }
 
+static uint32_t debug_str_add(ObjSection* strings, const char* value);
+
+static void debug_expr_breg(ObjSection* section, int architecture,
+                            int32_t offset) {
+    uint8_t expression[16];
+    size_t size = 1u;
+    int64_t value = offset;
+    bool more;
+
+    expression[0] = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    do {
+        uint8_t byte = (uint8_t)((uint64_t)value & 0x7fu);
+        value >>= 7;
+        more = !((value == 0 && (byte & 0x40u) == 0u) ||
+                 (value == -1 && (byte & 0x40u) != 0u));
+        if (more) byte |= 0x80u;
+        if (size + 1u >= sizeof(expression)) {
+            rcc_fatal("DWARF variable location expression is too large");
+            return;
+        }
+        expression[size++] = byte;
+    } while (more);
+    debug_line_uleb(section, (uint64_t)size);
+    section_add_bytes(section, expression, size);
+}
+
+static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
+                                    const Decl* declaration,
+                                    uint8_t abbreviation, int architecture) {
+    if (!info || !strings || !declaration || !declaration->name ||
+        declaration->name[0] == '\0') return;
+    section_add_byte(info, abbreviation);
+    debug_line_u32(info, debug_str_add(strings, declaration->name));
+    debug_expr_breg(info, architecture, declaration->var_offset);
+}
+
+static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
+                                   const Stmt* statement, int architecture);
+
+static void debug_emit_catch_locals(ObjSection* info, ObjSection* strings,
+                                    const CxxCatch* handler,
+                                    int architecture) {
+    for (; handler; handler = handler->next) {
+        if (handler->parameter && handler->parameter->kind == DECL_PARAM) {
+            debug_emit_variable_die(info, strings, handler->parameter, 3u,
+                                    architecture);
+        }
+        debug_emit_stmt_locals(info, strings, handler->body, architecture);
+    }
+}
+
+static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
+                                   const Stmt* statement, int architecture) {
+    const StmtList* item;
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                debug_emit_stmt_locals(info, strings, item->stmt,
+                                       architecture);
+            }
+            break;
+        case STMT_IF:
+            debug_emit_stmt_locals(info, strings, statement->if_then,
+                                   architecture);
+            debug_emit_stmt_locals(info, strings, statement->if_else,
+                                   architecture);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            debug_emit_stmt_locals(info, strings, statement->while_body,
+                                   architecture);
+            break;
+        case STMT_FOR:
+            debug_emit_stmt_locals(info, strings, statement->for_init,
+                                   architecture);
+            debug_emit_stmt_locals(info, strings, statement->for_body,
+                                   architecture);
+            break;
+        case STMT_SWITCH:
+            debug_emit_stmt_locals(info, strings, statement->switch_body,
+                                   architecture);
+            break;
+        case STMT_CASE:
+            debug_emit_stmt_locals(info, strings, statement->case_stmt,
+                                   architecture);
+            break;
+        case STMT_DEFAULT:
+            debug_emit_stmt_locals(info, strings, statement->default_stmt,
+                                   architecture);
+            break;
+        case STMT_LABEL:
+            debug_emit_stmt_locals(info, strings, statement->label_stmt,
+                                   architecture);
+            break;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR &&
+                !statement->decl->var_is_global &&
+                !statement->decl->var_is_static_local) {
+                debug_emit_variable_die(info, strings, statement->decl, 4u,
+                                        architecture);
+            }
+            break;
+        case STMT_TRY:
+            debug_emit_stmt_locals(info, strings, statement->try_body,
+                                   architecture);
+            debug_emit_catch_locals(info, strings, statement->try_catches,
+                                    architecture);
+            break;
+        default:
+            break;
+    }
+}
+
+static Decl* debug_find_function_decl(const Module* mod,
+                                      const ModuleSymbol* symbol) {
+    if (!mod || !mod->debug_ast || !symbol || !symbol->name) return NULL;
+    for (DeclList* item = mod->debug_ast->decls; item; item = item->next) {
+        Decl* declaration = item->decl;
+        const char* link_name;
+        if (!declaration || declaration->kind != DECL_FUNC ||
+            !declaration->func_body) {
+            continue;
+        }
+        link_name = declaration->link_name
+                        ? declaration->link_name : declaration->name;
+        if (!link_name || strcmp(link_name, symbol->name) != 0) continue;
+        return declaration;
+    }
+    return NULL;
+}
+
+static void debug_emit_function_locals(ObjSection* info, ObjSection* strings,
+                                       const Module* mod,
+                                       const ModuleSymbol* symbol,
+                                       int architecture) {
+    Decl* function = debug_find_function_decl(mod, symbol);
+    if (!function) return;
+    if (function->func_this_param) {
+        debug_emit_variable_die(info, strings, function->func_this_param, 3u,
+                                architecture);
+    }
+    for (DeclList* parameter = function->func_params; parameter;
+         parameter = parameter->next) {
+        debug_emit_variable_die(info, strings, parameter->decl, 3u,
+                                architecture);
+    }
+    debug_emit_stmt_locals(info, strings, function->func_body, architecture);
+}
+
 static int debug_line_file_index(const char* const* files, int file_count,
                                  const char* file) {
     for (int index = 0; index < file_count; ++index) {
@@ -1057,7 +1207,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 2u);
     debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
-    section_add_byte(abbrev, 0u);
+    section_add_byte(abbrev, 1u);       /* subprogram has child DIEs */
     debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
@@ -1074,6 +1224,24 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 3u);
+    debug_line_uleb(abbrev, 0x05u);     /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x02u);     /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 4u);
+    debug_line_uleb(abbrev, 0x34u);     /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x02u);     /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
@@ -1119,6 +1287,10 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_line_u32(info, function->source_column);
         section_add_byte(info, function->is_global ? 1u : 0u);
         debug_line_u32(info, debug_str_add(strings, function->name));
+        debug_emit_function_locals(
+            info, strings, mod, function,
+            g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
+        section_add_byte(info, 0u);    /* end of subprogram children */
     }
     section_add_byte(info, 0u);        /* end of compile-unit children */
     section_add_byte(info, 0u);        /* end of compile-unit DIE */

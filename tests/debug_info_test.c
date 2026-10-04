@@ -25,6 +25,14 @@ static bool contains_byte_pair(const uint8_t* data, uint64_t size,
     return false;
 }
 
+static bool contains_byte(const uint8_t* data, uint64_t size, uint8_t value)
+{
+    for (uint64_t offset = 0u; offset < size; ++offset) {
+        if (data[offset] == value) return true;
+    }
+    return false;
+}
+
 static uint32_t read_u32(const uint8_t* data, uint64_t offset)
 {
     return (uint32_t)data[offset] |
@@ -74,6 +82,17 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     }
     assert(abbrev->size > 8u && strings->size > 1u && strings->data[0] == 0u);
     assert(contains_bytes(strings->data, strings->size, function_name));
+    if (language == 0x000cu) {
+        assert(contains_bytes(strings->data, strings->size,
+                              "debug_info_parameters"));
+        assert(contains_bytes(strings->data, strings->size, "left"));
+        assert(contains_bytes(strings->data, strings->size, "right"));
+        assert(contains_bytes(strings->data, strings->size, "sum"));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x05u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x34u, 0x00u));
+        assert(contains_byte(info->data, info->size,
+                             architecture == ARCH_X64 ? 0x76u : 0x75u));
+    }
     objfile_free(object);
 }
 

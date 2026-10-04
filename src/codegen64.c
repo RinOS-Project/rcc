@@ -8660,6 +8660,7 @@ void codegen_emit_cxx_vtable_thunks64(Module* mod, CxxNamespace* ns) {
 
 Module* rcc_codegen64(AST* ast) {
     Module* mod = codegen_new();
+    mod->debug_ast = ast;
 
     /* Reset label counter */
     label_counter64 = 0;
