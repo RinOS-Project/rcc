@@ -449,6 +449,8 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x35u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x37u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x47u, 0x00u));
+        assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0bu, 0x01u));
+        assert(contains_bytes(strings->data, strings->size, "nested"));
         verify_subroutine_type(info);
         assert(contains_byte(info->data, info->size,
                              architecture == ARCH_X64 ? 0x76u : 0x75u));

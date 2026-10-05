@@ -1533,6 +1533,26 @@ static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
                                    const char* const* files, int file_count,
                                    const Stmt* statement, int architecture);
 
+static int debug_line_file_index(const char* const* files, int file_count,
+                                 const char* file);
+
+static void debug_emit_lexical_block_die(
+    ObjSection* info, const char* const* files, int file_count,
+    const Stmt* statement) {
+    int file_index;
+    if (!info || !statement) return;
+    file_index = debug_line_file_index(files, file_count,
+                                       statement->loc.filename);
+    /* Abbreviation 24 records the source extent of a real compound
+     * statement.  Code-range attribution is emitted separately once the
+     * backend has a block-to-PC map; keeping the lexical DIE here still
+     * preserves the source nesting for debuggers without inventing a range. */
+    section_add_byte(info, 24u);
+    section_add_byte(info, (uint8_t)file_index);
+    debug_line_u32(info, statement->loc.line);
+    debug_line_u32(info, statement->loc.column);
+}
+
 static void debug_emit_catch_locals(ObjSection* info, ObjSection* strings,
                                      DebugTypeContext* types,
                                      const char* const* files, int file_count,
@@ -1559,11 +1579,16 @@ static void debug_emit_stmt_locals(ObjSection* info, ObjSection* strings,
     if (!statement) return;
     switch (statement->kind) {
         case STMT_BLOCK:
+            if (!statement->block_no_scope) {
+                debug_emit_lexical_block_die(info, files, file_count,
+                                             statement);
+            }
             for (item = statement->block_stmts; item; item = item->next) {
                 debug_emit_stmt_locals(info, strings, types, files, file_count,
                                        item->stmt,
                                        architecture);
             }
+            if (!statement->block_no_scope) section_add_byte(info, 0u);
             break;
         case STMT_IF:
             debug_emit_stmt_locals(info, strings, types, files, file_count,
@@ -2320,6 +2345,17 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 24u);
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_TAG_lexical_block */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);     /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);     /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 20u);

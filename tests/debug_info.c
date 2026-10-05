@@ -55,6 +55,9 @@ int debug_info_parameters(int left, int right)
 {
     int sum = left + right;
     int* pointer = &sum;
-    return *pointer + debug_aggregate_sum() +
-           debug_aggregate_data.first + debug_array_data[0];
+    {
+        int nested = *pointer;
+        return nested + debug_aggregate_sum() +
+               debug_aggregate_data.first + debug_array_data[0];
+    }
 }

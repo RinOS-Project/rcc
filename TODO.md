@@ -478,6 +478,10 @@
   - [x] const／volatile／restrict／atomic修飾型を対応するDWARF qualifier
         DIEと実在する基底型参照へlowerし、i686/AMD64のglobal variableと
         linked-image debug-info回帰で検証
+  - [x] nested compound statementへ`DW_TAG_lexical_block`を出力し、実際の
+        `DW_AT_decl_file`／`DW_AT_decl_line`／`DW_AT_decl_column`とblock内
+        local DIEの親子関係をi686/AMD64のdebug-info回帰で検証。block-to-PC
+        rangeと完全なinline attribution/CFIは引き続き未実装
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
