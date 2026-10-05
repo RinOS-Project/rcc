@@ -10939,6 +10939,38 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(SRCDIR)/utils.c
 	$(TEST_OUT)/verified-backend/overflow-run \
 		$(TEST_OUT)/verified-backend/overflow-x64.ro
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/object-size-x86.ro \
+		tests/verified_backend_object_size.c \
+		>$(TEST_OUT)/verified-backend/object-size-x86.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/object-size-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/object-size-x64.ro \
+		tests/verified_backend_object_size.c \
+		>$(TEST_OUT)/verified-backend/object-size-x64.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/object-size-x64.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/object-size-cxx-x86.ro \
+		tests/verified_backend_object_size.cpp \
+		>$(TEST_OUT)/verified-backend/object-size-cxx-x86.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/object-size-cxx-x86.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/object-size-cxx-x64.ro \
+		tests/verified_backend_object_size.cpp \
+		>$(TEST_OUT)/verified-backend/object-size-cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/object-size-cxx-x64.log
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/object-size-run \
+		tests/verified_backend_object_size_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/object-size-run \
+		$(TEST_OUT)/verified-backend/object-size-x64.ro
 	@echo "Legacy and verified terminating/prediction/constant-p/ffs/assume-aligned/checked-arithmetic builtin tests completed"
 
 test-verified-bitcounts: $(RCC_TARGET)

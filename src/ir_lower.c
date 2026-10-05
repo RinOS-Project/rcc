@@ -3022,6 +3022,61 @@ static RccIrLowerValue lower_builtin_checked_mul(
     return lower_cast(context, overflow, expression->type);
 }
 
+static bool lower_builtin_object_size_known(
+    const Expr* expression, uint64_t* size) {
+    const Decl* declaration;
+    const Type* type;
+    int64_t index;
+    uint32_t element_size;
+    uint64_t offset;
+    while (expression && expression->kind == EXPR_CAST) {
+        expression = expression->cast_expr;
+    }
+    if (!expression || !size) return false;
+    if (expression->kind == EXPR_STRING_LIT) {
+        if (expression->str_length == SIZE_MAX) return false;
+        *size = (uint64_t)expression->str_length + 1u;
+        return true;
+    }
+    if (expression->kind == EXPR_ADDR && expression->unary_operand) {
+        return lower_builtin_object_size_known(
+            expression->unary_operand, size);
+    }
+    if (expression->kind == EXPR_INDEX && expression->index_base &&
+        expression->index_expr &&
+        lower_builtin_object_size_known(expression->index_base, size) &&
+        expr_eval_integer_constant(expression->index_expr, &index) &&
+        index >= 0 && expression->index_base->type &&
+        (expression->index_base->type->kind == TYPE_PTR ||
+         expression->index_base->type->kind == TYPE_ARRAY) &&
+        expression->index_base->type->base &&
+        expression->index_base->type->base->size > 0) {
+        element_size = (uint32_t)expression->index_base->type->base->size;
+        if ((uint64_t)index > UINT64_MAX / element_size) return false;
+        offset = (uint64_t)index * element_size;
+        if (offset > *size) return false;
+        *size -= offset;
+        return true;
+    }
+    if (expression->kind != EXPR_IDENT || !expression->ident_decl) {
+        return false;
+    }
+    declaration = expression->ident_decl;
+    if (declaration->kind != DECL_VAR || !declaration->type) return false;
+    type = declaration->type;
+    if (type->kind == TYPE_ARRAY && type->array_len >= 0 &&
+        !type->array_bound && type->size > 0) {
+        *size = (uint64_t)type->size;
+        return true;
+    }
+    if (type->kind != TYPE_PTR && type->kind != TYPE_ARRAY &&
+        type->kind != TYPE_FUNC && type->size > 0) {
+        *size = (uint64_t)type->size;
+        return true;
+    }
+    return false;
+}
+
 static RccIrLowerValue lower_builtin_bit_count(
     RccIrLowerContext* context, const Expr* expression, const char* name) {
     const ExprList* argument;
@@ -3289,6 +3344,27 @@ static RccIrLowerValue lower_builtin_call(
     }
     if (strcmp(name, "__builtin_mul_overflow") == 0) {
         return lower_builtin_checked_mul(context, expression);
+    }
+    if (strcmp(name, "__builtin_object_size") == 0) {
+        const ExprList* object = expression->call_args;
+        const ExprList* mode = object ? object->next : NULL;
+        RccIrType result_type;
+        int64_t mode_value;
+        uint64_t object_size;
+        bool known;
+        if (!object || !object->expr || !mode || !mode->expr ||
+            mode->next || !expr_eval_integer_constant(
+                mode->expr, &mode_value) || mode_value < 0 || mode_value > 3 ||
+            !expression->type || !lower_type(expression->type, &result_type) ||
+            result_type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        known = lower_builtin_object_size_known(object->expr, &object_size);
+        if (!known) object_size = (mode_value & 2) != 0 ? 0u : UINT64_MAX;
+        return lower_integer_constant(
+            context, result_type, expression->type->is_unsigned,
+            object_size);
     }
     if (strcmp(name, "__builtin_prefetch") == 0) {
         const ExprList* first = expression->call_args;
@@ -3896,6 +3972,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_sub_overflow") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_mul_overflow") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_object_size") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap16") == 0 ||
                  strcmp(expression->call_func->ident_name,
