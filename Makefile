@@ -10586,6 +10586,16 @@ test-weak-attribute: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		tests/invalid_weak_attribute_arguments.c,$(TEST_OUT)/weak-attribute/invalid-arguments.log)
 	$(GREP) -F -q "weak attribute does not accept arguments" \
 		$(TEST_OUT)/weak-attribute/invalid-arguments.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/weak-attribute/invalid-cxx.ro \
+		tests/invalid_cxx_weak_attribute.cpp,$(TEST_OUT)/weak-attribute/invalid-cxx.log)
+	$(GREP) -F -q "[[gnu::weak]] does not accept arguments" \
+		$(TEST_OUT)/weak-attribute/invalid-cxx.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/weak-attribute/invalid-cxx-member.ro \
+		tests/invalid_cxx_weak_attribute_member.cpp,$(TEST_OUT)/weak-attribute/invalid-cxx-member.log)
+	$(GREP) -F -q "[[gnu::weak]] requires a file-scope declaration" \
+		$(TEST_OUT)/weak-attribute/invalid-cxx-member.log
 
 test-comdat-link:
 	$(call MKDIR_P,$(TEST_OUT)/comdat)

@@ -1086,6 +1086,7 @@ static bool check_next(TokenType type) {
 
 static bool pending_cxx_nodiscard;
 static bool pending_cxx_deprecated;
+static bool pending_cxx_weak;
 static const char* pending_cxx_deprecated_message;
 
 /* C++ attributes are metadata at this stage.  Consume complete [[...]]
@@ -1100,6 +1101,8 @@ static void skip_cxx_attributes(void) {
         bool group_fallthrough = false;
         bool group_likely = false;
         bool group_unlikely = false;
+        bool group_weak = false;
+        bool group_weak_arguments = false;
         const char* group_deprecated_message = NULL;
         advance();
         advance();
@@ -1136,6 +1139,18 @@ static void skip_cxx_attributes(void) {
                     } else if (strcmp(peek()->value.str_val,
                                       "unlikely") == 0) {
                         group_unlikely = true;
+                    } else if (strcmp(peek()->value.str_val, "gnu") == 0 &&
+                               parser.cur->next &&
+                               parser.cur->next->type == TOK_SCOPE &&
+                               parser.cur->next->next &&
+                               parser.cur->next->next->type == TOK_IDENT &&
+                               strcmp(parser.cur->next->next->value.str_val,
+                                      "weak") == 0) {
+                        group_weak = true;
+                        if (parser.cur->next->next->next &&
+                            parser.cur->next->next->next->type == TOK_LPAREN) {
+                            group_weak_arguments = true;
+                        }
                     }
                 }
                 advance();
@@ -1161,7 +1176,11 @@ static void skip_cxx_attributes(void) {
             rcc_error(loc,
                       "[[likely]] and [[unlikely]] require C++20 or newer");
         }
+        if (group_weak_arguments) {
+            rcc_error(loc, "[[gnu::weak]] does not accept arguments");
+        }
         if (group_nodiscard) pending_cxx_nodiscard = true;
+        if (group_weak) pending_cxx_weak = true;
         if (group_deprecated) {
             pending_cxx_deprecated = true;
             if (group_deprecated_message) {
@@ -1174,6 +1193,12 @@ static void skip_cxx_attributes(void) {
 static bool take_cxx_nodiscard(void) {
     bool result = pending_cxx_nodiscard;
     pending_cxx_nodiscard = false;
+    return result;
+}
+
+static bool take_cxx_weak(void) {
+    bool result = pending_cxx_weak;
+    pending_cxx_weak = false;
     return result;
 }
 
@@ -1192,6 +1217,7 @@ static bool take_cxx_deprecated(const char** message) {
 void rcc_parser_cxx_skip_statement_attributes(void) {
     bool saved_nodiscard = pending_cxx_nodiscard;
     bool saved_deprecated = pending_cxx_deprecated;
+    bool saved_weak = pending_cxx_weak;
     const char* saved_deprecated_message = pending_cxx_deprecated_message;
 
     skip_cxx_attributes();
@@ -1200,6 +1226,7 @@ void rcc_parser_cxx_skip_statement_attributes(void) {
      * attributes that appeared directly before a statement. */
     pending_cxx_nodiscard = saved_nodiscard;
     pending_cxx_deprecated = saved_deprecated;
+    pending_cxx_weak = saved_weak;
     pending_cxx_deprecated_message = saved_deprecated_message;
 }
 
@@ -4544,8 +4571,13 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
     skip_cxx_attributes();
     bool is_nodiscard = take_cxx_nodiscard();
+    bool is_weak = take_cxx_weak();
     const char* deprecated_message = NULL;
     bool is_deprecated = take_cxx_deprecated(&deprecated_message);
+
+    if (is_weak) {
+        rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
+    }
 
     bool is_virtual = false;
     bool is_static = false;
@@ -5155,6 +5187,7 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
 
     if (!declaration) {
         (void)take_cxx_nodiscard();
+        (void)take_cxx_weak();
         (void)take_cxx_deprecated(NULL);
         return;
     }
@@ -5162,6 +5195,9 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
         declaration->func_is_nodiscard = true;
     } else if (declaration->kind != DECL_FUNC) {
         (void)take_cxx_nodiscard();
+    }
+    if (declaration->kind != DECL_FUNC) {
+        declaration->is_weak = take_cxx_weak();
     }
     {
         const char* deprecated_message = NULL;
@@ -5442,6 +5478,9 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
+            if (take_cxx_weak()) {
+                rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
+            }
             (void)take_cxx_deprecated(NULL);
             cxx_namespace_add_class(ns, cls);
         } else if (match(TOK_TEMPLATE)) {
@@ -6205,6 +6244,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     *is_consteval = false;
     skip_cxx_attributes();
     bool is_nodiscard = take_cxx_nodiscard();
+    bool is_weak = take_cxx_weak();
     const char* deprecated_message = NULL;
     bool is_deprecated = take_cxx_deprecated(&deprecated_message);
     loc = peek()->loc;
@@ -6316,6 +6356,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     function->decl->func_is_constexpr = *is_constexpr;
     function->decl->func_is_consteval = *is_consteval;
     function->decl->func_is_nodiscard = is_nodiscard;
+    function->decl->is_weak = is_weak;
     function->decl->func_is_deprecated = is_deprecated;
     function->decl->func_deprecated_message = deprecated_message;
     function->decl->func_is_noexcept = *is_noexcept;
@@ -12705,12 +12746,14 @@ Stmt* rcc_parse_cxx_statement(void) {
 static void add_cxx_declaration_one(AST* ast, Stmt* statement,
                                     bool c_language_linkage,
                                     bool nodiscard,
+                                    bool weak,
                                     bool deprecated,
                                     const char* deprecated_message) {
     if (statement && statement->kind == STMT_DECL) {
         if (statement->decl->kind == DECL_FUNC && nodiscard) {
             statement->decl->func_is_nodiscard = true;
         }
+        if (weak) statement->decl->is_weak = true;
         if (deprecated && statement->decl->kind == DECL_FUNC) {
             statement->decl->func_is_deprecated = true;
             statement->decl->func_deprecated_message = deprecated_message;
@@ -12726,6 +12769,7 @@ static void add_cxx_declaration_one(AST* ast, Stmt* statement,
 static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage) {
     bool nodiscard = take_cxx_nodiscard();
+    bool weak = take_cxx_weak();
     const char* deprecated_message = NULL;
     bool deprecated = take_cxx_deprecated(&deprecated_message);
     if (!deprecated) deprecated_message = NULL;
@@ -12734,12 +12778,13 @@ static void add_cxx_declaration(AST* ast, Stmt* statement,
         statement->block_no_scope) {
         for (StmtList* item = statement->block_stmts; item; item = item->next) {
             add_cxx_declaration_one(ast, item->stmt, c_language_linkage,
-                                    nodiscard, deprecated, deprecated_message);
+                                    nodiscard, weak, deprecated,
+                                    deprecated_message);
         }
         return;
     }
     add_cxx_declaration_one(ast, statement, c_language_linkage, nodiscard,
-                            deprecated, deprecated_message);
+                            weak, deprecated, deprecated_message);
 }
 
 /* Preserve C ABI symbol spelling inside extern "C" while extern "C++" and
@@ -12860,6 +12905,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     parser.prev = NULL;
     pending_cxx_nodiscard = false;
     pending_cxx_deprecated = false;
+    pending_cxx_weak = false;
     pending_cxx_deprecated_message = NULL;
     cxx_standard_feature_tokens_valid(tokens->head);
 
@@ -12892,6 +12938,9 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
+            if (take_cxx_weak()) {
+                rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
+            }
             (void)take_cxx_deprecated(NULL);
             /* Class is stored in global namespace */
             if (g_global_namespace) {

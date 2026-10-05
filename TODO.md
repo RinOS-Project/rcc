@@ -19,9 +19,10 @@
     - [x] `.ro v2` COMDAT ANY groupの決定的選択と破損metadata拒否
     - [x] weak→strong置換時のsection/binding/size/RVA更新
     - [x] 入力順を保つ未解決symbol駆動の`.ra v2` member推移選択
-    - [x] C/C++ source-level `__attribute__((weak))` declarations, weak
-      definitions, and weak imports through AST/sema, native/verified
-      backends, and i686/AMD64 `.ro` regression coverage
+    - [x] C/C++ source-level `__attribute__((weak))` and C++20
+      `[[gnu::weak]]` declarations, weak definitions, and weak imports
+      through AST/sema, native/verified backends, explicit argument/member
+      diagnostics, and i686/AMD64 `.ro` regression coverage
     - [ ] 他形式・全ABI edge caseを含む完全なCOMDAT/weak/archive互換性
 - [x] `.ro v2`からRIN v3へ伝播するTLS、INIT/FINI、UNWIND section metadata
     - [x] `.ro v2` typed sectionのRIN v3伝播、W^X/幅/metadata検証
