@@ -209,6 +209,16 @@ int inlined_character_call(int value)
     return inline_character_offset(value);
 }
 
+static const char* inline_string_constant(void)
+{
+    return (const char*)"rcc";
+}
+
+const char* inlined_string_constant_call(void)
+{
+    return inline_string_constant();
+}
+
 static int inline_pointer_index(int* value)
 {
     return value[1];

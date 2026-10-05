@@ -337,6 +337,9 @@
         受理し、`sizeof *p`ラッパーの両arch call除去と実行結果を回帰検証
   - [x] C++20専用の`noexcept(value)`純粋ラッパーを実オブジェクトで検証し、
         C++ O0/O1のcall保持／除去と非評価結果を両archで回帰検証
+  - [x] 不変文字列リテラルを返す純粋scalarラッパーを受理し、データ領域の
+        実行検証はこの検査対象外と明記したうえで、両arch/C++のオブジェクト
+        call除去を検証
   - [x] 純粋scalar inlineのリテラル境界に文字リテラルを追加し、`value + 'A'`の
         C/C++・両arch call除去と実行結果を回帰検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／
