@@ -2794,6 +2794,28 @@ static RccIrLowerValue lower_builtin_integer_compare(
                        rcc_ir_type_integer(1u), true);
 }
 
+static RccIrLowerValue lower_builtin_integer_select(
+    RccIrLowerContext* context, RccIrLowerValue condition,
+    RccIrLowerValue when_true, RccIrLowerValue when_false) {
+    RccIrValue operands[3];
+    RccIrInstruction* instruction;
+    if (!context || !condition.valid || !when_true.valid ||
+        !when_false.valid ||
+        !rcc_ir_type_equal(condition.type, rcc_ir_type_integer(1u)) ||
+        !rcc_ir_type_equal(when_true.type, when_false.type)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = condition.value;
+    operands[1] = when_true.value;
+    operands[2] = when_false.value;
+    instruction = lower_append(
+        context, RCC_IR_SELECT, when_true.type, operands, 3u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    return lower_value(instruction->result, when_true.type,
+                       when_true.is_unsigned);
+}
+
 static RccIrLowerValue lower_builtin_checked_add_sub(
     RccIrLowerContext* context, const Expr* expression, bool subtract) {
     const ExprList* first = expression ? expression->call_args : NULL;
@@ -2872,6 +2894,129 @@ static RccIrLowerValue lower_builtin_checked_add_sub(
             context, sign_bits, zero, RCC_IR_ICMP_NE);
     }
     if (!overflow.valid || !lower_store_address(context, destination, result)) {
+        return lower_invalid_value();
+    }
+    return lower_cast(context, overflow, expression->type);
+}
+
+static RccIrLowerValue lower_builtin_checked_mul(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* first = expression ? expression->call_args : NULL;
+    const ExprList* second = first ? first->next : NULL;
+    const ExprList* third = second ? second->next : NULL;
+    const Type* operand_ast_type;
+    const Type* result_ast_type;
+    RccIrType operand_type;
+    RccIrType result_type;
+    RccIrLowerValue left;
+    RccIrLowerValue right;
+    RccIrLowerValue destination;
+    RccIrLowerValue result;
+    RccIrLowerValue overflow;
+    RccIrLowerValue zero;
+    RccIrLowerValue one;
+    RccIrLowerValue right_nonzero;
+    RccIrLowerValue safe_right;
+    RccIrLowerValue limit;
+    RccIrLowerValue quotient;
+    RccIrLowerValue too_large;
+    if (!context || !expression || !expression->type ||
+        !first || !first->expr || !second || !second->expr ||
+        !third || !third->expr || third->next ||
+        !type_is_integer(first->expr->type) ||
+        !type_is_integer(second->expr->type) ||
+        third->expr->type->kind != TYPE_PTR ||
+        !third->expr->type->base ||
+        !type_is_integer(third->expr->type->base) ||
+        !lower_type(first->expr->type, &operand_type) ||
+        !lower_type(third->expr->type->base, &result_type) ||
+        operand_type.kind != RCC_IR_TYPE_INTEGER ||
+        !rcc_ir_type_equal(operand_type, result_type) ||
+        operand_type.bit_width < 32u || operand_type.bit_width > 64u ||
+        (operand_type.bit_width == 64u && g_opts.target_arch != ARCH_X64)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operand_ast_type = first->expr->type;
+    result_ast_type = third->expr->type->base;
+    if (operand_ast_type->is_unsigned != result_ast_type->is_unsigned ||
+        second->expr->type->is_unsigned != result_ast_type->is_unsigned ||
+        second->expr->type->size != result_ast_type->size) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    left = lower_cast(context, lower_expression(context, first->expr),
+                      operand_ast_type);
+    right = lower_cast(context, lower_expression(context, second->expr),
+                       operand_ast_type);
+    destination = lower_expression(context, third->expr);
+    if (!left.valid || !right.valid || !destination.valid ||
+        destination.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    result = lower_builtin_integer_binary(context, RCC_IR_MUL, left, right);
+    if (!result.valid) return lower_invalid_value();
+    zero = lower_integer_constant(context, operand_type, true, 0u);
+    one = lower_integer_constant(context, operand_type, true, 1u);
+    if (!zero.valid || !one.valid) return lower_invalid_value();
+    if (operand_ast_type->is_unsigned) {
+        uint64_t maximum = operand_type.bit_width == 64u
+            ? UINT64_MAX : UINT64_C(0xffffffff);
+        limit = lower_integer_constant(
+            context, operand_type, true, maximum);
+        right_nonzero = lower_builtin_integer_compare(
+            context, right, zero, RCC_IR_ICMP_NE);
+        safe_right = lower_builtin_integer_select(
+            context, right_nonzero, right, one);
+    } else {
+        RccIrLowerValue left_negative;
+        RccIrLowerValue right_negative;
+        RccIrLowerValue negative_product;
+        RccIrLowerValue negative_left;
+        RccIrLowerValue negative_right;
+        RccIrLowerValue absolute_left;
+        RccIrLowerValue absolute_right;
+        RccIrLowerValue minimum_magnitude;
+        RccIrLowerValue maximum_positive;
+        uint64_t minimum = UINT64_C(1) << (operand_type.bit_width - 1u);
+        left_negative = lower_builtin_integer_compare(
+            context, left, zero, RCC_IR_ICMP_SLT);
+        right_negative = lower_builtin_integer_compare(
+            context, right, zero, RCC_IR_ICMP_SLT);
+        negative_product = lower_builtin_integer_binary(
+            context, RCC_IR_XOR, left_negative, right_negative);
+        negative_left = lower_builtin_integer_binary(
+            context, RCC_IR_SUB, zero, left);
+        negative_right = lower_builtin_integer_binary(
+            context, RCC_IR_SUB, zero, right);
+        absolute_left = lower_builtin_integer_select(
+            context, left_negative, negative_left, left);
+        absolute_right = lower_builtin_integer_select(
+            context, right_negative, negative_right, right);
+        minimum_magnitude = lower_integer_constant(
+            context, operand_type, true, minimum);
+        maximum_positive = lower_integer_constant(
+            context, operand_type, true, minimum - 1u);
+        limit = lower_builtin_integer_select(
+            context, negative_product, minimum_magnitude, maximum_positive);
+        right_nonzero = lower_builtin_integer_compare(
+            context, absolute_right, zero, RCC_IR_ICMP_NE);
+        safe_right = lower_builtin_integer_select(
+            context, right_nonzero, absolute_right, one);
+        left = absolute_left;
+    }
+    if (!limit.valid || !right_nonzero.valid || !safe_right.valid) {
+        return lower_invalid_value();
+    }
+    quotient = lower_builtin_integer_binary(
+        context, RCC_IR_UDIV, limit, safe_right);
+    too_large = lower_builtin_integer_compare(
+        context, left, quotient, RCC_IR_ICMP_UGT);
+    overflow = lower_builtin_integer_binary(
+        context, RCC_IR_AND, right_nonzero, too_large);
+    if (!overflow.valid ||
+        !lower_store_address(context, destination, result)) {
         return lower_invalid_value();
     }
     return lower_cast(context, overflow, expression->type);
@@ -3141,6 +3286,9 @@ static RccIrLowerValue lower_builtin_call(
         strcmp(name, "__builtin_sub_overflow") == 0) {
         return lower_builtin_checked_add_sub(
             context, expression, strcmp(name, "__builtin_sub_overflow") == 0);
+    }
+    if (strcmp(name, "__builtin_mul_overflow") == 0) {
+        return lower_builtin_checked_mul(context, expression);
     }
     if (strcmp(name, "__builtin_prefetch") == 0) {
         const ExprList* first = expression->call_args;

@@ -21,6 +21,11 @@ typedef int RINOS_ABI (*SignedOverflowFunction)(int, int, int*);
 typedef int RINOS_ABI (*UnsignedOverflowFunction)(unsigned int,
                                                    unsigned int,
                                                    unsigned int*);
+typedef int RINOS_ABI (*SignedOverflow64Function)(long long, long long,
+                                                   long long*);
+typedef int RINOS_ABI (*UnsignedOverflow64Function)(unsigned long long,
+                                                     unsigned long long,
+                                                     unsigned long long*);
 
 static void* map_text(const ObjSection* text, size_t* mapped_size)
 {
@@ -76,10 +81,18 @@ int main(int argc, char** argv)
     ObjSymbol* add_unsigned_symbol;
     ObjSymbol* sub_signed_symbol;
     ObjSymbol* sub_unsigned_symbol;
+    ObjSymbol* mul_signed_symbol;
+    ObjSymbol* mul_unsigned_symbol;
+    ObjSymbol* mul_signed64_symbol;
+    ObjSymbol* mul_unsigned64_symbol;
     SignedOverflowFunction add_signed;
     UnsignedOverflowFunction add_unsigned;
     SignedOverflowFunction sub_signed;
     UnsignedOverflowFunction sub_unsigned;
+    SignedOverflowFunction mul_signed;
+    UnsignedOverflowFunction mul_unsigned;
+    SignedOverflow64Function mul_signed64;
+    UnsignedOverflow64Function mul_unsigned64;
     void* memory;
     size_t mapped_size;
     void* address;
@@ -96,9 +109,18 @@ int main(int argc, char** argv)
     sub_signed_symbol = objfile_find_symbol(object, "verified_sub_signed");
     sub_unsigned_symbol = objfile_find_symbol(
         object, "verified_sub_unsigned");
+    mul_signed_symbol = objfile_find_symbol(object, "verified_mul_signed");
+    mul_unsigned_symbol = objfile_find_symbol(
+        object, "verified_mul_unsigned");
+    mul_signed64_symbol = objfile_find_symbol(
+        object, "verified_mul_signed64");
+    mul_unsigned64_symbol = objfile_find_symbol(
+        object, "verified_mul_unsigned64");
     assert(text != NULL && add_signed_symbol != NULL &&
            add_unsigned_symbol != NULL && sub_signed_symbol != NULL &&
-           sub_unsigned_symbol != NULL);
+           sub_unsigned_symbol != NULL && mul_signed_symbol != NULL &&
+           mul_unsigned_symbol != NULL && mul_signed64_symbol != NULL &&
+           mul_unsigned64_symbol != NULL);
     memory = map_text(text, &mapped_size);
 
     address = (uint8_t*)memory + add_signed_symbol->value;
@@ -109,6 +131,14 @@ int main(int argc, char** argv)
     memcpy(&sub_signed, &address, sizeof(sub_signed));
     address = (uint8_t*)memory + sub_unsigned_symbol->value;
     memcpy(&sub_unsigned, &address, sizeof(sub_unsigned));
+    address = (uint8_t*)memory + mul_signed_symbol->value;
+    memcpy(&mul_signed, &address, sizeof(mul_signed));
+    address = (uint8_t*)memory + mul_unsigned_symbol->value;
+    memcpy(&mul_unsigned, &address, sizeof(mul_unsigned));
+    address = (uint8_t*)memory + mul_signed64_symbol->value;
+    memcpy(&mul_signed64, &address, sizeof(mul_signed64));
+    address = (uint8_t*)memory + mul_unsigned64_symbol->value;
+    memcpy(&mul_unsigned64, &address, sizeof(mul_unsigned64));
 
     signed_result = 0;
     assert(add_signed(10, 20, &signed_result) == 0);
@@ -124,6 +154,24 @@ int main(int argc, char** argv)
     assert(signed_result == INT32_MAX);
     assert(sub_unsigned(0u, 1u, &unsigned_result) == 1);
     assert(unsigned_result == UINT32_MAX);
+    assert(mul_signed(1000, 20, &signed_result) == 0);
+    assert(signed_result == 20000);
+    assert(mul_signed(INT32_MAX, 2, &signed_result) == 1);
+    assert(signed_result == -2);
+    assert(mul_signed(INT32_MIN, -1, &signed_result) == 1);
+    assert(signed_result == INT32_MIN);
+    assert(mul_unsigned(UINT32_MAX, 2u, &unsigned_result) == 1);
+    assert(unsigned_result == UINT32_MAX - 1u);
+    {
+        long long signed64_result = 0;
+        unsigned long long unsigned64_result = 0u;
+        assert(mul_signed64(1000000000LL, 3LL, &signed64_result) == 0);
+        assert(signed64_result == 3000000000LL);
+        assert(mul_signed64(INT64_MAX, 2LL, &signed64_result) == 1);
+        assert(signed64_result == -2LL);
+        assert(mul_unsigned64(UINT64_MAX, 2ULL, &unsigned64_result) == 1);
+        assert(unsigned64_result == UINT64_MAX - 1ULL);
+    }
 
     unmap_text(memory, mapped_size);
     objfile_free(object);
