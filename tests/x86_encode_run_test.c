@@ -250,6 +250,42 @@ static int execute_binary_function(RccIrOpcode opcode,
     return value;
 }
 
+static int execute_byte_binary_function(RccIrOpcode opcode,
+                                        int left, int right,
+                                        bool sign_extend)
+{
+    RccIrType i8 = rcc_ir_type_integer(8u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i8, i8};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_byte_fixed", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* result = rcc_ir_append(
+        entry, opcode, i8, ir->parameters, 2u, NULL, 0u);
+    RccIrInstruction* widened;
+    RccX86EncodedFunction encoded;
+    size_t mapping_size;
+    void* memory;
+    int RCC_TEST_ABI (*function)(int, int);
+    int value;
+    assert(result != NULL);
+    widened = rcc_ir_append(
+        entry, sign_extend ? RCC_IR_SEXT : RCC_IR_ZEXT,
+        i32, &result->result, 1u, NULL, 0u);
+    assert(widened != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &widened->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function(ir);
+    memory = map_code(&encoded, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    value = function(left, right);
+    assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_ir_module_destroy(module);
+    return value;
+}
+
 static void verify_fixed_register_execution(void)
 {
     assert(execute_binary_function(RCC_IR_UDIV, 84, 2) == 42);
@@ -259,6 +295,11 @@ static void verify_fixed_register_execution(void)
     assert(execute_binary_function(RCC_IR_SHL, 21, 1) == 42);
     assert(execute_binary_function(RCC_IR_LSHR, 84, 1) == 42);
     assert(execute_binary_function(RCC_IR_ASHR, -84, 1) == -42);
+    assert(execute_byte_binary_function(RCC_IR_MUL, 200, 3, false) == 88);
+    assert(execute_byte_binary_function(RCC_IR_UDIV, 200, 3, false) == 66);
+    assert(execute_byte_binary_function(RCC_IR_UREM, 200, 3, false) == 2);
+    assert(execute_byte_binary_function(RCC_IR_SDIV, -100, 3, true) == -33);
+    assert(execute_byte_binary_function(RCC_IR_SREM, -100, 3, true) == -1);
 }
 
 static int execute_compare_function(RccIrIntPredicate predicate,

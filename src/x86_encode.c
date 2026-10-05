@@ -330,6 +330,10 @@ static uint8_t x86_binary_reg_rm_opcode(RccX86Opcode opcode) {
     }
 }
 
+static bool x86_emit_byte_multiply_register(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    RccX86Value source);
+
 static bool x86_emit_binary_register(
     RccX86Encoder* encoder, RccX86Opcode opcode,
     RccX86HardwareGpr destination, RccX86Value source,
@@ -337,8 +341,8 @@ static bool x86_emit_binary_register(
     bool multiply = opcode == RCC_X86_MUL;
     uint8_t operation;
     if (multiply && size == 1u) {
-        return x86_encode_error(encoder,
-                                "x86 byte multiply is not encoded yet");
+        return x86_emit_byte_multiply_register(
+            encoder, destination, source);
     }
     if (source.kind == RCC_X86_VALUE_GPR) {
         if (multiply) {
@@ -449,8 +453,16 @@ static bool x86_emit_prepare_dividend(
     uint16_t size = instruction->type.bit_width <= 8u
         ? 1u : (uint16_t)(instruction->type.bit_width / 8u);
     if (size == 1u) {
-        return x86_encode_error(
-            encoder, "x86 byte division is not encoded yet");
+        if (instruction->opcode ==
+            RCC_X86_LEGAL_PREPARE_UNSIGNED_DIVIDEND) {
+            /* DIV r/m8 consumes AX and returns quotient in AL. */
+            return x86_emit_u8(encoder, 0x30u) &&
+                x86_emit_u8(encoder, x86_modrm(
+                    3u, 4u, 4u));
+        }
+        /* IDIV r/m8 consumes the signed AX value produced by CBW. */
+        return x86_emit_u8(encoder, 0x66u) &&
+            x86_emit_u8(encoder, 0x98u);
     }
     if (instruction->opcode ==
         RCC_X86_LEGAL_PREPARE_UNSIGNED_DIVIDEND) {
@@ -477,34 +489,72 @@ static bool x86_emit_divide(
     RccX86Encoder* encoder,
     const RccX86LegalInstruction* instruction) {
     RccX86Value divisor = instruction->operands[0];
+    RccX86HardwareGpr divisor_scratch = RCC_X86_GPR_AX;
+    bool preserve_divisor = false;
     uint16_t size = instruction->type.bit_width <= 8u
         ? 1u : (uint16_t)(instruction->type.bit_width / 8u);
     unsigned extension =
         instruction->selected_opcode == RCC_X86_SDIV ||
         instruction->selected_opcode == RCC_X86_SREM ? 7u : 6u;
-    if (size == 1u) {
-        return x86_encode_error(
-            encoder, "x86 byte division is not encoded yet");
+    if (size == 1u &&
+        encoder->function->target == RCC_X86_TARGET_I686 &&
+        divisor.kind == RCC_X86_VALUE_GPR &&
+        (unsigned)divisor.gpr >= (unsigned)RCC_X86_GPR_SI) {
+        /* i686 has no byte registers for SI/DI.  Preserve a byte-capable
+         * scratch register, copy the full source register, and use its low
+         * byte as the divisor. */
+        static const RccX86HardwareGpr candidates[] = {
+            RCC_X86_GPR_CX, RCC_X86_GPR_BX,
+        };
+        size_t index;
+        for (index = 0u;
+             index < sizeof(candidates) / sizeof(candidates[0]); ++index) {
+            if (candidates[index] != divisor.gpr) {
+                divisor_scratch = candidates[index];
+                break;
+            }
+        }
+        if (index == sizeof(candidates) / sizeof(candidates[0])) {
+            return x86_encode_error(
+                encoder, "x86 i686 byte divisor has no scratch register");
+        }
+        if (!x86_emit_push(encoder, divisor_scratch) ||
+            !x86_emit_move_register_register(
+                encoder, divisor_scratch, divisor.gpr, 4u)) return false;
+        divisor.kind = RCC_X86_VALUE_GPR;
+        divisor.gpr = divisor_scratch;
+        divisor.size = 1u;
+        divisor.alignment = 1u;
+        preserve_divisor = true;
     }
     if (divisor.kind == RCC_X86_VALUE_GPR) {
         if (!x86_emit_prefix(
                 encoder, size, (RccX86HardwareGpr)extension,
-                divisor.gpr, false) ||
-            !x86_emit_u8(encoder, 0xf7u)) return false;
-        return x86_emit_u8(encoder, x86_modrm(
-            3u, extension, divisor.gpr));
-    }
-    {
+                divisor.gpr, size == 1u) ||
+            !x86_emit_u8(encoder, size == 1u ? 0xf6u : 0xf7u)) return false;
+        if (!x86_emit_u8(encoder, x86_modrm(
+                3u, extension, divisor.gpr))) return false;
+    } else {
         int32_t displacement;
         if (!x86_value_displacement(
                 encoder, divisor, &displacement) ||
             !x86_emit_prefix(
                 encoder, size, (RccX86HardwareGpr)extension,
                 RCC_X86_GPR_BP, false) ||
-            !x86_emit_u8(encoder, 0xf7u)) return false;
-        return x86_emit_memory_modrm(
-            encoder, extension, displacement);
+            !x86_emit_u8(encoder, size == 1u ? 0xf6u : 0xf7u) ||
+            !x86_emit_memory_modrm(
+                encoder, extension, displacement)) return false;
     }
+    if (size == 1u &&
+        (instruction->selected_opcode == RCC_X86_UREM ||
+         instruction->selected_opcode == RCC_X86_SREM)) {
+        /* The x86 byte remainder is returned in AH; the legalizer's generic
+         * remainder contract uses DX, so bridge AH to DL explicitly. */
+        if (!x86_emit_u8(encoder, 0x88u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, 4u, RCC_X86_GPR_DX))) return false;
+    }
+    return !preserve_divisor || x86_emit_pop(encoder, divisor_scratch);
 }
 
 static bool x86_emit_shift(
@@ -713,6 +763,107 @@ static bool x86_emit_extend_register(
     }
     return x86_emit_memory_modrm(
         encoder, destination, displacement);
+}
+
+static RccX86HardwareGpr x86_choose_byte_scratch(
+    const RccX86Encoder* encoder, RccX86Value first,
+    RccX86Value second, RccX86HardwareGpr excluded) {
+    static const RccX86HardwareGpr candidates[] = {
+        RCC_X86_GPR_AX, RCC_X86_GPR_CX, RCC_X86_GPR_DX,
+        RCC_X86_GPR_BX, RCC_X86_GPR_SI, RCC_X86_GPR_DI,
+        RCC_X86_GPR_R8, RCC_X86_GPR_R9, RCC_X86_GPR_R10,
+        RCC_X86_GPR_R11, RCC_X86_GPR_R12, RCC_X86_GPR_R13,
+        RCC_X86_GPR_R14, RCC_X86_GPR_R15,
+    };
+    size_t count = encoder->function->target == RCC_X86_TARGET_I686
+        ? 6u : sizeof(candidates) / sizeof(candidates[0]);
+    for (size_t index = 0u; index < count; ++index) {
+        RccX86HardwareGpr candidate = candidates[index];
+        if (candidate == excluded ||
+            (first.kind == RCC_X86_VALUE_GPR &&
+             first.gpr == candidate) ||
+            (second.kind == RCC_X86_VALUE_GPR &&
+             second.gpr == candidate)) continue;
+        return candidate;
+    }
+    return excluded == RCC_X86_GPR_AX
+        ? RCC_X86_GPR_CX : RCC_X86_GPR_AX;
+}
+
+static bool x86_emit_byte_value(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    RccX86Value source) {
+    if (encoder->function->target == RCC_X86_TARGET_I686 &&
+        source.kind == RCC_X86_VALUE_GPR &&
+        (unsigned)source.gpr >= (unsigned)RCC_X86_GPR_SI) {
+        RccX86Value local;
+        if (!x86_emit_move_register_register(
+                encoder, destination, source.gpr, 4u)) return false;
+        memset(&local, 0, sizeof(local));
+        local.kind = RCC_X86_VALUE_GPR;
+        local.gpr = destination;
+        local.size = 1u;
+        local.alignment = 1u;
+        return x86_emit_extend_register(
+            encoder, destination, local, 1u, 4u, false);
+    }
+    return x86_emit_extend_register(
+        encoder, destination, source, 1u, 4u, false);
+}
+
+static bool x86_emit_byte_multiply_register(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    RccX86Value source) {
+    RccX86Value destination_value;
+    RccX86HardwareGpr right;
+    memset(&destination_value, 0, sizeof(destination_value));
+    destination_value.kind = RCC_X86_VALUE_GPR;
+    destination_value.gpr = destination;
+    destination_value.size = 1u;
+    destination_value.alignment = 1u;
+    if (encoder->function->target != RCC_X86_TARGET_I686 ||
+        (unsigned)destination < (unsigned)RCC_X86_GPR_SI) {
+        right = x86_choose_byte_scratch(
+            encoder, destination_value, source, destination);
+        if (!x86_emit_push(encoder, right) ||
+            !x86_emit_extend_register(
+                encoder, destination, destination_value,
+                1u, 4u, false) ||
+            !x86_emit_byte_value(encoder, right, source) ||
+            !x86_emit_prefix(
+                encoder, 4u, destination, right, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0xafu) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, destination, right)) ||
+            !x86_emit_pop(encoder, right)) return false;
+        return true;
+    }
+    {
+        RccX86HardwareGpr left = x86_choose_byte_scratch(
+            encoder, destination_value, source, destination);
+        right = x86_choose_byte_scratch(
+            encoder, destination_value, source, left);
+        if (right == left || right == destination ||
+            (source.kind == RCC_X86_VALUE_GPR &&
+             right == source.gpr)) {
+            return x86_encode_error(
+                encoder, "x86 i686 byte multiply has no scratch pair");
+        }
+        if (!x86_emit_push(encoder, left) ||
+            !x86_emit_push(encoder, right) ||
+            !x86_emit_byte_value(encoder, left, destination_value) ||
+            !x86_emit_byte_value(encoder, right, source) ||
+            !x86_emit_prefix(encoder, 4u, left, right, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0xafu) ||
+            !x86_emit_u8(encoder, x86_modrm(3u, left, right)) ||
+            !x86_emit_move_register_register(
+                encoder, destination, left, 4u) ||
+            !x86_emit_pop(encoder, right) ||
+            !x86_emit_pop(encoder, left)) return false;
+        return true;
+    }
 }
 
 static bool x86_emit_conversion(
