@@ -7,6 +7,7 @@
 #include "objfile.h"
 #include "codegen.h"
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
 static bool ro_seek(FILE* file, uint64_t offset, int origin) {
@@ -1891,14 +1892,137 @@ static int objfile_section_index(const ObjectFile* object,
     return -1;
 }
 
+typedef struct DebugLinePoint {
+    const ModuleSymbol* function;
+    const char* source_file;
+    uint32_t offset;
+    uint32_t line;
+    uint32_t column;
+    bool is_function;
+} DebugLinePoint;
+
+static void debug_line_point_add(
+    DebugLinePoint** points, int* point_count, size_t* point_capacity,
+    const ModuleSymbol* function, const char* source_file, uint32_t offset,
+    uint32_t line, uint32_t column, bool is_function) {
+    if (!points || !*points || !point_count || !point_capacity ||
+        !function || !source_file || source_file[0] == '\0' || line == 0u) {
+        return;
+    }
+    if ((size_t)*point_count >= *point_capacity) {
+        size_t next_capacity = *point_capacity < 16u
+            ? 16u : *point_capacity * 2u;
+        *points = rcc_realloc(*points,
+                              next_capacity * sizeof(**points));
+        *point_capacity = next_capacity;
+    }
+    (*points)[*point_count].function = function;
+    (*points)[*point_count].source_file = source_file;
+    (*points)[*point_count].offset = offset;
+    (*points)[*point_count].line = line;
+    (*points)[*point_count].column = column;
+    (*points)[*point_count].is_function = is_function;
+    ++*point_count;
+}
+
+static void debug_collect_line_stmt_points(
+    const Stmt* statement, const ModuleSymbol* function,
+    DebugLinePoint** points, int* point_count, size_t* point_capacity) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            if (!statement->block_no_scope &&
+                statement->debug_code_end > statement->debug_code_start) {
+                debug_line_point_add(
+                    points, point_count, point_capacity, function,
+                    statement->loc.filename, statement->debug_code_start,
+                    statement->loc.line, statement->loc.column, false);
+            }
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                debug_collect_line_stmt_points(
+                    item->stmt, function, points, point_count,
+                    point_capacity);
+            }
+            break;
+        case STMT_IF:
+            debug_collect_line_stmt_points(
+                statement->if_then, function, points, point_count,
+                point_capacity);
+            debug_collect_line_stmt_points(
+                statement->if_else, function, points, point_count,
+                point_capacity);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            debug_collect_line_stmt_points(
+                statement->while_body, function, points, point_count,
+                point_capacity);
+            break;
+        case STMT_FOR:
+            debug_collect_line_stmt_points(
+                statement->for_init, function, points, point_count,
+                point_capacity);
+            debug_collect_line_stmt_points(
+                statement->for_body, function, points, point_count,
+                point_capacity);
+            break;
+        case STMT_SWITCH:
+            debug_collect_line_stmt_points(
+                statement->switch_body, function, points, point_count,
+                point_capacity);
+            break;
+        case STMT_CASE:
+            debug_collect_line_stmt_points(
+                statement->case_stmt, function, points, point_count,
+                point_capacity);
+            break;
+        case STMT_DEFAULT:
+            debug_collect_line_stmt_points(
+                statement->default_stmt, function, points, point_count,
+                point_capacity);
+            break;
+        case STMT_LABEL:
+            debug_collect_line_stmt_points(
+                statement->label_stmt, function, points, point_count,
+                point_capacity);
+            break;
+        case STMT_TRY:
+            debug_collect_line_stmt_points(
+                statement->try_body, function, points, point_count,
+                point_capacity);
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                debug_collect_line_stmt_points(
+                    handler->body, function, points, point_count,
+                    point_capacity);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static int debug_line_point_compare(const void* left, const void* right) {
+    const DebugLinePoint* a = (const DebugLinePoint*)left;
+    const DebugLinePoint* b = (const DebugLinePoint*)right;
+    if (a->offset < b->offset) return -1;
+    if (a->offset > b->offset) return 1;
+    if (a->is_function != b->is_function) return a->is_function ? -1 : 1;
+    return 0;
+}
+
 static void module_emit_debug_line(ObjectFile* obj, Module* mod,
                                    const char* filename) {
     const ModuleSymbol** functions;
+    DebugLinePoint* points;
     const char** files;
     ObjSection* line;
     int function_count = 0;
+    int point_count = 0;
     int file_count = 0;
     size_t file_capacity;
+    size_t point_capacity;
     int line_section;
     int address_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
     uint64_t unit_length_offset;
@@ -1908,6 +2032,9 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
 
     if (!g_opts.debug_info || !obj || !mod || mod->symbol_count <= 0) return;
     functions = rcc_alloc((size_t)mod->symbol_count * sizeof(*functions));
+    point_capacity = (size_t)mod->symbol_count;
+    if (point_capacity == 0u) point_capacity = 1u;
+    points = rcc_alloc(point_capacity * sizeof(*points));
     file_capacity = (size_t)mod->symbol_count;
     if (file_capacity == 0u) file_capacity = 1u;
     files = rcc_alloc(file_capacity * sizeof(*files));
@@ -1917,19 +2044,33 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
             !symbol->source_file || symbol->source_file[0] == '\0' ||
             symbol->source_line == 0u) continue;
         functions[function_count++] = symbol;
+        debug_line_point_add(
+            &points, &point_count, &point_capacity, symbol,
+            symbol->source_file, symbol->offset, symbol->source_line,
+            symbol->source_column, true);
         debug_file_add(&files, &file_count, &file_capacity,
                        symbol->source_file);
     }
     for (int index = 0; index < function_count; ++index) {
+        Decl* declaration = debug_find_function_decl(mod, functions[index]);
         debug_collect_function_files(
-            debug_find_function_decl(mod, functions[index]), &files,
-            &file_count, &file_capacity);
+            declaration, &files, &file_count, &file_capacity);
+        debug_collect_line_stmt_points(
+            declaration ? declaration->func_body : NULL, functions[index],
+            &points, &point_count, &point_capacity);
+    }
+    for (int index = 0; index < point_count; ++index) {
+        debug_file_add(&files, &file_count, &file_capacity,
+                       points[index].source_file);
     }
     if (function_count == 0) {
         rcc_free(functions);
+        rcc_free(points);
         rcc_free(files);
         return;
     }
+    qsort(points, (size_t)point_count, sizeof(*points),
+          debug_line_point_compare);
 
     line = objfile_add_section(obj, ".debug_line", SECT_DEBUG_LINE, 0u);
     line->align = 1u;
@@ -1968,15 +2109,19 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
     debug_line_patch_u32(line, header_length_offset,
                          (uint32_t)(line->size - header_start));
 
-    for (int index = 0; index < function_count; ++index) {
-        const ModuleSymbol* function = functions[index];
+    for (int index = 0; index < point_count; ++index) {
+        const DebugLinePoint* point = &points[index];
+        const ModuleSymbol* function = point->function;
         const char* symbol_name = function->name;
         char* scoped_name = NULL;
         uint64_t address_offset;
         int file_index = debug_line_file_index(
-            files, file_count, function->source_file);
-        int64_t line_delta = (int64_t)function->source_line -
+            files, file_count, point->source_file);
+        int64_t line_delta = (int64_t)point->line -
                              (int64_t)current_line;
+        if (point->offset < function->offset) {
+            rcc_fatal("DWARF line point precedes its function");
+        }
         section_add_byte(line, 0u);
         debug_line_uleb(line, (uint64_t)address_size + 1u);
         section_add_byte(line, 2u);    /* DW_LNE_set_address */
@@ -1990,17 +2135,18 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
         }
         objfile_add_reloc(
             obj, line_section, address_offset, symbol_name,
-            address_size == 8 ? RELOC_ABS64 : RELOC_ABS32U, 0);
+            address_size == 8 ? RELOC_ABS64 : RELOC_ABS32U,
+            (int64_t)(point->offset - function->offset));
         rcc_free(scoped_name);
         section_add_byte(line, 4u);    /* DW_LNS_set_file */
         debug_line_uleb(line, (uint64_t)file_index);
-        if (function->source_column > 0u) {
+        if (point->column > 0u) {
             section_add_byte(line, 5u); /* DW_LNS_set_column */
-            debug_line_uleb(line, function->source_column);
+            debug_line_uleb(line, point->column);
         }
         section_add_byte(line, 3u);    /* DW_LNS_advance_line */
         debug_line_sleb(line, line_delta);
-        current_line = function->source_line;
+        current_line = point->line;
         section_add_byte(line, 1u);    /* DW_LNS_copy */
     }
     section_add_byte(line, 0u);
@@ -2012,6 +2158,7 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
     debug_line_patch_u32(line, unit_length_offset,
                          (uint32_t)(line->size - unit_length_offset - 4u));
     rcc_free(functions);
+    rcc_free(points);
     rcc_free(files);
 }
 

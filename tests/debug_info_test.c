@@ -212,6 +212,16 @@ static bool has_relocation(const ObjSection* section, uint64_t offset,
     return false;
 }
 
+static bool has_positive_relocation_addend(const ObjSection* section)
+{
+    if (!section) return false;
+    for (const ObjReloc* relocation = section->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->addend > 0) return true;
+    }
+    return false;
+}
+
 static void verify_global_variable(const ObjSection* info,
                                    const ObjSection* strings,
                                    const char* variable_name,
@@ -370,6 +380,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(line->size > 16u);
     assert(line->data[4] == 4u && line->data[5] == 0u);
     assert(line->relocs != NULL);
+    assert(has_positive_relocation_addend(line));
     assert(contains_bytes(line->data, line->size, source_file));
     assert(contains_byte_pair(line->data, line->size, 5u, 1u));
     info = objfile_get_section(object, ".debug_info");

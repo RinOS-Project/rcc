@@ -443,6 +443,9 @@
 - [ ] DWARF debug/unwind
   - [x] `-g`でrelocatable `.ro`へ関数開始・source file・lineを持つ最小DWARF
         `.debug_line`を出力し、両archのread/link回帰を追加
+  - [x] codegenが記録したnested lexical blockの開始offsetを追加の
+        `.debug_line` source rowへrelocation付きで出力し、関数入口だけに
+        依存しないi686/AMD64 line-table回帰を追加
   - [x] 最小compile unit／subprogram DIE、`.debug_abbrev`／`.debug_str`、
         `low_pc` relocationを追加し、両archのobject/link回帰へ接続
   - [x] `DW_TAG_formal_parameter`／`DW_TAG_variable`へ実在するC/C++ stack
