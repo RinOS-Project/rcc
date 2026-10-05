@@ -237,6 +237,9 @@
         conformance
 - [ ] C++20 modules、coroutines
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
+  - [x] Implement the validated C++ empty-base optimization for a leading,
+        non-polymorphic direct empty base, preserve the standard same-type
+        base/member non-overlap rule, and cover i686/AMD64 object generation.
   - [x] `typeid(T)`と非多相式の静的typeinfo identityをi686/AMD64で生成し、
         同一型のidentity共有・異なる型の分離を実行回帰。
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ

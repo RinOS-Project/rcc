@@ -897,6 +897,41 @@ static int cxx_class_member_alignment(const CxxClass* cls, int alignment) {
     return alignment;
 }
 
+/* An empty non-polymorphic base may share the address of the complete object
+ * and of its first data member.  Keep the initial implementation deliberately
+ * narrow: bases with their own bases, virtual-base state, or a visible field
+ * stay on the ordinary one-byte subobject path until their complete ABI rules
+ * are modeled. */
+static bool cxx_can_use_empty_base_optimization(const CxxClass* base) {
+    return base && base->base_count == 0 && base->vtable_size == 0 &&
+           base->virtual_base_count == 0 &&
+           base->virtual_base_pointer_offset < 0 && base->size == 1 &&
+           base->type && base->type->fields == NULL;
+}
+
+/* A base subobject and a non-static data member of the same type cannot share
+ * an address.  Check both class-field representations used by the parser so
+ * EBO never changes this observable layout rule. */
+static bool cxx_has_same_type_member(const CxxClass* cls,
+                                     const CxxClass* base) {
+    if (!cls || !base) return false;
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (!field->is_static && field->type &&
+            field->type->cxx_class == base) {
+            return true;
+        }
+    }
+    for (const struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        if (!member->is_static && member->decl &&
+            member->decl->kind == DECL_VAR && member->decl->type &&
+            member->decl->type->cxx_class == base) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void cxx_class_compute_layout(CxxClass* cls) {
     int offset = 0;
     int max_align = 1;
@@ -958,6 +993,12 @@ void cxx_class_compute_layout(CxxClass* cls) {
                     offset = base->nonvirtual_size;
                 }
                 if (base->align > max_align) max_align = base->align;
+                continue;
+            }
+            if (!has_virtual && offset == 0 &&
+                cxx_can_use_empty_base_optimization(base) &&
+                !cxx_has_same_type_member(cls, base)) {
+                base_offsets[i] = 0;
                 continue;
             }
             /* Align for base */
