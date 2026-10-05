@@ -34,6 +34,7 @@ extern "C" int cxx_scalar_builtins(int *value) {
     if (__builtin_clrsb(0) != 31) return 54;
     if (__builtin_clrsb(1) != 30) return 55;
     if (__builtin_clrsbll(1LL) != 62) return 56;
+    if (__builtin_strlen("RinOS") != 5) return 57;
     return *value;
 }
 

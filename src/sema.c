@@ -12032,6 +12032,31 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         expr->type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
         return true;
     }
+    if (strcmp(name, "__builtin_strlen") == 0) {
+        Expr* string = NULL;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 1) {
+            rcc_error(expr->loc,
+                      "__builtin_strlen expects 1 argument, got %d",
+                      argument_count);
+        }
+        string = expr->call_args ? expr->call_args->expr : NULL;
+        while (string && string->kind == EXPR_CAST) {
+            string = string->cast_expr;
+        }
+        if (!string || string->kind != EXPR_STRING_LIT) {
+            rcc_error(expr->loc,
+                      "__builtin_strlen currently requires a string literal operand");
+        }
+        function->type = type_ptr(g_opts.target_arch == ARCH_X64
+                                      ? type_ullong : type_uint);
+        expr->type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
+        return true;
+    }
     if (strcmp(name, "__builtin_add_overflow") == 0 ||
         strcmp(name, "__builtin_sub_overflow") == 0 ||
         strcmp(name, "__builtin_mul_overflow") == 0) {

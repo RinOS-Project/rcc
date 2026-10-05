@@ -34,6 +34,10 @@ int invalid_builtin_object_size_mode(void) {
     return (int)__builtin_object_size((char *)0, 4);
 }
 
+int invalid_builtin_strlen_pointer(const char* value) {
+    return (int)__builtin_strlen(value);
+}
+
 int invalid_builtin_add_overflow_pointer(void) {
     return __builtin_add_overflow(1, 2, 3);
 }

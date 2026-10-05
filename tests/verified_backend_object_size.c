@@ -30,3 +30,8 @@ verified_size_t verified_object_size_unknown_zero(const unsigned char* value)
 {
     return __builtin_object_size(value, 2);
 }
+
+verified_size_t verified_object_strlen(void)
+{
+    return __builtin_strlen("RinOS");
+}

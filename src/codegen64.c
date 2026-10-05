@@ -2849,6 +2849,19 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         emit64_mov_reg_imm64(mod, RAX, object_size);
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_strlen") == 0) {
+        Expr* string = call64_argument(expr, 0);
+        while (string && string->kind == EXPR_CAST) string = string->cast_expr;
+        if (!string || string->kind != EXPR_STRING_LIT ||
+            string->str_length > UINT64_MAX) {
+            rcc_error(expr->loc,
+                      "__builtin_strlen string literal length is unsupported");
+            emit64_mov_reg_imm64(mod, RAX, 0u);
+            return true;
+        }
+        emit64_mov_reg_imm64(mod, RAX, (uint64_t)string->str_length);
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_expect") == 0 ||
         strcmp(function->ident_name,
                "__builtin_expect_with_probability") == 0) {

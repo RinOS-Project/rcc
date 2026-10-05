@@ -3366,6 +3366,23 @@ static RccIrLowerValue lower_builtin_call(
             context, result_type, expression->type->is_unsigned,
             object_size);
     }
+    if (strcmp(name, "__builtin_strlen") == 0) {
+        const ExprList* argument = expression->call_args;
+        const Expr* string = argument ? argument->expr : NULL;
+        RccIrType result_type;
+        while (string && string->kind == EXPR_CAST) string = string->cast_expr;
+        if (!argument || argument->next || !string ||
+            string->kind != EXPR_STRING_LIT ||
+            string->str_length == SIZE_MAX || !expression->type ||
+            !lower_type(expression->type, &result_type) ||
+            result_type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return lower_integer_constant(
+            context, result_type, expression->type->is_unsigned,
+            (uint64_t)string->str_length);
+    }
     if (strcmp(name, "__builtin_prefetch") == 0) {
         const ExprList* first = expression->call_args;
         const ExprList* second = first ? first->next : NULL;
@@ -3974,6 +3991,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_mul_overflow") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_object_size") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_strlen") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap16") == 0 ||
                  strcmp(expression->call_func->ident_name,

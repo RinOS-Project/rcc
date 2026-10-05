@@ -9046,6 +9046,19 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         emit_mov_reg_imm(mod, EAX, (uint32_t)object_size);
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_strlen") == 0) {
+        Expr* string = call_argument(expr, 0);
+        while (string && string->kind == EXPR_CAST) string = string->cast_expr;
+        if (!string || string->kind != EXPR_STRING_LIT ||
+            string->str_length > UINT32_MAX) {
+            rcc_error(expr->loc,
+                      "__builtin_strlen string literal length is unsupported");
+            emit_mov_reg_imm(mod, EAX, 0u);
+            return true;
+        }
+        emit_mov_reg_imm(mod, EAX, (uint32_t)string->str_length);
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_expect") == 0 ||
         strcmp(function->ident_name,
                "__builtin_expect_with_probability") == 0) {

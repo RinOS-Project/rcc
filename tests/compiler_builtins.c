@@ -93,6 +93,10 @@ unsigned long long builtin_object_size_checks(void) {
     return 0;
 }
 
+int builtin_strlen_check(void) {
+    return (int)__builtin_strlen("RinOS");
+}
+
 int builtin_overflow_checks(void) {
     int signed_result = 0;
     unsigned int unsigned_result = 0;
@@ -143,5 +147,6 @@ int main(void) {
     if (builtin_clrsbl(1L) != (int)(sizeof(long) * 8 - 2)) return 23;
     if (builtin_object_size_checks() != 0) return 24;
     if (builtin_overflow_checks() != 0) return 25;
+    if (builtin_strlen_check() != 5) return 26;
     return 0;
 }

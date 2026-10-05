@@ -15,3 +15,8 @@ extern "C" verified_size_t verified_cxx_object_size_string()
 {
     return __builtin_object_size("RinOS", 0);
 }
+
+extern "C" verified_size_t verified_cxx_object_strlen()
+{
+    return __builtin_strlen("RinOS");
+}

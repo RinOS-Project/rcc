@@ -76,11 +76,13 @@ int main(int argc, char** argv)
     ObjSymbol* string_symbol;
     ObjSymbol* unknown_symbol;
     ObjSymbol* unknown_zero_symbol;
+    ObjSymbol* strlen_symbol;
     ObjectSizeFunction array_function;
     ObjectSizeFunction offset_function;
     ObjectSizeFunction string_function;
     ObjectSizeUnknownFunction unknown_function;
     ObjectSizeUnknownFunction unknown_zero_function;
+    ObjectSizeFunction strlen_function;
     void* memory;
     size_t mapped_size;
     void* address;
@@ -97,9 +99,10 @@ int main(int argc, char** argv)
         object, "verified_object_size_unknown");
     unknown_zero_symbol = objfile_find_symbol(
         object, "verified_object_size_unknown_zero");
+    strlen_symbol = objfile_find_symbol(object, "verified_object_strlen");
     assert(text != NULL && array_symbol != NULL && offset_symbol != NULL &&
            string_symbol != NULL && unknown_symbol != NULL &&
-           unknown_zero_symbol != NULL);
+           unknown_zero_symbol != NULL && strlen_symbol != NULL);
     memory = map_text(text, &mapped_size);
 
     address = (uint8_t*)memory + array_symbol->value;
@@ -112,12 +115,15 @@ int main(int argc, char** argv)
     memcpy(&unknown_function, &address, sizeof(unknown_function));
     address = (uint8_t*)memory + unknown_zero_symbol->value;
     memcpy(&unknown_zero_function, &address, sizeof(unknown_zero_function));
+    address = (uint8_t*)memory + strlen_symbol->value;
+    memcpy(&strlen_function, &address, sizeof(strlen_function));
 
     assert(array_function() == 16u);
     assert(offset_function() == 12u);
     assert(string_function() == 6u);
     assert(unknown_function(NULL) == UINT64_MAX);
     assert(unknown_zero_function(NULL) == 0u);
+    assert(strlen_function() == 5u);
 
     unmap_text(memory, mapped_size);
     objfile_free(object);

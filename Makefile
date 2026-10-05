@@ -8576,6 +8576,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_object_size type argument must be an integer constant between 0 and 3" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_strlen currently requires a string literal operand" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_add_overflow result argument must point to an integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_add_overflow operands and result must have the same integer width and signedness" \
@@ -8604,6 +8606,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "__builtin_object_size expects 2 arguments, got 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_object_size type argument must be an integer constant between 0 and 3" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_strlen currently requires a string literal operand" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_add_overflow result argument must point to an integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
@@ -10943,27 +10947,27 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/object-size-x86.ro \
 		tests/verified_backend_object_size.c \
 		>$(TEST_OUT)/verified-backend/object-size-x86.log
-	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/object-size-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/object-size-x64.ro \
 		tests/verified_backend_object_size.c \
 		>$(TEST_OUT)/verified-backend/object-size-x64.log
-	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/object-size-x64.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/object-size-cxx-x86.ro \
 		tests/verified_backend_object_size.cpp \
 		>$(TEST_OUT)/verified-backend/object-size-cxx-x86.log
-	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/object-size-cxx-x86.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/object-size-cxx-x64.ro \
 		tests/verified_backend_object_size.cpp \
 		>$(TEST_OUT)/verified-backend/object-size-cxx-x64.log
-	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/object-size-cxx-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/object-size-run \
