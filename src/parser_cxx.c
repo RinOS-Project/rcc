@@ -6614,6 +6614,7 @@ static void recognize_versioned_function_template(CxxTemplate* tmpl) {
 CxxTemplate* parse_cxx_template(void) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
+    int explicit_class_alignment = 0;
 
     expect(TOK_LT, "<");
 
@@ -6960,6 +6961,15 @@ CxxTemplate* parse_cxx_template(void) {
         return tmpl;
     }
 
+    if (cxx_leading_alignas_class_starts()) {
+        while (check(TOK__ALIGNAS)) {
+            int alignment = rcc_parser_parse_explicit_alignment();
+            if (alignment > explicit_class_alignment) {
+                explicit_class_alignment = alignment;
+            }
+        }
+    }
+
     /* Template body */
     if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
         parser.cur->next && parser.cur->next->type == TOK_IDENT &&
@@ -7013,6 +7023,10 @@ CxxTemplate* parse_cxx_template(void) {
         specialized_class = parse_cxx_class_named(
             loc, is_struct,
             name_token ? name_token->value.str_val : "specialization");
+        if (specialized_class && explicit_class_alignment > 0) {
+            cxx_class_apply_explicit_alignment(
+                specialized_class, explicit_class_alignment, loc);
+        }
         active_template = outer_template;
         tmpl->templated_class = specialized_class;
         if (specialized_class) {
@@ -7061,6 +7075,10 @@ CxxTemplate* parse_cxx_template(void) {
         CxxTemplate* outer_template = active_template;
         active_template = tmpl;
         tmpl->templated_class = parse_cxx_class();
+        if (tmpl->templated_class && explicit_class_alignment > 0) {
+            cxx_class_apply_explicit_alignment(
+                tmpl->templated_class, explicit_class_alignment, loc);
+        }
         active_template = outer_template;
         tmpl->kind = TMPL_CLASS;
         tmpl->class_def = tmpl->templated_class;
@@ -8165,6 +8183,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     instance->has_nonpublic_field = definition->has_nonpublic_field;
     instance->has_static_field = definition->has_static_field;
     instance->has_field_initializer = definition->has_field_initializer;
+    instance->explicit_alignment = definition->explicit_alignment;
     instance->pack_alignment = definition->pack_alignment;
     instance->using_base_member_count = definition->using_base_member_count;
     if (definition->using_base_member_count != 0) {
@@ -8359,6 +8378,10 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     tmpl->pending_pack_count = saved_pending_pack_count;
 
     cxx_class_compute_layout(instance);
+    if (instance->explicit_alignment > 0) {
+        cxx_class_apply_explicit_alignment(
+            instance, instance->explicit_alignment, loc);
+    }
     complete_cxx_default_member_initializers(instance);
     cxx_class_build_vtable(instance);
     diagnose_unlowered_destructors(instance);

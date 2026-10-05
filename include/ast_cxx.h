@@ -154,6 +154,7 @@ struct CxxClass {
     Type* type;
     int size;
     int align;
+    int explicit_alignment;
     /* Active #pragma pack limit captured when the class definition starts. */
     int pack_alignment;
 

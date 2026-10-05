@@ -832,6 +832,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->type->cxx_class = cls;
     cls->size = 0;
     cls->align = 1;
+    cls->explicit_alignment = 0;
     cls->pack_alignment = 0;
     cls->fields = NULL;
     cls->type_aliases = NULL;
@@ -1323,6 +1324,7 @@ void cxx_class_apply_explicit_alignment(CxxClass* cls, int alignment,
         return;
     }
     cls->align = alignment;
+    cls->explicit_alignment = alignment;
     cls->size = aligned_size;
     cls->nonvirtual_size = aligned_nonvirtual_size;
     cls->type->align = alignment;
