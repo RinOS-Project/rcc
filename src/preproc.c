@@ -543,9 +543,16 @@ static bool include_path_contains_file(const char* include_path,
                                        const char* current_file) {
     size_t path_length;
 
-    if (!include_path || !current_file || !*include_path ||
-        strcmp(include_path, ".") == 0) {
+    if (!include_path || !current_file || !*include_path) {
         return false;
+    }
+    if (strcmp(include_path, ".") == 0) {
+        if (current_file[0] == '/' || current_file[0] == '\\' ||
+            (isalpha((unsigned char)current_file[0]) &&
+             current_file[1] == ':')) {
+            return false;
+        }
+        return true;
     }
     path_length = strlen(include_path);
     if (strncmp(include_path, current_file, path_length) != 0) {
@@ -582,7 +589,6 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
             if (include_path_contains_file(pp->include_paths[i],
                                            current_file)) {
                 include_path_start = i + 1;
-                break;
             }
         }
     }
