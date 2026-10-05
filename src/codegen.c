@@ -275,6 +275,17 @@ void module_mark_symbol_weak(Module* mod, const char* name) {
     }
 }
 
+void module_mark_symbol_weak_any(Module* mod, const char* name) {
+    if (!mod || !name) return;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        ModuleSymbol* symbol = &mod->symbols[index];
+        if (strcmp(symbol->name, name) == 0) {
+            if (symbol->is_global) symbol->is_weak = true;
+            return;
+        }
+    }
+}
+
 void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                            uint32_t offset, uint32_t target,
                            bool is_relative, bool is_64bit,
@@ -1419,6 +1430,10 @@ static void codegen_emit_static_locals(Module* mod, Stmt* statement) {
                                           ? MODULE_SYMBOL_TLS
                                           : MODULE_SYMBOL_DATA,
                                       true);
+                    if (statement->decl->is_weak) {
+                        module_mark_symbol_weak_any(
+                            mod, decl_link_name(statement->decl));
+                    }
                 }
             }
             break;
@@ -1477,7 +1492,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_TLS,
                               declaration->storage != STORAGE_STATIC);
-            if (declaration->var_is_inline) {
+            if (declaration->var_is_inline || declaration->is_weak) {
                 module_mark_symbol_weak(mod, decl_link_name(declaration));
             }
             continue;
@@ -1486,6 +1501,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             !declaration->var_init) {
             module_add_symbol(mod, decl_link_name(declaration), 0u, false,
                               MODULE_SYMBOL_DATA, true);
+            if (declaration->is_weak) {
+                module_mark_symbol_weak_any(mod, decl_link_name(declaration));
+            }
             continue;
         }
         if (!declaration->var_init &&
@@ -1509,7 +1527,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_DATA,
                               declaration->storage != STORAGE_STATIC);
-            if (declaration->var_is_inline) {
+            if (declaration->var_is_inline || declaration->is_weak) {
                 module_mark_symbol_weak(mod, decl_link_name(declaration));
             }
             continue;
@@ -1528,7 +1546,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_BSS,
                               declaration->storage != STORAGE_STATIC);
-            if (declaration->var_is_inline) {
+            if (declaration->var_is_inline || declaration->is_weak) {
                 module_mark_symbol_weak(mod, decl_link_name(declaration));
             }
             continue;
@@ -1569,7 +1587,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
                           MODULE_SYMBOL_DATA,
                           declaration->storage != STORAGE_STATIC);
-        if (declaration->var_is_inline) {
+        if (declaration->var_is_inline || declaration->is_weak) {
             module_mark_symbol_weak(mod, decl_link_name(declaration));
         }
     }
@@ -13369,6 +13387,9 @@ Module* rcc_codegen(AST* ast) {
             /* External function declaration */
             module_add_symbol(mod, decl_link_name(d->decl), 0, false,
                               MODULE_SYMBOL_CODE, true);
+            if (d->decl->is_weak) {
+                module_mark_symbol_weak_any(mod, decl_link_name(d->decl));
+            }
         }
     }
 
@@ -13394,8 +13415,8 @@ Module* rcc_codegen(AST* ast) {
                              d->decl->storage != STORAGE_STATIC);
             module_set_symbol_source(mod, decl_link_name(d->decl),
                                      d->decl->loc);
-            if (d->decl->func_is_inline &&
-                d->decl->func_has_cxx_linkage) {
+            if (d->decl->is_weak || (d->decl->func_is_inline &&
+                                     d->decl->func_has_cxx_linkage)) {
                 module_mark_symbol_weak(mod, decl_link_name(d->decl));
             }
         }

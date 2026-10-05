@@ -660,7 +660,8 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
             goto read_failed;
         }
         if (rs.section == 0u) {
-            if (rs.type != SYM_UNDEF && rs.binding != BIND_ABS) {
+            if (rs.type != SYM_UNDEF && rs.type != SYM_WEAK &&
+                rs.binding != BIND_ABS) {
                 goto read_failed;
             }
         } else {
@@ -2686,10 +2687,15 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         /* A prototype is type information, not an object-file dependency.
          * Emit an undefined symbol only when generated code references it. */
         if (!referenced) continue;
-        SymbolType type = ms->is_defined
-            ? (ms->is_weak ? SYM_WEAK
-                           : (ms->is_global ? SYM_GLOBAL : SYM_LOCAL))
-            : SYM_UNDEF;
+        /* A source-level weak import is a real weak undefined symbol, not a
+         * strong unresolved reference.  Keep the weak binding in the object
+         * so the linker may resolve it to zero or replace it with a strong
+         * provider, matching the already-supported weak definition path. */
+        SymbolType type = ms->is_weak
+            ? SYM_WEAK
+            : (ms->is_defined
+                ? (ms->is_global ? SYM_GLOBAL : SYM_LOCAL)
+                : SYM_UNDEF);
         SymbolBinding binding = ms->section == MODULE_SYMBOL_CODE
             ? BIND_CODE : ms->section == MODULE_SYMBOL_BSS
                 ? BIND_BSS : ms->section == MODULE_SYMBOL_TLS

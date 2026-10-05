@@ -182,6 +182,7 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
                        bool is_global);
 void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc);
 void module_mark_symbol_weak(Module* mod, const char* name);
+void module_mark_symbol_weak_any(Module* mod, const char* name);
 void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                           uint32_t offset, uint32_t target,
                           bool is_relative, bool is_64bit,

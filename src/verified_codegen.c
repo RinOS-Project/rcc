@@ -266,8 +266,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 translation_unit, object_name);
             object_name = scoped_name;
             symbol_type = SYM_LOCAL;
-        } else if (declaration->func_is_inline &&
-                   declaration->func_has_cxx_linkage) {
+        } else if (declaration->is_weak ||
+                   (declaration->func_is_inline &&
+                    declaration->func_has_cxx_linkage)) {
             symbol_type = SYM_WEAK;
         } else {
             symbol_type = SYM_GLOBAL;

@@ -9312,6 +9312,9 @@ Module* rcc_codegen64(AST* ast) {
             /* External function declaration */
             module_add_symbol(mod, decl_link_name(d->decl), 0, false,
                               MODULE_SYMBOL_CODE, true);
+            if (d->decl->is_weak) {
+                module_mark_symbol_weak_any(mod, decl_link_name(d->decl));
+            }
         }
     }
 
@@ -9334,8 +9337,8 @@ Module* rcc_codegen64(AST* ast) {
                              d->decl->storage != STORAGE_STATIC);
             module_set_symbol_source(mod, decl_link_name(d->decl),
                                      d->decl->loc);
-            if (d->decl->func_is_inline &&
-                d->decl->func_has_cxx_linkage) {
+            if (d->decl->is_weak || (d->decl->func_is_inline &&
+                                     d->decl->func_has_cxx_linkage)) {
                 module_mark_symbol_weak(mod, decl_link_name(d->decl));
             }
         }

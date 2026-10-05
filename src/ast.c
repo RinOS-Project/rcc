@@ -1040,6 +1040,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->var_init = init;
     d->var_offset = 0;
@@ -1074,6 +1075,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->func_params = params;
     d->func_body = body;
@@ -1107,6 +1109,7 @@ Decl* decl_param(const char* name, Type* type, int index, SourceLoc loc) {
     d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->param_index = index;
     d->param_array_type = NULL;
@@ -1121,6 +1124,7 @@ Decl* decl_typedef(const char* name, Type* type, SourceLoc loc) {
     d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->typedef_type = type;
     return d;
@@ -1132,6 +1136,7 @@ Decl* decl_struct(const char* name, DeclList* fields, SourceLoc loc) {
     d->name = name;
     d->link_name = name;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->struct_fields = fields;
     return d;
@@ -1143,6 +1148,7 @@ Decl* decl_union(const char* name, DeclList* fields, SourceLoc loc) {
     d->name = name;
     d->link_name = name;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->struct_fields = fields;
     return d;
@@ -1154,6 +1160,7 @@ Decl* decl_enum(const char* name, DeclList* consts, SourceLoc loc) {
     d->name = name;
     d->link_name = name;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->enum_consts = consts;
     return d;
@@ -1165,6 +1172,7 @@ Decl* decl_enum_const(const char* name, int64_t val, SourceLoc loc) {
     d->name = name;
     d->link_name = name;
     d->loc = loc;
+    d->is_weak = false;
     d->type = type_int;
     d->param_default = NULL;
     d->enum_val = val;
@@ -1179,6 +1187,7 @@ Decl* decl_static_assert(Expr* expression, const char* message,
     d->link_name = NULL;
     d->type = type_int;
     d->loc = loc;
+    d->is_weak = false;
     d->param_default = NULL;
     d->static_assert_expr = expression;
     d->static_assert_message = message;

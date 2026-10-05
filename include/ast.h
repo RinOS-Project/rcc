@@ -952,6 +952,11 @@ struct Decl {
     Type* type;
     SourceLoc loc;
     StorageClass storage;
+    /* GNU weak declarations retain external linkage but may be replaced by
+     * a strong definition at link time.  Keep this source property on the
+     * declaration so both native code generators and the verified backend
+     * emit the same .ro binding. */
+    bool is_weak;
     /* C++ default arguments belong to parameter declarations rather than
      * function types.  This remains outside the declaration union because
      * parameters reuse variable-layout fields for stack code generation. */

@@ -14124,6 +14124,14 @@ static void sema_decl(Decl* decl) {
                  * external DATA symbol addressing and avoid a stack slot. */
                 decl->var_is_global = true;
             }
+            if (decl->is_weak &&
+                (!decl->var_is_global ||
+                 decl->storage == STORAGE_STATIC ||
+                 decl->storage == STORAGE_AUTO ||
+                 decl->storage == STORAGE_REGISTER)) {
+                rcc_error(decl->loc,
+                          "weak variable declaration requires external linkage");
+            }
             if (decl->var_is_vla) {
                 int word_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
                 decl->var_vla_size_offset = decl->var_offset + word_size;
@@ -14320,6 +14328,11 @@ static void sema_decl(Decl* decl) {
             if (!cxx_overload_set) sym->decl = decl;
             if (!cxx_defaults_merged) {
                 sema_validate_cxx_default_suffix(decl);
+            }
+            if (decl->is_weak &&
+                (!sym->is_global || decl->storage == STORAGE_STATIC)) {
+                rcc_error(decl->loc,
+                          "weak function declaration requires external linkage");
             }
             sema_resolve_function_noexcept(decl);
 

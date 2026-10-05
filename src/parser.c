@@ -788,14 +788,51 @@ bool expr_eval_integer_constant(Expr* expr, int64_t* value) {
     return eval_integer_constant(expr, value);
 }
 
+static bool pending_weak_attribute;
+
+static bool take_weak_attribute(void) {
+    bool result = pending_weak_attribute;
+    pending_weak_attribute = false;
+    return result;
+}
+
 static void skip_attributes(void) {
     while (match(TOK___ATTRIBUTE__)) {
+        SourceLoc attribute_loc = previous()->loc;
+        bool group_weak = false;
+        bool weak_arguments = false;
         if (match(TOK_LPAREN)) {
             int depth = 1;
+            bool current_attribute_weak = false;
             while (!at_end() && depth > 0) {
-                if (match(TOK_LPAREN)) depth++;
-                else if (match(TOK_RPAREN)) depth--;
-                else advance();
+                if (check(TOK_IDENT) && depth == 2) {
+                    current_attribute_weak =
+                        strcmp(peek()->value.str_val, "weak") == 0;
+                    if (current_attribute_weak) group_weak = true;
+                    advance();
+                } else if (match(TOK_LPAREN)) {
+                    if (depth == 2 && current_attribute_weak) {
+                        weak_arguments = true;
+                    }
+                    depth++;
+                } else if (match(TOK_RPAREN)) {
+                    depth--;
+                    if (depth == 2) current_attribute_weak = false;
+                } else {
+                    if (depth == 2 && match(TOK_COMMA)) {
+                        current_attribute_weak = false;
+                    } else {
+                        advance();
+                    }
+                }
+            }
+            if (group_weak) {
+                if (weak_arguments) {
+                    rcc_error(attribute_loc,
+                              "weak attribute does not accept arguments");
+                } else {
+                    pending_weak_attribute = true;
+                }
             }
         }
     }
@@ -1137,6 +1174,8 @@ static Expr* parse_cxx_user_literal_call(const char* suffix,
 static Type* parse_declarator_attributes(Type* type) {
     while (match(TOK___ATTRIBUTE__)) {
         int vector_size = 0;
+        bool weak_attribute = false;
+        bool weak_arguments = false;
         SourceLoc attribute_loc = previous()->loc;
         if (!match(TOK_LPAREN)) continue;
         while (!check(TOK_RPAREN) && !at_end()) {
@@ -1145,7 +1184,13 @@ static Type* parse_declarator_attributes(Type* type) {
                 bool is_vector_size = name &&
                     (strcmp(name->value.str_val, "vector_size") == 0 ||
                      strcmp(name->value.str_val, "__vector_size__") == 0);
+                if (name && strcmp(name->value.str_val, "weak") == 0) {
+                    weak_attribute = true;
+                }
                 if (match(TOK_LPAREN)) {
+                    if (weak_attribute && !is_vector_size) {
+                        weak_arguments = true;
+                    }
                     Expr* size_expression = parse_assignment();
                     int64_t value = 0;
                     if (is_vector_size &&
@@ -1165,6 +1210,14 @@ static Type* parse_declarator_attributes(Type* type) {
             }
         }
         expect(TOK_RPAREN, ") after attribute list");
+        if (weak_attribute) {
+            if (weak_arguments) {
+                rcc_error(attribute_loc,
+                          "weak attribute does not accept arguments");
+            } else {
+                pending_weak_attribute = true;
+            }
+        }
         if (vector_size != 0 && type && type->size > 0) {
             if (vector_size == 8) {
                 /* Keep the existing __m64 scalar carrier ABI. */
@@ -2474,6 +2527,10 @@ static void parse_aggregate_body(Type* aggregate) {
             continue;
         }
         skip_attributes();
+        if (take_weak_attribute()) {
+            rcc_error(peek()->loc,
+                      "weak attribute requires a file-scope declaration");
+        }
         field_base = parse_type_spec();
         if (!field_base) {
             rcc_error(peek()->loc, "expected field type specifier");
@@ -3688,6 +3745,7 @@ Stmt* parse_declaration(void) {
     bool is_noexcept = false;
     Expr* noexcept_expr = NULL;
     bool is_thread_local = false;
+    bool is_weak = false;
     const char* declaration_name = NULL;
     DeclList* parameters = NULL;
     Type* base_type;
@@ -3730,6 +3788,7 @@ Stmt* parse_declaration(void) {
     }
 
     skip_attributes();
+    is_weak = take_weak_attribute();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
     if (parser_cxx_mode && match(TOK_CONSTEVAL)) {
         is_constexpr = true;
@@ -3823,6 +3882,7 @@ Stmt* parse_declaration(void) {
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
     type = parse_declarator_attributes(type);
+    is_weak = is_weak || take_weak_attribute();
     type = apply_explicit_alignment(type, explicit_alignment, loc);
     if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&
         match(TOK_NOEXCEPT)) {
@@ -3834,6 +3894,7 @@ Stmt* parse_declaration(void) {
         }
     }
     skip_attributes();
+    is_weak = is_weak || take_weak_attribute();
     if (!declaration_name) {
         rcc_error(loc, "expected identifier");
         synchronize();
@@ -3943,13 +4004,18 @@ Stmt* parse_declaration(void) {
                 declaration_name, type, parameters, NULL, loc, storage,
                 is_inline, is_constexpr, is_noreturn, is_noexcept,
                 noexcept_expr, is_consteval);
+            declaration->is_weak = is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
             while (match(TOK_COMMA)) {
                 const char* next_name = NULL;
                 DeclList* next_parameters = NULL;
+                bool next_is_weak;
+                skip_attributes();
+                next_is_weak = take_weak_attribute();
                 Type* next_type = parse_declarator(
                     base_type, &next_name, &next_parameters);
                 next_type = parse_declarator_attributes(next_type);
+                next_is_weak = next_is_weak || take_weak_attribute();
                 next_type = apply_explicit_alignment(
                     next_type, explicit_alignment, loc);
                 if (!next_name) {
@@ -3958,27 +4024,28 @@ Stmt* parse_declaration(void) {
                     break;
                 }
                 if (next_type && next_type->kind == TYPE_FUNC) {
+                    Decl* next_declaration;
                     if (is_thread_local) {
                         rcc_error(loc,
                                   "thread-local storage is not valid on a function");
                     }
-                    stmtlist_append(
-                        &declarations,
-                        stmt_decl(parser_make_function_decl(
-                                      next_name, next_type, next_parameters,
-                                      NULL, loc, storage, is_inline,
-                                      is_constexpr, is_noreturn, is_noexcept,
-                                      noexcept_expr, is_consteval), loc));
+                    next_declaration = parser_make_function_decl(
+                        next_name, next_type, next_parameters, NULL, loc,
+                        storage, is_inline, is_constexpr, is_noreturn,
+                        is_noexcept, noexcept_expr, is_consteval);
+                    next_declaration->is_weak = next_is_weak;
+                    stmtlist_append(&declarations,
+                                    stmt_decl(next_declaration, loc));
                 } else {
                     Expr* next_init = parser_parse_variable_initializer(
                         next_type, loc);
-                    stmtlist_append(
-                        &declarations,
-                        stmt_decl(parser_make_variable_decl(
-                                      next_name, next_type, next_init, loc,
-                                      storage, is_thread_local, is_constexpr,
-                                      is_constinit, is_inline, is_noreturn,
-                                      is_consteval), loc));
+                    Decl* next_declaration = parser_make_variable_decl(
+                        next_name, next_type, next_init, loc, storage,
+                        is_thread_local, is_constexpr, is_constinit,
+                        is_inline, is_noreturn, is_consteval);
+                    next_declaration->is_weak = next_is_weak;
+                    stmtlist_append(&declarations,
+                                    stmt_decl(next_declaration, loc));
                 }
             }
             expect(TOK_SEMICOLON, ";");
@@ -3989,6 +4056,7 @@ Stmt* parse_declaration(void) {
             declaration_name, type, parameters, body, loc, storage,
             is_inline, is_constexpr, is_noreturn, is_noexcept,
             noexcept_expr, is_consteval);
+        declaration->is_weak = is_weak;
         return stmt_decl(declaration, loc);
     }
 
@@ -4000,14 +4068,19 @@ Stmt* parse_declaration(void) {
         declaration = parser_make_variable_decl(
             declaration_name, type, init, loc, storage, is_thread_local,
             is_constexpr, is_constinit, is_inline, is_noreturn, is_consteval);
+        declaration->is_weak = is_weak;
         stmtlist_append(&declarations, stmt_decl(declaration, loc));
 
         while (match(TOK_COMMA)) {
             const char* next_name = NULL;
             DeclList* next_parameters = NULL;
+            bool next_is_weak;
+            skip_attributes();
+            next_is_weak = take_weak_attribute();
             Type* next_type = parse_declarator(
                 base_type, &next_name, &next_parameters);
             next_type = parse_declarator_attributes(next_type);
+            next_is_weak = next_is_weak || take_weak_attribute();
             next_type = apply_explicit_alignment(
                 next_type, explicit_alignment, loc);
             if (!next_name) {
@@ -4016,14 +4089,16 @@ Stmt* parse_declaration(void) {
                 break;
             }
             if (next_type && next_type->kind == TYPE_FUNC) {
+                Decl* next_declaration;
                 if (is_thread_local) {
                     rcc_error(loc,
                               "thread-local storage is not valid on a function");
                 }
-                stmtlist_append(
-                    &declarations,
-                    stmt_decl(decl_func(next_name, next_type,
-                                        next_parameters, NULL, loc), loc));
+                next_declaration = decl_func(next_name, next_type,
+                                             next_parameters, NULL, loc);
+                next_declaration->is_weak = next_is_weak;
+                stmtlist_append(&declarations,
+                                stmt_decl(next_declaration, loc));
                 continue;
             }
             init = parser_parse_variable_initializer(next_type, loc);
@@ -4031,6 +4106,7 @@ Stmt* parse_declaration(void) {
                 next_name, next_type, init, loc, storage, is_thread_local,
                 is_constexpr, is_constinit, is_inline, is_noreturn,
                 is_consteval);
+            declaration->is_weak = next_is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
         }
         expect(TOK_SEMICOLON, ";");
@@ -4054,6 +4130,7 @@ static Stmt* parse_toplevel(void) {
 /* Main parser function */
 AST* rcc_parse(TokenList* tokens) {
     rcc_parser_set_cxx_mode(false);
+    pending_weak_attribute = false;
     parser.cur = tokens->head;
     parser.prev = NULL;
     parser_type_names = NULL;

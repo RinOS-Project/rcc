@@ -3307,6 +3307,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                                  value_present),
                              definition->loc);
         instance->func_is_inline = definition->func_is_inline;
+        instance->is_weak = definition->is_weak;
         instance->func_is_constexpr = definition->func_is_constexpr;
         instance->func_is_consteval = definition->func_is_consteval;
         instance->func_is_noreturn = definition->func_is_noreturn;
@@ -3420,6 +3421,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance = decl_var(rcc_intern(generated_name), variable_type,
                             initializer, definition->loc);
         instance->storage = definition->storage;
+        instance->is_weak = definition->is_weak;
         instance->var_is_thread_local = definition->var_is_thread_local;
         instance->var_is_constexpr = definition->var_is_constexpr;
         instance->var_is_constinit = definition->var_is_constinit;

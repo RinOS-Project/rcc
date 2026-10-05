@@ -420,6 +420,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
 	test-cxx-raw-strings test-cxx-alternative-tokens
 .PHONY: test-debug-info
+.PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
 
 CXX_REGRESSION_TARGETS = \
@@ -732,6 +733,7 @@ TEST_CI_TARGETS = \
 	test-manifest \
 	test-driver-policy \
 	test-weak-link \
+	test-weak-attribute \
 	test-object-width \
 	test-special-sections \
 	test-tls \
@@ -10548,6 +10550,42 @@ test-weak-link:
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/weak_link_test $(TEST_OUT)/weak.ro $(TEST_OUT)/strong.ro
 	@echo "Weak-to-strong linker replacement test completed"
+
+test-weak-attribute: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/weak-attribute)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/weak-attribute/x86.ro tests/weak_attribute.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/weak-attribute/x64.ro tests/weak_attribute.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/weak_attribute_test \
+		tests/weak_attribute_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/weak_attribute_test \
+		$(TEST_OUT)/weak-attribute/x86.ro \
+		$(TEST_OUT)/weak-attribute/x64.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/weak-attribute/linked-x64.rin \
+		$(TEST_OUT)/weak-attribute/x64.ro
+	../rinvalidate/rinvalidate.exe --kind executable --arch x86_64 \
+		--allow-unsigned $(TEST_OUT)/weak-attribute/linked-x64.rin
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/weak-attribute/cxx-x86.ro tests/weak_attribute.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/weak-attribute/cxx-x64.ro tests/weak_attribute.cpp
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/weak_attribute_cpp_test \
+		tests/weak_attribute_cpp_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/weak_attribute_cpp_test \
+		$(TEST_OUT)/weak-attribute/cxx-x86.ro \
+		$(TEST_OUT)/weak-attribute/cxx-x64.ro
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/weak-attribute/invalid.ro \
+		tests/invalid_weak_attribute.c,$(TEST_OUT)/weak-attribute/invalid.log)
+	$(GREP) -F -q "weak variable declaration requires external linkage" \
+		$(TEST_OUT)/weak-attribute/invalid.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/weak-attribute/invalid-arguments.ro \
+		tests/invalid_weak_attribute_arguments.c,$(TEST_OUT)/weak-attribute/invalid-arguments.log)
+	$(GREP) -F -q "weak attribute does not accept arguments" \
+		$(TEST_OUT)/weak-attribute/invalid-arguments.log
 
 test-comdat-link:
 	$(call MKDIR_P,$(TEST_OUT)/comdat)
