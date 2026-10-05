@@ -1762,7 +1762,6 @@ static bool constant_for_iteration_count(const Stmt* statement,
     if (!statement || !count || statement->kind != STMT_FOR ||
         !statement->for_init || !statement->for_cond ||
         !statement->for_inc || !statement->for_body ||
-        rcc_parser_is_cxx_mode() ||
         statement_contains_loop_transfer(statement->for_body) ||
         statement_contains_label(statement->for_body) ||
         statement_contains_declaration(statement->for_body)) {
@@ -2941,8 +2940,7 @@ static bool constant_loop_iteration_count(const Stmt* statement,
     uint64_t unsigned_current = 0u;
     if (!statement || !state || !count ||
         (statement->kind != STMT_WHILE && statement->kind != STMT_DO) ||
-        !statement->while_cond || !statement->while_body ||
-        rcc_parser_is_cxx_mode()) {
+        !statement->while_cond || !statement->while_body) {
         return false;
     }
     condition = statement->while_cond;
