@@ -199,6 +199,11 @@ int algebraic_integer_div_neg_one(int value)
     return value / -1;
 }
 
+int algebraic_integer_mul_neg_one(int value)
+{
+    return -1 * value;
+}
+
 int algebraic_integer_mod_neg_one(int value)
 {
     return value % -1;

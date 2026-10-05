@@ -112,7 +112,7 @@ static bool simplify_integer_identity(Expr** expression) {
     if (integer_literal(right, &right_value)) {
         uint64_t right_bits = integer_unsigned_value(right_value, value->type);
         if (!value->type->is_unsigned && right_bits == mask) {
-            if (value->kind == EXPR_DIV) {
+            if (value->kind == EXPR_MUL || value->kind == EXPR_DIV) {
                 Expr* replacement =
                     expr_unary(EXPR_NEG, left, value->loc);
                 replacement->type = value->type;
@@ -167,6 +167,13 @@ static bool simplify_integer_identity(Expr** expression) {
     }
     if (integer_literal(left, &left_value)) {
         uint64_t left_bits = integer_unsigned_value(left_value, value->type);
+        if (!value->type->is_unsigned && value->kind == EXPR_MUL &&
+            left_bits == mask) {
+            Expr* replacement = expr_unary(EXPR_NEG, right, value->loc);
+            replacement->type = value->type;
+            *expression = replacement;
+            return true;
+        }
         if ((value->kind == EXPR_ADD || value->kind == EXPR_BITOR ||
              value->kind == EXPR_BITXOR) && left_bits == 0u) {
             *expression = right;

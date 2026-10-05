@@ -139,6 +139,8 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "algebraic_integer_mod_one"));
     assert(function_extent(optimized, "algebraic_integer_div_neg_one") <
            function_extent(unoptimized, "algebraic_integer_div_neg_one"));
+    assert(function_extent(optimized, "algebraic_integer_mul_neg_one") <
+           function_extent(unoptimized, "algebraic_integer_mul_neg_one"));
     assert(function_extent(optimized, "algebraic_integer_mod_neg_one") <
            function_extent(unoptimized, "algebraic_integer_mod_neg_one"));
     assert(function_extent(optimized, "algebraic_integer_zero") <
@@ -248,6 +250,8 @@ int main(int argc, char** argv)
             object, "algebraic_integer_mod_one");
         ObjSymbol* algebraic_integer_div_neg_one_symbol = function_symbol(
             object, "algebraic_integer_div_neg_one");
+        ObjSymbol* algebraic_integer_mul_neg_one_symbol = function_symbol(
+            object, "algebraic_integer_mul_neg_one");
         ObjSymbol* algebraic_integer_mod_neg_one_symbol = function_symbol(
             object, "algebraic_integer_mod_neg_one");
         ObjSymbol* algebraic_integer_zero_symbol = function_symbol(
@@ -354,6 +358,7 @@ int main(int argc, char** argv)
         int (*algebraic_integer_identities)(int);
         int (*algebraic_integer_mod_one)(int);
         int (*algebraic_integer_div_neg_one)(int);
+        int (*algebraic_integer_mul_neg_one)(int);
         int (*algebraic_integer_mod_neg_one)(int);
         int (*algebraic_integer_zero)(int);
         uint32_t (*strength_reduce_unsigned_right)(uint32_t);
@@ -456,6 +461,9 @@ int main(int argc, char** argv)
         address = mapping + algebraic_integer_div_neg_one_symbol->value;
         memcpy(&algebraic_integer_div_neg_one, &address,
                sizeof(algebraic_integer_div_neg_one));
+        address = mapping + algebraic_integer_mul_neg_one_symbol->value;
+        memcpy(&algebraic_integer_mul_neg_one, &address,
+               sizeof(algebraic_integer_mul_neg_one));
         address = mapping + algebraic_integer_mod_neg_one_symbol->value;
         memcpy(&algebraic_integer_mod_neg_one, &address,
                sizeof(algebraic_integer_mod_neg_one));
@@ -651,6 +659,7 @@ int main(int argc, char** argv)
         assert(algebraic_integer_identities(-17) == -17);
         assert(algebraic_integer_mod_one(-17) == 0);
         assert(algebraic_integer_div_neg_one(-17) == 17);
+        assert(algebraic_integer_mul_neg_one(-17) == 17);
         assert(algebraic_integer_mod_neg_one(-17) == 0);
         assert(algebraic_integer_zero(123) == 7);
         assert(strength_reduce_unsigned_right(123u) == 984u);
