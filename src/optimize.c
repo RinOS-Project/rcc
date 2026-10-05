@@ -56,9 +56,12 @@ static bool unroll_single_iteration_for(Stmt* statement);
 static bool constant_while_iteration_count(const Stmt* statement,
                                            const ConstantState* state,
                                            unsigned* count);
+static bool constant_do_iteration_count(const Stmt* statement,
+                                        const ConstantState* state,
+                                        unsigned* count);
 static bool while_body_unit_step(const Stmt* body, const Decl* induction,
                                  int* step);
-static bool unroll_constant_while(Stmt* statement, unsigned count);
+static bool unroll_constant_loop(Stmt* statement, unsigned count);
 
 enum { INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64 };
 
@@ -1895,10 +1898,11 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
     return true;
 }
 
-static bool unroll_constant_while(Stmt* statement, unsigned count) {
+static bool unroll_constant_loop(Stmt* statement, unsigned count) {
     StmtList* head = NULL;
     StmtList** tail = &head;
-    if (!statement || statement->kind != STMT_WHILE || count < 1u ||
+    if (!statement || (statement->kind != STMT_WHILE &&
+                       statement->kind != STMT_DO) || count < 1u ||
         count > 4u || !statement->while_body ||
         !clone_unrolled_stmt(statement->while_body)) {
         return false;
@@ -2646,9 +2650,82 @@ static bool while_body_unit_step(const Stmt* body, const Decl* induction,
     return *step != 0;
 }
 
-static bool constant_while_iteration_count(const Stmt* statement,
-                                           const ConstantState* state,
-                                           unsigned* count) {
+static bool constant_loop_condition_holds(const Expr* condition,
+                                          const Type* type,
+                                          int64_t signed_current,
+                                          uint64_t unsigned_current,
+                                          int step, int64_t bound_value) {
+    if (type->is_unsigned) {
+        uint64_t bound = integer_unsigned_value(bound_value, type);
+        if (condition->kind == EXPR_NE) return unsigned_current != bound;
+        if (step > 0) {
+            return condition->kind == EXPR_LT
+                ? unsigned_current < bound : unsigned_current <= bound;
+        }
+        return condition->kind == EXPR_GT
+            ? unsigned_current > bound : unsigned_current >= bound;
+    }
+    {
+        int64_t bound = integer_signed_value(bound_value, type);
+        if (condition->kind == EXPR_NE) return signed_current != bound;
+        if (step > 0) {
+            return condition->kind == EXPR_LT
+                ? signed_current < bound : signed_current <= bound;
+        }
+        return condition->kind == EXPR_GT
+            ? signed_current > bound : signed_current >= bound;
+    }
+}
+
+static bool constant_loop_ne_direction_valid(const Expr* condition,
+                                             const Type* type,
+                                             int64_t signed_current,
+                                             uint64_t unsigned_current,
+                                             int step, int64_t bound_value) {
+    if (condition->kind != EXPR_NE) return true;
+    if (type->is_unsigned) {
+        uint64_t bound = integer_unsigned_value(bound_value, type);
+        return step > 0 ? unsigned_current <= bound
+                        : unsigned_current >= bound;
+    }
+    {
+        int64_t bound = integer_signed_value(bound_value, type);
+        return step > 0 ? signed_current <= bound
+                        : signed_current >= bound;
+    }
+}
+
+static bool advance_constant_loop_value(const Type* type, int step,
+                                        int64_t* signed_current,
+                                        uint64_t* unsigned_current) {
+    if (type->is_unsigned) {
+        uint64_t mask = integer_mask(type);
+        if ((step > 0 && *unsigned_current == mask) ||
+            (step < 0 && *unsigned_current == 0u)) {
+            return false;
+        }
+        *unsigned_current = step > 0
+            ? (*unsigned_current + 1u) & mask
+            : (*unsigned_current - 1u) & mask;
+        return true;
+    }
+    {
+        int64_t minimum;
+        int64_t maximum;
+        if (!signed_type_limits(type, &minimum, &maximum) ||
+            (step > 0 && *signed_current == maximum) ||
+            (step < 0 && *signed_current == minimum)) {
+            return false;
+        }
+        *signed_current = step > 0 ? *signed_current + 1
+                                   : *signed_current - 1;
+        return true;
+    }
+}
+
+static bool constant_loop_iteration_count(const Stmt* statement,
+                                          const ConstantState* state,
+                                          bool do_first, unsigned* count) {
     const Expr* condition;
     const Expr* left;
     const LocalConstant* binding;
@@ -2656,7 +2733,10 @@ static bool constant_while_iteration_count(const Stmt* statement,
     int64_t bound_value;
     int step;
     unsigned iterations;
-    if (!statement || !state || !count || statement->kind != STMT_WHILE ||
+    int64_t signed_current = 0;
+    uint64_t unsigned_current = 0u;
+    if (!statement || !state || !count ||
+        (statement->kind != STMT_WHILE && statement->kind != STMT_DO) ||
         !statement->while_cond || !statement->while_body ||
         rcc_parser_is_cxx_mode()) {
         return false;
@@ -2682,81 +2762,57 @@ static bool constant_while_iteration_count(const Stmt* statement,
         return false;
     }
     if (!for_condition_matches_step(condition, step)) return false;
-    iterations = 0u;
     if (induction->type->is_unsigned) {
-        uint64_t current = integer_unsigned_value(
+        unsigned_current = integer_unsigned_value(
             binding->value, induction->type);
-        uint64_t bound = integer_unsigned_value(
-            bound_value, induction->type);
-        uint64_t mask = integer_mask(induction->type);
-        if (condition->kind == EXPR_NE &&
-            ((step > 0 && current > bound) ||
-             (step < 0 && current < bound))) {
-            return false;
-        }
-        while (iterations <= 4u) {
-            bool runs;
-            if (condition->kind == EXPR_NE) {
-                runs = current != bound;
-            } else if (step > 0) {
-                runs = condition->kind == EXPR_LT
-                    ? current < bound : current <= bound;
-            } else {
-                runs = condition->kind == EXPR_GT
-                    ? current > bound : current >= bound;
-            }
-            if (!runs) {
-                *count = iterations;
-                return iterations >= 1u;
-            }
-            if ((step > 0 && current == mask) ||
-                (step < 0 && current == 0u)) {
-                return false;
-            }
-            current = step > 0
-                ? (current + 1u) & mask
-                : (current - 1u) & mask;
-            ++iterations;
-        }
     } else {
-        int64_t current = integer_signed_value(
+        signed_current = integer_signed_value(
             binding->value, induction->type);
-        int64_t bound = integer_signed_value(
-            bound_value, induction->type);
-        int64_t minimum;
-        int64_t maximum;
-        if (!signed_type_limits(induction->type, &minimum, &maximum)) {
+    }
+    if (!do_first && !constant_loop_ne_direction_valid(
+            condition, induction->type, signed_current, unsigned_current,
+            step, bound_value)) {
+        return false;
+    }
+    iterations = 0u;
+    while (iterations < 4u) {
+        if (!do_first && !constant_loop_condition_holds(
+                condition, induction->type, signed_current, unsigned_current,
+                step, bound_value)) {
+            *count = iterations;
+            return iterations >= 1u;
+        }
+        if (!advance_constant_loop_value(induction->type, step,
+                                         &signed_current,
+                                         &unsigned_current)) {
             return false;
         }
-        if (condition->kind == EXPR_NE &&
-            ((step > 0 && current > bound) ||
-             (step < 0 && current < bound))) {
+        ++iterations;
+        if (!constant_loop_ne_direction_valid(
+                condition, induction->type, signed_current, unsigned_current,
+                step, bound_value)) {
             return false;
         }
-        while (iterations <= 4u) {
-            bool runs;
-            if (condition->kind == EXPR_NE) {
-                runs = current != bound;
-            } else if (step > 0) {
-                runs = condition->kind == EXPR_LT
-                    ? current < bound : current <= bound;
-            } else {
-                runs = condition->kind == EXPR_GT
-                    ? current > bound : current >= bound;
-            }
-            if (!runs) {
-                *count = iterations;
-                return iterations >= 1u;
-            }
-            if ((step > 0 && current == maximum) ||
-                (step < 0 && current == minimum)) {
-                return false;
-            }
-            current = step > 0 ? current + 1 : current - 1;
-            ++iterations;
+        if (!constant_loop_condition_holds(
+                condition, induction->type, signed_current, unsigned_current,
+                step, bound_value)) {
+            *count = iterations;
+            return true;
         }
     }
     return false;
+}
+
+static bool constant_while_iteration_count(const Stmt* statement,
+                                           const ConstantState* state,
+                                           unsigned* count) {
+    return constant_loop_iteration_count(statement, state, false, count);
+}
+
+static bool constant_do_iteration_count(const Stmt* statement,
+                                        const ConstantState* state,
+                                        unsigned* count) {
+    return constant_loop_iteration_count(statement, state, true, count);
 }
 
 static void clear_local_constants(ConstantState* state) {
@@ -3154,7 +3210,7 @@ static void propagate_block_constants(Stmt* statement) {
                     unsigned iteration_count = 0u;
                     if (constant_while_iteration_count(
                             current, &state, &iteration_count) &&
-                        unroll_constant_while(current, iteration_count)) {
+                        unroll_constant_loop(current, iteration_count)) {
                         optimize_block(current);
                         clear_local_constants(&state);
                         break;
@@ -3170,6 +3226,16 @@ static void propagate_block_constants(Stmt* statement) {
                 clear_local_constants(&state);
                 break;
             case STMT_DO:
+                {
+                    unsigned iteration_count = 0u;
+                    if (constant_do_iteration_count(
+                            current, &state, &iteration_count) &&
+                        unroll_constant_loop(current, iteration_count)) {
+                        optimize_block(current);
+                        clear_local_constants(&state);
+                        break;
+                    }
+                }
                 if (loop_preserves_known_constants(
                         &state, NULL, current->while_cond, NULL,
                         current->while_body)) {

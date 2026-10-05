@@ -330,6 +330,9 @@
   - [x] 初期値が局所定数として確定するC17 `while (i < literal)`／`<=`／`!=`の
         単位増減bodyを1〜4回へbounded unrollし、body内の宣言・label・loop transfer・
         control escape・induction別変更を除外して両archのcode-size比較と実行を回帰検証
+  - [x] 初期値が局所定数として確定するC17 `do-while`の`<`／`>`／`!=`単位増減bodyを
+        1〜4回へbounded unrollし、wrap・方向不一致・body内の宣言・label・loop/control
+        transfer・induction別変更を除外してi686/AMD64のcode-sizeと実行を回帰検証
   - [x] 定数初期値・境界で2〜4回と確定できるC17 `for`を、符号付き／符号なし
         比較とincrement overflow境界を確認した上で、宣言・label・loop-transfer・
         C++ cleanupを含まないbodyだけbounded unrollし、i686/AMD64のcode-sizeと

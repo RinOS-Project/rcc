@@ -98,6 +98,13 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "loop_assignment_initializer_zero"));
     assert(function_extent(optimized, "do_constant_zero") <
            function_extent(unoptimized, "do_constant_zero"));
+    assert(function_extent(optimized, "do_constant_one") <
+           function_extent(unoptimized, "do_constant_one"));
+    /* Two-trip expansion can grow this backend's byte sequence; execution
+     * below is the semantic regression for those bounded do-while unrolls. */
+    assert(function_extent(optimized, "do_constant_two") > 0);
+    assert(function_extent(optimized, "do_assignment_not_equal_two") > 0);
+    assert(function_extent(optimized, "do_descending_two") > 0);
 
 #if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
 #if defined(__i386__)
@@ -159,6 +166,14 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "do_constant_zero");
         ObjSymbol* do_zero_continue_symbol = objfile_find_symbol(
             optimized, "do_constant_zero_continue");
+        ObjSymbol* do_one_symbol = objfile_find_symbol(
+            optimized, "do_constant_one");
+        ObjSymbol* do_two_symbol = objfile_find_symbol(
+            optimized, "do_constant_two");
+        ObjSymbol* do_assignment_two_symbol = objfile_find_symbol(
+            optimized, "do_assignment_not_equal_two");
+        ObjSymbol* do_descending_two_symbol = objfile_find_symbol(
+            optimized, "do_descending_two");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
@@ -188,6 +203,10 @@ static void verify_pair(const char* unoptimized_path,
         int (*assignment_init_zero_function)(void);
         int (*do_zero_function)(void);
         int (*do_zero_continue_function)(void);
+        int (*do_one_function)(void);
+        int (*do_two_function)(void);
+        int (*do_assignment_two_function)(void);
+        int (*do_descending_two_function)(void);
         void* address;
         assert(code != NULL && while_symbol != NULL && for_symbol != NULL &&
                mutate_symbol != NULL && one_symbol != NULL &&
@@ -207,6 +226,9 @@ static void verify_pair(const char* unoptimized_path,
                zero_le_symbol != NULL && zero_unsigned_symbol != NULL &&
                assignment_init_zero_symbol != NULL &&
                do_zero_symbol != NULL && do_zero_continue_symbol != NULL &&
+               do_one_symbol != NULL && do_two_symbol != NULL &&
+               do_assignment_two_symbol != NULL &&
+               do_descending_two_symbol != NULL &&
                page_size > 0);
         mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
                         (size_t)page_size) * (size_t)page_size;
@@ -277,6 +299,16 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + do_zero_continue_symbol->value;
         memcpy(&do_zero_continue_function, &address,
                sizeof(do_zero_continue_function));
+        address = mapping + do_one_symbol->value;
+        memcpy(&do_one_function, &address, sizeof(do_one_function));
+        address = mapping + do_two_symbol->value;
+        memcpy(&do_two_function, &address, sizeof(do_two_function));
+        address = mapping + do_assignment_two_symbol->value;
+        memcpy(&do_assignment_two_function, &address,
+               sizeof(do_assignment_two_function));
+        address = mapping + do_descending_two_symbol->value;
+        memcpy(&do_descending_two_function, &address,
+               sizeof(do_descending_two_function));
         assert(while_function() == 7);
         assert(for_function() == 11);
         assert(mutate_function(0) == 0);
@@ -304,6 +336,10 @@ static void verify_pair(const char* unoptimized_path,
         assert(assignment_init_zero_function() == 13);
         assert(do_zero_function() == 37);
         assert(do_zero_continue_function() == 41);
+        assert(do_one_function() == 61);
+        assert(do_two_function() == 134);
+        assert(do_assignment_two_function() == 142);
+        assert(do_descending_two_function() == 146);
         munmap(mapping, mapping_size);
     }
 #endif

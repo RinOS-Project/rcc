@@ -242,3 +242,48 @@ int do_constant_zero_continue(void)
     } while (0);
     return result;
 }
+
+int do_constant_one(void)
+{
+    int index = 0;
+    int result = 0;
+    do {
+        result += 61;
+        ++index;
+    } while (index < 1);
+    return result;
+}
+
+int do_constant_two(void)
+{
+    int index = 0;
+    int result = 0;
+    do {
+        result += 67;
+        ++index;
+    } while (index < 2);
+    return result;
+}
+
+int do_assignment_not_equal_two(void)
+{
+    int index;
+    int result = 0;
+    index = 0;
+    do {
+        result += 71;
+        index += 1;
+    } while (index != 2);
+    return result;
+}
+
+int do_descending_two(void)
+{
+    int index = 3;
+    int result = 0;
+    do {
+        result += 73;
+        --index;
+    } while (index > 1);
+    return result;
+}
