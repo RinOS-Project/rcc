@@ -97,11 +97,11 @@ VERIFIED_BACKEND_X86_HOST_CFLAGS = $(CFLAGS)
 COMPARE_FILES = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_compare_files.ps1" "$(1)" "$(2)"
 CHECK_COUNT = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "$(3)" "$(1)" "$(2)"
 else
-MKDIR_P = mkdir -p $(1)
+MKDIR_P = mkdir -p "$(1)"
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
 CHECK_NONEMPTY = test -s "$(1)"
 VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
-COMPARE_FILES = cmp $(1) $(2)
+COMPARE_FILES = cmp "$(1)" "$(2)"
 COPY_FILE = cp "$(1)" "$(2)"
 ASSERT_ABSENT = test ! -e "$(1)"
 CHECK_NO_SIGN_TEMP = test -z "$$(find "$(1)" -type f \( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' -o -name '*.rcc-signed-*' \) -print -quit)"
