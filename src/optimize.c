@@ -1550,7 +1550,7 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     }
     condition = statement->for_cond;
     increment = statement->for_inc;
-    step = unit_for_step(increment, induction);
+    step = bounded_loop_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
         !integer_literal(initial_expression, &initial_value) ||
@@ -1625,7 +1625,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
     induction = induction_decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
-    step = unit_for_step(increment, induction);
+    step = bounded_loop_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
         !integer_literal(initial_expression, &initial_value) ||
@@ -1643,6 +1643,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
         uint64_t bound = integer_unsigned_value(
             bound_value, induction->type);
         uint64_t mask = integer_mask(induction->type);
+        uint64_t magnitude = (uint64_t)(step > 0 ? step : -step);
         if (condition->kind == EXPR_NE &&
             ((step > 0 && current > bound) ||
              (step < 0 && current < bound))) {
@@ -1663,11 +1664,11 @@ static bool constant_for_iteration_count(const Stmt* statement,
                 *count = iterations;
                 return iterations >= 2u;
             }
-            if ((step > 0 && current == mask) ||
-                (step < 0 && current == 0u)) return false;
+            if ((step > 0 && current > mask - magnitude) ||
+                (step < 0 && current < magnitude)) return false;
             current = step > 0
-                ? (current + 1u) & mask
-                : (current - 1u) & mask;
+                ? (current + magnitude) & mask
+                : (current - magnitude) & mask;
             ++iterations;
         }
     } else {
@@ -1700,9 +1701,9 @@ static bool constant_for_iteration_count(const Stmt* statement,
                 *count = iterations;
                 return iterations >= 2u;
             }
-            if ((step > 0 && current == maximum) ||
-                (step < 0 && current == minimum)) return false;
-            current = step > 0 ? current + 1 : current - 1;
+            if ((step > 0 && current > maximum - step) ||
+                (step < 0 && current < minimum - step)) return false;
+            current = current + step;
             ++iterations;
         }
     }

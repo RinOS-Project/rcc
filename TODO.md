@@ -351,6 +351,9 @@
   - [x] 既存の整数変数を`for (i = literal; ...)`で初期化するC17形式を、
         宣言初期化と同じzero-trip／1-trip／2〜4-trip proofへ接続し、両archの
         code-sizeと実行結果を回帰検証
+  - [x] C17 `for`の`i += 2`／`i -= 2`／`i = i + 2`形式を±4以内のbounded
+        constant-stride proofへ接続し、符号付き／符号なしoverflow・方向・
+        `!=`到達性を保持した2〜4-trip展開と両archの実行回帰を追加
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

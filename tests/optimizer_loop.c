@@ -137,6 +137,25 @@ int loop_assignment_increment(void)
     return result;
 }
 
+int loop_stride_for_two(void)
+{
+    int result = 0;
+    for (int index = 0; index < 4; index += 2) {
+        result += 31;
+    }
+    return result;
+}
+
+int loop_stride_for_assignment_two(void)
+{
+    int index;
+    int result = 0;
+    for (index = 0; index != 4; index = index + 2) {
+        result += 37;
+    }
+    return result;
+}
+
 int loop_assignment_initializer_one(void)
 {
     int index;

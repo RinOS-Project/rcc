@@ -73,6 +73,8 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "loop_compound_increment"));
     assert(function_extent(optimized, "loop_assignment_increment") <
            function_extent(unoptimized, "loop_assignment_increment"));
+    assert(function_extent(optimized, "loop_stride_for_two") > 0);
+    assert(function_extent(optimized, "loop_stride_for_assignment_two") > 0);
     assert(function_extent(optimized, "loop_assignment_initializer_one") <
            function_extent(unoptimized, "loop_assignment_initializer_one"));
     assert(function_extent(optimized, "loop_assignment_initializer_two") <
@@ -148,6 +150,10 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_compound_increment");
         ObjSymbol* assignment_symbol = objfile_find_symbol(
             optimized, "loop_assignment_increment");
+        ObjSymbol* stride_for_two_symbol = objfile_find_symbol(
+            optimized, "loop_stride_for_two");
+        ObjSymbol* stride_for_assignment_two_symbol = objfile_find_symbol(
+            optimized, "loop_stride_for_assignment_two");
         ObjSymbol* assignment_init_one_symbol = objfile_find_symbol(
             optimized, "loop_assignment_initializer_one");
         ObjSymbol* assignment_init_two_symbol = objfile_find_symbol(
@@ -207,6 +213,8 @@ static void verify_pair(const char* unoptimized_path,
         int (*two_function)(void);
         int (*compound_function)(void);
         int (*assignment_function)(void);
+        int (*stride_for_two_function)(void);
+        int (*stride_for_assignment_two_function)(void);
         int (*assignment_init_one_function)(void);
         int (*assignment_init_two_function)(void);
         int (*volatile_function)(void);
@@ -237,6 +245,8 @@ static void verify_pair(const char* unoptimized_path,
                stride_assignment_two_symbol != NULL &&
                one_le_symbol != NULL && two_symbol != NULL &&
                compound_symbol != NULL && assignment_symbol != NULL &&
+               stride_for_two_symbol != NULL &&
+               stride_for_assignment_two_symbol != NULL &&
                assignment_init_one_symbol != NULL &&
                assignment_init_two_symbol != NULL &&
                volatile_symbol != NULL &&
@@ -292,6 +302,12 @@ static void verify_pair(const char* unoptimized_path,
         memcpy(&compound_function, &address, sizeof(compound_function));
         address = mapping + assignment_symbol->value;
         memcpy(&assignment_function, &address, sizeof(assignment_function));
+        address = mapping + stride_for_two_symbol->value;
+        memcpy(&stride_for_two_function, &address,
+               sizeof(stride_for_two_function));
+        address = mapping + stride_for_assignment_two_symbol->value;
+        memcpy(&stride_for_assignment_two_function, &address,
+               sizeof(stride_for_assignment_two_function));
         address = mapping + assignment_init_one_symbol->value;
         memcpy(&assignment_init_one_function, &address,
                sizeof(assignment_init_one_function));
@@ -362,6 +378,8 @@ static void verify_pair(const char* unoptimized_path,
         assert(two_function() == 26);
         assert(compound_function() == 46);
         assert(assignment_function() == 58);
+        assert(stride_for_two_function() == 62);
+        assert(stride_for_assignment_two_function() == 74);
         assert(assignment_init_one_function() == 31);
         assert(assignment_init_two_function() == 74);
         assert(volatile_function() == 62);
