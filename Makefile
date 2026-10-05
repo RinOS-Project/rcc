@@ -8572,6 +8572,10 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_constant_p expects 1 argument, got 2" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_object_size expects 2 arguments, got 1" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_object_size type argument must be an integer constant between 0 and 3" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x64.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x64.log)
 	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
@@ -8592,6 +8596,10 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_constant_p expects 1 argument, got 2" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_object_size expects 2 arguments, got 1" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_object_size type argument must be an integer constant between 0 and 3" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
 

@@ -2462,6 +2462,59 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
     return true;
 }
 
+static bool codegen64_builtin_object_size(Expr* expression, uint64_t* size) {
+    Type* type;
+    Decl* declaration;
+    int64_t index;
+    uint32_t element_size;
+    uint64_t offset;
+
+    while (expression && expression->kind == EXPR_CAST) {
+        expression = expression->cast_expr;
+    }
+    if (!expression || !size) return false;
+    if (expression->kind == EXPR_STRING_LIT) {
+        *size = (uint64_t)expression->str_length + 1u;
+        return true;
+    }
+    if (expression->kind == EXPR_ADDR && expression->unary_operand) {
+        return codegen64_builtin_object_size(expression->unary_operand, size);
+    }
+    if (expression->kind == EXPR_INDEX && expression->index_base &&
+        expression->index_expr &&
+        codegen64_builtin_object_size(expression->index_base, size) &&
+        expr_eval_integer_constant(expression->index_expr, &index) &&
+        index >= 0) {
+        element_size = gen64_pointer_element_size(
+            expression->index_base->type);
+        if (element_size == 0u ||
+            (uint64_t)index > UINT64_MAX / element_size) {
+            return false;
+        }
+        offset = (uint64_t)index * element_size;
+        if (offset > *size) return false;
+        *size -= offset;
+        return true;
+    }
+    if (expression->kind != EXPR_IDENT || !expression->ident_decl) {
+        return false;
+    }
+    declaration = expression->ident_decl;
+    if (declaration->kind != DECL_VAR || !declaration->type) return false;
+    type = declaration->type;
+    if (type->kind == TYPE_ARRAY && type->array_len >= 0 &&
+        !type->array_bound && type->size > 0) {
+        *size = (uint64_t)type->size;
+        return true;
+    }
+    if (type->kind != TYPE_PTR && type->kind != TYPE_ARRAY &&
+        type->kind != TYPE_FUNC && type->size > 0) {
+        *size = (uint64_t)type->size;
+        return true;
+    }
+    return false;
+}
+
 static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     Expr* function;
     Expr* argument;
@@ -2642,6 +2695,16 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
             mod, RAX,
             argument && expr_eval_integer_constant(
                 argument, &constant) ? UINT64_C(1) : UINT64_C(0));
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_object_size") == 0) {
+        Expr* object = call64_argument(expr, 0);
+        int64_t mode = 0;
+        uint64_t object_size = 0;
+        bool known = codegen64_builtin_object_size(object, &object_size);
+        (void)expr_eval_integer_constant(call64_argument(expr, 1), &mode);
+        if (!known) object_size = (mode & 2) != 0 ? 0u : UINT64_MAX;
+        emit64_mov_reg_imm64(mod, RAX, object_size);
         return true;
     }
     if (strcmp(function->ident_name, "__builtin_expect") == 0 ||

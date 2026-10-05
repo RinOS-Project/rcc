@@ -37,6 +37,15 @@ extern "C" int cxx_scalar_builtins(int *value) {
     return *value;
 }
 
+extern "C" int cxx_builtin_object_size(void) {
+    char local[10];
+    const char *pointer = local;
+    if (__builtin_object_size(local, 0) != 10) return 61;
+    if (__builtin_object_size("RinOS", 0) != 6) return 62;
+    if (__builtin_object_size(pointer, 2) != 0) return 63;
+    return 0;
+}
+
 extern "C" int main(void) {
     if (cxx_builtin_expect(31) != 31) return 1;
     if (cxx_builtin_expect_probability(31) != 31) return 2;
@@ -44,5 +53,6 @@ extern "C" int main(void) {
     if (cxx_builtin_trap_guard(1) != 23) return 4;
     int value = 37;
     if (cxx_scalar_builtins(&value) != 37) return 5;
+    if (cxx_builtin_object_size() != 0) return 6;
     return 0;
 }

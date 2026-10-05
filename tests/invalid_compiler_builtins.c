@@ -26,6 +26,14 @@ int invalid_builtin_constant_p(void) {
     return __builtin_constant_p(1, 2);
 }
 
+int invalid_builtin_object_size_arity(void) {
+    return __builtin_object_size((char *)0);
+}
+
+int invalid_builtin_object_size_mode(void) {
+    return (int)__builtin_object_size((char *)0, 4);
+}
+
 int invalid_builtin_parity(void) {
     return __builtin_parity(1LL);
 }

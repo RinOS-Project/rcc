@@ -80,6 +80,19 @@ int builtin_clrsbll(long long value) {
     return __builtin_clrsbll(value);
 }
 
+unsigned long long builtin_object_size_checks(void) {
+    char local[16];
+    unsigned char *pointer = (unsigned char *)local;
+    if (__builtin_object_size(local, 0) != 16) return 1;
+    if (__builtin_object_size(&local[4], 0) != 12) return 2;
+    if (__builtin_object_size("RinOS", 0) != 6) return 3;
+    if (__builtin_object_size(pointer, 0) != (unsigned long)-1) {
+        return 4;
+    }
+    if (__builtin_object_size(pointer, 2) != 0) return 5;
+    return 0;
+}
+
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
     if (builtin_expect_probability(23) != 23) return 2;
@@ -108,5 +121,6 @@ int main(void) {
     if (builtin_clrsbll(1) != 62) return 21;
     if (builtin_clrsbll(-2) != 62) return 22;
     if (builtin_clrsbl(1L) != (int)(sizeof(long) * 8 - 2)) return 23;
+    if (builtin_object_size_checks() != 0) return 24;
     return 0;
 }

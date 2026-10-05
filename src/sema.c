@@ -11992,6 +11992,46 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         expr->type = type_int;
         return true;
     }
+    if (strcmp(name, "__builtin_object_size") == 0) {
+        int64_t object_size_mode = 0;
+        bool mode_is_constant = false;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 2) {
+            rcc_error(expr->loc,
+                      "__builtin_object_size expects 2 arguments, got %d",
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        if (!first || !first->type ||
+            (!type_is_pointer(first->type) &&
+             first->type->kind != TYPE_ARRAY)) {
+            rcc_error(expr->loc,
+                      "__builtin_object_size first argument must have pointer type");
+        }
+        second = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->expr : NULL;
+        if (!second || !second->type || !type_is_integer(second->type)) {
+            rcc_error(expr->loc,
+                      "__builtin_object_size type argument must have integer type");
+        } else {
+            mode_is_constant = expr_eval_integer_constant(
+                second, &object_size_mode);
+            if (!mode_is_constant || object_size_mode < 0 ||
+                object_size_mode > 3) {
+                rcc_error(expr->loc,
+                          "__builtin_object_size type argument must be an integer constant between 0 and 3");
+            }
+        }
+        (void)mode_is_constant;
+        function->type = type_ptr(g_opts.target_arch == ARCH_X64
+                                      ? type_ullong : type_uint);
+        expr->type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
+        return true;
+    }
     if (strcmp(name, "__builtin_assume_aligned") == 0) {
         int64_t alignment = 0;
         int64_t offset = 0;
