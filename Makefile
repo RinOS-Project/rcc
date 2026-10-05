@@ -9500,6 +9500,9 @@ test-tls-block-scope: $(RCC_TARGET) $(RINVALIDATE)
 test-bootstrap-core: $(RCC_TARGET)
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage1-a)
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage1-b)
+ifeq ($(OS),Windows_NT)
+	wsl.exe -d Ubuntu-24.04 bash -lc "set -e; cd $(WSL_RINCOMPILER_ROOT); for target in i686-unknown-rinos x86_64-unknown-rinos; do for source in $(BOOTSTRAP_CORE_SRCS); do name=$${source##*/}; name=$${name%.c}; arch=$${target%%-*}; $(WSL_RINCOMPILER_ROOT)/rcc.exe --target $$target $(BOOTSTRAP_INCLUDES) -c -o $(CURDIR)/$(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro $$source; $(WSL_RINCOMPILER_ROOT)/rcc.exe --target $$target $(BOOTSTRAP_INCLUDES) -c -o $(CURDIR)/$(BOOTSTRAP_ROOT)/stage1-b/$$name-$$arch.ro $$source; cmp $(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro $(BOOTSTRAP_ROOT)/stage1-b/$$name-$$arch.ro; done; done"
+else
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
 		for source in $(BOOTSTRAP_CORE_SRCS); do \
@@ -9513,10 +9516,14 @@ test-bootstrap-core: $(RCC_TARGET)
 				$(BOOTSTRAP_ROOT)/stage1-b/$$name-$$arch.ro; \
 		done; \
 	done
+endif
 	@echo "Reproducible dual-architecture stage0 core object bootstrap completed"
 
 test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/images)
+ifeq ($(OS),Windows_NT)
+	wsl.exe -d Ubuntu-24.04 bash -lc "set -e; cd $(WSL_RINCOMPILER_ROOT); for target in i686-unknown-rinos x86_64-unknown-rinos; do arch=$${target%%-*}; for stage in stage1-a stage1-b; do objects=; for name in $(BOOTSTRAP_RCC_OBJECTS); do objects=$$objects\ $(CURDIR)/$(BOOTSTRAP_ROOT)/$$stage/$$name-$$arch.ro; done; $(WSL_RINCOMPILER_ROOT)/rld.exe --target $$target --emit-unsigned-v3 --dep rincrt.rll $(BOOTSTRAP_RUNTIME_IMPORTS) -o $(CURDIR)/$(BOOTSTRAP_ROOT)/images/rcc-$$stage-$$arch.rin $$objects; done; cmp $(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin $(BOOTSTRAP_ROOT)/images/rcc-stage1-b-$$arch.rin; done"
+else
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
 		arch=$${target%%-*}; \
@@ -9533,6 +9540,7 @@ test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
 		cmp $(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin \
 			$(BOOTSTRAP_ROOT)/images/rcc-stage1-b-$$arch.rin; \
 	done
+endif
 	@echo "Reproducible dual-architecture linked stage1 rcc images completed"
 
 test-bootstrap-execute: test-bootstrap-link
@@ -9542,7 +9550,7 @@ test-bootstrap-execute: test-bootstrap-link
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro tests/hello.c
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& wsl.exe -d Ubuntu-24.04 bash -lc 'set -e; cd $(WSL_RINCOMPILER_ROOT); gcc -m32 $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -rdynamic -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-i686 $(WSL_RINCOMPILER_ROOT)/tests/bootstrap_stage_runner.c -ldl; gcc $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -rdynamic -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-x86_64 $(WSL_RINCOMPILER_ROOT)/tests/bootstrap_stage_runner.c -ldl; $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-i686 $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-i686.rin rcc-stage1 --target i686-unknown-rinos -c -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-i686.ro tests/hello.c; cmp $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/reference-i686.ro $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-i686.ro; $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-x86_64 $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-x86_64.rin rcc-stage1 --target x86_64-unknown-rinos -c -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro tests/hello.c; cmp $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro'"
+	wsl.exe -d Ubuntu-24.04 bash -lc 'set -e; cd $(WSL_RINCOMPILER_ROOT); gcc -m32 $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -rdynamic -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-i686 $(WSL_RINCOMPILER_ROOT)/tests/bootstrap_stage_runner.c -ldl; gcc $(CFLAGS) -I$(WSL_RINCOMPILER_ROOT)/include -rdynamic -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-x86_64 $(WSL_RINCOMPILER_ROOT)/tests/bootstrap_stage_runner.c -ldl; $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-i686 $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-i686.rin rcc-stage1 --target i686-unknown-rinos -c -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-i686.ro tests/hello.c; cmp $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/reference-i686.ro $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-i686.ro; $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/run-x86_64 $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-x86_64.rin rcc-stage1 --target x86_64-unknown-rinos -c -o $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro tests/hello.c; cmp $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro $(WSL_RINCOMPILER_ROOT)/$(BOOTSTRAP_ROOT)/execute/stage1-x86_64.ro'
 	@echo "Dual-architecture linked stage1 execution bootstrap completed"
 else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -rdynamic \
@@ -9572,6 +9580,9 @@ endif
 
 test-bootstrap-stage2: test-bootstrap-execute
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage2)
+ifeq ($(OS),Windows_NT)
+	wsl.exe -d Ubuntu-24.04 bash -lc "set -e; cd $(WSL_RINCOMPILER_ROOT); for target in i686-unknown-rinos x86_64-unknown-rinos; do arch=$${target%%-*}; runner=$(BOOTSTRAP_ROOT)/execute/run-$$arch; image=$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin; for source in $(BOOTSTRAP_CORE_SRCS); do name=$${source##*/}; name=$${name%.c}; $$runner $$image rcc-stage1 --target $$target $(BOOTSTRAP_INCLUDES) -c -o $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro $$source; cmp $(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro; done; objects=; for name in $(BOOTSTRAP_RCC_OBJECTS); do objects=$$objects\ $(CURDIR)/$(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro; done; $(WSL_RINCOMPILER_ROOT)/rld.exe --target $$target --emit-unsigned-v3 --dep rincrt.rll $(BOOTSTRAP_RUNTIME_IMPORTS) -o $(CURDIR)/$(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin $$objects; cmp $(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin $(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin; done"
+else
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
 		arch=$${target%%-*}; \
@@ -9594,6 +9605,7 @@ test-bootstrap-stage2: test-bootstrap-execute
 			-o $(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin $$objects; \
 		cmp $$image $(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin; \
 	done
+endif
 	@echo "Reproducible dual-architecture stage1-to-stage2 compiler rebuild completed"
 
 test-pragma-pack: $(RCC_TARGET) $(RCXX_TARGET)
