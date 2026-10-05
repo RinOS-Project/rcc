@@ -53,6 +53,12 @@ static void verify_pair(const char* unoptimized_path,
     assert(code_section(optimized)->size < code_section(unoptimized)->size);
     assert(function_extent(optimized, "loop_mutates_condition") ==
            function_extent(unoptimized, "loop_mutates_condition"));
+    assert(function_extent(optimized, "loop_constant_while_one") <
+           function_extent(unoptimized, "loop_constant_while_one"));
+    /* Two-trip expansion can grow this backend's byte sequence; execution
+     * below is the semantic regression for those bounded unrolls. */
+    assert(function_extent(optimized, "loop_constant_while_two") > 0);
+    assert(function_extent(optimized, "loop_assignment_while_two") > 0);
     assert(function_extent(optimized, "loop_constant_one") <
            function_extent(unoptimized, "loop_constant_one"));
     assert(function_extent(optimized, "loop_constant_one_le") <
@@ -107,6 +113,12 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_invariant_for_zero");
         ObjSymbol* mutate_symbol = objfile_find_symbol(
             optimized, "loop_mutates_condition");
+        ObjSymbol* while_one_symbol = objfile_find_symbol(
+            optimized, "loop_constant_while_one");
+        ObjSymbol* while_two_symbol = objfile_find_symbol(
+            optimized, "loop_constant_while_two");
+        ObjSymbol* assignment_while_two_symbol = objfile_find_symbol(
+            optimized, "loop_assignment_while_two");
         ObjSymbol* one_symbol = objfile_find_symbol(
             optimized, "loop_constant_one");
         ObjSymbol* one_le_symbol = objfile_find_symbol(
@@ -153,6 +165,9 @@ static void verify_pair(const char* unoptimized_path,
         int (*while_function)(void);
         int (*for_function)(void);
         int (*mutate_function)(int);
+        int (*while_one_function)(void);
+        int (*while_two_function)(void);
+        int (*assignment_while_two_function)(void);
         int (*one_function)(void);
         int (*one_le_function)(void);
         int (*two_function)(void);
@@ -176,6 +191,8 @@ static void verify_pair(const char* unoptimized_path,
         void* address;
         assert(code != NULL && while_symbol != NULL && for_symbol != NULL &&
                mutate_symbol != NULL && one_symbol != NULL &&
+               while_one_symbol != NULL && while_two_symbol != NULL &&
+               assignment_while_two_symbol != NULL &&
                one_le_symbol != NULL && two_symbol != NULL &&
                compound_symbol != NULL && assignment_symbol != NULL &&
                assignment_init_one_symbol != NULL &&
@@ -204,6 +221,13 @@ static void verify_pair(const char* unoptimized_path,
         memcpy(&for_function, &address, sizeof(for_function));
         address = mapping + mutate_symbol->value;
         memcpy(&mutate_function, &address, sizeof(mutate_function));
+        address = mapping + while_one_symbol->value;
+        memcpy(&while_one_function, &address, sizeof(while_one_function));
+        address = mapping + while_two_symbol->value;
+        memcpy(&while_two_function, &address, sizeof(while_two_function));
+        address = mapping + assignment_while_two_symbol->value;
+        memcpy(&assignment_while_two_function, &address,
+               sizeof(assignment_while_two_function));
         address = mapping + one_symbol->value;
         memcpy(&one_function, &address, sizeof(one_function));
         address = mapping + one_le_symbol->value;
@@ -257,6 +281,9 @@ static void verify_pair(const char* unoptimized_path,
         assert(for_function() == 11);
         assert(mutate_function(0) == 0);
         assert(mutate_function(3) == 0);
+        assert(while_one_function() == 43);
+        assert(while_two_function() == 94);
+        assert(assignment_while_two_function() == 106);
         assert(one_function() == 17);
         assert(one_le_function() == 19);
         assert(two_function() == 26);

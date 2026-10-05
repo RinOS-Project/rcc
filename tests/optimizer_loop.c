@@ -25,6 +25,40 @@ int loop_mutates_condition(int input)
     return remaining;
 }
 
+int loop_constant_while_one(void)
+{
+    int index = 3;
+    int result = 0;
+    while (index <= 3) {
+        result += 43;
+        ++index;
+    }
+    return result;
+}
+
+int loop_constant_while_two(void)
+{
+    int index = 0;
+    int result = 0;
+    while (index < 2) {
+        result += 47;
+        ++index;
+    }
+    return result;
+}
+
+int loop_assignment_while_two(void)
+{
+    int index;
+    int result = 0;
+    index = 0;
+    while (index < 2) {
+        result += 53;
+        ++index;
+    }
+    return result;
+}
+
 int loop_constant_one(void)
 {
     int result = 0;

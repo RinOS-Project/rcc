@@ -20,6 +20,8 @@ static void eliminate_block_dead_stores(Stmt* statement);
 static bool optimize_inline_changed;
 static AST* optimize_inline_ast;
 
+typedef struct ConstantState ConstantState;
+
 static bool expression_has_side_effect(const Expr* expression);
 static bool expression_mentions_decl(const Expr* expression,
                                      const Decl* declaration);
@@ -51,6 +53,12 @@ static Stmt* clone_unrolled_stmt(const Stmt* statement);
 static StmtList** append_unrolled_stmt(StmtList** tail, Stmt* statement);
 static bool unroll_constant_for(Stmt* statement, unsigned count);
 static bool unroll_single_iteration_for(Stmt* statement);
+static bool constant_while_iteration_count(const Stmt* statement,
+                                           const ConstantState* state,
+                                           unsigned* count);
+static bool while_body_unit_step(const Stmt* body, const Decl* induction,
+                                 int* step);
+static bool unroll_constant_while(Stmt* statement, unsigned count);
 
 enum { INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64 };
 
@@ -1887,6 +1895,24 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
     return true;
 }
 
+static bool unroll_constant_while(Stmt* statement, unsigned count) {
+    StmtList* head = NULL;
+    StmtList** tail = &head;
+    if (!statement || statement->kind != STMT_WHILE || count < 1u ||
+        count > 4u || !statement->while_body ||
+        !clone_unrolled_stmt(statement->while_body)) {
+        return false;
+    }
+    for (unsigned index = 0u; index < count; ++index) {
+        Stmt* body = clone_unrolled_stmt(statement->while_body);
+        *tail = NULL;
+        tail = append_unrolled_stmt(tail, body);
+    }
+    statement->kind = STMT_BLOCK;
+    statement->block_stmts = head;
+    return true;
+}
+
 static bool unroll_single_iteration_for(Stmt* statement) {
     Stmt* initializer;
     Decl* induction;
@@ -2555,9 +2581,9 @@ typedef struct LocalConstant {
     struct LocalConstant* next;
 } LocalConstant;
 
-typedef struct {
+struct ConstantState {
     LocalConstant* bindings;
-} ConstantState;
+};
 
 static bool loop_preserves_known_constants(
     const ConstantState* state, const Stmt* init, const Expr* condition,
@@ -2582,6 +2608,155 @@ static LocalConstant* find_local_constant(ConstantState* state,
         binding = binding->next;
     }
     return binding;
+}
+
+static bool while_body_unit_step(const Stmt* body, const Decl* induction,
+                                 int* step) {
+    const Stmt* increment_statement;
+    const StmtList* item;
+    if (!body || !induction || !step) return false;
+    if (body->kind == STMT_BLOCK) {
+        item = body->block_stmts;
+        if (!item) return false;
+        while (item->next) item = item->next;
+        increment_statement = item->stmt;
+        if (!increment_statement || increment_statement->kind != STMT_EXPR) {
+            return false;
+        }
+        for (item = body->block_stmts; item && item->stmt != increment_statement;
+             item = item->next) {
+            if (!item->stmt || item->stmt->kind != STMT_EXPR ||
+                statement_contains_loop_transfer(item->stmt) ||
+                statement_transfers_control(item->stmt) ||
+                statement_modifies_decl(item->stmt, induction)) {
+                return false;
+            }
+        }
+    } else {
+        if (body->kind != STMT_EXPR) return false;
+        increment_statement = body;
+    }
+    if (statement_contains_label(body) ||
+        statement_contains_declaration(body) ||
+        statement_contains_loop_transfer(body) ||
+        statement_transfers_control(body)) {
+        return false;
+    }
+    *step = unit_for_step(increment_statement->expr, induction);
+    return *step != 0;
+}
+
+static bool constant_while_iteration_count(const Stmt* statement,
+                                           const ConstantState* state,
+                                           unsigned* count) {
+    const Expr* condition;
+    const Expr* left;
+    const LocalConstant* binding;
+    const Decl* induction;
+    int64_t bound_value;
+    int step;
+    unsigned iterations;
+    if (!statement || !state || !count || statement->kind != STMT_WHILE ||
+        !statement->while_cond || !statement->while_body ||
+        rcc_parser_is_cxx_mode()) {
+        return false;
+    }
+    condition = statement->while_cond;
+    if (!condition->binary_lhs || !condition->binary_rhs ||
+        condition->binary_lhs->kind != EXPR_IDENT ||
+        !condition->binary_lhs->ident_decl ||
+        !integer_literal(condition->binary_rhs, &bound_value)) {
+        return false;
+    }
+    left = condition->binary_lhs;
+    induction = left->ident_decl;
+    if (!induction->type || induction->type->is_volatile ||
+        !type_is_integer(induction->type) ||
+        (!for_condition_matches_step(condition, 1) &&
+         !for_condition_matches_step(condition, -1))) {
+        return false;
+    }
+    binding = find_local_constant((ConstantState*)state, induction);
+    if (!binding || !binding->known ||
+        !while_body_unit_step(statement->while_body, induction, &step)) {
+        return false;
+    }
+    if (!for_condition_matches_step(condition, step)) return false;
+    iterations = 0u;
+    if (induction->type->is_unsigned) {
+        uint64_t current = integer_unsigned_value(
+            binding->value, induction->type);
+        uint64_t bound = integer_unsigned_value(
+            bound_value, induction->type);
+        uint64_t mask = integer_mask(induction->type);
+        if (condition->kind == EXPR_NE &&
+            ((step > 0 && current > bound) ||
+             (step < 0 && current < bound))) {
+            return false;
+        }
+        while (iterations <= 4u) {
+            bool runs;
+            if (condition->kind == EXPR_NE) {
+                runs = current != bound;
+            } else if (step > 0) {
+                runs = condition->kind == EXPR_LT
+                    ? current < bound : current <= bound;
+            } else {
+                runs = condition->kind == EXPR_GT
+                    ? current > bound : current >= bound;
+            }
+            if (!runs) {
+                *count = iterations;
+                return iterations >= 1u;
+            }
+            if ((step > 0 && current == mask) ||
+                (step < 0 && current == 0u)) {
+                return false;
+            }
+            current = step > 0
+                ? (current + 1u) & mask
+                : (current - 1u) & mask;
+            ++iterations;
+        }
+    } else {
+        int64_t current = integer_signed_value(
+            binding->value, induction->type);
+        int64_t bound = integer_signed_value(
+            bound_value, induction->type);
+        int64_t minimum;
+        int64_t maximum;
+        if (!signed_type_limits(induction->type, &minimum, &maximum)) {
+            return false;
+        }
+        if (condition->kind == EXPR_NE &&
+            ((step > 0 && current > bound) ||
+             (step < 0 && current < bound))) {
+            return false;
+        }
+        while (iterations <= 4u) {
+            bool runs;
+            if (condition->kind == EXPR_NE) {
+                runs = current != bound;
+            } else if (step > 0) {
+                runs = condition->kind == EXPR_LT
+                    ? current < bound : current <= bound;
+            } else {
+                runs = condition->kind == EXPR_GT
+                    ? current > bound : current >= bound;
+            }
+            if (!runs) {
+                *count = iterations;
+                return iterations >= 1u;
+            }
+            if ((step > 0 && current == maximum) ||
+                (step < 0 && current == minimum)) {
+                return false;
+            }
+            current = step > 0 ? current + 1 : current - 1;
+            ++iterations;
+        }
+    }
+    return false;
 }
 
 static void clear_local_constants(ConstantState* state) {
@@ -2975,6 +3150,16 @@ static void propagate_block_constants(Stmt* statement) {
                 clear_local_constants(&state);
                 break;
             case STMT_WHILE:
+                {
+                    unsigned iteration_count = 0u;
+                    if (constant_while_iteration_count(
+                            current, &state, &iteration_count) &&
+                        unroll_constant_while(current, iteration_count)) {
+                        optimize_block(current);
+                        clear_local_constants(&state);
+                        break;
+                    }
+                }
                 if (loop_preserves_known_constants(
                         &state, NULL, current->while_cond, NULL,
                         current->while_body)) {
