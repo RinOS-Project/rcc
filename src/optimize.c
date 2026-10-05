@@ -322,6 +322,8 @@ static bool inline_scalar_expression_shape(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
             return inline_scalar_expression_shape(expression->unary_operand,
                                                    bindings, binding_count);
         case EXPR_CAST:
@@ -348,6 +350,11 @@ static bool inline_scalar_expression_shape(
             return inline_scalar_expression_shape(expression->binary_lhs,
                                                    bindings, binding_count) &&
                    inline_scalar_expression_shape(expression->binary_rhs,
+                                                   bindings, binding_count);
+        case EXPR_INDEX:
+            return inline_scalar_expression_shape(expression->index_base,
+                                                   bindings, binding_count) &&
+                   inline_scalar_expression_shape(expression->index_expr,
                                                    bindings, binding_count);
         case EXPR_COND:
             return inline_scalar_expression_shape(expression->cond_test,
@@ -385,6 +392,8 @@ static Expr* clone_inline_scalar_expression(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
             clone = expr_unary(
                 expression->kind,
                 clone_inline_scalar_expression(expression->unary_operand,
@@ -393,6 +402,16 @@ static Expr* clone_inline_scalar_expression(
             if (!clone->unary_operand) return NULL;
             clone->type = expression->type;
             return clone;
+        case EXPR_INDEX: {
+            Expr* base = clone_inline_scalar_expression(
+                expression->index_base, bindings, binding_count);
+            Expr* index = clone_inline_scalar_expression(
+                expression->index_expr, bindings, binding_count);
+            if (!base || !index) return NULL;
+            clone = expr_index(base, index, expression->loc);
+            clone->type = expression->type;
+            return clone;
+        }
         case EXPR_CAST:
             clone = expr_cast(
                 expression->cast_type,
@@ -467,6 +486,8 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
             clone = expr_unary(
                 expression->kind,
                 clone_inline_pure_scalar_expression(
@@ -474,6 +495,16 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
             if (!clone->unary_operand) return NULL;
             clone->type = expression->type;
             return clone;
+        case EXPR_INDEX: {
+            Expr* base = clone_inline_pure_scalar_expression(
+                expression->index_base);
+            Expr* index = clone_inline_pure_scalar_expression(
+                expression->index_expr);
+            if (!base || !index) return NULL;
+            clone = expr_index(base, index, expression->loc);
+            clone->type = expression->type;
+            return clone;
+        }
         case EXPR_CAST:
             clone = expr_cast(
                 expression->cast_type,
@@ -540,10 +571,20 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
             left = inline_pure_scalar_expression_cost(
                 expression->unary_operand);
             return left == (size_t)-1 || left == (size_t)-1 - 1u
                        ? (size_t)-1 : left + 1u;
+        case EXPR_INDEX:
+            left = inline_pure_scalar_expression_cost(
+                expression->index_base);
+            right = inline_pure_scalar_expression_cost(
+                expression->index_expr);
+            if (left == (size_t)-1 || right == (size_t)-1 ||
+                left > (size_t)-1 - right - 1u) return (size_t)-1;
+            return left + right + 1u;
         case EXPR_CAST:
             left = inline_pure_scalar_expression_cost(
                 expression->cast_expr);

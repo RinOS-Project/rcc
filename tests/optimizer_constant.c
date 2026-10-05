@@ -174,6 +174,26 @@ int inlined_pointer_offset_call(int* value)
     return *inline_pointer_offset(value);
 }
 
+static int inline_pointer_read(int* value)
+{
+    return *value;
+}
+
+int inlined_pointer_read_call(int* value)
+{
+    return inline_pointer_read(value);
+}
+
+static int inline_pointer_index(int* value)
+{
+    return value[1];
+}
+
+int inlined_pointer_index_call(int* value)
+{
+    return inline_pointer_index(value);
+}
+
 static double inline_constant_double(void)
 {
     return 2.5;

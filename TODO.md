@@ -325,6 +325,8 @@
         上限を迂回しない展開コスト計算と、上限超過時のcall保持を回帰検証
   - [x] 純粋scalar inlineをポインタ戻り値・ポインタ引数・ポインタ加算へ拡張し、
         引数の副作用を複製せず、i686/x86_64のcall除去と実行結果を回帰検証
+  - [x] 同じ純粋scalar境界でポインタ間接参照と固定添字アクセスを扱い、
+        `*p`／`p[i]`アクセサのcall除去・実行結果を両アーキテクチャで検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／
         `goto`／labelを含まないことを確認してblockへbounded unrollし、両archの
         code-sizeと実行結果を回帰検証
