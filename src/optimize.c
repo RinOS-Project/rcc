@@ -111,6 +111,23 @@ static bool simplify_integer_identity(Expr** expression) {
     mask = integer_mask(value->type);
     if (integer_literal(right, &right_value)) {
         uint64_t right_bits = integer_unsigned_value(right_value, value->type);
+        if (!value->type->is_unsigned && right_bits == mask) {
+            if (value->kind == EXPR_DIV) {
+                Expr* replacement =
+                    expr_unary(EXPR_NEG, left, value->loc);
+                replacement->type = value->type;
+                *expression = replacement;
+                return true;
+            }
+            if (value->kind == EXPR_MOD) {
+                if (expression_has_side_effect(left)) {
+                    replace_integer_with_side_effect(expression, left);
+                } else {
+                    replace_integer(value, 0);
+                }
+                return true;
+            }
+        }
         if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB ||
              value->kind == EXPR_BITOR || value->kind == EXPR_BITXOR ||
              value->kind == EXPR_LSHIFT || value->kind == EXPR_RSHIFT) &&
