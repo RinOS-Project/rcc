@@ -63,6 +63,10 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "loop_compound_increment"));
     assert(function_extent(optimized, "loop_assignment_increment") <
            function_extent(unoptimized, "loop_assignment_increment"));
+    assert(function_extent(optimized, "loop_assignment_initializer_one") <
+           function_extent(unoptimized, "loop_assignment_initializer_one"));
+    assert(function_extent(optimized, "loop_assignment_initializer_two") <
+           function_extent(unoptimized, "loop_assignment_initializer_two"));
     assert(function_extent(optimized, "loop_volatile_increment") ==
            function_extent(unoptimized, "loop_volatile_increment"));
     assert(function_extent(optimized, "loop_descending_two") <
@@ -84,6 +88,8 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "loop_constant_zero_le"));
     assert(function_extent(optimized, "loop_constant_zero_unsigned") <
            function_extent(unoptimized, "loop_constant_zero_unsigned"));
+    assert(function_extent(optimized, "loop_assignment_initializer_zero") <
+           function_extent(unoptimized, "loop_assignment_initializer_zero"));
     assert(function_extent(optimized, "do_constant_zero") <
            function_extent(unoptimized, "do_constant_zero"));
 
@@ -111,6 +117,10 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_compound_increment");
         ObjSymbol* assignment_symbol = objfile_find_symbol(
             optimized, "loop_assignment_increment");
+        ObjSymbol* assignment_init_one_symbol = objfile_find_symbol(
+            optimized, "loop_assignment_initializer_one");
+        ObjSymbol* assignment_init_two_symbol = objfile_find_symbol(
+            optimized, "loop_assignment_initializer_two");
         ObjSymbol* volatile_symbol = objfile_find_symbol(
             optimized, "loop_volatile_increment");
         ObjSymbol* descending_two_symbol = objfile_find_symbol(
@@ -131,6 +141,8 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_constant_zero_le");
         ObjSymbol* zero_unsigned_symbol = objfile_find_symbol(
             optimized, "loop_constant_zero_unsigned");
+        ObjSymbol* assignment_init_zero_symbol = objfile_find_symbol(
+            optimized, "loop_assignment_initializer_zero");
         ObjSymbol* do_zero_symbol = objfile_find_symbol(
             optimized, "do_constant_zero");
         ObjSymbol* do_zero_continue_symbol = objfile_find_symbol(
@@ -146,6 +158,8 @@ static void verify_pair(const char* unoptimized_path,
         int (*two_function)(void);
         int (*compound_function)(void);
         int (*assignment_function)(void);
+        int (*assignment_init_one_function)(void);
+        int (*assignment_init_two_function)(void);
         int (*volatile_function)(void);
         int (*descending_two_function)(void);
         int (*descending_assignment_two_function)(void);
@@ -156,6 +170,7 @@ static void verify_pair(const char* unoptimized_path,
         int (*zero_function)(void);
         int (*zero_le_function)(void);
         int (*zero_unsigned_function)(void);
+        int (*assignment_init_zero_function)(void);
         int (*do_zero_function)(void);
         int (*do_zero_continue_function)(void);
         void* address;
@@ -163,6 +178,8 @@ static void verify_pair(const char* unoptimized_path,
                mutate_symbol != NULL && one_symbol != NULL &&
                one_le_symbol != NULL && two_symbol != NULL &&
                compound_symbol != NULL && assignment_symbol != NULL &&
+               assignment_init_one_symbol != NULL &&
+               assignment_init_two_symbol != NULL &&
                volatile_symbol != NULL &&
                descending_two_symbol != NULL &&
                descending_assignment_two_symbol != NULL &&
@@ -171,6 +188,7 @@ static void verify_pair(const char* unoptimized_path,
                not_equal_descending_two_symbol != NULL &&
                three_le_symbol != NULL && zero_symbol != NULL &&
                zero_le_symbol != NULL && zero_unsigned_symbol != NULL &&
+               assignment_init_zero_symbol != NULL &&
                do_zero_symbol != NULL && do_zero_continue_symbol != NULL &&
                page_size > 0);
         mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
@@ -196,6 +214,12 @@ static void verify_pair(const char* unoptimized_path,
         memcpy(&compound_function, &address, sizeof(compound_function));
         address = mapping + assignment_symbol->value;
         memcpy(&assignment_function, &address, sizeof(assignment_function));
+        address = mapping + assignment_init_one_symbol->value;
+        memcpy(&assignment_init_one_function, &address,
+               sizeof(assignment_init_one_function));
+        address = mapping + assignment_init_two_symbol->value;
+        memcpy(&assignment_init_two_function, &address,
+               sizeof(assignment_init_two_function));
         address = mapping + volatile_symbol->value;
         memcpy(&volatile_function, &address, sizeof(volatile_function));
         address = mapping + descending_two_symbol->value;
@@ -221,6 +245,9 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + zero_unsigned_symbol->value;
         memcpy(&zero_unsigned_function, &address,
                sizeof(zero_unsigned_function));
+        address = mapping + assignment_init_zero_symbol->value;
+        memcpy(&assignment_init_zero_function, &address,
+               sizeof(assignment_init_zero_function));
         address = mapping + do_zero_symbol->value;
         memcpy(&do_zero_function, &address, sizeof(do_zero_function));
         address = mapping + do_zero_continue_symbol->value;
@@ -235,6 +262,8 @@ static void verify_pair(const char* unoptimized_path,
         assert(two_function() == 26);
         assert(compound_function() == 46);
         assert(assignment_function() == 58);
+        assert(assignment_init_one_function() == 31);
+        assert(assignment_init_two_function() == 74);
         assert(volatile_function() == 62);
         assert(descending_two_function() == 74);
         assert(descending_assignment_two_function() == 94);
@@ -245,6 +274,7 @@ static void verify_pair(const char* unoptimized_path,
         assert(zero_function() == 5);
         assert(zero_le_function() == 7);
         assert(zero_unsigned_function() == 11);
+        assert(assignment_init_zero_function() == 13);
         assert(do_zero_function() == 37);
         assert(do_zero_continue_function() == 41);
         munmap(mapping, mapping_size);

@@ -41,6 +41,8 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression);
 static bool statement_contains_loop_transfer(const Stmt* statement);
 static bool statement_contains_declaration(const Stmt* statement);
 static int unit_for_step(const Expr* increment, const Decl* induction);
+static bool for_initializer(const Stmt* initializer, Decl** induction,
+                            const Expr** initial_value);
 static bool for_condition_matches_step(const Expr* condition, int step);
 static bool constant_for_iteration_count(const Stmt* statement,
                                          unsigned* count);
@@ -1417,6 +1419,34 @@ static int unit_for_step(const Expr* increment, const Decl* induction) {
     return 0;
 }
 
+static bool for_initializer(const Stmt* initializer, Decl** induction,
+                            const Expr** initial_value) {
+    const Expr* expression;
+    const Expr* left;
+    const Expr* right;
+    int64_t literal_value;
+    if (!initializer || !induction || !initial_value) return false;
+    if (initializer->kind == STMT_DECL && initializer->decl &&
+        initializer->decl->kind == DECL_VAR &&
+        initializer->decl->var_init) {
+        *induction = initializer->decl;
+        *initial_value = initializer->decl->var_init;
+        return true;
+    }
+    if (initializer->kind != STMT_EXPR || !initializer->expr) return false;
+    expression = initializer->expr;
+    if (expression->kind != EXPR_ASSIGN) return false;
+    left = expression->binary_lhs;
+    right = expression->binary_rhs;
+    if (!left || left->kind != EXPR_IDENT || !left->ident_decl || !right ||
+        !integer_literal(right, &literal_value)) {
+        return false;
+    }
+    *induction = left->ident_decl;
+    *initial_value = right;
+    return true;
+}
+
 static bool for_condition_matches_step(const Expr* condition, int step) {
     if (!condition || step == 0) return false;
     if (condition->kind == EXPR_NE) return true;
@@ -1444,6 +1474,7 @@ static bool eliminate_zero_condition_do(Stmt* statement) {
 static bool eliminate_zero_iteration_for(Stmt* statement) {
     Stmt* initializer;
     Decl* induction;
+    const Expr* initial_expression;
     Expr* condition;
     Expr* increment;
     int64_t initial_value;
@@ -1452,21 +1483,20 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     bool zero_iterations;
     StmtList* only;
     if (!statement || statement->kind != STMT_FOR ||
-        !statement->for_init || statement->for_init->kind != STMT_DECL ||
-        !statement->for_init->decl ||
-        statement->for_init->decl->kind != DECL_VAR ||
-        !statement->for_init->decl->var_init || !statement->for_cond ||
+        !statement->for_init || !statement->for_cond ||
         !statement->for_inc || !statement->for_body) {
         return false;
     }
     initializer = statement->for_init;
-    induction = initializer->decl;
+    if (!for_initializer(initializer, &induction, &initial_expression)) {
+        return false;
+    }
     condition = statement->for_cond;
     increment = statement->for_inc;
     step = unit_for_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
-        !integer_literal(induction->var_init, &initial_value) ||
+        !integer_literal(initial_expression, &initial_value) ||
         !for_condition_matches_step(condition, step) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
@@ -1512,7 +1542,9 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
 static bool constant_for_iteration_count(const Stmt* statement,
                                          unsigned* count) {
     const Stmt* initializer;
+    Decl* induction_decl;
     const Decl* induction;
+    const Expr* initial_expression;
     const Expr* condition;
     const Expr* increment;
     int64_t initial_value;
@@ -1520,10 +1552,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
     int step;
     unsigned iterations;
     if (!statement || !count || statement->kind != STMT_FOR ||
-        !statement->for_init || statement->for_init->kind != STMT_DECL ||
-        !statement->for_init->decl ||
-        statement->for_init->decl->kind != DECL_VAR ||
-        !statement->for_init->decl->var_init || !statement->for_cond ||
+        !statement->for_init || !statement->for_cond ||
         !statement->for_inc || !statement->for_body ||
         rcc_parser_is_cxx_mode() ||
         statement_contains_loop_transfer(statement->for_body) ||
@@ -1532,13 +1561,17 @@ static bool constant_for_iteration_count(const Stmt* statement,
         return false;
     }
     initializer = statement->for_init;
-    induction = initializer->decl;
+    if (!for_initializer(initializer, &induction_decl,
+                         &initial_expression)) {
+        return false;
+    }
+    induction = induction_decl;
     condition = statement->for_cond;
     increment = statement->for_inc;
     step = unit_for_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
-        !integer_literal(induction->var_init, &initial_value) ||
+        !integer_literal(initial_expression, &initial_value) ||
         !for_condition_matches_step(condition, step) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
@@ -1857,6 +1890,7 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
 static bool unroll_single_iteration_for(Stmt* statement) {
     Stmt* initializer;
     Decl* induction;
+    const Expr* initial_expression;
     Expr* condition;
     Expr* increment;
     int64_t initial_value;
@@ -1865,21 +1899,20 @@ static bool unroll_single_iteration_for(Stmt* statement) {
     StmtList* first;
     StmtList** tail;
     if (!statement || statement->kind != STMT_FOR ||
-        !statement->for_init || statement->for_init->kind != STMT_DECL ||
-        !statement->for_init->decl ||
-        statement->for_init->decl->kind != DECL_VAR ||
-        !statement->for_init->decl->var_init || !statement->for_cond ||
+        !statement->for_init || !statement->for_cond ||
         !statement->for_inc || !statement->for_body) {
         return false;
     }
     initializer = statement->for_init;
-    induction = initializer->decl;
+    if (!for_initializer(initializer, &induction, &initial_expression)) {
+        return false;
+    }
     condition = statement->for_cond;
     increment = statement->for_inc;
     step = unit_for_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
-        !type_is_integer(induction->type) || !induction->var_init ||
-        !integer_literal(induction->var_init, &initial_value) ||
+        !type_is_integer(induction->type) ||
+        !integer_literal(initial_expression, &initial_value) ||
         !for_condition_matches_step(condition, step) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||

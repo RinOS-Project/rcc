@@ -70,6 +70,26 @@ int loop_assignment_increment(void)
     return result;
 }
 
+int loop_assignment_initializer_one(void)
+{
+    int index;
+    int result = 0;
+    for (index = 3; index <= 3; ++index) {
+        result += 31;
+    }
+    return result;
+}
+
+int loop_assignment_initializer_two(void)
+{
+    int index;
+    int result = 0;
+    for (index = 0; index < 2; ++index) {
+        result += 37;
+    }
+    return result;
+}
+
 int loop_volatile_increment(void)
 {
     volatile int index = 0;
@@ -157,6 +177,16 @@ int loop_constant_zero_unsigned(void)
     int result = 11;
     for (unsigned index = 3u; index < 2u; ++index) {
         result += 31;
+    }
+    return result;
+}
+
+int loop_assignment_initializer_zero(void)
+{
+    int index;
+    int result = 13;
+    for (index = 3; index < 3; ++index) {
+        result += 41;
     }
     return result;
 }

@@ -339,6 +339,9 @@
         code-sizeと実行回帰を追加
   - [x] 定数境界の`i != bound`をunit-step inductionのzero-trip／2〜4-trip
         proofへ接続し、正方向・逆方向の両arch code-size／実行回帰を追加
+  - [x] 既存の整数変数を`for (i = literal; ...)`で初期化するC17形式を、
+        宣言初期化と同じzero-trip／1-trip／2〜4-trip proofへ接続し、両archの
+        code-sizeと実行結果を回帰検証
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
