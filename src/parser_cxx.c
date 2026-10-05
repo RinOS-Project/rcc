@@ -1086,6 +1086,7 @@ static bool check_next(TokenType type) {
 
 static bool pending_cxx_nodiscard;
 static bool pending_cxx_deprecated;
+static bool pending_cxx_no_unique_address;
 static bool pending_cxx_weak;
 static const char* pending_cxx_deprecated_message;
 
@@ -1101,6 +1102,7 @@ static void skip_cxx_attributes(void) {
         bool group_fallthrough = false;
         bool group_likely = false;
         bool group_unlikely = false;
+        bool group_no_unique_address = false;
         bool group_weak = false;
         bool group_weak_arguments = false;
         const char* group_deprecated_message = NULL;
@@ -1139,6 +1141,9 @@ static void skip_cxx_attributes(void) {
                     } else if (strcmp(peek()->value.str_val,
                                       "unlikely") == 0) {
                         group_unlikely = true;
+                    } else if (strcmp(peek()->value.str_val,
+                                      "no_unique_address") == 0) {
+                        group_no_unique_address = true;
                     } else if (strcmp(peek()->value.str_val, "gnu") == 0 &&
                                parser.cur->next &&
                                parser.cur->next->type == TOK_SCOPE &&
@@ -1176,6 +1181,10 @@ static void skip_cxx_attributes(void) {
             rcc_error(loc,
                       "[[likely]] and [[unlikely]] require C++20 or newer");
         }
+        if (group_no_unique_address &&
+            !rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(loc, "[[no_unique_address]] requires C++20 or newer");
+        }
         if (group_weak_arguments) {
             rcc_error(loc, "[[gnu::weak]] does not accept arguments");
         }
@@ -1187,6 +1196,7 @@ static void skip_cxx_attributes(void) {
                 pending_cxx_deprecated_message = group_deprecated_message;
             }
         }
+        if (group_no_unique_address) pending_cxx_no_unique_address = true;
     }
 }
 
@@ -1210,6 +1220,12 @@ static bool take_cxx_deprecated(const char** message) {
     return result;
 }
 
+static bool take_cxx_no_unique_address(void) {
+    bool result = pending_cxx_no_unique_address;
+    pending_cxx_no_unique_address = false;
+    return result;
+}
+
 /* Statement attributes are consumed by the shared C statement parser.  They
  * intentionally do not retain declaration metadata: this frontend has no
  * unused-variable or branch-probability diagnostics, but accepting these
@@ -1217,6 +1233,7 @@ static bool take_cxx_deprecated(const char** message) {
 void rcc_parser_cxx_skip_statement_attributes(void) {
     bool saved_nodiscard = pending_cxx_nodiscard;
     bool saved_deprecated = pending_cxx_deprecated;
+    bool saved_no_unique_address = pending_cxx_no_unique_address;
     bool saved_weak = pending_cxx_weak;
     const char* saved_deprecated_message = pending_cxx_deprecated_message;
 
@@ -1226,6 +1243,7 @@ void rcc_parser_cxx_skip_statement_attributes(void) {
      * attributes that appeared directly before a statement. */
     pending_cxx_nodiscard = saved_nodiscard;
     pending_cxx_deprecated = saved_deprecated;
+    pending_cxx_no_unique_address = saved_no_unique_address;
     pending_cxx_weak = saved_weak;
     pending_cxx_deprecated_message = saved_deprecated_message;
 }
@@ -4574,11 +4592,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     bool is_weak = take_cxx_weak();
     const char* deprecated_message = NULL;
     bool is_deprecated = take_cxx_deprecated(&deprecated_message);
+    bool is_no_unique_address = take_cxx_no_unique_address();
 
     if (is_weak) {
         rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
     }
-
     bool is_virtual = false;
     bool is_static = false;
     bool is_inline = false;
@@ -4607,6 +4625,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         else if (match(TOK_FRIEND)) is_friend = true;
         else if (match(TOK_MUTABLE)) { }
         else break;
+    }
+
+    if (is_no_unique_address && (is_static || is_friend)) {
+        rcc_error(loc,
+                  "[[no_unique_address]] requires a non-static class data member");
     }
 
     if (is_friend && (check(TOK_CLASS) || check(TOK_STRUCT))) {
@@ -4808,6 +4831,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_destructor = is_destructor;
         method->decl->func_is_cxx_constructor = is_constructor;
         method->decl->func_is_cxx_destructor = is_destructor;
+        if (is_no_unique_address) {
+            rcc_error(loc,
+                      "[[no_unique_address]] requires a data member, not a method");
+        }
         /* A function defined inside a class definition is implicitly inline
          * in C++, even without the `inline` keyword.  Preserve that linkage
          * property so identical in-class definitions from separate
@@ -4915,6 +4942,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             }
         }
 
+        if (is_no_unique_address && is_bitfield) {
+            rcc_error(loc,
+                      "[[no_unique_address]] cannot be applied to a bit-field");
+        }
+
         /* Initializer? */
         Expr* init = NULL;
         if (match(TOK_ASSIGN)) {
@@ -4941,7 +4973,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Add field to class */
         cxx_class_add_field_initializer(cls, name, type, current_access, init,
                                          is_bitfield, bit_width, is_static,
-                                         is_deprecated, deprecated_message);
+                                         is_deprecated, deprecated_message,
+                                         is_no_unique_address);
         if (is_static && name) {
             Decl* declaration = decl_var(name, type, init, loc);
             declaration->var_is_thread_local = is_thread_local;
@@ -5189,7 +5222,15 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
         (void)take_cxx_nodiscard();
         (void)take_cxx_weak();
         (void)take_cxx_deprecated(NULL);
+        if (take_cxx_no_unique_address()) {
+            rcc_error((SourceLoc){"<declaration>", 0, 0},
+                      "[[no_unique_address]] requires a class data member");
+        }
         return;
+    }
+    if (take_cxx_no_unique_address()) {
+        rcc_error(declaration->loc,
+                  "[[no_unique_address]] requires a class data member");
     }
     if (declaration->kind == DECL_FUNC && take_cxx_nodiscard()) {
         declaration->func_is_nodiscard = true;
@@ -5482,6 +5523,10 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
                 rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
             }
             (void)take_cxx_deprecated(NULL);
+            if (take_cxx_no_unique_address()) {
+                rcc_error(loc,
+                          "[[no_unique_address]] requires a class data member");
+            }
             cxx_namespace_add_class(ns, cls);
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template();
@@ -6247,6 +6292,11 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     bool is_weak = take_cxx_weak();
     const char* deprecated_message = NULL;
     bool is_deprecated = take_cxx_deprecated(&deprecated_message);
+    bool is_no_unique_address = take_cxx_no_unique_address();
+    if (is_no_unique_address) {
+        rcc_error(peek()->loc,
+                  "[[no_unique_address]] requires a data member, not a function");
+    }
     loc = peek()->loc;
     for (;;) {
         if (match(TOK_CONSTEXPR)) *is_constexpr = true;
@@ -8178,7 +8228,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                 tmpl, field->initializer, arguments, argument_count,
                 value_args, value_present),
             field->is_bitfield, field->bit_width, field->is_static,
-            field->is_deprecated, field->deprecated_message);
+            field->is_deprecated, field->deprecated_message,
+            field->cxx_no_unique_address);
     }
     register_instantiated_class_static_fields(instance, definition);
     for (struct CxxMember* member = definition->members; member;
@@ -12770,9 +12821,15 @@ static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage) {
     bool nodiscard = take_cxx_nodiscard();
     bool weak = take_cxx_weak();
+    bool no_unique_address = take_cxx_no_unique_address();
     const char* deprecated_message = NULL;
     bool deprecated = take_cxx_deprecated(&deprecated_message);
     if (!deprecated) deprecated_message = NULL;
+    if (no_unique_address) {
+        rcc_error(statement && statement->loc.filename ? statement->loc
+                                                   : (SourceLoc){"<declaration>", 0, 0},
+                  "[[no_unique_address]] requires a class data member");
+    }
 
     if (statement && statement->kind == STMT_BLOCK &&
         statement->block_no_scope) {
@@ -12905,6 +12962,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     parser.prev = NULL;
     pending_cxx_nodiscard = false;
     pending_cxx_deprecated = false;
+    pending_cxx_no_unique_address = false;
     pending_cxx_weak = false;
     pending_cxx_deprecated_message = NULL;
     cxx_standard_feature_tokens_valid(tokens->head);
@@ -12942,6 +13000,10 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
             }
             (void)take_cxx_deprecated(NULL);
+            if (take_cxx_no_unique_address()) {
+                rcc_error(loc,
+                          "[[no_unique_address]] requires a class data member");
+            }
             /* Class is stored in global namespace */
             if (g_global_namespace) {
                 cxx_namespace_add_class(g_global_namespace, cls);

@@ -453,7 +453,8 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Expr* initializer, bool is_bitfield,
                                      unsigned bit_width, bool is_static,
                                      bool is_deprecated,
-                                     const char* deprecated_message);
+                                     const char* deprecated_message,
+                                     bool no_unique_address);
 
 /* Add method to class */
 void cxx_class_add_method(CxxClass* cls, CxxMethod* method);

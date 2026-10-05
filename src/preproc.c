@@ -525,6 +525,10 @@ static long pp_cpp_attribute_value(const Preprocessor* pp,
          strcmp(attribute, "unlikely") == 0) && pp->cxx_standard >= 20) {
         return 201803L;
     }
+    if (strcmp(attribute, "no_unique_address") == 0 &&
+        pp->cxx_standard >= 20) {
+        return 201803L;
+    }
     return 0;
 }
 

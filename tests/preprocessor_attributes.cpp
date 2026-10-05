@@ -26,6 +26,10 @@
 #error "RCC++ must report its unlikely support"
 #endif
 
+#if __has_cpp_attribute(no_unique_address) != 201803L
+#error "RCC++ must report its no_unique_address support"
+#endif
+
 [[nodiscard]] int preprocessor_attribute_probe(int value) {
     return value;
 }

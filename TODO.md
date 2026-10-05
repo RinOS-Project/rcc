@@ -240,6 +240,11 @@
   - [x] Implement the validated C++ empty-base optimization for a leading,
         non-polymorphic direct empty base, preserve the standard same-type
         base/member non-overlap rule, and cover i686/AMD64 object generation.
+  - [x] Implement bounded C++20 `[[no_unique_address]]` layout for empty,
+        trivial non-static data members, retain ordinary storage for unsupported
+        member types, preserve same-type base/member non-overlap, propagate the
+        attribute through class templates, and diagnose pre-C++20 or invalid
+        placements on i686/AMD64.
   - [x] `typeid(T)`と非多相式の静的typeinfo identityをi686/AMD64で生成し、
         同一型のidentity共有・異なる型の分離を実行回帰。
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ

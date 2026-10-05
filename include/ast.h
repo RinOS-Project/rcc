@@ -62,6 +62,8 @@ typedef struct TypeField {
     Expr* initializer;
     bool is_deprecated;          /* C++ deprecated data member. */
     const char* deprecated_message;
+    /* C++20 [[no_unique_address]] on a non-static data member. */
+    bool cxx_no_unique_address;
     /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
      * C AST does not depend on the C++ extension header. */
     unsigned char cxx_access;
@@ -78,6 +80,8 @@ typedef struct TypeParam {
     Expr* initializer;
     bool is_deprecated;          /* C++ deprecated data member. */
     const char* deprecated_message;
+    /* C++20 [[no_unique_address]] on a class field. */
+    bool cxx_no_unique_address;
     unsigned char cxx_access;
     struct TypeParam* next;
 } TypeParam;

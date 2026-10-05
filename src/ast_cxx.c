@@ -932,6 +932,35 @@ static bool cxx_has_same_type_member(const CxxClass* cls,
     return false;
 }
 
+/* Keep the first no_unique_address implementation deliberately narrow.  An
+ * empty, trivial class has no storage that construction or destruction could
+ * observe, so its data member can share the current offset. */
+static bool cxx_can_use_no_unique_address_type(const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    return type && cls && type->size == 1 && cls->base_count == 0 &&
+           cls->vtable_size == 0 && cls->virtual_base_count == 0 &&
+           cls->virtual_base_pointer_offset < 0 &&
+           type->fields == NULL && !cls->has_user_constructor &&
+           !cls->has_field_initializer && !cls->destructor_method;
+}
+
+static bool cxx_has_same_type_subobject(const CxxClass* cls,
+                                        const Type* type,
+                                        const TypeParam* excluded) {
+    const CxxClass* target = type ? type->cxx_class : NULL;
+    if (!cls || !target) return false;
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (field != excluded && !field->is_static && field->type &&
+            field->type->cxx_class == target) {
+            return true;
+        }
+    }
+    for (int i = 0; i < cls->base_count; ++i) {
+        if (cls->bases[i].base == target) return true;
+    }
+    return false;
+}
+
 void cxx_class_compute_layout(CxxClass* cls) {
     int offset = 0;
     int max_align = 1;
@@ -1046,6 +1075,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         int align;
         int size;
         TypeField* field;
+        bool use_no_unique_address;
 
         /* Static data members have storage independent of every object and
          * are materialized as translation-unit declarations. */
@@ -1090,6 +1120,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 field->initializer = f->initializer;
                 field->is_deprecated = f->is_deprecated;
                 field->deprecated_message = f->deprecated_message;
+                field->cxx_no_unique_address = false;
                 field->cxx_access = f->cxx_access;
                 field->next = NULL;
                 *field_tail = field;
@@ -1100,6 +1131,10 @@ void cxx_class_compute_layout(CxxClass* cls) {
             continue;
         }
         bitfield_active = false;
+        use_no_unique_address =
+            f->cxx_no_unique_address && !f->initializer &&
+            cxx_can_use_no_unique_address_type(type) &&
+            !cxx_has_same_type_subobject(cls, type, f);
 
         /* Align */
         offset = (offset + align - 1) & ~(align - 1);
@@ -1114,11 +1149,12 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->initializer = f->initializer;
         field->is_deprecated = f->is_deprecated;
         field->deprecated_message = f->deprecated_message;
+        field->cxx_no_unique_address = use_no_unique_address;
         field->cxx_access = f->cxx_access;
         field->next = NULL;
         *field_tail = field;
         field_tail = &field->next;
-        offset += size;
+        if (!use_no_unique_address) offset += size;
 
         if (align > max_align) max_align = align;
     }
@@ -1151,6 +1187,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->initializer = base_field->initializer;
             field->is_deprecated = base_field->is_deprecated;
             field->deprecated_message = base_field->deprecated_message;
+            field->cxx_no_unique_address = base_field->cxx_no_unique_address;
             field->cxx_access = access;
             field->next = NULL;
             *field_tail = field;
@@ -1229,6 +1266,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->initializer = base_field->initializer;
             field->is_deprecated = base_field->is_deprecated;
             field->deprecated_message = base_field->deprecated_message;
+            field->cxx_no_unique_address = base_field->cxx_no_unique_address;
             field->cxx_access = access;
             field->next = NULL;
             *field_tail = field;
@@ -3734,7 +3772,8 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Expr* initializer, bool is_bitfield,
                                      unsigned bit_width, bool is_static,
                                      bool is_deprecated,
-                                     const char* deprecated_message) {
+                                     const char* deprecated_message,
+                                     bool no_unique_address) {
     /* Create field as TypeParam (reusing existing structure) */
     TypeParam* field = rcc_alloc(sizeof(TypeParam));
     field->name = name ? rcc_strdup(name) : NULL;
@@ -3745,6 +3784,7 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
     field->initializer = initializer;
     field->is_deprecated = is_deprecated;
     field->deprecated_message = deprecated_message;
+    field->cxx_no_unique_address = no_unique_address;
     field->cxx_access = (unsigned char)access;
     field->next = NULL;
 
@@ -3761,7 +3801,7 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
 void cxx_class_add_field(CxxClass* cls, const char* name, Type* type,
                          AccessSpec access) {
     cxx_class_add_field_initializer(
-        cls, name, type, access, NULL, false, 0u, false, false, NULL);
+        cls, name, type, access, NULL, false, 0u, false, false, NULL, false);
 }
 
 /* Add method to class */
@@ -3809,6 +3849,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
         tp->initializer = NULL;
         tp->is_deprecated = false;
         tp->deprecated_message = NULL;
+        tp->cxx_no_unique_address = false;
         tp->cxx_access = ACCESS_PUBLIC;
         tp->next = NULL;
         *parameter_tail = tp;
