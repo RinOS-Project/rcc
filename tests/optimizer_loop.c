@@ -165,6 +165,24 @@ int loop_stride_for_assignment_two(void)
     return result;
 }
 
+int loop_stride_for_descending_two(void)
+{
+    int result = 0;
+    for (int index = 6; index > 2; index -= 2) {
+        result += 41;
+    }
+    return result;
+}
+
+int loop_stride_for_unsigned_two(void)
+{
+    int result = 0;
+    for (unsigned index = 4u; index != 0u; index -= 2u) {
+        result += 43;
+    }
+    return result;
+}
+
 int loop_assignment_initializer_one(void)
 {
     int index;
