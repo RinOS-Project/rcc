@@ -125,6 +125,14 @@ static void verify_smaller(const char* unoptimized_path,
                                   "inlined_three_argument_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_three_argument_call", 0xe8u));
+    assert(function_contains_byte(unoptimized,
+                                  "inlined_constant_double_call", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_constant_double_call", 0xe8u));
+    assert(function_contains_byte(unoptimized, "inlined_double_call", 0xe8u));
+    assert(!function_contains_byte(optimized, "inlined_double_call", 0xe8u));
+    assert(function_contains_byte(unoptimized, "inlined_float_call", 0xe8u));
+    assert(!function_contains_byte(optimized, "inlined_float_call", 0xe8u));
     assert(function_extent(optimized, "algebraic_integer_identities") <
            function_extent(unoptimized, "algebraic_integer_identities"));
     assert(function_extent(optimized, "algebraic_integer_zero") <
@@ -333,6 +341,9 @@ int main(int argc, char** argv)
         int (*inlined_two_argument_call)(int, int);
         uint32_t (*inlined_three_argument_call)(uint32_t, uint32_t,
                                                 uint32_t);
+        double (*inlined_constant_double_call)(void);
+        double (*inlined_double_call)(double);
+        float (*inlined_float_call)(float, float);
         int (*preserved_algebraic_side_effect)(int*);
         int (*removed_after_return)(int*);
         int (*removed_after_goto)(int*);
@@ -464,6 +475,25 @@ int main(int argc, char** argv)
             memcpy(&inlined_three_argument_call, &address,
                    sizeof(inlined_three_argument_call));
         }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_constant_double_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_constant_double_call, &address,
+                   sizeof(inlined_constant_double_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(object, "inlined_double_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_double_call, &address,
+                   sizeof(inlined_double_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(object, "inlined_float_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_float_call, &address,
+                   sizeof(inlined_float_call));
+        }
         address = mapping + preserved_algebraic_side_effect_symbol->value;
         memcpy(&preserved_algebraic_side_effect, &address,
                sizeof(preserved_algebraic_side_effect));
@@ -589,6 +619,9 @@ int main(int argc, char** argv)
         assert(inlined_three_argument_call(UINT32_C(0x55),
                                            UINT32_C(0x0f),
                                            UINT32_C(3)) == UINT32_C(93));
+        assert(inlined_constant_double_call() == 2.5);
+        assert(inlined_double_call(2.5) == 4.0);
+        assert(inlined_float_call(1.25f, 2.5f) == 6.25f);
         value = 10;
         assert(preserved_algebraic_side_effect(&value) == 0);
         assert(value == 11);

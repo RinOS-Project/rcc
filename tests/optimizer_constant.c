@@ -154,6 +154,36 @@ unsigned int inlined_three_argument_call(unsigned int left,
     return inline_mix_three(left, middle, right);
 }
 
+static double inline_constant_double(void)
+{
+    return 2.5;
+}
+
+double inlined_constant_double_call(void)
+{
+    return inline_constant_double();
+}
+
+static double inline_scale_double(double value)
+{
+    return value * 1.5 + 0.25;
+}
+
+double inlined_double_call(double value)
+{
+    return inline_scale_double(value);
+}
+
+static float inline_mix_float(float left, float right)
+{
+    return left + right * 2.0f;
+}
+
+float inlined_float_call(float left, float right)
+{
+    return inline_mix_float(left, right);
+}
+
 int algebraic_integer_identities(int value)
 {
     return (((value + 0) * 1) - 0) / 1;

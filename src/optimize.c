@@ -13,7 +13,7 @@ static void propagate_block_constants(Stmt* statement);
 static void eliminate_block_dead_stores(Stmt* statement);
 
 /* A bounded fixed point is used only to resolve declaration-order
- * dependencies between the conservative pure-integer inline candidates.
+ * dependencies between the conservative pure-scalar inline candidates.
  * Recursive, aggregate, exception, and whole-program cost-based inline forms
  * remain outside this pass; local expression expansion has an explicit node
  * budget below. */
@@ -35,8 +35,8 @@ static uint64_t integer_unsigned_value(int64_t value, const Type* type);
 static int64_t integer_signed_value(int64_t value, const Type* type);
 static bool signed_type_limits(const Type* type, int64_t* minimum,
                                int64_t* maximum);
-static Expr* clone_inline_pure_integer_expression(const Expr* expression);
-static size_t inline_pure_integer_expression_cost(const Expr* expression);
+static Expr* clone_inline_pure_scalar_expression(const Expr* expression);
+static size_t inline_pure_scalar_expression_cost(const Expr* expression);
 
 static bool statement_contains_loop_transfer(const Stmt* statement);
 static bool statement_contains_declaration(const Stmt* statement);
@@ -50,7 +50,7 @@ static StmtList** append_unrolled_stmt(StmtList** tail, Stmt* statement);
 static bool unroll_constant_for(Stmt* statement, unsigned count);
 static bool unroll_single_iteration_for(Stmt* statement);
 
-enum { INLINE_PURE_INTEGER_EXPANSION_LIMIT = 64 };
+enum { INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64 };
 
 static void replace_integer_with_side_effect(Expr** expression,
                                               Expr* side_effect) {
@@ -232,18 +232,6 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     return true;
 }
 
-static bool single_integer_return(const Stmt* statement, int64_t* value) {
-    const StmtList* item;
-    if (!statement || !value) return false;
-    if (statement->kind == STMT_RETURN) {
-        return integer_literal(statement->return_val, value);
-    }
-    if (statement->kind != STMT_BLOCK) return false;
-    item = statement->block_stmts;
-    if (!item || !item->stmt || item->next) return false;
-    return single_integer_return(item->stmt, value);
-}
-
 static const Expr* single_return_expression(const Stmt* statement) {
     const StmtList* item;
     if (!statement) return NULL;
@@ -254,14 +242,14 @@ static const Expr* single_return_expression(const Stmt* statement) {
     return single_return_expression(item->stmt);
 }
 
-typedef struct InlineIntegerBinding {
+typedef struct InlineScalarBinding {
     const Decl* parameter;
     Expr* argument;
     size_t uses;
-} InlineIntegerBinding;
+} InlineScalarBinding;
 
-static size_t inline_integer_binding_index(
-    const Decl* declaration, const InlineIntegerBinding* bindings,
+static size_t inline_scalar_binding_index(
+    const Decl* declaration, const InlineScalarBinding* bindings,
     size_t binding_count) {
     size_t index;
     if (!declaration || !bindings) return binding_count;
@@ -271,16 +259,17 @@ static size_t inline_integer_binding_index(
     return binding_count;
 }
 
-static bool inline_integer_expression_shape(
-    const Expr* expression, InlineIntegerBinding* bindings,
+static bool inline_scalar_expression_shape(
+    const Expr* expression, InlineScalarBinding* bindings,
     size_t binding_count) {
     size_t binding_index;
     if (!expression || !bindings || binding_count == 0u) return false;
     switch (expression->kind) {
         case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
             return true;
         case EXPR_IDENT:
-            binding_index = inline_integer_binding_index(
+            binding_index = inline_scalar_binding_index(
                 expression->ident_decl, bindings, binding_count);
             if (binding_index >= binding_count) return false;
             ++bindings[binding_index].uses;
@@ -288,10 +277,10 @@ static bool inline_integer_expression_shape(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
-            return inline_integer_expression_shape(expression->unary_operand,
+            return inline_scalar_expression_shape(expression->unary_operand,
                                                    bindings, binding_count);
         case EXPR_CAST:
-            return inline_integer_expression_shape(expression->cast_expr,
+            return inline_scalar_expression_shape(expression->cast_expr,
                                                    bindings, binding_count);
         case EXPR_ADD:
         case EXPR_SUB:
@@ -311,47 +300,49 @@ static bool inline_integer_expression_shape(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
-            return inline_integer_expression_shape(expression->binary_lhs,
+            return inline_scalar_expression_shape(expression->binary_lhs,
                                                    bindings, binding_count) &&
-                   inline_integer_expression_shape(expression->binary_rhs,
+                   inline_scalar_expression_shape(expression->binary_rhs,
                                                    bindings, binding_count);
         case EXPR_COND:
-            return inline_integer_expression_shape(expression->cond_test,
+            return inline_scalar_expression_shape(expression->cond_test,
                                                    bindings, binding_count) &&
-                   inline_integer_expression_shape(expression->cond_then,
+                   inline_scalar_expression_shape(expression->cond_then,
                                                    bindings, binding_count) &&
-                   inline_integer_expression_shape(expression->cond_else,
+                   inline_scalar_expression_shape(expression->cond_else,
                                                    bindings, binding_count);
         default:
             return false;
     }
 }
 
-static Expr* clone_inline_integer_expression(
-    const Expr* expression, const InlineIntegerBinding* bindings,
+static Expr* clone_inline_scalar_expression(
+    const Expr* expression, const InlineScalarBinding* bindings,
     size_t binding_count) {
     Expr* clone;
     size_t binding_index;
     if (!expression || !bindings) return NULL;
     if (expression->kind == EXPR_IDENT) {
-        binding_index = inline_integer_binding_index(
+        binding_index = inline_scalar_binding_index(
             expression->ident_decl, bindings, binding_count);
         if (binding_index >= binding_count) return NULL;
         if (bindings[binding_index].argument->kind == EXPR_IDENT ||
-            bindings[binding_index].argument->kind == EXPR_INT_LIT) {
+            bindings[binding_index].argument->kind == EXPR_INT_LIT ||
+            bindings[binding_index].argument->kind == EXPR_FLOAT_LIT) {
             return bindings[binding_index].argument;
         }
-        return clone_inline_pure_integer_expression(
+        return clone_inline_pure_scalar_expression(
             bindings[binding_index].argument);
     }
-    if (expression->kind == EXPR_INT_LIT) return (Expr*)expression;
+    if (expression->kind == EXPR_INT_LIT ||
+        expression->kind == EXPR_FLOAT_LIT) return (Expr*)expression;
     switch (expression->kind) {
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
             clone = expr_unary(
                 expression->kind,
-                clone_inline_integer_expression(expression->unary_operand,
+                clone_inline_scalar_expression(expression->unary_operand,
                                                 bindings, binding_count),
                 expression->loc);
             if (!clone->unary_operand) return NULL;
@@ -360,7 +351,7 @@ static Expr* clone_inline_integer_expression(
         case EXPR_CAST:
             clone = expr_cast(
                 expression->cast_type,
-                clone_inline_integer_expression(expression->cast_expr,
+                clone_inline_scalar_expression(expression->cast_expr,
                                                 bindings, binding_count),
                 expression->loc);
             if (!clone->cast_expr) return NULL;
@@ -385,9 +376,9 @@ static Expr* clone_inline_integer_expression(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR: {
-            Expr* left = clone_inline_integer_expression(
+            Expr* left = clone_inline_scalar_expression(
                 expression->binary_lhs, bindings, binding_count);
-            Expr* right = clone_inline_integer_expression(
+            Expr* right = clone_inline_scalar_expression(
                 expression->binary_rhs, bindings, binding_count);
             if (!left || !right) return NULL;
             clone = expr_binary(expression->kind, left, right,
@@ -397,11 +388,11 @@ static Expr* clone_inline_integer_expression(
         }
         case EXPR_COND:
             clone = expr_cond(
-                clone_inline_integer_expression(expression->cond_test,
+                clone_inline_scalar_expression(expression->cond_test,
                                                 bindings, binding_count),
-                clone_inline_integer_expression(expression->cond_then,
+                clone_inline_scalar_expression(expression->cond_then,
                                                 bindings, binding_count),
-                clone_inline_integer_expression(expression->cond_else,
+                clone_inline_scalar_expression(expression->cond_else,
                                                 bindings, binding_count),
                 expression->loc);
             if (!clone->cond_test || !clone->cond_then ||
@@ -415,13 +406,14 @@ static Expr* clone_inline_integer_expression(
 
 /* Repeatedly substituting a complex argument must not attach one AST node to
  * multiple parents.  Keep this clone deliberately narrower than the whole
- * expression language: only side-effect-free integer expression forms which
+ * expression language: only side-effect-free scalar expression forms which
  * the inline body already understands may be copied. */
-static Expr* clone_inline_pure_integer_expression(const Expr* expression) {
+static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
     Expr* clone;
     if (!expression) return NULL;
     switch (expression->kind) {
         case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
         case EXPR_IDENT:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
@@ -432,7 +424,7 @@ static Expr* clone_inline_pure_integer_expression(const Expr* expression) {
         case EXPR_BITNOT:
             clone = expr_unary(
                 expression->kind,
-                clone_inline_pure_integer_expression(
+                clone_inline_pure_scalar_expression(
                     expression->unary_operand), expression->loc);
             if (!clone->unary_operand) return NULL;
             clone->type = expression->type;
@@ -440,7 +432,7 @@ static Expr* clone_inline_pure_integer_expression(const Expr* expression) {
         case EXPR_CAST:
             clone = expr_cast(
                 expression->cast_type,
-                clone_inline_pure_integer_expression(expression->cast_expr),
+                clone_inline_pure_scalar_expression(expression->cast_expr),
                 expression->loc);
             if (!clone->cast_expr) return NULL;
             clone->type = expression->type;
@@ -466,18 +458,18 @@ static Expr* clone_inline_pure_integer_expression(const Expr* expression) {
         case EXPR_OR:
             clone = expr_binary(
                 expression->kind,
-                clone_inline_pure_integer_expression(
+                clone_inline_pure_scalar_expression(
                     expression->binary_lhs),
-                clone_inline_pure_integer_expression(
+                clone_inline_pure_scalar_expression(
                     expression->binary_rhs), expression->loc);
             if (!clone->binary_lhs || !clone->binary_rhs) return NULL;
             clone->type = expression->type;
             return clone;
         case EXPR_COND:
             clone = expr_cond(
-                clone_inline_pure_integer_expression(expression->cond_test),
-                clone_inline_pure_integer_expression(expression->cond_then),
-                clone_inline_pure_integer_expression(expression->cond_else),
+                clone_inline_pure_scalar_expression(expression->cond_test),
+                clone_inline_pure_scalar_expression(expression->cond_then),
+                clone_inline_pure_scalar_expression(expression->cond_else),
                 expression->loc);
             if (!clone->cond_test || !clone->cond_then ||
                 !clone->cond_else) return NULL;
@@ -488,12 +480,13 @@ static Expr* clone_inline_pure_integer_expression(const Expr* expression) {
     }
 }
 
-static size_t inline_pure_integer_expression_cost(const Expr* expression) {
+static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
     size_t left;
     size_t right;
     if (!expression) return 0u;
     switch (expression->kind) {
         case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
         case EXPR_IDENT:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
@@ -502,12 +495,12 @@ static size_t inline_pure_integer_expression_cost(const Expr* expression) {
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
-            left = inline_pure_integer_expression_cost(
+            left = inline_pure_scalar_expression_cost(
                 expression->unary_operand);
             return left == (size_t)-1 || left == (size_t)-1 - 1u
                        ? (size_t)-1 : left + 1u;
         case EXPR_CAST:
-            left = inline_pure_integer_expression_cost(
+            left = inline_pure_scalar_expression_cost(
                 expression->cast_expr);
             return left == (size_t)-1 || left == (size_t)-1 - 1u
                        ? (size_t)-1 : left + 1u;
@@ -529,22 +522,22 @@ static size_t inline_pure_integer_expression_cost(const Expr* expression) {
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
-            left = inline_pure_integer_expression_cost(
+            left = inline_pure_scalar_expression_cost(
                 expression->binary_lhs);
-            right = inline_pure_integer_expression_cost(
+            right = inline_pure_scalar_expression_cost(
                 expression->binary_rhs);
             if (left == (size_t)-1 || right == (size_t)-1 ||
                 left > (size_t)-1 - right - 1u) return (size_t)-1;
             return left + right + 1u;
         case EXPR_COND:
-            left = inline_pure_integer_expression_cost(
+            left = inline_pure_scalar_expression_cost(
                 expression->cond_test);
-            right = inline_pure_integer_expression_cost(
+            right = inline_pure_scalar_expression_cost(
                 expression->cond_then);
             if (left == (size_t)-1 || right == (size_t)-1 ||
                 left > (size_t)-1 - right - 1u) return (size_t)-1;
             left += right + 1u;
-            right = inline_pure_integer_expression_cost(
+            right = inline_pure_scalar_expression_cost(
                 expression->cond_else);
             if (right == (size_t)-1 || left > (size_t)-1 - right) {
                 return (size_t)-1;
@@ -576,17 +569,16 @@ static Decl* resolve_inline_function_definition(Decl* function) {
     return function;
 }
 
-static bool inline_side_effect_free_integer_call(Expr** expression_out) {
+static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     Expr* expression;
     Decl* function;
     DeclList* parameters;
     ExprList* arguments;
     const Expr* returned;
-    InlineIntegerBinding bindings[8];
+    InlineScalarBinding bindings[8];
     size_t binding_count = 0u;
     size_t parameter_count = 0u;
     size_t index;
-    int64_t value;
     if (!expression_out || !*expression_out) return false;
     expression = *expression_out;
     if (expression->kind != EXPR_CALL ||
@@ -602,17 +594,26 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
     function = expression->call_func->ident_decl;
     function = resolve_inline_function_definition(function);
     if (function->kind != DECL_FUNC || !function->func_body ||
-        function->func_this_param != NULL || !type_is_integer(expression->type)) {
+        function->func_this_param != NULL || !type_is_arithmetic(expression->type)) {
         return false;
     }
     parameters = function->func_params;
     arguments = expression->call_args;
     if (!parameters) {
-        if (arguments != NULL ||
-            !single_integer_return(function->func_body, &value)) {
+        Expr* clone;
+        returned = single_return_expression(function->func_body);
+        if (arguments != NULL || !returned ||
+            !type_is_arithmetic(returned->type) ||
+            !type_is_compatible(returned->type, expression->type) ||
+            inline_pure_scalar_expression_cost(returned) == (size_t)-1 ||
+            inline_pure_scalar_expression_cost(returned) >
+                INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
             return false;
         }
-        replace_integer(expression, value);
+        clone = clone_inline_pure_scalar_expression(returned);
+        if (!clone) return false;
+        clone->type = expression->type;
+        *expression_out = clone;
         optimize_inline_changed = true;
         return true;
     }
@@ -631,7 +632,7 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         }
         if (!parameter || !parameter->decl || !argument || !argument->expr ||
             parameter->decl->kind != DECL_PARAM ||
-            !type_is_integer(parameter->decl->type) ||
+            !type_is_arithmetic(parameter->decl->type) ||
             !type_is_compatible(parameter->decl->type, argument->expr->type) ||
             expression_has_side_effect(argument->expr)) {
             return false;
@@ -649,9 +650,9 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
         if (extra_argument) return false;
     }
     returned = single_return_expression(function->func_body);
-    if (!returned || !type_is_integer(returned->type) ||
+    if (!returned || !type_is_arithmetic(returned->type) ||
         !type_is_compatible(returned->type, expression->type) ||
-        !inline_integer_expression_shape(returned, bindings, binding_count)) {
+        !inline_scalar_expression_shape(returned, bindings, binding_count)) {
         return false;
     }
     for (index = 0u; index < binding_count; ++index) {
@@ -661,19 +662,20 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
          * a local cost guard, not a promise of whole-program inlining. */
         if (bindings[index].uses <= 1u ||
             bindings[index].argument->kind == EXPR_IDENT ||
-            bindings[index].argument->kind == EXPR_INT_LIT) {
+            (bindings[index].argument->kind == EXPR_INT_LIT ||
+             bindings[index].argument->kind == EXPR_FLOAT_LIT)) {
             continue;
         }
-        cost = inline_pure_integer_expression_cost(bindings[index].argument);
+        cost = inline_pure_scalar_expression_cost(bindings[index].argument);
         if (cost == (size_t)-1 ||
             cost > 16u / bindings[index].uses) {
             return false;
         }
     }
     {
-        size_t expansion_cost = inline_pure_integer_expression_cost(returned);
+        size_t expansion_cost = inline_pure_scalar_expression_cost(returned);
         if (expansion_cost == (size_t)-1 ||
-            expansion_cost > INLINE_PURE_INTEGER_EXPANSION_LIMIT) {
+            expansion_cost > INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
             return false;
         }
         /* The return expression cost counts each parameter identifier as one
@@ -682,7 +684,7 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
          * repeated-use guard merely by using many distinct parameters. */
         for (index = 0u; index < binding_count; ++index) {
             size_t uses = bindings[index].uses;
-            size_t cost = inline_pure_integer_expression_cost(
+            size_t cost = inline_pure_scalar_expression_cost(
                 bindings[index].argument);
             size_t additional;
             if (uses == 0u || cost <= 1u) continue;
@@ -691,14 +693,14 @@ static bool inline_side_effect_free_integer_call(Expr** expression_out) {
             additional = uses * (cost - 1u);
             if (expansion_cost > (size_t)-1 - additional ||
                 expansion_cost + additional >
-                    INLINE_PURE_INTEGER_EXPANSION_LIMIT) {
+                    INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
                 return false;
             }
             expansion_cost += additional;
         }
     }
     {
-        Expr* clone = clone_inline_integer_expression(
+        Expr* clone = clone_inline_scalar_expression(
             returned, bindings, binding_count);
         if (!clone) return false;
         clone->type = expression->type;
@@ -2352,7 +2354,7 @@ static void optimize_expr(Expr** expression) {
             if (value->cxx_close_call) {
                 optimize_expr(&value->cxx_close_call->cleanup);
             }
-            if (inline_side_effect_free_integer_call(expression)) return;
+            if (inline_side_effect_free_scalar_call(expression)) return;
             break;
         case EXPR_INDEX:
             optimize_expr(&value->index_base);

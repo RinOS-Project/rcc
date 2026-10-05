@@ -11050,7 +11050,7 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(CXX_CLEANUP_X86_RUN)
 	$(TEST_OUT)/optimize/cxx-cleanup-run-x64 \
 		$(TEST_OUT)/optimize/cxx-cleanup-x64.ro
-	@echo "Dual-architecture AST integer folding and dead-code tests completed"
+	@echo "Dual-architecture AST scalar folding and dead-code tests completed"
 
 test-generic: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/generic)
