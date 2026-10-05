@@ -329,6 +329,8 @@
         `*p`／`p[i]`アクセサのcall除去・実行結果を両アーキテクチャで検証
   - [x] C++20のCリンケージ境界から同じ純粋scalarアクセサ群をコンパイルし、
         C++フロントエンド経由のO0/O1・i686/x86_64 call除去と実行結果を回帰検証
+  - [x] 純粋scalar inlineで構造体ポインタの`p->field`と`(*p).field`を扱い、
+        解決済みフィールド情報を保持したまま両archのcall除去・実行結果を検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／
         `goto`／labelを含まないことを確認してblockへbounded unrollし、両archの
         code-sizeと実行結果を回帰検証

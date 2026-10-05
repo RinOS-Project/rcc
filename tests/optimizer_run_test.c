@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <string.h>
 
+struct OptimizerPair {
+    int first;
+    int second;
+};
+
 #if !defined(_WIN32) && \
     (defined(__x86_64__) || defined(__i386__))
 #include <sys/mman.h>
@@ -141,6 +146,14 @@ static void verify_smaller(const char* unoptimized_path,
                                   "inlined_pointer_index_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_pointer_index_call", 0xe8u));
+    assert(function_contains_byte(unoptimized,
+                                  "inlined_pointer_member_call", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_pointer_member_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "inlined_pointer_member_deref_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_pointer_member_deref_call", 0xe8u));
     assert(function_contains_byte(unoptimized,
                                   "inlined_constant_double_call", 0xe8u));
     assert(!function_contains_byte(optimized,
@@ -394,6 +407,8 @@ int main(int argc, char** argv)
         int (*inlined_pointer_offset_call)(int*);
         int (*inlined_pointer_read_call)(int*);
         int (*inlined_pointer_index_call)(int*);
+        int (*inlined_pointer_member_call)(struct OptimizerPair*);
+        int (*inlined_pointer_member_deref_call)(struct OptimizerPair*);
         double (*inlined_constant_double_call)(void);
         double (*inlined_double_call)(double);
         float (*inlined_float_call)(float, float);
@@ -571,6 +586,20 @@ int main(int argc, char** argv)
         }
         {
             ObjSymbol* symbol = function_symbol(
+                object, "inlined_pointer_member_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_pointer_member_call, &address,
+                   sizeof(inlined_pointer_member_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_pointer_member_deref_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_pointer_member_deref_call, &address,
+                   sizeof(inlined_pointer_member_deref_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
                 object, "inlined_constant_double_call");
             address = mapping + symbol->value;
             memcpy(&inlined_constant_double_call, &address,
@@ -730,6 +759,11 @@ int main(int argc, char** argv)
             assert(inlined_pointer_offset_call(&values[0]) == 29);
             assert(inlined_pointer_read_call(&values[1]) == 29);
             assert(inlined_pointer_index_call(&values[0]) == 29);
+        }
+        {
+            struct OptimizerPair pair = {17, 29};
+            assert(inlined_pointer_member_call(&pair) == 29);
+            assert(inlined_pointer_member_deref_call(&pair) == 29);
         }
         assert(inlined_constant_double_call() == 2.5);
         assert(inlined_double_call(2.5) == 4.0);

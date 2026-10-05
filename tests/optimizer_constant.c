@@ -194,6 +194,31 @@ int inlined_pointer_index_call(int* value)
     return inline_pointer_index(value);
 }
 
+struct OptimizerPair {
+    int first;
+    int second;
+};
+
+static int inline_pointer_member(struct OptimizerPair* value)
+{
+    return value->second;
+}
+
+int inlined_pointer_member_call(struct OptimizerPair* value)
+{
+    return inline_pointer_member(value);
+}
+
+static int inline_pointer_member_deref(struct OptimizerPair* value)
+{
+    return (*value).second;
+}
+
+int inlined_pointer_member_deref_call(struct OptimizerPair* value)
+{
+    return inline_pointer_member_deref(value);
+}
+
 static double inline_constant_double(void)
 {
     return 2.5;

@@ -356,6 +356,11 @@ static bool inline_scalar_expression_shape(
                                                    bindings, binding_count) &&
                    inline_scalar_expression_shape(expression->index_expr,
                                                    bindings, binding_count);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return expression->member_name && expression->member_field &&
+                   inline_scalar_expression_shape(expression->member_base,
+                                                  bindings, binding_count);
         case EXPR_COND:
             return inline_scalar_expression_shape(expression->cond_test,
                                                    bindings, binding_count) &&
@@ -412,6 +417,17 @@ static Expr* clone_inline_scalar_expression(
             clone->type = expression->type;
             return clone;
         }
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            clone = expr_member(
+                clone_inline_scalar_expression(expression->member_base,
+                                                bindings, binding_count),
+                expression->member_name, expression->loc);
+            if (!clone->member_base) return NULL;
+            clone->kind = expression->kind;
+            clone->member_field = expression->member_field;
+            clone->type = expression->type;
+            return clone;
         case EXPR_CAST:
             clone = expr_cast(
                 expression->cast_type,
@@ -505,6 +521,16 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
             clone->type = expression->type;
             return clone;
         }
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            clone = expr_member(
+                clone_inline_pure_scalar_expression(expression->member_base),
+                expression->member_name, expression->loc);
+            if (!clone->member_base) return NULL;
+            clone->kind = expression->kind;
+            clone->member_field = expression->member_field;
+            clone->type = expression->type;
+            return clone;
         case EXPR_CAST:
             clone = expr_cast(
                 expression->cast_type,
@@ -585,6 +611,12 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
             if (left == (size_t)-1 || right == (size_t)-1 ||
                 left > (size_t)-1 - right - 1u) return (size_t)-1;
             return left + right + 1u;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            left = inline_pure_scalar_expression_cost(
+                expression->member_base);
+            return left == (size_t)-1 || left == (size_t)-1 - 1u
+                       ? (size_t)-1 : left + 1u;
         case EXPR_CAST:
             left = inline_pure_scalar_expression_cost(
                 expression->cast_expr);
