@@ -11177,6 +11177,18 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call COMPARE_FILES,$(TEST_OUT)/optimize/x64-o1.ro,$(TEST_OUT)/optimize/x64-o3.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/cxx-o1.ro tests/hello.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O0 -c \
+		-o $(TEST_OUT)/optimize/cxx-optimizer-x86-o0.ro \
+		tests/optimizer_constant_cpp.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O1 -c \
+		-o $(TEST_OUT)/optimize/cxx-optimizer-x86-o1.ro \
+		tests/optimizer_constant_cpp.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 -c \
+		-o $(TEST_OUT)/optimize/cxx-optimizer-x64-o0.ro \
+		tests/optimizer_constant_cpp.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O1 -c \
+		-o $(TEST_OUT)/optimize/cxx-optimizer-x64-o1.ro \
+		tests/optimizer_constant_cpp.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O1 -c \
 		-o $(TEST_OUT)/optimize/cxx-cleanup-x86.ro \
 		tests/cxx_inline_aggregate.cpp
@@ -11206,6 +11218,16 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/optimizer_run_test-x64 \
 		$(TEST_OUT)/optimize/x86-o0.ro $(TEST_OUT)/optimize/x86-o1.ro \
 		$(TEST_OUT)/optimize/x64-o0.ro $(TEST_OUT)/optimize/x64-o1.ro
+	$(TEST_OUT)/optimizer_run_test-x86 \
+		$(TEST_OUT)/optimize/cxx-optimizer-x86-o0.ro \
+		$(TEST_OUT)/optimize/cxx-optimizer-x86-o1.ro \
+		$(TEST_OUT)/optimize/cxx-optimizer-x64-o0.ro \
+		$(TEST_OUT)/optimize/cxx-optimizer-x64-o1.ro
+	$(TEST_OUT)/optimizer_run_test-x64 \
+		$(TEST_OUT)/optimize/cxx-optimizer-x86-o0.ro \
+		$(TEST_OUT)/optimize/cxx-optimizer-x86-o1.ro \
+		$(TEST_OUT)/optimize/cxx-optimizer-x64-o0.ro \
+		$(TEST_OUT)/optimize/cxx-optimizer-x64-o1.ro
 	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/optimizer_loop_test-x86 \
 		tests/optimizer_loop_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
