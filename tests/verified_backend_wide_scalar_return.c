@@ -10,6 +10,12 @@ unsigned long long verified_wide_scalar_parameter(
     return value;
 }
 
+unsigned long long verified_wide_scalar_const_parameter(
+    const unsigned long long value)
+{
+    return value;
+}
+
 unsigned long long verified_wide_scalar_add(unsigned long long value)
 {
     return value + 0x0102030405060708ULL;
@@ -28,6 +34,12 @@ unsigned long long verified_wide_scalar_subtract(unsigned long long value)
 unsigned long long verified_wide_scalar_local(unsigned long long value)
 {
     unsigned long long copy = value;
+    return copy;
+}
+
+unsigned long long verified_wide_scalar_const_local(unsigned long long value)
+{
+    const unsigned long long copy = value;
     return copy;
 }
 

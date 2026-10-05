@@ -150,10 +150,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSection* text;
     ObjSymbol* symbol;
     ObjSymbol* parameter_symbol;
+    ObjSymbol* const_parameter_symbol;
     ObjSymbol* add_symbol;
     ObjSymbol* carry_symbol;
     ObjSymbol* subtract_symbol;
     ObjSymbol* local_symbol;
+    ObjSymbol* const_local_symbol;
     ObjSymbol* narrow_symbol;
     ObjSymbol* equal_symbol;
     ObjSymbol* not_equal_symbol;
@@ -189,12 +191,16 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_constant_return");
     parameter_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_parameter");
+    const_parameter_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_const_parameter");
     add_symbol = objfile_find_symbol(object, "verified_wide_scalar_add");
     carry_symbol = objfile_find_symbol(object, "verified_wide_scalar_carry");
     subtract_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_subtract");
     local_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_local");
+    const_local_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_const_local");
     narrow_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_narrow");
     equal_symbol = objfile_find_symbol(
@@ -255,6 +261,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     assert(parameter_symbol != NULL && parameter_symbol->type == SYM_GLOBAL &&
            parameter_symbol->binding == BIND_CODE &&
            parameter_symbol->section == 0);
+    assert(const_parameter_symbol != NULL &&
+           const_parameter_symbol->type == SYM_GLOBAL &&
+           const_parameter_symbol->binding == BIND_CODE &&
+           const_parameter_symbol->section == 0);
     assert(add_symbol != NULL && add_symbol->type == SYM_GLOBAL &&
            add_symbol->binding == BIND_CODE && add_symbol->section == 0);
     assert(carry_symbol != NULL && carry_symbol->type == SYM_GLOBAL &&
@@ -265,6 +275,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            subtract_symbol->section == 0);
     assert(local_symbol != NULL && local_symbol->type == SYM_GLOBAL &&
            local_symbol->binding == BIND_CODE && local_symbol->section == 0);
+    assert(const_local_symbol != NULL &&
+           const_local_symbol->type == SYM_GLOBAL &&
+           const_local_symbol->binding == BIND_CODE &&
+           const_local_symbol->section == 0);
     assert(narrow_symbol != NULL && narrow_symbol->type == SYM_GLOBAL &&
            narrow_symbol->binding == BIND_CODE &&
            narrow_symbol->section == 0);
@@ -361,10 +375,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         void* memory = map_text(object, text, &mapping_size);
         unsigned long long RINOS_ABI (*function)(void);
         unsigned long long RINOS_ABI (*parameter_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*const_parameter_function)(unsigned long long);
         unsigned long long RINOS_ABI (*add_function)(unsigned long long);
         unsigned long long RINOS_ABI (*carry_function)(unsigned long long);
         unsigned long long RINOS_ABI (*subtract_function)(unsigned long long);
         unsigned long long RINOS_ABI (*local_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*const_local_function)(unsigned long long);
         unsigned long long RINOS_ABI (*narrow_function)(unsigned int);
         int RINOS_ABI (*equal_function)(unsigned long long);
         int RINOS_ABI (*not_equal_function)(unsigned long long);
@@ -403,6 +419,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&parameter_function, &address, sizeof(parameter_function));
         assert(parameter_function(0x8899aabbccddeeffULL) ==
                0x8899aabbccddeeffULL);
+        address = symbol_address(memory, const_parameter_symbol);
+        memcpy(&const_parameter_function, &address,
+               sizeof(const_parameter_function));
+        assert(const_parameter_function(0x7766554433221100ULL) ==
+               0x7766554433221100ULL);
         address = symbol_address(memory, add_symbol);
         memcpy(&add_function, &address, sizeof(add_function));
         assert(add_function(0x1020304050607080ULL) ==
@@ -418,6 +439,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&local_function, &address, sizeof(local_function));
         assert(local_function(0x8899aabbccddeeffULL) ==
                0x8899aabbccddeeffULL);
+        address = symbol_address(memory, const_local_symbol);
+        memcpy(&const_local_function, &address,
+               sizeof(const_local_function));
+        assert(const_local_function(0x7766554433221100ULL) ==
+               0x7766554433221100ULL);
         address = symbol_address(memory, narrow_symbol);
         memcpy(&narrow_function, &address, sizeof(narrow_function));
         assert(narrow_function(0xdeadbeefu) == 0x00000000deadbeefULL);

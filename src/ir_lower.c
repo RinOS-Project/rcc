@@ -12,13 +12,6 @@
 #include "x86_legalize.h"
 #include "cxx_exception_type.h"
 
-typedef struct RccIrLowerLocal {
-    const Decl* declaration;
-    RccIrValue address;
-    RccIrType type;
-    struct RccIrLowerLocal* next;
-} RccIrLowerLocal;
-
 typedef struct {
     RccIrValue value;
     RccIrType type;
@@ -32,6 +25,18 @@ typedef struct {
     bool is_unsigned;
     bool valid;
 } RccIrLowerWideValue;
+
+typedef struct RccIrLowerLocal {
+    const Decl* declaration;
+    RccIrValue address;
+    RccIrType type;
+    /* Read-only i686 64-bit integers remain as two real i32 SSA values.
+     * The address is still materialized for valid address-taking uses, but
+     * ordinary reads never need to reload the stack mirror. */
+    bool wide_ssa;
+    RccIrLowerWideValue wide_value;
+    struct RccIrLowerLocal* next;
+} RccIrLowerLocal;
 
 typedef struct RccIrLowerSwitchLabel {
     const Stmt* statement;
@@ -256,8 +261,21 @@ static bool lower_add_local(RccIrLowerContext* context,
     local->declaration = declaration;
     local->address = address;
     local->type = type;
+    local->wide_ssa = false;
+    memset(&local->wide_value, 0, sizeof(local->wide_value));
     local->next = context->locals;
     context->locals = local;
+    return true;
+}
+
+static bool lower_set_wide_local_ssa(
+    RccIrLowerContext* context, const Decl* declaration,
+    RccIrLowerWideValue value) {
+    RccIrLowerLocal* local = lower_find_local(context, declaration);
+    if (!local || !value.valid || !lower_i686_wide_scalar_type(
+            declaration ? declaration->type : NULL)) return false;
+    local->wide_ssa = true;
+    local->wide_value = value;
     return true;
 }
 
@@ -1784,6 +1802,7 @@ static bool lower_wide_scalar_conditional_expression(
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
+    RccIrLowerLocal* local;
     RccIrLowerValue address;
     RccIrLowerValue scalar;
     RccIrLowerValue shift;
@@ -1795,6 +1814,14 @@ static bool lower_wide_scalar_expression(
         !expression->type || !type_is_integer(expression->type) ||
         expression->type->size <= 0) return false;
     if (lower_wide_scalar_constant(context, expression, result)) return true;
+    if (expression->kind == EXPR_IDENT && expression->ident_decl) {
+        local = lower_find_local(context, expression->ident_decl);
+        if (local && local->wide_ssa) {
+            *result = local->wide_value;
+            result->is_unsigned = expression->type->is_unsigned;
+            return result->valid;
+        }
+    }
     if (expression->kind == EXPR_IDENT || expression->kind == EXPR_DEREF ||
         expression->kind == EXPR_INDEX || expression->kind == EXPR_MEMBER ||
         expression->kind == EXPR_PTR_MEMBER) {
@@ -5263,6 +5290,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         declaration->type->kind == TYPE_UNION;
     bool wide_scalar = declaration &&
         lower_i686_wide_scalar_type(declaration->type);
+    bool wide_ssa = wide_scalar && declaration->type->is_const &&
+        declaration->var_init != NULL;
     if (!declaration || declaration->kind != DECL_VAR ||
         declaration->var_is_global || declaration->var_is_thread_local ||
         declaration->storage == STORAGE_EXTERN ||
@@ -5320,6 +5349,11 @@ static bool lower_declaration(RccIrLowerContext* context,
                 lower_value(allocation->result,
                             rcc_ir_type_pointer(0u), true),
                 initializer)) {
+            context->unsupported = true;
+            return false;
+        }
+        if (wide_ssa && !lower_set_wide_local_ssa(
+                context, declaration, initializer)) {
             context->unsupported = true;
             return false;
         }
@@ -6194,6 +6228,21 @@ static bool lower_parameters(RccIrLowerContext* context,
                     context->function->parameter_types[index + unit], true);
                 if (!address.valid || !lower_store_address(
                         context, address, value)) return false;
+            }
+            if (item->type->is_const) {
+                RccIrLowerWideValue value;
+                value.low = lower_value(
+                    context->function->parameters[index],
+                    context->function->parameter_types[index], true);
+                value.high = lower_value(
+                    context->function->parameters[index + 1u],
+                    context->function->parameter_types[index + 1u], true);
+                value.is_unsigned = item->type->is_unsigned;
+                value.valid = value.low.valid && value.high.valid;
+                if (!lower_set_wide_local_ssa(context, item, value)) {
+                    context->unsupported = true;
+                    return false;
+                }
             }
             index += 2u;
         } else {
