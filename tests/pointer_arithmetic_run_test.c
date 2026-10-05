@@ -5,9 +5,65 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) && defined(_WIN32)
+#include <windows.h>
+#elif defined(__x86_64__)
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
+
+#if defined(__x86_64__) && defined(_WIN32)
+static long rcc_sysconf(int name)
+{
+    SYSTEM_INFO system_info;
+    (void)name;
+    GetSystemInfo(&system_info);
+    return (long)system_info.dwPageSize;
+}
+
+static void* rcc_mmap(void* address, size_t length, int protection, int flags,
+                      int descriptor, long offset)
+{
+    (void)address;
+    (void)protection;
+    (void)flags;
+    (void)descriptor;
+    (void)offset;
+    return VirtualAlloc(NULL, length, MEM_RESERVE | MEM_COMMIT,
+                        PAGE_READWRITE);
+}
+
+static int rcc_mprotect(void* address, size_t length, int protection)
+{
+    DWORD old_protection;
+    (void)protection;
+    return VirtualProtect(address, length, PAGE_EXECUTE_READ,
+                          &old_protection) ? 0 : -1;
+}
+
+static int rcc_munmap(void* address, size_t length)
+{
+    (void)length;
+    return VirtualFree(address, 0, MEM_RELEASE) ? 0 : -1;
+}
+
+#define sysconf rcc_sysconf
+#define mmap rcc_mmap
+#define mprotect rcc_mprotect
+#define munmap rcc_munmap
+#define MAP_FAILED ((void*)-1)
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define PROT_EXEC 4
+#define MAP_PRIVATE 2
+#define MAP_ANONYMOUS 0x20
+#define _SC_PAGESIZE 30
+#endif
+
+#if defined(_WIN32) && defined(__x86_64__)
+#define RCC_SYSV_ABI __attribute__((sysv_abi))
+#else
+#define RCC_SYSV_ABI
 #endif
 
 static ObjSymbol* function_symbol(ObjectFile* object, const char* name)
@@ -42,14 +98,14 @@ int main(int argc, char** argv)
     long page_size;
     size_t mapping_size;
     uint8_t* mapping;
-    int* (*pointer_add)(int*, int);
-    int* (*integer_add)(int, int*);
-    long (*pointer_distance)(int*, int*);
-    int* (*pointer_update)(int*);
-    int (*local_array_value)(void);
-    int (*large_local_array_value)(void);
-    int (*aggregate_parameter_value)(struct LocalAggregate);
-    int (*local_aggregate_initializer_value)(void);
+    int* (RCC_SYSV_ABI *pointer_add)(int*, int);
+    int* (RCC_SYSV_ABI *integer_add)(int, int*);
+    long (RCC_SYSV_ABI *pointer_distance)(int*, int*);
+    int* (RCC_SYSV_ABI *pointer_update)(int*);
+    int (RCC_SYSV_ABI *local_array_value)(void);
+    int (RCC_SYSV_ABI *large_local_array_value)(void);
+    int (RCC_SYSV_ABI *aggregate_parameter_value)(struct LocalAggregate);
+    int (RCC_SYSV_ABI *local_aggregate_initializer_value)(void);
     int values[4] = {1, 2, 3, 4};
     void* address;
 

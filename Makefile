@@ -10473,18 +10473,18 @@ test-driver-policy: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/driver_policy_x86.drv tests/driver_policy_ok.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -driver --emit-unsigned-v3 \
 		-o $(TEST_OUT)/driver_policy_x64.drv tests/driver_policy_ok.c
-	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
-		-o $(TEST_OUT)/driver_policy_float.drv tests/driver_policy_float.c
-	! $(RCXX_TARGET) -driver --emit-unsigned-v3 \
-		-o $(TEST_OUT)/driver_policy_float_cxx.drv tests/driver_policy_float.cpp
-	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
-		-o $(TEST_OUT)/driver_policy_asm.drv tests/driver_policy_asm.c
-	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
-		-o $(TEST_OUT)/driver_policy_constraint.drv tests/driver_policy_constraint.c
-	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
-		-o $(TEST_OUT)/driver_policy_clobber.drv tests/driver_policy_clobber.c
-	! $(RCC_TARGET) -driver --emit-unsigned-v3 \
-		-o $(TEST_OUT)/driver_policy_mask_constraint.drv tests/driver_policy_mask_constraint.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_float.drv tests/driver_policy_float.c,$(TEST_OUT)/driver_policy_float.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_float_cxx.drv tests/driver_policy_float.cpp,$(TEST_OUT)/driver_policy_float_cxx.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_asm.drv tests/driver_policy_asm.c,$(TEST_OUT)/driver_policy_asm.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_constraint.drv tests/driver_policy_constraint.c,$(TEST_OUT)/driver_policy_constraint.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_clobber.drv tests/driver_policy_clobber.c,$(TEST_OUT)/driver_policy_clobber.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/driver_policy_mask_constraint.drv tests/driver_policy_mask_constraint.c,$(TEST_OUT)/driver_policy_mask_constraint.log)
 	@echo "NDRV FPU/SIMD policy tests completed"
 
 test-weak-link:
@@ -10523,8 +10523,8 @@ test-object-width: $(RCC_TARGET) $(RLD_TARGET)
 	$(RLD_TARGET) -m64 -T 0x100000000 --emit-unsigned-v3 \
 		-o $(TEST_OUT)/wide_base.rin $(TEST_OUT)/wide_main.ro \
 		$(TEST_OUT)/wide_lib.ro
-	! $(RLD_TARGET) -T invalid-address --emit-unsigned-v3 \
-		-o $(TEST_OUT)/invalid_base.rin $(TEST_OUT)/wide_main.ro
+	$(call EXPECT_FAILURE,$(RLD_TARGET) -T invalid-address --emit-unsigned-v3 \
+		-o $(TEST_OUT)/invalid_base.rin $(TEST_OUT)/wide_main.ro,$(TEST_OUT)/invalid_base.log)
 	@echo "64-bit object/linker width and typed relocation tests completed"
 
 test-special-sections:
@@ -10600,8 +10600,8 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/direct/x64.drv tests/direct_relocation.c
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unresolved.ro tests/direct_unresolved.c
-	! $(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
-		-o $(TEST_OUT)/direct/unresolved.rin tests/direct_unresolved.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/unresolved.rin tests/direct_unresolved.c,$(TEST_OUT)/direct/unresolved.log)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/definition-x86.ro \
 		tests/direct_unresolved_definition.c
@@ -10611,8 +10611,8 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/direct/definition-x86.ro
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unresolved-x64.ro tests/direct_unresolved.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
-		-o $(TEST_OUT)/direct/unresolved-x64.rin tests/direct_unresolved.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/unresolved-x64.rin tests/direct_unresolved.c,$(TEST_OUT)/direct/unresolved-x64.log)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/definition-x64.ro \
 		tests/direct_unresolved_definition.c
@@ -10623,9 +10623,9 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/bss-reference-x86.ro \
 		tests/direct_bss_unresolved.c
-	! $(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/direct/bss-unresolved-x86.rin \
-		tests/direct_bss_unresolved.c
+		tests/direct_bss_unresolved.c,$(TEST_OUT)/direct/bss-unresolved-x86.log)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/bss-definition-x86.ro \
 		tests/direct_bss_definition.c
@@ -10643,59 +10643,59 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/direct/bss-resolved-x64.rin \
 		$(TEST_OUT)/direct/bss-reference-x64.ro \
 		$(TEST_OUT)/direct/bss-definition-x64.ro
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/global-redefinition.ro \
-		tests/global_redefinition.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/direct/global-conflict.ro tests/global_conflict.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/global_redefinition.c,$(TEST_OUT)/direct/global-redefinition.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/direct/global-conflict.ro tests/global_conflict.c,$(TEST_OUT)/direct/global-conflict.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unsupported-static-x86.ro \
-		tests/unsupported_static_pointer.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/unsupported_static_pointer.c,$(TEST_OUT)/direct/unsupported-static-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unsupported-static-x64.ro \
-		tests/unsupported_static_pointer.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/unsupported_static_pointer.c,$(TEST_OUT)/direct/unsupported-static-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-array-x86.ro \
-		tests/invalid_array_initializer.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_array_initializer.c,$(TEST_OUT)/direct/invalid-array-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-array-x64.ro \
-		tests/invalid_array_initializer.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/invalid_array_initializer.c,$(TEST_OUT)/direct/invalid-array-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-designator-x86.ro \
-		tests/invalid_designated_initializer.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_designated_initializer.c,$(TEST_OUT)/direct/invalid-designator-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-designator-x64.ro \
-		tests/invalid_designated_initializer.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/invalid_designated_initializer.c,$(TEST_OUT)/direct/invalid-designator-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/nonconstant-designator-x86.ro \
-		tests/nonconstant_designator.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/nonconstant_designator.c,$(TEST_OUT)/direct/nonconstant-designator-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/nonconstant-designator-x64.ro \
-		tests/nonconstant_designator.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/nonconstant_designator.c,$(TEST_OUT)/direct/nonconstant-designator-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/empty-initializer-x86.ro \
-		tests/empty_initializer.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/empty_initializer.c,$(TEST_OUT)/direct/empty-initializer-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/empty-initializer-x64.ro \
-		tests/empty_initializer.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/empty_initializer.c,$(TEST_OUT)/direct/empty-initializer-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unsupported-local-array-x86.ro \
-		tests/unsupported_local_array_initializer.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/unsupported_local_array_initializer.c,$(TEST_OUT)/direct/unsupported-local-array-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/unsupported-local-array-x64.ro \
-		tests/unsupported_local_array_initializer.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/unsupported_local_array_initializer.c,$(TEST_OUT)/direct/unsupported-local-array-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-constant-x86.ro \
-		tests/invalid_static_constant.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_static_constant.c,$(TEST_OUT)/direct/invalid-constant-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-constant-x64.ro \
-		tests/invalid_static_constant.c
-	! $(RCC_TARGET) --target i686-unknown-rinos -c \
+		tests/invalid_static_constant.c,$(TEST_OUT)/direct/invalid-constant-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-pointer-x86.ro \
-		tests/invalid_pointer_arithmetic.c
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		tests/invalid_pointer_arithmetic.c,$(TEST_OUT)/direct/invalid-pointer-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/invalid-pointer-x64.ro \
-		tests/invalid_pointer_arithmetic.c
+		tests/invalid_pointer_arithmetic.c,$(TEST_OUT)/direct/invalid-pointer-x64.log)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/direct_relocation_test \
 		tests/direct_relocation_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/pointer_arithmetic_run_test \
