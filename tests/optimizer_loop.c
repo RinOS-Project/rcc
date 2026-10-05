@@ -146,6 +146,15 @@ int loop_stride_for_two(void)
     return result;
 }
 
+int loop_stride_for_one(void)
+{
+    int result = 0;
+    for (int index = 2; index < 4; index += 2) {
+        result += 43;
+    }
+    return result;
+}
+
 int loop_stride_for_assignment_two(void)
 {
     int index;

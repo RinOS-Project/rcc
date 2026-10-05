@@ -353,7 +353,7 @@
         code-sizeと実行結果を回帰検証
   - [x] C17 `for`の`i += 2`／`i -= 2`／`i = i + 2`形式を±4以内のbounded
         constant-stride proofへ接続し、符号付き／符号なしoverflow・方向・
-        `!=`到達性を保持した2〜4-trip展開と両archの実行回帰を追加
+        `!=`到達性を保持した1〜4-trip展開と両archの実行回帰を追加
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

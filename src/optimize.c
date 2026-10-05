@@ -1662,7 +1662,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
             }
             if (!runs) {
                 *count = iterations;
-                return iterations >= 2u;
+                return iterations >= 1u;
             }
             if ((step > 0 && current > mask - magnitude) ||
                 (step < 0 && current < magnitude)) return false;
@@ -1699,7 +1699,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
             }
             if (!runs) {
                 *count = iterations;
-                return iterations >= 2u;
+                return iterations >= 1u;
             }
             if ((step > 0 && current > maximum - step) ||
                 (step < 0 && current < minimum - step)) return false;
@@ -1916,7 +1916,7 @@ static StmtList** append_unrolled_stmt(StmtList** tail, Stmt* statement) {
 static bool unroll_constant_for(Stmt* statement, unsigned count) {
     StmtList* head;
     StmtList** tail;
-    if (!statement || statement->kind != STMT_FOR || count < 2u ||
+    if (!statement || statement->kind != STMT_FOR || count < 1u ||
         count > 4u || !statement->for_init || !statement->for_body ||
         !statement->for_inc || !clone_unrolled_stmt(statement->for_body)) {
         return false;

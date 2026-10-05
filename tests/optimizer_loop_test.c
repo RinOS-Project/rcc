@@ -74,6 +74,7 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "loop_assignment_increment") <
            function_extent(unoptimized, "loop_assignment_increment"));
     assert(function_extent(optimized, "loop_stride_for_two") > 0);
+    assert(function_extent(optimized, "loop_stride_for_one") > 0);
     assert(function_extent(optimized, "loop_stride_for_assignment_two") > 0);
     assert(function_extent(optimized, "loop_assignment_initializer_one") <
            function_extent(unoptimized, "loop_assignment_initializer_one"));
@@ -152,6 +153,8 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_assignment_increment");
         ObjSymbol* stride_for_two_symbol = objfile_find_symbol(
             optimized, "loop_stride_for_two");
+        ObjSymbol* stride_for_one_symbol = objfile_find_symbol(
+            optimized, "loop_stride_for_one");
         ObjSymbol* stride_for_assignment_two_symbol = objfile_find_symbol(
             optimized, "loop_stride_for_assignment_two");
         ObjSymbol* assignment_init_one_symbol = objfile_find_symbol(
@@ -214,6 +217,7 @@ static void verify_pair(const char* unoptimized_path,
         int (*compound_function)(void);
         int (*assignment_function)(void);
         int (*stride_for_two_function)(void);
+        int (*stride_for_one_function)(void);
         int (*stride_for_assignment_two_function)(void);
         int (*assignment_init_one_function)(void);
         int (*assignment_init_two_function)(void);
@@ -246,6 +250,7 @@ static void verify_pair(const char* unoptimized_path,
                one_le_symbol != NULL && two_symbol != NULL &&
                compound_symbol != NULL && assignment_symbol != NULL &&
                stride_for_two_symbol != NULL &&
+               stride_for_one_symbol != NULL &&
                stride_for_assignment_two_symbol != NULL &&
                assignment_init_one_symbol != NULL &&
                assignment_init_two_symbol != NULL &&
@@ -305,6 +310,9 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + stride_for_two_symbol->value;
         memcpy(&stride_for_two_function, &address,
                sizeof(stride_for_two_function));
+        address = mapping + stride_for_one_symbol->value;
+        memcpy(&stride_for_one_function, &address,
+               sizeof(stride_for_one_function));
         address = mapping + stride_for_assignment_two_symbol->value;
         memcpy(&stride_for_assignment_two_function, &address,
                sizeof(stride_for_assignment_two_function));
@@ -379,6 +387,7 @@ static void verify_pair(const char* unoptimized_path,
         assert(compound_function() == 46);
         assert(assignment_function() == 58);
         assert(stride_for_two_function() == 62);
+        assert(stride_for_one_function() == 43);
         assert(stride_for_assignment_two_function() == 74);
         assert(assignment_init_one_function() == 31);
         assert(assignment_init_two_function() == 74);
