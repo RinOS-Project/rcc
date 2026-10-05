@@ -12032,6 +12032,12 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     } else if (strcmp(name, "__atomic_store_n") == 0) {
         expected_count = 3;
         returns_void = true;
+    } else if (strcmp(name, "__atomic_test_and_set") == 0) {
+        expected_count = 2;
+        returns_bool = true;
+    } else if (strcmp(name, "__atomic_clear") == 0) {
+        expected_count = 2;
+        returns_void = true;
     } else if (strcmp(name, "__atomic_exchange_n") == 0 ||
                strcmp(name, "__atomic_fetch_add") == 0 ||
                strcmp(name, "__atomic_fetch_sub") == 0 ||
@@ -12110,6 +12116,11 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             rcc_error(expr->loc,
                       "%s requires a supported lock-free object pointer",
                       name);
+        } else if ((strcmp(name, "__atomic_test_and_set") == 0 ||
+                    strcmp(name, "__atomic_clear") == 0) &&
+                   (!pointer_type->base || pointer_type->base->size != 1u)) {
+            rcc_error(expr->loc,
+                      "%s requires a byte-sized object pointer", name);
         }
     }
     if (requires_expected_pointer) {
@@ -12167,7 +12178,9 @@ static bool sema_atomic_builtin_call(Expr* expr) {
         }
     } else if (strncmp(name, "__atomic_", 9) == 0) {
         int order_index = strcmp(name, "__atomic_thread_fence") == 0
-            ? 0 : 2;
+            ? 0
+            : ((strcmp(name, "__atomic_test_and_set") == 0 ||
+                strcmp(name, "__atomic_clear") == 0) ? 1 : 2);
         sema_atomic_order(expr, name, order_index, &success_order,
                           &success_constant);
     }

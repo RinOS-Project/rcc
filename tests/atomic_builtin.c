@@ -153,6 +153,14 @@ uint32_t atomic_u8_load_value(volatile uint8_t* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
 
+int atomic_test_and_set_value(volatile uint8_t* value) {
+    return __atomic_test_and_set(value, __ATOMIC_SEQ_CST);
+}
+
+void atomic_clear_value(volatile uint8_t* value) {
+    __atomic_clear(value, __ATOMIC_RELEASE);
+}
+
 void atomic_u8_store_value(volatile uint8_t* value, uint32_t desired) {
     __atomic_store_n(value, desired, __ATOMIC_RELEASE);
 }

@@ -2637,6 +2637,24 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         emit64_atomic_exchange_width(mod, RAX, RCX, value_type);
         return true;
     }
+    if (strcmp(name, "__atomic_test_and_set") == 0) {
+        gen64_expr(mod, call64_argument(call, 1));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_imm32(mod, RAX, 1u);
+        emit64_pop_reg(mod, RCX);
+        emit64_atomic_exchange_width(mod, RAX, RCX, value_type);
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_setcc(mod, CC64_NE, RAX);
+        emit64_movzx_r64_r8(mod, RAX, RAX);
+        return true;
+    }
+    if (strcmp(name, "__atomic_clear") == 0) {
+        gen64_expr(mod, call64_argument(call, 1));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_atomic_clear_width(mod, RAX, value_type);
+        return true;
+    }
     if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
         gen64_expr(mod, call64_argument(call, 5));
         gen64_expr(mod, call64_argument(call, 4));

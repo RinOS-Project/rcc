@@ -8325,6 +8325,10 @@ endif
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid.ro \
 		tests/invalid_atomic_builtin.c,$(TEST_OUT)/atomic-x86/invalid.log)
+	$(GREP) -F -q "__atomic_test_and_set requires a byte-sized object pointer" \
+		$(TEST_OUT)/atomic-x86/invalid.log
+	$(GREP) -F -q "__atomic_clear requires a byte-sized object pointer" \
+		$(TEST_OUT)/atomic-x86/invalid.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \
 		tests/invalid_atomic_order.c,$(TEST_OUT)/atomic-x64/invalid-order.log)

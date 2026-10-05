@@ -5244,6 +5244,27 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         emit_atomic_exchange_width(mod, EAX, ECX, value_type);
         return true;
     }
+    if (strcmp(name, "__atomic_test_and_set") == 0) {
+        gen_expr(mod, call_argument(call, 1));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_imm(mod, EAX, 1u);
+        emit_pop_reg(mod, ECX);
+        emit_atomic_exchange_width(mod, EAX, ECX, value_type);
+        emit_byte(mod, 0x85);
+        emit_byte(mod, modrm(3, EAX, EAX));
+        emit_setcc(mod, CC_NE, EAX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EAX, EAX));
+        return true;
+    }
+    if (strcmp(name, "__atomic_clear") == 0) {
+        gen_expr(mod, call_argument(call, 1));
+        gen_expr(mod, call_argument(call, 0));
+        emit_atomic_clear_width(mod, EAX, value_type);
+        return true;
+    }
     if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
         /* Evaluate the non-address control operands before reserving address
          * values on the expression stack. */

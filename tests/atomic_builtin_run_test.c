@@ -114,6 +114,8 @@ typedef int (RCC_SYSV_ABI *standard_atomic_compare_fn)(volatile uint32_t*, uint3
 typedef void (RCC_SYSV_ABI *atomic_release_fn)(volatile uint32_t*);
 typedef void (RCC_SYSV_ABI *atomic_fence_fn)(void);
 typedef uint32_t (RCC_SYSV_ABI *atomic_u8_load_fn)(volatile uint8_t*);
+typedef int (RCC_SYSV_ABI *atomic_u8_test_and_set_fn)(volatile uint8_t*);
+typedef void (RCC_SYSV_ABI *atomic_u8_clear_fn)(volatile uint8_t*);
 typedef void (RCC_SYSV_ABI *atomic_u8_store_fn)(volatile uint8_t*, uint32_t);
 typedef uint32_t (RCC_SYSV_ABI *atomic_u8_binary_fn)(volatile uint8_t*, uint32_t);
 typedef int (RCC_SYSV_ABI *atomic_u8_compare_fn)(volatile uint8_t*, uint8_t*, uint32_t);
@@ -302,6 +304,8 @@ int main(int argc, char** argv) {
     atomic_load_fn standard_is_lock_free;
     atomic_fence_fn standard_signal_fence;
     atomic_u8_load_fn u8_load;
+    atomic_u8_test_and_set_fn u8_test_and_set;
+    atomic_u8_clear_fn u8_clear;
     atomic_u8_store_fn u8_store;
     atomic_u8_binary_fn u8_exchange;
     atomic_u8_binary_fn u8_fetch_add;
@@ -450,6 +454,9 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(standard_signal_fence, object, mapping,
                   "standard_atomic_signal_fence_value");
     LOAD_FUNCTION(u8_load, object, mapping, "atomic_u8_load_value");
+    LOAD_FUNCTION(u8_test_and_set, object, mapping,
+                  "atomic_test_and_set_value");
+    LOAD_FUNCTION(u8_clear, object, mapping, "atomic_clear_value");
     LOAD_FUNCTION(u8_store, object, mapping, "atomic_u8_store_value");
     LOAD_FUNCTION(u8_exchange, object, mapping, "atomic_u8_exchange_value");
     LOAD_FUNCTION(u8_fetch_add, object, mapping, "atomic_u8_fetch_add_value");
@@ -633,6 +640,10 @@ int main(int argc, char** argv) {
     {
         volatile uint8_t small = 250u;
         uint8_t expected8;
+        assert(u8_test_and_set(&small) == 1 && small == 1u);
+        u8_clear(&small);
+        assert(small == 0u);
+        small = 250u;
         assert(u8_load(&small) == 250u);
         u8_store(&small, 248u);
         assert(small == 248u);

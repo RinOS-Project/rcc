@@ -17,3 +17,11 @@ int mismatched_signed_expected(volatile uint32_t* value,
                                        __ATOMIC_SEQ_CST,
                                        __ATOMIC_SEQ_CST);
 }
+
+int invalid_test_and_set_width(volatile uint32_t* value) {
+    return __atomic_test_and_set(value, __ATOMIC_SEQ_CST);
+}
+
+void invalid_clear_width(volatile uint32_t* value) {
+    __atomic_clear(value, __ATOMIC_SEQ_CST);
+}
