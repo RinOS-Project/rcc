@@ -335,6 +335,8 @@
         引数の更新が一度だけ実行されることをC/C++・両archで回帰検証
   - [x] 引数付き純粋scalar inlineの形状判定で`sizeof`／`alignof`／`noexcept`を
         受理し、`sizeof *p`ラッパーの両arch call除去と実行結果を回帰検証
+  - [x] C++20専用の`noexcept(value)`純粋ラッパーを実オブジェクトで検証し、
+        C++ O0/O1のcall保持／除去と非評価結果を両archで回帰検証
   - [x] 純粋scalar inlineのリテラル境界に文字リテラルを追加し、`value + 'A'`の
         C/C++・両arch call除去と実行結果を回帰検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／

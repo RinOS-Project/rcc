@@ -154,6 +154,20 @@ static void verify_smaller(const char* unoptimized_path,
                                   "inlined_character_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_character_call", 0xe8u));
+    {
+        ObjSymbol* unoptimized_noexcept = objfile_find_symbol(
+            unoptimized, "inlined_noexcept_call");
+        ObjSymbol* optimized_noexcept = objfile_find_symbol(
+            optimized, "inlined_noexcept_call");
+        assert((unoptimized_noexcept != NULL) ==
+               (optimized_noexcept != NULL));
+        if (unoptimized_noexcept) {
+            assert(function_contains_byte(
+                unoptimized, "inlined_noexcept_call", 0xe8u));
+            assert(!function_contains_byte(
+                optimized, "inlined_noexcept_call", 0xe8u));
+        }
+    }
     assert(function_contains_byte(unoptimized,
                                   "inlined_pointer_index_call", 0xe8u));
     assert(!function_contains_byte(optimized,
@@ -421,6 +435,7 @@ int main(int argc, char** argv)
         int (*preserved_pointer_side_effect_call)(int*);
         int (*inlined_pointee_size_call)(int*);
         int (*inlined_character_call)(int);
+        int (*inlined_noexcept_call)(int*);
         int (*inlined_pointer_index_call)(int*);
         int (*inlined_pointer_member_call)(struct OptimizerPair*);
         int (*inlined_pointer_member_deref_call)(struct OptimizerPair*);
@@ -614,6 +629,15 @@ int main(int argc, char** argv)
                    sizeof(inlined_character_call));
         }
         {
+            ObjSymbol* symbol = objfile_find_symbol(
+                object, "inlined_noexcept_call");
+            if (symbol) {
+                address = mapping + symbol->value;
+                memcpy(&inlined_noexcept_call, &address,
+                       sizeof(inlined_noexcept_call));
+            }
+        }
+        {
             ObjSymbol* symbol = function_symbol(
                 object, "inlined_pointer_index_call");
             address = mapping + symbol->value;
@@ -804,6 +828,11 @@ int main(int argc, char** argv)
         }
         assert(inlined_pointee_size_call(&value) == 4);
         assert(inlined_character_call(3) == 68);
+        if (objfile_find_symbol(object, "inlined_noexcept_call")) {
+            int noexcept_value = 3;
+            assert(inlined_noexcept_call(&noexcept_value) == 1);
+            assert(noexcept_value == 3);
+        }
         {
             struct OptimizerPair pair = {17, 29};
             assert(inlined_pointer_member_call(&pair) == 29);
