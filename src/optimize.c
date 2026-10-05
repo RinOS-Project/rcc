@@ -1801,9 +1801,7 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
     head->next = NULL;
     tail = &head->next;
     for (unsigned index = 0u; index < count; ++index) {
-        Stmt* body = index == 0u
-            ? statement->for_body
-            : clone_unrolled_stmt(statement->for_body);
+        Stmt* body = clone_unrolled_stmt(statement->for_body);
         tail = append_unrolled_stmt(tail, body);
         if (index + 1u < count) {
             StmtList* increment = ast_arena_alloc(sizeof(*increment));
