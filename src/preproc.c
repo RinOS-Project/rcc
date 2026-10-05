@@ -250,30 +250,83 @@ void pp_free(Preprocessor* pp) {
 static void pp_normalize_once_path(const char* filename, char* normalized,
                                    size_t capacity) {
     size_t length = 0;
+    size_t root_length = 0;
+    size_t component_starts[RCC_MAX_PATH];
+    size_t component_count = 0;
     const char* cursor = filename;
+    bool absolute = false;
 
     if (!filename || !normalized || capacity == 0) {
         rcc_fatal("invalid #pragma once path");
     }
 
+    if (*cursor == '/' || *cursor == '\\') {
+        absolute = true;
+        normalized[length++] = '/';
+        root_length = length;
+        while (*cursor == '/' || *cursor == '\\') ++cursor;
+    } else if (isalpha((unsigned char)cursor[0]) && cursor[1] == ':' &&
+               (cursor[2] == '/' || cursor[2] == '\\')) {
+        absolute = true;
+        normalized[length++] = cursor[0];
+        normalized[length++] = ':';
+        normalized[length++] = '/';
+        root_length = length;
+        cursor += 3;
+        while (*cursor == '/' || *cursor == '\\') ++cursor;
+    }
+
     while (*cursor) {
-        if ((cursor == filename || cursor[-1] == '/' || cursor[-1] == '\\') &&
-            cursor[0] == '.' &&
-            (cursor[1] == '/' || cursor[1] == '\\' || cursor[1] == '\0')) {
-            if (cursor[1] != '\0') ++cursor;
-            ++cursor;
+        const char* component = cursor;
+        size_t component_length;
+
+        while (*cursor == '/' || *cursor == '\\') ++cursor;
+        if (!*cursor) break;
+        component = cursor;
+        while (*cursor && *cursor != '/' && *cursor != '\\') ++cursor;
+        component_length = (size_t)(cursor - component);
+
+        if (component_length == 1 && component[0] == '.') {
             continue;
+        }
+        if (component_length == 2 && component[0] == '.' &&
+            component[1] == '.') {
+            if (component_count > 0) {
+                size_t previous_start =
+                    component_starts[component_count - 1];
+                size_t previous_length = length - previous_start;
+                bool previous_is_parent = previous_length == 2 &&
+                    normalized[previous_start] == '.' &&
+                    normalized[previous_start + 1] == '.';
+                if (!previous_is_parent) {
+                    length = previous_start == root_length
+                        ? root_length : previous_start - 1;
+                    --component_count;
+                    continue;
+                }
+            }
+            if (absolute) continue;
         }
 
-        char current = *cursor++;
-        if (current == '\\') current = '/';
-        if (current == '/' && length > 0 && normalized[length - 1] == '/') {
-            continue;
+        if (component_count == RCC_MAX_PATH) {
+            rcc_fatal("#pragma once path has too many components");
         }
-        if (length + 1 >= capacity) {
+        if (length > root_length && normalized[length - 1] != '/') {
+            if (length + 1 >= capacity) {
+                rcc_fatal("#pragma once path is too long");
+            }
+            normalized[length++] = '/';
+        }
+        if (length + component_length >= capacity) {
             rcc_fatal("#pragma once path is too long");
         }
-        normalized[length++] = current;
+        component_starts[component_count++] = length;
+        memcpy(normalized + length, component, component_length);
+        length += component_length;
+    }
+
+    if (length == 0) {
+        normalized[length++] = '.';
     }
     normalized[length] = '\0';
 }
