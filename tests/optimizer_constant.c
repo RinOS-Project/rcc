@@ -154,6 +154,26 @@ unsigned int inlined_three_argument_call(unsigned int left,
     return inline_mix_three(left, middle, right);
 }
 
+static int* inline_pointer_identity(int* value)
+{
+    return value;
+}
+
+int inlined_pointer_call(int* value)
+{
+    return *inline_pointer_identity(value);
+}
+
+static int* inline_pointer_offset(int* value)
+{
+    return value + 1;
+}
+
+int inlined_pointer_offset_call(int* value)
+{
+    return *inline_pointer_offset(value);
+}
+
 static double inline_constant_double(void)
 {
     return 2.5;

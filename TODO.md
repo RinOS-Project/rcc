@@ -323,6 +323,8 @@
         型情報を保持したO1 inlineとi686/x86_64のcall除去・実行結果を回帰検証
   - [x] 純粋整数inlineのreturn式全体を64ノード以内に制限し、複数の引数置換で
         上限を迂回しない展開コスト計算と、上限超過時のcall保持を回帰検証
+  - [x] 純粋scalar inlineをポインタ戻り値・ポインタ引数・ポインタ加算へ拡張し、
+        引数の副作用を複製せず、i686/x86_64のcall除去と実行結果を回帰検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／
         `goto`／labelを含まないことを確認してblockへbounded unrollし、両archの
         code-sizeと実行結果を回帰検証

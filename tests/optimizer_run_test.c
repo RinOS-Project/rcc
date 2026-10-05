@@ -125,6 +125,14 @@ static void verify_smaller(const char* unoptimized_path,
                                   "inlined_three_argument_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_three_argument_call", 0xe8u));
+    assert(function_contains_byte(unoptimized, "inlined_pointer_call",
+                                  0xe8u));
+    assert(!function_contains_byte(optimized, "inlined_pointer_call",
+                                   0xe8u));
+    assert(function_contains_byte(unoptimized,
+                                  "inlined_pointer_offset_call", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_pointer_offset_call", 0xe8u));
     assert(function_contains_byte(unoptimized,
                                   "inlined_constant_double_call", 0xe8u));
     assert(!function_contains_byte(optimized,
@@ -374,6 +382,8 @@ int main(int argc, char** argv)
         int (*inlined_two_argument_call)(int, int);
         uint32_t (*inlined_three_argument_call)(uint32_t, uint32_t,
                                                 uint32_t);
+        int (*inlined_pointer_call)(int*);
+        int (*inlined_pointer_offset_call)(int*);
         double (*inlined_constant_double_call)(void);
         double (*inlined_double_call)(double);
         float (*inlined_float_call)(float, float);
@@ -521,6 +531,19 @@ int main(int argc, char** argv)
             address = mapping + inlined_three_argument_call_symbol->value;
             memcpy(&inlined_three_argument_call, &address,
                    sizeof(inlined_three_argument_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(object, "inlined_pointer_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_pointer_call, &address,
+                   sizeof(inlined_pointer_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_pointer_offset_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_pointer_offset_call, &address,
+                   sizeof(inlined_pointer_offset_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -677,6 +700,11 @@ int main(int argc, char** argv)
         assert(inlined_three_argument_call(UINT32_C(0x55),
                                            UINT32_C(0x0f),
                                            UINT32_C(3)) == UINT32_C(93));
+        {
+            int values[] = {17, 29};
+            assert(inlined_pointer_call(&values[0]) == 17);
+            assert(inlined_pointer_offset_call(&values[0]) == 29);
+        }
         assert(inlined_constant_double_call() == 2.5);
         assert(inlined_double_call(2.5) == 4.0);
         assert(inlined_float_call(1.25f, 2.5f) == 6.25f);

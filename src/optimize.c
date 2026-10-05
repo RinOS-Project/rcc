@@ -639,7 +639,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     function = expression->call_func->ident_decl;
     function = resolve_inline_function_definition(function);
     if (function->kind != DECL_FUNC || !function->func_body ||
-        function->func_this_param != NULL || !type_is_arithmetic(expression->type)) {
+        function->func_this_param != NULL || !type_is_scalar(expression->type)) {
         return false;
     }
     parameters = function->func_params;
@@ -648,7 +648,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         Expr* clone;
         returned = single_return_expression(function->func_body);
         if (arguments != NULL || !returned ||
-            !type_is_arithmetic(returned->type) ||
+            !type_is_scalar(returned->type) ||
             !type_is_compatible(returned->type, expression->type) ||
             inline_pure_scalar_expression_cost(returned) == (size_t)-1 ||
             inline_pure_scalar_expression_cost(returned) >
@@ -677,7 +677,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         }
         if (!parameter || !parameter->decl || !argument || !argument->expr ||
             parameter->decl->kind != DECL_PARAM ||
-            !type_is_arithmetic(parameter->decl->type) ||
+            !type_is_scalar(parameter->decl->type) ||
             !type_is_compatible(parameter->decl->type, argument->expr->type) ||
             expression_has_side_effect(argument->expr)) {
             return false;
@@ -695,7 +695,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         if (extra_argument) return false;
     }
     returned = single_return_expression(function->func_body);
-    if (!returned || !type_is_arithmetic(returned->type) ||
+    if (!returned || !type_is_scalar(returned->type) ||
         !type_is_compatible(returned->type, expression->type) ||
         !inline_scalar_expression_shape(returned, bindings, binding_count)) {
         return false;
