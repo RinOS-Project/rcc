@@ -189,6 +189,11 @@ int algebraic_integer_identities(int value)
     return (((value + 0) * 1) - 0) / 1;
 }
 
+int algebraic_integer_mod_one(int value)
+{
+    return value % 1;
+}
+
 int algebraic_integer_zero(int value)
 {
     return (value * 0) | 7;
@@ -217,6 +222,11 @@ unsigned int strength_reduce_unsigned_mod(unsigned int value)
 int preserved_algebraic_side_effect(int* value)
 {
     return (*value += 1) * 0;
+}
+
+int preserved_algebraic_mod_one_side_effect(int* value)
+{
+    return (*value += 1) % 1;
 }
 
 int removed_after_return(int* value)

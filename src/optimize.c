@@ -126,6 +126,14 @@ static bool simplify_integer_identity(Expr** expression) {
             *expression = left;
             return true;
         }
+        if (value->kind == EXPR_MOD && right_bits == 1u) {
+            if (expression_has_side_effect(left)) {
+                replace_integer_with_side_effect(expression, left);
+            } else {
+                replace_integer(value, 0);
+            }
+            return true;
+        }
         if (value->kind == EXPR_BITAND && right_bits == mask) {
             *expression = left;
             return true;
