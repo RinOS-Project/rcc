@@ -310,6 +310,71 @@ static void verify_first_frame_fde(const ObjSection* frame,
                          (uint8_t)(0xc0u + frame_register)));
 }
 
+static void verify_i686_aligned_frame_fde(const ObjSection* frame)
+{
+    uint32_t cie_length;
+    uint64_t fde_offset;
+    uint32_t fde_length;
+    uint64_t instruction_offset;
+    uint64_t instruction_end;
+
+    assert(frame != NULL && frame->size >= 8u);
+    cie_length = read_u32(frame->data, 0u);
+    assert(cie_length > 0u);
+    fde_offset = 4u + cie_length;
+    assert(fde_offset + 8u <= frame->size);
+    fde_length = read_u32(frame->data, fde_offset);
+    assert(fde_length >= 4u + 8u + 16u);
+    assert(fde_offset + 4u + fde_length <= frame->size);
+    assert(read_u32(frame->data, fde_offset + 4u) == 0u);
+    instruction_offset = fde_offset + 4u + 4u + 8u;
+    instruction_end = fde_offset + 4u + fde_length;
+    assert(instruction_offset + 16u <= instruction_end);
+    /* push ebp; the saved EBP is two words below the CFA. */
+    assert(frame->data[instruction_offset++] == 0x41u);
+    assert(frame->data[instruction_offset++] == 0x0eu);
+    assert(frame->data[instruction_offset++] == 0x08u);
+    assert(frame->data[instruction_offset++] == 0x85u);
+    assert(frame->data[instruction_offset++] == 1u);
+    /* The aligned copy sequence completes at offset 21. */
+    assert(frame->data[instruction_offset++] == 0x54u);
+    assert(frame->data[instruction_offset++] == 0x0cu);
+    assert(frame->data[instruction_offset++] == 0x04u);
+    assert(frame->data[instruction_offset++] == 0x08u);
+    /* mov ebp,esp: use the stable aligned frame register thereafter. */
+    assert(frame->data[instruction_offset++] == 0x42u);
+    assert(frame->data[instruction_offset++] == 0x0du);
+    assert(frame->data[instruction_offset++] == 0x05u);
+    assert(contains_byte_pair(frame->data + instruction_offset,
+                              instruction_end - instruction_offset,
+                              0x0du, 0x04u));
+    assert(contains_byte(frame->data + instruction_offset,
+                         instruction_end - instruction_offset, 0xc5u));
+}
+
+static void verify_aligned_debug_object(const char* path,
+                                        uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* line;
+    ObjSection* info;
+    ObjSection* frame;
+    assert(object != NULL && object->arch == architecture);
+    line = objfile_get_section(object, ".debug_line");
+    info = objfile_get_section(object, ".debug_info");
+    frame = objfile_get_section(object, ".debug_frame");
+    assert(line != NULL && info != NULL && frame != NULL);
+    assert(contains_bytes(line->data, line->size,
+                          "tests/debug_info_aligned.c"));
+    assert(frame->relocs != NULL && frame->size > 24u);
+    if (architecture == ARCH_X86) {
+        verify_i686_aligned_frame_fde(frame);
+    } else {
+        verify_first_frame_fde(frame, architecture);
+    }
+    objfile_free(object);
+}
+
 static uint64_t find_function_die(const ObjSection* info,
                                   const ObjSection* strings,
                                   const char* function_name,
@@ -539,7 +604,7 @@ static void verify_without_debug(const char* path)
 
 int main(int argc, char** argv)
 {
-    assert(argc == 5);
+    assert(argc == 7);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -549,5 +614,7 @@ int main(int argc, char** argv)
     verify_debug_object(argv[3], ARCH_X64, 0x0021u,
                         "tests/hello.cpp", "main", NULL);
     verify_without_debug(argv[4]);
+    verify_aligned_debug_object(argv[5], ARCH_X86);
+    verify_aligned_debug_object(argv[6], ARCH_X64);
     return 0;
 }

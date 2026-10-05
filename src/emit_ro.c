@@ -2691,17 +2691,54 @@ static void debug_frame_advance(ObjSection* section, uint64_t delta) {
     }
 }
 
-static bool debug_frame_has_standard_prologue(const Module* mod,
-                                              const ModuleSymbol* function) {
+typedef enum DebugFramePrologueKind {
+    DEBUG_FRAME_PROLOGUE_NONE = 0,
+    DEBUG_FRAME_PROLOGUE_STANDARD,
+    DEBUG_FRAME_PROLOGUE_I686_ALIGNED
+} DebugFramePrologueKind;
+
+static DebugFramePrologueKind debug_frame_prologue_kind(
+    const Module* mod, const ModuleSymbol* function) {
     static const uint8_t x86_prologue[] = {0x55u, 0x89u, 0xe5u};
     static const uint8_t x64_prologue[] = {0x55u, 0x48u, 0x89u, 0xe5u};
+    static const uint8_t i686_aligned_prefix[] = {
+        0x55u,                         /* push ebp */
+        0x8bu, 0x04u, 0x24u,          /* mov eax,[esp] */
+        0x8bu, 0x54u, 0x24u, 0x04u,   /* mov edx,[esp+4] */
+        0x81u, 0xe4u,                 /* and esp, immediate */
+        0x00u, 0x00u, 0x00u, 0x00u,   /* alignment mask */
+        0x89u, 0x04u, 0x24u,          /* mov [esp],eax */
+        0x89u, 0x54u, 0x24u, 0x04u,   /* mov [esp+4],edx */
+        0x89u, 0xe5u                  /* mov ebp,esp */
+    };
     const uint8_t* prologue = g_opts.target_arch == ARCH_X64
         ? x64_prologue : x86_prologue;
     size_t size = g_opts.target_arch == ARCH_X64
         ? sizeof(x64_prologue) : sizeof(x86_prologue);
-    if (!mod || !function || function->offset > mod->code.size ||
-        size > mod->code.size - function->offset) return false;
-    return memcmp(mod->code.data + function->offset, prologue, size) == 0;
+    if (!mod || !function || function->offset > mod->code.size) {
+        return DEBUG_FRAME_PROLOGUE_NONE;
+    }
+    if (g_opts.target_arch == ARCH_X86 &&
+        sizeof(i686_aligned_prefix) <= mod->code.size - function->offset) {
+        const uint8_t* code = mod->code.data + function->offset;
+        if (memcmp(code, i686_aligned_prefix, 10u) == 0 &&
+            code[14] == i686_aligned_prefix[14] &&
+            code[15] == i686_aligned_prefix[15] &&
+            code[16] == i686_aligned_prefix[16] &&
+            code[17] == i686_aligned_prefix[17] &&
+            code[18] == i686_aligned_prefix[18] &&
+            code[19] == i686_aligned_prefix[19] &&
+            code[20] == i686_aligned_prefix[20] &&
+            code[21] == i686_aligned_prefix[21] &&
+            code[22] == i686_aligned_prefix[22]) {
+            return DEBUG_FRAME_PROLOGUE_I686_ALIGNED;
+        }
+    }
+    if (size <= mod->code.size - function->offset &&
+        memcmp(mod->code.data + function->offset, prologue, size) == 0) {
+        return DEBUG_FRAME_PROLOGUE_STANDARD;
+    }
+    return DEBUG_FRAME_PROLOGUE_NONE;
 }
 
 static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
@@ -2723,7 +2760,8 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
             !symbol->source_file || symbol->source_file[0] == '\0' ||
             symbol->source_line == 0u ||
-            !debug_frame_has_standard_prologue(mod, symbol)) continue;
+            debug_frame_prologue_kind(mod, symbol) ==
+                DEBUG_FRAME_PROLOGUE_NONE) continue;
         functions[function_count++] = symbol;
     }
     if (function_count == 0) {
@@ -2765,11 +2803,15 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         uint64_t fde_offset = frame->size;
         uint64_t address_offset;
         uint32_t function_size = debug_function_size(mod, function);
+        DebugFramePrologueKind prologue_kind = debug_frame_prologue_kind(
+            mod, function);
         /* The location after the complete `mov fp, sp` instruction is the
          * first PC at which the frame register is the CFA base.  The x86
          * instruction is two bytes (89 e5), while the x64 form is three
          * bytes (48 89 e5). */
-        uint64_t prologue_after_fp = g_opts.target_arch == ARCH_X64 ? 4u : 3u;
+        uint64_t prologue_after_fp = prologue_kind ==
+            DEBUG_FRAME_PROLOGUE_I686_ALIGNED ? 23u
+            : g_opts.target_arch == ARCH_X64 ? 4u : 3u;
         uint64_t after_leave = function_size >= 1u
             ? (uint64_t)function_size - 1u : 0u;
 
@@ -2797,8 +2839,19 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         debug_line_uleb(frame, pointer_size * 2u);
         section_add_byte(frame, (uint8_t)(0x80u + frame_register));
         debug_line_uleb(frame, 1u);
-        /* mov fp, sp: subsequent locals use the stable frame register. */
-        debug_frame_advance(frame, prologue_after_fp - 1u);
+        if (prologue_kind == DEBUG_FRAME_PROLOGUE_I686_ALIGNED) {
+            /* The aligned i686 prologue copies the saved EBP and return
+             * address to the newly aligned stack before establishing EBP.
+             * Once those copies complete, the new ESP is a valid CFA base. */
+            debug_frame_advance(frame, 20u);
+            section_add_byte(frame, 0x0cu); /* DW_CFA_def_cfa */
+            debug_line_uleb(frame, stack_register);
+            debug_line_uleb(frame, pointer_size * 2u);
+            debug_frame_advance(frame, 2u);
+        } else {
+            /* mov fp, sp: subsequent locals use the stable frame register. */
+            debug_frame_advance(frame, prologue_after_fp - 1u);
+        }
         section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
         debug_line_uleb(frame, frame_register);
         if (after_leave > prologue_after_fp) {
