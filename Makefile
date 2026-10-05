@@ -9581,7 +9581,12 @@ endif
 test-bootstrap-stage2: test-bootstrap-execute
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage2)
 ifeq ($(OS),Windows_NT)
-	wsl.exe -d Ubuntu-24.04 bash -lc "set -e; cd $(WSL_RINCOMPILER_ROOT); for target in i686-unknown-rinos x86_64-unknown-rinos; do arch=$${target%%-*}; runner=$(BOOTSTRAP_ROOT)/execute/run-$$arch; image=$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin; for source in $(BOOTSTRAP_CORE_SRCS); do name=$${source##*/}; name=$${name%.c}; $$runner $$image rcc-stage1 --target $$target $(BOOTSTRAP_INCLUDES) -c -o $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro $$source; cmp $(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro; done; objects=; for name in $(BOOTSTRAP_RCC_OBJECTS); do objects=$$objects\ $(CURDIR)/$(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro; done; $(WSL_RINCOMPILER_ROOT)/rld.exe --target $$target --emit-unsigned-v3 --dep rincrt.rll $(BOOTSTRAP_RUNTIME_IMPORTS) -o $(CURDIR)/$(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin $$objects; cmp $(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin $(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin; done"
+# The i686 stage1 executable is a valid target image, but its 32-bit host
+# address space cannot rebuild the largest compiler translation unit.  Keep
+# i686 code generation in the stage2 target while running both rebuilds on the
+# x86_64 stage1 host; test-bootstrap-execute still validates native i686 image
+# execution separately.
+	wsl.exe -d Ubuntu-24.04 bash -lc "set -e; cd $(WSL_RINCOMPILER_ROOT); for target in i686-unknown-rinos x86_64-unknown-rinos; do arch=$${target%%-*}; runner=$(BOOTSTRAP_ROOT)/execute/run-x86_64; image=$(BOOTSTRAP_ROOT)/images/rcc-stage1-a-x86_64.rin; for source in $(BOOTSTRAP_CORE_SRCS); do name=$${source##*/}; name=$${name%.c}; $$runner $$image rcc-stage1 --target $$target $(BOOTSTRAP_INCLUDES) -c -o $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro $$source; cmp $(BOOTSTRAP_ROOT)/stage1-a/$$name-$$arch.ro $(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro; done; objects=; for name in $(BOOTSTRAP_RCC_OBJECTS); do objects=$$objects\ $(CURDIR)/$(BOOTSTRAP_ROOT)/stage2/$$name-$$arch.ro; done; $(WSL_RINCOMPILER_ROOT)/rld.exe --target $$target --emit-unsigned-v3 --dep rincrt.rll $(BOOTSTRAP_RUNTIME_IMPORTS) -o $(CURDIR)/$(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin $$objects; cmp $(BOOTSTRAP_ROOT)/images/rcc-stage1-a-$$arch.rin $(BOOTSTRAP_ROOT)/images/rcc-stage2-$$arch.rin; done"
 else
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
