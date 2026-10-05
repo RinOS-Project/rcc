@@ -743,6 +743,20 @@ static RccIrLowerValue lower_lvalue_address(
                 lower_value(local->address, rcc_ir_type_pointer(0u), true),
                 expression->ident_decl->type);
         }
+        if (local->wide_ssa && lower_i686_wide_scalar_type(
+                expression->ident_decl ? expression->ident_decl->type : NULL)) {
+            RccIrLowerValue address = lower_value(
+                local->address, rcc_ir_type_pointer(0u), true);
+            /* An address escape invalidates the pair as an SSA source.  Keep
+             * the stack mirror coherent before returning it so calls and
+             * pointer expressions observe the current two-word value. */
+            if (!lower_wide_scalar_store(
+                    context, address, local->wide_value)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            local->wide_ssa = false;
+        }
         return lower_value(local->address, rcc_ir_type_pointer(0u), true);
     }
     if (expression->kind == EXPR_CAST && expression->type &&
@@ -5385,7 +5399,7 @@ static bool lower_declaration(RccIrLowerContext* context,
         declaration->type->kind == TYPE_UNION;
     bool wide_scalar = declaration &&
         lower_i686_wide_scalar_type(declaration->type);
-    bool wide_ssa = wide_scalar && declaration->type->is_const &&
+    bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
         declaration->var_init != NULL;
     if (!declaration || declaration->kind != DECL_VAR ||
         declaration->var_is_global || declaration->var_is_thread_local ||
@@ -6324,7 +6338,7 @@ static bool lower_parameters(RccIrLowerContext* context,
                 if (!address.valid || !lower_store_address(
                         context, address, value)) return false;
             }
-            if (item->type->is_const) {
+            if (item->type->is_const && !item->type->is_volatile) {
                 RccIrLowerWideValue value;
                 value.low = lower_value(
                     context->function->parameters[index],

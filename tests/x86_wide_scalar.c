@@ -33,6 +33,16 @@ u64 abi_wide_local(u64 value) {
     return local;
 }
 
+u64 abi_wide_ssa_add(u64 value) {
+    u64 local = value;
+    return local + (u64)1;
+}
+
+u64 abi_wide_ssa_address(u64 value) {
+    u64 local = value;
+    return *(&local);
+}
+
 u64 abi_wide_assign(u64 value) {
     u64 local = 0;
     local = value;
