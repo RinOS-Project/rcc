@@ -594,6 +594,10 @@
 - [x] Make native Windows VLA goto/array-parameter semantic diagnostics use
       the shared expected-failure and fixed-string matcher helpers, preserving
       complete native compiler error lines.
+- [x] Make native Windows preprocessing, old-style C, parenthesized C++ array-
+      new, and C parser-recovery negative gates preserve complete diagnostics
+      through the shared expected-failure/text-matcher helpers or separate
+      stdout/stderr files; keep the parser-recovery process bounded.
 - [x] Make native Windows VLA declarator-variant and static-local runtime
       gates execute generated i686/x86_64 code through freestanding `main`
       entries without WSL, while retaining RIN emission and validation.

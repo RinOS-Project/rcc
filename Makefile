@@ -60,7 +60,7 @@ endif
 
 ifeq ($(OS),Windows_NT)
 DATE_TIME_ENV = set SOURCE_DATE_EPOCH=0&&
-DATE_TIME_INVALID = powershell -NoProfile -Command "$$env:SOURCE_DATE_EPOCH='not-a-timestamp'; & './rcc.exe' -E 'tests/preprocessor_date_time.c' *> '$(TEST_OUT)/preprocessor-date-time/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+DATE_TIME_INVALID = set SOURCE_DATE_EPOCH=not-a-timestamp&& $(call EXPECT_FAILURE,$(RCC_TARGET) -E tests/preprocessor_date_time.c,$(TEST_OUT)/preprocessor-date-time/invalid.log)
 else
 DATE_TIME_ENV = SOURCE_DATE_EPOCH=0
 DATE_TIME_INVALID = if SOURCE_DATE_EPOCH=not-a-timestamp $(RCC_TARGET) -E tests/preprocessor_date_time.c >$(TEST_OUT)/preprocessor-date-time/invalid.log 2>&1; then exit 1; fi
@@ -715,8 +715,8 @@ test-c-old-style: $(RCC_TARGET)
 		-o $(TEST_OUT)/c-old-style/x86.ro tests/c_old_style.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/c-old-style/x64.ro tests/c_old_style.c
-	powershell -NoProfile -Command "& './rcc.exe' --target i686-unknown-rinos -std=c17 -c -o '$(TEST_OUT)/c-old-style/invalid.ro' tests/c_old_style_invalid.c *> '$(TEST_OUT)/c-old-style/invalid.log'; if ($$LASTEXITCODE -eq 0) { Write-Error 'invalid old-style parameter declaration unexpectedly compiled'; exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'old-style parameter declaration names an unknown parameter' -Path '$(TEST_OUT)/c-old-style/invalid.log')) { exit 1 }"
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c-old-style/invalid.ro tests/c_old_style_invalid.c,$(TEST_OUT)/c-old-style/invalid.log)
+	$(GREP) -F -q "old-style parameter declaration names an unknown parameter" $(TEST_OUT)/c-old-style/invalid.log
 	@echo "C17 old-style function declaration tests completed"
 
 test-cxx-multi-declarator: $(RCXX_TARGET)
@@ -2103,8 +2103,8 @@ test-cxx-new-array: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-new-array/constructor-x64.s
 	$(TEST_OUT)/cxx-new-array/constructor-run-test
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& '.\$(RCXX_TARGET)' --target x86_64-unknown-rinos -std=c++20 -c -o '$(TEST_OUT)/cxx-new-array/invalid.ro' tests/cxx_new_array_parenthesized_rejected.cpp *> '$(TEST_OUT)/cxx-new-array/invalid.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "if (-not (Select-String -SimpleMatch -Quiet 'array new element initializers require braces' '$(TEST_OUT)/cxx-new-array/invalid.log')) { exit 1 }"
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-new-array/invalid.ro tests/cxx_new_array_parenthesized_rejected.cpp,$(TEST_OUT)/cxx-new-array/invalid.log)
+	$(GREP) -F -q "array new element initializers require braces" $(TEST_OUT)/cxx-new-array/invalid.log
 else
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-new-array/invalid.ro \
@@ -9881,7 +9881,7 @@ endif
 test-parser-recovery: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/parser-recovery)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -c -o '$(TEST_OUT)/parser-recovery/invalid.ro' tests/parser_recovery.c *> '$(TEST_OUT)/parser-recovery/invalid.log'; if ($$LASTEXITCODE -eq 0) { Write-Error 'parser recovery fixture unexpectedly compiled'; exit 1 } else { exit 0 }"
+	powershell -NoProfile -Command "$$out='$(TEST_OUT)/parser-recovery/invalid.log'; $$err='$(TEST_OUT)/parser-recovery/invalid.err'; $$p=Start-Process -FilePath './rcc.exe' -ArgumentList '--target','x86_64-unknown-rinos','-c','-o','$(TEST_OUT)/parser-recovery/invalid.ro','tests/parser_recovery.c' -RedirectStandardOutput $$out -RedirectStandardError $$err -PassThru; Wait-Process -Id $$p.Id -Timeout 10 -ErrorAction SilentlyContinue | Out-Null; $$p.Refresh(); if (-not $$p.HasExited) { Stop-Process -Id $$p.Id -Force -ErrorAction SilentlyContinue; Write-Error 'parser recovery timed out'; exit 1 }; Get-Content $$err | Add-Content $$out; if ($$p.ExitCode -eq 0) { Write-Error 'parser recovery fixture unexpectedly compiled'; exit 1 }"
 else
 	@set +e; timeout 10s $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/parser-recovery/invalid.ro \
