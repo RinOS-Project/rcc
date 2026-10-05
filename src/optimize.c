@@ -63,7 +63,10 @@ static bool while_body_constant_step(const Stmt* body, const Decl* induction,
                                      int* step);
 static bool unroll_constant_loop(Stmt* statement, unsigned count);
 
-enum { INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64 };
+enum {
+    INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64,
+    INLINE_SCALAR_BINDING_LIMIT = 16
+};
 
 static void replace_integer_with_side_effect(Expr** expression,
                                               Expr* side_effect) {
@@ -277,21 +280,64 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     return true;
 }
 
-static const Expr* single_return_expression(const Stmt* statement) {
-    const StmtList* item;
-    if (!statement) return NULL;
-    if (statement->kind == STMT_RETURN) return statement->return_val;
-    if (statement->kind != STMT_BLOCK) return NULL;
-    item = statement->block_stmts;
-    if (!item || !item->stmt || item->next) return NULL;
-    return single_return_expression(item->stmt);
-}
-
 typedef struct InlineScalarBinding {
     const Decl* parameter;
     Expr* argument;
     size_t uses;
 } InlineScalarBinding;
+
+/* Keep the multi-statement inline shape deliberately narrow.  A block may
+ * contain only scalar, non-volatile automatic declarations with pure
+ * initializers followed by one return.  This lets a small wrapper such as
+ * `int f(int x) { int y = x + 1; return y * 2; }` be expanded without
+ * pretending that arbitrary control flow, cleanup, or lifetime-sensitive
+ * objects are safe to clone into the caller. */
+static bool collect_inline_scalar_body(
+    const Stmt* body, const Decl** locals, const Expr** initializers,
+    size_t* local_count, const Expr** returned) {
+    const StmtList* item;
+    if (!locals || !initializers || !local_count || !returned || !body) {
+        return false;
+    }
+    *local_count = 0u;
+    *returned = NULL;
+    if (body->kind == STMT_RETURN) {
+        *returned = body->return_val;
+        return *returned != NULL;
+    }
+    if (body->kind != STMT_BLOCK) return false;
+    for (item = body->block_stmts; item; item = item->next) {
+        const Stmt* statement = item->stmt;
+        if (!statement) return false;
+        if (statement->kind == STMT_DECL) {
+            const Decl* declaration = statement->decl;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                *returned != NULL ||
+                declaration->var_is_global ||
+                declaration->var_is_static_local ||
+                declaration->var_is_thread_local || declaration->var_is_vla ||
+                !declaration->name || declaration->name[0] == '\0' ||
+                !declaration->type || declaration->type->is_volatile ||
+                !type_is_scalar(declaration->type) ||
+                !declaration->var_init || declaration->var_cleanup ||
+                declaration->var_cleanups ||
+                *local_count >= INLINE_SCALAR_BINDING_LIMIT) {
+                return false;
+            }
+            locals[*local_count] = declaration;
+            initializers[*local_count] = declaration->var_init;
+            ++*local_count;
+            continue;
+        }
+        if (statement->kind == STMT_RETURN) {
+            if (*returned != NULL || !statement->return_val) return false;
+            *returned = statement->return_val;
+            continue;
+        }
+        return false;
+    }
+    return *returned != NULL;
+}
 
 static size_t inline_scalar_binding_index(
     const Decl* declaration, const InlineScalarBinding* bindings,
@@ -308,7 +354,7 @@ static bool inline_scalar_expression_shape(
     const Expr* expression, InlineScalarBinding* bindings,
     size_t binding_count) {
     size_t binding_index;
-    if (!expression || !bindings || binding_count == 0u) return false;
+    if (!expression || (!bindings && binding_count != 0u)) return false;
     switch (expression->kind) {
         case EXPR_INT_LIT:
         case EXPR_FLOAT_LIT:
@@ -713,9 +759,12 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     DeclList* parameters;
     ExprList* arguments;
     const Expr* returned;
-    InlineScalarBinding bindings[8];
+    const Decl* local_declarations[INLINE_SCALAR_BINDING_LIMIT];
+    const Expr* local_initializers[INLINE_SCALAR_BINDING_LIMIT];
+    InlineScalarBinding bindings[INLINE_SCALAR_BINDING_LIMIT];
     size_t binding_count = 0u;
     size_t parameter_count = 0u;
+    size_t local_count = 0u;
     size_t index;
     if (!expression_out || !*expression_out) return false;
     expression = *expression_out;
@@ -735,62 +784,69 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         function->func_this_param != NULL || !type_is_scalar(expression->type)) {
         return false;
     }
+    if (!collect_inline_scalar_body(function->func_body, local_declarations,
+                                    local_initializers, &local_count,
+                                    &returned)) {
+        return false;
+    }
     parameters = function->func_params;
     arguments = expression->call_args;
-    if (!parameters) {
-        Expr* clone;
-        returned = single_return_expression(function->func_body);
-        if (arguments != NULL || !returned ||
-            !type_is_scalar(returned->type) ||
-            !type_is_compatible(returned->type, expression->type) ||
-            inline_pure_scalar_expression_cost(returned) == (size_t)-1 ||
-            inline_pure_scalar_expression_cost(returned) >
-                INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
-            return false;
-        }
-        clone = clone_inline_pure_scalar_expression(returned);
-        if (!clone) return false;
-        clone->type = expression->type;
-        *expression_out = clone;
-        optimize_inline_changed = true;
-        return true;
-    }
     for (DeclList* parameter = parameters; parameter;
          parameter = parameter->next) {
         ++parameter_count;
     }
-    if (parameter_count == 0u || parameter_count > 8u) return false;
-    for (index = 0u; index < parameter_count; ++index) {
-        DeclList* parameter = parameters;
-        ExprList* argument = arguments;
-        size_t offset;
-        for (offset = 0u; offset < index; ++offset) {
-            parameter = parameter->next;
-            argument = argument ? argument->next : NULL;
+    if (parameter_count > INLINE_SCALAR_BINDING_LIMIT) return false;
+    if (parameter_count == 0u) {
+        if (arguments != NULL) return false;
+    } else {
+        for (index = 0u; index < parameter_count; ++index) {
+            DeclList* parameter = parameters;
+            ExprList* argument = arguments;
+            size_t offset;
+            for (offset = 0u; offset < index; ++offset) {
+                parameter = parameter->next;
+                argument = argument ? argument->next : NULL;
+            }
+            if (!parameter || !parameter->decl || !argument ||
+                !argument->expr || parameter->decl->kind != DECL_PARAM ||
+                !type_is_scalar(parameter->decl->type) ||
+                !type_is_compatible(parameter->decl->type,
+                                    argument->expr->type) ||
+                expression_has_side_effect(argument->expr)) {
+                return false;
+            }
+            bindings[binding_count].parameter = parameter->decl;
+            bindings[binding_count].argument = argument->expr;
+            bindings[binding_count].uses = 0u;
+            ++binding_count;
         }
-        if (!parameter || !parameter->decl || !argument || !argument->expr ||
-            parameter->decl->kind != DECL_PARAM ||
-            !type_is_scalar(parameter->decl->type) ||
-            !type_is_compatible(parameter->decl->type, argument->expr->type) ||
-            expression_has_side_effect(argument->expr)) {
-            return false;
-        }
-        bindings[binding_count].parameter = parameter->decl;
-        bindings[binding_count].argument = argument->expr;
-        bindings[binding_count].uses = 0u;
-        ++binding_count;
     }
-    {
+    if (parameter_count != 0u) {
         ExprList* extra_argument = arguments;
         for (index = 0u; index < parameter_count && extra_argument;
              ++index, extra_argument = extra_argument->next) {
         }
         if (extra_argument) return false;
     }
-    returned = single_return_expression(function->func_body);
+    for (index = 0u; index < local_count; ++index) {
+        const Decl* local = local_declarations[index];
+        const Expr* initializer = local_initializers[index];
+        if (binding_count >= INLINE_SCALAR_BINDING_LIMIT ||
+            !type_is_compatible(local->type, initializer->type) ||
+            expression_has_side_effect(initializer) ||
+            !inline_scalar_expression_shape(initializer, bindings,
+                                             binding_count)) {
+            return false;
+        }
+        bindings[binding_count].parameter = local;
+        bindings[binding_count].argument = (Expr*)initializer;
+        bindings[binding_count].uses = 0u;
+        ++binding_count;
+    }
     if (!returned || !type_is_scalar(returned->type) ||
         !type_is_compatible(returned->type, expression->type) ||
-        !inline_scalar_expression_shape(returned, bindings, binding_count)) {
+        !inline_scalar_expression_shape(returned, bindings, binding_count) ||
+        expression_has_side_effect(returned)) {
         return false;
     }
     for (index = 0u; index < binding_count; ++index) {
@@ -838,8 +894,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         }
     }
     {
-        Expr* clone = clone_inline_scalar_expression(
-            returned, bindings, binding_count);
+        Expr* clone = binding_count == 0u
+            ? clone_inline_pure_scalar_expression(returned)
+            : clone_inline_scalar_expression(returned, bindings,
+                                             binding_count);
         if (!clone) return false;
         clone->type = expression->type;
         *expression_out = clone;

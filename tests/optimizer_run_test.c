@@ -102,6 +102,18 @@ static void verify_smaller(const char* unoptimized_path,
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_argument_call",
                                    0xe8u));
+    assert(function_contains_byte(unoptimized,
+                                  "inlined_local_temporary_call", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_local_temporary_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "inlined_two_local_temporaries_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_two_local_temporaries_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_local_side_effect_call", 0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_local_side_effect_call", 0xe8u));
     assert(function_contains_byte(unoptimized, "inlined_forward_chain",
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_forward_chain",
@@ -329,6 +341,12 @@ int main(int argc, char** argv)
             object, "strength_reduce_unsigned_mod");
         ObjSymbol* inlined_argument_call_symbol = function_symbol(
             object, "inlined_argument_call");
+        ObjSymbol* inlined_local_temporary_call_symbol = function_symbol(
+            object, "inlined_local_temporary_call");
+        ObjSymbol* inlined_two_local_temporaries_call_symbol = function_symbol(
+            object, "inlined_two_local_temporaries_call");
+        ObjSymbol* preserved_local_side_effect_call_symbol = function_symbol(
+            object, "preserved_local_side_effect_call");
         ObjSymbol* inlined_repeated_argument_call_symbol = function_symbol(
             object, "inlined_repeated_argument_call");
         ObjSymbol* inlined_repeated_complex_argument_call_symbol =
@@ -429,6 +447,9 @@ int main(int argc, char** argv)
         uint32_t (*strength_reduce_unsigned_div)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         int (*inlined_argument_call)(int);
+        int (*inlined_local_temporary_call)(int);
+        int (*inlined_two_local_temporaries_call)(int, int);
+        int (*preserved_local_side_effect_call)(volatile int*);
         int (*inlined_repeated_argument_call)(int);
         int (*inlined_repeated_complex_argument_call)(int);
         int (*inlined_conditional_cast_call)(int);
@@ -560,6 +581,15 @@ int main(int argc, char** argv)
         address = mapping + inlined_argument_call_symbol->value;
         memcpy(&inlined_argument_call, &address,
                sizeof(inlined_argument_call));
+        address = mapping + inlined_local_temporary_call_symbol->value;
+        memcpy(&inlined_local_temporary_call, &address,
+               sizeof(inlined_local_temporary_call));
+        address = mapping + inlined_two_local_temporaries_call_symbol->value;
+        memcpy(&inlined_two_local_temporaries_call, &address,
+               sizeof(inlined_two_local_temporaries_call));
+        address = mapping + preserved_local_side_effect_call_symbol->value;
+        memcpy(&preserved_local_side_effect_call, &address,
+               sizeof(preserved_local_side_effect_call));
         address = mapping + inlined_repeated_argument_call_symbol->value;
         memcpy(&inlined_repeated_argument_call, &address,
                sizeof(inlined_repeated_argument_call));
@@ -826,6 +856,14 @@ int main(int argc, char** argv)
         assert(strength_reduce_unsigned_div(123u) == 15u);
         assert(strength_reduce_unsigned_mod(123u) == 3u);
         assert(inlined_argument_call(-8) == -7);
+        assert(inlined_local_temporary_call(-8) == -10);
+        assert(inlined_two_local_temporaries_call(-8, 13) == 11);
+        {
+            volatile int local_side_effect_value = 10;
+            assert(preserved_local_side_effect_call(
+                       &local_side_effect_value) == 11);
+            assert(local_side_effect_value == 10);
+        }
         assert(inlined_repeated_argument_call(-8) == -16);
         assert(inlined_repeated_complex_argument_call(-8) == -46);
         assert(inlined_conditional_cast_call(-8) == 8);

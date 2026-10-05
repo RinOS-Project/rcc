@@ -70,6 +70,40 @@ int inlined_argument_call(int value)
     return inline_add_one(value);
 }
 
+static int inline_local_temporary(int value)
+{
+    int adjusted = value + 3;
+    return adjusted * 2;
+}
+
+int inlined_local_temporary_call(int value)
+{
+    return inline_local_temporary(value);
+}
+
+static int inline_two_local_temporaries(int left, int right)
+{
+    int sum = left + right;
+    int shifted = sum << 1;
+    return shifted + 1;
+}
+
+int inlined_two_local_temporaries_call(int left, int right)
+{
+    return inline_two_local_temporaries(left, right);
+}
+
+static int inline_local_side_effect(volatile int* value)
+{
+    int loaded = *value;
+    return loaded + 1;
+}
+
+int preserved_local_side_effect_call(volatile int* value)
+{
+    return inline_local_side_effect(value);
+}
+
 static int inline_forward_wrapper(int value);
 static int inline_forward_leaf(int value);
 
