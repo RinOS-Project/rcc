@@ -539,9 +539,31 @@ static char* normalize_source_newlines(const char* source) {
 }
 
 /* Find include file */
+static bool include_path_contains_file(const char* include_path,
+                                       const char* current_file) {
+    size_t path_length;
+
+    if (!include_path || !current_file || !*include_path ||
+        strcmp(include_path, ".") == 0) {
+        return false;
+    }
+    path_length = strlen(include_path);
+    if (strncmp(include_path, current_file, path_length) != 0) {
+        return false;
+    }
+    return current_file[path_length] == '/' ||
+           current_file[path_length] == '\\';
+}
+
+/* Find an include file.  For #include_next, resume after the include-path
+ * directory that supplied the current file.  The current-file directory and
+ * final working-directory fallback are intentionally skipped so a wrapper
+ * cannot include itself again through an accidental search restart. */
 static char* find_include(Preprocessor* pp, const char* name, const char* current_file,
-                          bool is_system, char* resolved, size_t resolved_size) {
+                          bool is_system, bool include_next,
+                          char* resolved, size_t resolved_size) {
     char path[RCC_MAX_PATH];
+    int include_path_start = 0;
 
     if (!resolved || resolved_size == 0u) {
         rcc_fatal("preprocessor include path has no output buffer");
@@ -555,8 +577,18 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
         }                                                                          \
     } while (0)
 
-    /* For quoted includes, first search relative to current file */
-    if (!is_system && current_file) {
+    if (include_next && current_file) {
+        for (int i = 0; i < pp->include_path_count; ++i) {
+            if (include_path_contains_file(pp->include_paths[i],
+                                           current_file)) {
+                include_path_start = i + 1;
+                break;
+            }
+        }
+    }
+
+    /* For quoted includes, first search relative to current file. */
+    if (!include_next && !is_system && current_file) {
         const char* last_sep = strrchr(current_file, '/');
         if (!last_sep) last_sep = strrchr(current_file, '\\');
         if (last_sep) {
@@ -577,7 +609,7 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
     }
 
     /* Search include paths */
-    for (int i = 0; i < pp->include_path_count; i++) {
+    for (int i = include_path_start; i < pp->include_path_count; i++) {
         size_t dir_len = strlen(pp->include_paths[i]);
         size_t name_len = strlen(name);
         if (dir_len >= sizeof(path) - 1u ||
@@ -594,7 +626,8 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
         }
     }
 
-    /* Try current directory */
+    /* Try current directory for ordinary includes only. */
+    if (include_next) return NULL;
     if (strlen(name) >= sizeof(path)) {
         rcc_fatal("include path is too long");
     }
@@ -615,7 +648,7 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
 static bool pp_has_include(Preprocessor* pp, const char* name,
                            bool is_system) {
     char resolved[RCC_MAX_PATH];
-    char* content = find_include(pp, name, pp->current_file, is_system,
+    char* content = find_include(pp, name, pp->current_file, is_system, false,
                                  resolved, sizeof(resolved));
     if (!content) return false;
     rcc_free(content);
@@ -1797,7 +1830,11 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     p = read_ident(p, directive, sizeof(directive));
     p = skip_ws(p);
 
-    if (strcmp(directive, "include") == 0) {
+    if (strcmp(directive, "include") == 0 ||
+        strcmp(directive, "include_next") == 0) {
+        bool include_next = strcmp(directive, "include_next") == 0;
+        const char* include_directive = include_next
+            ? "#include_next" : "#include";
         if (!pp_is_active(pp)) {
             return skip_to_eol(p);
         }
@@ -1822,7 +1859,8 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         bool include_closed = false;
         if (*include_start != '<' && *include_start != '"') {
             rcc_error((SourceLoc){filename, source_line, 0},
-                      "#include expects a quoted or angle-bracket path");
+                      "%s expects a quoted or angle-bracket path",
+                      include_directive);
             rcc_free(expanded_include);
             return original_end;
         }
@@ -1830,22 +1868,24 @@ static const char* process_directive(Preprocessor* pp, const char* p,
             include_start, inc_name, sizeof(inc_name), delim, &include_closed);
         if (!include_closed) {
             rcc_error((SourceLoc){filename, source_line, 0},
-                      "unterminated #include path");
+                      "unterminated %s path", include_directive);
             rcc_free(expanded_include);
             return original_end;
         }
         if (*skip_ws(include_end) != '\0') {
             rcc_error((SourceLoc){filename, source_line, 0},
-                      "unexpected tokens after #include path");
+                      "unexpected tokens after %s path", include_directive);
             rcc_free(expanded_include);
             return original_end;
         }
 
         char resolved[RCC_MAX_PATH];
         char* content = find_include(pp, inc_name, filename, is_system,
+                                     include_next,
                                      resolved, sizeof(resolved));
         if (!content) {
-            rcc_error((SourceLoc){filename, 0, 0}, "cannot find include file: %s", inc_name);
+            rcc_error((SourceLoc){filename, 0, 0},
+                      "cannot find %s file: %s", include_directive, inc_name);
             rcc_free(expanded_include);
             return original_end;
         }

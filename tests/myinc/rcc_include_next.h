@@ -1,0 +1,1 @@
+#define RCC_INCLUDE_NEXT_SECOND 31

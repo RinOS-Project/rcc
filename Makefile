@@ -413,7 +413,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-string-embedded-nul
 .PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-attributes test-preprocessor-cxx-features test-universal-character-identifiers
 .PHONY: test-preprocessor-line-macro
-.PHONY: test-preprocessor-include
+.PHONY: test-preprocessor-include test-preprocessor-include-next
 .PHONY: test-cxx-predefined-function-identifiers
 .PHONY: test-cxx-class-template-deduction test-cxx-aggregate-paren-init
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
@@ -434,6 +434,7 @@ CXX_REGRESSION_TARGETS = \
 	test-preprocessor-date-time \
 	test-preprocessor-standard-macros \
 	test-preprocessor-include \
+	test-preprocessor-include-next \
 	test-preprocessor-line-macro \
 	test-multiple-inputs \
 	test-cxx-language-core \
@@ -590,6 +591,7 @@ CXX_REGRESSION_TARGETS = \
 # conformance claim auditable rather than compile-only.
 C17_REGRESSION_TARGETS = \
 	test-preprocessor-continuation \
+	test-preprocessor-include-next \
 	test-preprocessor-if \
 	test-preprocessor-operators \
 	test-preprocessor-va-opt \
@@ -8291,6 +8293,34 @@ test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'unexpected tokens after #include path' \
 		$(TEST_OUT)/invalid-preprocessor-include.log
 	@echo "C17/C++20 macro-expanded #include tests completed"
+
+test-preprocessor-include-next: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT))
+	$(RCC_TARGET) -E -Itests/include -Itests/myinc \
+		tests/preprocessor_include_next.c > \
+		$(TEST_OUT)/preprocessor-include-next-c.i
+	$(GREP) -F -q 'return 11 + 31' \
+		$(TEST_OUT)/preprocessor-include-next-c.i
+	$(RCXX_TARGET) -std=c++20 -E -Itests/include -Itests/myinc \
+		tests/preprocessor_include_next.cpp > \
+		$(TEST_OUT)/preprocessor-include-next-cxx.i
+	$(GREP) -F -q 'return 11 + 31' \
+		$(TEST_OUT)/preprocessor-include-next-cxx.i
+	$(RCC_TARGET) --target i686-unknown-rinos -Itests/include -Itests/myinc -c \
+		-o $(TEST_OUT)/preprocessor-include-next-c-x86.ro \
+		tests/preprocessor_include_next.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -Itests/include -Itests/myinc -c \
+		-o $(TEST_OUT)/preprocessor-include-next-c-x64.ro \
+		tests/preprocessor_include_next.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-Itests/include -Itests/myinc -c \
+		-o $(TEST_OUT)/preprocessor-include-next-cxx-x86.ro \
+		tests/preprocessor_include_next.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-Itests/include -Itests/myinc -c \
+		-o $(TEST_OUT)/preprocessor-include-next-cxx-x64.ro \
+		tests/preprocessor_include_next.cpp
+	@echo "C17/C++20 #include_next tests completed"
 
 test-preprocessor-line-macro: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
