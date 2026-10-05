@@ -554,6 +554,10 @@
       generation, invalid-varargs diagnostics, and the POSIX object-loader
       path; route the invalid case through the shared `EXPECT_FAILURE` and
       text-matcher helpers so native PowerShell does not wrap diagnostics.
+- [x] Make the native Windows inline-asm constraint gate route both expected
+      failures through the shared `EXPECT_FAILURE` helper without a multiline
+      `cmd.exe if` wrapper, so every diagnostic is executed and matched on
+      both i686 and x86_64.
 - [x] Make the native Windows scalar-comparison and scalar-truth gate execute
       real i686/x86_64 RCC output through freestanding `main` entries, while
       retaining `.ro` generation, invalid-comparison diagnostics, and the
