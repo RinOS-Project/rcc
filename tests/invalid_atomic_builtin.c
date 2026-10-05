@@ -1,5 +1,17 @@
 #include <stdint.h>
 
+int invalid_always_lock_free_nonconstant(unsigned size) {
+    return __atomic_always_lock_free(size, (void*)0);
+}
+
+int invalid_lock_free_size_type(void) {
+    return __atomic_is_lock_free("size", (void*)0);
+}
+
+int invalid_lock_free_pointer_type(unsigned size, int value) {
+    return __atomic_is_lock_free(size, value);
+}
+
 uint64_t unsupported_wide_atomic(volatile uint64_t* value) {
     return __atomic_fetch_add(value, 1u, __ATOMIC_RELAXED);
 }

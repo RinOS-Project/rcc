@@ -1,6 +1,22 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
+int atomic_always_lock_free_byte_value(void) {
+    return __atomic_always_lock_free(1, (void*)0);
+}
+
+int atomic_always_lock_free_three_value(void) {
+    return __atomic_always_lock_free(3, (void*)0);
+}
+
+int atomic_is_lock_free_value(unsigned size) {
+    return __atomic_is_lock_free(size, (void*)0);
+}
+
+int atomic_is_lock_free_side_effect_value(unsigned size, int** cursor) {
+    return __atomic_is_lock_free(size, (*cursor)++);
+}
+
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2,
                "32-bit integer atomics must be lock-free");
 _Static_assert(ATOMIC_CHAR_LOCK_FREE == 2,

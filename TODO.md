@@ -652,3 +652,8 @@
       `.data`, ABS32 relocations, global storage, and all exported ABI symbols
       through an explicit inspect mode, while retaining native i686 execution
       on hosts that provide a 32-bit runtime.
+- [x] Implement GCC-compatible `__atomic_always_lock_free` and
+      `__atomic_is_lock_free` queries for 1/2/4/8-byte lock-free widths on
+      i686/AMD64, preserving ignored-pointer side effects, validating C/C++
+      argument types and constant requirements, and executing the generated
+      queries through the atomic-builtin gate for both targets.

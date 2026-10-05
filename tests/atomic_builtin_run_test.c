@@ -104,6 +104,9 @@ static int section_contains(const ObjSection* section,
  #define RCC_SYSV_ABI
  #endif
 typedef uint32_t (RCC_SYSV_ABI *atomic_load_fn)(volatile uint32_t*);
+typedef int (RCC_SYSV_ABI *atomic_lock_free_constant_fn)(void);
+typedef int (RCC_SYSV_ABI *atomic_lock_free_size_fn)(unsigned);
+typedef int (RCC_SYSV_ABI *atomic_lock_free_side_effect_fn)(unsigned, int**);
 typedef void (RCC_SYSV_ABI *atomic_store_fn)(volatile uint32_t*, uint32_t);
 typedef uint32_t (RCC_SYSV_ABI *atomic_binary_fn)(volatile uint32_t*, uint32_t);
 typedef int (RCC_SYSV_ABI *atomic_compare_bool_fn)(volatile uint32_t*, uint32_t, uint32_t);
@@ -244,6 +247,10 @@ int main(int argc, char** argv) {
     size_t mapping_size;
     uint8_t* mapping;
     atomic_load_fn atomic_load;
+    atomic_lock_free_constant_fn atomic_always_lock_free_byte;
+    atomic_lock_free_constant_fn atomic_always_lock_free_three;
+    atomic_lock_free_size_fn atomic_is_lock_free;
+    atomic_lock_free_side_effect_fn atomic_is_lock_free_side_effect;
     atomic_binary_fn atomic_dynamic_load;
     atomic_store_fn atomic_store;
     atomic_binary_fn atomic_exchange;
@@ -364,6 +371,14 @@ int main(int argc, char** argv) {
     assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
 
     LOAD_FUNCTION(atomic_load, object, mapping, "atomic_load_value");
+    LOAD_FUNCTION(atomic_always_lock_free_byte, object, mapping,
+                  "atomic_always_lock_free_byte_value");
+    LOAD_FUNCTION(atomic_always_lock_free_three, object, mapping,
+                  "atomic_always_lock_free_three_value");
+    LOAD_FUNCTION(atomic_is_lock_free, object, mapping,
+                  "atomic_is_lock_free_value");
+    LOAD_FUNCTION(atomic_is_lock_free_side_effect, object, mapping,
+                  "atomic_is_lock_free_side_effect_value");
     LOAD_FUNCTION(atomic_dynamic_load, object, mapping,
                   "atomic_dynamic_load_value");
     LOAD_FUNCTION(atomic_store, object, mapping, "atomic_store_value");
@@ -531,6 +546,19 @@ int main(int argc, char** argv) {
 #endif
     assert(atomic_nand_fetch(&value, UINT32_C(0xffffffff)) == 10u &&
            value == 10u);
+    assert(atomic_always_lock_free_byte() == 1);
+    assert(atomic_always_lock_free_three() == 0);
+    assert(atomic_is_lock_free(1u) == 1);
+    assert(atomic_is_lock_free(2u) == 1);
+    assert(atomic_is_lock_free(4u) == 1);
+    assert(atomic_is_lock_free(8u) == 1);
+    assert(atomic_is_lock_free(3u) == 0);
+    assert(atomic_is_lock_free(16u) == 0);
+    {
+        int* cursor = (int*)0x1000;
+        assert(atomic_is_lock_free_side_effect(4u, &cursor) == 1);
+        assert(cursor == (int*)0x1004);
+    }
 #if defined(__x86_64__)
     {
         volatile int32_t signed32 = -1;

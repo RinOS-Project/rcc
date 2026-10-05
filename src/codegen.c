@@ -5259,6 +5259,57 @@ static bool atomic_bitwise_returns_new(const char* name) {
            strcmp(name, "__sync_nand_and_fetch") == 0;
 }
 
+static bool atomic_lock_free_size32(uint64_t size) {
+    return size == 1u || size == 2u || size == 4u || size == 8u;
+}
+
+static bool gen_atomic_lock_free_query32(Module* mod, Expr* call) {
+    const char* name = call && call->call_func
+        ? call->call_func->ident_name : NULL;
+    Expr* size_expression;
+    Expr* pointer_expression;
+    int64_t size_value = 0;
+    int true_label;
+    int end_label;
+    static const uint32_t lock_free_sizes[] = {1u, 2u, 4u, 8u};
+    size_t index;
+
+    if (!name || (strcmp(name, "__atomic_always_lock_free") != 0 &&
+                  strcmp(name, "__atomic_is_lock_free") != 0)) {
+        return false;
+    }
+    size_expression = call_argument(call, 0);
+    pointer_expression = call_argument(call, 1);
+    /* The pointer operand is part of the builtin call expression.  Evaluate
+     * it even though this target's lock-free result depends only on size, so
+     * side effects are not silently discarded. */
+    if (pointer_expression) gen_expr(mod, pointer_expression);
+    if (strcmp(name, "__atomic_always_lock_free") == 0) {
+        if (!expr_eval_integer_constant(size_expression, &size_value)) {
+            emit_mov_reg_imm(mod, EAX, 0u);
+        } else {
+            emit_mov_reg_imm(mod, EAX,
+                             atomic_lock_free_size32((uint64_t)size_value)
+                                 ? 1u : 0u);
+        }
+        return true;
+    }
+    gen_expr(mod, size_expression);
+    true_label = new_label();
+    end_label = new_label();
+    for (index = 0; index < sizeof(lock_free_sizes) /
+                           sizeof(lock_free_sizes[0]); ++index) {
+        emit_cmp_reg_imm(mod, EAX, (int32_t)lock_free_sizes[index]);
+        emit_jcc_label(mod, CC_E, true_label);
+    }
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_jmp_label(mod, end_label);
+    emit_label(mod, true_label);
+    emit_mov_reg_imm(mod, EAX, 1u);
+    emit_label(mod, end_label);
+    return true;
+}
+
 static bool gen_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
@@ -5271,6 +5322,7 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
     value_type = atomic_value_type(call);
+    if (gen_atomic_lock_free_query32(mod, call)) return true;
     if (gen_atomic_builtin64_i686(mod, call, name)) return true;
     if (strcmp(name, "__atomic_load_n") == 0) {
         gen_expr(mod, call_argument(call, 1));

@@ -8302,6 +8302,12 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/atomic-x64/atomic.rin \
 		$(TEST_OUT)/atomic-x64/atomic.ro
+	$(call MKDIR_P,$(TEST_OUT)/atomic-cxx-x86)
+	$(call MKDIR_P,$(TEST_OUT)/atomic-cxx-x64)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-cxx-x86/atomic.ro tests/atomic_lock_free.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-cxx-x64/atomic.ro tests/atomic_lock_free.cpp
 
 ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -8331,6 +8337,12 @@ endif
 	$(GREP) -F -q "__atomic_test_and_set requires a byte-sized object pointer" \
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_clear requires a byte-sized object pointer" \
+		$(TEST_OUT)/atomic-x86/invalid.log
+	$(GREP) -F -q "__atomic_always_lock_free size argument must be an integer constant" \
+		$(TEST_OUT)/atomic-x86/invalid.log
+	$(GREP) -F -q "__atomic_is_lock_free size argument must have integer type" \
+		$(TEST_OUT)/atomic-x86/invalid.log
+	$(GREP) -F -q "__atomic_is_lock_free second argument must have pointer or null-pointer type" \
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \

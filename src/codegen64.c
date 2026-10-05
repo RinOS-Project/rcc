@@ -2888,6 +2888,55 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     return false;
 }
 
+static bool atomic_lock_free_size64(uint64_t size) {
+    return size == 1u || size == 2u || size == 4u || size == 8u;
+}
+
+static bool gen64_atomic_lock_free_query(Module* mod, Expr* call) {
+    const char* name = call && call->call_func
+        ? call->call_func->ident_name : NULL;
+    Expr* size_expression;
+    Expr* pointer_expression;
+    int64_t size_value = 0;
+    int true_label;
+    int end_label;
+    static const uint64_t lock_free_sizes[] = {1u, 2u, 4u, 8u};
+    size_t index;
+
+    if (!name || (strcmp(name, "__atomic_always_lock_free") != 0 &&
+                  strcmp(name, "__atomic_is_lock_free") != 0)) {
+        return false;
+    }
+    size_expression = call64_argument(call, 0);
+    pointer_expression = call64_argument(call, 1);
+    /* Preserve side effects in the ignored alignment operand. */
+    if (pointer_expression) gen64_expr(mod, pointer_expression);
+    if (strcmp(name, "__atomic_always_lock_free") == 0) {
+        if (!expr_eval_integer_constant(size_expression, &size_value)) {
+            emit64_mov_reg_imm64(mod, RAX, 0u);
+        } else {
+            emit64_mov_reg_imm64(mod, RAX,
+                                 atomic_lock_free_size64(
+                                     (uint64_t)size_value) ? 1u : 0u);
+        }
+        return true;
+    }
+    gen64_expr(mod, size_expression);
+    true_label = new_label64();
+    end_label = new_label64();
+    for (index = 0; index < sizeof(lock_free_sizes) /
+                           sizeof(lock_free_sizes[0]); ++index) {
+        emit64_cmp_reg_imm(mod, RAX, (int32_t)lock_free_sizes[index]);
+        emit64_jcc_label(mod, CC64_E, true_label);
+    }
+    emit64_mov_reg_imm64(mod, RAX, 0u);
+    emit64_jmp_label(mod, end_label);
+    emit64_label(mod, true_label);
+    emit64_mov_reg_imm64(mod, RAX, 1u);
+    emit64_label(mod, end_label);
+    return true;
+}
+
 static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
@@ -2900,6 +2949,7 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
     value_type = atomic64_value_type(call);
+    if (gen64_atomic_lock_free_query(mod, call)) return true;
     if (strcmp(name, "__atomic_load_n") == 0) {
         gen64_expr(mod, call64_argument(call, 1));
         gen64_expr(mod, call64_argument(call, 0));

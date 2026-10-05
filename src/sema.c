@@ -12266,6 +12266,11 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     } else if (strcmp(name, "__atomic_store_n") == 0) {
         expected_count = 3;
         returns_void = true;
+    } else if (strcmp(name, "__atomic_always_lock_free") == 0 ||
+               strcmp(name, "__atomic_is_lock_free") == 0) {
+        expected_count = 2;
+        requires_pointer = false;
+        returns_bool = true;
     } else if (strcmp(name, "__atomic_test_and_set") == 0) {
         expected_count = 2;
         returns_bool = true;
@@ -12331,6 +12336,42 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     if (argument_count != expected_count) {
         rcc_error(expr->loc, "%s expects %d arguments, got %d",
                   name, expected_count, argument_count);
+    }
+    if (strcmp(name, "__atomic_always_lock_free") == 0 ||
+        strcmp(name, "__atomic_is_lock_free") == 0) {
+        Expr* size_expression = sema_call_argument(expr, 0);
+        Expr* pointer_expression = sema_call_argument(expr, 1);
+        int64_t size_value = 0;
+        int64_t pointer_value = 0;
+        bool size_constant = size_expression &&
+            expr_eval_integer_constant(size_expression, &size_value);
+        bool null_pointer = pointer_expression &&
+            ((pointer_expression->type &&
+              pointer_expression->type->kind == TYPE_NULLPTR) ||
+             (pointer_expression->type &&
+              type_is_integer(pointer_expression->type) &&
+              expr_eval_integer_constant(pointer_expression, &pointer_value) &&
+              pointer_value == 0));
+        if (!size_expression || !size_expression->type ||
+            (!type_is_integer(size_expression->type) &&
+             size_expression->type->kind != TYPE_ENUM)) {
+            rcc_error(expr->loc,
+                      "%s size argument must have integer type", name);
+        } else if (strcmp(name, "__atomic_always_lock_free") == 0 &&
+                   !size_constant) {
+            rcc_error(size_expression->loc,
+                      "%s size argument must be an integer constant", name);
+        } else if (size_expression->type->size >
+                   (g_opts.target_arch == ARCH_X64 ? 8 : 4)) {
+            rcc_error(size_expression->loc,
+                      "%s size argument is wider than the target word", name);
+        }
+        if (!pointer_expression || !pointer_expression->type ||
+            (!type_is_pointer(pointer_expression->type) && !null_pointer)) {
+            rcc_error(expr->loc,
+                      "%s second argument must have pointer or null-pointer type",
+                      name);
+        }
     }
     if (requires_pointer) {
         bool pointer_value;
