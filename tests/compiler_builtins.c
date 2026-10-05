@@ -64,6 +64,18 @@ int builtin_ffsll(unsigned long long value) {
     return __builtin_ffsll(value);
 }
 
+int builtin_clrsb(int value) {
+    return __builtin_clrsb(value);
+}
+
+int builtin_clrsbl(long value) {
+    return __builtin_clrsbl(value);
+}
+
+int builtin_clrsbll(long long value) {
+    return __builtin_clrsbll(value);
+}
+
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
     if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 2;
@@ -84,5 +96,12 @@ int main(void) {
     if (builtin_ffs(0x100) != 9) return 13;
     if (builtin_ffsl(0x100UL) != 9) return 14;
     if (builtin_ffsll(1ULL << 40) != 41) return 15;
+    if (builtin_clrsb(0) != 31) return 16;
+    if (builtin_clrsb(1) != 30) return 17;
+    if (builtin_clrsb(-2) != 30) return 18;
+    if (builtin_clrsbll(0) != 63) return 19;
+    if (builtin_clrsbll(1) != 62) return 20;
+    if (builtin_clrsbll(-2) != 62) return 21;
+    if (builtin_clrsbl(1L) != (int)(sizeof(long) * 8 - 2)) return 22;
     return 0;
 }

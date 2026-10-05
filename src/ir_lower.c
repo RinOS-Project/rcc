@@ -2762,6 +2762,7 @@ static RccIrLowerValue lower_builtin_bit_count(
     bool population = false;
     bool parity = false;
     bool first_set = false;
+    bool clrsb = false;
     unsigned width = 0u;
     unsigned index;
 
@@ -2817,6 +2818,18 @@ static RccIrLowerValue lower_builtin_bit_count(
     } else if (strcmp(name, "__builtin_ffsll") == 0) {
         first_set = true;
         width = 64u;
+    } else if (strcmp(name, "__builtin_clrsb") == 0) {
+        leading = true;
+        clrsb = true;
+        width = 32u;
+    } else if (strcmp(name, "__builtin_clrsbl") == 0) {
+        leading = true;
+        clrsb = true;
+        width = g_opts.target_arch == ARCH_X64 ? 64u : 32u;
+    } else if (strcmp(name, "__builtin_clrsbll") == 0) {
+        leading = true;
+        clrsb = true;
+        width = 64u;
     } else {
         context->unsupported = true;
         return lower_invalid_value();
@@ -2837,6 +2850,19 @@ static RccIrLowerValue lower_builtin_bit_count(
     if (!source.valid || !rcc_ir_type_equal(source.type, source_type)) {
         context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (clrsb) {
+        RccIrLowerValue sign_shift = lower_integer_constant(
+            context, source_type, true, (uint64_t)width - 1u);
+        RccIrLowerValue sign;
+        RccIrLowerValue normalized;
+        if (!sign_shift.valid) return lower_invalid_value();
+        sign = lower_builtin_integer_binary(
+            context, RCC_IR_ASHR, source, sign_shift);
+        normalized = lower_builtin_integer_binary(
+            context, RCC_IR_XOR, source, sign);
+        if (!sign.valid || !normalized.valid) return lower_invalid_value();
+        source = normalized;
     }
     if (population) {
         static const uint64_t masks[] = {
@@ -2958,6 +2984,14 @@ static RccIrLowerValue lower_builtin_bit_count(
         if (!instruction) return lower_invalid_value();
         result = lower_value(instruction->result, result_type, true);
     }
+    if (clrsb) {
+        RccIrLowerValue one = lower_integer_constant(
+            context, result_type, true, 1u);
+        if (!one.valid) return lower_invalid_value();
+        result = lower_builtin_integer_binary(
+            context, RCC_IR_SUB, result, one);
+        if (!result.valid) return lower_invalid_value();
+    }
     return result;
 }
 
@@ -3027,7 +3061,10 @@ static RccIrLowerValue lower_builtin_call(
         strcmp(name, "__builtin_parityll") == 0 ||
         strcmp(name, "__builtin_ffs") == 0 ||
         strcmp(name, "__builtin_ffsl") == 0 ||
-        strcmp(name, "__builtin_ffsll") == 0) {
+        strcmp(name, "__builtin_ffsll") == 0 ||
+        strcmp(name, "__builtin_clrsb") == 0 ||
+        strcmp(name, "__builtin_clrsbl") == 0 ||
+        strcmp(name, "__builtin_clrsbll") == 0) {
         return lower_builtin_bit_count(context, expression, name);
     }
     if (strcmp(name, "__builtin_bswap16") == 0 ||
@@ -3556,6 +3593,12 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_ffsl") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_ffsll") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_clrsb") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_clrsbl") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_clrsbll") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap16") == 0 ||
                  strcmp(expression->call_func->ident_name,

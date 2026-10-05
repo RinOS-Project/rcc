@@ -18,6 +18,16 @@ int verified_builtin_ffs32(unsigned int value)
     return __builtin_ffs((int)value);
 }
 
+int verified_builtin_clrsb32(int value)
+{
+    return __builtin_clrsb(value);
+}
+
+int verified_builtin_clrsbl(long value)
+{
+    return __builtin_clrsbl(value);
+}
+
 int verified_builtin_prefetch_read(int* value)
 {
     __builtin_prefetch(value, 0, 3);
@@ -49,5 +59,10 @@ int verified_builtin_popcount64(unsigned long long value)
 int verified_builtin_ffs64(unsigned long long value)
 {
     return __builtin_ffsll(value);
+}
+
+int verified_builtin_clrsbll(long long value)
+{
+    return __builtin_clrsbll(value);
 }
 #endif

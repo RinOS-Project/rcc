@@ -2496,6 +2496,49 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         }
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_clrsb") == 0 ||
+        strcmp(function->ident_name, "__builtin_clrsbl") == 0 ||
+        strcmp(function->ident_name, "__builtin_clrsbll") == 0) {
+        bool wide = strcmp(function->ident_name, "__builtin_clrsb") != 0;
+        argument = call64_argument(expr, 0);
+        gen64_expr(mod, argument);
+        if (!wide) {
+            int zero_label = new_label64();
+            int end_label = new_label64();
+            emit64_zero_extend_eax(mod);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_shr_reg_imm(mod, RCX, 31);
+            emit64_mov_reg_imm64(mod, RDX, 0u);
+            emit64_sub_reg_reg(mod, RDX, RCX);
+            emit64_xor_reg_reg(mod, RAX, RDX);
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, zero_label);
+            emit64_bsr_reg32_reg32(mod, RCX, RAX);
+            emit64_mov_reg_imm64(mod, RAX, 30u);
+            emit64_sub_reg_reg(mod, RAX, RCX);
+            emit64_jmp_label(mod, end_label);
+            emit64_label(mod, zero_label);
+            emit64_mov_reg_imm64(mod, RAX, 31u);
+            emit64_label(mod, end_label);
+        } else {
+            int zero_label = new_label64();
+            int end_label = new_label64();
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_sar_reg_imm(mod, RCX, 63);
+            emit64_xor_reg_reg(mod, RAX, RCX);
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, zero_label);
+            emit64_bsr_reg64_reg64(mod, RCX, RAX);
+            emit64_mov_reg_imm64(mod, RAX, 63u);
+            emit64_sub_reg_reg(mod, RAX, RCX);
+            emit64_sub_reg_imm(mod, RAX, 1);
+            emit64_jmp_label(mod, end_label);
+            emit64_label(mod, zero_label);
+            emit64_mov_reg_imm64(mod, RAX, 63u);
+            emit64_label(mod, end_label);
+        }
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_clz") == 0 ||
         strcmp(function->ident_name, "__builtin_ctz") == 0 ||
         strcmp(function->ident_name, "__builtin_popcount") == 0 ||

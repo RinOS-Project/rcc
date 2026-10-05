@@ -8687,6 +8687,57 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         }
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_clrsb") == 0 ||
+        strcmp(function->ident_name, "__builtin_clrsbl") == 0) {
+        int zero_label = new_label();
+        int end_label = new_label();
+        argument = call_argument(expr, 0);
+        gen_expr(mod, argument);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_sar_reg_imm(mod, ECX, 31);
+        emit_xor_reg_reg(mod, EAX, ECX);
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, zero_label);
+        emit_bsr_reg_reg(mod, ECX, EAX);
+        emit_mov_reg_imm(mod, EAX, 30u);
+        emit_sub_reg_reg(mod, EAX, ECX);
+        emit_jmp_label(mod, end_label);
+        emit_label(mod, zero_label);
+        emit_mov_reg_imm(mod, EAX, 31u);
+        emit_label(mod, end_label);
+        return true;
+    }
+    if (strcmp(function->ident_name, "__builtin_clrsbll") == 0) {
+        int high_label = new_label();
+        int low_label = new_label();
+        int zero_label = new_label();
+        int end_label = new_label();
+        argument = call_argument(expr, 0);
+        gen_expr_as_integer64(mod, argument);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_sar_reg_imm(mod, ECX, 31);
+        emit_xor_reg_reg(mod, EAX, ECX);
+        emit_xor_reg_reg(mod, EDX, ECX);
+        emit_test_reg_reg(mod, EDX, EDX);
+        emit_jcc_label(mod, CC_NE, high_label);
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_NE, low_label);
+        emit_jmp_label(mod, zero_label);
+        emit_label(mod, high_label);
+        emit_bsr_reg_reg(mod, ECX, EDX);
+        emit_mov_reg_imm(mod, EAX, 30u);
+        emit_sub_reg_reg(mod, EAX, ECX);
+        emit_jmp_label(mod, end_label);
+        emit_label(mod, low_label);
+        emit_bsr_reg_reg(mod, ECX, EAX);
+        emit_mov_reg_imm(mod, EAX, 62u);
+        emit_sub_reg_reg(mod, EAX, ECX);
+        emit_jmp_label(mod, end_label);
+        emit_label(mod, zero_label);
+        emit_mov_reg_imm(mod, EAX, 63u);
+        emit_label(mod, end_label);
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_clz") == 0 ||
         strcmp(function->ident_name, "__builtin_ctz") == 0 ||
         strcmp(function->ident_name, "__builtin_popcount") == 0 ||

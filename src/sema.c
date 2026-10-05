@@ -11898,6 +11898,14 @@ static bool sema_compiler_builtin_call(Expr* expr) {
                strcmp(name, "__builtin_ffsll") == 0) {
         is_bit_count = true;
         is_bit_count_wide = true;
+    } else if (strcmp(name, "__builtin_clrsb") == 0) {
+        is_bit_count = true;
+    } else if (strcmp(name, "__builtin_clrsbl") == 0) {
+        is_bit_count = true;
+        is_bit_count_wide = g_opts.target_arch == ARCH_X64;
+    } else if (strcmp(name, "__builtin_clrsbll") == 0) {
+        is_bit_count = true;
+        is_bit_count_wide = true;
     }
     if (is_bit_count) {
         for (argument = expr->call_args; argument;

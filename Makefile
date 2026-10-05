@@ -8563,6 +8563,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_ffs expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_clrsb expects an integer argument no wider than 4 bytes" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_constant_p expects 1 argument, got 2" \
@@ -8579,6 +8581,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "__builtin_parity expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_ffs expects an integer argument no wider than 4 bytes" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_clrsb expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
@@ -10890,13 +10894,13 @@ test-verified-bitcounts: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/bitcounts-x86.ro \
 		tests/verified_backend_bitcounts.c \
 		>$(TEST_OUT)/verified-backend/bitcounts-x86.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bitcounts-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bitcounts-x64.ro \
 		tests/verified_backend_bitcounts.c \
 		>$(TEST_OUT)/verified-backend/bitcounts-x64.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bitcounts-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/bitcounts-run \
@@ -10904,7 +10908,7 @@ test-verified-bitcounts: $(RCC_TARGET)
 		$(SRCDIR)/utils.c
 	$(TEST_OUT)/verified-backend/bitcounts-run \
 		$(TEST_OUT)/verified-backend/bitcounts-x64.ro
-	@echo "Verified backend clz/ctz/popcount/ffs tests completed"
+	@echo "Verified backend clz/ctz/popcount/ffs/clrsb tests completed"
 
 test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins test-verified-bitcounts
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

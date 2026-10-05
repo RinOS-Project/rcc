@@ -27,6 +27,9 @@ extern "C" int cxx_scalar_builtins(int *value) {
     if (__builtin_ffs(0x100) != 9) return 51;
     if (__builtin_ffsl(0x100UL) != 9) return 52;
     if (__builtin_ffsll(1ULL << 40) != 41) return 53;
+    if (__builtin_clrsb(0) != 31) return 54;
+    if (__builtin_clrsb(1) != 30) return 55;
+    if (__builtin_clrsbll(1LL) != 62) return 56;
     return *value;
 }
 
