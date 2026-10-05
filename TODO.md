@@ -174,6 +174,8 @@
 - [x] bounded class、継承、virtual dispatch実装
   - [x] 非static・非virtualメンバー関数の`this`引数、暗黙field参照、
         `obj.method`／`ptr->method`呼び出しと両arch実行
+  - [x] C++ member `alignas` をクラスlayoutのalignment、padding、
+        `alignof`へ伝播し、i686/AMD64のstatic_assert回帰で検証
   - [x] staticメンバー関数をqualified source lookup（`Class::func()`）と
         Itanium link nameへ分離し、暗黙`this`なしの直接・object経由・クラス内
         呼出しをi686/AMD64で実行検証

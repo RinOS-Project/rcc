@@ -247,6 +247,9 @@ void rcc_parser_function_scope_push(const char* name);
 void rcc_parser_function_scope_pop(void);
 void rcc_parser_apply_pragma_pack(struct Token* directive);
 int rcc_parser_pack_alignment(void);
+int rcc_parser_parse_explicit_alignment(void);
+Type* rcc_parser_apply_explicit_alignment(Type* type, int alignment,
+                                           SourceLoc loc);
 Type* rcc_parser_lookup_type(const char* name);
 void rcc_parser_define_type(const char* name, Type* type);
 void* rcc_parser_type_scope_mark(void);

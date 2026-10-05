@@ -2168,6 +2168,15 @@ static Type* apply_explicit_alignment(Type* type, int alignment,
     return aligned;
 }
 
+int rcc_parser_parse_explicit_alignment(void) {
+    return parse_explicit_alignment();
+}
+
+Type* rcc_parser_apply_explicit_alignment(Type* type, int alignment,
+                                           SourceLoc loc) {
+    return apply_explicit_alignment(type, alignment, loc);
+}
+
 static int64_t parse_enum_value(int64_t fallback) {
     bool negative = match(TOK_MINUS);
     int64_t value = fallback;

@@ -4586,6 +4586,14 @@ static void register_instantiated_class_static_fields(
 /* Parse class member (field or method) */
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
+    int explicit_alignment = 0;
+    bool has_explicit_alignment = false;
+
+    while (check(TOK__ALIGNAS)) {
+        int alignment = rcc_parser_parse_explicit_alignment();
+        has_explicit_alignment = true;
+        if (alignment > explicit_alignment) explicit_alignment = alignment;
+    }
 
     skip_cxx_attributes();
     bool is_nodiscard = take_cxx_nodiscard();
@@ -4624,6 +4632,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else if (match(TOK_FRIEND)) is_friend = true;
         else if (match(TOK_MUTABLE)) { }
+        else if (check(TOK__ALIGNAS)) {
+            int alignment = rcc_parser_parse_explicit_alignment();
+            has_explicit_alignment = true;
+            if (alignment > explicit_alignment) explicit_alignment = alignment;
+        }
         else break;
     }
 
@@ -4690,6 +4703,9 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     /* Is this a method or a field? */
     if (match(TOK_LPAREN)) {
         /* Method */
+        if (has_explicit_alignment) {
+            rcc_error(loc, "alignas cannot apply to a member function");
+        }
         DeclList* params = NULL;
         int param_idx = 0;
         bool saw_default = false;
@@ -4912,6 +4928,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             expect(TOK_RBRACKET, "]");
             type = type_array(type, len);
             type->array_bound = bound_expression;
+        }
+
+        if (has_explicit_alignment) {
+            type = rcc_parser_apply_explicit_alignment(
+                type, explicit_alignment, loc);
         }
 
         if (match(TOK_COLON)) {
