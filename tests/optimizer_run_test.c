@@ -142,6 +142,10 @@ static void verify_smaller(const char* unoptimized_path,
                                   "inlined_pointer_read_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_pointer_read_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_pointer_side_effect_call", 0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_pointer_side_effect_call", 0xe8u));
     assert(function_contains_byte(unoptimized,
                                   "inlined_pointer_index_call", 0xe8u));
     assert(!function_contains_byte(optimized,
@@ -406,6 +410,7 @@ int main(int argc, char** argv)
         int (*inlined_pointer_call)(int*);
         int (*inlined_pointer_offset_call)(int*);
         int (*inlined_pointer_read_call)(int*);
+        int (*preserved_pointer_side_effect_call)(int*);
         int (*inlined_pointer_index_call)(int*);
         int (*inlined_pointer_member_call)(struct OptimizerPair*);
         int (*inlined_pointer_member_deref_call)(struct OptimizerPair*);
@@ -576,6 +581,13 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&inlined_pointer_read_call, &address,
                    sizeof(inlined_pointer_read_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "preserved_pointer_side_effect_call");
+            address = mapping + symbol->value;
+            memcpy(&preserved_pointer_side_effect_call, &address,
+                   sizeof(preserved_pointer_side_effect_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -759,6 +771,12 @@ int main(int argc, char** argv)
             assert(inlined_pointer_offset_call(&values[0]) == 29);
             assert(inlined_pointer_read_call(&values[1]) == 29);
             assert(inlined_pointer_index_call(&values[0]) == 29);
+        }
+        {
+            int side_effect_value = 10;
+            assert(preserved_pointer_side_effect_call(&side_effect_value) ==
+                   11);
+            assert(side_effect_value == 11);
         }
         {
             struct OptimizerPair pair = {17, 29};

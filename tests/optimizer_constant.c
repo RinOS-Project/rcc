@@ -184,6 +184,11 @@ int inlined_pointer_read_call(int* value)
     return inline_pointer_read(value);
 }
 
+int preserved_pointer_side_effect_call(int* value)
+{
+    return inline_pointer_read(((*value += 1), value));
+}
+
 static int inline_pointer_index(int* value)
 {
     return value[1];

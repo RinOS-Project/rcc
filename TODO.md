@@ -331,6 +331,8 @@
         C++フロントエンド経由のO0/O1・i686/x86_64 call除去と実行結果を回帰検証
   - [x] 純粋scalar inlineで構造体ポインタの`p->field`と`(*p).field`を扱い、
         解決済みフィールド情報を保持したまま両archのcall除去・実行結果を検証
+  - [x] ポインタinlineの副作用引数（`((*p += 1), p)`）を拒否してcallを保持し、
+        引数の更新が一度だけ実行されることをC/C++・両archで回帰検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／
         `goto`／labelを含まないことを確認してblockへbounded unrollし、両archの
         code-sizeと実行結果を回帰検証
