@@ -1694,6 +1694,21 @@ static RccIrLowerValue lower_wide_scalar_word_select(
                        rcc_ir_type_integer(32u), true);
 }
 
+static bool lower_wide_scalar_select(
+    RccIrLowerContext* context, RccIrLowerValue condition,
+    RccIrLowerWideValue then_value, RccIrLowerWideValue else_value,
+    RccIrLowerWideValue* result) {
+    if (!result || !lower_wide_scalar_value_valid(then_value) ||
+        !lower_wide_scalar_value_valid(else_value)) return false;
+    result->low = lower_wide_scalar_word_select(
+        context, condition, then_value.low, else_value.low);
+    result->high = lower_wide_scalar_word_select(
+        context, condition, then_value.high, else_value.high);
+    result->is_unsigned = then_value.is_unsigned;
+    result->valid = result->low.valid && result->high.valid;
+    return result->valid;
+}
+
 static bool lower_wide_scalar_compare(
     RccIrLowerContext* context, ExprKind kind,
     RccIrLowerWideValue left, RccIrLowerWideValue right,
@@ -3192,6 +3207,149 @@ static RccIrLowerValue lower_builtin_checked_add_sub(
     return lower_cast(context, overflow, expression->type);
 }
 
+static RccIrLowerValue lower_builtin_checked_mul_i686_wide(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* first = expression ? expression->call_args : NULL;
+    const ExprList* second = first ? first->next : NULL;
+    const ExprList* third = second ? second->next : NULL;
+    RccIrLowerWideValue left;
+    RccIrLowerWideValue right;
+    RccIrLowerWideValue result;
+    RccIrLowerWideValue zero;
+    RccIrLowerWideValue one;
+    RccIrLowerWideValue limit;
+    RccIrLowerWideValue safe_right;
+    RccIrLowerWideValue quotient;
+    RccIrLowerWideValue absolute_left;
+    RccIrLowerWideValue absolute_right;
+    RccIrLowerWideValue negative_left;
+    RccIrLowerWideValue negative_right;
+    RccIrLowerWideValue minimum_magnitude;
+    RccIrLowerWideValue maximum_positive;
+    RccIrLowerValue destination;
+    RccIrLowerValue overflow;
+    RccIrLowerValue right_nonzero;
+    RccIrLowerValue too_large;
+    RccIrLowerValue zero_word;
+    RccIrLowerValue one_word;
+    RccIrLowerValue max_word;
+    RccIrLowerValue sign_word;
+    RccIrLowerValue max_positive_word;
+    bool is_unsigned;
+
+    if (!context || !expression || !expression->type || !first ||
+        !first->expr || !second || !second->expr || !third ||
+        !third->expr || third->next ||
+        !lower_i686_wide_scalar_type(first->expr->type) ||
+        !lower_i686_wide_scalar_type(second->expr->type) ||
+        !third->expr->type || third->expr->type->kind != TYPE_PTR ||
+        !third->expr->type->base ||
+        !lower_i686_wide_scalar_type(third->expr->type->base) ||
+        first->expr->type->is_unsigned != second->expr->type->is_unsigned ||
+        first->expr->type->is_unsigned !=
+            third->expr->type->base->is_unsigned) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    is_unsigned = first->expr->type->is_unsigned;
+    if (!lower_wide_scalar_expression(
+            context, first->expr, &left) ||
+        !lower_wide_scalar_expression(
+            context, second->expr, &right) ||
+        !lower_wide_scalar_multiply(
+            context, left, right, is_unsigned, &result)) {
+        return lower_invalid_value();
+    }
+    destination = lower_expression(context, third->expr);
+    if (!destination.valid || destination.type.kind != RCC_IR_TYPE_POINTER ||
+        !lower_wide_scalar_store(context, destination, result)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    zero_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    one_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 1u);
+    max_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, UINT32_MAX);
+    sign_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, UINT32_C(0x80000000));
+    max_positive_word = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true,
+        UINT32_C(0x7fffffff));
+    if (!zero_word.valid || !one_word.valid || !max_word.valid ||
+        !sign_word.valid || !max_positive_word.valid) {
+        return lower_invalid_value();
+    }
+    zero = lower_wide_scalar_value(zero_word, zero_word, true);
+    one = lower_wide_scalar_value(one_word, zero_word, true);
+    if (is_unsigned) {
+        limit = lower_wide_scalar_value(max_word, max_word, true);
+        right_nonzero = lower_wide_scalar_compare(
+            context, EXPR_NE, right, zero, true, &right_nonzero)
+            ? right_nonzero : lower_invalid_value();
+        if (!lower_wide_scalar_select(
+                context, right_nonzero, right, one, &safe_right)) {
+            return lower_invalid_value();
+        }
+        left.is_unsigned = true;
+    } else {
+        RccIrLowerValue left_negative;
+        RccIrLowerValue right_negative;
+        RccIrLowerValue negative_product;
+
+        left_negative = lower_wide_scalar_compare(
+            context, EXPR_LT, left, zero, false, &left_negative)
+            ? left_negative : lower_invalid_value();
+        right_negative = lower_wide_scalar_compare(
+            context, EXPR_LT, right, zero, false, &right_negative)
+            ? right_negative : lower_invalid_value();
+        negative_product = lower_wide_scalar_bool_operation(
+            context, RCC_IR_XOR, left_negative, right_negative);
+        if (!lower_wide_scalar_binary(
+                context, EXPR_SUB, zero, left, true, &negative_left) ||
+            !lower_wide_scalar_binary(
+                context, EXPR_SUB, zero, right, true, &negative_right) ||
+            !lower_wide_scalar_select(
+                context, left_negative, negative_left, left,
+                &absolute_left) ||
+            !lower_wide_scalar_select(
+                context, right_negative, negative_right, right,
+                &absolute_right)) {
+            return lower_invalid_value();
+        }
+        minimum_magnitude = lower_wide_scalar_value(
+            zero_word, sign_word, true);
+        maximum_positive = lower_wide_scalar_value(
+            max_word, max_positive_word, true);
+        if (!lower_wide_scalar_select(
+                context, negative_product, minimum_magnitude,
+                maximum_positive, &limit)) {
+            return lower_invalid_value();
+        }
+        right_nonzero = lower_wide_scalar_compare(
+            context, EXPR_NE, absolute_right, zero, true, &right_nonzero)
+            ? right_nonzero : lower_invalid_value();
+        if (!lower_wide_scalar_select(
+                context, right_nonzero, absolute_right, one,
+                &safe_right)) {
+            return lower_invalid_value();
+        }
+        left = absolute_left;
+    }
+    if (!limit.valid || !right_nonzero.valid || !safe_right.valid ||
+        !lower_wide_scalar_divmod(
+            context, EXPR_DIV, limit, safe_right, true, &quotient) ||
+        !lower_wide_scalar_compare(
+            context, EXPR_GT, left, quotient, true, &too_large)) {
+        return lower_invalid_value();
+    }
+    overflow = lower_wide_scalar_bool_operation(
+        context, RCC_IR_AND, right_nonzero, too_large);
+    if (!overflow.valid) return lower_invalid_value();
+    return lower_cast(context, overflow, expression->type);
+}
+
 static RccIrLowerValue lower_builtin_checked_mul(
     RccIrLowerContext* context, const Expr* expression) {
     const ExprList* first = expression ? expression->call_args : NULL;
@@ -3213,6 +3371,11 @@ static RccIrLowerValue lower_builtin_checked_mul(
     RccIrLowerValue limit;
     RccIrLowerValue quotient;
     RccIrLowerValue too_large;
+    if (g_opts.target_arch == ARCH_X86 && first && first->expr &&
+        second && second->expr && third && third->expr &&
+        lower_i686_wide_scalar_type(first->expr->type)) {
+        return lower_builtin_checked_mul_i686_wide(context, expression);
+    }
     if (!context || !expression || !expression->type ||
         !first || !first->expr || !second || !second->expr ||
         !third || !third->expr || third->next ||

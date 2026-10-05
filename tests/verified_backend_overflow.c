@@ -55,6 +55,18 @@ int verified_sub_unsigned64(unsigned long long left,
 {
     return __builtin_sub_overflow(left, right, result);
 }
+
+int verified_mul_signed64(long long left, long long right, long long* result)
+{
+    return __builtin_mul_overflow(left, right, result);
+}
+
+int verified_mul_unsigned64(unsigned long long left,
+                            unsigned long long right,
+                            unsigned long long* result)
+{
+    return __builtin_mul_overflow(left, right, result);
+}
 #endif
 
 #if defined(__x86_64__)
