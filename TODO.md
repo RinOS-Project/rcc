@@ -293,8 +293,10 @@
         local/global load、narrow cast、加減算のcarry/borrow、bitwise、
         signed/unsigned比較、0..63-bit shift、direct call、div/modへ接続し、
         実行回帰で検証
-  - [ ] i686 wide-scalarの完全な
-        first-class two-word SSA value model
+  - [x] i686 wide-scalarを検証済みのlow/high i32 SSA pairとして扱い、pair
+        invariant、符号／ゼロ拡張、narrow integer／pointer cast、64-bit shift
+        count、演算、conditional phi、cdecl引数とEDX:EAX戻り値を一貫して接続。
+        scalar i64を32-bit MIRへ漏らす経路は明示的に拒否する
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

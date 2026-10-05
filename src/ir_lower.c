@@ -471,6 +471,97 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
                        target_type->is_unsigned);
 }
 
+static bool lower_wide_scalar_value_valid(RccIrLowerWideValue value) {
+    return value.valid && value.low.valid && value.high.valid &&
+        value.low.type.kind == RCC_IR_TYPE_INTEGER &&
+        value.low.type.bit_width == 32u &&
+        value.high.type.kind == RCC_IR_TYPE_INTEGER &&
+        value.high.type.bit_width == 32u;
+}
+
+static RccIrLowerWideValue lower_wide_scalar_value(
+    RccIrLowerValue low, RccIrLowerValue high, bool is_unsigned) {
+    RccIrLowerWideValue value;
+    value.low = low;
+    value.high = high;
+    value.is_unsigned = is_unsigned;
+    value.valid = low.valid && high.valid &&
+        low.type.kind == RCC_IR_TYPE_INTEGER &&
+        low.type.bit_width == 32u &&
+        high.type.kind == RCC_IR_TYPE_INTEGER &&
+        high.type.bit_width == 32u;
+    return value;
+}
+
+static bool lower_scalar_to_wide_value(
+    RccIrLowerContext* context, RccIrLowerValue source,
+    bool result_is_unsigned, RccIrLowerWideValue* result) {
+    RccIrLowerValue low;
+    RccIrLowerValue high;
+    RccIrLowerValue shift;
+    RccIrInstruction* sign_word;
+    RccIrValue operands[2];
+    if (!context || !result || !source.valid ||
+        (source.type.kind != RCC_IR_TYPE_INTEGER &&
+         source.type.kind != RCC_IR_TYPE_POINTER) ||
+        (source.type.kind == RCC_IR_TYPE_INTEGER &&
+         source.type.bit_width > 32u)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    low = lower_cast(context, source, type_uint);
+    if (!low.valid) return false;
+    if (source.type.kind == RCC_IR_TYPE_POINTER || source.is_unsigned) {
+        high = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+    } else {
+        shift = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 31u);
+        if (!shift.valid) return false;
+        operands[0] = low.value;
+        operands[1] = shift.value;
+        sign_word = lower_append(
+            context, RCC_IR_ASHR, rcc_ir_type_integer(32u),
+            operands, 2u, NULL, 0u);
+        if (!sign_word) return false;
+        high = lower_value(
+            sign_word->result, rcc_ir_type_integer(32u), true);
+    }
+    *result = lower_wide_scalar_value(low, high, result_is_unsigned);
+    if (!lower_wide_scalar_value_valid(*result)) {
+        context->unsupported = true;
+        return false;
+    }
+    return true;
+}
+
+static RccIrLowerValue lower_wide_value_to_scalar(
+    RccIrLowerContext* context, RccIrLowerWideValue source,
+    const Type* target_type) {
+    RccIrType target;
+    RccIrLowerValue low;
+    if (!context || !lower_wide_scalar_value_valid(source) ||
+        !lower_type(target_type, &target)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (target.kind == RCC_IR_TYPE_INTEGER) {
+        if (target.bit_width == 1u) {
+            RccIrLowerValue truth = lower_wide_scalar_truth(context, source);
+            return lower_cast(context, truth, target_type);
+        }
+        if (target.bit_width > 32u) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+    } else if (target.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    low = lower_value(source.low.value, source.low.type, true);
+    return lower_cast(context, low, target_type);
+}
+
 static RccIrLowerValue lower_truth(RccIrLowerContext* context,
                                    RccIrLowerValue source) {
     RccIrType i1 = rcc_ir_type_integer(1u);
@@ -1703,6 +1794,9 @@ static bool lower_wide_scalar_shift(
     RccIrOpcode high_opcode;
     if (!result) return false;
     memset(result, 0, sizeof(*result));
+    /* For a 64-bit left operand, any count with a nonzero high word is
+     * outside the defined C shift range.  The low word therefore contains
+     * all information needed for defined shift results. */
     if (!value.valid || !amount.valid ||
         amount.type.kind != RCC_IR_TYPE_INTEGER ||
         amount.type.bit_width > 32u) return false;
@@ -1886,14 +1980,12 @@ static bool lower_wide_scalar_conditional_expression(
     return true;
 }
 
-static bool lower_wide_scalar_expression(
+static bool lower_wide_scalar_expression_impl(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
     RccIrLowerLocal* local;
     RccIrLowerValue address;
     RccIrLowerValue scalar;
-    RccIrLowerValue shift;
-    RccIrInstruction* high_operation;
     RccIrLowerWideValue left;
     RccIrLowerWideValue right;
     if (result) memset(result, 0, sizeof(*result));
@@ -1901,6 +1993,11 @@ static bool lower_wide_scalar_expression(
         !expression->type || !type_is_integer(expression->type) ||
         expression->type->size <= 0) return false;
     if (lower_wide_scalar_constant(context, expression, result)) return true;
+    if (!lower_i686_wide_scalar_type(expression->type)) {
+        scalar = lower_expression(context, expression);
+        return lower_scalar_to_wide_value(
+            context, scalar, expression->type->is_unsigned, result);
+    }
     if (expression->kind == EXPR_IDENT && expression->ident_decl) {
         local = lower_find_local(context, expression->ident_decl);
         if (local && local->wide_ssa) {
@@ -1922,8 +2019,12 @@ static bool lower_wide_scalar_expression(
             return false;
         }
         if (lower_i686_wide_scalar_type(expression->cast_expr->type)) {
-            return lower_wide_scalar_expression(
-                context, expression->cast_expr, result);
+            if (!lower_wide_scalar_expression(
+                    context, expression->cast_expr, result)) {
+                return false;
+            }
+            result->is_unsigned = expression->type->is_unsigned;
+            return true;
         }
         if (expression->cast_expr->type &&
             type_is_integer(expression->cast_expr->type) &&
@@ -1931,34 +2032,14 @@ static bool lower_wide_scalar_expression(
             expression->cast_expr->type->size <= 4 &&
             lower_i686_wide_scalar_type(expression->type)) {
             scalar = lower_expression(context, expression->cast_expr);
-            if (!scalar.valid) return false;
-            scalar = lower_cast(
-                context, scalar,
-                scalar.is_unsigned ? type_uint : type_int);
-            if (!scalar.valid) return false;
-            result->low = scalar;
-            if (scalar.is_unsigned) {
-                result->high = lower_integer_constant(
-                    context, rcc_ir_type_integer(32u), true, 0u);
-            } else {
-                shift = lower_integer_constant(
-                    context, rcc_ir_type_integer(32u), true, 31u);
-                if (!shift.valid) return false;
-                {
-                    RccIrValue operands[2] = {
-                        scalar.value, shift.value
-                    };
-                    high_operation = lower_append(
-                        context, RCC_IR_ASHR, rcc_ir_type_integer(32u),
-                        operands, 2u, NULL, 0u);
-                }
-                if (!high_operation) return false;
-                result->high = lower_value(
-                    high_operation->result, rcc_ir_type_integer(32u), true);
-            }
-            result->is_unsigned = expression->type->is_unsigned;
-            result->valid = result->low.valid && result->high.valid;
-            return result->valid;
+            return lower_scalar_to_wide_value(
+                context, scalar, expression->type->is_unsigned, result);
+        }
+        if (expression->cast_expr->type->kind == TYPE_PTR ||
+            expression->cast_expr->type->kind == TYPE_NULLPTR) {
+            scalar = lower_expression(context, expression->cast_expr);
+            return lower_scalar_to_wide_value(
+                context, scalar, expression->type->is_unsigned, result);
         }
         return false;
     }
@@ -2019,9 +2100,10 @@ static bool lower_wide_scalar_expression(
             return false;
         }
         if (binary_kind == EXPR_LSHIFT || binary_kind == EXPR_RSHIFT) {
-            scalar = lower_expression(context, expression->binary_rhs);
-            if (!scalar.valid || !lower_wide_scalar_shift(
-                    context, binary_kind, left, scalar,
+            if (!lower_wide_scalar_expression(
+                    context, expression->binary_rhs, &right) ||
+                !lower_wide_scalar_shift(
+                    context, binary_kind, left, right.low,
                     expression->type->is_unsigned, &value)) {
                 return false;
             }
@@ -2203,9 +2285,10 @@ static bool lower_wide_scalar_expression(
         lower_i686_wide_scalar_type(expression->type) &&
         lower_wide_scalar_expression(
             context, expression->binary_lhs, &left) &&
-        (shift = lower_expression(context, expression->binary_rhs)).valid) {
+        lower_wide_scalar_expression(
+            context, expression->binary_rhs, &right)) {
         return lower_wide_scalar_shift(
-            context, expression->kind, left, shift,
+            context, expression->kind, left, right.low,
             expression->type->is_unsigned, result);
     }
     if (expression->kind == EXPR_NEG &&
@@ -2237,6 +2320,22 @@ static bool lower_wide_scalar_expression(
             expression->type->is_unsigned, result);
     }
     return false;
+}
+
+static bool lower_wide_scalar_expression(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    if (result) memset(result, 0, sizeof(*result));
+    if (!lower_wide_scalar_expression_impl(context, expression, result)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (!lower_wide_scalar_value_valid(*result)) {
+        context->unsupported = true;
+        memset(result, 0, sizeof(*result));
+        return false;
+    }
+    return true;
 }
 
 static RccIrOpcode lower_binary_opcode(ExprKind kind, bool is_unsigned) {
@@ -3974,6 +4073,31 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                     context, expression);
                 return lower_load_address(context, address,
                                           expression->type->base);
+            }
+            if (lower_i686_wide_scalar_type(expression->type)) {
+                /* A 64-bit i686 result is represented by a pair and must be
+                 * consumed by the pair-aware expression path.  Never let a
+                 * scalar i64 value leak into the 32-bit MIR allocator. */
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (expression->cast_expr && expression->cast_expr->type &&
+                lower_i686_wide_scalar_type(
+                    expression->cast_expr->type)) {
+                RccIrLowerWideValue wide_source;
+                if (!lower_wide_scalar_expression(
+                        context, expression->cast_expr, &wide_source)) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                operand = lower_wide_value_to_scalar(
+                    context, wide_source, expression->type);
+                if (expression->cxx_pointer_adjustment_valid) {
+                    operand = lower_adjusted_pointer(
+                        context, operand,
+                        expression->cxx_pointer_adjustment);
+                }
+                return operand;
             }
             operand = lower_expression(context, expression->cast_expr);
             operand = lower_cast(context, operand, expression->type);

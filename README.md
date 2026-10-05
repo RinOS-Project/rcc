@@ -31,6 +31,10 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
   operators、C++20 `__VA_OPT__`、条件付きpreprocess
 - C17 `_Static_assert`の整数定数式評価と失敗diagnostic
 - x86_64 SysVの整数引数、基本scalar/aggregate load-store、global data
+- i686 verified SSAでの64-bit整数をlow/highの検証済みi32 pairとして保持する
+  経路。算術、比較、shift、narrow integer／pointer cast、conditional phi、
+  cdecl引数とEDX:EAX戻り値までpairを維持し、scalar i64の誤った32-bit
+  MIR流入を拒否します（[実装状況](docs/implementation-status-i686-wide-scalar-ssa-v1.md)）。
 - direct RIN/NDRVとobject linkでのDATA/CODE/BSS symbol relocation、関数ポインタ
 - 文字列literalのread-only `.rodata`分離と独立RVA mapping
 - `.ro/.ra v2` reader/writer、typed import、依存libraryを扱う`rld`
