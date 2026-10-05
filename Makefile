@@ -10125,9 +10125,9 @@ test-pic-plt: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/pic-plt/x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/pic-plt/x64.rin
-	! $(RCC_TARGET) --target x86_64-unknown-rinos -fPIC \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -fPIC \
 		--emit-unsigned-v3 -o $(TEST_OUT)/pic-plt/forbidden.rin \
-		tests/pic_external.c >$(TEST_OUT)/pic-plt/forbidden.log 2>&1
+		tests/pic_external.c,$(TEST_OUT)/pic-plt/forbidden.log)
 	$(GREP) -q "direct RIN v3 output cannot contain unresolved relative relocation" \
 		$(TEST_OUT)/pic-plt/forbidden.log
 	@echo "PIC/PIE PLT32 object and RLD import-thunk tests completed"
