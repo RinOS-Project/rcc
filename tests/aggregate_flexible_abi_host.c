@@ -3,7 +3,13 @@ struct FlexiblePrefix {
     int tail[];
 };
 
-extern int flexible_prefix_value(struct FlexiblePrefix value);
+#if defined(_WIN32) && defined(__GNUC__)
+#define RCC_SYSV_ABI __attribute__((sysv_abi))
+#else
+#define RCC_SYSV_ABI
+#endif
+
+extern int flexible_prefix_value(struct FlexiblePrefix value) RCC_SYSV_ABI;
 
 int main(void)
 {

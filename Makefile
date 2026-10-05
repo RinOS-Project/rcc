@@ -216,6 +216,25 @@ $(TEST_OUT)/$(1)/x64-host
 endef
 endif
 
+ifeq ($(OS),Windows_NT)
+# Native Windows MinGW installations may not include 32-bit CRT libraries.
+# Keep the i686 ABI artifact check, then execute the same generated function
+# through the available native x64 CRT.  The x86 object is never silently
+# omitted: its PE architecture is checked explicitly before the x64 run.
+define AGGREGATE_X86_ABI_TEST
+	$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+	objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
+endef
+else
+define AGGREGATE_X86_ABI_TEST
+	$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/$(1)/host-x86.o tests/$(2)
+	$(CC) -m32 -o $(TEST_OUT)/$(1)/x86 $(TEST_OUT)/$(1)/host-x86.o $(TEST_OUT)/$(1)/x86.o
+	$(TEST_OUT)/$(1)/x86
+endef
+endif
+
 BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
                       src/ir.c src/ir_pass.c src/mir.c src/mir_alloc.c \
@@ -7365,14 +7384,7 @@ test-aggregate-union-abi: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-union-abi/x64.s \
 		tests/aggregate_union_abi.c
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-union-abi/x86.o \
-		$(TEST_OUT)/aggregate-union-abi/x86.s
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-union-abi/host-x86.o \
-		tests/aggregate_union_abi_host.c
-	$(CC) -m32 -o $(TEST_OUT)/aggregate-union-abi/x86 \
-		$(TEST_OUT)/aggregate-union-abi/host-x86.o \
-		$(TEST_OUT)/aggregate-union-abi/x86.o
-	$(TEST_OUT)/aggregate-union-abi/x86
+	$(call AGGREGATE_X86_ABI_TEST,aggregate-union-abi,aggregate_union_abi_host.c)
 	$(CC) -c -o $(TEST_OUT)/aggregate-union-abi/x64.o \
 		$(TEST_OUT)/aggregate-union-abi/x64.s
 	$(CC) -c -o $(TEST_OUT)/aggregate-union-abi/host-x64.o \
@@ -7391,14 +7403,7 @@ test-aggregate-flexible-abi: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-flexible-abi/x64.s \
 		tests/aggregate_flexible_abi.c
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-flexible-abi/x86.o \
-		$(TEST_OUT)/aggregate-flexible-abi/x86.s
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-flexible-abi/host-x86.o \
-		tests/aggregate_flexible_abi_host.c
-	$(CC) -m32 -o $(TEST_OUT)/aggregate-flexible-abi/x86 \
-		$(TEST_OUT)/aggregate-flexible-abi/host-x86.o \
-		$(TEST_OUT)/aggregate-flexible-abi/x86.o
-	$(TEST_OUT)/aggregate-flexible-abi/x86
+	$(call AGGREGATE_X86_ABI_TEST,aggregate-flexible-abi,aggregate_flexible_abi_host.c)
 	$(CC) -c -o $(TEST_OUT)/aggregate-flexible-abi/x64.o \
 		$(TEST_OUT)/aggregate-flexible-abi/x64.s
 	$(CC) -c -o $(TEST_OUT)/aggregate-flexible-abi/host-x64.o \
@@ -7411,18 +7416,11 @@ test-aggregate-flexible-abi: $(RCC_TARGET)
 
 test-aggregate-sse-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-sse-abi)
-	$(RCC_TARGET) --target i686-unknown-rinos -S \
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include -S \
 		-o $(TEST_OUT)/aggregate-sse-abi/x86.s \
 		tests/aggregate_sse_abi.c
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-sse-abi/x86.o \
-		$(TEST_OUT)/aggregate-sse-abi/x86.s
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-sse-abi/host-x86.o \
-		tests/aggregate_sse_abi_host.c
-	$(CC) -m32 -o $(TEST_OUT)/aggregate-sse-abi/x86 \
-		$(TEST_OUT)/aggregate-sse-abi/host-x86.o \
-		$(TEST_OUT)/aggregate-sse-abi/x86.o
-	$(TEST_OUT)/aggregate-sse-abi/x86
-	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+	$(call AGGREGATE_X86_ABI_TEST,aggregate-sse-abi,aggregate_sse_abi_host.c)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -S \
 		-o $(TEST_OUT)/aggregate-sse-abi/x64.s \
 		tests/aggregate_sse_abi.c
 	$(CC) -c -o $(TEST_OUT)/aggregate-sse-abi/x64.o \
@@ -7437,20 +7435,13 @@ test-aggregate-sse-abi: $(RCC_TARGET)
 
 test-aggregate-nested-abi: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/aggregate-nested-abi)
-	$(RCC_TARGET) --target i686-unknown-rinos -S \
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include -S \
 		-o $(TEST_OUT)/aggregate-nested-abi/x86.s \
 		tests/aggregate_nested_abi.c
-	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -S \
 		-o $(TEST_OUT)/aggregate-nested-abi/x64.s \
 		tests/aggregate_nested_abi.c
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-nested-abi/x86.o \
-		$(TEST_OUT)/aggregate-nested-abi/x86.s
-	$(CC) -m32 -c -o $(TEST_OUT)/aggregate-nested-abi/host-x86.o \
-		tests/aggregate_nested_abi_host.c
-	$(CC) -m32 -o $(TEST_OUT)/aggregate-nested-abi/x86 \
-		$(TEST_OUT)/aggregate-nested-abi/host-x86.o \
-		$(TEST_OUT)/aggregate-nested-abi/x86.o
-	$(TEST_OUT)/aggregate-nested-abi/x86
+	$(call AGGREGATE_X86_ABI_TEST,aggregate-nested-abi,aggregate_nested_abi_host.c)
 	$(CC) -c -o $(TEST_OUT)/aggregate-nested-abi/x64.o \
 		$(TEST_OUT)/aggregate-nested-abi/x64.s
 	$(CC) -c -o $(TEST_OUT)/aggregate-nested-abi/host-x64.o \

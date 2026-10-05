@@ -20,14 +20,20 @@ struct MixedFloatInt {
     int second;
 };
 
-extern struct FloatPair fixed_float_pair(struct FloatPair value);
-extern double fixed_double_pair(struct DoublePair value);
-extern double fixed_float_double(struct FloatDouble value);
-extern int fixed_mixed_float_int(struct MixedFloatInt value);
-extern struct FloatPair return_float_pair(float first, float second);
-extern double vararg_float_pair(int ignored, ...);
-extern double vararg_float_double(int ignored, ...);
-extern int vararg_mixed_float_int(int ignored, ...);
+#if defined(_WIN32) && defined(__GNUC__)
+#define RCC_SYSV_ABI __attribute__((sysv_abi))
+#else
+#define RCC_SYSV_ABI
+#endif
+
+extern struct FloatPair fixed_float_pair(struct FloatPair value) RCC_SYSV_ABI;
+extern double fixed_double_pair(struct DoublePair value) RCC_SYSV_ABI;
+extern double fixed_float_double(struct FloatDouble value) RCC_SYSV_ABI;
+extern int fixed_mixed_float_int(struct MixedFloatInt value) RCC_SYSV_ABI;
+extern struct FloatPair return_float_pair(float first, float second) RCC_SYSV_ABI;
+extern double vararg_float_pair(int ignored, ...) RCC_SYSV_ABI;
+extern double vararg_float_double(int ignored, ...) RCC_SYSV_ABI;
+extern int vararg_mixed_float_int(int ignored, ...) RCC_SYSV_ABI;
 
 int main(void)
 {

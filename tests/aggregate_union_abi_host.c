@@ -3,7 +3,13 @@ union AggregateUnionAbi {
     int integer;
 };
 
-extern int aggregate_union_integer(union AggregateUnionAbi value);
+#if defined(_WIN32) && defined(__GNUC__)
+#define RCC_SYSV_ABI __attribute__((sysv_abi))
+#else
+#define RCC_SYSV_ABI
+#endif
+
+extern int aggregate_union_integer(union AggregateUnionAbi value) RCC_SYSV_ABI;
 
 int main(void)
 {

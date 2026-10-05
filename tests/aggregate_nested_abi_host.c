@@ -19,10 +19,16 @@ union NestedUnion {
     long long integer;
 };
 
-extern struct NestedMixed nested_mixed(struct NestedMixed value);
-extern struct FloatArray3 nested_float_array(struct FloatArray3 value);
-extern union NestedUnion nested_union(union NestedUnion value);
-extern double nested_vararg(int ignored, ...);
+#if defined(_WIN32) && defined(__GNUC__)
+#define RCC_SYSV_ABI __attribute__((sysv_abi))
+#else
+#define RCC_SYSV_ABI
+#endif
+
+extern struct NestedMixed nested_mixed(struct NestedMixed value) RCC_SYSV_ABI;
+extern struct FloatArray3 nested_float_array(struct FloatArray3 value) RCC_SYSV_ABI;
+extern union NestedUnion nested_union(union NestedUnion value) RCC_SYSV_ABI;
+extern double nested_vararg(int ignored, ...) RCC_SYSV_ABI;
 
 int main(void)
 {
