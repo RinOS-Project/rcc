@@ -86,6 +86,236 @@ static char* verified_constant_symbol(
     return scoped;
 }
 
+static void verified_emit_typeinfo_expr(Module* module, const Expr* expression);
+
+static void verified_emit_typeinfo_expr_list(
+    Module* module, const ExprList* list) {
+    for (; list; list = list->next) {
+        verified_emit_typeinfo_expr(module, list->expr);
+    }
+}
+
+static void verified_emit_typeinfo_stmt(Module* module, const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            verified_emit_typeinfo_expr(module, statement->expr);
+            break;
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                verified_emit_typeinfo_stmt(module, item->stmt);
+            }
+            break;
+        case STMT_IF:
+            verified_emit_typeinfo_expr(module, statement->if_cond);
+            verified_emit_typeinfo_stmt(module, statement->if_then);
+            verified_emit_typeinfo_stmt(module, statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            verified_emit_typeinfo_expr(module, statement->while_cond);
+            verified_emit_typeinfo_stmt(module, statement->while_body);
+            break;
+        case STMT_FOR:
+            verified_emit_typeinfo_stmt(module, statement->for_init);
+            verified_emit_typeinfo_expr(module, statement->for_cond);
+            verified_emit_typeinfo_expr(module, statement->for_inc);
+            verified_emit_typeinfo_stmt(module, statement->for_body);
+            break;
+        case STMT_SWITCH:
+            verified_emit_typeinfo_expr(module, statement->switch_expr);
+            verified_emit_typeinfo_stmt(module, statement->switch_body);
+            break;
+        case STMT_CASE:
+            verified_emit_typeinfo_expr(module, statement->case_val);
+            verified_emit_typeinfo_stmt(module, statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            verified_emit_typeinfo_stmt(module, statement->default_stmt);
+            break;
+        case STMT_RETURN:
+        case STMT_THROW:
+            verified_emit_typeinfo_expr(module, statement->return_val);
+            break;
+        case STMT_LABEL:
+            verified_emit_typeinfo_stmt(module, statement->label_stmt);
+            break;
+        case STMT_DECL:
+            if (statement->decl) {
+                verified_emit_typeinfo_expr(
+                    module, statement->decl->var_init);
+            }
+            break;
+        case STMT_TRY:
+            verified_emit_typeinfo_stmt(module, statement->try_body);
+            for (const CxxCatch* handler = statement->try_catches;
+                 handler; handler = handler->next) {
+                verified_emit_typeinfo_stmt(module, handler->body);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void verified_emit_typeinfo_expr(Module* module, const Expr* expression) {
+    const GenericAssociation* association;
+    const CxxCompoundRequirement* requirement;
+    if (!module || !expression) return;
+    if (expression->kind == EXPR_CXX_TYPEID &&
+        !expression->cxx_typeid_dynamic &&
+        expression->cxx_typeid_symbol &&
+        expression->cxx_typeid_symbol[0]) {
+        codegen_emit_cxx_typeinfo_symbol(
+            module, expression->cxx_typeid_symbol);
+    }
+    verified_emit_typeinfo_expr(module, expression->cxx_fold_init);
+    verified_emit_typeinfo_expr(module, expression->cxx_fold_pattern);
+    verified_emit_typeinfo_expr(
+        module, expression->cxx_pack_expansion_pattern);
+    verified_emit_typeinfo_expr_list(module, expression->cxx_lambda_captures);
+    if (expression->cxx_move_assignment) {
+        verified_emit_typeinfo_expr(
+            module, expression->cxx_move_assignment->source);
+        verified_emit_typeinfo_expr(
+            module, expression->cxx_move_assignment->cleanup);
+        verified_emit_typeinfo_expr(
+            module, expression->cxx_move_assignment->release);
+    }
+    if (expression->cxx_close_call) {
+        verified_emit_typeinfo_expr(
+            module, expression->cxx_close_call->object);
+        verified_emit_typeinfo_expr(
+            module, expression->cxx_close_call->handle);
+        verified_emit_typeinfo_expr(
+            module, expression->cxx_close_call->cleanup);
+    }
+    switch (expression->kind) {
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            verified_emit_typeinfo_expr(module, expression->unary_operand);
+            break;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            verified_emit_typeinfo_expr(module, expression->binary_lhs);
+            verified_emit_typeinfo_expr(module, expression->binary_rhs);
+            break;
+        case EXPR_COND:
+            verified_emit_typeinfo_expr(module, expression->cond_test);
+            verified_emit_typeinfo_expr(module, expression->cond_then);
+            verified_emit_typeinfo_expr(module, expression->cond_else);
+            break;
+        case EXPR_CALL:
+            verified_emit_typeinfo_expr(module, expression->call_func);
+            verified_emit_typeinfo_expr_list(module, expression->call_args);
+            verified_emit_typeinfo_expr(
+                module, expression->call_virtual_object);
+            verified_emit_typeinfo_expr(module, expression->call_new_count);
+            verified_emit_typeinfo_expr_list(module, expression->call_new_args);
+            break;
+        case EXPR_INDEX:
+            verified_emit_typeinfo_expr(module, expression->index_base);
+            verified_emit_typeinfo_expr(module, expression->index_expr);
+            break;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            verified_emit_typeinfo_expr(module, expression->member_base);
+            break;
+        case EXPR_CAST:
+            verified_emit_typeinfo_expr(module, expression->cast_expr);
+            break;
+        case EXPR_CXX_TYPEID:
+            verified_emit_typeinfo_expr(
+                module, expression->cxx_typeid_operand);
+            break;
+        case EXPR_COMPOUND:
+            verified_emit_typeinfo_expr_list(
+                module, expression->compound_init);
+            break;
+        case EXPR_GENERIC:
+            verified_emit_typeinfo_expr(module, expression->generic_control);
+            for (association = expression->generic_associations;
+                 association; association = association->next) {
+                verified_emit_typeinfo_expr(module, association->expr);
+            }
+            break;
+        case EXPR_CXX_REQUIRES:
+            verified_emit_typeinfo_expr_list(
+                module, expression->cxx_requires_items);
+            verified_emit_typeinfo_expr_list(
+                module, expression->cxx_requires_nested);
+            for (requirement = expression->cxx_requires_compound;
+                 requirement; requirement = requirement->next) {
+                verified_emit_typeinfo_expr(module, requirement->expr);
+            }
+            break;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            verified_emit_typeinfo_expr(module, expression->va_list_operand);
+            verified_emit_typeinfo_expr(module, expression->va_second_operand);
+            break;
+        default:
+            break;
+    }
+}
+
+static void verified_emit_typeinfo_ast(Module* module, const AST* ast) {
+    for (const DeclList* item = ast ? ast->decls : NULL; item;
+         item = item->next) {
+        const Decl* declaration = item->decl;
+        if (!declaration) continue;
+        if (declaration->kind == DECL_FUNC) {
+            verified_emit_typeinfo_stmt(module, declaration->func_body);
+        } else if (declaration->kind == DECL_VAR) {
+            verified_emit_typeinfo_expr(module, declaration->var_init);
+        } else if (declaration->kind == DECL_STATIC_ASSERT) {
+            verified_emit_typeinfo_expr(
+                module, declaration->static_assert_expr);
+        }
+    }
+}
+
 static bool verified_add_constants(
     ObjectFile* object, const RccIrModule* module,
     const char* translation_unit, const char* function_name,
@@ -198,6 +428,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     }
     data_module = codegen_new();
     codegen_emit_global_data(data_module, (AST*)ast);
+    verified_emit_typeinfo_ast(data_module, ast);
     object = module_to_objfile(data_module, translation_unit);
     codegen_free(data_module);
     if (!object || object->arch != arch) {

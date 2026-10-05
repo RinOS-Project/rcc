@@ -172,6 +172,13 @@ static RccIrLowerValue lower_load_aggregate_chunk(
 static RccIrLowerValue lower_load_address(
     RccIrLowerContext* context, RccIrLowerValue address,
     const Type* ast_type);
+static RccIrLowerValue lower_cxx_typeid_address(
+    RccIrLowerContext* context, const Expr* expression);
+static RccIrLowerValue lower_typeinfo_field(
+    RccIrLowerContext* context, const Expr* expression,
+    uint64_t byte_offset, const Type* field_type);
+static RccIrLowerValue lower_typeinfo_before(
+    RccIrLowerContext* context, const Expr* expression);
 
 enum {
     LOWER_ABI_RETURN_SCALAR = 0,
@@ -843,6 +850,72 @@ static RccIrLowerValue lower_load_address(RccIrLowerContext* context,
                         NULL, 0u);
     if (!load) return lower_invalid_value();
     return lower_value(load->result, type, ast_type->is_unsigned);
+}
+
+static RccIrLowerValue lower_cxx_typeid_address(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrInstruction* address;
+    if (!context || !expression || expression->kind != EXPR_CXX_TYPEID ||
+        expression->cxx_typeid_dynamic ||
+        !expression->cxx_typeid_symbol ||
+        !expression->cxx_typeid_symbol[0]) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    address = lower_append(
+        context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!address) return lower_invalid_value();
+    rcc_ir_set_callee(address, expression->cxx_typeid_symbol);
+    return lower_value(address->result, rcc_ir_type_pointer(0u), true);
+}
+
+static RccIrLowerValue lower_typeinfo_field(
+    RccIrLowerContext* context, const Expr* expression,
+    uint64_t byte_offset, const Type* field_type) {
+    RccIrLowerValue address;
+    address = lower_cxx_typeid_address(
+        context, expression && expression->call_func
+            ? expression->call_func->member_base : NULL);
+    address = lower_byte_offset_address(context, address, byte_offset);
+    return lower_load_address(context, address, field_type);
+}
+
+static RccIrLowerValue lower_typeinfo_before(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Expr* base;
+    const Expr* argument;
+    RccIrLowerValue left;
+    RccIrLowerValue right;
+    RccIrValue operands[2];
+    RccIrInstruction* compare;
+    RccIrLowerValue result;
+    if (!context || !expression || !expression->call_func ||
+        !expression->call_func->member_base ||
+        !expression->call_args || expression->call_args->next ||
+        !expression->call_args->expr) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    base = expression->call_func->member_base;
+    argument = expression->call_args->expr;
+    if (base->kind != EXPR_CXX_TYPEID || base->cxx_typeid_dynamic ||
+        argument->kind != EXPR_CXX_TYPEID || argument->cxx_typeid_dynamic) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    left = lower_cxx_typeid_address(context, base);
+    right = lower_cxx_typeid_address(context, argument);
+    if (!left.valid || !right.valid) return lower_invalid_value();
+    operands[0] = left.value;
+    operands[1] = right.value;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+        operands, 2u, NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_ULT);
+    result = lower_value(compare->result, rcc_ir_type_integer(1u), true);
+    return lower_cast(context, result, expression->type);
 }
 
 static RccIrLowerValue lower_load_lvalue(RccIrLowerContext* context,
@@ -2239,11 +2312,36 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
                                         const Expr* expression) {
     Type* comparison_type = type_common(expression->binary_lhs->type,
                                         expression->binary_rhs->type);
+    bool typeinfo_equality =
+        (expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        expression->binary_lhs->type == rcc_cxx_type_info_type() &&
+        expression->binary_rhs->type == rcc_cxx_type_info_type();
     RccIrLowerValue left;
     RccIrLowerValue right;
     RccIrValue operands[2];
     RccIrInstruction* compare;
     RccIrLowerValue result;
+    if (typeinfo_equality) {
+        left = lower_expression(context, expression->binary_lhs);
+        right = lower_expression(context, expression->binary_rhs);
+        if (!left.valid || !right.valid ||
+            left.type.kind != RCC_IR_TYPE_POINTER ||
+            right.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        operands[0] = left.value;
+        operands[1] = right.value;
+        compare = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            operands, 2u, NULL, 0u);
+        if (!compare) return lower_invalid_value();
+        rcc_ir_set_predicate(compare, expression->kind == EXPR_EQ
+            ? RCC_IR_ICMP_EQ : RCC_IR_ICMP_NE);
+        result = lower_value(compare->result, rcc_ir_type_integer(1u), true);
+        return lower_cast(context, result, expression->type);
+    }
     if (lower_i686_wide_scalar_type(comparison_type)) {
         RccIrLowerWideValue wide_left;
         RccIrLowerWideValue wide_right;
@@ -3930,6 +4028,20 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             (void)lower_expression(context, expression->binary_lhs);
             return lower_expression(context, expression->binary_rhs);
         case EXPR_CALL:
+            if (expression->cxx_typeinfo_hash_code) {
+                return lower_typeinfo_field(
+                    context, expression, 0u,
+                    g_opts.target_arch == ARCH_X64 ? type_ulong : type_uint);
+            }
+            if (expression->cxx_typeinfo_name) {
+                return lower_typeinfo_field(
+                    context, expression,
+                    g_opts.target_arch == ARCH_X64 ? 8u : 4u,
+                    type_ptr(type_char));
+            }
+            if (expression->cxx_typeinfo_before) {
+                return lower_typeinfo_before(context, expression);
+            }
             if (expression->call_func &&
                 expression->call_func->kind == EXPR_IDENT &&
                 expression->call_func->ident_name &&
@@ -4037,7 +4149,6 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 address->result, rcc_ir_type_pointer(0u), true);
         }
         case EXPR_FLOAT_LIT:
-        case EXPR_CXX_TYPEID:
         case EXPR_CXX_REQUIRES:
         case EXPR_GENERIC:
         case EXPR_CXX_FOLD:
@@ -4047,6 +4158,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         case EXPR_VA_ARG:
             context->unsupported = true;
             return lower_invalid_value();
+        case EXPR_CXX_TYPEID:
+            return lower_cxx_typeid_address(context, expression);
         case EXPR_COMPOUND: {
             RccIrLowerValue address = lower_compound_literal_address(
                 context, expression);

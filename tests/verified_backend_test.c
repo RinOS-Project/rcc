@@ -1393,9 +1393,51 @@ static void verify_global_object(const char* path, uint16_t arch,
     objfile_free(object);
 }
 
+static void verify_typeinfo_object(const char* path, uint16_t arch)
+{
+    const char prefix[] = "__rcc_typeinfo_";
+    ObjectFile* object = objfile_read(path);
+    ObjSection* rodata;
+    size_t typeinfo_count = 0u;
+    size_t name_relocation_count = 0u;
+    assert(object != NULL && object->arch == arch);
+    rodata = objfile_get_section(object, ".rodata");
+    assert(rodata != NULL && (rodata->flags & SECT_FLAG_ALLOC) != 0u &&
+           (rodata->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) == 0u);
+    for (ObjSymbol* symbol = object->symbols; symbol;
+         symbol = symbol->next) {
+        const char* name = symbol->name;
+        size_t length;
+        if (!name || strncmp(name, prefix, sizeof(prefix) - 1u) != 0) {
+            continue;
+        }
+        length = strlen(name);
+        if (length >= 5u && strcmp(name + length - 5u, "_name") == 0) {
+            continue;
+        }
+        assert(symbol->type == SYM_WEAK && symbol->binding == BIND_DATA &&
+               symbol->section >= 0);
+        ++typeinfo_count;
+    }
+    for (ObjReloc* relocation = rodata->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->symbol_name &&
+            strncmp(relocation->symbol_name, prefix,
+                    sizeof(prefix) - 1u) == 0) {
+            size_t length = strlen(relocation->symbol_name);
+            if (length >= 5u &&
+                strcmp(relocation->symbol_name + length - 5u, "_name") == 0) {
+                ++name_relocation_count;
+            }
+        }
+    }
+    assert(typeinfo_count >= 2u && name_relocation_count >= typeinfo_count);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
-    assert(argc == 6 || argc == 8);
+    assert(argc == 6 || argc == 8 || argc == 10);
     verify_object(argv[1], ARCH_X86);
     verify_object(argv[2], ARCH_X64);
     if (sizeof(void*) == 8u) {
@@ -1409,6 +1451,12 @@ int main(int argc, char** argv)
     if (argc == 8) {
         verify_wide_scalar_object(argv[6], ARCH_X86);
         verify_wide_scalar_object(argv[7], ARCH_X64);
+    }
+    if (argc == 10) {
+        verify_wide_scalar_object(argv[6], ARCH_X86);
+        verify_wide_scalar_object(argv[7], ARCH_X64);
+        verify_typeinfo_object(argv[8], ARCH_X86);
+        verify_typeinfo_object(argv[9], ARCH_X64);
     }
     puts("Verified typed-SSA production .ro bridge tests passed");
     return 0;

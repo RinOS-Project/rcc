@@ -255,6 +255,11 @@
   - [x] bounded `type_info::before()`をtypeinfo identity addressの
         実装定義順序比較へlowerし、同一型false・異型の相互排他を
         i686/AMD64の実行回帰で検証する
+  - [x] static/non-polymorphic `typeid` と `type_info` の
+        `==`/`!=`、`hash_code()`、`name()`、`before()`を verified
+        typed-SSAへlowerし、identity metadata・pointer-width field load・
+        i686/AMD64 `.ro` objectを検証する。dynamic polymorphic `typeid`、
+        complete `type_info` API、aggregate/exception SSAは引き続き未完了
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
 - [ ] remaining full Itanium ABI、`type_info` API、complete static/TLS
       destructor semantics

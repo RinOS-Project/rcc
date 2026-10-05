@@ -11074,6 +11074,18 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		tests/verified_backend.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-x64.log
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-x64.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/typeinfo-x86.ro \
+		tests/verified_backend_typeinfo.cpp \
+		>$(TEST_OUT)/verified-backend/typeinfo-x86.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/typeinfo-x86.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/typeinfo-x64.ro \
+		tests/verified_backend_typeinfo.cpp \
+		>$(TEST_OUT)/verified-backend/typeinfo-x64.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/typeinfo-x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/globals-x86.ro \
 		tests/verified_backend_globals.c \
@@ -11143,7 +11155,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		$(TEST_OUT)/verified-backend/globals-x86.ro \
 		$(TEST_OUT)/verified-backend/globals-x64.ro \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
-		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro
+		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
+		$(TEST_OUT)/verified-backend/typeinfo-x86.ro \
+		$(TEST_OUT)/verified-backend/typeinfo-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 \
 		$(TEST_OUT)/verified-backend/x86.ro \
 		$(TEST_OUT)/verified-backend/x64.ro \
@@ -11151,7 +11165,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		$(TEST_OUT)/verified-backend/globals-x86.ro \
 		$(TEST_OUT)/verified-backend/globals-x64.ro \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
-		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro
+		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
+		$(TEST_OUT)/verified-backend/typeinfo-x86.ro \
+		$(TEST_OUT)/verified-backend/typeinfo-x64.ro
 	@echo "Verified backend production object and fallback tests completed"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
