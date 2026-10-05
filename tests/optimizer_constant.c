@@ -199,6 +199,16 @@ int inlined_pointee_size_call(int* value)
     return inline_pointee_size(value);
 }
 
+static int inline_character_offset(int value)
+{
+    return value + 'A';
+}
+
+int inlined_character_call(int value)
+{
+    return inline_character_offset(value);
+}
+
 static int inline_pointer_index(int* value)
 {
     return value[1];

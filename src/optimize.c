@@ -312,6 +312,7 @@ static bool inline_scalar_expression_shape(
     switch (expression->kind) {
         case EXPR_INT_LIT:
         case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
@@ -396,6 +397,7 @@ static Expr* clone_inline_scalar_expression(
     }
     if (expression->kind == EXPR_INT_LIT ||
         expression->kind == EXPR_FLOAT_LIT ||
+        expression->kind == EXPR_CHAR_LIT ||
         expression->kind == EXPR_SIZEOF ||
         expression->kind == EXPR_ALIGNOF ||
         expression->kind == EXPR_NOEXCEPT) {
@@ -502,6 +504,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
     switch (expression->kind) {
         case EXPR_INT_LIT:
         case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
         case EXPR_IDENT:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
@@ -597,6 +600,7 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
     switch (expression->kind) {
         case EXPR_INT_LIT:
         case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
         case EXPR_IDENT:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:

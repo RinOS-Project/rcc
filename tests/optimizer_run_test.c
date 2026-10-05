@@ -151,6 +151,10 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(optimized,
                                    "inlined_pointee_size_call", 0xe8u));
     assert(function_contains_byte(unoptimized,
+                                  "inlined_character_call", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_character_call", 0xe8u));
+    assert(function_contains_byte(unoptimized,
                                   "inlined_pointer_index_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_pointer_index_call", 0xe8u));
@@ -416,6 +420,7 @@ int main(int argc, char** argv)
         int (*inlined_pointer_read_call)(int*);
         int (*preserved_pointer_side_effect_call)(int*);
         int (*inlined_pointee_size_call)(int*);
+        int (*inlined_character_call)(int);
         int (*inlined_pointer_index_call)(int*);
         int (*inlined_pointer_member_call)(struct OptimizerPair*);
         int (*inlined_pointer_member_deref_call)(struct OptimizerPair*);
@@ -600,6 +605,13 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&inlined_pointee_size_call, &address,
                    sizeof(inlined_pointee_size_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_character_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_character_call, &address,
+                   sizeof(inlined_character_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -791,6 +803,7 @@ int main(int argc, char** argv)
             assert(side_effect_value == 11);
         }
         assert(inlined_pointee_size_call(&value) == 4);
+        assert(inlined_character_call(3) == 68);
         {
             struct OptimizerPair pair = {17, 29};
             assert(inlined_pointer_member_call(&pair) == 29);
