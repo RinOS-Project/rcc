@@ -591,6 +591,9 @@
 - [x] Make native Windows VLA declaration diagnostics use the shared
       shell-neutral expected-failure helper, retaining per-target logs and
       diagnostic-text assertions.
+- [x] Make native Windows VLA goto/array-parameter semantic diagnostics use
+      the shared expected-failure and fixed-string matcher helpers, preserving
+      complete native compiler error lines.
 - [x] Make native Windows VLA declarator-variant and static-local runtime
       gates execute generated i686/x86_64 code through freestanding `main`
       entries without WSL, while retaining RIN emission and validation.

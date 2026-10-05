@@ -6453,18 +6453,18 @@ endif
 ifeq ($(OS),Windows_NT)
 test-vla-semantics: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/vla-semantics)
-	powershell -NoProfile -Command "& './rcc.exe' --target i686-unknown-rinos -c -o '$(TEST_OUT)/vla-semantics/invalid-x86.ro' tests/invalid_vla_goto.c *> '$(TEST_OUT)/vla-semantics/invalid-x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -c -o '$(TEST_OUT)/vla-semantics/invalid-x64.ro' tests/invalid_vla_goto.c *> '$(TEST_OUT)/vla-semantics/invalid-x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'goto enters a variable-length array scope' -Path '$(TEST_OUT)/vla-semantics/invalid-x86.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'goto enters a variable-length array scope' -Path '$(TEST_OUT)/vla-semantics/invalid-x64.log')) { exit 1 }"
-	powershell -NoProfile -Command "& './rcc.exe' --target i686-unknown-rinos -c -o '$(TEST_OUT)/vla-semantics/invalid-array-x86.ro' tests/invalid_array_parameter_qualifiers.c *> '$(TEST_OUT)/vla-semantics/invalid-array-x86.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "& './rcc.exe' --target x86_64-unknown-rinos -c -o '$(TEST_OUT)/vla-semantics/invalid-array-x64.ro' tests/invalid_array_parameter_qualifiers.c *> '$(TEST_OUT)/vla-semantics/invalid-array-x64.log'; if ($$LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'array parameter qualifiers are only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x86.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'array parameter qualifiers are only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x64.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'static array parameter requires a bound expression' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x86.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'static array parameter requires a bound expression' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x64.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'unspecified variable-length array is only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x86.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -Pattern 'unspecified variable-length array is only valid' -Path '$(TEST_OUT)/vla-semantics/invalid-array-x64.log')) { exit 1 }"
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-x86.ro tests/invalid_vla_goto.c,$(TEST_OUT)/vla-semantics/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-x64.ro tests/invalid_vla_goto.c,$(TEST_OUT)/vla-semantics/invalid-x64.log)
+	$(GREP) -F -q "goto enters a variable-length array scope" $(TEST_OUT)/vla-semantics/invalid-x86.log
+	$(GREP) -F -q "goto enters a variable-length array scope" $(TEST_OUT)/vla-semantics/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-array-x86.ro tests/invalid_array_parameter_qualifiers.c,$(TEST_OUT)/vla-semantics/invalid-array-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/vla-semantics/invalid-array-x64.ro tests/invalid_array_parameter_qualifiers.c,$(TEST_OUT)/vla-semantics/invalid-array-x64.log)
+	$(GREP) -F -q "array parameter qualifiers are only valid" $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	$(GREP) -F -q "array parameter qualifiers are only valid" $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	$(GREP) -F -q "static array parameter requires a bound expression" $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	$(GREP) -F -q "static array parameter requires a bound expression" $(TEST_OUT)/vla-semantics/invalid-array-x64.log
+	$(GREP) -F -q "unspecified variable-length array is only valid" $(TEST_OUT)/vla-semantics/invalid-array-x86.log
+	$(GREP) -F -q "unspecified variable-length array is only valid" $(TEST_OUT)/vla-semantics/invalid-array-x64.log
 	@echo "Dual-architecture VLA goto semantic tests completed"
 else
 test-vla-semantics: $(RCC_TARGET)
