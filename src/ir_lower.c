@@ -3013,6 +3013,96 @@ static RccIrLowerValue lower_builtin_integer_select(
                        when_true.is_unsigned);
 }
 
+static RccIrLowerValue lower_builtin_checked_add_sub_i686_wide(
+    RccIrLowerContext* context, const Expr* expression, bool subtract) {
+    const ExprList* first = expression ? expression->call_args : NULL;
+    const ExprList* second = first ? first->next : NULL;
+    const ExprList* third = second ? second->next : NULL;
+    RccIrLowerWideValue left;
+    RccIrLowerWideValue right;
+    RccIrLowerWideValue result;
+    RccIrLowerValue destination;
+    RccIrLowerValue overflow;
+    bool is_unsigned;
+
+    if (!context || !expression || !expression->type || !first ||
+        !first->expr || !second ||
+        !second->expr || !third || !third->expr || third->next ||
+        !lower_i686_wide_scalar_type(first->expr->type) ||
+        !lower_i686_wide_scalar_type(second->expr->type) ||
+        !third->expr->type ||
+        third->expr->type->kind != TYPE_PTR || !third->expr->type->base ||
+        !lower_i686_wide_scalar_type(third->expr->type->base) ||
+        first->expr->type->is_unsigned != second->expr->type->is_unsigned ||
+        first->expr->type->is_unsigned !=
+            third->expr->type->base->is_unsigned) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    is_unsigned = first->expr->type->is_unsigned;
+    if (!lower_wide_scalar_expression(
+            context, first->expr, &left) ||
+        !lower_wide_scalar_expression(
+            context, second->expr, &right)) {
+        return lower_invalid_value();
+    }
+    if (!lower_wide_scalar_binary(
+            context, subtract ? EXPR_SUB : EXPR_ADD, left, right,
+            is_unsigned, &result)) {
+        return lower_invalid_value();
+    }
+    destination = lower_expression(context, third->expr);
+    if (!destination.valid || destination.type.kind != RCC_IR_TYPE_POINTER ||
+        !lower_wide_scalar_store(context, destination, result)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (is_unsigned) {
+        if (!lower_wide_scalar_compare(
+                context, EXPR_LT,
+                subtract ? left : result, subtract ? right : left,
+                true, &overflow)) {
+            return lower_invalid_value();
+        }
+    } else {
+        RccIrLowerWideValue left_xor;
+        RccIrLowerWideValue right_xor;
+        RccIrLowerWideValue sign_bits;
+        RccIrLowerValue sign_mask;
+        RccIrLowerValue sign_word;
+        left_xor = lower_wide_scalar_value(
+            lower_invalid_value(), lower_invalid_value(), true);
+        right_xor = lower_wide_scalar_value(
+            lower_invalid_value(), lower_invalid_value(), true);
+        sign_bits = lower_wide_scalar_value(
+            lower_invalid_value(), lower_invalid_value(), true);
+        if (!lower_wide_scalar_binary(
+                context, EXPR_BITXOR, left,
+                subtract ? right : result, true, &left_xor) ||
+            !lower_wide_scalar_binary(
+                context, EXPR_BITXOR,
+                subtract ? left : right, result, true, &right_xor) ||
+            !lower_wide_scalar_binary(
+                context, EXPR_BITAND, left_xor, right_xor,
+                true, &sign_bits)) {
+            return lower_invalid_value();
+        }
+        sign_mask = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, UINT32_C(0x80000000));
+        sign_word = lower_wide_scalar_word_operation(
+            context, RCC_IR_AND, sign_bits.high, sign_mask);
+        sign_mask = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        if (!sign_word.valid || !sign_mask.valid) {
+            return lower_invalid_value();
+        }
+        overflow = lower_wide_scalar_compare_words(
+            context, sign_word, sign_mask, RCC_IR_ICMP_NE);
+    }
+    if (!overflow.valid) return lower_invalid_value();
+    return lower_cast(context, overflow, expression->type);
+}
+
 static RccIrLowerValue lower_builtin_checked_add_sub(
     RccIrLowerContext* context, const Expr* expression, bool subtract) {
     const ExprList* first = expression ? expression->call_args : NULL;
@@ -3027,6 +3117,12 @@ static RccIrLowerValue lower_builtin_checked_add_sub(
     RccIrLowerValue destination;
     RccIrLowerValue result;
     RccIrLowerValue overflow;
+    if (g_opts.target_arch == ARCH_X86 && first && first->expr &&
+        second && second->expr && third && third->expr &&
+        lower_i686_wide_scalar_type(first->expr->type)) {
+        return lower_builtin_checked_add_sub_i686_wide(
+            context, expression, subtract);
+    }
     if (!context || !expression || !expression->type ||
         !first || !first->expr || !second || !second->expr ||
         !third || !third->expr || third->next ||
