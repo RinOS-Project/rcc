@@ -2644,9 +2644,12 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
                 argument, &constant) ? UINT64_C(1) : UINT64_C(0));
         return true;
     }
-    if (strcmp(function->ident_name, "__builtin_expect") == 0) {
+    if (strcmp(function->ident_name, "__builtin_expect") == 0 ||
+        strcmp(function->ident_name,
+               "__builtin_expect_with_probability") == 0) {
         /* Evaluate the prediction operand for side effects, then return the
-         * first operand in RAX as the intrinsic's value. */
+         * first operand in RAX as the intrinsic's value.  The probability is
+         * a validated compile-time constant and is not a runtime operand. */
         gen64_expr(mod, call64_argument(expr, 1));
         gen64_expr(mod, call64_argument(expr, 0));
         return true;

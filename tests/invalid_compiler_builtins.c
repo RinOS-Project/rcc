@@ -2,6 +2,10 @@ int invalid_builtin_expect(void) {
     return __builtin_expect(1, 1.0);
 }
 
+int invalid_builtin_expect_probability(void) {
+    return __builtin_expect_with_probability(1, 1, 2.0);
+}
+
 void invalid_builtin_trap(void) {
     __builtin_trap(1);
 }

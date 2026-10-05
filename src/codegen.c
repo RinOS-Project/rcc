@@ -8880,10 +8880,13 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
                              argument, &constant) ? 1u : 0u);
         return true;
     }
-    if (strcmp(function->ident_name, "__builtin_expect") == 0) {
+    if (strcmp(function->ident_name, "__builtin_expect") == 0 ||
+        strcmp(function->ident_name,
+               "__builtin_expect_with_probability") == 0) {
         /* The prediction operand has no runtime value.  Evaluate it for its
          * language-level side effects, then leave the first operand in the
-         * normal scalar return registers. */
+         * normal scalar return registers.  The probability is a validated
+         * compile-time constant and has no runtime evaluation. */
         gen_expr(mod, call_argument(expr, 1));
         gen_expr(mod, call_argument(expr, 0));
         return true;

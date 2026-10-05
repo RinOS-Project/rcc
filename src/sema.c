@@ -12064,13 +12064,22 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         expr->type = type_void;
         return true;
     }
-    if (strcmp(name, "__builtin_expect") != 0) return false;
+    if (strcmp(name, "__builtin_expect") != 0 &&
+        strcmp(name, "__builtin_expect_with_probability") != 0) {
+        return false;
+    }
 
     for (argument = expr->call_args; argument; argument = argument->next) {
         sema_expr(argument->expr);
         ++argument_count;
     }
-    if (argument_count != 2) {
+    if (strcmp(name, "__builtin_expect_with_probability") == 0) {
+        if (argument_count != 3) {
+            rcc_error(expr->loc,
+                      "__builtin_expect_with_probability expects 3 arguments, got %d",
+                      argument_count);
+        }
+    } else if (argument_count != 2) {
         rcc_error(expr->loc, "__builtin_expect expects 2 arguments, got %d",
                   argument_count);
     }
@@ -12084,6 +12093,17 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     if (!second || !second->type || !type_is_integer(second->type)) {
         rcc_error(expr->loc,
                   "__builtin_expect expected value must have integer type");
+    }
+    if (strcmp(name, "__builtin_expect_with_probability") == 0) {
+        third = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->next
+                ? expr->call_args->next->next->expr : NULL : NULL;
+        if (!third || !third->type || !type_is_floating(third->type) ||
+            third->kind != EXPR_FLOAT_LIT || third->float_val < 0.0 ||
+            third->float_val > 1.0) {
+            rcc_error(expr->loc,
+                      "__builtin_expect_with_probability probability must be a floating constant between 0 and 1");
+        }
     }
     function->type = type_ptr(type_void);
     expr->type = first && first->type ? first->type : type_int;

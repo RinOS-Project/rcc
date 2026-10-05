@@ -2031,17 +2031,25 @@ static bool lower_wide_scalar_expression(
         expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&
-        strcmp(expression->call_func->ident_name,
-               "__builtin_expect") == 0) {
+        (strcmp(expression->call_func->ident_name,
+                "__builtin_expect") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__builtin_expect_with_probability") == 0)) {
         const ExprList* value_argument = expression->call_args;
         const ExprList* expected_argument = value_argument ?
             value_argument->next : NULL;
+        const ExprList* probability_argument = expected_argument ?
+            expected_argument->next : NULL;
         RccIrLowerWideValue value;
         RccIrLowerWideValue expected_wide;
         RccIrLowerValue expected_scalar;
         if (!value_argument || !value_argument->expr ||
             !expected_argument || !expected_argument->expr ||
-            expected_argument->next) {
+            ((strcmp(expression->call_func->ident_name,
+                     "__builtin_expect") == 0 && probability_argument) ||
+             (strcmp(expression->call_func->ident_name,
+                     "__builtin_expect_with_probability") == 0 &&
+              (!probability_argument || probability_argument->next)))) {
             return false;
         }
         /* __builtin_expect evaluates its prediction operand before the
@@ -3181,19 +3189,28 @@ static RccIrLowerValue lower_builtin_call(
         }
         return result;
     }
-    if (strcmp(name, "__builtin_expect") == 0) {
+    if (strcmp(name, "__builtin_expect") == 0 ||
+        strcmp(name, "__builtin_expect_with_probability") == 0) {
         first = expression->call_args;
         second = first ? first->next : NULL;
-        if (!first || !first->expr || !second || !second->expr ||
-            second->next || !expression->type ||
-            !type_is_integer(expression->type)) {
-            context->unsupported = true;
-            return lower_invalid_value();
+        {
+            const ExprList* probability = second ? second->next : NULL;
+            bool has_probability = strcmp(
+                name, "__builtin_expect_with_probability") == 0;
+            if (!first || !first->expr || !second || !second->expr ||
+                (has_probability
+                    ? (!probability || probability->next)
+                    : probability != NULL) ||
+                !expression->type || !type_is_integer(expression->type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
         }
         /* Match the existing C/C++ backend contract: the prediction operand
          * is evaluated for language-level side effects, then the value
-         * operand supplies the result.  No unresolved builtin call symbol is
-         * emitted. */
+         * operand supplies the result.  The probability operand is a
+         * validated compile-time constant, so it has no runtime lowering.
+         * No unresolved builtin call symbol is emitted. */
         expected = lower_expression(context, second->expr);
         value = lower_expression(context, first->expr);
         if (!expected.valid || expected.type.kind != RCC_IR_TYPE_INTEGER ||
@@ -3553,6 +3570,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 expression->call_func->ident_name &&
                 (strcmp(expression->call_func->ident_name,
                         "__builtin_expect") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_expect_with_probability") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_constant_p") == 0 ||
                  strcmp(expression->call_func->ident_name,

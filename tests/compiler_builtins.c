@@ -2,6 +2,10 @@ int builtin_expect_int(int value) {
     return __builtin_expect(value, 1);
 }
 
+int builtin_expect_probability(int value) {
+    return __builtin_expect_with_probability(value, 1, 0.75);
+}
+
 long long builtin_expect_wide(long long value) {
     return __builtin_expect(value, 1LL);
 }
@@ -78,30 +82,31 @@ int builtin_clrsbll(long long value) {
 
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
-    if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 2;
-    if (builtin_unreachable_guard(1) != 17) return 3;
-    if (builtin_trap_guard(1) != 29) return 4;
-    if (builtin_bswap16(0x1234u) != 0x3412u) return 5;
-    if (builtin_bswap32(0x12345678u) != 0x78563412u) return 6;
+    if (builtin_expect_probability(23) != 23) return 2;
+    if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 3;
+    if (builtin_unreachable_guard(1) != 17) return 4;
+    if (builtin_trap_guard(1) != 29) return 5;
+    if (builtin_bswap16(0x1234u) != 0x3412u) return 6;
+    if (builtin_bswap32(0x12345678u) != 0x78563412u) return 7;
     if (builtin_bswap64(0x0102030405060708ULL) !=
-        0x0807060504030201ULL) return 7;
+        0x0807060504030201ULL) return 8;
     {
         int value = 41;
-        if (builtin_bit_counts(&value) != 41) return 8;
+        if (builtin_bit_counts(&value) != 41) return 9;
     }
-    if (builtin_parity(0x80000003u) != 1) return 9;
-    if (builtin_parityl(0x80000003UL) != 1) return 10;
-    if (builtin_parityll(0x8000000000000003ULL) != 1) return 11;
-    if (builtin_ffs(0) != 0) return 12;
-    if (builtin_ffs(0x100) != 9) return 13;
-    if (builtin_ffsl(0x100UL) != 9) return 14;
-    if (builtin_ffsll(1ULL << 40) != 41) return 15;
-    if (builtin_clrsb(0) != 31) return 16;
-    if (builtin_clrsb(1) != 30) return 17;
-    if (builtin_clrsb(-2) != 30) return 18;
-    if (builtin_clrsbll(0) != 63) return 19;
-    if (builtin_clrsbll(1) != 62) return 20;
-    if (builtin_clrsbll(-2) != 62) return 21;
-    if (builtin_clrsbl(1L) != (int)(sizeof(long) * 8 - 2)) return 22;
+    if (builtin_parity(0x80000003u) != 1) return 10;
+    if (builtin_parityl(0x80000003UL) != 1) return 11;
+    if (builtin_parityll(0x8000000000000003ULL) != 1) return 12;
+    if (builtin_ffs(0) != 0) return 13;
+    if (builtin_ffs(0x100) != 9) return 14;
+    if (builtin_ffsl(0x100UL) != 9) return 15;
+    if (builtin_ffsll(1ULL << 40) != 41) return 16;
+    if (builtin_clrsb(0) != 31) return 17;
+    if (builtin_clrsb(1) != 30) return 18;
+    if (builtin_clrsb(-2) != 30) return 19;
+    if (builtin_clrsbll(0) != 63) return 20;
+    if (builtin_clrsbll(1) != 62) return 21;
+    if (builtin_clrsbll(-2) != 62) return 22;
+    if (builtin_clrsbl(1L) != (int)(sizeof(long) * 8 - 2)) return 23;
     return 0;
 }

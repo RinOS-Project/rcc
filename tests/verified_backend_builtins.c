@@ -3,6 +3,11 @@ int verified_builtin_expect(int value)
     return __builtin_expect(value, 1);
 }
 
+int verified_builtin_expect_probability(int value)
+{
+    return __builtin_expect_with_probability(value, 1, 0.75);
+}
+
 int verified_builtin_unreachable(int value)
 {
     if (value != 0) return 17;
@@ -55,17 +60,18 @@ int verified_builtin_ffsll(unsigned long long value)
 int main(void)
 {
     if (verified_builtin_expect(23) != 23) return 1;
-    if (verified_builtin_unreachable(1) != 17) return 2;
-    if (verified_builtin_trap(1) != 29) return 3;
-    if (verified_builtin_bswap16(0x1234u) != 0x3412u) return 4;
-    if (verified_builtin_bswap32(0x12345678u) != 0x78563412u) return 5;
-    if (verified_builtin_parity(0x80000003u) != 1) return 6;
-    if (verified_builtin_parityl(0x80000003UL) != 1) return 7;
-    if (verified_builtin_ffs(0) != 0) return 8;
-    if (verified_builtin_ffs(0x100) != 9) return 9;
-    if (verified_builtin_ffsl(0x100UL) != 9) return 10;
+    if (verified_builtin_expect_probability(23) != 23) return 2;
+    if (verified_builtin_unreachable(1) != 17) return 3;
+    if (verified_builtin_trap(1) != 29) return 4;
+    if (verified_builtin_bswap16(0x1234u) != 0x3412u) return 5;
+    if (verified_builtin_bswap32(0x12345678u) != 0x78563412u) return 6;
+    if (verified_builtin_parity(0x80000003u) != 1) return 7;
+    if (verified_builtin_parityl(0x80000003UL) != 1) return 8;
+    if (verified_builtin_ffs(0) != 0) return 9;
+    if (verified_builtin_ffs(0x100) != 9) return 10;
+    if (verified_builtin_ffsl(0x100UL) != 9) return 11;
 #if defined(__x86_64__)
-    if (verified_builtin_ffsll(1ULL << 40) != 41) return 11;
+    if (verified_builtin_ffsll(1ULL << 40) != 41) return 12;
 #endif
     return 0;
 }

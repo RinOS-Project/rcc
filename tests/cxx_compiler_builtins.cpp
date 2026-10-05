@@ -2,6 +2,10 @@ extern "C" int cxx_builtin_expect(int value) {
     return __builtin_expect(value, 1);
 }
 
+extern "C" int cxx_builtin_expect_probability(int value) {
+    return __builtin_expect_with_probability(value, 1, 0.75);
+}
+
 extern "C" int cxx_builtin_unreachable_guard(int value) {
     if (value != 0) return __builtin_expect(19, 1);
     __builtin_unreachable();
@@ -35,9 +39,10 @@ extern "C" int cxx_scalar_builtins(int *value) {
 
 extern "C" int main(void) {
     if (cxx_builtin_expect(31) != 31) return 1;
-    if (cxx_builtin_unreachable_guard(1) != 19) return 2;
-    if (cxx_builtin_trap_guard(1) != 23) return 3;
+    if (cxx_builtin_expect_probability(31) != 31) return 2;
+    if (cxx_builtin_unreachable_guard(1) != 19) return 3;
+    if (cxx_builtin_trap_guard(1) != 23) return 4;
     int value = 37;
-    if (cxx_scalar_builtins(&value) != 37) return 4;
+    if (cxx_scalar_builtins(&value) != 37) return 5;
     return 0;
 }
