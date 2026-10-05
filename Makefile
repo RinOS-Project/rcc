@@ -704,6 +704,7 @@ TEST_CI_TARGETS = \
 	test-ir-lowering \
 	test-verified-backend \
 	test-optimize \
+	test-debug-info \
 	test-aggregate-union-abi \
 	test-aggregate-flexible-abi \
 	test-aggregate-sse-abi \
