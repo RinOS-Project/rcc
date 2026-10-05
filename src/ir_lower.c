@@ -4162,6 +4162,17 @@ static bool lower_collect_switch_labels(
             }
             return true;
         case STMT_IF:
+            if (statement->if_then &&
+                !lower_collect_switch_labels(
+                    context, switch_context, statement->if_then)) {
+                return false;
+            }
+            if (statement->if_else &&
+                !lower_collect_switch_labels(
+                    context, switch_context, statement->if_else)) {
+                return false;
+            }
+            return true;
         case STMT_WHILE:
         case STMT_DO:
         case STMT_FOR:

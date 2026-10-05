@@ -339,3 +339,16 @@ int verified_switch_skips_prefix(int value, int* side_effect)
     }
     return -1;
 }
+
+int verified_switch_nested_case(int value)
+{
+    switch (value) {
+        if (value) {
+            case 1:
+                return 11;
+        }
+        default:
+            return 22;
+    }
+    return 33;
+}

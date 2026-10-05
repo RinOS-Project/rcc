@@ -10884,8 +10884,8 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x64.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x64.log
-	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/x86.log
-	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/x64.log
+	$(GREP) -F -q 'Verified backend: 39 function(s) emitted' $(TEST_OUT)/verified-backend/x86.log
+	$(GREP) -F -q 'Verified backend: 39 function(s) emitted' $(TEST_OUT)/verified-backend/x64.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-x64.ro \
 		tests/verified_backend.cpp \
@@ -10907,10 +10907,11 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		>$(TEST_OUT)/verified-backend/fallback.log
 	$(GREP) -F -q 'Verified backend fallback: translation unit contains thread-local data' $(TEST_OUT)/verified-backend/fallback.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
-		-o $(TEST_OUT)/verified-backend/switch-fallback.ro \
+		-o $(TEST_OUT)/verified-backend/switch-nested.ro \
 		tests/verified_backend_switch_fallback.c \
-		>$(TEST_OUT)/verified-backend/switch-fallback.log
-	$(GREP) -F -q "Verified backend fallback: function 'verified_switch_nested_label_fallback' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/switch-fallback.log
+		>$(TEST_OUT)/verified-backend/switch-nested.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/switch-nested.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/array-fallback.ro \
 		tests/verified_backend_array_fallback.c \

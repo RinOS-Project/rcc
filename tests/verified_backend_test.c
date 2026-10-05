@@ -593,6 +593,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* nested_switch;
     ObjSymbol* switch_promotion;
     ObjSymbol* switch_skips_prefix;
+    ObjSymbol* switch_nested_case;
     ObjReloc* relocation;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -656,6 +657,8 @@ static void verify_object(const char* path, uint16_t arch)
         object, "verified_switch_promotion");
     switch_skips_prefix = objfile_find_symbol(
         object, "verified_switch_skips_prefix");
+    switch_nested_case = objfile_find_symbol(
+        object, "verified_switch_nested_case");
     assert(text != NULL && text->size != 0u && text->memory_size == text->size);
     assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
            (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -749,7 +752,10 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_skips_prefix != NULL &&
            switch_skips_prefix->type == SYM_GLOBAL &&
            switch_skips_prefix->section == 0);
-    assert(object->symbol_count == 38);
+    assert(switch_nested_case != NULL &&
+           switch_nested_case->type == SYM_GLOBAL &&
+           switch_nested_case->section == 0);
+    assert(object->symbol_count == 39);
     {
         size_t relocation_count = 0u;
         bool found_helper = false;
@@ -827,6 +833,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int RINOS_ABI (*nested_switch_function)(int, int);
     int RINOS_ABI (*ternary_function)(int, int, int);
     int RINOS_ABI (*switch_promotion_function)(unsigned char);
+    int RINOS_ABI (*switch_nested_case_function)(int);
     int* cursor;
     void* address;
     assert(object != NULL && object->arch == arch);
@@ -1077,6 +1084,13 @@ static void verify_native_execution(const char* path, uint16_t arch)
     assert(side_effect == 5);
     assert(conditional_function(7, &side_effect) == 9);
     assert(side_effect == 5);
+
+    symbol = objfile_find_symbol(object, "verified_switch_nested_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_nested_case_function, &address,
+           sizeof(switch_nested_case_function));
+    assert(switch_nested_case_function(1) == 11);
+    assert(switch_nested_case_function(7) == 22);
 
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
