@@ -82,6 +82,7 @@ MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
 # Keep expected-failure checks shell-neutral. Native Windows builds use
 # cmd.exe, while POSIX/WSL builds use a Bourne-compatible shell.
 EXPECT_FAILURE = $(subst ./,,$(1)) >$(2) 2>&1 & if not errorlevel 1 exit /b 1
+CHECK_NONEMPTY = powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
 COPY_FILE = powershell -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 ASSERT_ABSENT = powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
 CHECK_NO_SIGN_TEMP = powershell -NoProfile -Command "$$bad=Get-ChildItem -LiteralPath '$(1)' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $$_.Name -like '*.rcc-unsigned-*' -or $$_.Name -like '*.rld-unsigned-*' -or $$_.Name -like '*.rcc-signed-*' }; if ($$bad) { exit 1 }"
@@ -98,6 +99,7 @@ CHECK_COUNT = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps
 else
 MKDIR_P = mkdir -p $(1)
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
+CHECK_NONEMPTY = test -s "$(1)"
 VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
 COMPARE_FILES = cmp $(1) $(2)
 COPY_FILE = cp "$(1)" "$(2)"
@@ -1136,58 +1138,50 @@ test-determinism: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/determinism/c-x86-1.ro tests/hello.c
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -c \
 		-o $(TEST_OUT)/determinism/c-x86-2.ro tests/hello.c
-	cmp $(TEST_OUT)/determinism/c-x86-1.ro \
-		$(TEST_OUT)/determinism/c-x86-2.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/c-x86-1.ro,$(TEST_OUT)/determinism/c-x86-2.ro)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -c \
 		-o $(TEST_OUT)/determinism/c-x64-1.ro tests/hello.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -c \
 		-o $(TEST_OUT)/determinism/c-x64-2.ro tests/hello.c
-	cmp $(TEST_OUT)/determinism/c-x64-1.ro \
-		$(TEST_OUT)/determinism/c-x64-2.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/c-x64-1.ro,$(TEST_OUT)/determinism/c-x64-2.ro)
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/c-x86-1.rin \
 		tests/hello.c
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/c-x86-2.rin \
 		tests/hello.c
-	cmp $(TEST_OUT)/determinism/c-x86-1.rin \
-		$(TEST_OUT)/determinism/c-x86-2.rin
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/c-x86-1.rin,$(TEST_OUT)/determinism/c-x86-2.rin)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/c-x64-1.rin \
 		tests/hello.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/c-x64-2.rin \
 		tests/hello.c
-	cmp $(TEST_OUT)/determinism/c-x64-1.rin \
-		$(TEST_OUT)/determinism/c-x64-2.rin
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/c-x64-1.rin,$(TEST_OUT)/determinism/c-x64-2.rin)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/determinism/cxx-x86-1.ro tests/hello.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/determinism/cxx-x86-2.ro tests/hello.cpp
-	cmp $(TEST_OUT)/determinism/cxx-x86-1.ro \
-		$(TEST_OUT)/determinism/cxx-x86-2.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/cxx-x86-1.ro,$(TEST_OUT)/determinism/cxx-x86-2.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/determinism/cxx-x64-1.ro tests/hello.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/determinism/cxx-x64-2.ro tests/hello.cpp
-	cmp $(TEST_OUT)/determinism/cxx-x64-1.ro \
-		$(TEST_OUT)/determinism/cxx-x64-2.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/cxx-x64-1.ro,$(TEST_OUT)/determinism/cxx-x64-2.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/cxx-x86-1.rin \
 		tests/hello.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/cxx-x86-2.rin \
 		tests/hello.cpp
-	cmp $(TEST_OUT)/determinism/cxx-x86-1.rin \
-		$(TEST_OUT)/determinism/cxx-x86-2.rin
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/cxx-x86-1.rin,$(TEST_OUT)/determinism/cxx-x86-2.rin)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/cxx-x64-1.rin \
 		tests/hello.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/cxx-x64-2.rin \
 		tests/hello.cpp
-	cmp $(TEST_OUT)/determinism/cxx-x64-1.rin \
-		$(TEST_OUT)/determinism/cxx-x64-2.rin
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/cxx-x64-1.rin,$(TEST_OUT)/determinism/cxx-x64-2.rin)
 	@echo "Dual-architecture C/C++ deterministic object and image tests completed"
 
 test-property-gate: $(RCC_TARGET) $(RCXX_TARGET)
@@ -1196,53 +1190,37 @@ test-property-gate: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/property-gate/c-x86-1.ro tests/property_valid.c
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -c \
 		-o $(TEST_OUT)/property-gate/c-x86-2.ro tests/property_valid.c
-	cmp $(TEST_OUT)/property-gate/c-x86-1.ro \
-		$(TEST_OUT)/property-gate/c-x86-2.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/property-gate/c-x86-1.ro,$(TEST_OUT)/property-gate/c-x86-2.ro)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -c \
 		-o $(TEST_OUT)/property-gate/c-x64-1.ro tests/property_valid.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -c \
 		-o $(TEST_OUT)/property-gate/c-x64-2.ro tests/property_valid.c
-	cmp $(TEST_OUT)/property-gate/c-x64-1.ro \
-		$(TEST_OUT)/property-gate/c-x64-2.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/property-gate/c-x64-1.ro,$(TEST_OUT)/property-gate/c-x64-2.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/property-gate/cxx-x86-1.ro tests/property_valid.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/property-gate/cxx-x86-2.ro tests/property_valid.cpp
-	cmp $(TEST_OUT)/property-gate/cxx-x86-1.ro \
-		$(TEST_OUT)/property-gate/cxx-x86-2.ro
+	$(call COMPARE_FILES,$(TEST_OUT)/property-gate/cxx-x86-1.ro,$(TEST_OUT)/property-gate/cxx-x86-2.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/property-gate/cxx-x64-1.ro tests/property_valid.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/property-gate/cxx-x64-2.ro tests/property_valid.cpp
-	cmp $(TEST_OUT)/property-gate/cxx-x64-1.ro \
-		$(TEST_OUT)/property-gate/cxx-x64-2.ro
-	@set +e; \
-	$(RCC_TARGET) --target i686-unknown-rinos -c \
-		-o $(TEST_OUT)/property-gate/invalid-c-x86.ro tests/property_invalid.c \
-		>$(TEST_OUT)/property-gate/invalid-c-x86.log 2>&1; status=$$?; \
-	set -e; test $$status -ne 0; \
-	test -s $(TEST_OUT)/property-gate/invalid-c-x86.log; \
+	$(call COMPARE_FILES,$(TEST_OUT)/property-gate/cxx-x64-1.ro,$(TEST_OUT)/property-gate/cxx-x64-2.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/property-gate/invalid-c-x86.ro tests/property_invalid.c,$(TEST_OUT)/property-gate/invalid-c-x86.log)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/property-gate/invalid-c-x86.log)
 	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-c-x86.log
-	@set +e; \
-	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
-		-o $(TEST_OUT)/property-gate/invalid-c-x64.ro tests/property_invalid.c \
-		>$(TEST_OUT)/property-gate/invalid-c-x64.log 2>&1; status=$$?; \
-	set -e; test $$status -ne 0; \
-	test -s $(TEST_OUT)/property-gate/invalid-c-x64.log; \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/property-gate/invalid-c-x64.ro tests/property_invalid.c,$(TEST_OUT)/property-gate/invalid-c-x64.log)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/property-gate/invalid-c-x64.log)
 	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-c-x64.log
-	@set +e; \
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/property-gate/invalid-cxx-x86.ro tests/property_invalid.cpp \
-		>$(TEST_OUT)/property-gate/invalid-cxx-x86.log 2>&1; status=$$?; \
-	set -e; test $$status -ne 0; \
-	test -s $(TEST_OUT)/property-gate/invalid-cxx-x86.log; \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/property-gate/invalid-cxx-x86.ro tests/property_invalid.cpp,$(TEST_OUT)/property-gate/invalid-cxx-x86.log)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/property-gate/invalid-cxx-x86.log)
 	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-cxx-x86.log
-	@set +e; \
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/property-gate/invalid-cxx-x64.ro tests/property_invalid.cpp \
-		>$(TEST_OUT)/property-gate/invalid-cxx-x64.log 2>&1; status=$$?; \
-	set -e; test $$status -ne 0; \
-	test -s $(TEST_OUT)/property-gate/invalid-cxx-x64.log; \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/property-gate/invalid-cxx-x64.ro tests/property_invalid.cpp,$(TEST_OUT)/property-gate/invalid-cxx-x64.log)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/property-gate/invalid-cxx-x64.log)
 	$(GREP) -q "error:" $(TEST_OUT)/property-gate/invalid-cxx-x64.log
 	@echo "C/C++ dual-architecture property corpus gate completed"
 
