@@ -12032,6 +12032,74 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         expr->type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
         return true;
     }
+    if (strcmp(name, "__builtin_add_overflow") == 0 ||
+        strcmp(name, "__builtin_sub_overflow") == 0 ||
+        strcmp(name, "__builtin_mul_overflow") == 0) {
+        bool is_multiply = strcmp(name, "__builtin_mul_overflow") == 0;
+        Type* result_type = NULL;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 3) {
+            rcc_error(expr->loc, "%s expects 3 arguments, got %d", name,
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        second = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->expr : NULL;
+        third = expr->call_args && expr->call_args->next &&
+            expr->call_args->next->next
+            ? expr->call_args->next->next->expr : NULL;
+        if (!first || !first->type || !type_is_integer(first->type)) {
+            rcc_error(expr->loc,
+                      "%s first argument must have integer type", name);
+        }
+        if (!second || !second->type || !type_is_integer(second->type)) {
+            rcc_error(expr->loc,
+                      "%s second argument must have integer type", name);
+        }
+        if (!third || !third->type || third->type->kind != TYPE_PTR ||
+            !third->type->base || !type_is_integer(third->type->base)) {
+            rcc_error(expr->loc,
+                      "%s result argument must point to an integer type", name);
+        } else {
+            result_type = third->type->base;
+        }
+        if (result_type &&
+            (result_type->size != 1 && result_type->size != 2 &&
+             result_type->size != 4 && result_type->size != 8)) {
+            rcc_error(expr->loc,
+                      "%s result type has an unsupported integer width", name);
+        }
+        if (result_type && g_opts.target_arch == ARCH_X86 &&
+            result_type->size == 8) {
+            rcc_error(expr->loc,
+                      "%s does not yet support i686 64-bit result objects", name);
+        }
+        if (is_multiply && result_type && result_type->size < 4) {
+            rcc_error(expr->loc,
+                      "%s requires a result object at least 4 bytes wide", name);
+        }
+        if (first && first->type && result_type &&
+            (first->type->size != result_type->size ||
+             first->type->is_unsigned != result_type->is_unsigned)) {
+            rcc_error(expr->loc,
+                      "%s operands and result must have the same integer width and signedness",
+                      name);
+        }
+        if (second && second->type && result_type &&
+            (second->type->size != result_type->size ||
+             second->type->is_unsigned != result_type->is_unsigned)) {
+            rcc_error(expr->loc,
+                      "%s operands and result must have the same integer width and signedness",
+                      name);
+        }
+        function->type = type_ptr(type_int);
+        expr->type = type_int;
+        return true;
+    }
     if (strcmp(name, "__builtin_assume_aligned") == 0) {
         int64_t alignment = 0;
         int64_t offset = 0;

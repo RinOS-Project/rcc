@@ -93,6 +93,26 @@ unsigned long long builtin_object_size_checks(void) {
     return 0;
 }
 
+int builtin_overflow_checks(void) {
+    int signed_result = 0;
+    unsigned int unsigned_result = 0;
+    if (__builtin_add_overflow(10, 20, &signed_result) ||
+        signed_result != 30) return 1;
+    if (!__builtin_add_overflow(0x7fffffff, 1, &signed_result) ||
+        signed_result != (-2147483647 - 1)) return 2;
+    if (!__builtin_add_overflow(0xffffffffu, 1u, &unsigned_result) ||
+        unsigned_result != 0u) return 3;
+    if (__builtin_sub_overflow(30, 10, &signed_result) ||
+        signed_result != 20) return 4;
+    if (!__builtin_sub_overflow(0u, 1u, &unsigned_result) ||
+        unsigned_result != 0xffffffffu) return 5;
+    if (__builtin_mul_overflow(1000, 20, &signed_result) ||
+        signed_result != 20000) return 6;
+    if (!__builtin_mul_overflow(0xffffffffu, 2u, &unsigned_result) ||
+        unsigned_result != 0xfffffffeu) return 7;
+    return 0;
+}
+
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
     if (builtin_expect_probability(23) != 23) return 2;
@@ -122,5 +142,6 @@ int main(void) {
     if (builtin_clrsbll(-2) != 62) return 22;
     if (builtin_clrsbl(1L) != (int)(sizeof(long) * 8 - 2)) return 23;
     if (builtin_object_size_checks() != 0) return 24;
+    if (builtin_overflow_checks() != 0) return 25;
     return 0;
 }

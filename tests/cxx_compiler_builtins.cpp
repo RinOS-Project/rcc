@@ -46,6 +46,14 @@ extern "C" int cxx_builtin_object_size(void) {
     return 0;
 }
 
+extern "C" int cxx_builtin_overflow(void) {
+    int result = 0;
+    if (!__builtin_add_overflow(0x7fffffff, 1, &result)) return 71;
+    if (result != (-2147483647 - 1)) return 72;
+    if (!__builtin_mul_overflow(0x7fffffff, 2, &result)) return 73;
+    return 0;
+}
+
 extern "C" int main(void) {
     if (cxx_builtin_expect(31) != 31) return 1;
     if (cxx_builtin_expect_probability(31) != 31) return 2;
@@ -54,5 +62,6 @@ extern "C" int main(void) {
     int value = 37;
     if (cxx_scalar_builtins(&value) != 37) return 5;
     if (cxx_builtin_object_size() != 0) return 6;
+    if (cxx_builtin_overflow() != 0) return 7;
     return 0;
 }

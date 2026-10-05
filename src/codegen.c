@@ -1789,6 +1789,28 @@ static void emit_sub_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, modrm(3, src, dst));
 }
 
+static void emit_add_reg_reg_width32(Module* mod, int dst, int src,
+                                     int width) {
+    if (width == 1) {
+        emit_byte(mod, 0x00);
+    } else {
+        if (width == 2) emit_byte(mod, 0x66);
+        emit_byte(mod, 0x01);
+    }
+    emit_byte(mod, modrm(3, src, dst));
+}
+
+static void emit_sub_reg_reg_width32(Module* mod, int dst, int src,
+                                     int width) {
+    if (width == 1) {
+        emit_byte(mod, 0x28);
+    } else {
+        if (width == 2) emit_byte(mod, 0x66);
+        emit_byte(mod, 0x29);
+    }
+    emit_byte(mod, modrm(3, src, dst));
+}
+
 static void emit_adc_reg_reg(Module* mod, int dst, int src) {
     emit_byte(mod, 0x11);
     emit_byte(mod, modrm(3, src, dst));
@@ -1830,6 +1852,11 @@ static void emit_imul_reg_reg(Module* mod, int dst, int src) {
 static void emit_mul_reg(Module* mod, int reg) {
     emit_byte(mod, 0xF7);
     emit_byte(mod, modrm(3, 4, reg));
+}
+
+static void emit_imul_reg(Module* mod, int reg) {
+    emit_byte(mod, 0xF7);
+    emit_byte(mod, modrm(3, 5, reg));
 }
 
 static void emit_scale_reg(Module* mod, int reg, uint32_t scale) {
@@ -8699,6 +8726,81 @@ static bool codegen_builtin_object_size(Expr* expression, uint64_t* size) {
     return false;
 }
 
+static bool gen_compiler_overflow_builtin32(Module* mod, Expr* expr) {
+    const char* name;
+    Expr* result_address;
+    Expr* lhs;
+    Expr* rhs;
+    Type* result_type;
+    int width;
+    bool is_multiply;
+    bool is_subtract;
+
+    if (!expr || expr->kind != EXPR_CALL || !expr->call_func ||
+        expr->call_func->kind != EXPR_IDENT) return false;
+    name = expr->call_func->ident_name;
+    is_multiply = strcmp(name, "__builtin_mul_overflow") == 0;
+    is_subtract = strcmp(name, "__builtin_sub_overflow") == 0;
+    if (!is_multiply && !is_subtract &&
+        strcmp(name, "__builtin_add_overflow") != 0) return false;
+    result_address = call_argument(expr, 2);
+    lhs = call_argument(expr, 0);
+    rhs = call_argument(expr, 1);
+    result_type = result_address && result_address->type &&
+        result_address->type->kind == TYPE_PTR
+        ? result_address->type->base : NULL;
+    width = result_type ? result_type->size : 0;
+    if (is_multiply && width != 4) {
+        rcc_error(expr->loc,
+                  "i686 checked multiplication currently requires a 4-byte result type");
+        return true;
+    }
+    if (!is_multiply && (width < 1 || width > 4)) {
+        rcc_error(expr->loc,
+                  "i686 checked addition/subtraction supports 1-, 2-, and 4-byte result types");
+        return true;
+    }
+
+    gen_expr(mod, result_address);
+    emit_push_reg(mod, EAX);
+    gen_expr(mod, lhs);
+    emit_push_reg(mod, EAX);
+    gen_expr(mod, rhs);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_pop_reg(mod, EAX);
+    if (is_multiply) {
+        if (result_type && result_type->is_unsigned) {
+            emit_mul_reg(mod, ECX);
+        } else {
+            emit_imul_reg(mod, ECX);
+        }
+    } else if (is_subtract) {
+        emit_sub_reg_reg_width32(mod, EAX, ECX, width);
+    } else {
+        emit_add_reg_reg_width32(mod, EAX, ECX, width);
+    }
+    emit_pop_reg(mod, ECX);
+    emit_store_typed32(mod, ECX, 0, EAX, result_type);
+    if (is_multiply) {
+        if (result_type && result_type->is_unsigned) {
+            emit_test_reg_reg(mod, EDX, EDX);
+            emit_setcc(mod, CC_NE, EAX);
+        } else {
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_sar_reg_imm(mod, ECX, 31);
+            emit_cmp_reg_reg(mod, EDX, ECX);
+            emit_setcc(mod, CC_NE, EAX);
+        }
+    } else {
+        emit_setcc(mod, result_type && result_type->is_unsigned
+            ? CC_B : CC_O, EAX);
+    }
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB6);
+    emit_byte(mod, modrm(3, EAX, EAX));
+    return true;
+}
+
 static bool gen_compiler_builtin(Module* mod, Expr* expr) {
     Expr* function;
     Expr* argument;
@@ -8712,6 +8814,7 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         return false;
     }
     function = expr->call_func;
+    if (gen_compiler_overflow_builtin32(mod, expr)) return true;
     if (gen_mmx_builtin32(mod, expr)) return true;
     if (gen_sse_builtin32(mod, expr)) return true;
     bswap_width = strcmp(function->ident_name, "__builtin_bswap16") == 0 ? 2 :

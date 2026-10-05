@@ -34,6 +34,15 @@ int invalid_builtin_object_size_mode(void) {
     return (int)__builtin_object_size((char *)0, 4);
 }
 
+int invalid_builtin_add_overflow_pointer(void) {
+    return __builtin_add_overflow(1, 2, 3);
+}
+
+int invalid_builtin_add_overflow_types(void) {
+    int result = 0;
+    return __builtin_add_overflow(1u, 2u, &result);
+}
+
 int invalid_builtin_parity(void) {
     return __builtin_parity(1LL);
 }
