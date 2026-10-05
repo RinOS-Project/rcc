@@ -117,6 +117,9 @@ int main(int argc, char** argv) {
     signed_wide_unary_fn negate;
     wide_unary_fn local;
     wide_unary_fn ssa_add;
+    wide_unary_fn ssa_assign;
+    wide_unary_fn ssa_compound;
+    wide_unary_fn ssa_increment;
     wide_unary_fn ssa_address;
     wide_unary_fn assign;
     signed_widen_fn assign_narrow;
@@ -210,6 +213,9 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(negate, object, mapping, "abi_wide_negate");
     LOAD_FUNCTION(local, object, mapping, "abi_wide_local");
     LOAD_FUNCTION(ssa_add, object, mapping, "abi_wide_ssa_add");
+    LOAD_FUNCTION(ssa_assign, object, mapping, "abi_wide_ssa_assign");
+    LOAD_FUNCTION(ssa_compound, object, mapping, "abi_wide_ssa_compound");
+    LOAD_FUNCTION(ssa_increment, object, mapping, "abi_wide_ssa_increment");
     LOAD_FUNCTION(ssa_address, object, mapping, "abi_wide_ssa_address");
     LOAD_FUNCTION(assign, object, mapping, "abi_wide_assign");
     LOAD_FUNCTION(assign_narrow, object, mapping,
@@ -303,6 +309,12 @@ int main(int argc, char** argv) {
     assert(local(UINT64_C(0xabcdef0123456789)) ==
            UINT64_C(0xabcdef0123456789));
     assert(ssa_add(UINT64_C(0xabcdef0123456789)) ==
+           UINT64_C(0xabcdef012345678a));
+    assert(ssa_assign(UINT64_C(0xabcdef0123456789)) ==
+           UINT64_C(0xabcdef012345678a));
+    assert(ssa_compound(UINT64_C(0xabcdef0123456789)) ==
+           UINT64_C(0xabcdef012345678c));
+    assert(ssa_increment(UINT64_C(0xabcdef0123456789)) ==
            UINT64_C(0xabcdef012345678a));
     assert(ssa_address(UINT64_C(0xabcdef0123456789)) ==
            UINT64_C(0xabcdef0123456789));

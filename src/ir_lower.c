@@ -34,6 +34,11 @@ typedef struct RccIrLowerLocal {
      * The address is still materialized for valid address-taking uses, but
      * ordinary reads never need to reload the stack mirror. */
     bool wide_ssa;
+    /* A mutable pair is kept in SSA only within the block that defines it.
+     * Crossing a branch or loop requires a real pair phi, which this local
+     * lowering context does not synthesize yet; such values stay on the
+     * validated stack mirror instead. */
+    RccIrBlock* wide_ssa_block;
     RccIrLowerWideValue wide_value;
     struct RccIrLowerLocal* next;
 } RccIrLowerLocal;
@@ -269,6 +274,7 @@ static bool lower_add_local(RccIrLowerContext* context,
     local->address = address;
     local->type = type;
     local->wide_ssa = false;
+    local->wide_ssa_block = NULL;
     memset(&local->wide_value, 0, sizeof(local->wide_value));
     local->next = context->locals;
     context->locals = local;
@@ -282,8 +288,54 @@ static bool lower_set_wide_local_ssa(
     if (!local || !value.valid || !lower_i686_wide_scalar_type(
             declaration ? declaration->type : NULL)) return false;
     local->wide_ssa = true;
+    local->wide_ssa_block = context->current;
     local->wide_value = value;
     return true;
+}
+
+static bool lower_wide_ssa_expression_safe(const Expr* expression) {
+    if (!expression || !expression->type || expression->type->is_volatile ||
+        !type_is_integer(expression->type)) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_CHAR_LIT:
+            return true;
+        case EXPR_IDENT:
+            return expression->ident_decl != NULL &&
+                expression->ident_decl->type != NULL &&
+                !expression->ident_decl->type->is_volatile &&
+                expression->ident_decl->type->kind != TYPE_ARRAY &&
+                expression->ident_decl->type->kind != TYPE_STRUCT &&
+                expression->ident_decl->type->kind != TYPE_UNION;
+        case EXPR_NEG:
+        case EXPR_BITNOT:
+        case EXPR_CAST:
+            return lower_wide_ssa_expression_safe(
+                expression->kind == EXPR_CAST
+                    ? expression->cast_expr : expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+            return lower_wide_ssa_expression_safe(expression->binary_lhs) &&
+                lower_wide_ssa_expression_safe(expression->binary_rhs);
+        default:
+            return false;
+    }
+}
+
+static bool lower_wide_ssa_local_update_allowed(
+    const RccIrLowerContext* context, const RccIrLowerLocal* local) {
+    return context && local && local->wide_ssa &&
+        local->wide_ssa_block == context->current;
 }
 
 static void lower_release_locals(RccIrLowerLocal* local) {
@@ -854,6 +906,7 @@ static RccIrLowerValue lower_lvalue_address(
                 return lower_invalid_value();
             }
             local->wide_ssa = false;
+            local->wide_ssa_block = NULL;
         }
         return lower_value(local->address, rcc_ir_type_pointer(0u), true);
     }
@@ -2082,6 +2135,21 @@ static bool lower_wide_scalar_expression_impl(
         expression->binary_lhs && expression->binary_rhs &&
         lower_i686_wide_scalar_type(expression->binary_lhs->type)) {
         RccIrLowerWideValue value;
+        if (expression->binary_lhs->kind == EXPR_IDENT &&
+            expression->binary_lhs->ident_decl) {
+            local = lower_find_local(
+                context, expression->binary_lhs->ident_decl);
+            if (lower_wide_ssa_local_update_allowed(context, local) &&
+                lower_wide_ssa_expression_safe(expression->binary_rhs)) {
+                if (!lower_wide_scalar_expression(
+                        context, expression->binary_rhs, &value)) {
+                    return false;
+                }
+                local->wide_value = value;
+                *result = value;
+                return true;
+            }
+        }
         address = lower_lvalue_address(context, expression->binary_lhs);
         if (!lower_wide_scalar_expression(
                 context, expression->binary_rhs, &value) ||
@@ -2108,6 +2176,44 @@ static bool lower_wide_scalar_expression_impl(
         RccIrLowerWideValue right;
         RccIrLowerWideValue value;
         ExprKind binary_kind = lower_compound_binary_kind(expression->kind);
+        if (expression->binary_lhs->kind == EXPR_IDENT &&
+            expression->binary_lhs->ident_decl) {
+            local = lower_find_local(
+                context, expression->binary_lhs->ident_decl);
+            if (lower_wide_ssa_local_update_allowed(context, local) &&
+                lower_wide_ssa_expression_safe(expression->binary_rhs)) {
+                left = local->wide_value;
+                if (!lower_wide_scalar_expression(
+                        context, expression->binary_rhs, &right)) {
+                    return false;
+                }
+                if (binary_kind == EXPR_LSHIFT || binary_kind == EXPR_RSHIFT) {
+                    if (!lower_wide_scalar_shift(
+                            context, binary_kind, left, right.low,
+                            expression->type->is_unsigned, &value)) {
+                        return false;
+                    }
+                } else if (binary_kind == EXPR_MUL &&
+                           !lower_wide_scalar_multiply(
+                               context, left, right,
+                               expression->type->is_unsigned, &value)) {
+                    return false;
+                } else if ((binary_kind == EXPR_DIV ||
+                            binary_kind == EXPR_MOD) &&
+                           !lower_wide_scalar_divmod(
+                               context, binary_kind, left, right,
+                               expression->type->is_unsigned, &value)) {
+                    return false;
+                } else if (!lower_wide_scalar_binary(
+                               context, binary_kind, left, right,
+                               expression->type->is_unsigned, &value)) {
+                    return false;
+                }
+                local->wide_value = value;
+                *result = value;
+                return true;
+            }
+        }
         address = lower_lvalue_address(context, expression->binary_lhs);
         if (!lower_wide_scalar_load(
                 context, address, expression->binary_lhs->type->is_unsigned,
@@ -2159,6 +2265,29 @@ static bool lower_wide_scalar_expression_impl(
             expression->kind == EXPR_POSTINC;
         bool postfix = expression->kind == EXPR_POSTINC ||
             expression->kind == EXPR_POSTDEC;
+        if (expression->unary_operand->kind == EXPR_IDENT &&
+            expression->unary_operand->ident_decl) {
+            local = lower_find_local(
+                context, expression->unary_operand->ident_decl);
+            if (lower_wide_ssa_local_update_allowed(context, local)) {
+                old_value = local->wide_value;
+                one.low = lower_integer_constant(
+                    context, rcc_ir_type_integer(32u), true, 1u);
+                one.high = lower_integer_constant(
+                    context, rcc_ir_type_integer(32u), true, 0u);
+                one.is_unsigned = true;
+                one.valid = one.low.valid && one.high.valid;
+                if (!one.valid || !lower_wide_scalar_binary(
+                        context, increment ? EXPR_ADD : EXPR_SUB,
+                        old_value, one, expression->type->is_unsigned,
+                        &new_value)) {
+                    return false;
+                }
+                local->wide_value = new_value;
+                *result = postfix ? old_value : new_value;
+                return true;
+            }
+        }
         address = lower_lvalue_address(context, expression->unary_operand);
         if (!lower_wide_scalar_load(
                 context, address,
