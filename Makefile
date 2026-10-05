@@ -82,6 +82,12 @@ MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
 # Keep expected-failure checks shell-neutral. Native Windows builds use
 # cmd.exe, while POSIX/WSL builds use a Bourne-compatible shell.
 EXPECT_FAILURE = $(subst ./,,$(1)) >$(2) 2>&1 & if not errorlevel 1 exit /b 1
+COPY_FILE = powershell -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
+ASSERT_ABSENT = powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
+CHECK_NO_SIGN_TEMP = powershell -NoProfile -Command "$$bad=Get-ChildItem -LiteralPath '$(1)' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $$_.Name -like '*.rcc-unsigned-*' -or $$_.Name -like '*.rld-unsigned-*' -or $$_.Name -like '*.rcc-signed-*' }; if ($$bad) { exit 1 }"
+define PARALLEL_SIGNING
+powershell -NoProfile -Command "$$a=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; $$b=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; Wait-Process -Id $$a.Id,$$b.Id; $$a.Refresh(); $$b.Refresh(); if ($$a.ExitCode -ne 0 -or $$b.ExitCode -ne 0) { exit 1 }"
+endef
 # Native MinGW installations commonly provide only the host CRT.  The
 # verifier still parses both x86 and x64 objects and executes the native x64
 # object, so do not make the whole production gate depend on unavailable
@@ -94,6 +100,12 @@ MKDIR_P = mkdir -p $(1)
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
 VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
 COMPARE_FILES = cmp $(1) $(2)
+COPY_FILE = cp "$(1)" "$(2)"
+ASSERT_ABSENT = test ! -e "$(1)"
+CHECK_NO_SIGN_TEMP = test -z "$$(find "$(1)" -type f \( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' -o -name '*.rcc-signed-*' \) -print -quit)"
+define PARALLEL_SIGNING
+$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & first=$$!; $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & second=$$!; wait $$first; wait $$second
+endef
 CHECK_COUNT = test "$$($(GREP) -F -c '$(1)' '$(2)')" -eq $(3)
 endif
 
@@ -10005,8 +10017,8 @@ test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	@echo "Versioned build manifest conflict tests completed"
 
 test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
-	$(call MKDIR_P,"$(SIGN_TEST_DIR)/argv ; spaces")
-	cp tests/fake_rinsign.py "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py"
+	$(call MKDIR_P,$(SIGN_TEST_DIR)/argv ; spaces)
+	$(call COPY_FILE,tests/fake_rinsign.py,$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py)
 	$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
 		--python python3 --rinsign "$(SIGN_TEST_DIR)/argv ; spaces/fake signer.py" \
 		--sign-key tests/signing_test_private.key \
@@ -10037,38 +10049,16 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		--public-key tests/signing_test_public.der \
 		-o "$(SIGN_TEST_DIR)/linked x64.rin" \
 		"$(SIGN_TEST_DIR)/main x64.ro" "$(SIGN_TEST_DIR)/lib x64.ro"
-	! $(RCC_TARGET) --target i686-unknown-rinos \
-		--python python3 --rinsign tests/fake_rinsign.py \
-		--sign-key tests/signing_test_private.key \
-		--public-key tests/signing_test_public.der \
-		-o "$(SIGN_TEST_DIR)/missing profile.rin" tests/hello.c
-	cp "$(SIGN_TEST_DIR)/direct x86.rin" "$(SIGN_TEST_DIR)/preserved.rin"
-	! $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
-		--python python3 --rinsign tests/fake_rinsign.py \
-		--sign-key tests/signing_test_fail.key \
-		--public-key tests/signing_test_public.der \
-		-o "$(SIGN_TEST_DIR)/preserved.rin" tests/hello.c
-	cmp "$(SIGN_TEST_DIR)/direct x86.rin" "$(SIGN_TEST_DIR)/preserved.rin"
-	! $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
-		--python python3 --rinsign tests/fake_rinsign.py \
-		--sign-key tests/signing_test_invalid.key \
-		--public-key tests/signing_test_public.der \
-		-o "$(SIGN_TEST_DIR)/invalid signer.rin" tests/hello.c
-	test ! -e "$(SIGN_TEST_DIR)/invalid signer.rin"
-	$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
-		--python python3 --rinsign tests/fake_rinsign.py \
-		--sign-key tests/signing_test_private.key \
-		--public-key tests/signing_test_public.der \
-		-o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & first=$$!; \
-	$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug \
-		--python python3 --rinsign tests/fake_rinsign.py \
-		--sign-key tests/signing_test_private.key \
-		--public-key tests/signing_test_public.der \
-		-o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & second=$$!; \
-	wait $$first; wait $$second
-	test -z "$$(find "$(SIGN_TEST_DIR)" -type f \
-		\( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' \
-		-o -name '*.rcc-signed-*' \) -print -quit)"
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/missing profile.rin" tests/hello.c,$(SIGN_TEST_DIR)/missing-profile.log)
+	$(GREP) -F -q "final v3 output requires --sign-profile debug or release" $(SIGN_TEST_DIR)/missing-profile.log
+	$(call COPY_FILE,$(SIGN_TEST_DIR)/direct x86.rin,$(SIGN_TEST_DIR)/preserved.rin)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_fail.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/preserved.rin" tests/hello.c,$(SIGN_TEST_DIR)/preserved-failure.log)
+	$(call COMPARE_FILES,$(SIGN_TEST_DIR)/direct x86.rin,$(SIGN_TEST_DIR)/preserved.rin)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_invalid.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/invalid signer.rin" tests/hello.c,$(SIGN_TEST_DIR)/invalid-signer.log)
+	$(GREP) -F -q "rinsign produced an invalid signed v3 artifact" $(SIGN_TEST_DIR)/invalid-signer.log
+	$(call ASSERT_ABSENT,$(SIGN_TEST_DIR)/invalid signer.rin)
+	$(PARALLEL_SIGNING)
+	$(call CHECK_NO_SIGN_TEMP,$(SIGN_TEST_DIR))
 	@echo "Isolated final signing and atomic publication tests completed"
 
 # Audit the exact unsigned artifacts emitted by RCC/RCC++/RLD with the native

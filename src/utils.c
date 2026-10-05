@@ -200,7 +200,6 @@ bool rcc_create_signing_temp(const char* output_path, const char* stage,
 }
 
 static bool invoke_rinsign(const char* unsigned_path, const char* signed_path) {
-    const char* executable;
     const char* const direct_arguments[] = {
         g_opts.rinsign_path, unsigned_path, "-o", signed_path,
         "--key", g_opts.sign_key, "--public-key", g_opts.public_key, NULL
@@ -210,7 +209,10 @@ static bool invoke_rinsign(const char* unsigned_path, const char* signed_path) {
         "--key", g_opts.sign_key, "--public-key", g_opts.public_key, NULL
     };
     const char* const* arguments;
+#if !defined(_WIN32)
+    const char* executable;
     int status;
+#endif
 
     if (!string_present(unsigned_path) || !string_present(signed_path) ||
         !string_present(g_opts.rinsign_path) ||
@@ -221,16 +223,122 @@ static bool invoke_rinsign(const char* unsigned_path, const char* signed_path) {
     }
     /* --python remains an explicit compatibility mode for old test signers;
      * normal builds execute the native rinsign binary directly. */
-    executable = g_opts.python_path ? g_opts.python_path : g_opts.rinsign_path;
     arguments = g_opts.python_path ? python_arguments : direct_arguments;
 #if defined(_WIN32)
-    status = (int)_spawnvp(_P_WAIT, executable, arguments);
-    if (status == -1) {
-        perror("rcc: cannot start rinsign");
-        return false;
+    {
+        char command_line[4096];
+        size_t used = 0u;
+        STARTUPINFOA startup;
+        PROCESS_INFORMATION process;
+        DWORD exit_code;
+        size_t index;
+
+        memset(command_line, 0, sizeof(command_line));
+        for (index = 0u; arguments[index]; ++index) {
+            const char* argument = arguments[index];
+            size_t slash_count = 0u;
+            size_t position;
+            if (index != 0u) {
+                if (used + 1u >= sizeof(command_line)) {
+                    errno = ENAMETOOLONG;
+                    fprintf(stderr, "rcc: rinsign command line is too long\n");
+                    return false;
+                }
+                command_line[used++] = ' ';
+            }
+            if (used + 1u >= sizeof(command_line)) {
+                errno = ENAMETOOLONG;
+                fprintf(stderr, "rcc: rinsign command line is too long\n");
+                return false;
+            }
+            command_line[used++] = '"';
+            for (position = 0u; argument[position]; ++position) {
+                char character = argument[position];
+                if (character == '\\') {
+                    ++slash_count;
+                    continue;
+                }
+                if (character == '"') {
+                    size_t repeat = slash_count * 2u + 1u;
+                    while (repeat-- != 0u) {
+                        if (used + 1u >= sizeof(command_line)) {
+                            errno = ENAMETOOLONG;
+                            fprintf(stderr, "rcc: rinsign command line is too long\n");
+                            return false;
+                        }
+                        command_line[used++] = '\\';
+                    }
+                    if (used + 1u >= sizeof(command_line)) {
+                        errno = ENAMETOOLONG;
+                        fprintf(stderr, "rcc: rinsign command line is too long\n");
+                        return false;
+                    }
+                    command_line[used++] = '"';
+                    slash_count = 0u;
+                    continue;
+                }
+                while (slash_count > 0u) {
+                    --slash_count;
+                    if (used + 1u >= sizeof(command_line)) {
+                        errno = ENAMETOOLONG;
+                        fprintf(stderr, "rcc: rinsign command line is too long\n");
+                        return false;
+                    }
+                    command_line[used++] = '\\';
+                }
+                if (used + 1u >= sizeof(command_line)) {
+                    errno = ENAMETOOLONG;
+                    fprintf(stderr, "rcc: rinsign command line is too long\n");
+                    return false;
+                }
+                command_line[used++] = character;
+            }
+            while (slash_count > 0u) {
+                --slash_count;
+                if (used + 1u >= sizeof(command_line)) {
+                    errno = ENAMETOOLONG;
+                    fprintf(stderr, "rcc: rinsign command line is too long\n");
+                    return false;
+                }
+                command_line[used++] = '\\';
+                command_line[used++] = '\\';
+            }
+            if (used + 1u >= sizeof(command_line)) {
+                errno = ENAMETOOLONG;
+                fprintf(stderr, "rcc: rinsign command line is too long\n");
+                return false;
+            }
+            command_line[used++] = '"';
+        }
+        if (used >= sizeof(command_line)) {
+            errno = ENAMETOOLONG;
+            fprintf(stderr, "rcc: rinsign command line is too long\n");
+            return false;
+        }
+        command_line[used] = '\0';
+        memset(&startup, 0, sizeof(startup));
+        startup.cb = sizeof(startup);
+        memset(&process, 0, sizeof(process));
+        if (!CreateProcessA(NULL, command_line, NULL, NULL, FALSE, 0u, NULL,
+                            NULL, &startup, &process)) {
+            fprintf(stderr, "rcc: cannot start rinsign (Windows error %lu)\n",
+                    (unsigned long)GetLastError());
+            return false;
+        }
+        WaitForSingleObject(process.hProcess, INFINITE);
+        if (!GetExitCodeProcess(process.hProcess, &exit_code)) {
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+            fprintf(stderr, "rcc: cannot read rinsign exit status (Windows error %lu)\n",
+                    (unsigned long)GetLastError());
+            return false;
+        }
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return exit_code == 0u;
     }
-    return status == 0;
 #else
+    executable = g_opts.python_path ? g_opts.python_path : g_opts.rinsign_path;
     pid_t pid = fork();
     if (pid < 0) {
         perror("rcc: cannot fork rinsign");

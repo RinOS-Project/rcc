@@ -558,6 +558,17 @@
       failures through the shared `EXPECT_FAILURE` helper without a multiline
       `cmd.exe if` wrapper, so every diagnostic is executed and matched on
       both i686 and x86_64.
+- [x] Make the native Windows signing gate create its deliberate
+      semicolon-and-space signer path through the shell-neutral `MKDIR_P`
+      contract, avoiding nested quotes while still exercising argv-safe
+      signer invocation.
+- [x] Make the native Windows signing gate use explicit PowerShell file-copy,
+      absence, byte-compare, temporary-file, and concurrent-process helpers;
+      the full atomic-publication contract is now executable under `cmd.exe`.
+- [x] Make Windows RCC/RLD signer invocation preserve every argv element,
+      including signer paths containing spaces, quotes, and semicolons, by
+      constructing a Windows-compatible command line and waiting for the
+      child process through `CreateProcessA`.
 - [x] Make the native Windows scalar-comparison and scalar-truth gate execute
       real i686/x86_64 RCC output through freestanding `main` entries, while
       retaining `.ro` generation, invalid-comparison diagnostics, and the
