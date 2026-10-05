@@ -59,6 +59,39 @@ int loop_assignment_while_two(void)
     return result;
 }
 
+int loop_stride_one(void)
+{
+    int index = 2;
+    int result = 0;
+    while (index <= 2) {
+        result += 79;
+        index += 2;
+    }
+    return result;
+}
+
+int loop_stride_two(void)
+{
+    int index = 0;
+    int result = 0;
+    while (index < 4) {
+        result += 83;
+        index += 2;
+    }
+    return result;
+}
+
+int loop_stride_assignment_two(void)
+{
+    int index = 0;
+    int result = 0;
+    while (index != 4) {
+        result += 89;
+        index = index + 2;
+    }
+    return result;
+}
+
 int loop_constant_one(void)
 {
     int result = 0;
@@ -285,5 +318,27 @@ int do_descending_two(void)
         result += 73;
         --index;
     } while (index > 1);
+    return result;
+}
+
+int do_stride_two(void)
+{
+    int index = 0;
+    int result = 0;
+    do {
+        result += 97;
+        index += 2;
+    } while (index < 4);
+    return result;
+}
+
+int do_descending_stride_two(void)
+{
+    int index = 6;
+    int result = 0;
+    do {
+        result += 101;
+        index -= 2;
+    } while (index > 2);
     return result;
 }

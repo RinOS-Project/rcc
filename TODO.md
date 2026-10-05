@@ -333,6 +333,9 @@
   - [x] 初期値が局所定数として確定するC17 `do-while`の`<`／`>`／`!=`単位増減bodyを
         1〜4回へbounded unrollし、wrap・方向不一致・body内の宣言・label・loop/control
         transfer・induction別変更を除外してi686/AMD64のcode-sizeと実行を回帰検証
+  - [x] C17の`while`／`do-while`で`i += 2`／`i -= 2`／`i = i + 2`のような
+        ±4以内の定数strideを同じoverflow・方向・`!=`到達性proofへ接続し、
+        1〜4回のi686/AMD64展開と実行を回帰検証
   - [x] 定数初期値・境界で2〜4回と確定できるC17 `for`を、符号付き／符号なし
         比較とincrement overflow境界を確認した上で、宣言・label・loop-transfer・
         C++ cleanupを含まないbodyだけbounded unrollし、i686/AMD64のcode-sizeと

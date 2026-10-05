@@ -59,8 +59,8 @@ static bool constant_while_iteration_count(const Stmt* statement,
 static bool constant_do_iteration_count(const Stmt* statement,
                                         const ConstantState* state,
                                         unsigned* count);
-static bool while_body_unit_step(const Stmt* body, const Decl* induction,
-                                 int* step);
+static bool while_body_constant_step(const Stmt* body, const Decl* induction,
+                                     int* step);
 static bool unroll_constant_loop(Stmt* statement, unsigned count);
 
 enum { INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64 };
@@ -1430,6 +1430,52 @@ static int unit_for_step(const Expr* increment, const Decl* induction) {
     return 0;
 }
 
+static int bounded_loop_step_value(int64_t value) {
+    return value >= -4 && value <= 4 && value != 0 ? (int)value : 0;
+}
+
+static int bounded_loop_step(const Expr* increment, const Decl* induction) {
+    const Expr* left;
+    const Expr* right;
+    int64_t value;
+    int step = unit_for_step(increment, induction);
+    if (step != 0 || !increment || !induction) return step;
+    if (increment->kind == EXPR_ADD_ASSIGN && increment->binary_lhs &&
+        increment->binary_rhs && increment->binary_lhs->kind == EXPR_IDENT &&
+        increment->binary_lhs->ident_decl == induction &&
+        integer_literal(increment->binary_rhs, &value)) {
+        return bounded_loop_step_value(value);
+    }
+    if (increment->kind == EXPR_SUB_ASSIGN && increment->binary_lhs &&
+        increment->binary_rhs && increment->binary_lhs->kind == EXPR_IDENT &&
+        increment->binary_lhs->ident_decl == induction &&
+        integer_literal(increment->binary_rhs, &value)) {
+        step = bounded_loop_step_value(value);
+        return step == 0 ? 0 : -step;
+    }
+    if (increment->kind != EXPR_ASSIGN || !increment->binary_lhs ||
+        !increment->binary_rhs || increment->binary_lhs->kind != EXPR_IDENT ||
+        increment->binary_lhs->ident_decl != induction) {
+        return 0;
+    }
+    right = increment->binary_rhs;
+    if (right->kind != EXPR_ADD && right->kind != EXPR_SUB) return 0;
+    left = right->binary_lhs;
+    if (left && left->kind == EXPR_IDENT &&
+        left->ident_decl == induction &&
+        integer_literal(right->binary_rhs, &value)) {
+        step = bounded_loop_step_value(value);
+        return right->kind == EXPR_ADD || step == 0 ? step : -step;
+    }
+    if (right->kind == EXPR_ADD && right->binary_rhs &&
+        right->binary_rhs->kind == EXPR_IDENT &&
+        right->binary_rhs->ident_decl == induction &&
+        integer_literal(right->binary_lhs, &value)) {
+        return bounded_loop_step_value(value);
+    }
+    return 0;
+}
+
 static bool for_initializer(const Stmt* initializer, Decl** induction,
                             const Expr** initial_value) {
     const Expr* expression;
@@ -2614,8 +2660,8 @@ static LocalConstant* find_local_constant(ConstantState* state,
     return binding;
 }
 
-static bool while_body_unit_step(const Stmt* body, const Decl* induction,
-                                 int* step) {
+static bool while_body_constant_step(const Stmt* body, const Decl* induction,
+                                     int* step) {
     const Stmt* increment_statement;
     const StmtList* item;
     if (!body || !induction || !step) return false;
@@ -2646,7 +2692,7 @@ static bool while_body_unit_step(const Stmt* body, const Decl* induction,
         statement_transfers_control(body)) {
         return false;
     }
-    *step = unit_for_step(increment_statement->expr, induction);
+    *step = bounded_loop_step(increment_statement->expr, induction);
     return *step != 0;
 }
 
@@ -2698,27 +2744,33 @@ static bool constant_loop_ne_direction_valid(const Expr* condition,
 static bool advance_constant_loop_value(const Type* type, int step,
                                         int64_t* signed_current,
                                         uint64_t* unsigned_current) {
+    uint64_t distance = (uint64_t)(step > 0 ? step : -step);
     if (type->is_unsigned) {
         uint64_t mask = integer_mask(type);
-        if ((step > 0 && *unsigned_current == mask) ||
-            (step < 0 && *unsigned_current == 0u)) {
-            return false;
+        if (step > 0) {
+            if (distance > mask || *unsigned_current > mask - distance) {
+                return false;
+            }
+            *unsigned_current = (*unsigned_current + distance) & mask;
+        } else {
+            if (*unsigned_current < distance) return false;
+            *unsigned_current = (*unsigned_current - distance) & mask;
         }
-        *unsigned_current = step > 0
-            ? (*unsigned_current + 1u) & mask
-            : (*unsigned_current - 1u) & mask;
         return true;
     }
     {
         int64_t minimum;
         int64_t maximum;
         if (!signed_type_limits(type, &minimum, &maximum) ||
-            (step > 0 && *signed_current == maximum) ||
-            (step < 0 && *signed_current == minimum)) {
+            (step > 0 &&
+             *signed_current > maximum - (int64_t)distance) ||
+            (step < 0 &&
+             *signed_current < minimum + (int64_t)distance)) {
             return false;
         }
-        *signed_current = step > 0 ? *signed_current + 1
-                                   : *signed_current - 1;
+        *signed_current = step > 0
+            ? *signed_current + (int64_t)distance
+            : *signed_current - (int64_t)distance;
         return true;
     }
 }
@@ -2758,7 +2810,7 @@ static bool constant_loop_iteration_count(const Stmt* statement,
     }
     binding = find_local_constant((ConstantState*)state, induction);
     if (!binding || !binding->known ||
-        !while_body_unit_step(statement->while_body, induction, &step)) {
+        !while_body_constant_step(statement->while_body, induction, &step)) {
         return false;
     }
     if (!for_condition_matches_step(condition, step)) return false;

@@ -59,6 +59,10 @@ static void verify_pair(const char* unoptimized_path,
      * below is the semantic regression for those bounded unrolls. */
     assert(function_extent(optimized, "loop_constant_while_two") > 0);
     assert(function_extent(optimized, "loop_assignment_while_two") > 0);
+    assert(function_extent(optimized, "loop_stride_one") <
+           function_extent(unoptimized, "loop_stride_one"));
+    assert(function_extent(optimized, "loop_stride_two") > 0);
+    assert(function_extent(optimized, "loop_stride_assignment_two") > 0);
     assert(function_extent(optimized, "loop_constant_one") <
            function_extent(unoptimized, "loop_constant_one"));
     assert(function_extent(optimized, "loop_constant_one_le") <
@@ -105,6 +109,8 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "do_constant_two") > 0);
     assert(function_extent(optimized, "do_assignment_not_equal_two") > 0);
     assert(function_extent(optimized, "do_descending_two") > 0);
+    assert(function_extent(optimized, "do_stride_two") > 0);
+    assert(function_extent(optimized, "do_descending_stride_two") > 0);
 
 #if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
 #if defined(__i386__)
@@ -126,6 +132,12 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_constant_while_two");
         ObjSymbol* assignment_while_two_symbol = objfile_find_symbol(
             optimized, "loop_assignment_while_two");
+        ObjSymbol* stride_one_symbol = objfile_find_symbol(
+            optimized, "loop_stride_one");
+        ObjSymbol* stride_two_symbol = objfile_find_symbol(
+            optimized, "loop_stride_two");
+        ObjSymbol* stride_assignment_two_symbol = objfile_find_symbol(
+            optimized, "loop_stride_assignment_two");
         ObjSymbol* one_symbol = objfile_find_symbol(
             optimized, "loop_constant_one");
         ObjSymbol* one_le_symbol = objfile_find_symbol(
@@ -174,6 +186,10 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "do_assignment_not_equal_two");
         ObjSymbol* do_descending_two_symbol = objfile_find_symbol(
             optimized, "do_descending_two");
+        ObjSymbol* do_stride_two_symbol = objfile_find_symbol(
+            optimized, "do_stride_two");
+        ObjSymbol* do_descending_stride_two_symbol = objfile_find_symbol(
+            optimized, "do_descending_stride_two");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
@@ -183,6 +199,9 @@ static void verify_pair(const char* unoptimized_path,
         int (*while_one_function)(void);
         int (*while_two_function)(void);
         int (*assignment_while_two_function)(void);
+        int (*stride_one_function)(void);
+        int (*stride_two_function)(void);
+        int (*stride_assignment_two_function)(void);
         int (*one_function)(void);
         int (*one_le_function)(void);
         int (*two_function)(void);
@@ -207,11 +226,15 @@ static void verify_pair(const char* unoptimized_path,
         int (*do_two_function)(void);
         int (*do_assignment_two_function)(void);
         int (*do_descending_two_function)(void);
+        int (*do_stride_two_function)(void);
+        int (*do_descending_stride_two_function)(void);
         void* address;
         assert(code != NULL && while_symbol != NULL && for_symbol != NULL &&
                mutate_symbol != NULL && one_symbol != NULL &&
                while_one_symbol != NULL && while_two_symbol != NULL &&
                assignment_while_two_symbol != NULL &&
+               stride_one_symbol != NULL && stride_two_symbol != NULL &&
+               stride_assignment_two_symbol != NULL &&
                one_le_symbol != NULL && two_symbol != NULL &&
                compound_symbol != NULL && assignment_symbol != NULL &&
                assignment_init_one_symbol != NULL &&
@@ -229,6 +252,8 @@ static void verify_pair(const char* unoptimized_path,
                do_one_symbol != NULL && do_two_symbol != NULL &&
                do_assignment_two_symbol != NULL &&
                do_descending_two_symbol != NULL &&
+               do_stride_two_symbol != NULL &&
+               do_descending_stride_two_symbol != NULL &&
                page_size > 0);
         mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
                         (size_t)page_size) * (size_t)page_size;
@@ -250,6 +275,13 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + assignment_while_two_symbol->value;
         memcpy(&assignment_while_two_function, &address,
                sizeof(assignment_while_two_function));
+        address = mapping + stride_one_symbol->value;
+        memcpy(&stride_one_function, &address, sizeof(stride_one_function));
+        address = mapping + stride_two_symbol->value;
+        memcpy(&stride_two_function, &address, sizeof(stride_two_function));
+        address = mapping + stride_assignment_two_symbol->value;
+        memcpy(&stride_assignment_two_function, &address,
+               sizeof(stride_assignment_two_function));
         address = mapping + one_symbol->value;
         memcpy(&one_function, &address, sizeof(one_function));
         address = mapping + one_le_symbol->value;
@@ -309,6 +341,12 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + do_descending_two_symbol->value;
         memcpy(&do_descending_two_function, &address,
                sizeof(do_descending_two_function));
+        address = mapping + do_stride_two_symbol->value;
+        memcpy(&do_stride_two_function, &address,
+               sizeof(do_stride_two_function));
+        address = mapping + do_descending_stride_two_symbol->value;
+        memcpy(&do_descending_stride_two_function, &address,
+               sizeof(do_descending_stride_two_function));
         assert(while_function() == 7);
         assert(for_function() == 11);
         assert(mutate_function(0) == 0);
@@ -316,6 +354,9 @@ static void verify_pair(const char* unoptimized_path,
         assert(while_one_function() == 43);
         assert(while_two_function() == 94);
         assert(assignment_while_two_function() == 106);
+        assert(stride_one_function() == 79);
+        assert(stride_two_function() == 166);
+        assert(stride_assignment_two_function() == 178);
         assert(one_function() == 17);
         assert(one_le_function() == 19);
         assert(two_function() == 26);
@@ -340,6 +381,8 @@ static void verify_pair(const char* unoptimized_path,
         assert(do_two_function() == 134);
         assert(do_assignment_two_function() == 142);
         assert(do_descending_two_function() == 146);
+        assert(do_stride_two_function() == 194);
+        assert(do_descending_stride_two_function() == 202);
         munmap(mapping, mapping_size);
     }
 #endif
