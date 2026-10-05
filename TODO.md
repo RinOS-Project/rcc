@@ -486,7 +486,9 @@
   - [x] nested compound statementへ`DW_TAG_lexical_block`を出力し、実際の
         `DW_AT_decl_file`／`DW_AT_decl_line`／`DW_AT_decl_column`とblock内
         local DIEの親子関係をi686/AMD64のdebug-info回帰で検証。block-to-PC
-        rangeと完全なinline attribution/CFIは引き続き未実装
+        rangeをcodegenのhalf-open code offsetから`DW_AT_low_pc`／
+        `DW_AT_high_pc`へrelocation付きで出力し、両arch object回帰で検証。
+        完全なinline attribution/CFIは引き続き未実装
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

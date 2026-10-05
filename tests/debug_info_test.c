@@ -43,19 +43,27 @@ static uint32_t read_u32(const uint8_t* data, uint64_t offset)
 
 static bool find_lexical_block_local(const ObjSection* info,
                                      const ObjSection* strings,
-                                     const char* variable_name)
+                                     const char* variable_name,
+                                     uint64_t address_size)
 {
     if (!info || !strings || !variable_name) return false;
     for (uint64_t offset = 11u; offset + 15u < info->size; ++offset) {
         uint32_t name_offset;
+        uint64_t range_offset = offset + 1u + address_size;
+        uint64_t file_offset = range_offset + 4u;
+        uint64_t line_offset = file_offset + 1u;
+        uint64_t column_offset = line_offset + 4u;
+        uint64_t child_offset = column_offset + 4u;
         if (info->data[offset] != 24u ||
-            info->data[offset + 1u] == 0u ||
-            read_u32(info->data, offset + 2u) == 0u ||
-            read_u32(info->data, offset + 6u) == 0u ||
-            info->data[offset + 10u] != 4u) {
+            child_offset >= info->size ||
+            read_u32(info->data, range_offset) == 0u ||
+            info->data[file_offset] == 0u ||
+            read_u32(info->data, line_offset) == 0u ||
+            read_u32(info->data, column_offset) == 0u ||
+            info->data[child_offset] != 4u) {
             continue;
         }
-        name_offset = read_u32(info->data, offset + 11u);
+        name_offset = read_u32(info->data, child_offset + 1u);
         if (name_offset < strings->size &&
             strcmp((const char*)strings->data + name_offset,
                    variable_name) == 0) {
@@ -475,7 +483,8 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x47u, 0x00u));
         assert(contains_byte_pair(abbrev->data, abbrev->size, 0x0bu, 0x01u));
         assert(contains_bytes(strings->data, strings->size, "nested"));
-        assert(find_lexical_block_local(info, strings, "nested"));
+        assert(find_lexical_block_local(
+            info, strings, "nested", architecture == ARCH_X64 ? 8u : 4u));
         verify_subroutine_type(info);
         assert(contains_byte(info->data, info->size,
                              architecture == ARCH_X64 ? 0x76u : 0x75u));

@@ -795,6 +795,11 @@ struct Stmt {
     SourceLoc loc;
     /* Fixed-frame slot used to restore RSP when a VLA-owning scope ends. */
     int vla_stack_offset;
+    /* Codegen-populated half-open range for a real lexical block.  These
+     * offsets are module .text offsets and are consumed only by the
+     * relocatable DWARF emitter after code generation has completed. */
+    uint32_t debug_code_start;
+    uint32_t debug_code_end;
     /* C++ `if constexpr` is selected after semantic constant evaluation, so
      * the discarded branch is never analyzed or lowered. */
     bool if_is_constexpr;

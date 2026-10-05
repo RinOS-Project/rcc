@@ -8469,6 +8469,9 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         case STMT_BLOCK: {
             CleanupCodegen64* marker = active_cleanups64;
             VLAScopeCodegen64* vla_marker = active_vla_scopes64;
+            if (!stmt->block_no_scope) {
+                stmt->debug_code_start = code_offset(mod);
+            }
             if (!stmt->block_no_scope && stmt->vla_stack_offset < 0) {
                 emit64_mov_mem_reg(mod, RBP, stmt->vla_stack_offset, RSP);
             }
@@ -8483,6 +8486,9 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             }
             if (!stmt->block_no_scope && stmt->vla_stack_offset < 0) {
                 emit64_mov_reg_mem(mod, RSP, RBP, stmt->vla_stack_offset);
+            }
+            if (!stmt->block_no_scope) {
+                stmt->debug_code_end = code_offset(mod);
             }
             break;
         }
