@@ -108,6 +108,19 @@ CXX_CLEANUP_X86_BUILD = $(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/optimize
 CXX_CLEANUP_X86_RUN = $(TEST_OUT)/optimize/cxx-cleanup-run-x86 $(TEST_OUT)/optimize/cxx-cleanup-x86.ro
 endif
 
+ifeq ($(OS),Windows_NT)
+# The IR/MIR unit fixtures exercise both target policies internally.  Native
+# Windows has no 32-bit MinGW CRT, so compile their host-side assertions with
+# the available CRT and keep i686 machine-code validation in the explicit
+# inspect-only encoder invocation below.
+IR_X86_HOST_FLAGS =
+IR_X86_INSPECT_CMD = $(TEST_OUT)/x86_encode_run_test-x86 --inspect-i686 \
+	$(TEST_OUT)/encoded-native-x86.ro
+else
+IR_X86_HOST_FLAGS = -m32
+IR_X86_INSPECT_CMD =
+endif
+
 # Host-side compiler-builtin fixtures execute the assembly produced by RCC.
 # These fixtures intentionally use no CRT/API symbols, so native Windows
 # MinGW can link them as freestanding 32-bit PE images even when its 32-bit
@@ -10752,17 +10765,17 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 
 test-ir:
 	$(call MKDIR_P,$(TEST_OUT))
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_test-x86 \
+	$(CC) $(IR_X86_HOST_FLAGS) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_test-x86 \
 		tests/ir_test.c $(SRCDIR)/ir.c $(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_test-x64 \
 		tests/ir_test.c $(SRCDIR)/ir.c $(SRCDIR)/utils.c
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_mem2reg_test-x86 \
+	$(CC) $(IR_X86_HOST_FLAGS) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_mem2reg_test-x86 \
 		tests/ir_mem2reg_test.c $(SRCDIR)/ir.c $(SRCDIR)/ir_pass.c \
 		$(SRCDIR)/utils.c
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/ir_mem2reg_test-x64 \
 		tests/ir_mem2reg_test.c $(SRCDIR)/ir.c $(SRCDIR)/ir_pass.c \
 		$(SRCDIR)/utils.c
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/mir_test-x86 \
+	$(CC) $(IR_X86_HOST_FLAGS) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/mir_test-x86 \
 		tests/mir_test.c $(SRCDIR)/ir.c $(SRCDIR)/mir.c \
 		$(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
 		$(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
@@ -10776,7 +10789,7 @@ test-ir:
 		$(SRCDIR)/x86_legalize.c $(SRCDIR)/x86_encode.c \
 		$(SRCDIR)/x86_object.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c
-	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/x86_encode_run_test-x86 \
+	$(CC) $(IR_X86_HOST_FLAGS) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/x86_encode_run_test-x86 \
 		tests/x86_encode_run_test.c $(SRCDIR)/ir.c $(SRCDIR)/mir.c \
 		$(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
 		$(SRCDIR)/x86_abi.c $(SRCDIR)/x86_select.c \
@@ -10798,6 +10811,7 @@ test-ir:
 	$(TEST_OUT)/mir_test-x64
 	$(TEST_OUT)/x86_encode_run_test-x86 \
 		$(TEST_OUT)/encoded-native-x86.ro
+	$(IR_X86_INSPECT_CMD)
 	$(TEST_OUT)/x86_encode_run_test-x64 \
 		$(TEST_OUT)/encoded-native-x64.ro
 

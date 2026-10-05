@@ -601,6 +601,10 @@
 - [x] Make native Windows VLA declarator-variant and static-local runtime
       gates execute generated i686/x86_64 code through freestanding `main`
       entries without WSL, while retaining RIN emission and validation.
+- [x] Make native Windows IR/MIR host fixtures use the available CRT while
+      retaining both explicit target-policy checks and a dedicated i686
+      legal-IR encoder/object inspection path; x64 native execution remains
+      enabled and no target is silently omitted.
 - [x] Make native Windows TLS negative checks use the shared shell-neutral
       expected-failure helper, retaining RIN/RLL generation, RLD linking, and
       invalid DRV diagnostics.
