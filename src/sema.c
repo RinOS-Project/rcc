@@ -8861,14 +8861,16 @@ static bool sema_noexcept_expr(Expr* expression) {
 static Type* sema_expr(Expr* expr) {
     if (!expr) return NULL;
 
-    if (expr->kind == EXPR_PTR_MEMBER && expr->member_base) {
+    if (rcc_parser_is_cxx_mode() &&
+        expr->kind == EXPR_PTR_MEMBER && expr->member_base) {
         Type* object_type = sema_expr(expr->member_base);
         if (sema_rewrite_cxx_arrow_operator(expr, object_type)) {
             return sema_expr(expr);
         }
     }
 
-    if ((expr->kind == EXPR_NEG || expr->kind == EXPR_BITNOT ||
+    if (rcc_parser_is_cxx_mode() &&
+        (expr->kind == EXPR_NEG || expr->kind == EXPR_BITNOT ||
          expr->kind == EXPR_NOT || expr->kind == EXPR_PREINC ||
          expr->kind == EXPR_PREDEC || expr->kind == EXPR_POSTINC ||
          expr->kind == EXPR_POSTDEC || expr->kind == EXPR_DEREF) &&
@@ -8879,14 +8881,16 @@ static Type* sema_expr(Expr* expr) {
         }
     }
 
-    if (expr->kind == EXPR_INDEX && expr->index_base) {
+    if (rcc_parser_is_cxx_mode() &&
+        expr->kind == EXPR_INDEX && expr->index_base) {
         Type* object_type = sema_expr(expr->index_base);
         if (sema_rewrite_cxx_subscript_operator(expr, object_type)) {
             return sema_expr(expr);
         }
     }
 
-    if (expr->kind == EXPR_CALL && expr->call_func &&
+    if (rcc_parser_is_cxx_mode() &&
+        expr->kind == EXPR_CALL && expr->call_func &&
         !expr->call_is_new && !expr->call_is_delete) {
         Type* object_type;
         if (!sema_instantiate_cxx_lambda(expr)) {
@@ -8965,7 +8969,8 @@ static Type* sema_expr(Expr* expr) {
         }
     }
 
-    if (expr->kind >= EXPR_ASSIGN && expr->kind <= EXPR_RSHIFT_ASSIGN &&
+    if (rcc_parser_is_cxx_mode() &&
+        expr->kind >= EXPR_ASSIGN && expr->kind <= EXPR_RSHIFT_ASSIGN &&
         expr->binary_lhs && expr->binary_rhs) {
         Type* left_type = sema_expr(expr->binary_lhs);
         if (sema_rewrite_cxx_assignment_operator(expr, left_type)) {
@@ -8973,7 +8978,8 @@ static Type* sema_expr(Expr* expr) {
         }
     }
 
-    if (expr->kind >= EXPR_ADD && expr->kind <= EXPR_OR &&
+    if (rcc_parser_is_cxx_mode() &&
+        expr->kind >= EXPR_ADD && expr->kind <= EXPR_OR &&
         expr->binary_lhs && expr->binary_rhs) {
         Type* left_type = sema_expr(expr->binary_lhs);
         if (sema_rewrite_cxx_binary_operator(expr, left_type)) {
