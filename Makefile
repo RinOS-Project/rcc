@@ -8265,6 +8265,28 @@ test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -Itests -c \
 		-o $(TEST_OUT)/preprocessor-include-cxx-x64.ro \
 		tests/preprocessor_include.cpp
+	$(RCC_TARGET) -E -Itests tests/preprocessor_pragma_once.c > \
+		$(TEST_OUT)/preprocessor-pragma-once-c.i
+	$(GREP) -F -q 'int preprocessor_pragma_once_value(void)' \
+		$(TEST_OUT)/preprocessor-pragma-once-c.i
+	$(call CHECK_COUNT,int rcc_pragma_once_global = 19;,$(TEST_OUT)/preprocessor-pragma-once-c.i,1)
+	$(RCXX_TARGET) -std=c++20 -E -Itests tests/preprocessor_pragma_once.cpp > \
+		$(TEST_OUT)/preprocessor-pragma-once-cxx.i
+	$(GREP) -F -q 'constexpr int preprocessor_pragma_once_value()' \
+		$(TEST_OUT)/preprocessor-pragma-once-cxx.i
+	$(call CHECK_COUNT,int rcc_pragma_once_global = 19;,$(TEST_OUT)/preprocessor-pragma-once-cxx.i,1)
+	$(RCC_TARGET) --target i686-unknown-rinos -Itests -c \
+		-o $(TEST_OUT)/preprocessor-pragma-once-c-x86.ro \
+		tests/preprocessor_pragma_once.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -Itests -c \
+		-o $(TEST_OUT)/preprocessor-pragma-once-c-x64.ro \
+		tests/preprocessor_pragma_once.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -Itests -c \
+		-o $(TEST_OUT)/preprocessor-pragma-once-cxx-x86.ro \
+		tests/preprocessor_pragma_once.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -Itests -c \
+		-o $(TEST_OUT)/preprocessor-pragma-once-cxx-x64.ro \
+		tests/preprocessor_pragma_once.cpp
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -Itests -c -o $(TEST_OUT)/invalid-preprocessor-include.ro tests/invalid_preprocessor_include.c,$(TEST_OUT)/invalid-preprocessor-include.log)
 	$(GREP) -F -q 'unexpected tokens after #include path' \
 		$(TEST_OUT)/invalid-preprocessor-include.log

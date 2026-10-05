@@ -159,6 +159,9 @@ Preprocessor* pp_new(void) {
     pp->dependencies = NULL;
     pp->dependency_count = 0;
     pp->dependency_capacity = 0;
+    pp->once_files = NULL;
+    pp->once_file_count = 0;
+    pp->once_file_capacity = 0;
 
     /* Define built-in macros */
     pp_define(pp, "__RCC__", "1");
@@ -236,8 +239,71 @@ void pp_free(Preprocessor* pp) {
         rcc_free((void*)pp->dependencies[i]);
     }
     rcc_free(pp->dependencies);
+    for (int i = 0; i < pp->once_file_count; ++i) {
+        rcc_free((void*)pp->once_files[i]);
+    }
+    rcc_free(pp->once_files);
 
     rcc_free(pp);
+}
+
+static void pp_normalize_once_path(const char* filename, char* normalized,
+                                   size_t capacity) {
+    size_t length = 0;
+    const char* cursor = filename;
+
+    if (!filename || !normalized || capacity == 0) {
+        rcc_fatal("invalid #pragma once path");
+    }
+
+    while (*cursor) {
+        if ((cursor == filename || cursor[-1] == '/' || cursor[-1] == '\\') &&
+            cursor[0] == '.' &&
+            (cursor[1] == '/' || cursor[1] == '\\' || cursor[1] == '\0')) {
+            if (cursor[1] != '\0') ++cursor;
+            ++cursor;
+            continue;
+        }
+
+        char current = *cursor++;
+        if (current == '\\') current = '/';
+        if (current == '/' && length > 0 && normalized[length - 1] == '/') {
+            continue;
+        }
+        if (length + 1 >= capacity) {
+            rcc_fatal("#pragma once path is too long");
+        }
+        normalized[length++] = current;
+    }
+    normalized[length] = '\0';
+}
+
+static bool pp_once_same_path(const char* left, const char* right) {
+    char normalized_left[RCC_MAX_PATH];
+    char normalized_right[RCC_MAX_PATH];
+    pp_normalize_once_path(left, normalized_left, sizeof(normalized_left));
+    pp_normalize_once_path(right, normalized_right, sizeof(normalized_right));
+    return strcmp(normalized_left, normalized_right) == 0;
+}
+
+static bool pp_once_contains(const Preprocessor* pp, const char* filename) {
+    if (!pp || !filename) return false;
+    for (int i = 0; i < pp->once_file_count; ++i) {
+        if (pp_once_same_path(pp->once_files[i], filename)) return true;
+    }
+    return false;
+}
+
+static void pp_mark_once(Preprocessor* pp, const char* filename) {
+    if (!pp || !filename || pp_once_contains(pp, filename)) return;
+    if (pp->once_file_count == pp->once_file_capacity) {
+        int capacity = pp->once_file_capacity == 0
+            ? 8 : pp->once_file_capacity * 2;
+        pp->once_files = rcc_realloc(
+            pp->once_files, (size_t)capacity * sizeof(*pp->once_files));
+        pp->once_file_capacity = capacity;
+    }
+    pp->once_files[pp->once_file_count++] = rcc_strdup(filename);
 }
 
 void pp_add_include_path(Preprocessor* pp, const char* path) {
@@ -1733,6 +1799,19 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         rcc_free(expanded_include);
         pp_add_dependency(pp, resolved);
 
+        if (pp_once_contains(pp, resolved)) {
+            char return_line[256];
+            int written = snprintf(return_line, sizeof(return_line),
+                                   "#line %d \"%s\"\n",
+                                   source_line + 1, filename);
+            if (written < 0 || (size_t)written >= sizeof(return_line)) {
+                rcc_fatal("#line include filename is too long");
+            }
+            buf_append_str(output, return_line);
+            rcc_free(content);
+            return original_end;
+        }
+
         /* Process included file */
         pp->include_depth++;
         char* processed = pp_process_string(pp, content, resolved);
@@ -1988,6 +2067,16 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     if (strcmp(directive, "pragma") == 0) {
         const char* end = skip_to_eol(p);
         if (pp_is_active(pp)) {
+            const char* pragma = skip_ws(p);
+            const char* pragma_end = pragma;
+            while (*pragma_end &&
+                   !isspace((unsigned char)*pragma_end)) ++pragma_end;
+            if ((size_t)(pragma_end - pragma) == 4u &&
+                strncmp(pragma, "once", 4u) == 0 &&
+                skip_ws(pragma_end) == end) {
+                pp_mark_once(pp, filename);
+                return end;
+            }
             /* Packing directives affect the layout of declarations that
              * follow them, so they must survive preprocessing.  The lexer
              * recognizes #pragma pack and continues to ignore other pragmas.

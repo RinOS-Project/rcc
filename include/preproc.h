@@ -47,6 +47,9 @@ typedef struct {
     const char** dependencies;
     int dependency_count;
     int dependency_capacity;
+    const char** once_files;
+    int once_file_count;
+    int once_file_capacity;
 } Preprocessor;
 
 /* Initialize preprocessor */
