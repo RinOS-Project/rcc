@@ -12060,7 +12060,6 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     if (strcmp(name, "__builtin_add_overflow") == 0 ||
         strcmp(name, "__builtin_sub_overflow") == 0 ||
         strcmp(name, "__builtin_mul_overflow") == 0) {
-        bool is_multiply = strcmp(name, "__builtin_mul_overflow") == 0;
         Type* result_type = NULL;
         for (argument = expr->call_args; argument;
              argument = argument->next) {
@@ -12097,10 +12096,6 @@ static bool sema_compiler_builtin_call(Expr* expr) {
              result_type->size != 4 && result_type->size != 8)) {
             rcc_error(expr->loc,
                       "%s result type has an unsupported integer width", name);
-        }
-        if (is_multiply && result_type && result_type->size < 4) {
-            rcc_error(expr->loc,
-                      "%s requires a result object at least 4 bytes wide", name);
         }
         if (first && first->type && result_type &&
             (first->type->size != result_type->size ||

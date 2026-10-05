@@ -2609,11 +2609,6 @@ static bool gen64_compiler_overflow_builtin(Module* mod, Expr* expr) {
         result_address->type->kind == TYPE_PTR
         ? result_address->type->base : NULL;
     width = result_type ? result_type->size : 0;
-    if (is_multiply && width != 4 && width != 8) {
-        rcc_error(expr->loc,
-                  "x86-64 checked multiplication supports 4- and 8-byte result types");
-        return true;
-    }
     if (!is_multiply && (width < 1 || width > 8)) {
         rcc_error(expr->loc,
                   "x86-64 checked addition/subtraction supports 1-, 2-, 4-, and 8-byte result types");
@@ -2628,7 +2623,7 @@ static bool gen64_compiler_overflow_builtin(Module* mod, Expr* expr) {
     emit64_mov_reg_reg(mod, RCX, RAX);
     emit64_pop_reg(mod, RAX);
     if (is_multiply) {
-        emit64_mul_reg_width(mod, RCX, width,
+        emit64_mul_reg_width(mod, RCX, width < 4 ? 4 : width,
                              result_type && !result_type->is_unsigned);
     } else if (is_subtract) {
         emit64_sub_reg_reg_width(mod, RAX, RCX, width);
@@ -2639,14 +2634,37 @@ static bool gen64_compiler_overflow_builtin(Module* mod, Expr* expr) {
     emit64_store_typed(mod, R8, 0, RAX, result_type);
     if (is_multiply) {
         if (result_type && result_type->is_unsigned) {
-            emit64_test_reg_reg_width(mod, RDX, RDX, width);
-            emit64_setcc(mod, CC64_NE, RAX);
+            if (width < 4) {
+                emit64_mov_reg_reg(mod, R8, RAX);
+                emit64_test_reg_reg_width(mod, RDX, RDX, 4);
+                emit64_setcc(mod, CC64_NE, RAX);
+                emit64_movzx_r64_r8(mod, RAX, RAX);
+                emit64_mov_reg_imm64(
+                    mod, RCX, width == 1 ? 0xffu : 0xffffu);
+                emit64_cmp_reg_reg_width(mod, R8, RCX, 4);
+                emit64_setcc(mod, CC64_A, RDX);
+                emit64_movzx_r64_r8(mod, RDX, RDX);
+                emit64_or_reg_reg(mod, RAX, RDX);
+            } else {
+                emit64_test_reg_reg_width(mod, RDX, RDX, width);
+                emit64_setcc(mod, CC64_NE, RAX);
+            }
         } else {
-            emit64_mov_reg_reg(mod, RCX, RAX);
-            emit64_sar_reg_imm_width(mod, RCX, width,
-                                     (uint8_t)(width * 8 - 1));
-            emit64_cmp_reg_reg_width(mod, RDX, RCX, width);
-            emit64_setcc(mod, CC64_NE, RAX);
+            if (width < 4) {
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_shl_reg_imm(
+                    mod, RCX, (uint8_t)(64u - width * 8u));
+                emit64_sar_reg_imm(
+                    mod, RCX, (uint8_t)(64u - width * 8u));
+                emit64_cmp_reg_reg_width(mod, RAX, RCX, 4);
+                emit64_setcc(mod, CC64_NE, RAX);
+            } else {
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_sar_reg_imm_width(mod, RCX, width,
+                                         (uint8_t)(width * 8 - 1));
+                emit64_cmp_reg_reg_width(mod, RDX, RCX, width);
+                emit64_setcc(mod, CC64_NE, RAX);
+            }
         }
     } else {
         emit64_setcc(mod, result_type && result_type->is_unsigned

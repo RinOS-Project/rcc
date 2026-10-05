@@ -51,6 +51,8 @@ extern "C" int cxx_builtin_overflow(void) {
     int result = 0;
     long long wide_result = 0;
     unsigned long long wide_unsigned_result = 0;
+    signed char narrow_signed_result = 0;
+    unsigned short narrow_unsigned_result = 0;
     if (!__builtin_add_overflow(0x7fffffff, 1, &result)) return 71;
     if (result != (-2147483647 - 1)) return 72;
     if (!__builtin_mul_overflow(0x7fffffff, 2, &result)) return 73;
@@ -61,6 +63,18 @@ extern "C" int cxx_builtin_overflow(void) {
     if (!__builtin_add_overflow(0xffffffffffffffffULL, 1ULL,
                                 &wide_unsigned_result)) return 78;
     if (wide_unsigned_result != 0ULL) return 79;
+    if (__builtin_mul_overflow(static_cast<signed char>(10),
+                               static_cast<signed char>(2),
+                               &narrow_signed_result) ||
+        narrow_signed_result != 20) return 80;
+    if (!__builtin_mul_overflow(static_cast<signed char>(100),
+                                static_cast<signed char>(2),
+                                &narrow_signed_result) ||
+        narrow_signed_result != static_cast<signed char>(-56)) return 81;
+    if (!__builtin_mul_overflow(static_cast<unsigned short>(60000),
+                                static_cast<unsigned short>(2),
+                                &narrow_unsigned_result) ||
+        narrow_unsigned_result != static_cast<unsigned short>(54464)) return 82;
     return 0;
 }
 

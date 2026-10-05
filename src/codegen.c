@@ -8978,11 +8978,6 @@ static bool gen_compiler_overflow_builtin32(Module* mod, Expr* expr) {
         emit_add_reg_imm(mod, ESP, stack_size);
         return true;
     }
-    if (is_multiply && width != 4) {
-        rcc_error(expr->loc,
-                  "i686 checked multiplication currently requires a 4-byte result type");
-        return true;
-    }
     if (!is_multiply && (width < 1 || width > 4)) {
         rcc_error(expr->loc,
                   "i686 checked addition/subtraction supports 1-, 2-, and 4-byte result types");
@@ -9011,13 +9006,39 @@ static bool gen_compiler_overflow_builtin32(Module* mod, Expr* expr) {
     emit_store_typed32(mod, ECX, 0, EAX, result_type);
     if (is_multiply) {
         if (result_type && result_type->is_unsigned) {
-            emit_test_reg_reg(mod, EDX, EDX);
-            emit_setcc(mod, CC_NE, EAX);
+            if (width == 4) {
+                emit_test_reg_reg(mod, EDX, EDX);
+                emit_setcc(mod, CC_NE, EAX);
+            } else {
+                emit_test_reg_reg(mod, EDX, EDX);
+                emit_setcc(mod, CC_NE, EBX);
+                emit_byte(mod, 0x0F);
+                emit_byte(mod, 0xB6);
+                emit_byte(mod, modrm(3, EBX, EBX));
+                emit_cmp_reg_imm(mod, EAX,
+                                 width == 1 ? 0xff : 0xffff);
+                emit_setcc(mod, CC_A, EDX);
+                emit_byte(mod, 0x0F);
+                emit_byte(mod, 0xB6);
+                emit_byte(mod, modrm(3, EDX, EDX));
+                emit_or_reg_reg(mod, EBX, EDX);
+                emit_mov_reg_reg(mod, EAX, EBX);
+            }
         } else {
-            emit_mov_reg_reg(mod, ECX, EAX);
-            emit_sar_reg_imm(mod, ECX, 31);
-            emit_cmp_reg_reg(mod, EDX, ECX);
-            emit_setcc(mod, CC_NE, EAX);
+            if (width < 4) {
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_shl_reg_imm(mod, ECX,
+                                 width == 1 ? 24u : 16u);
+                emit_sar_reg_imm(mod, ECX,
+                                 width == 1 ? 24u : 16u);
+                emit_cmp_reg_reg(mod, EAX, ECX);
+                emit_setcc(mod, CC_NE, EAX);
+            } else {
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_sar_reg_imm(mod, ECX, 31);
+                emit_cmp_reg_reg(mod, EDX, ECX);
+                emit_setcc(mod, CC_NE, EAX);
+            }
         }
     } else {
         emit_setcc(mod, result_type && result_type->is_unsigned

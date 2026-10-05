@@ -31,6 +31,17 @@ int verified_mul_unsigned(unsigned int left, unsigned int right,
     return __builtin_mul_overflow(left, right, result);
 }
 
+int verified_mul_signed16(short left, short right, short* result)
+{
+    return __builtin_mul_overflow(left, right, result);
+}
+
+int verified_mul_unsigned8(unsigned char left, unsigned char right,
+                           unsigned char* result)
+{
+    return __builtin_mul_overflow(left, right, result);
+}
+
 #if defined(__i386__)
 int verified_add_signed64(long long left, long long right, long long* result)
 {

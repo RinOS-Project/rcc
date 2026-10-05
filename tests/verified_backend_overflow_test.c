@@ -21,6 +21,10 @@ typedef int RINOS_ABI (*SignedOverflowFunction)(int, int, int*);
 typedef int RINOS_ABI (*UnsignedOverflowFunction)(unsigned int,
                                                    unsigned int,
                                                    unsigned int*);
+typedef int RINOS_ABI (*SignedOverflow16Function)(short, short, short*);
+typedef int RINOS_ABI (*UnsignedOverflow8Function)(unsigned char,
+                                                    unsigned char,
+                                                    unsigned char*);
 typedef int RINOS_ABI (*SignedOverflow64Function)(long long, long long,
                                                    long long*);
 typedef int RINOS_ABI (*UnsignedOverflow64Function)(unsigned long long,
@@ -83,6 +87,8 @@ int main(int argc, char** argv)
     ObjSymbol* sub_unsigned_symbol;
     ObjSymbol* mul_signed_symbol;
     ObjSymbol* mul_unsigned_symbol;
+    ObjSymbol* mul_signed16_symbol;
+    ObjSymbol* mul_unsigned8_symbol;
     ObjSymbol* mul_signed64_symbol;
     ObjSymbol* mul_unsigned64_symbol;
     SignedOverflowFunction add_signed;
@@ -91,6 +97,8 @@ int main(int argc, char** argv)
     UnsignedOverflowFunction sub_unsigned;
     SignedOverflowFunction mul_signed;
     UnsignedOverflowFunction mul_unsigned;
+    SignedOverflow16Function mul_signed16;
+    UnsignedOverflow8Function mul_unsigned8;
     SignedOverflow64Function mul_signed64;
     UnsignedOverflow64Function mul_unsigned64;
     void* memory;
@@ -98,6 +106,8 @@ int main(int argc, char** argv)
     void* address;
     int signed_result;
     unsigned int unsigned_result;
+    short signed16_result;
+    unsigned char unsigned8_result;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -112,6 +122,10 @@ int main(int argc, char** argv)
     mul_signed_symbol = objfile_find_symbol(object, "verified_mul_signed");
     mul_unsigned_symbol = objfile_find_symbol(
         object, "verified_mul_unsigned");
+    mul_signed16_symbol = objfile_find_symbol(
+        object, "verified_mul_signed16");
+    mul_unsigned8_symbol = objfile_find_symbol(
+        object, "verified_mul_unsigned8");
     mul_signed64_symbol = objfile_find_symbol(
         object, "verified_mul_signed64");
     mul_unsigned64_symbol = objfile_find_symbol(
@@ -119,7 +133,8 @@ int main(int argc, char** argv)
     assert(text != NULL && add_signed_symbol != NULL &&
            add_unsigned_symbol != NULL && sub_signed_symbol != NULL &&
            sub_unsigned_symbol != NULL && mul_signed_symbol != NULL &&
-           mul_unsigned_symbol != NULL && mul_signed64_symbol != NULL &&
+           mul_unsigned_symbol != NULL && mul_signed16_symbol != NULL &&
+           mul_unsigned8_symbol != NULL && mul_signed64_symbol != NULL &&
            mul_unsigned64_symbol != NULL);
     memory = map_text(text, &mapped_size);
 
@@ -135,6 +150,10 @@ int main(int argc, char** argv)
     memcpy(&mul_signed, &address, sizeof(mul_signed));
     address = (uint8_t*)memory + mul_unsigned_symbol->value;
     memcpy(&mul_unsigned, &address, sizeof(mul_unsigned));
+    address = (uint8_t*)memory + mul_signed16_symbol->value;
+    memcpy(&mul_signed16, &address, sizeof(mul_signed16));
+    address = (uint8_t*)memory + mul_unsigned8_symbol->value;
+    memcpy(&mul_unsigned8, &address, sizeof(mul_unsigned8));
     address = (uint8_t*)memory + mul_signed64_symbol->value;
     memcpy(&mul_signed64, &address, sizeof(mul_signed64));
     address = (uint8_t*)memory + mul_unsigned64_symbol->value;
@@ -162,6 +181,14 @@ int main(int argc, char** argv)
     assert(signed_result == INT32_MIN);
     assert(mul_unsigned(UINT32_MAX, 2u, &unsigned_result) == 1);
     assert(unsigned_result == UINT32_MAX - 1u);
+    signed16_result = 0;
+    assert(mul_signed16(10, 2, &signed16_result) == 0);
+    assert(signed16_result == 20);
+    assert(mul_signed16(20000, 2, &signed16_result) == 1);
+    assert(signed16_result == (short)-25536);
+    unsigned8_result = 0u;
+    assert(mul_unsigned8(200u, 2u, &unsigned8_result) == 1);
+    assert(unsigned8_result == (unsigned char)144u);
     {
         long long signed64_result = 0;
         unsigned long long unsigned64_result = 0u;

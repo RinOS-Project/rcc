@@ -3207,6 +3207,80 @@ static RccIrLowerValue lower_builtin_checked_add_sub(
     return lower_cast(context, overflow, expression->type);
 }
 
+static RccIrLowerValue lower_builtin_checked_mul_narrow(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* first = expression ? expression->call_args : NULL;
+    const ExprList* second = first ? first->next : NULL;
+    const ExprList* third = second ? second->next : NULL;
+    const Type* result_ast_type;
+    RccIrType operand_type;
+    RccIrType result_type;
+    RccIrLowerValue left;
+    RccIrLowerValue right;
+    RccIrLowerValue full_result;
+    RccIrLowerValue narrow_result;
+    RccIrLowerValue extended_result;
+    RccIrLowerValue destination;
+    RccIrLowerValue overflow;
+    RccIrLowerValue maximum;
+    bool is_unsigned;
+
+    if (!context || !expression || !expression->type || !first ||
+        !first->expr || !second || !second->expr || !third ||
+        !third->expr || third->next ||
+        !type_is_integer(first->expr->type) ||
+        !type_is_integer(second->expr->type) ||
+        !third->expr->type || third->expr->type->kind != TYPE_PTR ||
+        !third->expr->type->base ||
+        !type_is_integer(third->expr->type->base) ||
+        !lower_type(first->expr->type, &operand_type) ||
+        !lower_type(third->expr->type->base, &result_type) ||
+        operand_type.kind != RCC_IR_TYPE_INTEGER ||
+        !rcc_ir_type_equal(operand_type, result_type) ||
+        (operand_type.bit_width != 8u && operand_type.bit_width != 16u) ||
+        first->expr->type->is_unsigned != second->expr->type->is_unsigned ||
+        first->expr->type->is_unsigned !=
+            third->expr->type->base->is_unsigned) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    result_ast_type = third->expr->type->base;
+    is_unsigned = result_ast_type->is_unsigned;
+    left = lower_cast(
+        context, lower_expression(context, first->expr),
+        is_unsigned ? type_uint : type_int);
+    right = lower_cast(
+        context, lower_expression(context, second->expr),
+        is_unsigned ? type_uint : type_int);
+    destination = lower_expression(context, third->expr);
+    if (!left.valid || !right.valid || !destination.valid ||
+        destination.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    full_result = lower_builtin_integer_binary(
+        context, RCC_IR_MUL, left, right);
+    if (!full_result.valid) return lower_invalid_value();
+    narrow_result = lower_cast(context, full_result, result_ast_type);
+    if (!narrow_result.valid) return lower_invalid_value();
+    if (is_unsigned) {
+        uint64_t maximum_value = (UINT64_C(1) << operand_type.bit_width) - 1u;
+        maximum = lower_integer_constant(
+            context, full_result.type, true, maximum_value);
+        overflow = lower_builtin_integer_compare(
+            context, full_result, maximum, RCC_IR_ICMP_UGT);
+    } else {
+        extended_result = lower_cast(context, narrow_result, type_int);
+        overflow = lower_builtin_integer_compare(
+            context, full_result, extended_result, RCC_IR_ICMP_NE);
+    }
+    if (!overflow.valid ||
+        !lower_store_address(context, destination, narrow_result)) {
+        return lower_invalid_value();
+    }
+    return lower_cast(context, overflow, expression->type);
+}
+
 static RccIrLowerValue lower_builtin_checked_mul_i686_wide(
     RccIrLowerContext* context, const Expr* expression) {
     const ExprList* first = expression ? expression->call_args : NULL;
@@ -3371,6 +3445,10 @@ static RccIrLowerValue lower_builtin_checked_mul(
     RccIrLowerValue limit;
     RccIrLowerValue quotient;
     RccIrLowerValue too_large;
+    if (first && first->expr && first->expr->type &&
+        (first->expr->type->size == 1 || first->expr->type->size == 2)) {
+        return lower_builtin_checked_mul_narrow(context, expression);
+    }
     if (g_opts.target_arch == ARCH_X86 && first && first->expr &&
         second && second->expr && third && third->expr &&
         lower_i686_wide_scalar_type(first->expr->type)) {

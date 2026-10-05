@@ -11067,27 +11067,27 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/overflow-x86.ro \
 		tests/verified_backend_overflow.c \
 		>$(TEST_OUT)/verified-backend/overflow-x86.log
-	$(GREP) -F -q 'Verified backend: 12 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 14 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/overflow-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/overflow-x64.ro \
 		tests/verified_backend_overflow.c \
 		>$(TEST_OUT)/verified-backend/overflow-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/overflow-x64.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/overflow-cxx-x86.ro \
 		tests/verified_backend_overflow.cpp \
 		>$(TEST_OUT)/verified-backend/overflow-cxx-x86.log
-	$(GREP) -F -q 'Verified backend: 12 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 14 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/overflow-cxx-x86.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/overflow-cxx-x64.ro \
 		tests/verified_backend_overflow.cpp \
 		>$(TEST_OUT)/verified-backend/overflow-cxx-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/overflow-cxx-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/overflow-run \
