@@ -333,6 +333,8 @@
         解決済みフィールド情報を保持したまま両archのcall除去・実行結果を検証
   - [x] ポインタinlineの副作用引数（`((*p += 1), p)`）を拒否してcallを保持し、
         引数の更新が一度だけ実行されることをC/C++・両archで回帰検証
+  - [x] 引数付き純粋scalar inlineの形状判定で`sizeof`／`alignof`／`noexcept`を
+        受理し、`sizeof *p`ラッパーの両arch call除去と実行結果を回帰検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／
         `goto`／labelを含まないことを確認してblockへbounded unrollし、両archの
         code-sizeと実行結果を回帰検証

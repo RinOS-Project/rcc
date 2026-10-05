@@ -189,6 +189,16 @@ int preserved_pointer_side_effect_call(int* value)
     return inline_pointer_read(((*value += 1), value));
 }
 
+static int inline_pointee_size(int* value)
+{
+    return (int)sizeof *value;
+}
+
+int inlined_pointee_size_call(int* value)
+{
+    return inline_pointee_size(value);
+}
+
 static int inline_pointer_index(int* value)
 {
     return value[1];

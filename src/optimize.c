@@ -312,6 +312,9 @@ static bool inline_scalar_expression_shape(
     switch (expression->kind) {
         case EXPR_INT_LIT:
         case EXPR_FLOAT_LIT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
             return true;
         case EXPR_IDENT:
             binding_index = inline_scalar_binding_index(
@@ -392,7 +395,12 @@ static Expr* clone_inline_scalar_expression(
             bindings[binding_index].argument);
     }
     if (expression->kind == EXPR_INT_LIT ||
-        expression->kind == EXPR_FLOAT_LIT) return (Expr*)expression;
+        expression->kind == EXPR_FLOAT_LIT ||
+        expression->kind == EXPR_SIZEOF ||
+        expression->kind == EXPR_ALIGNOF ||
+        expression->kind == EXPR_NOEXCEPT) {
+        return (Expr*)expression;
+    }
     switch (expression->kind) {
         case EXPR_NEG:
         case EXPR_NOT:
