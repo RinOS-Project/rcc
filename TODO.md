@@ -657,3 +657,7 @@
       i686/AMD64, preserving ignored-pointer side effects, validating C/C++
       argument types and constant requirements, and executing the generated
       queries through the atomic-builtin gate for both targets.
+- [x] Preserve C-compatible `signed`/`unsigned` shorthand declarators in the
+      shared C++ declaration parser instead of treating their identifiers as
+      unknown type names; verify the fix through the dual-architecture C++20
+      atomic fixture.

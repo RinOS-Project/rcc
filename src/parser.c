@@ -2785,6 +2785,11 @@ static Type* parse_type_spec(void) {
         t = parser_lookup_type(name);
         if (t) {
             advance();
+        } else if (parser_cxx_mode && saw_sign) {
+            /* C++ accepts the C-compatible shorthand `unsigned value` and
+             * `signed value`.  The identifier is the declarator, not a
+             * missing type-name; leave it for parse_declarator and let the
+             * final qualifier fallback select int/unsigned int. */
         } else if (parser_cxx_mode) {
             rcc_error(peek()->loc, "unknown C++ type name '%s'", name);
             advance();
