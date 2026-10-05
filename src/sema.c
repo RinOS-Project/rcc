@@ -11739,6 +11739,7 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     Expr* function;
     Expr* first;
     Expr* second;
+    Expr* third;
     ExprList* argument;
     const char* name;
     int argument_count = 0;
@@ -11963,6 +11964,60 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         }
         function->type = type_ptr(type_void);
         expr->type = type_void;
+        return true;
+    }
+    if (strcmp(name, "__builtin_assume_aligned") == 0) {
+        int64_t alignment = 0;
+        int64_t offset = 0;
+        bool alignment_constant = false;
+        bool offset_constant = false;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count < 2 || argument_count > 3) {
+            rcc_error(expr->loc,
+                      "__builtin_assume_aligned expects 2 or 3 arguments, got %d",
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        if (!first || !first->type || !type_is_pointer(first->type)) {
+            rcc_error(expr->loc,
+                      "__builtin_assume_aligned first argument must have pointer type");
+        }
+        second = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->expr : NULL;
+        if (!second || !second->type || !type_is_integer(second->type)) {
+            rcc_error(expr->loc,
+                      "__builtin_assume_aligned alignment must have integer type");
+        } else {
+            alignment_constant = expr_eval_integer_constant(second, &alignment);
+            if (!alignment_constant || alignment <= 0 ||
+                (alignment & (alignment - 1)) != 0) {
+                rcc_error(expr->loc,
+                          "__builtin_assume_aligned alignment must be a positive power of two constant");
+            }
+        }
+        third = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->next
+                ? expr->call_args->next->next->expr : NULL : NULL;
+        if (third) {
+            if (!third->type || !type_is_integer(third->type)) {
+                rcc_error(expr->loc,
+                          "__builtin_assume_aligned offset must have integer type");
+            } else {
+                offset_constant = expr_eval_integer_constant(third, &offset);
+                if (!offset_constant) {
+                    rcc_error(expr->loc,
+                              "__builtin_assume_aligned offset must be an integer constant");
+                }
+            }
+        }
+        (void)alignment_constant;
+        (void)offset_constant;
+        function->type = type_ptr(type_void);
+        expr->type = first && first->type ? first->type : type_ptr(type_void);
         return true;
     }
     if (strcmp(name, "__builtin_unreachable") == 0 ||

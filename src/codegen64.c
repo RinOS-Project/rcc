@@ -2599,6 +2599,12 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         gen64_expr(mod, call64_argument(expr, 0));
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_assume_aligned") == 0) {
+        /* The alignment contract is compile-time metadata; the builtin's
+         * runtime value is the original pointer expression. */
+        gen64_expr(mod, call64_argument(expr, 0));
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_unreachable") == 0 ||
         strcmp(function->ident_name, "__builtin_trap") == 0) {
         /* Emit a real target trap for the undefined/terminating path. */

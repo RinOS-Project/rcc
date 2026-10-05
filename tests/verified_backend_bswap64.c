@@ -13,6 +13,16 @@ unsigned long long verified_builtin_bswap64(unsigned long long value)
     return __builtin_bswap64(value);
 }
 
+void* verified_builtin_assume_aligned(void* value)
+{
+    return __builtin_assume_aligned(value, 16);
+}
+
+void* verified_builtin_assume_aligned_offset(void* value)
+{
+    return __builtin_assume_aligned(value, 16, 4);
+}
+
 int main(void)
 {
     if (verified_builtin_bswap16(0x1234u) != 0x3412u) return 1;

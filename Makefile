@@ -10836,13 +10836,13 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/bswap64-x86.ro \
 		tests/verified_backend_bswap64.c \
 		>$(TEST_OUT)/verified-backend/bswap64-x86.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bswap64-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bswap64-x64.ro \
 		tests/verified_backend_bswap64.c \
 		>$(TEST_OUT)/verified-backend/bswap64-x64.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bswap64-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/bswap64-run \
@@ -10850,13 +10850,35 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(SRCDIR)/utils.c
 	$(TEST_OUT)/verified-backend/bswap64-run \
 		$(TEST_OUT)/verified-backend/bswap64-x64.ro
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/verified-backend/assume-legacy-x86.ro \
+		tests/verified_backend_bswap64.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/verified-backend/assume-legacy-x64.ro \
+		tests/verified_backend_bswap64.c
+	$(TEST_OUT)/verified-backend/bswap64-run \
+		$(TEST_OUT)/verified-backend/assume-legacy-x64.ro
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-builtins-x64.ro \
 		tests/verified_backend_builtins.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
 	$(GREP) -F -q 'Verified backend: 16 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
-	@echo "Verified backend terminating/prediction/ffs builtin tests completed"
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/verified-backend/invalid-assume-x86.ro \
+		tests/invalid_builtin_assume_aligned.c,\
+		$(TEST_OUT)/verified-backend/invalid-assume-x86.log)
+	$(GREP) -F -q 'alignment must be a positive power of two constant' \
+		$(TEST_OUT)/verified-backend/invalid-assume-x86.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/verified-backend/invalid-assume-x64.ro \
+		tests/invalid_builtin_assume_aligned.c,\
+		$(TEST_OUT)/verified-backend/invalid-assume-x64.log)
+	$(GREP) -F -q 'alignment must be a positive power of two constant' \
+		$(TEST_OUT)/verified-backend/invalid-assume-x64.log
+	@echo "Legacy and verified terminating/prediction/ffs/assume-aligned builtin tests completed"
 
 test-verified-bitcounts: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

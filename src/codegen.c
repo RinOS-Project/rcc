@@ -8829,6 +8829,13 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         gen_expr(mod, call_argument(expr, 0));
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_assume_aligned") == 0) {
+        /* Alignment and optional offset are compile-time contracts.  Sema
+         * has already required them to be integer constants, so the runtime
+         * value is exactly the original pointer expression. */
+        gen_expr(mod, call_argument(expr, 0));
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_unreachable") == 0 ||
         strcmp(function->ident_name, "__builtin_trap") == 0) {
         /* These are real terminating/undefined-path intrinsics, not

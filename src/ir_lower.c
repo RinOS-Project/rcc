@@ -3166,6 +3166,22 @@ static RccIrLowerValue lower_builtin_call(
         }
         return lower_cast(context, value, expression->type);
     }
+    if (strcmp(name, "__builtin_assume_aligned") == 0) {
+        first = expression->call_args;
+        second = first ? first->next : NULL;
+        if (!first || !first->expr || !second || !second->expr ||
+            (second->next && second->next->next) || !expression->type ||
+            expression->type->kind != TYPE_PTR) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        value = lower_expression(context, first->expr);
+        if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return lower_cast(context, value, expression->type);
+    }
     if (strcmp(name, "__builtin_unreachable") == 0 ||
         strcmp(name, "__builtin_trap") == 0) {
         if (expression->call_args || !expression->type ||
@@ -3487,6 +3503,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 expression->call_func->ident_name &&
                 (strcmp(expression->call_func->ident_name,
                         "__builtin_expect") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_assume_aligned") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_unreachable") == 0 ||
                  strcmp(expression->call_func->ident_name,

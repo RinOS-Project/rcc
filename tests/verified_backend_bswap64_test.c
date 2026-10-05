@@ -19,6 +19,7 @@
 typedef unsigned long long RINOS_ABI (*Bswap64Function)(unsigned long long);
 typedef unsigned short RINOS_ABI (*Bswap16Function)(unsigned short);
 typedef unsigned int RINOS_ABI (*Bswap32Function)(unsigned int);
+typedef void* RINOS_ABI (*AssumeAlignedFunction)(void*);
 
 static void* map_text(const ObjSection* text, size_t* mapped_size)
 {
@@ -73,9 +74,13 @@ int main(int argc, char** argv)
     ObjSymbol* symbol;
     ObjSymbol* symbol16;
     ObjSymbol* symbol32;
+    ObjSymbol* assume_symbol;
+    ObjSymbol* assume_offset_symbol;
     Bswap64Function function;
     Bswap16Function function16;
     Bswap32Function function32;
+    AssumeAlignedFunction assume_function;
+    AssumeAlignedFunction assume_offset_function;
     void* memory;
     void* address;
     size_t mapped_size;
@@ -86,9 +91,16 @@ int main(int argc, char** argv)
     symbol = objfile_find_symbol(object, "verified_builtin_bswap64");
     symbol16 = objfile_find_symbol(object, "verified_builtin_bswap16");
     symbol32 = objfile_find_symbol(object, "verified_builtin_bswap32");
+    assume_symbol = objfile_find_symbol(
+        object, "verified_builtin_assume_aligned");
+    assume_offset_symbol = objfile_find_symbol(
+        object, "verified_builtin_assume_aligned_offset");
     assert(text != NULL && symbol != NULL && symbol->section == 0 &&
            symbol16 != NULL && symbol16->section == 0 &&
-           symbol32 != NULL && symbol32->section == 0);
+           symbol32 != NULL && symbol32->section == 0 &&
+           assume_symbol != NULL && assume_symbol->section == 0 &&
+           assume_offset_symbol != NULL &&
+           assume_offset_symbol->section == 0);
     memory = map_text(text, &mapped_size);
     address = (uint8_t*)memory + symbol->value;
     memcpy(&function, &address, sizeof(function));
@@ -100,6 +112,15 @@ int main(int argc, char** argv)
     address = (uint8_t*)memory + symbol32->value;
     memcpy(&function32, &address, sizeof(function32));
     assert(function32(0x12345678u) == 0x78563412u);
+    address = (uint8_t*)memory + assume_symbol->value;
+    memcpy(&assume_function, &address, sizeof(assume_function));
+    address = (uint8_t*)memory + assume_offset_symbol->value;
+    memcpy(&assume_offset_function, &address,
+           sizeof(assume_offset_function));
+    assert(assume_function((void*)(uintptr_t)0x12345000u) ==
+           (void*)(uintptr_t)0x12345000u);
+    assert(assume_offset_function((void*)(uintptr_t)0x12345004u) ==
+           (void*)(uintptr_t)0x12345004u);
     unmap_text(memory, mapped_size);
     objfile_free(object);
     puts("Verified backend bswap64 execution passed");
