@@ -9962,13 +9962,13 @@ test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 		$(TEST_OUT)/archive-x86/main.ro $(TEST_OUT)/archive-x86/libselect.ra
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/archive_corrupt_test \
 		tests/archive_corrupt_test.c
-	cp $(TEST_OUT)/archive-x86/libselect.ra $(TEST_OUT)/archive-x86/corrupt.ra
+	$(call COPY_FILE,$(TEST_OUT)/archive-x86/libselect.ra,$(TEST_OUT)/archive-x86/corrupt.ra)
 	$(TEST_OUT)/archive_corrupt_test $(TEST_OUT)/archive-x86/corrupt.ra
-	! $(RLD_TARGET) -m32 --emit-unsigned-v3 -o $(TEST_OUT)/archive-x86/corrupt.rin \
-		$(TEST_OUT)/archive-x86/main.ro $(TEST_OUT)/archive-x86/corrupt.ra
-	! $(RLD_TARGET) -m32 -e archive_order_root --emit-unsigned-v3 \
+	$(call EXPECT_FAILURE,$(RLD_TARGET) -m32 --emit-unsigned-v3 -o $(TEST_OUT)/archive-x86/corrupt.rin \
+		$(TEST_OUT)/archive-x86/main.ro $(TEST_OUT)/archive-x86/corrupt.ra,$(TEST_OUT)/archive-x86/corrupt.log)
+	$(call EXPECT_FAILURE,$(RLD_TARGET) -m32 -e archive_order_root --emit-unsigned-v3 \
 		-o $(TEST_OUT)/archive-x86/wrong-order.rin \
-		$(TEST_OUT)/archive-x86/libselect.ra $(TEST_OUT)/archive-x86/main.ro
+		$(TEST_OUT)/archive-x86/libselect.ra $(TEST_OUT)/archive-x86/main.ro,$(TEST_OUT)/archive-x86/wrong-order.log)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/archive-x64/main.ro tests/archive_link_main.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/archive-x64/helper.ro tests/archive_link_helper.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/archive-x64/unused.ro tests/archive_link_unused.c
@@ -9978,8 +9978,8 @@ test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 		$(TEST_OUT)/archive-x64/chosen.ro
 	$(RLD_TARGET) -m64 -v --emit-unsigned-v3 -o $(TEST_OUT)/archive-x64/selected.rin \
 		$(TEST_OUT)/archive-x64/main.ro $(TEST_OUT)/archive-x64/libselect.ra
-	! $(RLD_TARGET) -m64 --emit-unsigned-v3 -o $(TEST_OUT)/archive-x64/wrong-arch.rin \
-		$(TEST_OUT)/archive-x64/main.ro $(TEST_OUT)/archive-x86/libselect.ra
+	$(call EXPECT_FAILURE,$(RLD_TARGET) -m64 --emit-unsigned-v3 -o $(TEST_OUT)/archive-x64/wrong-arch.rin \
+		$(TEST_OUT)/archive-x64/main.ro $(TEST_OUT)/archive-x86/libselect.ra,$(TEST_OUT)/archive-x64/wrong-arch.log)
 	@echo "RLD unresolved-symbol archive selection tests completed"
 
 test-static-assert: $(RCC_TARGET)
