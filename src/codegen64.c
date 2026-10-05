@@ -2592,6 +2592,15 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         emit64_prefetch(mod, rw != 0, (int)value);
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_constant_p") == 0) {
+        Expr* argument = call64_argument(expr, 0);
+        int64_t constant = 0;
+        emit64_mov_reg_imm64(
+            mod, RAX,
+            argument && expr_eval_integer_constant(
+                argument, &constant) ? UINT64_C(1) : UINT64_C(0));
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_expect") == 0) {
         /* Evaluate the prediction operand for side effects, then return the
          * first operand in RAX as the intrinsic's value. */

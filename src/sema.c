@@ -11966,6 +11966,24 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         expr->type = type_void;
         return true;
     }
+    if (strcmp(name, "__builtin_constant_p") == 0) {
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 1) {
+            rcc_error(expr->loc,
+                      "__builtin_constant_p expects 1 argument, got %d",
+                      argument_count);
+        }
+        /* GCC's constant_p query is intentionally not a runtime evaluation:
+         * the operand is type-checked above, but code generation only needs
+         * the front-end's integer-constant-expression answer. */
+        function->type = type_ptr(type_int);
+        expr->type = type_int;
+        return true;
+    }
     if (strcmp(name, "__builtin_assume_aligned") == 0) {
         int64_t alignment = 0;
         int64_t offset = 0;

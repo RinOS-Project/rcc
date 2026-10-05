@@ -23,6 +23,16 @@ void* verified_builtin_assume_aligned_offset(void* value)
     return __builtin_assume_aligned(value, 16, 4);
 }
 
+int verified_builtin_constant_true(void)
+{
+    return __builtin_constant_p(40 + 2);
+}
+
+int verified_builtin_constant_false(unsigned int value)
+{
+    return __builtin_constant_p(value);
+}
+
 int main(void)
 {
     if (verified_builtin_bswap16(0x1234u) != 0x3412u) return 1;

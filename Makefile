@@ -8565,6 +8565,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_constant_p expects 1 argument, got 2" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x64.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x64.log)
 	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
@@ -8579,6 +8581,8 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "__builtin_ffs expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_constant_p expects 1 argument, got 2" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
 
@@ -10836,13 +10840,13 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/bswap64-x86.ro \
 		tests/verified_backend_bswap64.c \
 		>$(TEST_OUT)/verified-backend/bswap64-x86.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bswap64-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bswap64-x64.ro \
 		tests/verified_backend_bswap64.c \
 		>$(TEST_OUT)/verified-backend/bswap64-x64.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/bswap64-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/bswap64-run \
@@ -10878,7 +10882,7 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/verified-backend/invalid-assume-x64.log)
 	$(GREP) -F -q 'alignment must be a positive power of two constant' \
 		$(TEST_OUT)/verified-backend/invalid-assume-x64.log
-	@echo "Legacy and verified terminating/prediction/ffs/assume-aligned builtin tests completed"
+	@echo "Legacy and verified terminating/prediction/constant-p/ffs/assume-aligned builtin tests completed"
 
 test-verified-bitcounts: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

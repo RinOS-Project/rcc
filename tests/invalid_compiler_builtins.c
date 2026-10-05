@@ -18,6 +18,10 @@ void invalid_builtin_prefetch(int *value) {
     __builtin_prefetch(value, 2, 3);
 }
 
+int invalid_builtin_constant_p(void) {
+    return __builtin_constant_p(1, 2);
+}
+
 int invalid_builtin_parity(void) {
     return __builtin_parity(1LL);
 }

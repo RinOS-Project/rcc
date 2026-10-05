@@ -8821,6 +8821,14 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         emit_prefetch32(mod, rw != 0, (int)value);
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_constant_p") == 0) {
+        Expr* argument = call_argument(expr, 0);
+        int64_t constant = 0;
+        emit_mov_reg_imm(mod, EAX,
+                         argument && expr_eval_integer_constant(
+                             argument, &constant) ? 1u : 0u);
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_expect") == 0) {
         /* The prediction operand has no runtime value.  Evaluate it for its
          * language-level side effects, then leave the first operand in the

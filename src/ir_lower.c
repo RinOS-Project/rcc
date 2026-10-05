@@ -3166,6 +3166,19 @@ static RccIrLowerValue lower_builtin_call(
         }
         return lower_cast(context, value, expression->type);
     }
+    if (strcmp(name, "__builtin_constant_p") == 0) {
+        const ExprList* argument = expression->call_args;
+        int64_t constant = 0;
+        if (!argument || argument->next || !expression->type ||
+            !type_is_integer(expression->type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true,
+            argument->expr && expr_eval_integer_constant(
+                argument->expr, &constant) ? 1u : 0u);
+    }
     if (strcmp(name, "__builtin_assume_aligned") == 0) {
         first = expression->call_args;
         second = first ? first->next : NULL;
@@ -3503,6 +3516,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 expression->call_func->ident_name &&
                 (strcmp(expression->call_func->ident_name,
                         "__builtin_expect") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_constant_p") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_assume_aligned") == 0 ||
                  strcmp(expression->call_func->ident_name,
