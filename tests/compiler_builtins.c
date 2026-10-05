@@ -100,6 +100,8 @@ int builtin_strlen_check(void) {
 int builtin_overflow_checks(void) {
     int signed_result = 0;
     unsigned int unsigned_result = 0;
+    long long wide_signed_result = 0;
+    unsigned long long wide_unsigned_result = 0;
     if (__builtin_add_overflow(10, 20, &signed_result) ||
         signed_result != 30) return 1;
     if (!__builtin_add_overflow(0x7fffffff, 1, &signed_result) ||
@@ -114,6 +116,24 @@ int builtin_overflow_checks(void) {
         signed_result != 20000) return 6;
     if (!__builtin_mul_overflow(0xffffffffu, 2u, &unsigned_result) ||
         unsigned_result != 0xfffffffeu) return 7;
+    if (!__builtin_add_overflow(0x7fffffffffffffffLL, 1LL,
+                                &wide_signed_result) ||
+        wide_signed_result != (-9223372036854775807LL - 1LL)) return 8;
+    if (!__builtin_sub_overflow((-9223372036854775807LL - 1LL), 1LL,
+                                &wide_signed_result) ||
+        wide_signed_result != 9223372036854775807LL) return 9;
+    if (__builtin_add_overflow(0x7fffffffffffffffULL, 0ULL,
+                               &wide_unsigned_result) ||
+        wide_unsigned_result != 0x7fffffffffffffffULL) return 10;
+    if (!__builtin_add_overflow(0xffffffffffffffffULL, 1ULL,
+                                &wide_unsigned_result) ||
+        wide_unsigned_result != 0ULL) return 11;
+    if (!__builtin_mul_overflow(0x100000000LL, 0x100000000LL,
+                                &wide_signed_result) ||
+        wide_signed_result != 0LL) return 12;
+    if (!__builtin_mul_overflow(0xffffffffffffffffULL, 2ULL,
+                                &wide_unsigned_result) ||
+        wide_unsigned_result != 0xfffffffffffffffeULL) return 13;
     return 0;
 }
 

@@ -8820,6 +8820,164 @@ static bool gen_compiler_overflow_builtin32(Module* mod, Expr* expr) {
         result_address->type->kind == TYPE_PTR
         ? result_address->type->base : NULL;
     width = result_type ? result_type->size : 0;
+    if (width == 8) {
+        int stack_size = 0;
+
+        /* The i686 ABI returns the boolean in EAX while the result object is
+         * written through the third argument.  Keep the two operands as
+         * explicit low/high words so the result remains independent of the
+         * expression evaluation registers. */
+        gen_expr(mod, result_address);
+        emit_push_reg(mod, EAX); /* Result address. */
+        gen_expr_as_integer64(mod, lhs);
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        gen_expr_as_integer64(mod, rhs);
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+
+        if (!is_multiply) {
+            /* Stack layout: rhs.low, rhs.high, lhs.low, lhs.high,
+             * result_address. */
+            emit_mov_reg_mem(mod, EAX, ESP, 8);
+            emit_mov_reg_mem(mod, EDX, ESP, 12);
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            emit_mov_reg_mem(mod, EDI, ESP, 4);
+            if (is_subtract) {
+                emit_sub_reg_reg(mod, EAX, ECX);
+                emit_sbb_reg_reg(mod, EDX, EDI);
+            } else {
+                emit_add_reg_reg(mod, EAX, ECX);
+                emit_adc_reg_reg(mod, EDX, EDI);
+            }
+            emit_setcc(mod, result_type && result_type->is_unsigned
+                ? CC_B : CC_O, EBX);
+            emit_byte(mod, 0x0F);
+            emit_byte(mod, 0xB6);
+            emit_byte(mod, modrm(3, EBX, EBX));
+            emit_mov_reg_mem(mod, ESI, ESP, 16);
+            emit_mov_mem_reg(mod, ESI, 0, EAX);
+            emit_mov_mem_reg(mod, ESI, 4, EDX);
+            emit_add_reg_imm(mod, ESP, 20);
+            emit_mov_reg_reg(mod, EAX, EBX);
+            return true;
+        }
+
+        /* Compute the complete unsigned 128-bit product from four 32x32
+         * partial products.  The low 64 bits are the result object; the
+         * upper 64 bits are retained for an exact overflow test. */
+        enum {
+            MUL_ALO = 0,
+            MUL_AHI = 4,
+            MUL_BLO = 8,
+            MUL_BHI = 12,
+            MUL_P0HI = 16,
+            MUL_P1LO = 20,
+            MUL_P1HI = 24,
+            MUL_P2LO = 28,
+            MUL_P2HI = 32,
+            MUL_P3LO = 36,
+            MUL_P3HI = 40,
+            MUL_RESULTLO = 44,
+            MUL_RESULTHI = 48,
+            MUL_LOWCARRY = 52,
+            MUL_UPPERLO = 56,
+            MUL_UPPERHI = 60,
+            MUL_STORAGE = 64
+        };
+
+        emit_sub_reg_imm(mod, ESP, MUL_STORAGE);
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_STORAGE + 8);
+        emit_mov_mem_reg(mod, ESP, MUL_ALO, EAX);
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_STORAGE + 12);
+        emit_mov_mem_reg(mod, ESP, MUL_AHI, EAX);
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_STORAGE + 0);
+        emit_mov_mem_reg(mod, ESP, MUL_BLO, EAX);
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_STORAGE + 4);
+        emit_mov_mem_reg(mod, ESP, MUL_BHI, EAX);
+
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_ALO);
+        emit_mov_reg_mem(mod, EBX, ESP, MUL_BLO);
+        emit_mul_reg(mod, EBX);
+        emit_mov_mem_reg(mod, ESP, MUL_RESULTLO, EAX);
+        emit_mov_mem_reg(mod, ESP, MUL_P0HI, EDX);
+
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_ALO);
+        emit_mov_reg_mem(mod, EBX, ESP, MUL_BHI);
+        emit_mul_reg(mod, EBX);
+        emit_mov_mem_reg(mod, ESP, MUL_P1LO, EAX);
+        emit_mov_mem_reg(mod, ESP, MUL_P1HI, EDX);
+
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_AHI);
+        emit_mov_reg_mem(mod, EBX, ESP, MUL_BLO);
+        emit_mul_reg(mod, EBX);
+        emit_mov_mem_reg(mod, ESP, MUL_P2LO, EAX);
+        emit_mov_mem_reg(mod, ESP, MUL_P2HI, EDX);
+
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_AHI);
+        emit_mov_reg_mem(mod, EBX, ESP, MUL_BHI);
+        emit_mul_reg(mod, EBX);
+        emit_mov_mem_reg(mod, ESP, MUL_P3LO, EAX);
+        emit_mov_mem_reg(mod, ESP, MUL_P3HI, EDX);
+
+        /* result.high = p0.high + p1.low + p2.low. */
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_P0HI);
+        emit_mov_reg_mem(mod, EBX, ESP, MUL_P1LO);
+        emit_add_reg_reg(mod, EAX, EBX);
+        emit_mov_reg_mem(mod, ECX, ESP, MUL_P2LO);
+        emit_adc_reg_reg(mod, EAX, ECX);
+        emit_setcc(mod, CC_B, EBX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EBX, EBX));
+        emit_mov_mem_reg(mod, ESP, MUL_LOWCARRY, EBX);
+        emit_mov_mem_reg(mod, ESP, MUL_RESULTHI, EAX);
+
+        /* upper.low = p3.low + p1.high + p2.high + carry(result.high). */
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_P3LO);
+        emit_mov_reg_mem(mod, ECX, ESP, MUL_P1HI);
+        emit_add_reg_reg(mod, EAX, ECX);
+        emit_mov_reg_mem(mod, ECX, ESP, MUL_P2HI);
+        emit_adc_reg_reg(mod, EAX, ECX);
+        emit_mov_reg_mem(mod, ECX, ESP, MUL_LOWCARRY);
+        emit_add_reg_reg(mod, EAX, ECX);
+        emit_mov_mem_reg(mod, ESP, MUL_UPPERLO, EAX);
+        emit_mov_reg_mem(mod, EDI, ESP, MUL_P3HI);
+        emit_adc_reg_imm8(mod, EDI, 0u);
+        emit_mov_mem_reg(mod, ESP, MUL_UPPERHI, EDI);
+
+        emit_mov_reg_mem(mod, EAX, ESP, MUL_RESULTLO);
+        emit_mov_reg_mem(mod, EDX, ESP, MUL_RESULTHI);
+        emit_mov_reg_mem(mod, EBX, ESP, MUL_STORAGE + 16);
+        emit_mov_mem_reg(mod, EBX, 0, EAX);
+        emit_mov_mem_reg(mod, EBX, 4, EDX);
+
+        if (result_type && result_type->is_unsigned) {
+            emit_mov_reg_mem(mod, EAX, ESP, MUL_UPPERLO);
+            emit_mov_reg_mem(mod, ECX, ESP, MUL_UPPERHI);
+            emit_or_reg_reg(mod, EAX, ECX);
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_setcc(mod, CC_NE, EAX);
+        } else {
+            int signed_ok_label = new_label();
+            emit_mov_reg_mem(mod, EDX, ESP, MUL_RESULTHI);
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_sar_reg_imm(mod, ECX, 31);
+            emit_mov_reg_mem(mod, EAX, ESP, MUL_UPPERLO);
+            emit_cmp_reg_reg(mod, EAX, ECX);
+            emit_jcc_label(mod, CC_NE, signed_ok_label);
+            emit_mov_reg_mem(mod, EAX, ESP, MUL_UPPERHI);
+            emit_cmp_reg_reg(mod, EAX, ECX);
+            emit_label(mod, signed_ok_label);
+            emit_setcc(mod, CC_NE, EAX);
+        }
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EAX, EAX));
+        stack_size = MUL_STORAGE + 20;
+        emit_add_reg_imm(mod, ESP, stack_size);
+        return true;
+    }
     if (is_multiply && width != 4) {
         rcc_error(expr->loc,
                   "i686 checked multiplication currently requires a 4-byte result type");

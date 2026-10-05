@@ -12098,11 +12098,6 @@ static bool sema_compiler_builtin_call(Expr* expr) {
             rcc_error(expr->loc,
                       "%s result type has an unsupported integer width", name);
         }
-        if (result_type && g_opts.target_arch == ARCH_X86 &&
-            result_type->size == 8) {
-            rcc_error(expr->loc,
-                      "%s does not yet support i686 64-bit result objects", name);
-        }
         if (is_multiply && result_type && result_type->size < 4) {
             rcc_error(expr->loc,
                       "%s requires a result object at least 4 bytes wide", name);

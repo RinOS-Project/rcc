@@ -49,9 +49,18 @@ extern "C" int cxx_builtin_object_size(void) {
 
 extern "C" int cxx_builtin_overflow(void) {
     int result = 0;
+    long long wide_result = 0;
+    unsigned long long wide_unsigned_result = 0;
     if (!__builtin_add_overflow(0x7fffffff, 1, &result)) return 71;
     if (result != (-2147483647 - 1)) return 72;
     if (!__builtin_mul_overflow(0x7fffffff, 2, &result)) return 73;
+    if (!__builtin_add_overflow(0x7fffffffffffffffLL, 1LL, &wide_result)) return 74;
+    if (wide_result != (-9223372036854775807LL - 1LL)) return 75;
+    if (!__builtin_mul_overflow(0x100000000LL, 0x100000000LL, &wide_result)) return 76;
+    if (wide_result != 0LL) return 77;
+    if (!__builtin_add_overflow(0xffffffffffffffffULL, 1ULL,
+                                &wide_unsigned_result)) return 78;
+    if (wide_unsigned_result != 0ULL) return 79;
     return 0;
 }
 
