@@ -352,6 +352,7 @@ static bool inline_scalar_expression_shape(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_COMMA:
             return inline_scalar_expression_shape(expression->binary_lhs,
                                                    bindings, binding_count) &&
                    inline_scalar_expression_shape(expression->binary_rhs,
@@ -467,7 +468,8 @@ static Expr* clone_inline_scalar_expression(
         case EXPR_LE:
         case EXPR_GE:
         case EXPR_AND:
-        case EXPR_OR: {
+        case EXPR_OR:
+        case EXPR_COMMA: {
             Expr* left = clone_inline_scalar_expression(
                 expression->binary_lhs, bindings, binding_count);
             Expr* right = clone_inline_scalar_expression(
@@ -572,6 +574,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_COMMA:
             clone = expr_binary(
                 expression->kind,
                 clone_inline_pure_scalar_expression(
@@ -656,6 +659,7 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_COMMA:
             left = inline_pure_scalar_expression_cost(
                 expression->binary_lhs);
             right = inline_pure_scalar_expression_cost(

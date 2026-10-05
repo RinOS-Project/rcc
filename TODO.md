@@ -340,6 +340,8 @@
   - [x] 不変文字列リテラルを返す純粋scalarラッパーを受理し、データ領域の
         実行検証はこの検査対象外と明記したうえで、両arch/C++のオブジェクト
         call除去を検証
+  - [x] 副作用のない組み込みカンマ式を純粋scalar inlineでcloneし、`(value,
+        value + 1)`ラッパーのC/C++・両arch call除去と実行結果を回帰検証
   - [x] 純粋scalar inlineのリテラル境界に文字リテラルを追加し、`value + 'A'`の
         C/C++・両arch call除去と実行結果を回帰検証
   - [x] compile-timeに1回だけ実行される副作用なし`for`を、`break`／`continue`／

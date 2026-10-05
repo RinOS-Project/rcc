@@ -219,6 +219,16 @@ const char* inlined_string_constant_call(void)
     return inline_string_constant();
 }
 
+static int inline_comma_value(int value)
+{
+    return (value, value + 1);
+}
+
+int inlined_comma_call(int value)
+{
+    return inline_comma_value(value);
+}
+
 static int inline_pointer_index(int* value)
 {
     return value[1];

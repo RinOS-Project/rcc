@@ -158,6 +158,10 @@ static void verify_smaller(const char* unoptimized_path,
                                   "inlined_string_constant_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_string_constant_call", 0xe8u));
+    assert(function_contains_byte(unoptimized,
+                                  "inlined_comma_call", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_comma_call", 0xe8u));
     {
         ObjSymbol* unoptimized_noexcept = objfile_find_symbol(
             unoptimized, "inlined_noexcept_call");
@@ -440,6 +444,7 @@ int main(int argc, char** argv)
         int (*inlined_pointee_size_call)(int*);
         int (*inlined_character_call)(int);
         const char* (*inlined_string_constant_call)(void);
+        int (*inlined_comma_call)(int);
         int (*inlined_noexcept_call)(int*);
         int (*inlined_pointer_index_call)(int*);
         int (*inlined_pointer_member_call)(struct OptimizerPair*);
@@ -641,6 +646,12 @@ int main(int argc, char** argv)
                    sizeof(inlined_string_constant_call));
         }
         {
+            ObjSymbol* symbol = function_symbol(object, "inlined_comma_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_comma_call, &address,
+                   sizeof(inlined_comma_call));
+        }
+        {
             ObjSymbol* symbol = objfile_find_symbol(
                 object, "inlined_noexcept_call");
             if (symbol) {
@@ -840,6 +851,7 @@ int main(int argc, char** argv)
         }
         assert(inlined_pointee_size_call(&value) == 4);
         assert(inlined_character_call(3) == 68);
+        assert(inlined_comma_call(3) == 4);
         if (objfile_find_symbol(object, "inlined_noexcept_call")) {
             int noexcept_value = 3;
             assert(inlined_noexcept_call(&noexcept_value) == 1);
