@@ -9982,16 +9982,21 @@ test-manifest: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(RLD_TARGET) --manifest tests/build_manifest_valid.rbm \
 		--emit-unsigned-v3 -o $(TEST_OUT)/manifest_linked.rll \
 		$(TEST_OUT)/manifest_main.ro $(TEST_OUT)/manifest_lib.ro
-	! $(RCC_TARGET) --manifest tests/build_manifest_compiler.rbm \
-		--emit-unsigned-v3 -c tests/hello.c
-	! $(RCXX_TARGET) --manifest tests/build_manifest_compiler.rbm \
-		--emit-unsigned-v3 -c tests/hello.cpp
-	! $(RLD_TARGET) --manifest tests/build_manifest_valid.rbm -m32 \
-		--emit-unsigned-v3 tests/missing.ro
-	! $(RLD_TARGET) --manifest tests/build_manifest_executable.rbm -shared \
-		--emit-unsigned-v3 tests/missing.ro
-	! $(RCC_TARGET) --manifest tests/build_manifest_compiler.rbm \
-		--sign-profile release --emit-unsigned-v3 tests/hello.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --manifest tests/build_manifest_compiler.rbm \
+		--emit-unsigned-v3 -c tests/hello.c,$(TEST_OUT)/manifest-c-conflict.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --manifest tests/build_manifest_compiler.rbm \
+		--emit-unsigned-v3 -c tests/hello.cpp,$(TEST_OUT)/manifest-cxx-conflict.log)
+	$(call EXPECT_FAILURE,$(RLD_TARGET) --manifest tests/build_manifest_valid.rbm -m32 \
+		--emit-unsigned-v3 tests/missing.ro,$(TEST_OUT)/manifest-target-conflict.log)
+	$(call EXPECT_FAILURE,$(RLD_TARGET) --manifest tests/build_manifest_executable.rbm -shared \
+		--emit-unsigned-v3 tests/missing.ro,$(TEST_OUT)/manifest-artifact-conflict.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --manifest tests/build_manifest_compiler.rbm \
+		--sign-profile release --emit-unsigned-v3 tests/hello.c,$(TEST_OUT)/manifest-signing-conflict.log)
+	$(GREP) -q "CLI artifact conflicts with build manifest" $(TEST_OUT)/manifest-c-conflict.log
+	$(GREP) -q "CLI artifact conflicts with build manifest" $(TEST_OUT)/manifest-cxx-conflict.log
+	$(GREP) -q "CLI target conflicts with build manifest" $(TEST_OUT)/manifest-target-conflict.log
+	$(GREP) -q "CLI artifact conflicts with build manifest" $(TEST_OUT)/manifest-artifact-conflict.log
+	$(GREP) -q "CLI signing profile conflicts with build manifest" $(TEST_OUT)/manifest-signing-conflict.log
 	@echo "Versioned build manifest conflict tests completed"
 
 test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
