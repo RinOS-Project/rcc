@@ -26,6 +26,30 @@ static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static AST* active_ast;
 
+/* A leading alignas belongs to a class declaration only when its complete
+ * parenthesized argument list is followed by class-key.  Leave other
+ * declarations to the common declaration parser so alignas on objects and
+ * functions keeps its existing semantics. */
+static bool cxx_leading_alignas_class_starts(void) {
+    Token* token = parser.cur;
+
+    while (token && token->type == TOK__ALIGNAS) {
+        int depth = 0;
+        token = token->next;
+        if (!token || token->type != TOK_LPAREN) return false;
+        do {
+            if (token->type == TOK_LPAREN) {
+                ++depth;
+            } else if (token->type == TOK_RPAREN) {
+                --depth;
+            }
+            token = token->next;
+        } while (token && depth > 0);
+        if (depth != 0) return false;
+    }
+    return token && (token->type == TOK_CLASS || token->type == TOK_STRUCT);
+}
+
 static const char* cxx_method_source_name(CxxMethod* method);
 
 void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc) {
@@ -5535,7 +5559,31 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         Token* declaration_start = parser.cur;
         int errors_before = g_error_count;
         skip_cxx_attributes();
-        if (match(TOK_PRAGMA_PACK)) {
+        if (cxx_leading_alignas_class_starts()) {
+            SourceLoc alignment_loc = peek()->loc;
+            int explicit_alignment = 0;
+            while (check(TOK__ALIGNAS)) {
+                int alignment = rcc_parser_parse_explicit_alignment();
+                if (alignment > explicit_alignment) {
+                    explicit_alignment = alignment;
+                }
+            }
+            if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+                CxxClass* cls = parse_cxx_class();
+                cxx_class_apply_explicit_alignment(
+                    cls, explicit_alignment, alignment_loc);
+                (void)take_cxx_nodiscard();
+                if (take_cxx_weak()) {
+                    rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
+                }
+                (void)take_cxx_deprecated(NULL);
+                if (take_cxx_no_unique_address()) {
+                    rcc_error(loc,
+                              "[[no_unique_address]] requires a class data member");
+                }
+                cxx_namespace_add_class(ns, cls);
+            }
+        } else if (match(TOK_PRAGMA_PACK)) {
             rcc_parser_apply_pragma_pack(previous());
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
             CxxClass* cls = parse_cxx_class();
@@ -12996,7 +13044,33 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         SourceLoc loc = peek()->loc;
         skip_cxx_attributes();
 
-        if (match(TOK_PRAGMA_PACK)) {
+        if (cxx_leading_alignas_class_starts()) {
+            SourceLoc alignment_loc = peek()->loc;
+            int explicit_alignment = 0;
+            while (check(TOK__ALIGNAS)) {
+                int alignment = rcc_parser_parse_explicit_alignment();
+                if (alignment > explicit_alignment) {
+                    explicit_alignment = alignment;
+                }
+            }
+            if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+                CxxClass* cls = parse_cxx_class();
+                cxx_class_apply_explicit_alignment(
+                    cls, explicit_alignment, alignment_loc);
+                (void)take_cxx_nodiscard();
+                if (take_cxx_weak()) {
+                    rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
+                }
+                (void)take_cxx_deprecated(NULL);
+                if (take_cxx_no_unique_address()) {
+                    rcc_error(loc,
+                              "[[no_unique_address]] requires a class data member");
+                }
+                if (g_global_namespace) {
+                    cxx_namespace_add_class(g_global_namespace, cls);
+                }
+            }
+        } else if (match(TOK_PRAGMA_PACK)) {
             rcc_parser_apply_pragma_pack(previous());
         } else if (check(TOK_EXTERN) && parser.cur->next &&
                parser.cur->next->type == TOK_STRING_LIT) {

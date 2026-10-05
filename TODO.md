@@ -176,6 +176,8 @@
         `obj.method`／`ptr->method`呼び出しと両arch実行
   - [x] C++ member `alignas` をクラスlayoutのalignment、padding、
         `alignof`へ伝播し、i686/AMD64のstatic_assert回帰で検証
+  - [x] C++ class declaration `alignas` をクラス自身のalignment、size、
+        包含クラスのpaddingへ伝播し、i686/AMD64のstatic_assert回帰で検証
   - [x] staticメンバー関数をqualified source lookup（`Class::func()`）と
         Itanium link nameへ分離し、暗黙`this`なしの直接・object経由・クラス内
         呼出しをi686/AMD64で実行検証

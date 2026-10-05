@@ -385,6 +385,8 @@ void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
 CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name);
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static);
 void cxx_class_compute_layout(CxxClass* cls);
+void cxx_class_apply_explicit_alignment(CxxClass* cls, int alignment,
+                                        SourceLoc loc);
 bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
                                    int* offset);
 bool cxx_class_is_abstract(const CxxClass* cls);

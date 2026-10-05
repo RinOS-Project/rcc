@@ -1296,6 +1296,40 @@ void cxx_class_compute_layout(CxxClass* cls) {
     cls->type->cxx_nontrivial = nontrivial || has_virtual || has_destructor;
 }
 
+void cxx_class_apply_explicit_alignment(CxxClass* cls, int alignment,
+                                        SourceLoc loc) {
+    int mask;
+    int aligned_size;
+    int aligned_nonvirtual_size;
+
+    if (!cls || !cls->type || alignment <= 0 || alignment <= cls->align) {
+        return;
+    }
+    if (alignment > 16 || (alignment & (alignment - 1)) != 0) {
+        rcc_error(loc,
+                  "C++ class alignment must be a power of two no greater than 16");
+        return;
+    }
+    mask = alignment - 1;
+    if (cls->size > INT_MAX - mask ||
+        cls->nonvirtual_size > INT_MAX - mask) {
+        rcc_error(loc, "C++ class alignment overflows the supported object size");
+        return;
+    }
+    aligned_size = (cls->size + mask) & ~mask;
+    aligned_nonvirtual_size = (cls->nonvirtual_size + mask) & ~mask;
+    if (aligned_size <= 0 || aligned_nonvirtual_size <= 0) {
+        rcc_error(loc, "C++ class alignment produced an invalid object size");
+        return;
+    }
+    cls->align = alignment;
+    cls->size = aligned_size;
+    cls->nonvirtual_size = aligned_nonvirtual_size;
+    cls->type->align = alignment;
+    cls->type->size = aligned_size;
+    cls->type->has_explicit_alignment = true;
+}
+
 static CxxClass* cxx_primary_vtable_base(CxxClass* cls) {
     if (!cls) return NULL;
     for (int i = 0; i < cls->base_count; ++i) {
