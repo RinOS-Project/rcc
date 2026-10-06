@@ -103,3 +103,21 @@ extern "C" int cxx_switch_constant_alignof(void)
     }
     return result;
 }
+
+extern "C" int cxx_if_constant_sizeof(void)
+{
+    if (sizeof(char)) return 83;
+    return 89;
+}
+
+extern "C" int cxx_while_constant_sizeof(void)
+{
+    while (sizeof(char) - 1) return 97;
+    return 101;
+}
+
+extern "C" int cxx_for_constant_alignof(void)
+{
+    for (; alignof(char) - 1;) return 103;
+    return 107;
+}

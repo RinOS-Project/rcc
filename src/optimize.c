@@ -4435,7 +4435,8 @@ static void optimize_stmt(Stmt* statement) {
             optimize_expr(&statement->if_cond);
             {
                 int64_t condition;
-                if (integer_literal(statement->if_cond, &condition)) {
+                if (constant_integer_expression(statement->if_cond,
+                                                 &condition)) {
                     Stmt* selected = condition != 0
                         ? statement->if_then : statement->if_else;
                     Stmt* discarded = condition != 0
@@ -4459,7 +4460,8 @@ static void optimize_stmt(Stmt* statement) {
             optimize_expr(&statement->while_cond);
             {
                 int64_t condition;
-                if (integer_literal(statement->while_cond, &condition) &&
+                if (constant_integer_expression(statement->while_cond,
+                                                 &condition) &&
                     condition == 0 &&
                     !statement_contains_label(statement->while_body)) {
                     statement->kind = STMT_NULL;
@@ -4478,7 +4480,8 @@ static void optimize_stmt(Stmt* statement) {
             optimize_expr(&statement->for_cond);
             {
                 int64_t condition;
-                if (integer_literal(statement->for_cond, &condition) &&
+                if (constant_integer_expression(statement->for_cond,
+                                                 &condition) &&
                     condition == 0 &&
                     !statement_contains_label(statement->for_body)) {
                     Stmt* initializer = statement->for_init;

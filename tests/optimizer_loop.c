@@ -547,3 +547,21 @@ int switch_constant_alignof(void)
     }
     return result;
 }
+
+int if_constant_sizeof(void)
+{
+    if (sizeof(char)) return 83;
+    return 89;
+}
+
+int while_constant_sizeof(void)
+{
+    while (sizeof(char) - 1) return 97;
+    return 101;
+}
+
+int for_constant_alignof(void)
+{
+    for (; _Alignof(char) - 1;) return 103;
+    return 107;
+}
