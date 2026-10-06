@@ -912,6 +912,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSection* text;
     ObjSymbol* call;
     ObjSymbol* indirect_call;
+    ObjSymbol* indirect_parameter;
     ObjSymbol* helper;
     ObjSymbol* load;
     ObjSymbol* control;
@@ -955,6 +956,8 @@ static void verify_object(const char* path, uint16_t arch)
     text = objfile_get_section(object, ".text");
     call = objfile_find_symbol(object, "verified_call");
     indirect_call = objfile_find_symbol(object, "verified_indirect_call");
+    indirect_parameter = objfile_find_symbol(
+        object, "verified_indirect_parameter");
     helper = objfile_find_symbol(
         object, "tests/verified_backend.c::verified_helper");
     load = objfile_find_symbol(object, "verified_load");
@@ -1023,6 +1026,9 @@ static void verify_object(const char* path, uint16_t arch)
     assert(call != NULL && call->type == SYM_GLOBAL && call->section == 0);
     assert(indirect_call != NULL && indirect_call->type == SYM_GLOBAL &&
            indirect_call->section == 0);
+    assert(indirect_parameter != NULL &&
+           indirect_parameter->type == SYM_GLOBAL &&
+           indirect_parameter->section == 0);
     assert(helper != NULL && helper->type == SYM_LOCAL && helper->section == 0);
     assert(load != NULL && load->type == SYM_GLOBAL && load->section == 0);
     assert(control != NULL && control->type == SYM_GLOBAL &&
@@ -1114,7 +1120,7 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_nested_case != NULL &&
            switch_nested_case->type == SYM_GLOBAL &&
            switch_nested_case->section == 0);
-    assert(object->symbol_count == 40);
+    assert(object->symbol_count == 41);
     {
         size_t relocation_count = 0u;
         size_t absolute_count = 0u;
@@ -1177,6 +1183,9 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int side_effect = 10;
     int RINOS_ABI (*call_function)(int);
     int RINOS_ABI (*indirect_call_function)(int);
+    typedef int (*host_unary_function)(int);
+    int RINOS_ABI (*indirect_parameter_function)(
+        host_unary_function, int);
     int RINOS_ABI (*pointer_function)(int*, int);
     int RINOS_ABI (*local_array_function)(int, int, int);
     int RINOS_ABI (*local_pointer_array_function)(int*, int*);
@@ -1222,6 +1231,17 @@ static void verify_native_execution(const char* path, uint16_t arch)
     memcpy(&indirect_call_function, &address,
            sizeof(indirect_call_function));
     assert(indirect_call_function(7) == 23);
+
+    symbol = objfile_find_symbol(
+        object, "tests/verified_backend.c::verified_helper");
+    address = symbol_address(memory, symbol);
+    host_unary_function target_function;
+    memcpy(&target_function, &address, sizeof(target_function));
+    symbol = objfile_find_symbol(object, "verified_indirect_parameter");
+    address = symbol_address(memory, symbol);
+    memcpy(&indirect_parameter_function, &address,
+           sizeof(indirect_parameter_function));
+    assert(indirect_parameter_function(target_function, 7) == 24);
 
     symbol = objfile_find_symbol(object, "verified_index");
     address = symbol_address(memory, symbol);

@@ -11262,8 +11262,8 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x64.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x64.log
-	$(GREP) -F -q 'Verified backend: 40 function(s) emitted' $(TEST_OUT)/verified-backend/x86.log
-	$(GREP) -F -q 'Verified backend: 40 function(s) emitted' $(TEST_OUT)/verified-backend/x64.log
+	$(GREP) -F -q 'Verified backend: 41 function(s) emitted' $(TEST_OUT)/verified-backend/x86.log
+	$(GREP) -F -q 'Verified backend: 41 function(s) emitted' $(TEST_OUT)/verified-backend/x64.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-x64.ro \
 		tests/verified_backend.cpp \

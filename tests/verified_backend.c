@@ -54,6 +54,11 @@ int verified_indirect_call(int value)
     return function(value) + 2;
 }
 
+int verified_indirect_parameter(int (*function)(int), int value)
+{
+    return function(value) + 3;
+}
+
 static int verified_helper(int value)
 {
     return value * 3;
