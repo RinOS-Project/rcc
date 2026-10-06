@@ -8691,6 +8691,10 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x86.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x86.log)
 	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_choose_expr condition must be an integer constant expression" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(GREP) -F -q "__builtin_choose_expr expects 3 arguments, got 2" \
+		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_expect_with_probability probability must be a floating constant between 0 and 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_trap expects no arguments, got 1" \
@@ -8721,6 +8725,10 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-x64.ro tests/invalid_compiler_builtins.c,$(TEST_OUT)/compiler-builtins/invalid-x64.log)
 	$(GREP) -F -q "__builtin_expect expected value must have integer type" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_choose_expr condition must be an integer constant expression" \
+		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(GREP) -F -q "__builtin_choose_expr expects 3 arguments, got 2" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_expect_with_probability probability must be a floating constant between 0 and 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log

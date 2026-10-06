@@ -2,6 +2,14 @@ extern "C" int cxx_builtin_expect(int value) {
     return __builtin_expect(value, 1);
 }
 
+extern "C" int cxx_builtin_choose_expr(void) {
+    int value = 7;
+    int selected = __builtin_choose_expr(1, value + 5, value += 100);
+    int other = __builtin_choose_expr(0, value += 100, value + 3);
+    if (selected != 12 || other != 10 || value != 7) return 1;
+    return __builtin_choose_expr(0, 17, 43);
+}
+
 extern "C" int cxx_builtin_expect_probability(int value) {
     return __builtin_expect_with_probability(value, 1, 0.75);
 }
@@ -84,16 +92,17 @@ extern "C" int cxx_builtin_overflow(void) {
 
 extern "C" int main(void) {
     if (cxx_builtin_expect(31) != 31) return 1;
-    if (cxx_builtin_expect_probability(31) != 31) return 2;
-    if (cxx_builtin_unreachable_guard(1) != 19) return 3;
-    if (cxx_builtin_trap_guard(1) != 23) return 4;
+    if (cxx_builtin_choose_expr() != 43) return 2;
+    if (cxx_builtin_expect_probability(31) != 31) return 3;
+    if (cxx_builtin_unreachable_guard(1) != 19) return 4;
+    if (cxx_builtin_trap_guard(1) != 23) return 5;
     int value = 37;
-    if (cxx_scalar_builtins(&value) != 37) return 5;
-    if (cxx_builtin_object_size() != 0) return 6;
-    if (cxx_builtin_overflow() != 0) return 7;
+    if (cxx_scalar_builtins(&value) != 37) return 6;
+    if (cxx_builtin_object_size() != 0) return 7;
+    if (cxx_builtin_overflow() != 0) return 8;
     {
         const char value[] = "RinOS";
-        if (cxx_builtin_strlen_pointer(value + 1) != 4) return 8;
+        if (cxx_builtin_strlen_pointer(value + 1) != 4) return 9;
     }
     return 0;
 }

@@ -2,6 +2,14 @@ int builtin_expect_int(int value) {
     return __builtin_expect(value, 1);
 }
 
+int builtin_choose_expr(void) {
+    int value = 5;
+    int selected = __builtin_choose_expr(1, value + 7, value += 100);
+    int other = __builtin_choose_expr(0, value += 100, value + 2);
+    if (selected != 12 || other != 7 || value != 5) return 1;
+    return __builtin_choose_expr(1, 41, 99);
+}
+
 int builtin_expect_probability(int value) {
     return __builtin_expect_with_probability(value, 1, 0.75);
 }
@@ -160,10 +168,11 @@ int builtin_overflow_checks(void) {
 
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
-    if (builtin_expect_probability(23) != 23) return 2;
-    if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 3;
-    if (builtin_unreachable_guard(1) != 17) return 4;
-    if (builtin_trap_guard(1) != 29) return 5;
+    if (builtin_choose_expr() != 41) return 2;
+    if (builtin_expect_probability(23) != 23) return 3;
+    if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 4;
+    if (builtin_unreachable_guard(1) != 17) return 5;
+    if (builtin_trap_guard(1) != 29) return 6;
     if (builtin_bswap16(0x1234u) != 0x3412u) return 6;
     if (builtin_bswap32(0x12345678u) != 0x78563412u) return 7;
     if (builtin_bswap64(0x0102030405060708ULL) !=

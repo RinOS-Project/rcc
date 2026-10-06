@@ -9255,6 +9255,13 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         return false;
     }
     function = expr->call_func;
+    if (strcmp(function->ident_name, "__builtin_choose_expr") == 0) {
+        int64_t condition = 0;
+        Expr* condition_expression = call_argument(expr, 0);
+        (void)expr_eval_integer_constant(condition_expression, &condition);
+        gen_expr(mod, call_argument(expr, condition != 0 ? 1 : 2));
+        return true;
+    }
     if (gen_compiler_overflow_builtin32(mod, expr)) return true;
     if (gen_mmx_builtin32(mod, expr)) return true;
     if (gen_sse_builtin32(mod, expr)) return true;

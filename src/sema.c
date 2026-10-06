@@ -11902,6 +11902,42 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         expr->type = return_type;
         return true;
     }
+    if (strcmp(name, "__builtin_choose_expr") == 0) {
+        int64_t condition = 0;
+        bool condition_constant = false;
+        Expr* selected;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 3) {
+            rcc_error(expr->loc,
+                      "__builtin_choose_expr expects 3 arguments, got %d",
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        second = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->expr : NULL;
+        third = expr->call_args && expr->call_args->next &&
+            expr->call_args->next->next
+            ? expr->call_args->next->next->expr : NULL;
+        if (!first || !first->type || !type_is_integer(first->type)) {
+            rcc_error(expr->loc,
+                      "__builtin_choose_expr condition must have integer type");
+        } else {
+            condition_constant = expr_eval_integer_constant(first, &condition);
+            if (!condition_constant) {
+                rcc_error(first->loc,
+                          "__builtin_choose_expr condition must be an integer constant expression");
+            }
+        }
+        selected = condition_constant && condition != 0 ? second : third;
+        function->type = type_ptr(selected && selected->type
+                                       ? selected->type : type_int);
+        expr->type = selected && selected->type ? selected->type : type_int;
+        return true;
+    }
     if (strcmp(name, "__builtin_bswap16") == 0) {
         bswap_width = 2;
     } else if (strcmp(name, "__builtin_bswap32") == 0) {

@@ -2,6 +2,14 @@ int invalid_builtin_expect(void) {
     return __builtin_expect(1, 1.0);
 }
 
+int invalid_builtin_choose_condition(int value) {
+    return __builtin_choose_expr(value, 1, 2);
+}
+
+int invalid_builtin_choose_arity(void) {
+    return __builtin_choose_expr(1, 2);
+}
+
 int invalid_builtin_expect_probability(void) {
     return __builtin_expect_with_probability(1, 1, 2.0);
 }
