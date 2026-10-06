@@ -81,6 +81,7 @@ typedef struct RccIrLowerSwitch {
     RccIrLowerLoopEdge* wide_breaks;
     RccIrLowerLoopFrame* wide_loop_owner;
     RccIrBlock* scan_block;
+    RccIrBlock* no_match_block;
     bool wide_ssa;
     struct RccIrLowerSwitch* previous;
 } RccIrLowerSwitch;
@@ -1353,7 +1354,6 @@ static bool lower_wide_switch_case_linear(const Stmt* statement) {
 
 static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
     const StmtList* item;
-    bool found_default = false;
     bool found_label = false;
     bool segment_terminates = false;
     if (!statement || statement->kind != STMT_SWITCH ||
@@ -1367,7 +1367,6 @@ static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
         if (!current) return false;
         if (current->kind == STMT_CASE || current->kind == STMT_DEFAULT) {
             found_label = true;
-            if (current->kind == STMT_DEFAULT) found_default = true;
             current = current->kind == STMT_CASE
                 ? current->case_stmt : current->default_stmt;
             if (!lower_wide_switch_case_linear(current)) return false;
@@ -1380,7 +1379,11 @@ static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
         }
         segment_terminates = lower_wide_switch_case_terminates(current);
     }
-    return found_label && found_default && segment_terminates;
+    /* A switch without default has an explicit non-match edge from the
+     * dispatch shadow block to the common exit.  The baseline state already
+     * represents that edge, so it is safe when every labeled segment still
+     * reaches a terminating break/return. */
+    return found_label && segment_terminates;
 }
 
 static void lower_release_wide_loop_edges(RccIrLowerLoopEdge* edges) {
@@ -1516,9 +1519,11 @@ static bool lower_build_wide_latch_states(
 static bool lower_build_wide_exit_states(
     RccIrLowerContext* context, RccIrLowerWideState* baseline,
     const RccIrLowerWideState* condition_state,
+    RccIrBlock* alternate_condition_block,
     const RccIrLowerLoopEdge* breaks, RccIrBlock* exit_block) {
     size_t break_count = lower_wide_loop_edge_count(breaks);
-    size_t edge_count = break_count + 1u;
+    size_t edge_count = break_count + 1u +
+        (alternate_condition_block ? 1u : 0u);
     if (!context || !baseline || !condition_state || !breaks ||
         !exit_block || context->current != exit_block ||
         context->terminated || break_count == 0u) return false;
@@ -1532,7 +1537,7 @@ static bool lower_build_wide_exit_states(
             edge_count * sizeof(*targets));
         RccIrInstruction* low_phi;
         RccIrInstruction* high_phi;
-        size_t index = 1u;
+        size_t index = alternate_condition_block ? 2u : 1u;
         bool valid = low_operands && high_operands && targets;
         const RccIrLowerWideState* condition = lower_find_wide_state(
             condition_state, initial->local);
@@ -1546,6 +1551,11 @@ static bool lower_build_wide_exit_states(
         low_operands[0] = condition->value.low.value;
         high_operands[0] = condition->value.high.value;
         targets[0] = condition->block->id;
+        if (alternate_condition_block) {
+            low_operands[1] = condition->value.low.value;
+            high_operands[1] = condition->value.high.value;
+            targets[1] = alternate_condition_block->id;
+        }
         for (const RccIrLowerLoopEdge* edge = breaks;
              valid && edge; edge = edge->next) {
             const RccIrLowerWideState* incoming =
@@ -5941,7 +5951,7 @@ static bool lower_while_wide_ssa(
     context->terminated = false;
     if (frame.breaks) {
         if (!lower_build_wide_exit_states(
-                context, baseline, condition_state, frame.breaks,
+                context, baseline, condition_state, NULL, frame.breaks,
                 exit_block)) {
             lower_release_wide_states(backedge);
             lower_release_wide_loop_edges(frame.breaks);
@@ -6090,7 +6100,7 @@ static bool lower_for_wide_ssa(
     context->terminated = false;
     if (frame.breaks) {
         if (!lower_build_wide_exit_states(
-                context, baseline, condition_state, frame.breaks,
+                context, baseline, condition_state, NULL, frame.breaks,
                 exit_block)) {
             lower_release_wide_states(backedge);
             lower_release_wide_loop_edges(frame.breaks);
@@ -6200,7 +6210,7 @@ static bool lower_do_wide_ssa(
     context->terminated = false;
     if (frame.breaks) {
         if (!lower_build_wide_exit_states(
-                context, baseline, condition_exit, frame.breaks,
+                context, baseline, condition_exit, NULL, frame.breaks,
                 exit_block)) {
             lower_release_wide_states(condition_exit);
             lower_release_wide_loop_edges(frame.breaks);
@@ -6670,6 +6680,9 @@ static bool lower_switch(RccIrLowerContext* context,
             return false;
         }
     }
+    if (!switch_context.default_label) {
+        switch_context.no_match_block = context->current;
+    }
 
     if (lower_wide_switch_body_edge_safe(statement)) {
         switch_context.wide_baseline = lower_capture_wide_states(context);
@@ -6705,6 +6718,8 @@ static bool lower_switch(RccIrLowerContext* context,
             if (!lower_build_wide_exit_states(
                     context, switch_context.wide_baseline,
                     switch_context.wide_baseline,
+                    switch_context.default_label
+                        ? NULL : switch_context.no_match_block,
                     switch_context.wide_breaks, exit_block)) {
                 lower_release_wide_loop_edges(switch_context.wide_breaks);
                 lower_release_wide_states(switch_context.wide_baseline);
