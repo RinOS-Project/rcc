@@ -59,16 +59,25 @@ static bool find_lexical_block_local(const ObjSection* info,
                                      uint64_t address_size)
 {
     if (!info || !strings || !variable_name) return false;
-    for (uint64_t offset = 11u; offset + 15u < info->size; ++offset) {
+    for (uint64_t offset = 11u; offset + 5u < info->size; ++offset) {
+        bool ranged;
         uint32_t name_offset;
-        uint64_t range_offset = offset + 1u + address_size;
-        uint64_t file_offset = range_offset + 4u;
-        uint64_t line_offset = file_offset + 1u;
-        uint64_t column_offset = line_offset + 4u;
-        uint64_t child_offset = column_offset + 4u;
-        if (info->data[offset] != 24u ||
-            child_offset >= info->size ||
-            read_u32(info->data, range_offset) == 0u ||
+        uint64_t range_offset;
+        uint64_t range_end;
+        uint64_t file_offset;
+        uint64_t line_offset;
+        uint64_t column_offset;
+        uint64_t child_offset;
+        ranged = info->data[offset] == 25u;
+        if (!ranged && info->data[offset] != 24u) continue;
+        range_offset = ranged ? offset + 1u : offset + 1u + address_size;
+        file_offset = range_offset + 4u;
+        line_offset = file_offset + 1u;
+        column_offset = line_offset + 4u;
+        child_offset = column_offset + 4u;
+        range_end = child_offset + 5u;
+        if (range_end > info->size ||
+            (!ranged && read_u32(info->data, range_offset) == 0u) ||
             info->data[file_offset] == 0u ||
             read_u32(info->data, line_offset) == 0u ||
             read_u32(info->data, column_offset) == 0u ||
@@ -672,6 +681,7 @@ static void verify_without_debug(const char* path)
     assert(objfile_get_section(object, ".debug_abbrev") == NULL);
     assert(objfile_get_section(object, ".debug_str") == NULL);
     assert(objfile_get_section(object, ".debug_frame") == NULL);
+    assert(objfile_get_section(object, ".debug_ranges") == NULL);
     objfile_free(object);
 }
 
@@ -685,11 +695,13 @@ static void verify_verified_debug_object(const char* path,
     ObjSection* info;
     ObjSection* strings;
     ObjSection* frame;
+    ObjSection* ranges;
     assert(object != NULL && object->arch == architecture);
     line = objfile_get_section(object, ".debug_line");
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     frame = objfile_get_section(object, ".debug_frame");
+    ranges = objfile_get_section(object, ".debug_ranges");
     assert(line != NULL && info != NULL && strings != NULL && frame != NULL);
     assert(contains_bytes(line->data, line->size,
                           "tests/verified_backend_debug.c"));
@@ -699,6 +711,7 @@ static void verify_verified_debug_object(const char* path,
                           "verified_debug_entry"));
     assert(line->relocs != NULL && info->relocs != NULL &&
            frame->relocs != NULL);
+    assert(ranges != NULL && ranges->relocs != NULL && ranges->size > 0u);
     assert(objfile_find_symbol(object, static_symbol) != NULL);
     assert(has_relocation_symbol(
         line, static_symbol,

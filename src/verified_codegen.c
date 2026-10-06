@@ -479,6 +479,147 @@ static void verified_add_function_debug_symbol(
     rcc_free(scoped_name);
 }
 
+static void verified_append_statement_debug_range(
+    Stmt* statement, uint32_t start, uint32_t end) {
+    StmtDebugRange* debug_range;
+    if (!statement || end <= start) return;
+    debug_range = statement->debug_code_ranges;
+    if (!debug_range) {
+        debug_range = rcc_alloc(sizeof(*debug_range));
+        debug_range->start = start;
+        debug_range->end = end;
+        statement->debug_code_ranges = debug_range;
+    } else {
+        while (debug_range->next) debug_range = debug_range->next;
+        if (start <= debug_range->end) {
+            if (end > debug_range->end) debug_range->end = end;
+        } else {
+            StmtDebugRange* next = rcc_alloc(sizeof(*next));
+            next->start = start;
+            next->end = end;
+            debug_range->next = next;
+        }
+    }
+    if (statement->debug_code_end <= statement->debug_code_start) {
+        statement->debug_code_start = start;
+        statement->debug_code_end = end;
+    } else {
+        if (start < statement->debug_code_start) {
+            statement->debug_code_start = start;
+        }
+        if (end > statement->debug_code_end) {
+            statement->debug_code_end = end;
+        }
+    }
+}
+
+static void verified_append_descendant_debug_ranges(
+    Stmt* source, Stmt* target) {
+    if (!source || !target) return;
+    for (const StmtDebugRange* range = source->debug_code_ranges;
+         range; range = range->next) {
+        verified_append_statement_debug_range(
+            target, range->start, range->end);
+    }
+    switch (source->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = source->block_stmts; item;
+                 item = item->next) {
+                verified_append_descendant_debug_ranges(item->stmt, target);
+            }
+            break;
+        case STMT_IF:
+            verified_append_descendant_debug_ranges(source->if_then, target);
+            verified_append_descendant_debug_ranges(source->if_else, target);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            verified_append_descendant_debug_ranges(
+                source->while_body, target);
+            break;
+        case STMT_FOR:
+            verified_append_descendant_debug_ranges(source->for_init, target);
+            verified_append_descendant_debug_ranges(source->for_body, target);
+            break;
+        case STMT_SWITCH:
+            verified_append_descendant_debug_ranges(
+                source->switch_body, target);
+            break;
+        case STMT_CASE:
+            verified_append_descendant_debug_ranges(
+                source->case_stmt, target);
+            break;
+        case STMT_DEFAULT:
+            verified_append_descendant_debug_ranges(
+                source->default_stmt, target);
+            break;
+        case STMT_LABEL:
+            verified_append_descendant_debug_ranges(
+                source->label_stmt, target);
+            break;
+        case STMT_TRY:
+            verified_append_descendant_debug_ranges(
+                source->try_body, target);
+            for (CxxCatch* handler = source->try_catches; handler;
+                 handler = handler->next) {
+                verified_append_descendant_debug_ranges(handler->body, target);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void verified_propagate_block_debug_ranges(Stmt* statement) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                verified_propagate_block_debug_ranges(item->stmt);
+            }
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                verified_append_descendant_debug_ranges(
+                    item->stmt, statement);
+            }
+            break;
+        case STMT_IF:
+            verified_propagate_block_debug_ranges(statement->if_then);
+            verified_propagate_block_debug_ranges(statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            verified_propagate_block_debug_ranges(statement->while_body);
+            break;
+        case STMT_FOR:
+            verified_propagate_block_debug_ranges(statement->for_init);
+            verified_propagate_block_debug_ranges(statement->for_body);
+            break;
+        case STMT_SWITCH:
+            verified_propagate_block_debug_ranges(statement->switch_body);
+            break;
+        case STMT_CASE:
+            verified_propagate_block_debug_ranges(statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            verified_propagate_block_debug_ranges(statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            verified_propagate_block_debug_ranges(statement->label_stmt);
+            break;
+        case STMT_TRY:
+            verified_propagate_block_debug_ranges(statement->try_body);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                verified_propagate_block_debug_ranges(handler->body);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static void verified_apply_statement_debug_ranges(
     ObjectFile* object, const char* object_name,
     const RccX86EncodedFunction* encoded) {
@@ -492,7 +633,6 @@ static void verified_apply_statement_debug_ranges(
         Stmt* statement = (Stmt*)range->source_statement;
         uint64_t start;
         uint64_t end;
-        StmtDebugRange* debug_range;
         if (!statement || range->offset > UINT32_MAX -
                 (uint32_t)object_symbol->value ||
             range->size > UINT32_MAX -
@@ -502,36 +642,8 @@ static void verified_apply_statement_debug_ranges(
         start = object_symbol->value + range->offset;
         end = start + range->size;
         if (end <= start || end > UINT32_MAX) continue;
-        debug_range = statement->debug_code_ranges;
-        if (!debug_range) {
-            debug_range = rcc_alloc(sizeof(*debug_range));
-            debug_range->start = (uint32_t)start;
-            debug_range->end = (uint32_t)end;
-            statement->debug_code_ranges = debug_range;
-        } else {
-            while (debug_range->next) debug_range = debug_range->next;
-            if (start <= debug_range->end) {
-                if (end > debug_range->end) {
-                    debug_range->end = (uint32_t)end;
-                }
-            } else {
-                StmtDebugRange* next = rcc_alloc(sizeof(*next));
-                next->start = (uint32_t)start;
-                next->end = (uint32_t)end;
-                debug_range->next = next;
-            }
-        }
-        if (statement->debug_code_end <= statement->debug_code_start) {
-            statement->debug_code_start = (uint32_t)start;
-            statement->debug_code_end = (uint32_t)end;
-        } else {
-            if (start < statement->debug_code_start) {
-                statement->debug_code_start = (uint32_t)start;
-            }
-            if (end > statement->debug_code_end) {
-                statement->debug_code_end = (uint32_t)end;
-            }
-        }
+        verified_append_statement_debug_range(
+            statement, (uint32_t)start, (uint32_t)end);
     }
 }
 
@@ -691,6 +803,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 declaration->name, pipeline_error);
         }
         verified_apply_statement_debug_ranges(object, object_name, &encoded);
+        verified_propagate_block_debug_ranges(declaration->func_body);
         rcc_free(scoped_name);
         rcc_x86_encoded_function_release(&encoded);
         rcc_ir_module_destroy(module);

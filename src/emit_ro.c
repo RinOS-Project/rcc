@@ -42,16 +42,16 @@ static bool ro_section_policy(uint16_t arch, const RoSection* section) {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
     uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC |
                              SECT_FLAG_ALLOC | SECT_FLAG_COMDAT;
-    if (section->type < SECT_CODE || section->type > SECT_DEBUG_FRAME ||
+    if (section->type < SECT_CODE || section->type > SECT_DEBUG_RANGES ||
         (section->flags & ~allowed_flags) != 0u ||
         (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
             (SECT_FLAG_WRITE | SECT_FLAG_EXEC) ||
         (!(section->type >= SECT_DEBUG_LINE &&
-           section->type <= SECT_DEBUG_FRAME) &&
+           section->type <= SECT_DEBUG_RANGES) &&
          (section->flags & SECT_FLAG_ALLOC) == 0u)) return false;
 
     if (section->type >= SECT_DEBUG_LINE &&
-        section->type <= SECT_DEBUG_FRAME) {
+        section->type <= SECT_DEBUG_RANGES) {
         return section->flags == 0u &&
                section->size == section->memory_size;
     }
@@ -785,6 +785,13 @@ static void debug_line_u32(ObjSection* section, uint32_t value) {
     uint8_t bytes[4] = {(uint8_t)value, (uint8_t)(value >> 8),
                         (uint8_t)(value >> 16), (uint8_t)(value >> 24)};
     section_add_bytes(section, bytes, sizeof(bytes));
+}
+
+static void debug_line_address(ObjSection* section, uint64_t value,
+                               int address_size) {
+    for (int byte = 0; byte < address_size; ++byte) {
+        section_add_byte(section, (uint8_t)(value >> (byte * 8)));
+    }
 }
 
 static void debug_line_patch_u32(ObjSection* section, uint64_t offset,
@@ -1538,6 +1545,76 @@ static void debug_emit_stmt_locals(
 static int debug_line_file_index(const char* const* files, int file_count,
                                  const char* file);
 
+static int objfile_section_index(const ObjectFile* object,
+                                 const ObjSection* target);
+
+static size_t debug_statement_range_count(const Stmt* statement) {
+    size_t count = 0u;
+    for (const StmtDebugRange* range = statement
+             ? statement->debug_code_ranges : NULL;
+         range; range = range->next) {
+        ++count;
+    }
+    return count;
+}
+
+static uint32_t debug_emit_statement_ranges(
+    ObjectFile* obj, const char* filename, const ModuleSymbol* function,
+    const Stmt* statement, ObjSection* ranges, int architecture) {
+    const char* symbol_name;
+    char* scoped_name = NULL;
+    int ranges_section;
+    uint32_t range_offset;
+    int address_size = architecture == ARCH_X64 ? 8 : 4;
+    if (!obj || !filename || !function || !statement || !ranges) {
+        rcc_fatal("DWARF range-list inputs are incomplete");
+        return 0u;
+    }
+    if (ranges->size > UINT32_MAX) {
+        rcc_fatal("DWARF range-list section exceeds 32-bit offsets");
+        return 0u;
+    }
+    ranges_section = objfile_section_index(obj, ranges);
+    if (ranges_section < 0) {
+        rcc_fatal("DWARF range-list section is detached");
+        return 0u;
+    }
+    range_offset = (uint32_t)ranges->size;
+    symbol_name = function->name;
+    if (!function->is_global) {
+        scoped_name = module_scoped_symbol(filename, function->name);
+        symbol_name = scoped_name;
+    }
+    for (const StmtDebugRange* range = statement->debug_code_ranges;
+         range; range = range->next) {
+        uint64_t start_offset;
+        uint64_t end_offset;
+        if (range->end <= range->start ||
+            range->start < function->offset ||
+            range->end < function->offset) {
+            rcc_fatal("DWARF statement range is outside its function");
+            rcc_free(scoped_name);
+            return 0u;
+        }
+        start_offset = ranges->size;
+        debug_line_address(ranges, 0u, address_size);
+        objfile_add_reloc(
+            obj, ranges_section, start_offset, symbol_name,
+            address_size == 8 ? RELOC_ABS64 : RELOC_ABS32U,
+            (int64_t)(range->start - function->offset));
+        end_offset = ranges->size;
+        debug_line_address(ranges, 0u, address_size);
+        objfile_add_reloc(
+            obj, ranges_section, end_offset, symbol_name,
+            address_size == 8 ? RELOC_ABS64 : RELOC_ABS32U,
+            (int64_t)(range->end - function->offset));
+    }
+    debug_line_address(ranges, 0u, address_size);
+    debug_line_address(ranges, 0u, address_size);
+    rcc_free(scoped_name);
+    return range_offset;
+}
+
 static void debug_emit_lexical_block_die(
     ObjectFile* obj, ObjSection* info, const char* const* files, int file_count,
     const Module* mod, const char* filename, int info_section,
@@ -1545,8 +1622,11 @@ static void debug_emit_lexical_block_die(
     const char* symbol_name;
     char* scoped_name = NULL;
     int file_index;
+    ObjSection* ranges = NULL;
     uint64_t address_offset;
+    uint32_t range_offset = 0u;
     uint32_t range_size;
+    size_t range_count;
     if (!obj || !info || !mod || !function || !statement) return;
     file_index = debug_line_file_index(files, file_count,
                                        statement->loc.filename);
@@ -1556,21 +1636,38 @@ static void debug_emit_lexical_block_die(
         return;
     }
     range_size = statement->debug_code_end - statement->debug_code_start;
+    range_count = debug_statement_range_count(statement);
+    if (range_count > 0u) {
+        ranges = objfile_get_section(obj, ".debug_ranges");
+        if (!ranges) {
+            ranges = objfile_add_section(
+                obj, ".debug_ranges", SECT_DEBUG_RANGES, 0u);
+            ranges->align = 1u;
+        }
+        range_offset = debug_emit_statement_ranges(
+            obj, filename, function, statement, ranges, architecture);
+    }
     symbol_name = function->name;
     if (!function->is_global) {
         scoped_name = module_scoped_symbol(filename, function->name);
         symbol_name = scoped_name;
     }
-    section_add_byte(info, 24u);
-    address_offset = info->size;
-    for (int byte = 0; byte < (architecture == ARCH_X64 ? 8 : 4); ++byte) {
-        section_add_byte(info, 0u);
+    if (range_count > 0u) {
+        section_add_byte(info, 25u);
+        debug_line_u32(info, range_offset);
+    } else {
+        section_add_byte(info, 24u);
+        address_offset = info->size;
+        for (int byte = 0; byte < (architecture == ARCH_X64 ? 8 : 4);
+             ++byte) {
+            section_add_byte(info, 0u);
+        }
+        objfile_add_reloc(
+            obj, info_section, address_offset, symbol_name,
+            architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U,
+            (int64_t)(statement->debug_code_start - function->offset));
+        debug_line_u32(info, range_size);
     }
-    objfile_add_reloc(
-        obj, info_section, address_offset, symbol_name,
-        architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U,
-        (int64_t)(statement->debug_code_start - function->offset));
-    debug_line_u32(info, range_size);
     section_add_byte(info, (uint8_t)file_index);
     debug_line_u32(info, statement->loc.line);
     debug_line_u32(info, statement->loc.column);
@@ -2567,6 +2664,19 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x11u);     /* DW_AT_low_pc */
     debug_line_uleb(abbrev, 0x01u);     /* DW_FORM_addr */
     debug_line_uleb(abbrev, 0x12u);     /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);     /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);     /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 25u);
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_TAG_lexical_block */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x23u);     /* DW_AT_ranges */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
