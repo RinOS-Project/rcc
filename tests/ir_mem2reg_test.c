@@ -355,6 +355,56 @@ static void verify_integer_simplification(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_self_compare_simplification(void)
+{
+    static const RccIrIntPredicate predicates[] = {
+        RCC_IR_ICMP_EQ, RCC_IR_ICMP_NE,
+        RCC_IR_ICMP_ULT, RCC_IR_ICMP_ULE,
+        RCC_IR_ICMP_UGT, RCC_IR_ICMP_UGE,
+        RCC_IR_ICMP_SLT, RCC_IR_ICMP_SLE,
+        RCC_IR_ICMP_SGT, RCC_IR_ICMP_SGE,
+    };
+    static const uint64_t expected[] = {
+        1u, 0u, 0u, 1u, 0u, 1u, 0u, 1u, 0u, 1u,
+    };
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32};
+    size_t index;
+
+    for (index = 0u; index < sizeof(predicates) / sizeof(predicates[0]);
+         ++index) {
+        RccIrModule* module = rcc_ir_module_create();
+        RccIrFunction* function = rcc_ir_function_add(
+            module, "self_compare", rcc_ir_type_integer(1u),
+            parameters, 1u);
+        RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+        RccIrValue operands[] = {
+            function->parameters[0], function->parameters[0],
+        };
+        RccIrInstruction* compare;
+        RccIrSimplifyStats stats;
+        char error[256];
+
+        assert(function != NULL && entry != NULL);
+        compare = rcc_ir_append(entry, RCC_IR_ICMP,
+                                rcc_ir_type_integer(1u),
+                                operands, 2u, NULL, 0u);
+        assert(compare != NULL);
+        rcc_ir_set_predicate(compare, predicates[index]);
+        append_return(entry, compare->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(error[0] == '\0');
+        assert(stats.folded_instructions >= 1u);
+        assert(count_opcode(function, RCC_IR_ICMP) == 0u);
+        assert(count_opcode(function, RCC_IR_CONST_INT) == 1u);
+        assert(entry->first != NULL &&
+               entry->first->opcode == RCC_IR_CONST_INT);
+        assert(entry->first->immediate == expected[index]);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+}
+
 static void verify_constant_branch_pruning(void)
 {
     RccIrType i1 = rcc_ir_type_integer(1u);
@@ -927,6 +977,7 @@ int main(void)
     verify_loop_promotion();
     verify_escape_is_not_promoted();
     verify_integer_simplification();
+    verify_self_compare_simplification();
     verify_constant_branch_pruning();
     verify_equal_branch_target_simplification();
     verify_constant_phi_and_select_folding();

@@ -1095,6 +1095,38 @@ static bool ir_pass_simplify_integer_identities(
                 instruction = next;
                 continue;
             }
+            if (instruction->opcode == RCC_IR_ICMP &&
+                instruction->result != RCC_IR_VALUE_NONE &&
+                instruction->operand_count == 2u &&
+                instruction->operands[0] == instruction->operands[1]) {
+                bool comparison_is_true;
+                switch (instruction->predicate) {
+                    case RCC_IR_ICMP_EQ:
+                    case RCC_IR_ICMP_ULE:
+                    case RCC_IR_ICMP_UGE:
+                    case RCC_IR_ICMP_SLE:
+                    case RCC_IR_ICMP_SGE:
+                        comparison_is_true = true;
+                        break;
+                    case RCC_IR_ICMP_NE:
+                    case RCC_IR_ICMP_ULT:
+                    case RCC_IR_ICMP_UGT:
+                    case RCC_IR_ICMP_SLT:
+                    case RCC_IR_ICMP_SGT:
+                        comparison_is_true = false;
+                        break;
+                    default:
+                        instruction = next;
+                        continue;
+                }
+                ir_pass_make_integer_constant(
+                    instruction, comparison_is_true ? 1u : 0u);
+                known[instruction->result] = true;
+                constants[instruction->result] = instruction->immediate;
+                if (stats) ++stats->folded_instructions;
+                instruction = next;
+                continue;
+            }
             if (!ir_pass_is_binary_integer(instruction->opcode) ||
                 instruction->operand_count != 2u ||
                 instruction->result == RCC_IR_VALUE_NONE) {
