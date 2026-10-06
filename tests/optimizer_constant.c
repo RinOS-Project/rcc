@@ -534,6 +534,11 @@ int strength_reduce_signed_div_eight(int value)
     return value / 8;
 }
 
+int preserved_signed_div_negative_power(int value)
+{
+    return value / -2147483648;
+}
+
 int preserved_algebraic_side_effect(int* value)
 {
     return (*value += 1) * 0;

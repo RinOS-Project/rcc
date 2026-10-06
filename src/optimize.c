@@ -378,7 +378,8 @@ static bool simplify_signed_power_of_two(Expr** expression) {
     width = integer_width(value->type);
     if (width <= 1) return false;
     factor_bits = integer_unsigned_value(factor_value, value->type);
-    if (factor_bits < 2u || factor_bits > (uint64_t)INT64_MAX ||
+    if (factor_value <= 0 || factor_bits < 2u ||
+        factor_bits > (uint64_t)INT64_MAX ||
         (factor_bits & (factor_bits - 1u)) != 0u) return false;
     while ((factor_bits >> shift_count) > 1u) ++shift_count;
     if (shift_count == 0u || shift_count >= (unsigned)(width - 1)) {

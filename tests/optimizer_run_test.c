@@ -336,6 +336,10 @@ static void verify_smaller(const char* unoptimized_path,
         unoptimized, "strength_reduce_signed_div_eight", 0xf7u));
     assert(!function_contains_byte(
         optimized, "strength_reduce_signed_div_eight", 0xf7u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_signed_div_negative_power", 0xf7u));
+    assert(function_contains_byte(
+        optimized, "preserved_signed_div_negative_power", 0xf7u));
     assert(function_extent(optimized, "preserved_algebraic_side_effect") <
            function_extent(unoptimized, "preserved_algebraic_side_effect"));
     assert(function_extent(optimized,
