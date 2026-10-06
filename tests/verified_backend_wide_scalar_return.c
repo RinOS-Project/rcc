@@ -286,3 +286,20 @@ unsigned long long verified_wide_scalar_for_break(
     }
     return local;
 }
+
+unsigned long long verified_wide_scalar_do_control(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    do {
+        --count;
+        if (count == 2u) {
+            continue;
+        }
+        if (count == 1u) {
+            break;
+        }
+        local += 0x0000000100000001ULL;
+    } while (count != 0u);
+    return local;
+}

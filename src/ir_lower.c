@@ -1241,41 +1241,6 @@ static RccIrLowerWideState* lower_capture_wide_branch_states(
     return head;
 }
 
-static bool lower_wide_loop_control_free(const Stmt* statement) {
-    const StmtList* item;
-    if (!statement) return true;
-    switch (statement->kind) {
-        case STMT_BLOCK:
-            for (item = statement->block_stmts; item; item = item->next) {
-                if (!lower_wide_loop_control_free(item->stmt)) return false;
-            }
-            return true;
-        case STMT_IF:
-            return lower_wide_loop_control_free(statement->if_then) &&
-                lower_wide_loop_control_free(statement->if_else);
-        case STMT_BREAK:
-        case STMT_CONTINUE:
-        case STMT_RETURN:
-        case STMT_GOTO:
-        case STMT_THROW:
-        case STMT_LABEL:
-        case STMT_SWITCH:
-        case STMT_WHILE:
-        case STMT_DO:
-        case STMT_FOR:
-            /* These edges either leave the canonical latch or introduce a
-             * second loop.  Keep them on the existing stack-mirror path
-             * until their edge-specific pair states are modeled. */
-            return false;
-        case STMT_CASE:
-            return lower_wide_loop_control_free(statement->case_stmt);
-        case STMT_DEFAULT:
-            return lower_wide_loop_control_free(statement->default_stmt);
-        default:
-            return true;
-    }
-}
-
 static bool lower_wide_loop_body_edge_safe(const Stmt* statement) {
     const StmtList* item;
     if (!statement) return true;
@@ -5979,9 +5944,13 @@ static bool lower_do_wide_ssa(
         context->function, "do.wide.end");
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
-    RccIrLowerWideState* condition_entry = NULL;
+    RccIrLowerLoopFrame frame;
+    RccIrLowerLoopFrame* previous_loop = context->wide_loop;
     RccIrLowerWideState* condition_exit = NULL;
     RccIrLowerValue condition;
+    memset(&frame, 0, sizeof(frame));
+    frame.baseline = baseline;
+    frame.previous = previous_loop;
     if (!preheader || !body_block || !condition_block || !exit_block ||
         !lower_branch(context, body_block->id)) {
         lower_release_wide_states(baseline);
@@ -5996,24 +5965,43 @@ static bool lower_do_wide_ssa(
     }
     context->break_target = exit_block->id;
     context->continue_target = condition_block->id;
-    if (!lower_statement(context, statement->while_body) ||
-        context->terminated) {
+    context->wide_loop = &frame;
+    if (!lower_statement(context, statement->while_body)) {
+        context->wide_loop = previous_loop;
+        lower_release_wide_loop_edges(frame.breaks);
+        lower_release_wide_loop_edges(frame.continues);
         lower_release_wide_states(baseline);
         return false;
     }
-    condition_entry = lower_capture_wide_branch_states(context, baseline);
-    if (!condition_entry || !lower_branch(context, condition_block->id)) {
-        lower_release_wide_states(condition_entry);
+    if (!context->terminated &&
+        (!lower_record_wide_loop_edge(context, false) ||
+         !lower_branch(context, condition_block->id))) {
+        context->wide_loop = previous_loop;
+        lower_release_wide_loop_edges(frame.breaks);
+        lower_release_wide_loop_edges(frame.continues);
+        lower_release_wide_states(baseline);
+        return false;
+    }
+    context->wide_loop = previous_loop;
+    if (!frame.continues) {
+        lower_release_wide_loop_edges(frame.breaks);
+        lower_release_wide_loop_edges(frame.continues);
         lower_release_wide_states(baseline);
         return false;
     }
     context->current = condition_block;
     context->terminated = false;
-    lower_restore_wide_states(condition_entry);
-    lower_set_wide_state_block(condition_entry, condition_block);
+    if (!lower_build_wide_latch_states(
+            context, baseline, frame.continues, condition_block)) {
+        lower_release_wide_loop_edges(frame.breaks);
+        lower_release_wide_loop_edges(frame.continues);
+        lower_release_wide_states(baseline);
+        return false;
+    }
     condition = lower_expression(context, statement->while_cond);
     if (!condition.valid) {
-        lower_release_wide_states(condition_entry);
+        lower_release_wide_loop_edges(frame.breaks);
+        lower_release_wide_loop_edges(frame.continues);
         lower_release_wide_states(baseline);
         return false;
     }
@@ -6022,7 +6010,8 @@ static bool lower_do_wide_ssa(
             context, condition, body_block->id, exit_block->id) ||
         !lower_patch_wide_loop_backedge(baseline, condition_exit)) {
         lower_release_wide_states(condition_exit);
-        lower_release_wide_states(condition_entry);
+        lower_release_wide_loop_edges(frame.breaks);
+        lower_release_wide_loop_edges(frame.continues);
         lower_release_wide_states(baseline);
         return false;
     }
@@ -6030,10 +6019,23 @@ static bool lower_do_wide_ssa(
     context->continue_target = old_continue;
     context->current = exit_block;
     context->terminated = false;
-    lower_restore_wide_states(condition_exit);
-    lower_set_wide_state_block(condition_exit, exit_block);
+    if (frame.breaks) {
+        if (!lower_build_wide_exit_states(
+                context, baseline, condition_exit, frame.breaks,
+                exit_block)) {
+            lower_release_wide_states(condition_exit);
+            lower_release_wide_loop_edges(frame.breaks);
+            lower_release_wide_loop_edges(frame.continues);
+            lower_release_wide_states(baseline);
+            return false;
+        }
+    } else {
+        lower_restore_wide_states(condition_exit);
+        lower_set_wide_state_block(condition_exit, exit_block);
+    }
     lower_release_wide_states(condition_exit);
-    lower_release_wide_states(condition_entry);
+    lower_release_wide_loop_edges(frame.breaks);
+    lower_release_wide_loop_edges(frame.continues);
     lower_release_wide_states(baseline);
     return true;
 }
@@ -6082,7 +6084,7 @@ static bool lower_while(RccIrLowerContext* context,
 }
 
 static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
-    if (lower_wide_loop_control_free(statement->while_body)) {
+    if (lower_wide_loop_body_edge_safe(statement->while_body)) {
         RccIrLowerWideState* baseline = lower_capture_wide_states(context);
         if (baseline) {
             return lower_do_wide_ssa(context, statement, baseline);
