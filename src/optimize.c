@@ -2810,6 +2810,18 @@ static void optimize_expr(Expr** expression) {
             break;
     }
 
+    /* The parser's integer-constant evaluator covers typed C17/C++20
+     * expressions that are not represented by literal AST nodes, including
+     * sizeof/alignof, selected generic associations, and pure conditional or
+     * comma expressions.  Fold only expressions accepted by that evaluator;
+     * assignments, calls, volatile accesses, and other side-effecting forms
+     * therefore remain untouched. */
+    if (value->kind != EXPR_INT_LIT && value->kind != EXPR_CHAR_LIT &&
+        expr_eval_integer_constant(value, &result)) {
+        replace_integer(value, result);
+        return;
+    }
+
     if (simplify_integer_identity(expression)) return;
     if (simplify_unsigned_power_of_two(expression)) return;
 

@@ -130,3 +130,8 @@ extern "C" int cxx_for_constant_sizeof_bound(void)
     }
     return result;
 }
+
+extern "C" int cxx_expression_constant_alignof(void)
+{
+    return (alignof(char) + 127) * 2;
+}

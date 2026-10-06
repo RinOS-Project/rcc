@@ -142,6 +142,8 @@ static void verify_pair(const char* unoptimized_path,
            function_extent(unoptimized, "for_constant_alignof"));
     assert(function_extent(optimized, "for_constant_sizeof_bound") <
            function_extent(unoptimized, "for_constant_sizeof_bound"));
+    assert(function_extent(optimized, "expression_constant_sizeof") <
+           function_extent(unoptimized, "expression_constant_sizeof"));
 
 #if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
 #if defined(__i386__)
@@ -263,6 +265,8 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "for_constant_alignof");
         ObjSymbol* for_constant_sizeof_bound_symbol = objfile_find_symbol(
             optimized, "for_constant_sizeof_bound");
+        ObjSymbol* expression_constant_sizeof_symbol = objfile_find_symbol(
+            optimized, "expression_constant_sizeof");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
@@ -322,6 +326,7 @@ static void verify_pair(const char* unoptimized_path,
         int (*while_constant_sizeof_function)(void);
         int (*for_constant_alignof_function)(void);
         int (*for_constant_sizeof_bound_function)(void);
+        int (*expression_constant_sizeof_function)(void);
         void* address;
         assert(code != NULL && while_symbol != NULL && for_symbol != NULL &&
                mutate_symbol != NULL && one_symbol != NULL &&
@@ -369,6 +374,7 @@ static void verify_pair(const char* unoptimized_path,
                while_constant_sizeof_symbol != NULL &&
                for_constant_alignof_symbol != NULL &&
                for_constant_sizeof_bound_symbol != NULL &&
+               expression_constant_sizeof_symbol != NULL &&
                page_size > 0);
         mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
                         (size_t)page_size) * (size_t)page_size;
@@ -525,6 +531,9 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + for_constant_sizeof_bound_symbol->value;
         memcpy(&for_constant_sizeof_bound_function, &address,
                sizeof(for_constant_sizeof_bound_function));
+        address = mapping + expression_constant_sizeof_symbol->value;
+        memcpy(&expression_constant_sizeof_function, &address,
+               sizeof(expression_constant_sizeof_function));
         assert(while_function() == 7);
         assert(for_function() == 11);
         assert(mutate_function(0) == 0);
@@ -582,6 +591,7 @@ static void verify_pair(const char* unoptimized_path,
         assert(while_constant_sizeof_function() == 101);
         assert(for_constant_alignof_function() == 107);
         assert(for_constant_sizeof_bound_function() == 109);
+        assert(expression_constant_sizeof_function() == 228);
         munmap(mapping, mapping_size);
     }
 #endif

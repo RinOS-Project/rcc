@@ -574,3 +574,8 @@ int for_constant_sizeof_bound(void)
     }
     return result;
 }
+
+int expression_constant_sizeof(void)
+{
+    return (sizeof(char) + 113) * 2;
+}
