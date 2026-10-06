@@ -1187,6 +1187,8 @@ static bool ir_pass_fold_constants(RccIrFunction* function,
     if (function->value_count == 0u) return true;
     known = rcc_alloc(function->value_count * sizeof(*known));
     constants = rcc_alloc(function->value_count * sizeof(*constants));
+    memset(known, 0, function->value_count * sizeof(*known));
+    memset(constants, 0, function->value_count * sizeof(*constants));
     for (block = function->first_block; block; block = block->next) {
         RccIrInstruction* instruction;
         for (instruction = block->first; instruction;
@@ -1204,6 +1206,13 @@ static bool ir_pass_fold_constants(RccIrFunction* function,
                 ir_pass_make_unconditional_branch(
                     instruction,
                     constants[instruction->operands[0]] != 0u ? 0u : 1u);
+                ++stats->folded_instructions;
+                continue;
+            }
+            if (instruction->opcode == RCC_IR_COND_BRANCH &&
+                instruction->target_count == 2u &&
+                instruction->targets[0] == instruction->targets[1]) {
+                ir_pass_make_unconditional_branch(instruction, 0u);
                 ++stats->folded_instructions;
                 continue;
             }

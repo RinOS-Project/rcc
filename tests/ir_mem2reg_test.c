@@ -387,6 +387,36 @@ static void verify_constant_branch_pruning(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_equal_branch_target_simplification(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {rcc_ir_type_integer(1u)};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "equal_branch_targets", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* target = rcc_ir_block_add(function, "target");
+    RccIrValue value;
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    assert(function != NULL && entry != NULL && target != NULL);
+    append_cond_branch(entry, function->parameters[0], target->id,
+                       target->id);
+    value = append_const(target, i32, 23u);
+    append_return(target, value);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions >= 1u);
+    assert(count_opcode(function, RCC_IR_COND_BRANCH) == 0u);
+    assert(entry->last != NULL && entry->last->opcode == RCC_IR_BRANCH);
+    assert(entry->last->target_count == 1u);
+    assert(entry->last->targets[0] == target->id);
+    assert(function->block_count == 2u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_constant_phi_and_select_folding(void)
 {
     RccIrType i1 = rcc_ir_type_integer(1u);
@@ -898,6 +928,7 @@ int main(void)
     verify_escape_is_not_promoted();
     verify_integer_simplification();
     verify_constant_branch_pruning();
+    verify_equal_branch_target_simplification();
     verify_constant_phi_and_select_folding();
     verify_trivial_phi_simplification();
     verify_trivial_select_simplification();
