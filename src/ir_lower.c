@@ -34,14 +34,20 @@ typedef struct RccIrLowerLocal {
      * The address is still materialized for valid address-taking uses, but
      * ordinary reads never need to reload the stack mirror. */
     bool wide_ssa;
-    /* A mutable pair is kept in SSA only within the block that defines it.
-     * Crossing a branch or loop requires a real pair phi, which this local
-     * lowering context does not synthesize yet; such values stay on the
-     * validated stack mirror instead. */
+    /* A mutable pair is kept in SSA until a control-flow merge requires a
+     * pair phi.  Loop-carried pairs remain outside this local state machine;
+     * the statement lowerer retains the validated stack mirror for them. */
     RccIrBlock* wide_ssa_block;
     RccIrLowerWideValue wide_value;
     struct RccIrLowerLocal* next;
 } RccIrLowerLocal;
+
+typedef struct RccIrLowerWideState {
+    RccIrLowerLocal* local;
+    RccIrLowerWideValue value;
+    RccIrBlock* block;
+    struct RccIrLowerWideState* next;
+} RccIrLowerWideState;
 
 typedef struct RccIrLowerSwitchLabel {
     const Stmt* statement;
@@ -1143,6 +1149,143 @@ static bool lower_wide_scalar_store(
     high_address = lower_byte_offset_address(context, address, 4u);
     return lower_store_address(context, address, value.low) &&
         lower_store_address(context, high_address, value.high);
+}
+
+static RccIrLowerWideState* lower_capture_wide_states(
+    RccIrLowerContext* context) {
+    RccIrLowerWideState* head = NULL;
+    if (!context) return NULL;
+    for (RccIrLowerLocal* local = context->locals; local;
+         local = local->next) {
+        RccIrLowerWideState* state;
+        if (!local->wide_ssa || !local->wide_value.valid) continue;
+        state = rcc_alloc(sizeof(*state));
+        state->local = local;
+        state->value = local->wide_value;
+        state->block = local->wide_ssa_block;
+        state->next = head;
+        head = state;
+    }
+    return head;
+}
+
+static void lower_restore_wide_states(RccIrLowerWideState* states) {
+    for (; states; states = states->next) {
+        states->local->wide_ssa = true;
+        states->local->wide_ssa_block = states->block;
+        states->local->wide_value = states->value;
+    }
+}
+
+static void lower_release_wide_states(RccIrLowerWideState* states) {
+    while (states) {
+        RccIrLowerWideState* next = states->next;
+        rcc_free(states);
+        states = next;
+    }
+}
+
+static const RccIrLowerWideState* lower_find_wide_state(
+    const RccIrLowerWideState* states, const RccIrLowerLocal* local) {
+    for (; states; states = states->next) {
+        if (states->local == local) return states;
+    }
+    return NULL;
+}
+
+static RccIrLowerWideState* lower_capture_wide_branch_states(
+    RccIrLowerContext* context, const RccIrLowerWideState* baseline) {
+    RccIrLowerWideState* head = NULL;
+    if (!context) return NULL;
+    for (; baseline; baseline = baseline->next) {
+        RccIrLowerLocal* local = baseline->local;
+        RccIrLowerWideState* state = rcc_alloc(sizeof(*state));
+        state->local = local;
+        state->block = context->current;
+        if (local->wide_ssa && local->wide_value.valid) {
+            state->value = local->wide_value;
+        } else if (!lower_wide_scalar_load(
+                       context,
+                       lower_value(local->address, rcc_ir_type_pointer(0u),
+                                   true),
+                       local->declaration->type->is_unsigned,
+                       &state->value)) {
+            rcc_free(state);
+            lower_release_wide_states(head);
+            context->unsupported = true;
+            return NULL;
+        }
+        state->next = head;
+        head = state;
+    }
+    return head;
+}
+
+static bool lower_merge_wide_states(
+    RccIrLowerContext* context, RccIrBlock* entry_block,
+    RccIrLowerWideState* baseline, RccIrLowerWideState* then_states,
+    RccIrBlock* then_end, bool then_falls,
+    RccIrLowerWideState* else_states, RccIrBlock* else_end,
+    bool else_falls) {
+    if (!context || !context->current || !baseline) return true;
+    for (RccIrLowerWideState* initial = baseline; initial;
+         initial = initial->next) {
+        RccIrBlock* incoming_blocks[2];
+        RccIrLowerWideValue values[2];
+        RccIrValue operands[2];
+        RccIrBlockId targets[2];
+        size_t count = 0u;
+        const RccIrLowerWideState* state;
+        if (then_falls) {
+            state = lower_find_wide_state(then_states, initial->local);
+            if (!state) return false;
+            incoming_blocks[count] = then_end;
+            values[count++] = state->value;
+        }
+        if (else_falls) {
+            state = lower_find_wide_state(else_states, initial->local);
+            if (!state) {
+                state = lower_find_wide_state(baseline, initial->local);
+            }
+            if (!state) return false;
+            incoming_blocks[count] = else_end ? else_end : entry_block;
+            values[count++] = state->value;
+        }
+        if (count == 0u) continue;
+        if (count == 1u) {
+            initial->local->wide_ssa = true;
+            initial->local->wide_ssa_block = incoming_blocks[0];
+            initial->local->wide_value = values[0];
+            continue;
+        }
+        operands[0] = values[0].low.value;
+        operands[1] = values[1].low.value;
+        targets[0] = incoming_blocks[0]->id;
+        targets[1] = incoming_blocks[1]->id;
+        {
+            RccIrInstruction* low_phi = lower_append(
+                context, RCC_IR_PHI, rcc_ir_type_integer(32u), operands,
+                count, targets, count);
+            RccIrInstruction* high_phi;
+            if (!low_phi) return false;
+            operands[0] = values[0].high.value;
+            operands[1] = values[1].high.value;
+            high_phi = lower_append(
+                context, RCC_IR_PHI, rcc_ir_type_integer(32u), operands,
+                count, targets, count);
+            if (!high_phi) return false;
+            initial->local->wide_ssa = true;
+            initial->local->wide_ssa_block = context->current;
+            initial->local->wide_value.low = lower_value(
+                low_phi->result, rcc_ir_type_integer(32u), true);
+            initial->local->wide_value.high = lower_value(
+                high_phi->result, rcc_ir_type_integer(32u), true);
+            initial->local->wide_value.is_unsigned =
+                initial->value.is_unsigned;
+            initial->local->wide_value.valid = true;
+        }
+    }
+    return true;
 }
 
 static bool lower_wide_scalar_binary(
@@ -5077,66 +5220,151 @@ static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
 static bool lower_if(RccIrLowerContext* context, const Stmt* statement) {
     RccIrLowerValue condition = lower_expression(context,
                                                   statement->if_cond);
+    RccIrBlock* entry_block;
     RccIrBlock* then_block;
     RccIrBlock* else_block;
     RccIrBlock* merge_block;
     RccIrBlock* then_end;
     RccIrBlock* else_end;
+    RccIrLowerWideState* baseline;
+    RccIrLowerWideState* then_states = NULL;
+    RccIrLowerWideState* else_states = NULL;
     bool then_falls;
     bool else_falls;
     if (!condition.valid) return false;
+    entry_block = context->current;
+    baseline = lower_capture_wide_states(context);
     then_block = rcc_ir_block_add(context->function, "if.then");
     if (!statement->if_else) {
         merge_block = rcc_ir_block_add(context->function, "if.end");
         if (!then_block || !merge_block ||
             !lower_conditional_branch(context, condition, then_block->id,
                                       merge_block->id)) {
+            lower_release_wide_states(baseline);
             return false;
         }
+        lower_restore_wide_states(baseline);
         context->current = then_block;
         context->terminated = false;
-        if (!lower_statement(context, statement->if_then)) return false;
-        if (!context->terminated && !lower_branch(context, merge_block->id)) {
+        if (!lower_statement(context, statement->if_then)) {
+            lower_release_wide_states(baseline);
             return false;
+        }
+        then_end = context->current;
+        then_falls = !context->terminated;
+        if (then_falls) {
+            then_states = lower_capture_wide_branch_states(context, baseline);
+            if (!then_states && baseline) {
+                lower_release_wide_states(baseline);
+                return false;
+            }
+            if (!lower_branch(context, merge_block->id)) {
+                lower_release_wide_states(then_states);
+                lower_release_wide_states(baseline);
+                return false;
+            }
         }
         context->current = merge_block;
         context->terminated = false;
+        if (!lower_merge_wide_states(
+                context, entry_block, baseline, then_states, then_end,
+                then_falls, baseline, NULL, true)) {
+            lower_release_wide_states(then_states);
+            lower_release_wide_states(baseline);
+            return false;
+        }
+        lower_release_wide_states(then_states);
+        lower_release_wide_states(baseline);
         return true;
     }
     else_block = rcc_ir_block_add(context->function, "if.else");
     if (!then_block || !else_block ||
         !lower_conditional_branch(context, condition, then_block->id,
                                   else_block->id)) {
+        lower_release_wide_states(baseline);
         return false;
     }
+    lower_restore_wide_states(baseline);
     context->current = then_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->if_then)) return false;
+    if (!lower_statement(context, statement->if_then)) {
+        lower_release_wide_states(baseline);
+        return false;
+    }
     then_end = context->current;
     then_falls = !context->terminated;
+    if (then_falls) {
+        then_states = lower_capture_wide_branch_states(context, baseline);
+        if (!then_states && baseline) {
+            lower_release_wide_states(baseline);
+            return false;
+        }
+    }
+    lower_restore_wide_states(baseline);
     context->current = else_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->if_else)) return false;
+    if (!lower_statement(context, statement->if_else)) {
+        lower_release_wide_states(then_states);
+        lower_release_wide_states(baseline);
+        return false;
+    }
     else_end = context->current;
     else_falls = !context->terminated;
+    if (else_falls) {
+        else_states = lower_capture_wide_branch_states(context, baseline);
+        if (!else_states && baseline) {
+            lower_release_wide_states(then_states);
+            lower_release_wide_states(baseline);
+            return false;
+        }
+    }
     if (!then_falls && !else_falls) {
         context->terminated = true;
+        lower_release_wide_states(then_states);
+        lower_release_wide_states(else_states);
+        lower_release_wide_states(baseline);
         return true;
     }
     merge_block = rcc_ir_block_add(context->function, "if.end");
-    if (!merge_block) return false;
+    if (!merge_block) {
+        lower_release_wide_states(then_states);
+        lower_release_wide_states(else_states);
+        lower_release_wide_states(baseline);
+        return false;
+    }
     if (then_falls) {
         context->current = then_end;
         context->terminated = false;
-        if (!lower_branch(context, merge_block->id)) return false;
+        if (!lower_branch(context, merge_block->id)) {
+            lower_release_wide_states(then_states);
+            lower_release_wide_states(else_states);
+            lower_release_wide_states(baseline);
+            return false;
+        }
     }
     if (else_falls) {
         context->current = else_end;
         context->terminated = false;
-        if (!lower_branch(context, merge_block->id)) return false;
+        if (!lower_branch(context, merge_block->id)) {
+            lower_release_wide_states(then_states);
+            lower_release_wide_states(else_states);
+            lower_release_wide_states(baseline);
+            return false;
+        }
     }
     context->current = merge_block;
     context->terminated = false;
+    if (!lower_merge_wide_states(
+            context, entry_block, baseline, then_states, then_end,
+            then_falls, else_states, else_end, else_falls)) {
+        lower_release_wide_states(then_states);
+        lower_release_wide_states(else_states);
+        lower_release_wide_states(baseline);
+        return false;
+    }
+    lower_release_wide_states(then_states);
+    lower_release_wide_states(else_states);
+    lower_release_wide_states(baseline);
     return true;
 }
 

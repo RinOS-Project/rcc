@@ -205,3 +205,25 @@ long long verified_wide_scalar_smod(long long value)
 {
     return value % 3LL;
 }
+
+unsigned long long verified_wide_scalar_branch_assign(
+    int condition, unsigned long long value)
+{
+    unsigned long long local = value;
+    if (condition) {
+        local += 0x0000000100000001ULL;
+    } else {
+        local -= 1ULL;
+    }
+    return local;
+}
+
+unsigned long long verified_wide_scalar_branch_read(
+    int condition, unsigned long long value)
+{
+    unsigned long long local = value;
+    if (condition) {
+        local += 5ULL;
+    }
+    return local + 7ULL;
+}

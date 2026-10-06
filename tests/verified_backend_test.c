@@ -185,6 +185,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* umod_symbol;
     ObjSymbol* sdiv_symbol;
     ObjSymbol* smod_symbol;
+    ObjSymbol* branch_assign_symbol;
+    ObjSymbol* branch_read_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -253,6 +255,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     umod_symbol = objfile_find_symbol(object, "verified_wide_scalar_umod");
     sdiv_symbol = objfile_find_symbol(object, "verified_wide_scalar_sdiv");
     smod_symbol = objfile_find_symbol(object, "verified_wide_scalar_smod");
+    branch_assign_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_branch_assign");
+    branch_read_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_branch_read");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -369,6 +375,14 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            sdiv_symbol->binding == BIND_CODE && sdiv_symbol->section == 0);
     assert(smod_symbol != NULL && smod_symbol->type == SYM_GLOBAL &&
            smod_symbol->binding == BIND_CODE && smod_symbol->section == 0);
+    assert(branch_assign_symbol != NULL &&
+           branch_assign_symbol->type == SYM_GLOBAL &&
+           branch_assign_symbol->binding == BIND_CODE &&
+           branch_assign_symbol->section == 0);
+    assert(branch_read_symbol != NULL &&
+           branch_read_symbol->type == SYM_GLOBAL &&
+           branch_read_symbol->binding == BIND_CODE &&
+           branch_read_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -412,6 +426,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*umod_function)(unsigned long long);
         long long RINOS_ABI (*sdiv_function)(long long);
         long long RINOS_ABI (*smod_function)(long long);
+        unsigned long long RINOS_ABI (*branch_assign_function)(
+            int, unsigned long long);
+        unsigned long long RINOS_ABI (*branch_read_function)(
+            int, unsigned long long);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
         assert(function() == 0x1122334455667788ULL);
@@ -572,6 +590,18 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         address = symbol_address(memory, smod_symbol);
         memcpy(&smod_function, &address, sizeof(smod_function));
         assert(smod_function(-10LL) == -1LL);
+        address = symbol_address(memory, branch_assign_symbol);
+        memcpy(&branch_assign_function, &address,
+               sizeof(branch_assign_function));
+        assert(branch_assign_function(1, 0x0000000200000002ULL) ==
+               0x0000000300000003ULL);
+        assert(branch_assign_function(0, 0x0000000200000002ULL) ==
+               0x0000000200000001ULL);
+        address = symbol_address(memory, branch_read_symbol);
+        memcpy(&branch_read_function, &address,
+               sizeof(branch_read_function));
+        assert(branch_read_function(1, 10ULL) == 22ULL);
+        assert(branch_read_function(0, 10ULL) == 17ULL);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);
