@@ -11291,6 +11291,18 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		>$(TEST_OUT)/verified-backend/globals-x64.log
 	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' $(TEST_OUT)/verified-backend/globals-x86.log
 	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' $(TEST_OUT)/verified-backend/globals-x64.log
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/aggregate-return-x86.ro \
+		tests/aggregate_return.c \
+		>$(TEST_OUT)/verified-backend/aggregate-return-x86.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/aggregate-return-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/aggregate-return-x64.ro \
+		tests/aggregate_return.c \
+		>$(TEST_OUT)/verified-backend/aggregate-return-x64.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/aggregate-return-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/fallback.ro \
 		tests/verified_backend_fallback.c \

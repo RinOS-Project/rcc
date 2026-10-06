@@ -152,6 +152,15 @@ static bool lower_wide_scalar_shift(
 static bool lower_wide_scalar_store(
     RccIrLowerContext* context, RccIrLowerValue address,
     RccIrLowerWideValue value);
+static bool lower_copy_scalar_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type);
+static bool lower_zero_scalar_storage(
+    RccIrLowerContext* context, RccIrValue address,
+    const Type* type);
+static bool lower_initialize_scalar_storage(
+    RccIrLowerContext* context, RccIrValue address,
+    const Type* type, const Expr* initializer);
 static bool lower_branch(RccIrLowerContext* context,
                          RccIrBlockId target);
 static bool lower_conditional_branch(RccIrLowerContext* context,
@@ -1045,7 +1054,19 @@ static RccIrLowerValue lower_lvalue_address(
                 expression->member_base->type->kind == TYPE_PTR
                     ? expression->member_base->type->base : NULL;
         } else {
-            base = lower_lvalue_address(context, expression->member_base);
+            /* A struct/union returned by value is already represented by the
+             * aggregate temporary address in typed SSA.  Reuse that address
+             * for a direct member projection instead of sending the whole
+             * caller to the legacy backend. */
+            if (expression->member_base &&
+                expression->member_base->type &&
+                (expression->member_base->type->kind == TYPE_STRUCT ||
+                 expression->member_base->type->kind == TYPE_UNION) &&
+                expression->member_base->kind == EXPR_CALL) {
+                base = lower_expression(context, expression->member_base);
+            } else {
+                base = lower_lvalue_address(context, expression->member_base);
+            }
             aggregate_type = expression->member_base
                 ? expression->member_base->type : NULL;
         }
@@ -6999,10 +7020,9 @@ static bool lower_copy_array_storage(
                     context, destination_element.value,
                     source_element.value, element_type)) return false;
         } else {
-            RccIrLowerValue value = lower_load_address(
-                context, source_element, element_type);
-            if (!value.valid || !lower_store_address(
-                    context, destination_element, value)) return false;
+            if (!lower_copy_scalar_storage(
+                    context, destination_element.value,
+                    source_element.value, element_type)) return false;
         }
     }
     return true;
@@ -7043,6 +7063,90 @@ static const Expr* lower_scalar_initializer_expression(
         initializer = item->expr;
     }
     return initializer;
+}
+
+static bool lower_copy_scalar_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type) {
+    RccIrLowerValue destination_address;
+    RccIrLowerValue source_address;
+    if (!type || type->size <= 0) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    destination_address = lower_value(
+        destination, rcc_ir_type_pointer(0u), true);
+    source_address = lower_value(
+        source, rcc_ir_type_pointer(0u), true);
+    if (lower_i686_wide_scalar_type(type)) {
+        RccIrLowerWideValue value;
+        if (!lower_wide_scalar_load(
+                context, source_address, type->is_unsigned, &value) ||
+            !lower_wide_scalar_store(
+                context, destination_address, value)) return false;
+        return true;
+    }
+    {
+        RccIrLowerValue value = lower_load_address(
+            context, source_address, type);
+        return value.valid && lower_store_address(
+            context, destination_address, value);
+    }
+}
+
+static bool lower_zero_scalar_storage(
+    RccIrLowerContext* context, RccIrValue address_value,
+    const Type* type) {
+    RccIrLowerValue address;
+    if (!type || type->size <= 0) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    address = lower_value(address_value, rcc_ir_type_pointer(0u), true);
+    if (lower_i686_wide_scalar_type(type)) {
+        RccIrLowerWideValue zero;
+        zero.low = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        zero.high = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        zero.is_unsigned = type->is_unsigned;
+        zero.valid = zero.low.valid && zero.high.valid;
+        return zero.valid && lower_wide_scalar_store(
+            context, address, zero);
+    }
+    {
+        RccIrLowerValue zero = lower_zero_initializer(context, type);
+        return zero.valid && lower_store_address(context, address, zero);
+    }
+}
+
+static bool lower_initialize_scalar_storage(
+    RccIrLowerContext* context, RccIrValue address_value,
+    const Type* type, const Expr* initializer) {
+    const Expr* expression;
+    RccIrLowerValue address;
+    if (!type || !initializer || type->size <= 0) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    expression = lower_scalar_initializer_expression(initializer);
+    if (!expression) {
+        context->unsupported = true;
+        return false;
+    }
+    address = lower_value(address_value, rcc_ir_type_pointer(0u), true);
+    if (lower_i686_wide_scalar_type(type)) {
+        RccIrLowerWideValue value;
+        if (!lower_wide_scalar_expression(context, expression, &value)) {
+            return false;
+        }
+        return lower_wide_scalar_store(context, address, value);
+    }
+    {
+        RccIrLowerValue value = lower_expression(context, expression);
+        value = lower_cast(context, value, type);
+        return value.valid && lower_store_address(context, address, value);
+    }
 }
 
 static const Expr* lower_character_array_string(
@@ -7086,6 +7190,7 @@ static bool lower_storage_type_supported_internal(
         }
         return true;
     }
+    if (lower_i686_wide_scalar_type(type)) return true;
     return lower_type(type, &ir_type) &&
         ir_type.kind != RCC_IR_TYPE_VOID;
 }
@@ -7355,10 +7460,8 @@ static bool lower_zero_array_storage(
             if (!lower_zero_union_storage(
                     context, address.value, array_type->base)) return false;
         } else {
-            RccIrLowerValue zero = lower_zero_initializer(
-                context, array_type->base);
-            if (!zero.valid ||
-                !lower_store_address(context, address, zero)) return false;
+            if (!lower_zero_scalar_storage(
+                    context, address.value, array_type->base)) return false;
         }
     }
     return true;
@@ -7411,9 +7514,7 @@ static bool lower_array_initializer(
         return true;
     }
     for (item = initializer->compound_init; item; item = item->next) {
-        const Expr* expression;
         RccIrLowerValue address;
-        RccIrLowerValue value;
         if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
             context->unsupported = true;
             return false;
@@ -7448,15 +7549,10 @@ static bool lower_array_initializer(
             ++cursor;
             continue;
         }
-        expression = lower_scalar_initializer_expression(item->expr);
-        if (!expression) {
-            context->unsupported = true;
+        if (!address.valid || !lower_initialize_scalar_storage(
+                context, address.value, array_type->base, item->expr)) {
             return false;
         }
-        value = lower_expression(context, expression);
-        value = lower_cast(context, value, array_type->base);
-        if (!address.valid || !value.valid ||
-            !lower_store_address(context, address, value)) return false;
         ++cursor;
     }
     return true;
@@ -7528,10 +7624,9 @@ static bool lower_copy_struct_storage(
                     context, destination_address.value,
                     source_address.value, field->type)) return false;
         } else {
-            RccIrLowerValue value = lower_load_address(
-                context, source_address, field->type);
-            if (!value.valid || !lower_store_address(
-                    context, destination_address, value)) return false;
+            if (!lower_copy_scalar_storage(
+                    context, destination_address.value,
+                    source_address.value, field->type)) return false;
         }
     }
     return true;
@@ -7571,10 +7666,8 @@ static bool lower_zero_struct_storage(
             if (!lower_zero_union_storage(
                     context, address.value, field->type)) return false;
         } else {
-            RccIrLowerValue zero = lower_zero_initializer(
-                context, field->type);
-            if (!zero.valid ||
-                !lower_store_address(context, address, zero)) return false;
+            if (!lower_zero_scalar_storage(
+                    context, address.value, field->type)) return false;
         }
     }
     return true;
@@ -7594,10 +7687,8 @@ static bool lower_struct_initializer(
     cursor = type->fields;
     for (item = initializer->compound_init; item; item = item->next) {
         const TypeField* field = cursor;
-        const Expr* expression;
         RccIrLowerValue base_value;
         RccIrLowerValue address;
-        RccIrLowerValue value;
         if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
             context->unsupported = true;
             return false;
@@ -7633,15 +7724,10 @@ static bool lower_struct_initializer(
             cursor = field->next;
             continue;
         }
-        expression = lower_scalar_initializer_expression(item->expr);
-        if (!expression) {
-            context->unsupported = true;
+        if (!address.valid || !lower_initialize_scalar_storage(
+                context, address.value, field->type, item->expr)) {
             return false;
         }
-        value = lower_expression(context, expression);
-        value = lower_cast(context, value, field->type);
-        if (!address.valid || !value.valid ||
-            !lower_store_address(context, address, value)) return false;
         cursor = field->next;
     }
     return true;
@@ -7700,8 +7786,6 @@ static bool lower_union_initializer(
     const TypeField* field;
     RccIrLowerValue base_value;
     RccIrLowerValue address;
-    const Expr* expression;
-    RccIrLowerValue value;
     if (!lower_union_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         !lower_zero_union_storage(context, base, type)) {
@@ -7738,14 +7822,8 @@ static bool lower_union_initializer(
         return lower_initialize_union_storage(
             context, address.value, field->type, item->expr);
     }
-    expression = lower_scalar_initializer_expression(item->expr);
-    if (!expression) {
-        context->unsupported = true;
-        return false;
-    }
-    value = lower_expression(context, expression);
-    value = lower_cast(context, value, field->type);
-    return value.valid && lower_store_address(context, address, value);
+    return lower_initialize_scalar_storage(
+        context, address.value, field->type, item->expr);
 }
 
 static bool lower_initialize_union_storage(
