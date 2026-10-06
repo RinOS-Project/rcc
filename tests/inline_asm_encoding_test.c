@@ -44,15 +44,14 @@ static bool contains_bytes(const uint8_t* data, uint64_t size,
     return false;
 }
 
-static void verify(const char* path, uint16_t architecture,
-                   const char* function_name)
+static void verify_pattern(const char* path, uint16_t architecture,
+                           const char* function_name,
+                           const uint8_t* pattern, size_t pattern_size)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* function;
     uint64_t end;
-    static const uint8_t x86_move[] = {0x89u, 0xd8u};
-    static const uint8_t x64_move[] = {0x48u, 0x89u, 0xd8u};
 
     assert(object != NULL && object->arch == architecture);
     code = code_section(object);
@@ -62,17 +61,33 @@ static void verify(const char* path, uint16_t architecture,
     assert(end > function->value && end <= code->size);
     assert(contains_bytes(code->data + function->value,
                           end - function->value,
-                          architecture == ARCH_X64 ? x64_move : x86_move,
-                          architecture == ARCH_X64 ? sizeof(x64_move)
-                                                   : sizeof(x86_move)));
+                          pattern, pattern_size));
     objfile_free(object);
+}
+
+static void verify(const char* path, uint16_t architecture,
+                   const char* function_name)
+{
+    static const uint8_t x86_move[] = {0x89u, 0xd8u};
+    static const uint8_t x64_move[] = {0x48u, 0x89u, 0xd8u};
+    verify_pattern(path, architecture, function_name,
+                   architecture == ARCH_X64 ? x64_move : x86_move,
+                   architecture == ARCH_X64 ? sizeof(x64_move)
+                                            : sizeof(x86_move));
 }
 
 int main(int argc, char** argv)
 {
     assert(argc == 4);
+    static const uint8_t interrupt[] = {0xcdu, 0x80u};
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
+    verify_pattern(argv[1], ARCH_X86, "asm_immediate_interrupt",
+                   interrupt, sizeof(interrupt));
+    verify_pattern(argv[2], ARCH_X64, "asm_immediate_interrupt",
+                   interrupt, sizeof(interrupt));
+    verify_pattern(argv[3], ARCH_X64, "asm_cpp_immediate_interrupt",
+                   interrupt, sizeof(interrupt));
     return 0;
 }

@@ -1228,6 +1228,10 @@ static bool sema_asm_register_name_supported(const char* name,
     return false;
 }
 
+static bool sema_asm_immediate_name(const char* name) {
+    return name && (strcmp(name, "i") == 0 || strcmp(name, "n") == 0);
+}
+
 static bool sema_asm_constraint_supported(const char* constraint,
                                           bool output, SourceLoc loc) {
     const char* name;
@@ -1268,6 +1272,7 @@ static bool sema_asm_constraint_supported(const char* constraint,
         rcc_error(loc, "malformed inline asm constraint '%s'", constraint);
         return false;
     }
+    if (!output && sema_asm_immediate_name(name)) return true;
     return sema_asm_register_name_supported(name, output, loc);
 }
 
@@ -1475,6 +1480,13 @@ static void sema_asm_stmt(Stmt* stmt) {
         } else if (!sema_asm_scalar_operand(op->expr->type)) {
             rcc_error(op->expr->loc,
                       "inline asm input expression must have scalar integer or pointer type");
+        } else if (sema_asm_immediate_name(op->constraint)) {
+            int64_t immediate_value;
+            if (!sema_is_integer_type(op->expr->type) ||
+                !expr_eval_integer_constant(op->expr, &immediate_value)) {
+                rcc_error(op->expr->loc,
+                          "inline asm immediate input must be an integer constant expression");
+            }
         }
     }
     for (AsmClobber* clobber = stmt->asm_clobbers; clobber;

@@ -10874,6 +10874,8 @@ static int constraint_to_reg(const char* constraint) {
         case 'D': return EDI;
         case 'r': return -2;  /* Any register */
         case 'm': return -1;  /* Memory */
+        case 'i':
+        case 'n': return -3;  /* Integer constant */
         default: return -1;
     }
 }
@@ -10920,6 +10922,8 @@ static const char* asm_register_name(int reg) {
 }
 
 static char* asm_expand_template(const char* source, const int* registers,
+                                  const int64_t* immediate_values,
+                                  const bool* immediate_flags,
                                   int operand_count, SourceLoc loc) {
     size_t source_length;
     size_t capacity;
@@ -10931,11 +10935,11 @@ static char* asm_expand_template(const char* source, const int* registers,
     source_length = strlen(source);
     if (operand_count < 0 ||
         (size_t)operand_count >
-            (SIZE_MAX - source_length - 1u) / 8u) {
+            (SIZE_MAX - source_length - 1u) / 24u) {
         rcc_fatal("i686 inline asm template is too large");
         return NULL;
     }
-    capacity = source_length + (size_t)operand_count * 8u + 1u;
+    capacity = source_length + (size_t)operand_count * 24u + 1u;
     expanded = rcc_alloc(capacity);
     while (source[read]) {
         const char* name;
@@ -10964,8 +10968,29 @@ static char* asm_expand_template(const char* source, const int* registers,
                 index = index * 10u + (uint64_t)(source[digit] - '0');
                 ++digit;
             }
-            if (index >= (uint64_t)operand_count ||
-                !registers || !(name = asm_register_name(
+            if (index >= (uint64_t)operand_count) {
+                rcc_error(loc,
+                          "i686 inline asm operand placeholder index is out of range");
+                rcc_free(expanded);
+                return NULL;
+            }
+            if (immediate_flags && immediate_flags[(size_t)index]) {
+                char immediate[32];
+                int written = snprintf(immediate, sizeof(immediate), "$%lld",
+                                       (long long)immediate_values[index]);
+                if (written < 0 || (size_t)written >= sizeof(immediate)) {
+                    rcc_error(loc,
+                              "i686 inline asm immediate operand is too large");
+                    rcc_free(expanded);
+                    return NULL;
+                }
+                for (int character = 0; character < written; ++character) {
+                    expanded[write++] = immediate[character];
+                }
+                read = digit;
+                continue;
+            }
+            if (!registers || !(name = asm_register_name(
                     registers[(size_t)index]))) {
                 rcc_error(loc,
                           "i686 inline asm placeholder requires a fixed register operand");
@@ -11166,6 +11191,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 
     OperandInfo* operands = NULL;
     int* operand_registers = NULL;
+    int64_t* immediate_values = NULL;
+    bool* immediate_flags = NULL;
     if (total_operands > 0) {
         operands = rcc_alloc(total_operands * sizeof(OperandInfo));
 
@@ -11186,8 +11213,26 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         }
         operand_registers = rcc_alloc((size_t)total_operands *
                                       sizeof(*operand_registers));
+        immediate_values = rcc_alloc((size_t)total_operands *
+                                     sizeof(*immediate_values));
+        immediate_flags = rcc_alloc((size_t)total_operands *
+                                    sizeof(*immediate_flags));
         for (int index = 0; index < total_operands; ++index) {
             operand_registers[index] = operands[index].reg;
+            immediate_flags[index] = false;
+            if (operands[index].reg == -3) {
+                if (!expr_eval_integer_constant(operands[index].op->expr,
+                                                 &immediate_values[index])) {
+                    rcc_error(operands[index].op->expr->loc,
+                              "inline asm immediate input must be an integer constant expression");
+                    rcc_free(immediate_flags);
+                    rcc_free(immediate_values);
+                    rcc_free(operand_registers);
+                    rcc_free(operands);
+                    return;
+                }
+                immediate_flags[index] = true;
+            }
         }
     }
 
@@ -11246,16 +11291,19 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         }
     }
 
-    /* Parse and emit assembly template.  GCC-style numeric placeholders are
-     * expanded only to the fixed registers already assigned above; the
+    /* Parse and emit assembly template.  Numeric placeholders expand to the
+     * assigned fixed register or to the validated immediate spelling; the
      * instruction encoder still validates the resulting instruction. */
     char* tmpl_copy = asm_expand_template(tmpl, operand_registers,
+                                           immediate_values, immediate_flags,
                                            total_operands, stmt->loc);
     if (!tmpl_copy) {
         if (preserve_edi) emit_pop_reg(mod, EDI);
         if (preserve_esi) emit_pop_reg(mod, ESI);
         if (preserve_ebx) emit_pop_reg(mod, EBX);
         if (operand_registers) rcc_free(operand_registers);
+        if (immediate_values) rcc_free(immediate_values);
+        if (immediate_flags) rcc_free(immediate_flags);
         if (operands) rcc_free(operands);
         return;
     }
@@ -11361,6 +11409,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 
     if (operands) {
         if (operand_registers) rcc_free(operand_registers);
+        if (immediate_values) rcc_free(immediate_values);
+        if (immediate_flags) rcc_free(immediate_flags);
         rcc_free(operands);
     }
 }

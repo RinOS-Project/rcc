@@ -29,6 +29,11 @@ void invalid_type(double value)
     __asm__ __volatile__("nop" : : "a"(value));
 }
 
+void invalid_immediate(int value)
+{
+    __asm__ __volatile__("int %0" : : "i"(value));
+}
+
 void invalid_duplicate_output(int left, int right)
 {
     int first;

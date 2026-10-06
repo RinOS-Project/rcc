@@ -8052,6 +8052,8 @@ static int codegen64_asm_register(const char* constraint)
         case 'D': return RDI;
         case 'r':
         case 'X': return R10;
+        case 'i':
+        case 'n': return -2;  /* Integer constant */
         default: return -1;
     }
 }
@@ -8101,6 +8103,8 @@ static int codegen64_asm_parse_register(const char* text, size_t length)
 
 static char* codegen64_asm_expand_template(const char* source,
                                             const int* registers,
+                                            const int64_t* immediate_values,
+                                            const bool* immediate_flags,
                                             int operand_count, SourceLoc loc)
 {
     size_t source_length;
@@ -8113,11 +8117,11 @@ static char* codegen64_asm_expand_template(const char* source,
     source_length = strlen(source);
     if (operand_count < 0 ||
         (size_t)operand_count >
-            (SIZE_MAX - source_length - 1u) / 8u) {
+            (SIZE_MAX - source_length - 1u) / 24u) {
         rcc_fatal("AMD64 inline asm template is too large");
         return NULL;
     }
-    capacity = source_length + (size_t)operand_count * 8u + 1u;
+    capacity = source_length + (size_t)operand_count * 24u + 1u;
     expanded = rcc_alloc(capacity);
     while (source[read]) {
         const char* name;
@@ -8146,8 +8150,29 @@ static char* codegen64_asm_expand_template(const char* source,
                 index = index * 10u + (uint64_t)(source[digit] - '0');
                 ++digit;
             }
-            if (index >= (uint64_t)operand_count || !registers ||
-                !(name = codegen64_asm_register_name(
+            if (index >= (uint64_t)operand_count) {
+                rcc_error(loc,
+                          "AMD64 inline asm operand placeholder index is out of range");
+                rcc_free(expanded);
+                return NULL;
+            }
+            if (immediate_flags && immediate_flags[(size_t)index]) {
+                char immediate[32];
+                int written = snprintf(immediate, sizeof(immediate), "$%lld",
+                                       (long long)immediate_values[index]);
+                if (written < 0 || (size_t)written >= sizeof(immediate)) {
+                    rcc_error(loc,
+                              "AMD64 inline asm immediate operand is too large");
+                    rcc_free(expanded);
+                    return NULL;
+                }
+                for (int character = 0; character < written; ++character) {
+                    expanded[write++] = immediate[character];
+                }
+                read = digit;
+                continue;
+            }
+            if (!registers || !(name = codegen64_asm_register_name(
                     registers[(size_t)index]))) {
                 rcc_error(loc,
                           "AMD64 inline asm placeholder requires a supported register operand");
@@ -8358,6 +8383,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     AsmOperand** inputs;
     int* registers;
     int* template_registers;
+    int64_t* immediate_values;
+    bool* immediate_flags;
     int output_count = 0;
     int asm_input_count = 0;
     int input_count = 0;
@@ -8380,7 +8407,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
         ++asm_input_count;
-        ++input_count;
+        int reg = codegen64_asm_register(operand->constraint);
+        if (reg != -2) ++input_count;
     }
     inputs = input_count > 0
         ? rcc_alloc((size_t)input_count * sizeof(*inputs)) : NULL;
@@ -8395,7 +8423,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
         int reg = codegen64_asm_register(operand->constraint);
-        if (reg < 0) {
+        if (reg < 0 && reg != -2) {
             rcc_error(stmt->loc,
                       "unsupported AMD64 inline asm constraint '%s'",
                       operand->constraint);
@@ -8403,6 +8431,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             rcc_free(registers);
             return;
         }
+        if (reg == -2) continue;
         inputs[input_index] = operand;
         registers[input_index++] = reg;
         preserve_rbx = preserve_rbx || reg == RBX;
@@ -8411,11 +8440,32 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     template_registers = template_count > 0
         ? rcc_alloc((size_t)template_count * sizeof(*template_registers))
         : NULL;
+    immediate_values = template_count > 0
+        ? rcc_alloc((size_t)template_count * sizeof(*immediate_values))
+        : NULL;
+    immediate_flags = template_count > 0
+        ? rcc_alloc((size_t)template_count * sizeof(*immediate_flags))
+        : NULL;
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        immediate_flags[template_index] = false;
         template_registers[template_index++] = codegen64_asm_register(
             operand->constraint);
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        int reg = codegen64_asm_register(operand->constraint);
+        immediate_flags[template_index] = reg == -2;
+        if (reg == -2 &&
+            !expr_eval_integer_constant(operand->expr,
+                                        &immediate_values[template_index])) {
+            rcc_error(operand->expr->loc,
+                      "inline asm immediate input must be an integer constant expression");
+            rcc_free(immediate_flags);
+            rcc_free(immediate_values);
+            rcc_free(template_registers);
+            rcc_free(inputs);
+            rcc_free(registers);
+            return;
+        }
         template_registers[template_index++] = codegen64_asm_register(
             operand->constraint);
     }
@@ -8429,8 +8479,11 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
 
     expanded_template = codegen64_asm_expand_template(
         stmt->asm_template ? stmt->asm_template : "",
-        template_registers, template_count, stmt->loc);
+        template_registers, immediate_values, immediate_flags,
+        template_count, stmt->loc);
     if (!expanded_template) {
+        rcc_free(immediate_flags);
+        rcc_free(immediate_values);
         rcc_free(template_registers);
         rcc_free(inputs);
         rcc_free(registers);
@@ -8469,6 +8522,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         emit64_store_typed(mod, RCX, 0, RAX, operand->expr->type);
     }
     rcc_free(expanded_template);
+    rcc_free(immediate_flags);
+    rcc_free(immediate_values);
     rcc_free(template_registers);
     rcc_free(inputs);
     rcc_free(registers);

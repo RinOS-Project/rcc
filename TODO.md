@@ -523,6 +523,9 @@
   - [x] 固定レジスタoperand同士、operandとclobber、重複clobberの衝突を
         backendへ渡す前に診断し、既存の`=a`出力と`a`入力のtie相当だけを
         維持する両arch回帰を追加
+  - [x] 整数定数式の`i`／`n` input constraintを意味解析で検証し、両archの
+        `%N` placeholderを即値へ展開して`int $imm8`を実バイト生成する回帰と、
+        非定数入力を拒否する診断を追加
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend
