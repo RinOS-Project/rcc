@@ -290,6 +290,14 @@ static void verify_smaller(const char* unoptimized_path,
                                   "strength_reduce_unsigned_fifteen", 0xafu));
     assert(!function_contains_byte(optimized,
                                    "strength_reduce_unsigned_fifteen", 0xafu));
+    assert(function_contains_byte(unoptimized,
+                                  "strength_reduce_unsigned_seventeen", 0xafu));
+    assert(!function_contains_byte(optimized,
+                                   "strength_reduce_unsigned_seventeen", 0xafu));
+    assert(function_contains_byte(unoptimized,
+                                  "strength_reduce_unsigned_thirty_one", 0xafu));
+    assert(!function_contains_byte(optimized,
+                                   "strength_reduce_unsigned_thirty_one", 0xafu));
     assert(function_extent(optimized, "strength_reduce_unsigned_div") <
            function_extent(unoptimized, "strength_reduce_unsigned_div"));
     assert(function_extent(optimized, "strength_reduce_unsigned_mod") <
@@ -548,6 +556,8 @@ int main(int argc, char** argv)
         uint32_t (*strength_reduce_unsigned_thirteen)(uint32_t);
         uint32_t (*strength_reduce_unsigned_fourteen)(uint32_t);
         uint32_t (*strength_reduce_unsigned_fifteen)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_seventeen)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_thirty_one)(uint32_t);
         uint32_t (*strength_reduce_unsigned_div)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         int (*inlined_argument_call)(int);
@@ -708,6 +718,14 @@ int main(int argc, char** argv)
             object, "strength_reduce_unsigned_fifteen")->value;
         memcpy(&strength_reduce_unsigned_fifteen, &address,
                sizeof(strength_reduce_unsigned_fifteen));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_seventeen")->value;
+        memcpy(&strength_reduce_unsigned_seventeen, &address,
+               sizeof(strength_reduce_unsigned_seventeen));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_thirty_one")->value;
+        memcpy(&strength_reduce_unsigned_thirty_one, &address,
+               sizeof(strength_reduce_unsigned_thirty_one));
         address = mapping + unsigned_32_symbol->value;
         memcpy(&folded_unsigned_32, &address,
                sizeof(folded_unsigned_32));
@@ -1049,6 +1067,8 @@ int main(int argc, char** argv)
         assert(strength_reduce_unsigned_thirteen(123u) == 1599u);
         assert(strength_reduce_unsigned_fourteen(123u) == 1722u);
         assert(strength_reduce_unsigned_fifteen(123u) == 1845u);
+        assert(strength_reduce_unsigned_seventeen(123u) == 2091u);
+        assert(strength_reduce_unsigned_thirty_one(123u) == 3813u);
         assert(strength_reduce_unsigned_div(123u) == 15u);
         assert(strength_reduce_unsigned_mod(123u) == 3u);
         assert(inlined_argument_call(-8) == -7);

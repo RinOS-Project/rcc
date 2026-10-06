@@ -425,6 +425,9 @@
   - [x] side-effect-free unsigned multiplication by 9〜15を、各定数のbinary
         decompositionによる複数shift/addへ強度削減し、C/C++のi686/AMD64
         `imul`除去、生成物検査、実行回帰を追加
+  - [x] side-effect-free unsigned multiplication by 17〜31を同じbinary
+        decompositionへ拡張し、16のpower-of-two経路との重複を避けながら
+        i686/AMD64の`imul`除去と実行回帰を追加
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
