@@ -140,7 +140,8 @@
         side effects; cover legacy and verified typed-SSA C17/C++20 i686/AMD64
         emission, execution, and invalid-condition and arity diagnostics.
   - [x] Parse GCC-compatible `__builtin_types_compatible_p` type-name operands
-        and fold typedef, pointer, nested-qualifier, and signedness comparisons
+        and fold typedef, pointer, array, function-prototype, nested-qualifier,
+        and signedness comparisons
         to a target-independent integer constant with explicit non-type
         diagnostics; cover legacy and verified C17/C++20 i686/AMD64
         compilation and execution.

@@ -17,6 +17,11 @@ int builtin_types_compatible(void) {
     if (!__builtin_types_compatible_p(int*, int*)) return 3;
     if (__builtin_types_compatible_p(int, unsigned int)) return 4;
     if (__builtin_types_compatible_p(int*, const int*)) return 5;
+    if (!__builtin_types_compatible_p(const int, int)) return 6;
+    if (!__builtin_types_compatible_p(int *const, int *)) return 7;
+    if (!__builtin_types_compatible_p(int[2], int[2])) return 8;
+    if (__builtin_types_compatible_p(int[2], int[3])) return 9;
+    if (!__builtin_types_compatible_p(int(void), int(void))) return 10;
     return 0;
 }
 
