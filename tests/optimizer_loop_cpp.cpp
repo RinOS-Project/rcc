@@ -121,3 +121,12 @@ extern "C" int cxx_for_constant_alignof(void)
     for (; alignof(char) - 1;) return 103;
     return 107;
 }
+
+extern "C" int cxx_for_constant_sizeof_bound(void)
+{
+    int result = 0;
+    for (int index = 0; index < sizeof(char); ++index) {
+        result += 109;
+    }
+    return result;
+}

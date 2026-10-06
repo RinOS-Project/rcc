@@ -30,6 +30,8 @@ static bool expression_modifies_decl(const Expr* expression,
 static bool statement_modifies_decl(const Stmt* statement,
                                     const Decl* declaration);
 static bool integer_literal(const Expr* expression, int64_t* value);
+static bool constant_integer_expression(const Expr* expression,
+                                        int64_t* value);
 static int integer_width(const Type* type);
 static void replace_integer(Expr* expression, int64_t value);
 static uint64_t integer_mask(const Type* type);
@@ -1653,14 +1655,14 @@ static int unit_for_step(const Expr* increment, const Decl* induction) {
         increment->binary_lhs && increment->binary_rhs &&
         increment->binary_lhs->kind == EXPR_IDENT &&
         increment->binary_lhs->ident_decl == induction &&
-        integer_literal(increment->binary_rhs, &value)) {
+        constant_integer_expression(increment->binary_rhs, &value)) {
         return value == 1 ? 1 : value == -1 ? -1 : 0;
     }
     if (increment->kind == EXPR_SUB_ASSIGN &&
         increment->binary_lhs && increment->binary_rhs &&
         increment->binary_lhs->kind == EXPR_IDENT &&
         increment->binary_lhs->ident_decl == induction &&
-        integer_literal(increment->binary_rhs, &value)) {
+        constant_integer_expression(increment->binary_rhs, &value)) {
         return value == 1 ? -1 : 0;
     }
     if (increment->kind != EXPR_ASSIGN || !increment->binary_lhs ||
@@ -1677,7 +1679,8 @@ static int unit_for_step(const Expr* increment, const Decl* induction) {
         lhs = increment->binary_rhs->binary_lhs;
         rhs = increment->binary_rhs->binary_rhs;
         if (lhs && lhs->kind == EXPR_IDENT &&
-            lhs->ident_decl == induction && integer_literal(rhs, &value)) {
+            lhs->ident_decl == induction &&
+            constant_integer_expression(rhs, &value)) {
             return value == 1 ? -1 : 0;
         }
         return 0;
@@ -1685,11 +1688,13 @@ static int unit_for_step(const Expr* increment, const Decl* induction) {
     lhs = increment->binary_rhs->binary_lhs;
     rhs = increment->binary_rhs->binary_rhs;
     if (lhs && lhs->kind == EXPR_IDENT &&
-        lhs->ident_decl == induction && integer_literal(rhs, &value)) {
+        lhs->ident_decl == induction &&
+        constant_integer_expression(rhs, &value)) {
         return value == 1 ? 1 : 0;
     }
     if (rhs && rhs->kind == EXPR_IDENT &&
-        rhs->ident_decl == induction && integer_literal(lhs, &value)) {
+        rhs->ident_decl == induction &&
+        constant_integer_expression(lhs, &value)) {
         return value == 1 ? 1 : 0;
     }
     return 0;
@@ -1708,13 +1713,13 @@ static int bounded_loop_step(const Expr* increment, const Decl* induction) {
     if (increment->kind == EXPR_ADD_ASSIGN && increment->binary_lhs &&
         increment->binary_rhs && increment->binary_lhs->kind == EXPR_IDENT &&
         increment->binary_lhs->ident_decl == induction &&
-        integer_literal(increment->binary_rhs, &value)) {
+        constant_integer_expression(increment->binary_rhs, &value)) {
         return bounded_loop_step_value(value);
     }
     if (increment->kind == EXPR_SUB_ASSIGN && increment->binary_lhs &&
         increment->binary_rhs && increment->binary_lhs->kind == EXPR_IDENT &&
         increment->binary_lhs->ident_decl == induction &&
-        integer_literal(increment->binary_rhs, &value)) {
+        constant_integer_expression(increment->binary_rhs, &value)) {
         step = bounded_loop_step_value(value);
         return step == 0 ? 0 : -step;
     }
@@ -1728,14 +1733,14 @@ static int bounded_loop_step(const Expr* increment, const Decl* induction) {
     left = right->binary_lhs;
     if (left && left->kind == EXPR_IDENT &&
         left->ident_decl == induction &&
-        integer_literal(right->binary_rhs, &value)) {
+        constant_integer_expression(right->binary_rhs, &value)) {
         step = bounded_loop_step_value(value);
         return right->kind == EXPR_ADD || step == 0 ? step : -step;
     }
     if (right->kind == EXPR_ADD && right->binary_rhs &&
         right->binary_rhs->kind == EXPR_IDENT &&
         right->binary_rhs->ident_decl == induction &&
-        integer_literal(right->binary_lhs, &value)) {
+        constant_integer_expression(right->binary_lhs, &value)) {
         return bounded_loop_step_value(value);
     }
     return 0;
@@ -1761,7 +1766,7 @@ static bool for_initializer(const Stmt* initializer, Decl** induction,
     left = expression->binary_lhs;
     right = expression->binary_rhs;
     if (!left || left->kind != EXPR_IDENT || !left->ident_decl || !right ||
-        !integer_literal(right, &literal_value)) {
+        !constant_integer_expression(right, &literal_value)) {
         return false;
     }
     *induction = left->ident_decl;
@@ -1783,7 +1788,7 @@ static bool eliminate_zero_condition_do(Stmt* statement) {
     Stmt* body;
     if (!statement || statement->kind != STMT_DO ||
         !statement->while_body || !statement->while_cond ||
-        !integer_literal(statement->while_cond, &condition) ||
+        !constant_integer_expression(statement->while_cond, &condition) ||
         condition != 0 ||
         statement_contains_loop_transfer(statement->while_body)) {
         return false;
@@ -1818,11 +1823,11 @@ static bool eliminate_zero_iteration_for(Stmt* statement) {
     step = bounded_loop_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
-        !integer_literal(initial_expression, &initial_value) ||
+        !constant_integer_expression(initial_expression, &initial_value) ||
         !for_condition_matches_step(condition, step) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
-        !integer_literal(condition->binary_rhs, &bound_value) ||
+        !constant_integer_expression(condition->binary_rhs, &bound_value) ||
         step == 0 ||
         statement_contains_label(statement->for_body)) {
         return false;
@@ -1892,11 +1897,11 @@ static bool constant_for_iteration_count(const Stmt* statement,
     step = bounded_loop_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
-        !integer_literal(initial_expression, &initial_value) ||
+        !constant_integer_expression(initial_expression, &initial_value) ||
         !for_condition_matches_step(condition, step) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
-        !integer_literal(condition->binary_rhs, &bound_value) ||
+        !constant_integer_expression(condition->binary_rhs, &bound_value) ||
         step == 0) {
         return false;
     }
@@ -2261,11 +2266,11 @@ static bool unroll_single_iteration_for(Stmt* statement) {
     step = unit_for_step(increment, induction);
     if (!induction->type || induction->type->is_volatile ||
         !type_is_integer(induction->type) ||
-        !integer_literal(initial_expression, &initial_value) ||
+        !constant_integer_expression(initial_expression, &initial_value) ||
         !for_condition_matches_step(condition, step) ||
         !condition->binary_lhs || condition->binary_lhs->kind != EXPR_IDENT ||
         condition->binary_lhs->ident_decl != induction ||
-        !integer_literal(condition->binary_rhs, &bound_value) ||
+        !constant_integer_expression(condition->binary_rhs, &bound_value) ||
         step == 0 ||
         statement_contains_loop_transfer(statement->for_body) ||
         statement_contains_label(statement->for_body) ||
@@ -3081,7 +3086,7 @@ static bool constant_loop_iteration_count(const Stmt* statement,
     if (!condition->binary_lhs || !condition->binary_rhs ||
         condition->binary_lhs->kind != EXPR_IDENT ||
         !condition->binary_lhs->ident_decl ||
-        !integer_literal(condition->binary_rhs, &bound_value)) {
+        !constant_integer_expression(condition->binary_rhs, &bound_value)) {
         return false;
     }
     left = condition->binary_lhs;
