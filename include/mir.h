@@ -78,6 +78,8 @@ struct RccMirInstruction {
     uint64_t immediate;
     RccIrIntPredicate predicate;
     char* callee;
+    /* Borrowed AST statement used only for verified debug-range tracking. */
+    const void* source_statement;
     RccMirBlock* block;
     RccMirInstruction* previous;
     RccMirInstruction* next;

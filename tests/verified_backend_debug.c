@@ -1,7 +1,10 @@
 static int verified_debug_static(int value)
 {
     int local = value + 3;
-    return local;
+    {
+        int nested = local + 1;
+        return nested;
+    }
 }
 
 int verified_debug_entry(int value)

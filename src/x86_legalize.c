@@ -289,6 +289,18 @@ static RccX86LegalInstruction* x86_legal_append(
     return instruction;
 }
 
+static void x86_legal_tag_source(
+    RccX86LegalBlock* block, RccX86LegalInstruction* previous,
+    const RccX86Instruction* source) {
+    RccX86LegalInstruction* instruction;
+    if (!block || !source || !source->source_statement) return;
+    instruction = previous ? previous->next : block->first;
+    while (instruction) {
+        instruction->source_statement = source->source_statement;
+        instruction = instruction->next;
+    }
+}
+
 static bool x86_legal_append_copy(
     RccX86LegalFunction* function, RccX86LegalBlock* block,
     RccMirType type, RccX86Value source, RccX86Value destination,
@@ -1651,39 +1663,45 @@ bool rcc_x86_legalize_function(
                 legal, block, selected, &abi,
                 error, error_size)) goto cleanup;
         for (source = source_block->first; source; source = source->next) {
+            RccX86LegalInstruction* previous = block->last;
+            bool source_ok;
             if (x86_legal_is_division(source->opcode) &&
                 x86_legal_native_type(source->type, &abi)) {
-                if (!x86_legalize_division(
+                source_ok = x86_legalize_division(
                         legal, block, source, &abi,
-                        error, error_size)) goto cleanup;
+                    error, error_size);
             } else if (x86_legal_is_shift(source->opcode) &&
                        x86_legal_native_type(source->type, &abi)) {
-                if (!x86_legalize_shift(
+                source_ok = x86_legalize_shift(
                         legal, block, source, &abi,
-                        error, error_size)) goto cleanup;
+                    error, error_size);
             } else if (x86_legal_is_binary(source->opcode) &&
                        x86_legal_native_type(source->type, &abi)) {
-                if (!x86_legalize_binary(
+                source_ok = x86_legalize_binary(
                         legal, block, source, &abi,
-                        error, error_size)) goto cleanup;
+                    error, error_size);
             } else if (source->opcode == RCC_X86_CALL &&
                        x86_legal_call_supported(source, &abi)) {
-                if (!x86_legalize_call(
+                source_ok = x86_legalize_call(
                         legal, block, source, &abi,
-                        error, error_size)) goto cleanup;
+                    error, error_size);
             } else if (source->opcode == RCC_X86_RETURN &&
                        (selected->return_type.kind == RCC_MIR_TYPE_VOID ||
                         x86_legal_native_scalar(
                             selected->return_type, &abi) ||
                         x86_legal_pair_return_supported(source, &abi))) {
-                if (!x86_legalize_return(
+                source_ok = x86_legalize_return(
                         legal, block, source, &abi,
-                        error, error_size)) goto cleanup;
+                    error, error_size);
             } else if (!x86_legal_clone_selected(
                            legal, block, source, &abi,
                            error, error_size)) {
-                goto cleanup;
+                source_ok = false;
+            } else {
+                source_ok = true;
             }
+            if (!source_ok) goto cleanup;
+            x86_legal_tag_source(block, previous, source);
         }
     }
     legal->used_gpr_mask = x86_legal_collect_used_gprs(legal);

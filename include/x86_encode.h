@@ -21,6 +21,14 @@ typedef struct {
 } RccX86CodeRelocation;
 
 typedef struct {
+    uint32_t offset;
+    uint32_t size;
+    /* Borrowed AST statement; valid only while the encoded function's
+     * originating AST remains alive. */
+    const void* source_statement;
+} RccX86CodeSourceRange;
+
+typedef struct {
     RccX86Target target;
     uint8_t* code;
     size_t code_size;
@@ -28,6 +36,8 @@ typedef struct {
     size_t block_count;
     RccX86CodeRelocation* relocations;
     size_t relocation_count;
+    RccX86CodeSourceRange* source_ranges;
+    size_t source_range_count;
 } RccX86EncodedFunction;
 
 bool rcc_x86_encode_function(

@@ -671,6 +671,8 @@ static void verify_verified_debug_object(const char* path,
            UINT64_MAX);
     assert(find_lexical_block_local(
         info, strings, "local", architecture == ARCH_X64 ? 8u : 4u));
+    assert(find_lexical_block_local(
+        info, strings, "nested", architecture == ARCH_X64 ? 8u : 4u));
     objfile_free(object);
 }
 

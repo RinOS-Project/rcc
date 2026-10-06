@@ -479,6 +479,41 @@ static void verified_add_function_debug_symbol(
     rcc_free(scoped_name);
 }
 
+static void verified_apply_statement_debug_ranges(
+    ObjectFile* object, const char* object_name,
+    const RccX86EncodedFunction* encoded) {
+    ObjSymbol* object_symbol;
+    if (!object || !object_name || !encoded) return;
+    object_symbol = objfile_find_symbol(object, object_name);
+    if (!object_symbol || object_symbol->value > UINT32_MAX ||
+        object_symbol->size > UINT32_MAX - object_symbol->value) return;
+    for (size_t index = 0u; index < encoded->source_range_count; ++index) {
+        const RccX86CodeSourceRange* range = &encoded->source_ranges[index];
+        Stmt* statement = (Stmt*)range->source_statement;
+        uint64_t start;
+        uint64_t end;
+        if (!statement || range->offset > UINT32_MAX -
+                (uint32_t)object_symbol->value ||
+            range->size > UINT32_MAX -
+                ((uint32_t)object_symbol->value + range->offset)) {
+            continue;
+        }
+        start = object_symbol->value + range->offset;
+        end = start + range->size;
+        if (statement->debug_code_end <= statement->debug_code_start) {
+            statement->debug_code_start = (uint32_t)start;
+            statement->debug_code_end = (uint32_t)end;
+        } else {
+            if (start < statement->debug_code_start) {
+                statement->debug_code_start = (uint32_t)start;
+            }
+            if (end > statement->debug_code_end) {
+                statement->debug_code_end = (uint32_t)end;
+            }
+        }
+    }
+}
+
 static void verified_emit_debug_sections(
     ObjectFile* object, Module* data_module, const AST* ast,
     const char* translation_unit) {
@@ -634,6 +669,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 "function '%s' object emission failed: %s",
                 declaration->name, pipeline_error);
         }
+        verified_apply_statement_debug_ranges(object, object_name, &encoded);
         rcc_free(scoped_name);
         rcc_x86_encoded_function_release(&encoded);
         rcc_ir_module_destroy(module);

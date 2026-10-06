@@ -335,6 +335,7 @@ static bool x86_select_instruction(
         machine->auxiliary = instruction->immediate;
     }
     if (instruction->callee) machine->symbol = rcc_strdup(instruction->callee);
+    machine->source_statement = instruction->source_statement;
     ++selected->source_instruction_count;
     return true;
 }

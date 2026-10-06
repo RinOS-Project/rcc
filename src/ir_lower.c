@@ -104,6 +104,7 @@ typedef struct {
     RccIrBlockId break_target;
     RccIrBlockId continue_target;
     RccIrLowerLoopFrame* wide_loop;
+    const Stmt* current_statement;
     RccIrValue aggregate_return_address;
     RccIrValue active_exception_frame;
     int aggregate_return_kind;
@@ -113,6 +114,8 @@ typedef struct {
 
 static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement);
+static bool lower_statement_impl(RccIrLowerContext* context,
+                                 const Stmt* statement);
 static bool lower_collect_labels(RccIrLowerContext* context,
                                  const Stmt* statement);
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
@@ -547,7 +550,11 @@ static RccIrInstruction* lower_append(
     if (!context || !context->current || context->terminated) return NULL;
     instruction = rcc_ir_append(context->current, opcode, type, operands,
                                 operand_count, targets, target_count);
-    if (!instruction) context->unsupported = true;
+    if (!instruction) {
+        context->unsupported = true;
+    } else {
+        instruction->source_statement = context->current_statement;
+    }
     return instruction;
 }
 
@@ -8560,8 +8567,8 @@ static bool lower_cxx_try(RccIrLowerContext* context,
     return true;
 }
 
-static bool lower_statement(RccIrLowerContext* context,
-                            const Stmt* statement) {
+static bool lower_statement_impl(RccIrLowerContext* context,
+                                 const Stmt* statement) {
     if (context && context->terminated && statement &&
         statement->kind != STMT_LABEL && statement->kind != STMT_CASE &&
         statement->kind != STMT_DEFAULT && !context->current_switch &&
@@ -8788,6 +8795,18 @@ static bool lower_statement(RccIrLowerContext* context,
     }
     context->unsupported = true;
     return false;
+}
+
+static bool lower_statement(RccIrLowerContext* context,
+                            const Stmt* statement) {
+    const Stmt* previous;
+    bool result;
+    if (!context || !statement) return lower_statement_impl(context, statement);
+    previous = context->current_statement;
+    context->current_statement = statement;
+    result = lower_statement_impl(context, statement);
+    context->current_statement = previous;
+    return result;
 }
 
 static bool lower_parameters(RccIrLowerContext* context,

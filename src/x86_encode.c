@@ -20,6 +20,7 @@ typedef struct {
     size_t fixup_count;
     size_t fixup_capacity;
     size_t relocation_capacity;
+    size_t source_range_capacity;
     char* error;
     size_t error_size;
 } RccX86Encoder;
@@ -67,6 +68,45 @@ static bool x86_encode_reserve(RccX86Encoder* encoder, size_t extra) {
 static bool x86_emit_u8(RccX86Encoder* encoder, uint8_t value) {
     if (!x86_encode_reserve(encoder, 1u)) return false;
     encoder->output.code[encoder->output.code_size++] = value;
+    return true;
+}
+
+static bool x86_add_source_range(
+    RccX86Encoder* encoder, const RccX86LegalInstruction* instruction,
+    uint32_t offset) {
+    size_t capacity;
+    RccX86CodeSourceRange* ranges;
+    if (!instruction || !instruction->source_statement) return true;
+    /* Legalization may leave a redundant same-location copy that encodes to
+     * no bytes.  It has no address range to describe and is harmless. */
+    if (encoder->output.code_size == offset) return true;
+    if (encoder->output.code_size < offset ||
+        encoder->output.code_size - offset > UINT32_MAX) {
+        return x86_encode_error(
+            encoder, "x86 source range is outside encoded instruction");
+    }
+    if (encoder->output.source_range_count ==
+            encoder->source_range_capacity) {
+        capacity = encoder->source_range_capacity == 0u
+            ? 32u : encoder->source_range_capacity * 2u;
+        if (capacity < encoder->output.source_range_count + 1u ||
+            capacity > SIZE_MAX / sizeof(*ranges)) {
+            return x86_encode_error(
+                encoder, "x86 source range table is too large");
+        }
+        ranges = rcc_realloc(
+            encoder->output.source_ranges,
+            capacity * sizeof(*ranges));
+        encoder->output.source_ranges = ranges;
+        encoder->source_range_capacity = capacity;
+    }
+    ranges = encoder->output.source_ranges;
+    ranges[encoder->output.source_range_count].offset = offset;
+    ranges[encoder->output.source_range_count].size =
+        (uint32_t)(encoder->output.code_size - offset);
+    ranges[encoder->output.source_range_count].source_statement =
+        instruction->source_statement;
+    ++encoder->output.source_range_count;
     return true;
 }
 
@@ -1581,6 +1621,7 @@ void rcc_x86_encoded_function_release(RccX86EncodedFunction* encoded) {
         rcc_free(encoded->relocations[index].symbol);
     }
     rcc_free(encoded->relocations);
+    rcc_free(encoded->source_ranges);
     rcc_free(encoded->block_offsets);
     rcc_free(encoded->code);
     memset(encoded, 0, sizeof(*encoded));
@@ -1596,7 +1637,8 @@ bool rcc_x86_verify_encoded_function(
         !encoded->code || encoded->code_size == 0u ||
         encoded->code_size > UINT32_MAX ||
         !encoded->block_offsets || encoded->block_count == 0u ||
-        (encoded->relocation_count != 0u && !encoded->relocations)) {
+        (encoded->relocation_count != 0u && !encoded->relocations) ||
+        (encoded->source_range_count != 0u && !encoded->source_ranges)) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "x86 encoded-function header is invalid");
@@ -1638,6 +1680,30 @@ bool rcc_x86_verify_encoded_function(
             return false;
         }
     }
+    for (size_t index = 0u; index < encoded->source_range_count; ++index) {
+        const RccX86CodeSourceRange* range = &encoded->source_ranges[index];
+        if (!range->source_statement || range->size == 0u ||
+            range->offset >= encoded->code_size ||
+            range->size > encoded->code_size - range->offset) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "x86 encoded source range is invalid");
+            }
+            return false;
+        }
+        if (index != 0u) {
+            uint32_t previous_end =
+                encoded->source_ranges[index - 1u].offset +
+                encoded->source_ranges[index - 1u].size;
+            if (range->offset < previous_end) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "x86 encoded source ranges overlap");
+                }
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -1669,7 +1735,11 @@ bool rcc_x86_encode_function(
             (uint32_t)encoder.output.code_size;
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
-            if (!x86_emit_instruction(&encoder, instruction)) goto cleanup;
+            uint32_t offset = (uint32_t)encoder.output.code_size;
+            if (!x86_emit_instruction(&encoder, instruction) ||
+                !x86_add_source_range(&encoder, instruction, offset)) {
+                goto cleanup;
+            }
         }
     }
     if (!x86_resolve_fixups(&encoder) ||

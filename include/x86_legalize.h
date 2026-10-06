@@ -52,6 +52,8 @@ struct RccX86LegalInstruction {
     uint64_t auxiliary;
     RccIrIntPredicate predicate;
     char* symbol;
+    /* Borrowed AST statement used only for verified debug-range tracking. */
+    const void* source_statement;
     bool cycle_break;
     RccX86LegalInstruction* previous;
     RccX86LegalInstruction* next;
