@@ -2869,15 +2869,34 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
     }
     if (strcmp(function->ident_name, "__builtin_strlen") == 0) {
         Expr* string = call64_argument(expr, 0);
-        while (string && string->kind == EXPR_CAST) string = string->cast_expr;
-        if (!string || string->kind != EXPR_STRING_LIT ||
-            string->str_length > UINT64_MAX) {
-            rcc_error(expr->loc,
-                      "__builtin_strlen string literal length is unsupported");
-            emit64_mov_reg_imm64(mod, RAX, 0u);
+        Expr* literal = string;
+        while (literal && literal->kind == EXPR_CAST) literal = literal->cast_expr;
+        if (literal && literal->kind == EXPR_STRING_LIT &&
+            literal->str_length <= UINT64_MAX) {
+            emit64_mov_reg_imm64(mod, RAX, (uint64_t)literal->str_length);
             return true;
         }
-        emit64_mov_reg_imm64(mod, RAX, (uint64_t)string->str_length);
+        if (!string) {
+            rcc_error(expr->loc,
+                      "__builtin_strlen has no operand");
+            return true;
+        }
+        {
+            int loop = new_label64();
+            int done = new_label64();
+            gen64_expr(mod, string);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_xor_reg_reg(mod, RCX, RCX);
+            emit64_label(mod, loop);
+            emit64_load_typed(mod, RAX, RDX, 0, type_uchar);
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, done);
+            emit64_add_reg_imm(mod, RDX, 1);
+            emit64_add_reg_imm(mod, RCX, 1);
+            emit64_jmp_label(mod, loop);
+            emit64_label(mod, done);
+            emit64_mov_reg_reg(mod, RAX, RCX);
+        }
         return true;
     }
     if (strcmp(function->ident_name, "__builtin_expect") == 0 ||

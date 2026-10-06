@@ -47,6 +47,10 @@ extern "C" int cxx_builtin_object_size(void) {
     return 0;
 }
 
+extern "C" int cxx_builtin_strlen_pointer(const char *value) {
+    return static_cast<int>(__builtin_strlen(value));
+}
+
 extern "C" int cxx_builtin_overflow(void) {
     int result = 0;
     long long wide_result = 0;
@@ -87,5 +91,9 @@ extern "C" int main(void) {
     if (cxx_scalar_builtins(&value) != 37) return 5;
     if (cxx_builtin_object_size() != 0) return 6;
     if (cxx_builtin_overflow() != 0) return 7;
+    {
+        const char value[] = "RinOS";
+        if (cxx_builtin_strlen_pointer(value + 1) != 4) return 8;
+    }
     return 0;
 }

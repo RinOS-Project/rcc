@@ -9297,15 +9297,34 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
     }
     if (strcmp(function->ident_name, "__builtin_strlen") == 0) {
         Expr* string = call_argument(expr, 0);
-        while (string && string->kind == EXPR_CAST) string = string->cast_expr;
-        if (!string || string->kind != EXPR_STRING_LIT ||
-            string->str_length > UINT32_MAX) {
-            rcc_error(expr->loc,
-                      "__builtin_strlen string literal length is unsupported");
-            emit_mov_reg_imm(mod, EAX, 0u);
+        Expr* literal = string;
+        while (literal && literal->kind == EXPR_CAST) literal = literal->cast_expr;
+        if (literal && literal->kind == EXPR_STRING_LIT &&
+            literal->str_length <= UINT32_MAX) {
+            emit_mov_reg_imm(mod, EAX, (uint32_t)literal->str_length);
             return true;
         }
-        emit_mov_reg_imm(mod, EAX, (uint32_t)string->str_length);
+        if (!string) {
+            rcc_error(expr->loc,
+                      "__builtin_strlen has no operand");
+            return true;
+        }
+        {
+            int loop = new_label();
+            int done = new_label();
+            gen_expr(mod, string);
+            emit_mov_reg_reg(mod, EDX, EAX);
+            emit_xor_reg_reg(mod, ECX, ECX);
+            emit_label(mod, loop);
+            emit_load_typed32(mod, EAX, EDX, 0, type_uchar);
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_E, done);
+            emit_add_reg_imm(mod, EDX, 1);
+            emit_add_reg_imm(mod, ECX, 1);
+            emit_jmp_label(mod, loop);
+            emit_label(mod, done);
+            emit_mov_reg_reg(mod, EAX, ECX);
+        }
         return true;
     }
     if (strcmp(function->ident_name, "__builtin_expect") == 0 ||

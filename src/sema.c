@@ -12047,6 +12047,9 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     }
     if (strcmp(name, "__builtin_strlen") == 0) {
         Expr* string = NULL;
+        Expr* literal = NULL;
+        Type* string_type = NULL;
+        bool character_data = false;
         for (argument = expr->call_args; argument;
              argument = argument->next) {
             sema_expr(argument->expr);
@@ -12058,12 +12061,24 @@ static bool sema_compiler_builtin_call(Expr* expr) {
                       argument_count);
         }
         string = expr->call_args ? expr->call_args->expr : NULL;
-        while (string && string->kind == EXPR_CAST) {
-            string = string->cast_expr;
+        literal = string;
+        while (literal && literal->kind == EXPR_CAST) {
+            literal = literal->cast_expr;
         }
-        if (!string || string->kind != EXPR_STRING_LIT) {
+        if (literal && literal->kind == EXPR_STRING_LIT) {
+            character_data = true;
+        } else if (string && string->type) {
+            string_type = string->type;
+            if ((string_type->kind == TYPE_PTR ||
+                 string_type->kind == TYPE_ARRAY) && string_type->base &&
+                type_is_integer(string_type->base) &&
+                string_type->base->size == 1) {
+                character_data = true;
+            }
+        }
+        if (!character_data) {
             rcc_error(expr->loc,
-                      "__builtin_strlen currently requires a string literal operand");
+                      "__builtin_strlen expects a pointer to character data or a string literal");
         }
         function->type = type_ptr(g_opts.target_arch == ARCH_X64
                                       ? type_ullong : type_uint);

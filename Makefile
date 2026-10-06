@@ -8705,7 +8705,7 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_object_size type argument must be an integer constant between 0 and 3" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
-	$(GREP) -F -q "__builtin_strlen currently requires a string literal operand" \
+	$(GREP) -F -q "__builtin_strlen expects a pointer to character data or a string literal" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_add_overflow result argument must point to an integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
@@ -8736,7 +8736,7 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_object_size type argument must be an integer constant between 0 and 3" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
-	$(GREP) -F -q "__builtin_strlen currently requires a string literal operand" \
+	$(GREP) -F -q "__builtin_strlen expects a pointer to character data or a string literal" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_add_overflow result argument must point to an integer type" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log

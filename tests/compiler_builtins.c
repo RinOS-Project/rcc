@@ -97,6 +97,15 @@ int builtin_strlen_check(void) {
     return (int)__builtin_strlen("RinOS");
 }
 
+int builtin_strlen_pointer(const char *value) {
+    return (int)__builtin_strlen(value);
+}
+
+int builtin_strlen_array(void) {
+    const char value[] = "RinOS";
+    return (int)__builtin_strlen(value + 2);
+}
+
 int builtin_overflow_checks(void) {
     int signed_result = 0;
     unsigned int unsigned_result = 0;
@@ -180,5 +189,10 @@ int main(void) {
     if (builtin_object_size_checks() != 0) return 24;
     if (builtin_overflow_checks() != 0) return 25;
     if (builtin_strlen_check() != 5) return 26;
+    {
+        const char value[] = "RinOS";
+        if (builtin_strlen_pointer(value) != 5) return 27;
+    }
+    if (builtin_strlen_array() != 3) return 28;
     return 0;
 }
