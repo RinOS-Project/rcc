@@ -23,6 +23,26 @@ float folded_float_narrow_cast(void)
     return (float)16777217;
 }
 
+int folded_float_to_signed(void)
+{
+    return (int)-3.75;
+}
+
+unsigned int folded_float_to_unsigned(void)
+{
+    return (unsigned int)3.75;
+}
+
+unsigned int folded_float_to_unsigned_negative_fraction(void)
+{
+    return (unsigned int)-0.75;
+}
+
+int retained_float_to_int_out_of_range(void)
+{
+    return (int)2147483648.0;
+}
+
 int folded_float_compare(void)
 {
     return (1.25f < 2.5f) && !(3.0f == 4.0f);

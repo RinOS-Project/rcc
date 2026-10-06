@@ -88,6 +88,16 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "folded_float_cast_from_int"));
     assert(function_extent(optimized, "folded_float_narrow_cast") <
            function_extent(unoptimized, "folded_float_narrow_cast"));
+    assert(function_extent(optimized, "folded_float_to_signed") <
+           function_extent(unoptimized, "folded_float_to_signed"));
+    assert(function_extent(optimized, "folded_float_to_unsigned") <
+           function_extent(unoptimized, "folded_float_to_unsigned"));
+    assert(function_extent(optimized,
+                           "folded_float_to_unsigned_negative_fraction") <
+           function_extent(unoptimized,
+                           "folded_float_to_unsigned_negative_fraction"));
+    assert(function_extent(optimized, "retained_float_to_int_out_of_range") ==
+           function_extent(unoptimized, "retained_float_to_int_out_of_range"));
     assert(function_extent(optimized, "folded_float_compare") <
            function_extent(unoptimized, "folded_float_compare"));
     assert(function_extent(optimized, "folded_float_branch") <
@@ -322,6 +332,12 @@ int main(int argc, char** argv)
             object, "folded_float_cast_from_int");
         ObjSymbol* float_narrow_cast_symbol = function_symbol(
             object, "folded_float_narrow_cast");
+        ObjSymbol* float_to_signed_symbol = function_symbol(
+            object, "folded_float_to_signed");
+        ObjSymbol* float_to_unsigned_symbol = function_symbol(
+            object, "folded_float_to_unsigned");
+        ObjSymbol* float_to_unsigned_negative_symbol = function_symbol(
+            object, "folded_float_to_unsigned_negative_fraction");
         ObjSymbol* float_compare_symbol = function_symbol(
             object, "folded_float_compare");
         ObjSymbol* float_branch_symbol = function_symbol(
@@ -455,6 +471,9 @@ int main(int argc, char** argv)
         float (*folded_float_unary)(void);
         double (*folded_float_cast_from_int)(void);
         float (*folded_float_narrow_cast)(void);
+        int (*folded_float_to_signed)(void);
+        uint32_t (*folded_float_to_unsigned)(void);
+        uint32_t (*folded_float_to_unsigned_negative_fraction)(void);
         int (*folded_float_compare)(void);
         int (*folded_float_branch)(void);
         int (*folded_choice)(int);
@@ -563,6 +582,15 @@ int main(int argc, char** argv)
         address = mapping + float_narrow_cast_symbol->value;
         memcpy(&folded_float_narrow_cast, &address,
                sizeof(folded_float_narrow_cast));
+        address = mapping + float_to_signed_symbol->value;
+        memcpy(&folded_float_to_signed, &address,
+               sizeof(folded_float_to_signed));
+        address = mapping + float_to_unsigned_symbol->value;
+        memcpy(&folded_float_to_unsigned, &address,
+               sizeof(folded_float_to_unsigned));
+        address = mapping + float_to_unsigned_negative_symbol->value;
+        memcpy(&folded_float_to_unsigned_negative_fraction, &address,
+               sizeof(folded_float_to_unsigned_negative_fraction));
         address = mapping + float_compare_symbol->value;
         memcpy(&folded_float_compare, &address, sizeof(folded_float_compare));
         address = mapping + float_branch_symbol->value;
@@ -886,6 +914,9 @@ int main(int argc, char** argv)
                folded_float_cast_from_int() < 7.001);
         assert(folded_float_narrow_cast() > 16777215.5f &&
                folded_float_narrow_cast() < 16777216.5f);
+        assert(folded_float_to_signed() == -3);
+        assert(folded_float_to_unsigned() == 3u);
+        assert(folded_float_to_unsigned_negative_fraction() == 0u);
         assert(folded_float_compare() == 1);
         assert(folded_float_branch() == 17);
         assert(folded_choice(7) == 42);

@@ -33,11 +33,14 @@ static bool integer_literal(const Expr* expression, int64_t* value);
 static bool constant_integer_expression(const Expr* expression,
                                         int64_t* value);
 static bool float_literal(const Expr* expression, double* value);
+static bool floating_to_integer_literal(double value, const Type* type,
+                                        int64_t* result);
 static bool constant_scalar_truth(const Expr* expression, bool* value);
 static int integer_width(const Type* type);
 static void replace_integer(Expr* expression, int64_t value);
 static void replace_float(Expr* expression, double value);
 static uint64_t integer_mask(const Type* type);
+static int64_t integer_bits_to_value(uint64_t bits);
 static uint64_t integer_unsigned_value(int64_t value, const Type* type);
 static int64_t integer_signed_value(int64_t value, const Type* type);
 static bool signed_type_limits(const Type* type, int64_t* minimum,
@@ -299,6 +302,60 @@ static bool float_literal(const Expr* expression, double* value) {
     return true;
 }
 
+static bool floating_to_integer_literal(double value, const Type* type,
+                                        int64_t* result) {
+    int bits;
+    double upper;
+    uint64_t unsigned_result;
+    int64_t minimum;
+    int64_t maximum;
+
+    if (!type || !result || !type_is_integer((Type*)type) ||
+        value != value) {
+        return false;
+    }
+    bits = integer_width(type);
+    if (bits <= 0) return false;
+    if (type->is_unsigned) {
+        /* Use an exclusive power-of-two bound.  In particular, converting
+         * 2^32 to uint32_t or 2^64 to uint64_t is not a representable C
+         * conversion and must remain in the backend. */
+        upper = bits == 64 ? 18446744073709551616.0
+                           : (double)(UINT64_C(1) << bits);
+        if (value <= -1.0 || value >= upper) return false;
+        if (value < 0.0) {
+            unsigned_result = 0u;
+        } else if (bits == 64 && value >= 9223372036854775808.0) {
+            /* Keep the host conversion below INT64_MAX so this remains
+             * well-defined even on hosts whose unsigned conversion follows
+             * the signed range for floating-point operands. */
+            unsigned_result = (uint64_t)(value - 9223372036854775808.0) |
+                UINT64_C(0x8000000000000000);
+        } else {
+            unsigned_result = (uint64_t)value;
+        }
+        *result = integer_bits_to_value(unsigned_result & integer_mask(type));
+        return true;
+    }
+    if (bits == 64) {
+        /* (double)INT64_MAX rounds to 2^63, so the upper bound is exclusive. */
+        if (value < -9223372036854775808.0 ||
+            value >= 9223372036854775808.0) {
+            return false;
+        }
+        *result = value <= -9223372036854775808.0
+            ? INT64_MIN : (int64_t)value;
+        return true;
+    }
+    if (!signed_type_limits(type, &minimum, &maximum) ||
+        value <= (double)minimum - 1.0 ||
+        value >= (double)maximum + 1.0) {
+        return false;
+    }
+    *result = (int64_t)value;
+    return true;
+}
+
 static bool constant_scalar_truth(const Expr* expression, bool* value) {
     int64_t integer;
     double floating;
@@ -349,6 +406,13 @@ static bool fold_float_literals(Expr* expression) {
             }
             if (expression->type && expression->type->kind == TYPE_BOOL) {
                 replace_integer(expression, left == 0.0 ? 0 : 1);
+                return true;
+            }
+            if (expression->type && type_is_integer(expression->type) &&
+                expression->type->kind != TYPE_BOOL &&
+                floating_to_integer_literal(
+                    left, expression->type, &left_int)) {
+                replace_integer(expression, left_int);
                 return true;
             }
         } else if (expression->type &&
