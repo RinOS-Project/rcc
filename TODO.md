@@ -333,6 +333,8 @@
   - [x] side-effect-free integer algebraic identities (`+0`、`-0`、`*1`、`/1`、
         bitwise identity、zero folding)を型互換性と副作用保持付きで実装し、
         両archの最適化・実行回帰へ接続
+  - [x] typed-SSAで同一整数値の`x - x`／`x ^ x`を0へ、`x & x`／`x | x`を
+        元の値へ変形し、8/16/32/64-bitのverifier回帰で値置換と定数化を検証
   - [x] unsigned integerの`x * 2^k`／`2^k * x`、`x / 2^k`、`x % 2^k`を
         型付きshift/maskへstrength reductionし、i686/x86_64の即値shift生成と
         実行回帰を追加。signed/overflow-sensitive formは変更しない

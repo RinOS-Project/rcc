@@ -1127,6 +1127,32 @@ static bool ir_pass_simplify_integer_identities(
                 instruction = next;
                 continue;
             }
+            if (instruction->result != RCC_IR_VALUE_NONE &&
+                instruction->type.kind == RCC_IR_TYPE_INTEGER &&
+                instruction->operand_count == 2u &&
+                instruction->operands[0] == instruction->operands[1]) {
+                if (instruction->opcode == RCC_IR_AND ||
+                    instruction->opcode == RCC_IR_OR) {
+                    replacements[instruction->result] =
+                        instruction->operands[0];
+                    ir_pass_unlink_instruction(instruction);
+                    if (stats) {
+                        ++stats->folded_instructions;
+                        ++stats->removed_instructions;
+                    }
+                    instruction = next;
+                    continue;
+                }
+                if (instruction->opcode == RCC_IR_SUB ||
+                    instruction->opcode == RCC_IR_XOR) {
+                    ir_pass_make_integer_constant(instruction, 0u);
+                    known[instruction->result] = true;
+                    constants[instruction->result] = instruction->immediate;
+                    if (stats) ++stats->folded_instructions;
+                    instruction = next;
+                    continue;
+                }
+            }
             if (!ir_pass_is_binary_integer(instruction->opcode) ||
                 instruction->operand_count != 2u ||
                 instruction->result == RCC_IR_VALUE_NONE) {
