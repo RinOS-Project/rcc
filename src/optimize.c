@@ -42,6 +42,8 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression);
 
 static bool statement_contains_loop_transfer(const Stmt* statement);
 static bool statement_contains_declaration(const Stmt* statement);
+static bool statement_contains_unroll_unsafe_declaration(
+    const Stmt* statement);
 static int unit_for_step(const Expr* increment, const Decl* induction);
 static bool for_initializer(const Stmt* initializer, Decl** induction,
                             const Expr** initial_value);
@@ -1527,6 +1529,78 @@ static bool statement_contains_declaration(const Stmt* statement) {
     }
 }
 
+static bool declaration_is_safe_to_unroll(const Decl* declaration) {
+    return declaration && declaration->kind == DECL_VAR &&
+        !declaration->var_is_global && !declaration->var_is_static_local &&
+        !declaration->var_is_thread_local && !declaration->var_is_vla &&
+        declaration->storage != STORAGE_EXTERN &&
+        declaration->storage != STORAGE_STATIC && declaration->type &&
+        type_is_scalar(declaration->type) && !declaration->type->is_volatile &&
+        !declaration->type->is_reference && !declaration->var_is_auto &&
+        !declaration->var_is_decltype_auto &&
+        !declaration->var_is_auto_reference &&
+        !declaration->var_is_auto_rvalue_reference &&
+        !declaration->var_cleanup && !declaration->var_cleanups;
+}
+
+static bool statement_contains_unroll_unsafe_declaration(
+    const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_DECL:
+            return !declaration_is_safe_to_unroll(statement->decl);
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (statement_contains_unroll_unsafe_declaration(item->stmt)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_IF:
+            return statement_contains_unroll_unsafe_declaration(
+                       statement->if_then) ||
+                statement_contains_unroll_unsafe_declaration(
+                    statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return statement_contains_unroll_unsafe_declaration(
+                statement->while_body);
+        case STMT_FOR:
+            return statement_contains_unroll_unsafe_declaration(
+                       statement->for_init) ||
+                statement_contains_unroll_unsafe_declaration(
+                    statement->for_body);
+        case STMT_SWITCH:
+            return statement_contains_unroll_unsafe_declaration(
+                statement->switch_body);
+        case STMT_CASE:
+            return statement_contains_unroll_unsafe_declaration(
+                statement->case_stmt);
+        case STMT_DEFAULT:
+            return statement_contains_unroll_unsafe_declaration(
+                statement->default_stmt);
+        case STMT_LABEL:
+            return statement_contains_unroll_unsafe_declaration(
+                statement->label_stmt);
+        case STMT_TRY:
+            if (statement_contains_unroll_unsafe_declaration(
+                    statement->try_body)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches;
+                 handler; handler = handler->next) {
+                if (statement_contains_unroll_unsafe_declaration(
+                        handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
 static int unit_for_step(const Expr* increment, const Decl* induction) {
     const Expr* lhs;
     const Expr* rhs;
@@ -1775,7 +1849,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
         !statement->for_inc || !statement->for_body ||
         statement_contains_loop_transfer(statement->for_body) ||
         statement_contains_label(statement->for_body) ||
-        statement_contains_declaration(statement->for_body)) {
+        statement_contains_unroll_unsafe_declaration(statement->for_body)) {
         return false;
     }
     initializer = statement->for_init;
@@ -2036,6 +2110,9 @@ static Stmt* clone_unrolled_stmt(const Stmt* statement) {
                 statement->block_stmts);
             if (statement->block_stmts && !copy->block_stmts) return NULL;
             break;
+        case STMT_DECL:
+            if (!declaration_is_safe_to_unroll(statement->decl)) return NULL;
+            break;
         case STMT_IF:
             copy->if_cond = clone_unrolled_expr(statement->if_cond);
             copy->if_then = clone_unrolled_stmt(statement->if_then);
@@ -2056,7 +2133,8 @@ static Stmt* clone_unrolled_stmt(const Stmt* statement) {
 
 static StmtList** append_unrolled_stmt(StmtList** tail, Stmt* statement) {
     if (!tail || !statement) return tail;
-    if (statement->kind == STMT_BLOCK) {
+    if (statement->kind == STMT_BLOCK &&
+        !statement_contains_declaration(statement)) {
         StmtList* item = statement->block_stmts;
         while (item) {
             *tail = item;
@@ -2161,7 +2239,8 @@ static bool unroll_single_iteration_for(Stmt* statement) {
         !integer_literal(condition->binary_rhs, &bound_value) ||
         step == 0 ||
         statement_contains_loop_transfer(statement->for_body) ||
-        statement_contains_label(statement->for_body)) {
+        statement_contains_label(statement->for_body) ||
+        statement_contains_unroll_unsafe_declaration(statement->for_body)) {
         return false;
     }
     if (induction->type->is_unsigned) {

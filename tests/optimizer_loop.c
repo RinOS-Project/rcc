@@ -222,6 +222,17 @@ int loop_single_post_value_with_decl(void)
     return result + index;
 }
 
+int loop_constant_two_with_decl(void)
+{
+    int index = 0;
+    int result = 0;
+    for (; index < 2; ++index) {
+        int value = index + 5;
+        result += value;
+    }
+    return result + index;
+}
+
 int loop_volatile_increment(void)
 {
     volatile int index = 0;
