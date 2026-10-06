@@ -37,6 +37,8 @@ int main(int argc, char** argv)
     size_t mapping_size;
     binary_function roundtrip;
     unary_function placeholder;
+    unary_function generic_output;
+    unary_function generic_read_write;
     unary_function read_write;
 
     assert(argc == 2);
@@ -60,9 +62,13 @@ int main(int argc, char** argv)
 
     LOAD_FUNCTION(roundtrip, object, mapping, "asm_fixed_register_roundtrip");
     LOAD_FUNCTION(placeholder, object, mapping, "asm_placeholder_move");
+    LOAD_FUNCTION(generic_output, object, mapping, "asm_generic_output_move");
+    LOAD_FUNCTION(generic_read_write, object, mapping, "asm_generic_read_write");
     LOAD_FUNCTION(read_write, object, mapping, "asm_read_write_accumulator");
     assert(roundtrip(37, 91) == 37);
     assert(placeholder(83) == 83);
+    assert(generic_output(97) == 97);
+    assert(generic_read_write(109) == 109);
     assert(read_write(53) == 53);
     LOAD_FUNCTION(read_write, object, mapping, "asm_callee_saved_clobber");
     assert(read_write(71) == 71);

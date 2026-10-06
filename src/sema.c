@@ -1201,16 +1201,13 @@ static bool sema_asm_register_name_supported(const char* name,
     }
     if (g_opts.target_arch == ARCH_X86) {
         if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
-        if (!output && (strcmp(name, "r") == 0 ||
-                        strcmp(name, "X") == 0)) return true;
+        if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) return true;
         rcc_error(loc, "unsupported i686 inline asm %s register constraint '%s'",
                   output ? "output" : "input", name);
         return false;
     }
     if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
-    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) {
-        if (!output) return true;
-    }
+    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) return true;
     if (!output && (strcmp(name, "{eax}") == 0 ||
                     strcmp(name, "{rax}") == 0 ||
                     strcmp(name, "{ebx}") == 0 ||
@@ -1340,6 +1337,7 @@ static int sema_asm_fixed_register_id(const char* name) {
     if (strcmp(name, "D") == 0 || strcmp(name, "edi") == 0 ||
         strcmp(name, "rdi") == 0 || strcmp(name, "di") == 0 ||
         strcmp(name, "{edi}") == 0 || strcmp(name, "{rdi}") == 0) return 5;
+    if (strcmp(name, "r10") == 0 || strcmp(name, "{r10}") == 0) return 6;
     return -1;
 }
 

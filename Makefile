@@ -9244,6 +9244,8 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "unsupported i686 inline asm clobber 'not_a_register'" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
+	$(GREP) -q "unsupported i686 inline asm clobber 'r10'" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "outputs use the same fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "inputs use the same fixed register" \

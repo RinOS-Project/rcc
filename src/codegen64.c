@@ -8398,9 +8398,9 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         ++output_count;
         int reg = codegen64_asm_register(operand->constraint);
-        if (reg != RAX) {
+        if (reg != RAX && reg != R10) {
             rcc_error(stmt->loc,
-                      "AMD64 inline asm currently requires '=a' outputs");
+                      "AMD64 inline asm currently requires '=a' or '=r' outputs");
             return;
         }
         if (operand->constraint[0] == '+') ++input_count;
@@ -8515,7 +8515,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
 
     if (preserve_rbx) emit64_pop_reg(mod, RBX);
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
-        emit64_push_reg(mod, RAX);
+        emit64_push_reg(mod, codegen64_asm_register(operand->constraint));
         gen64_lvalue(mod, operand->expr);
         emit64_mov_reg_reg(mod, RCX, RAX);
         emit64_pop_reg(mod, RAX);
