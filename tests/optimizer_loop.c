@@ -519,3 +519,31 @@ int switch_constant_no_match(void)
     }
     return result;
 }
+
+int switch_constant_sizeof(void)
+{
+    int result = 0;
+    switch (sizeof(char)) {
+        case 1:
+            result = 61;
+            break;
+        default:
+            result = 63;
+            break;
+    }
+    return result;
+}
+
+int switch_constant_alignof(void)
+{
+    int result = 0;
+    switch (_Alignof(char)) {
+        case 1:
+            result = 67;
+            break;
+        default:
+            result = 69;
+            break;
+    }
+    return result;
+}

@@ -4319,6 +4319,12 @@ static bool constant_switch_label_matches(const Stmt* label,
     return constant_switch_bits(value, switch_expression->type) == selector;
 }
 
+static bool constant_integer_expression(const Expr* expression,
+                                        int64_t* value) {
+    return expression && value &&
+        expr_eval_integer_constant((Expr*)expression, value);
+}
+
 static bool fold_constant_switch(Stmt* statement) {
     const Type* switch_type;
     StmtList* selected = NULL;
@@ -4332,7 +4338,8 @@ static bool fold_constant_switch(Stmt* statement) {
     if (!statement || statement->kind != STMT_SWITCH ||
         !statement->switch_expr || !statement->switch_body ||
         statement->switch_body->kind != STMT_BLOCK ||
-        !integer_literal(statement->switch_expr, &selector_value)) {
+        !constant_integer_expression(statement->switch_expr,
+                                     &selector_value)) {
         return false;
     }
     switch_type = statement->switch_expr->type;

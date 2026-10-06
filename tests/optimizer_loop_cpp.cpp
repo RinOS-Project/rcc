@@ -75,3 +75,31 @@ extern "C" int cxx_switch_constant_no_match(void)
     }
     return result;
 }
+
+extern "C" int cxx_switch_constant_sizeof(void)
+{
+    int result = 0;
+    switch (sizeof(char)) {
+        case 1:
+            result = 71;
+            break;
+        default:
+            result = 73;
+            break;
+    }
+    return result;
+}
+
+extern "C" int cxx_switch_constant_alignof(void)
+{
+    int result = 0;
+    switch (alignof(char)) {
+        case 1:
+            result = 77;
+            break;
+        default:
+            result = 79;
+            break;
+    }
+    return result;
+}

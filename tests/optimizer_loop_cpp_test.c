@@ -42,9 +42,10 @@ static void verify_pair(const char* unoptimized_path,
     static const char* const names[] = {
         "cxx_loop_for_two", "cxx_loop_while_two", "cxx_loop_do_two",
         "cxx_switch_constant_direct", "cxx_switch_constant_fallthrough",
-        "cxx_switch_constant_no_match"
+        "cxx_switch_constant_no_match", "cxx_switch_constant_sizeof",
+        "cxx_switch_constant_alignof"
     };
-    static const int expected[] = {146, 158, 166, 22, 8, 17};
+    static const int expected[] = {146, 158, 166, 22, 8, 17, 71, 77};
     (void)expected;
     ObjectFile* unoptimized = objfile_read(unoptimized_path);
     ObjectFile* optimized = objfile_read(optimized_path);
