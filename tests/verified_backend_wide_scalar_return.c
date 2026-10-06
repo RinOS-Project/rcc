@@ -275,6 +275,34 @@ unsigned long long verified_wide_scalar_nested_while(
     return local;
 }
 
+unsigned long long verified_wide_scalar_nested_for(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    while (count != 0u) {
+        for (unsigned int inner = 0u; inner < 2u; ++inner) {
+            local += 2ULL;
+        }
+        --count;
+    }
+    return local;
+}
+
+unsigned long long verified_wide_scalar_nested_do(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    while (count != 0u) {
+        unsigned int inner = 2u;
+        do {
+            local += 1ULL;
+            --inner;
+        } while (inner != 0u);
+        --count;
+    }
+    return local;
+}
+
 unsigned long long verified_wide_scalar_while_continue(
     unsigned long long value, unsigned int count)
 {
