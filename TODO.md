@@ -544,6 +544,10 @@
         `%bN`／`%wN`／`%kN` register modifier、`inb`／`inw`／`inl`／
         `outb`／`outw`／`outl`の実エンコード、およびmodifier付き`mov`の
         byte/word/dword encodingをi686/AMD64のC/C++で検証
+  - [x] `rcc/intrin.h`／`x86intrin.h` のCPUID、RDTSC/RDTSCP、MSR、control
+        register、I/O、fenceを受理だけにせず実x86命令へエンコードし、
+        i686/AMD64のC/C++ヘッダコンパイルと生成バイトを回帰検証。C++の
+        intrinsic vector型Itanium name manglingも同時に実装
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend

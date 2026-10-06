@@ -11128,9 +11128,31 @@ static char* asm_expand_template(const char* source, const int* registers,
 }
 
 /* Encode a single x86 instruction from mnemonic and operands */
+static bool asm_parse_control_register(const char* text, int* control) {
+    if (!text || !control) return false;
+    if (*text == '%') ++text;
+    if (text[0] != 'c' || text[1] != 'r' ||
+        text[2] < '0' || text[2] > '4' || text[3] != '\0') return false;
+    *control = text[2] - '0';
+    return true;
+}
+
 static bool emit_asm_instruction(Module* mod, const char* mnemonic,
-                                  const char* op1, const char* op2) {
+                                  const char* op1, const char* op2,
+                                  bool lock_prefix) {
     uint8_t immediate;
+
+    if (lock_prefix) {
+        if (strcmp(mnemonic, "orl") != 0 ||
+            !op1 || !op2 || strcmp(op1, "$0") != 0 ||
+            strcmp(op2, "(%esp)") != 0) return false;
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x83);
+        emit_byte(mod, 0x0C);
+        emit_byte(mod, 0x24);
+        emit_byte(mod, 0x00);
+        return true;
+    }
 
     if (strcmp(mnemonic, "inb") == 0 || strcmp(mnemonic, "inw") == 0 ||
         strcmp(mnemonic, "inl") == 0) {
@@ -11170,8 +11192,26 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
     if (strcmp(mnemonic, "mov") == 0) {
         int source;
         int destination;
+        int source_control;
+        int destination_control;
         int source_width;
         int destination_width;
+        if (asm_parse_control_register(op1, &source_control) &&
+            asm_parse_register_width(op2, &destination, &destination_width)) {
+            if (destination_width != 4) return false;
+            emit_byte(mod, 0x0F);
+            emit_byte(mod, 0x20);
+            emit_byte(mod, modrm(3, source_control, destination));
+            return true;
+        }
+        if (asm_parse_register_width(op1, &source, &source_width) &&
+            asm_parse_control_register(op2, &destination_control)) {
+            if (source_width != 4) return false;
+            emit_byte(mod, 0x0F);
+            emit_byte(mod, 0x22);
+            emit_byte(mod, modrm(3, destination_control, source));
+            return true;
+        }
         if (!asm_parse_register_width(op1, &source, &source_width) ||
             !asm_parse_register_width(op2, &destination,
                                        &destination_width) ||
@@ -11271,6 +11311,13 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x31);
+        return true;
+    }
+    else if (strcmp(mnemonic, "rdtscp") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x01);
+        emit_byte(mod, 0xF9);
         return true;
     }
     else if (strcmp(mnemonic, "rdmsr") == 0) {
@@ -11413,6 +11460,11 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     bool preserve_ebx = false;
     bool preserve_esi = false;
     bool preserve_edi = false;
+    for (int i = 0; i < output_count; i++) {
+        preserve_ebx = preserve_ebx || operands[i].reg == EBX;
+        preserve_esi = preserve_esi || operands[i].reg == ESI;
+        preserve_edi = preserve_edi || operands[i].reg == EDI;
+    }
     for (int i = output_count; i < total_operands; i++) {
         preserve_ebx = preserve_ebx || operands[i].reg == EBX;
         preserve_esi = preserve_esi || operands[i].reg == ESI;
@@ -11480,6 +11532,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     }
     char* p = tmpl_copy;
 
+    bool lock_prefix = false;
     while (*p) {
         /* Skip whitespace */
         while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
@@ -11540,13 +11593,17 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
                 }
             }
 
-            /* Emit the instruction */
-            if (!emit_asm_instruction(mod, mnemonic,
-                                       op1[0] ? op1 : NULL,
-                                       op2[0] ? op2 : NULL)) {
+            if (strcmp(mnemonic, "lock") == 0 && !op1[0] && !op2[0]) {
+                lock_prefix = true;
+            } else if (!emit_asm_instruction(mod, mnemonic,
+                                             op1[0] ? op1 : NULL,
+                                             op2[0] ? op2 : NULL,
+                                             lock_prefix)) {
                 rcc_error(stmt->loc,
                           "unsupported i686 inline asm instruction '%s'",
                           mnemonic);
+            } else {
+                lock_prefix = false;
             }
         }
 
@@ -11557,10 +11614,6 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     }
 
     rcc_free(tmpl_copy);
-
-    if (preserve_edi) emit_pop_reg(mod, EDI);
-    if (preserve_esi) emit_pop_reg(mod, ESI);
-    if (preserve_ebx) emit_pop_reg(mod, EBX);
 
     /* Store outputs from registers to lvalues */
     for (int i = 0; i < output_count; i++) {
@@ -11577,6 +11630,10 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
                                operands[i].op->expr->type);
         }
     }
+
+    if (preserve_edi) emit_pop_reg(mod, EDI);
+    if (preserve_esi) emit_pop_reg(mod, ESI);
+    if (preserve_ebx) emit_pop_reg(mod, EBX);
 
     if (operands) {
         if (operand_registers) rcc_free(operand_registers);

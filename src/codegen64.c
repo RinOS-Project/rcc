@@ -8289,6 +8289,20 @@ static bool codegen64_asm_parse_register_width(const char* text, size_t length,
     return false;
 }
 
+static bool codegen64_asm_parse_control_register(const char* text,
+                                                 size_t length, int* control)
+{
+    if (!text || !control) return false;
+    if (length > 0u && text[0] == '%') {
+        ++text;
+        --length;
+    }
+    if (length != 3u || text[0] != 'c' || text[1] != 'r' ||
+        text[2] < '0' || text[2] > '4') return false;
+    *control = text[2] - '0';
+    return true;
+}
+
 static bool codegen64_asm_parse_io_register(const char* text, size_t length,
                                             int* reg, int* width)
 {
@@ -8485,6 +8499,8 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
     int destination;
     int source_width;
     int destination_width;
+    int source_control;
+    int destination_control;
 
     if (length < 4u || strncmp(text, "mov", 3u) != 0 ||
         (text[3] != ' ' && text[3] != '\t')) return false;
@@ -8511,6 +8527,31 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
            (text[destination_begin + destination_length - 1u] == ' ' ||
             text[destination_begin + destination_length - 1u] == '\t')) {
         --destination_length;
+    }
+    if (codegen64_asm_parse_control_register(text + source_begin,
+                                             source_length, &source_control) &&
+        codegen64_asm_parse_register_width(text + destination_begin,
+                                            destination_length, &destination,
+                                            &destination_width)) {
+        if (destination_width != 8) return false;
+        emit_rex(mod, false, source_control, 0, destination);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x20);
+        emit_byte(mod, modrm64(3, source_control, destination));
+        return true;
+    }
+    if (codegen64_asm_parse_register_width(text + source_begin,
+                                            source_length, &source,
+                                            &source_width) &&
+        codegen64_asm_parse_control_register(text + destination_begin,
+                                             destination_length,
+                                             &destination_control)) {
+        if (source_width != 8) return false;
+        emit_rex(mod, false, destination_control, 0, source);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x22);
+        emit_byte(mod, modrm64(3, destination_control, source));
+        return true;
     }
     if (!codegen64_asm_parse_register_width(text + source_begin,
                                             source_length, &source,
@@ -8602,7 +8643,7 @@ static bool codegen64_asm_emit_io(Module* mod, const char* text,
 }
 
 static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
-                                           size_t length)
+                                           size_t length, bool lock_prefix)
 {
     uint8_t immediate;
 
@@ -8617,6 +8658,17 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         --length;
     }
     if (length == 0u) return true;
+    if (lock_prefix) {
+        if (length != 14u || strncmp(text, "orl $0, (%rsp)", length) != 0) {
+            return false;
+        }
+        emit_byte(mod, 0xF0);
+        emit_byte(mod, 0x83);
+        emit_byte(mod, 0x0C);
+        emit_byte(mod, 0x24);
+        emit_byte(mod, 0x00);
+        return true;
+    }
     if (codegen64_asm_emit_io(mod, text, length, "inb", 1, true) ||
         codegen64_asm_emit_io(mod, text, length, "inw", 2, true) ||
         codegen64_asm_emit_io(mod, text, length, "inl", 4, true) ||
@@ -8658,6 +8710,22 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
     if (codegen64_asm_no_operands(text, length, "rdtsc")) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x31);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "rdtscp")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x01);
+        emit_byte(mod, 0xF9);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "rdmsr")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x32);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "wrmsr")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x30);
         return true;
     }
     if (codegen64_asm_no_operands(text, length, "int3")) {
@@ -8734,12 +8802,14 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         ++output_count;
         int reg = codegen64_asm_register(operand->constraint);
-        if (reg != RAX && reg != R10) {
+        if (reg < 0) {
             rcc_error(stmt->loc,
-                      "AMD64 inline asm currently requires '=a' or '=r' outputs");
+                      "unsupported AMD64 inline asm output constraint '%s'",
+                      operand->constraint);
             return;
         }
         if (operand->constraint[0] == '+') ++input_count;
+        preserve_rbx = preserve_rbx || reg == RBX;
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
         ++asm_input_count;
@@ -8839,6 +8909,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         emit64_pop_reg(mod, registers[index]);
     }
 
+    bool lock_prefix = false;
     cursor = expanded_template;
     while (*cursor) {
         const char* begin;
@@ -8847,13 +8918,22 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         begin = cursor;
         while (*cursor && *cursor != ';' && *cursor != '\n') ++cursor;
         length = (size_t)(cursor - begin);
-        if (!codegen64_emit_asm_instruction(mod, begin, length)) {
+        while (length > 0u && (*begin == ' ' || *begin == '\t' ||
+                               *begin == '\r')) {
+            ++begin;
+            --length;
+        }
+        if (length == 4u && strncmp(begin, "lock", 4u) == 0) {
+            lock_prefix = true;
+            continue;
+        }
+        if (!codegen64_emit_asm_instruction(mod, begin, length, lock_prefix)) {
             rcc_error(stmt->loc, "unsupported AMD64 inline asm instruction");
             break;
         }
+        lock_prefix = false;
     }
 
-    if (preserve_rbx) emit64_pop_reg(mod, RBX);
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         emit64_push_reg(mod, codegen64_asm_register(operand->constraint));
         gen64_lvalue(mod, operand->expr);
@@ -8861,6 +8941,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         emit64_pop_reg(mod, RAX);
         emit64_store_typed(mod, RCX, 0, RAX, operand->expr->type);
     }
+    if (preserve_rbx) emit64_pop_reg(mod, RBX);
     rcc_free(expanded_template);
     rcc_free(immediate_flags);
     rcc_free(immediate_values);

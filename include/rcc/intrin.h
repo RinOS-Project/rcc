@@ -13,13 +13,13 @@
 /* Bit scanning */
 static __inline unsigned char _BitScanForward(unsigned long* _Index, unsigned long _Mask) {
     if (_Mask == 0) return 0;
-    *_Index = __builtin_ctz(_Mask);
+    *_Index = __builtin_ctzl(_Mask);
     return 1;
 }
 
 static __inline unsigned char _BitScanReverse(unsigned long* _Index, unsigned long _Mask) {
     if (_Mask == 0) return 0;
-    *_Index = 31 - __builtin_clz(_Mask);
+    *_Index = (unsigned long)(sizeof(_Mask) * 8 - 1) - __builtin_clzl(_Mask);
     return 1;
 }
 
@@ -43,7 +43,7 @@ static __inline unsigned short _byteswap_ushort(unsigned short _x) {
 }
 
 static __inline unsigned long _byteswap_ulong(unsigned long _x) {
-    return __builtin_bswap32(_x);
+    return (unsigned long)__builtin_bswap32((unsigned int)_x);
 }
 
 static __inline unsigned long long _byteswap_uint64(unsigned long long _x) {
@@ -133,7 +133,11 @@ static __inline void _WriteBarrier(void) {
 
 /* Memory fence */
 static __inline void __faststorefence(void) {
+#ifdef __x86_64__
     __asm__ __volatile__("lock; orl $0, (%%rsp)" ::: "memory");
+#else
+    __asm__ __volatile__("lock; orl $0, (%%esp)" ::: "memory");
+#endif
 }
 
 /* Halt */
@@ -225,26 +229,6 @@ static __inline void __outword(unsigned short _Port, unsigned short _Val) {
 
 static __inline void __outdword(unsigned short _Port, unsigned long _Val) {
     __asm__ __volatile__("outl %k0, %w1" :: "a"(_Val), "Nd"(_Port));
-}
-
-/* CPUID */
-static __inline void __cpuid(int _Info[4], int _Type) {
-    __asm__ __volatile__("cpuid"
-        : "=a"(_Info[0]), "=b"(_Info[1]), "=c"(_Info[2]), "=d"(_Info[3])
-        : "a"(_Type), "c"(0));
-}
-
-static __inline void __cpuidex(int _Info[4], int _Type, int _SubType) {
-    __asm__ __volatile__("cpuid"
-        : "=a"(_Info[0]), "=b"(_Info[1]), "=c"(_Info[2]), "=d"(_Info[3])
-        : "a"(_Type), "c"(_SubType));
-}
-
-/* RDTSC */
-static __inline unsigned long long __rdtsc(void) {
-    unsigned int __lo, __hi;
-    __asm__ __volatile__("rdtsc" : "=a"(__lo), "=d"(__hi));
-    return ((unsigned long long)__hi << 32) | __lo;
 }
 
 /* Interrupt enable/disable */

@@ -334,6 +334,16 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
                               type->is_unsigned ? 'y' : 'x'); break;
         case TYPE_FLOAT:  cxx_mangle_type_char(buf, pos, 'f'); break;
         case TYPE_DOUBLE: cxx_mangle_type_char(buf, pos, 'd'); break;
+        case TYPE_VECTOR: {
+            int written = snprintf(buf + *pos, 256u - *pos, "Dv%d_",
+                                   type->array_len);
+            if (written < 0 || (size_t)written >= 256u - *pos) {
+                rcc_fatal("C++ vector type name is too long");
+            }
+            *pos += (size_t)written;
+            cxx_mangle_type_append(buf, pos, type->base);
+            break;
+        }
         case TYPE_NULLPTR:
             cxx_mangle_type_char(buf, pos, 'D');
             cxx_mangle_type_char(buf, pos, 'n');
