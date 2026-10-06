@@ -10,3 +10,11 @@ extern "C" unsigned long long verified_cxx_wide_scalar_conditional_assign(
     local = (condition && value != 0ULL) ? value + 1ULL : 7ULL;
     return local;
 }
+
+extern "C" unsigned long long verified_cxx_wide_scalar_conditional_compound(
+    int condition, unsigned long long value)
+{
+    unsigned long long local = value;
+    local += condition ? 1ULL : 2ULL;
+    return local;
+}

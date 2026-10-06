@@ -2846,6 +2846,7 @@ static bool lower_wide_scalar_expression_impl(
                     return false;
                 }
                 local->wide_value = value;
+                local->wide_ssa_block = context->current;
                 *result = value;
                 return true;
             }
