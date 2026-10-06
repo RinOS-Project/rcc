@@ -84,6 +84,10 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "folded_float_arithmetic"));
     assert(function_extent(optimized, "folded_float_unary") <
            function_extent(unoptimized, "folded_float_unary"));
+    assert(function_extent(optimized, "folded_float_cast_from_int") <
+           function_extent(unoptimized, "folded_float_cast_from_int"));
+    assert(function_extent(optimized, "folded_float_narrow_cast") <
+           function_extent(unoptimized, "folded_float_narrow_cast"));
     assert(function_extent(optimized, "folded_float_compare") <
            function_extent(unoptimized, "folded_float_compare"));
     assert(function_extent(optimized, "folded_float_branch") <
@@ -314,6 +318,10 @@ int main(int argc, char** argv)
             object, "folded_float_arithmetic");
         ObjSymbol* float_unary_symbol = function_symbol(
             object, "folded_float_unary");
+        ObjSymbol* float_cast_symbol = function_symbol(
+            object, "folded_float_cast_from_int");
+        ObjSymbol* float_narrow_cast_symbol = function_symbol(
+            object, "folded_float_narrow_cast");
         ObjSymbol* float_compare_symbol = function_symbol(
             object, "folded_float_compare");
         ObjSymbol* float_branch_symbol = function_symbol(
@@ -445,6 +453,8 @@ int main(int argc, char** argv)
         int (*folded_arithmetic)(void);
         double (*folded_float_arithmetic)(void);
         float (*folded_float_unary)(void);
+        double (*folded_float_cast_from_int)(void);
+        float (*folded_float_narrow_cast)(void);
         int (*folded_float_compare)(void);
         int (*folded_float_branch)(void);
         int (*folded_choice)(int);
@@ -547,6 +557,12 @@ int main(int argc, char** argv)
                sizeof(folded_float_arithmetic));
         address = mapping + float_unary_symbol->value;
         memcpy(&folded_float_unary, &address, sizeof(folded_float_unary));
+        address = mapping + float_cast_symbol->value;
+        memcpy(&folded_float_cast_from_int, &address,
+               sizeof(folded_float_cast_from_int));
+        address = mapping + float_narrow_cast_symbol->value;
+        memcpy(&folded_float_narrow_cast, &address,
+               sizeof(folded_float_narrow_cast));
         address = mapping + float_compare_symbol->value;
         memcpy(&folded_float_compare, &address, sizeof(folded_float_compare));
         address = mapping + float_branch_symbol->value;
@@ -866,6 +882,10 @@ int main(int argc, char** argv)
                folded_float_arithmetic() < 6.001);
         assert(folded_float_unary() > 2.499f &&
                folded_float_unary() < 2.501f);
+        assert(folded_float_cast_from_int() > 6.999 &&
+               folded_float_cast_from_int() < 7.001);
+        assert(folded_float_narrow_cast() > 16777215.5f &&
+               folded_float_narrow_cast() < 16777216.5f);
         assert(folded_float_compare() == 1);
         assert(folded_float_branch() == 17);
         assert(folded_choice(7) == 42);

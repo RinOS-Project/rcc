@@ -333,6 +333,7 @@ static bool fold_float_literals(Expr* expression) {
     double left;
     double right;
     double result;
+    int64_t left_int;
     bool comparison;
     bool left_truth;
     bool right_truth;
@@ -340,6 +341,36 @@ static bool fold_float_literals(Expr* expression) {
     float right_float;
     float float_result;
     if (!expression) return false;
+    if (expression->kind == EXPR_CAST && expression->cast_expr) {
+        if (float_literal(expression->cast_expr, &left)) {
+            if (expression->type && type_is_floating(expression->type)) {
+                replace_float(expression, left);
+                return true;
+            }
+            if (expression->type && expression->type->kind == TYPE_BOOL) {
+                replace_integer(expression, left == 0.0 ? 0 : 1);
+                return true;
+            }
+        } else if (expression->type &&
+                   type_is_floating(expression->type) &&
+                   integer_literal(expression->cast_expr, &left_int)) {
+            const Type* source_type = expression->cast_expr->type;
+            uint64_t integer_bits = (uint64_t)left_int;
+            if (!source_type || !type_is_integer((Type*)source_type)) {
+                return false;
+            }
+            if (source_type && source_type->is_unsigned) {
+                integer_bits = integer_unsigned_value(left_int, source_type);
+                replace_float(expression, (double)integer_bits);
+            } else {
+                replace_float(expression,
+                              (double)integer_signed_value(left_int,
+                                                           source_type));
+            }
+            return true;
+        }
+        return false;
+    }
     if (expression->kind == EXPR_NEG &&
         float_literal(expression->unary_operand, &left)) {
         replace_float(expression, -left);

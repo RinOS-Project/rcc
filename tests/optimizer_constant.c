@@ -13,6 +13,16 @@ float folded_float_unary(void)
     return -(-2.5f);
 }
 
+double folded_float_cast_from_int(void)
+{
+    return (double)7;
+}
+
+float folded_float_narrow_cast(void)
+{
+    return (float)16777217;
+}
+
 int folded_float_compare(void)
 {
     return (1.25f < 2.5f) && !(3.0f == 4.0f);
