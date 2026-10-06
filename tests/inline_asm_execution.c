@@ -22,6 +22,13 @@ int asm_placeholder_move(int value)
     return result;
 }
 
+int asm_generic_placeholder_move(int value)
+{
+    int result;
+    __asm__ __volatile__("mov %1, %0" : "=a"(result) : "r"(value));
+    return result;
+}
+
 void asm_immediate_interrupt(void)
 {
     __asm__ __volatile__("int %0" : : "i"(0x40 + 0x40));

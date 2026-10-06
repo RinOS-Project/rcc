@@ -10872,7 +10872,8 @@ static int constraint_to_reg(const char* constraint) {
         case 'd': return EDX;
         case 'S': return ESI;
         case 'D': return EDI;
-        case 'r': return -2;  /* Any register */
+        case 'r':
+        case 'X': return ECX; /* Bounded generic input register */
         case 'm': return -1;  /* Memory */
         case 'i':
         case 'n': return -3;  /* Integer constant */

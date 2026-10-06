@@ -1201,6 +1201,8 @@ static bool sema_asm_register_name_supported(const char* name,
     }
     if (g_opts.target_arch == ARCH_X86) {
         if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
+        if (!output && (strcmp(name, "r") == 0 ||
+                        strcmp(name, "X") == 0)) return true;
         rcc_error(loc, "unsupported i686 inline asm %s register constraint '%s'",
                   output ? "output" : "input", name);
         return false;
@@ -1308,13 +1310,14 @@ static bool sema_asm_clobber_supported(const char* name, SourceLoc loc) {
 
 /* The bounded backend assigns every fixed-register operand directly.  Keep
  * the conflict check here, before code generation can silently let one pop
- * overwrite another operand.  The current AMD64 backend materializes every
- * generic input class in one dedicated scratch register, so duplicate generic
- * inputs are conflicts as well. */
+ * overwrite another operand.  Each target materializes a generic input class
+ * in one dedicated scratch register, so duplicate generic inputs are conflicts
+ * as well. */
 static int sema_asm_fixed_register_id(const char* name) {
     if (!name || !name[0]) return -1;
-    if (g_opts.target_arch == ARCH_X64 &&
-        (strcmp(name, "r") == 0 || strcmp(name, "X") == 0)) return 6;
+    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) {
+        return g_opts.target_arch == ARCH_X64 ? 6 : 2;
+    }
     if (strcmp(name, "a") == 0 || strcmp(name, "eax") == 0 ||
         strcmp(name, "rax") == 0 || strcmp(name, "ax") == 0 ||
         strcmp(name, "al") == 0 || strcmp(name, "ah") == 0 ||

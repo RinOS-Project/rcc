@@ -76,6 +76,16 @@ static void verify(const char* path, uint16_t architecture,
                                             : sizeof(x86_move));
 }
 
+static void verify_generic(const char* path, uint16_t architecture)
+{
+    static const uint8_t x86_move[] = {0x89u, 0xc8u};
+    static const uint8_t x64_move[] = {0x4cu, 0x89u, 0xd0u};
+    verify_pattern(path, architecture, "asm_generic_placeholder_move",
+                   architecture == ARCH_X64 ? x64_move : x86_move,
+                   architecture == ARCH_X64 ? sizeof(x64_move)
+                                            : sizeof(x86_move));
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 4);
@@ -83,6 +93,8 @@ int main(int argc, char** argv)
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
+    verify_generic(argv[1], ARCH_X86);
+    verify_generic(argv[2], ARCH_X64);
     verify_pattern(argv[1], ARCH_X86, "asm_immediate_interrupt",
                    interrupt, sizeof(interrupt));
     verify_pattern(argv[2], ARCH_X64, "asm_immediate_interrupt",

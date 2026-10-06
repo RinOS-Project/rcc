@@ -526,6 +526,8 @@
   - [x] 整数定数式の`i`／`n` input constraintを意味解析で検証し、両archの
         `%N` placeholderを即値へ展開して`int $imm8`を実バイト生成する回帰と、
         非定数入力を拒否する診断を追加
+  - [x] i686の汎用`r`／`X` input constraintをECXへ決定的に割り当て、重複・
+        clobber衝突を診断して`mov`の実バイト生成まで両archで回帰検証
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend
