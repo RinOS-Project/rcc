@@ -131,8 +131,9 @@
         defaults and dual-arch object/runtime coverage.
   - [x] Extend `__builtin_strlen` from string literals to character pointers
         and arrays. Evaluate the operand once and emit a real byte-scan loop
-        for i686/AMD64, while retaining literal constant lowering and explicit
-        diagnostics for non-character operands; cover C/C++ execution.
+        in both legacy and verified typed-SSA i686/AMD64 paths, while retaining
+        literal constant lowering and explicit diagnostics for non-character
+        operands; cover C/C++ execution and verified object generation.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] atomic-qualified整数の`&=`／`|=`／`^=`を一回評価のCAS retry loopでloweringし、

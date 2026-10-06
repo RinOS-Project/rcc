@@ -4630,6 +4630,119 @@ static RccIrLowerValue lower_builtin_bit_count(
     return result;
 }
 
+static RccIrLowerValue lower_builtin_strlen_scan(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* argument;
+    RccIrLowerValue pointer;
+    RccIrLowerValue initial_count;
+    RccIrLowerValue index;
+    RccIrLowerValue zero_byte;
+    RccIrType result_type;
+    RccIrType index_type;
+    RccIrType byte_type;
+    RccIrBlock* entry;
+    RccIrBlock* loop;
+    RccIrBlock* advance;
+    RccIrBlock* done;
+    RccIrInstruction* pointer_phi;
+    RccIrInstruction* count_phi;
+    RccIrInstruction* load;
+    RccIrInstruction* compare;
+    RccIrInstruction* next_pointer;
+    RccIrInstruction* next_count;
+    RccIrValue phi_operands[2];
+    RccIrBlockId phi_targets[2];
+    RccIrValue compare_operands[2];
+    RccIrLowerValue condition;
+
+    argument = expression ? expression->call_args : NULL;
+    if (!context || !expression || !argument || argument->next ||
+        !argument->expr || !expression->type ||
+        !lower_type(expression->type, &result_type) ||
+        result_type.kind != RCC_IR_TYPE_INTEGER ||
+        !lower_type(type_long, &index_type) ||
+        index_type.kind != RCC_IR_TYPE_INTEGER ||
+        !lower_type(type_uchar, &byte_type) ||
+        byte_type.kind != RCC_IR_TYPE_INTEGER) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    pointer = lower_expression(context, argument->expr);
+    if (!pointer.valid || pointer.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    entry = context->current;
+    loop = rcc_ir_block_add(context->function, "strlen.loop");
+    advance = rcc_ir_block_add(context->function, "strlen.advance");
+    done = rcc_ir_block_add(context->function, "strlen.done");
+    if (!entry || !loop || !advance || !done) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    initial_count = lower_integer_constant(
+        context, result_type, expression->type->is_unsigned, 0u);
+    index = lower_integer_constant(context, index_type, true, 1u);
+    zero_byte = lower_integer_constant(context, byte_type, true, 0u);
+    if (!initial_count.valid || !index.valid || !zero_byte.valid ||
+        !lower_branch(context, loop->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = loop;
+    context->terminated = false;
+    phi_operands[0] = pointer.value;
+    phi_operands[1] = RCC_IR_VALUE_NONE;
+    phi_targets[0] = entry->id;
+    phi_targets[1] = advance->id;
+    pointer_phi = lower_append(
+        context, RCC_IR_PHI, rcc_ir_type_pointer(0u), phi_operands, 2u,
+        phi_targets, 2u);
+    phi_operands[0] = initial_count.value;
+    phi_operands[1] = RCC_IR_VALUE_NONE;
+    count_phi = lower_append(
+        context, RCC_IR_PHI, result_type, phi_operands, 2u,
+        phi_targets, 2u);
+    if (!pointer_phi || !count_phi) return lower_invalid_value();
+    load = lower_append(context, RCC_IR_LOAD, byte_type,
+                        &pointer_phi->result, 1u, NULL, 0u);
+    if (!load) return lower_invalid_value();
+    compare_operands[0] = load->result;
+    compare_operands[1] = zero_byte.value;
+    compare = lower_append(context, RCC_IR_ICMP,
+                           rcc_ir_type_integer(1u), compare_operands, 2u,
+                           NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+    condition = lower_value(compare->result, rcc_ir_type_integer(1u), true);
+    if (!lower_conditional_branch(context, condition, done->id,
+                                  advance->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = advance;
+    context->terminated = false;
+    phi_operands[0] = pointer_phi->result;
+    phi_operands[1] = index.value;
+    next_pointer = lower_append(
+        context, RCC_IR_GEP, rcc_ir_type_pointer(0u), phi_operands, 2u,
+        NULL, 0u);
+    if (next_pointer) rcc_ir_set_immediate(next_pointer, 1u);
+    phi_operands[0] = count_phi->result;
+    next_count = lower_append(context, RCC_IR_ADD, result_type,
+                              phi_operands, 2u, NULL, 0u);
+    if (!next_pointer || !next_count || !lower_branch(context, loop->id)) {
+        return lower_invalid_value();
+    }
+    pointer_phi->operands[1] = next_pointer->result;
+    count_phi->operands[1] = next_count->result;
+
+    context->current = done;
+    context->terminated = false;
+    return lower_value(count_phi->result, result_type,
+                       expression->type->is_unsigned);
+}
+
 static RccIrLowerValue lower_builtin_call(
     RccIrLowerContext* context, const Expr* expression) {
     const ExprList* first;
@@ -4677,19 +4790,25 @@ static RccIrLowerValue lower_builtin_call(
     if (strcmp(name, "__builtin_strlen") == 0) {
         const ExprList* argument = expression->call_args;
         const Expr* string = argument ? argument->expr : NULL;
+        const Expr* literal = string;
         RccIrType result_type;
-        while (string && string->kind == EXPR_CAST) string = string->cast_expr;
+        while (literal && literal->kind == EXPR_CAST) {
+            literal = literal->cast_expr;
+        }
         if (!argument || argument->next || !string ||
-            string->kind != EXPR_STRING_LIT ||
-            string->str_length == SIZE_MAX || !expression->type ||
+            !expression->type ||
             !lower_type(expression->type, &result_type) ||
             result_type.kind != RCC_IR_TYPE_INTEGER) {
             context->unsupported = true;
             return lower_invalid_value();
         }
-        return lower_integer_constant(
-            context, result_type, expression->type->is_unsigned,
-            (uint64_t)string->str_length);
+        if (literal && literal->kind == EXPR_STRING_LIT &&
+            literal->str_length != SIZE_MAX) {
+            return lower_integer_constant(
+                context, result_type, expression->type->is_unsigned,
+                (uint64_t)literal->str_length);
+        }
+        return lower_builtin_strlen_scan(context, expression);
     }
     if (strcmp(name, "__builtin_prefetch") == 0) {
         const ExprList* first = expression->call_args;

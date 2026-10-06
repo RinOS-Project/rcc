@@ -50,6 +50,11 @@ int verified_builtin_ffsl(unsigned long value)
     return __builtin_ffsl(value);
 }
 
+int verified_builtin_strlen(const char *value)
+{
+    return (int)__builtin_strlen(value);
+}
+
 #if defined(__x86_64__)
 int verified_builtin_ffsll(unsigned long long value)
 {
@@ -73,5 +78,9 @@ int main(void)
 #if defined(__x86_64__)
     if (verified_builtin_ffsll(1ULL << 40) != 41) return 12;
 #endif
+    {
+        const char value[] = "RinOS";
+        if (verified_builtin_strlen(value + 1) != 4) return 13;
+    }
     return 0;
 }

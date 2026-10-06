@@ -76,6 +76,11 @@ extern "C" int verified_cxx_builtin_prefetch(int* value)
     return *value;
 }
 
+extern "C" int verified_cxx_builtin_strlen(const char *value)
+{
+    return static_cast<int>(__builtin_strlen(value));
+}
+
 extern "C" int main(void)
 {
     if (verified_cxx_builtin_expect(31) != 31) return 1;
@@ -96,6 +101,10 @@ extern "C" int main(void)
     {
         int value = 37;
         if (verified_cxx_builtin_prefetch(&value) != 37) return 16;
+    }
+    {
+        const char value[] = "RinOS";
+        if (verified_cxx_builtin_strlen(value + 2) != 3) return 17;
     }
     return 0;
 }
