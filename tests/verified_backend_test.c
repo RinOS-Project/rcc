@@ -193,6 +193,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* nested_while_symbol;
     ObjSymbol* nested_for_symbol;
     ObjSymbol* nested_do_symbol;
+    ObjSymbol* switch_symbol;
+    ObjSymbol* switch_loop_symbol;
     ObjSymbol* while_continue_symbol;
     ObjSymbol* for_break_symbol;
     ObjSymbol* do_control_symbol;
@@ -281,6 +283,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_nested_for");
     nested_do_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_nested_do");
+    switch_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_switch");
+    switch_loop_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_switch_loop");
     while_continue_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_while_continue");
     for_break_symbol = objfile_find_symbol(
@@ -437,6 +443,14 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            nested_do_symbol->type == SYM_GLOBAL &&
            nested_do_symbol->binding == BIND_CODE &&
            nested_do_symbol->section == 0);
+    assert(switch_symbol != NULL &&
+           switch_symbol->type == SYM_GLOBAL &&
+           switch_symbol->binding == BIND_CODE &&
+           switch_symbol->section == 0);
+    assert(switch_loop_symbol != NULL &&
+           switch_loop_symbol->type == SYM_GLOBAL &&
+           switch_loop_symbol->binding == BIND_CODE &&
+           switch_loop_symbol->section == 0);
     assert(while_continue_symbol != NULL &&
            while_continue_symbol->type == SYM_GLOBAL &&
            while_continue_symbol->binding == BIND_CODE &&
@@ -511,6 +525,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*nested_for_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*nested_do_function)(
+            unsigned long long, unsigned int);
+        unsigned long long RINOS_ABI (*switch_function)(
+            unsigned int, unsigned long long);
+        unsigned long long RINOS_ABI (*switch_loop_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*while_continue_function)(
             unsigned long long, unsigned int);
@@ -717,6 +735,23 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&nested_do_function, &address, sizeof(nested_do_function));
         assert(nested_do_function(0x0000000200000002ULL, 3u) ==
                0x0000000200000008ULL);
+        address = symbol_address(memory, switch_symbol);
+        memcpy(&switch_function, &address, sizeof(switch_function));
+        assert(switch_function(0u, 0x0000000200000002ULL) ==
+               0x0000000200000003ULL);
+        assert(switch_function(1u, 0x0000000200000002ULL) ==
+               0x0000000200000004ULL);
+        assert(switch_function(2u, 0x0000000200000002ULL) ==
+               0x0000000200000005ULL);
+        address = symbol_address(memory, switch_loop_symbol);
+        memcpy(&switch_loop_function, &address,
+               sizeof(switch_loop_function));
+        assert(switch_loop_function(0x0000000200000002ULL, 3u) ==
+               0x0000000200000007ULL);
+        assert(switch_loop_function(0x0000000200000002ULL, 1u) ==
+               0x0000000200000003ULL);
+        assert(switch_loop_function(0x0000000200000002ULL, 0u) ==
+               0x0000000200000002ULL);
         address = symbol_address(memory, while_continue_symbol);
         memcpy(&while_continue_function, &address,
                sizeof(while_continue_function));

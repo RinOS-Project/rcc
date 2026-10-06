@@ -76,6 +76,10 @@ typedef struct RccIrLowerSwitch {
     RccIrLowerSwitchLabel* labels;
     RccIrLowerSwitchLabel* labels_tail;
     RccIrLowerSwitchLabel* default_label;
+    RccIrLowerWideState* wide_baseline;
+    RccIrLowerLoopEdge* wide_breaks;
+    RccIrLowerLoopFrame* wide_loop_owner;
+    bool wide_ssa;
     struct RccIrLowerSwitch* previous;
 } RccIrLowerSwitch;
 
@@ -157,6 +161,7 @@ static bool lower_switch(RccIrLowerContext* context,
                          const Stmt* statement);
 static bool lower_switch_case(RccIrLowerContext* context,
                               const Stmt* statement);
+static bool lower_wide_switch_body_edge_safe(const Stmt* statement);
 static bool lower_struct_type_supported(const Type* type);
 static bool lower_copy_struct_storage(
     RccIrLowerContext* context, RccIrValue destination,
@@ -1272,13 +1277,65 @@ static bool lower_wide_loop_body_edge_safe(const Stmt* statement) {
         case STMT_GOTO:
         case STMT_THROW:
         case STMT_LABEL:
+            return false;
         case STMT_SWITCH:
+            return lower_wide_switch_body_edge_safe(statement);
         case STMT_CASE:
         case STMT_DEFAULT:
             return false;
         default:
             return true;
     }
+}
+
+static bool lower_wide_switch_case_terminates(const Stmt* statement) {
+    const StmtList* item;
+    bool falls_through = true;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BREAK:
+        case STMT_RETURN:
+            return true;
+        case STMT_IF:
+            return statement->if_else != NULL &&
+                lower_wide_switch_case_terminates(statement->if_then) &&
+                lower_wide_switch_case_terminates(statement->if_else);
+        case STMT_BLOCK:
+            if (!statement->block_stmts) return false;
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (falls_through) {
+                    falls_through = !lower_wide_switch_case_terminates(
+                        item->stmt);
+                }
+            }
+            return !falls_through;
+        default:
+            return false;
+    }
+}
+
+static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
+    const StmtList* item;
+    bool found_default = false;
+    if (!statement || statement->kind != STMT_SWITCH ||
+        !statement->switch_body ||
+        statement->switch_body->kind != STMT_BLOCK) {
+        return false;
+    }
+    for (item = statement->switch_body->block_stmts; item;
+         item = item->next) {
+        if (!item->stmt || (item->stmt->kind != STMT_CASE &&
+                            item->stmt->kind != STMT_DEFAULT)) {
+            return false;
+        }
+        if (item->stmt->kind == STMT_DEFAULT) found_default = true;
+        if (!lower_wide_switch_case_terminates(
+                item->stmt->kind == STMT_CASE
+                    ? item->stmt->case_stmt : item->stmt->default_stmt)) {
+            return false;
+        }
+    }
+    return found_default;
 }
 
 static void lower_release_wide_loop_edges(RccIrLowerLoopEdge* edges) {
@@ -1306,6 +1363,28 @@ static bool lower_record_wide_loop_edge(
     list = is_break ? &frame->breaks : &frame->continues;
     edge->next = *list;
     *list = edge;
+    return true;
+}
+
+static bool lower_record_wide_switch_break(
+    RccIrLowerContext* context) {
+    RccIrLowerSwitch* switch_context;
+    RccIrLowerWideState* states;
+    RccIrLowerLoopEdge* edge;
+    if (!context || !context->current_switch ||
+        !context->current_switch->wide_ssa || !context->current ||
+        context->wide_loop != context->current_switch->wide_loop_owner) {
+        return false;
+    }
+    switch_context = context->current_switch;
+    states = lower_capture_wide_branch_states(
+        context, switch_context->wide_baseline);
+    if (!states) return false;
+    edge = rcc_alloc(sizeof(*edge));
+    edge->block = context->current;
+    edge->states = states;
+    edge->next = switch_context->wide_breaks;
+    switch_context->wide_breaks = edge;
     return true;
 }
 
@@ -6358,6 +6437,11 @@ static bool lower_switch_case(RccIrLowerContext* context,
     }
     context->current = label->block;
     context->terminated = false;
+    if (context->current_switch && context->current_switch->wide_ssa) {
+        lower_restore_wide_states(context->current_switch->wide_baseline);
+        lower_set_wide_state_block(
+            context->current_switch->wide_baseline, label->block);
+    }
     child = statement->kind == STMT_CASE
         ? statement->case_stmt : statement->default_stmt;
     return lower_statement(context, child);
@@ -6469,6 +6553,11 @@ static bool lower_switch(RccIrLowerContext* context,
         }
     }
 
+    if (lower_wide_switch_body_edge_safe(statement)) {
+        switch_context.wide_baseline = lower_capture_wide_states(context);
+        switch_context.wide_ssa = switch_context.wide_baseline != NULL;
+        switch_context.wide_loop_owner = context->wide_loop;
+    }
     old_break = context->break_target;
     context->break_target = exit_block->id;
     context->current_switch = &switch_context;
@@ -6480,10 +6569,39 @@ static bool lower_switch(RccIrLowerContext* context,
     }
     context->current_switch = switch_context.previous;
     context->break_target = old_break;
-    lower_release_switch_labels(&switch_context);
-    if (!body_ok) return false;
+    if (!body_ok) {
+        lower_release_wide_loop_edges(switch_context.wide_breaks);
+        lower_release_wide_states(switch_context.wide_baseline);
+        lower_release_switch_labels(&switch_context);
+        return false;
+    }
     context->current = exit_block;
     context->terminated = false;
+    if (switch_context.wide_ssa) {
+        RccIrLowerWideState* state;
+        for (state = switch_context.wide_baseline; state;
+             state = state->next) {
+            state->block = shadow_block;
+        }
+        if (switch_context.wide_breaks) {
+            if (!lower_build_wide_exit_states(
+                    context, switch_context.wide_baseline,
+                    switch_context.wide_baseline,
+                    switch_context.wide_breaks, exit_block)) {
+                lower_release_wide_loop_edges(switch_context.wide_breaks);
+                lower_release_wide_states(switch_context.wide_baseline);
+                lower_release_switch_labels(&switch_context);
+                return false;
+            }
+        } else {
+            lower_restore_wide_states(switch_context.wide_baseline);
+            lower_set_wide_state_block(
+                switch_context.wide_baseline, exit_block);
+        }
+        lower_release_wide_loop_edges(switch_context.wide_breaks);
+        lower_release_wide_states(switch_context.wide_baseline);
+    }
+    lower_release_switch_labels(&switch_context);
     return true;
 }
 
@@ -8180,7 +8298,18 @@ static bool lower_statement(RccIrLowerContext* context,
         case STMT_FOR:
             return lower_for(context, statement);
         case STMT_BREAK:
-            if (context->wide_loop &&
+            if (context->current_switch &&
+                context->current_switch->wide_ssa &&
+                context->wide_loop ==
+                    context->current_switch->wide_loop_owner &&
+                !lower_record_wide_switch_break(context)) {
+                return false;
+            }
+            if ((!context->current_switch ||
+                 !context->current_switch->wide_ssa ||
+                 context->wide_loop !=
+                     context->current_switch->wide_loop_owner) &&
+                context->wide_loop &&
                 !lower_record_wide_loop_edge(context, true)) {
                 return false;
             }

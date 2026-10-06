@@ -303,6 +303,42 @@ unsigned long long verified_wide_scalar_nested_do(
     return local;
 }
 
+unsigned long long verified_wide_scalar_switch(
+    unsigned int selector, unsigned long long value)
+{
+    unsigned long long local = value;
+    switch (selector) {
+        case 0u:
+            local += 1ULL;
+            break;
+        case 1u:
+            local += 2ULL;
+            break;
+        default:
+            local += 3ULL;
+            break;
+    }
+    return local;
+}
+
+unsigned long long verified_wide_scalar_switch_loop(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    while (count != 0u) {
+        switch (count) {
+            case 1u:
+                local += 1ULL;
+                break;
+            default:
+                local += 2ULL;
+                break;
+        }
+        --count;
+    }
+    return local;
+}
+
 unsigned long long verified_wide_scalar_while_continue(
     unsigned long long value, unsigned int count)
 {
