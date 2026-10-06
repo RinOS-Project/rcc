@@ -434,14 +434,25 @@ static Expr* clone_inline_scalar_expression(
     if (expression->kind == EXPR_IDENT) {
         binding_index = inline_scalar_binding_index(
             expression->ident_decl, bindings, binding_count);
-        if (binding_index >= binding_count) return NULL;
+        /* An identifier outside the callee binding set belongs to the
+         * caller's expression argument.  Keep it as a pure leaf while
+         * recursively expanding callee-local bindings.  The body and return
+         * expression are shape-checked before this helper is called, so an
+         * unbound identifier cannot silently escape from the callee itself. */
+        if (binding_index >= binding_count) {
+            return clone_inline_pure_scalar_expression(expression);
+        }
         if (bindings[binding_index].argument->kind == EXPR_IDENT ||
             bindings[binding_index].argument->kind == EXPR_INT_LIT ||
             bindings[binding_index].argument->kind == EXPR_FLOAT_LIT) {
             return bindings[binding_index].argument;
         }
-        return clone_inline_pure_scalar_expression(
-            bindings[binding_index].argument);
+        /* Local initializers may depend on an earlier local.  Clone through
+         * the same binding table so `shifted = sum << 1` substitutes the
+         * already-bound `sum` expression instead of leaving a dead stack
+         * reference in the caller. */
+        return clone_inline_scalar_expression(bindings[binding_index].argument,
+                                              bindings, binding_count);
     }
     if (expression->kind == EXPR_INT_LIT ||
         expression->kind == EXPR_FLOAT_LIT ||
