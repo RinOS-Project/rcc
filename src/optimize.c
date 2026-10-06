@@ -2927,10 +2927,18 @@ static bool while_body_constant_step(const Stmt* body, const Decl* induction,
         }
         for (item = body->block_stmts; item && item->stmt != increment_statement;
              item = item->next) {
-            if (!item->stmt || item->stmt->kind != STMT_EXPR ||
-                statement_contains_loop_transfer(item->stmt) ||
+            if (!item->stmt || statement_contains_loop_transfer(item->stmt) ||
                 statement_transfers_control(item->stmt) ||
                 statement_modifies_decl(item->stmt, induction)) {
+                return false;
+            }
+            if (item->stmt->kind == STMT_DECL) {
+                if (!declaration_is_safe_to_unroll(item->stmt->decl)) {
+                    return false;
+                }
+                continue;
+            }
+            if (item->stmt->kind != STMT_EXPR) {
                 return false;
             }
         }
@@ -2939,7 +2947,7 @@ static bool while_body_constant_step(const Stmt* body, const Decl* induction,
         increment_statement = body;
     }
     if (statement_contains_label(body) ||
-        statement_contains_declaration(body) ||
+        statement_contains_unroll_unsafe_declaration(body) ||
         statement_contains_loop_transfer(body) ||
         statement_transfers_control(body)) {
         return false;

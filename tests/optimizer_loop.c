@@ -233,6 +233,30 @@ int loop_constant_two_with_decl(void)
     return result + index;
 }
 
+int loop_constant_while_two_with_decl(void)
+{
+    int index = 0;
+    int result = 0;
+    while (index < 2) {
+        int value = index + 3;
+        result += value;
+        ++index;
+    }
+    return result + index;
+}
+
+int loop_constant_do_two_with_decl(void)
+{
+    int index = 0;
+    int result = 0;
+    do {
+        int value = index + 3;
+        result += value;
+        ++index;
+    } while (index < 2);
+    return result + index;
+}
+
 int loop_volatile_increment(void)
 {
     volatile int index = 0;
