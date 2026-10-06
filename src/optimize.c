@@ -44,6 +44,7 @@ static bool statement_contains_loop_transfer(const Stmt* statement);
 static bool statement_contains_declaration(const Stmt* statement);
 static bool statement_contains_unroll_unsafe_declaration(
     const Stmt* statement);
+static bool statement_is_unroll_safe_shape(const Stmt* statement);
 static int unit_for_step(const Expr* increment, const Decl* induction);
 static bool for_initializer(const Stmt* initializer, Decl** induction,
                             const Expr** initial_value);
@@ -1601,6 +1602,33 @@ static bool statement_contains_unroll_unsafe_declaration(
     }
 }
 
+/* Bounded while/do expansion may clone only the statement forms handled by
+ * clone_unrolled_stmt.  Keep this predicate structural: induction-variable
+ * writes, labels, loop transfers, and cleanup-sensitive declarations are
+ * checked separately by while_body_constant_step. */
+static bool statement_is_unroll_safe_shape(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_NULL:
+        case STMT_EXPR:
+            return true;
+        case STMT_DECL:
+            return declaration_is_safe_to_unroll(statement->decl);
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (!statement_is_unroll_safe_shape(item->stmt)) return false;
+            }
+            return true;
+        case STMT_IF:
+            return statement_is_unroll_safe_shape(statement->if_then) &&
+                (!statement->if_else ||
+                 statement_is_unroll_safe_shape(statement->if_else));
+        default:
+            return false;
+    }
+}
+
 static int unit_for_step(const Expr* increment, const Decl* induction) {
     const Expr* lhs;
     const Expr* rhs;
@@ -2927,20 +2955,16 @@ static bool while_body_constant_step(const Stmt* body, const Decl* induction,
         }
         for (item = body->block_stmts; item && item->stmt != increment_statement;
              item = item->next) {
-            if (!item->stmt || statement_contains_loop_transfer(item->stmt) ||
+            if (!item->stmt ||
+                !statement_is_unroll_safe_shape(item->stmt) ||
+                statement_contains_loop_transfer(item->stmt) ||
                 statement_transfers_control(item->stmt) ||
                 statement_modifies_decl(item->stmt, induction)) {
                 return false;
             }
-            if (item->stmt->kind == STMT_DECL) {
-                if (!declaration_is_safe_to_unroll(item->stmt->decl)) {
-                    return false;
-                }
-                continue;
-            }
-            if (item->stmt->kind != STMT_EXPR) {
-                return false;
-            }
+            /* The structural predicate above also admits nested blocks and
+             * side-effect-free control selection; the final item remains the
+             * induction update handled below. */
         }
     } else {
         if (body->kind != STMT_EXPR) return false;

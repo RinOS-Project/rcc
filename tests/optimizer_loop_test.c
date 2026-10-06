@@ -88,6 +88,8 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "loop_constant_two_with_decl") > 0);
     assert(function_extent(optimized, "loop_constant_while_two_with_decl") > 0);
     assert(function_extent(optimized, "loop_constant_do_two_with_decl") > 0);
+    assert(function_extent(optimized, "loop_constant_while_two_with_if") > 0);
+    assert(function_extent(optimized, "loop_constant_do_two_with_if") > 0);
     assert(function_extent(optimized, "loop_volatile_increment") ==
            function_extent(unoptimized, "loop_volatile_increment"));
     assert(function_extent(optimized, "loop_descending_two") <
@@ -183,6 +185,10 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_constant_while_two_with_decl");
         ObjSymbol* constant_do_two_decl_symbol = objfile_find_symbol(
             optimized, "loop_constant_do_two_with_decl");
+        ObjSymbol* constant_while_two_if_symbol = objfile_find_symbol(
+            optimized, "loop_constant_while_two_with_if");
+        ObjSymbol* constant_do_two_if_symbol = objfile_find_symbol(
+            optimized, "loop_constant_do_two_with_if");
         ObjSymbol* volatile_symbol = objfile_find_symbol(
             optimized, "loop_volatile_increment");
         ObjSymbol* descending_two_symbol = objfile_find_symbol(
@@ -250,6 +256,8 @@ static void verify_pair(const char* unoptimized_path,
         int (*constant_two_decl_function)(void);
         int (*constant_while_two_decl_function)(void);
         int (*constant_do_two_decl_function)(void);
+        int (*constant_while_two_if_function)(void);
+        int (*constant_do_two_if_function)(void);
         int (*volatile_function)(void);
         int (*descending_two_function)(void);
         int (*descending_assignment_two_function)(void);
@@ -290,6 +298,8 @@ static void verify_pair(const char* unoptimized_path,
                constant_two_decl_symbol != NULL &&
                constant_while_two_decl_symbol != NULL &&
                constant_do_two_decl_symbol != NULL &&
+               constant_while_two_if_symbol != NULL &&
+               constant_do_two_if_symbol != NULL &&
                volatile_symbol != NULL &&
                descending_two_symbol != NULL &&
                descending_assignment_two_symbol != NULL &&
@@ -379,6 +389,12 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + constant_do_two_decl_symbol->value;
         memcpy(&constant_do_two_decl_function, &address,
                sizeof(constant_do_two_decl_function));
+        address = mapping + constant_while_two_if_symbol->value;
+        memcpy(&constant_while_two_if_function, &address,
+               sizeof(constant_while_two_if_function));
+        address = mapping + constant_do_two_if_symbol->value;
+        memcpy(&constant_do_two_if_function, &address,
+               sizeof(constant_do_two_if_function));
         address = mapping + volatile_symbol->value;
         memcpy(&volatile_function, &address, sizeof(volatile_function));
         address = mapping + descending_two_symbol->value;
@@ -455,6 +471,8 @@ static void verify_pair(const char* unoptimized_path,
         assert(constant_two_decl_function() == 13);
         assert(constant_while_two_decl_function() == 9);
         assert(constant_do_two_decl_function() == 9);
+        assert(constant_while_two_if_function() == 10);
+        assert(constant_do_two_if_function() == 20);
         assert(volatile_function() == 62);
         assert(descending_two_function() == 74);
         assert(descending_assignment_two_function() == 94);

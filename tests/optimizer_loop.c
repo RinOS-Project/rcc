@@ -257,6 +257,36 @@ int loop_constant_do_two_with_decl(void)
     return result + index;
 }
 
+int loop_constant_while_two_with_if(void)
+{
+    int index = 0;
+    int result = 0;
+    while (index < 2) {
+        if ((index & 1) == 0) {
+            result += 3;
+        } else {
+            result += 5;
+        }
+        ++index;
+    }
+    return result + index;
+}
+
+int loop_constant_do_two_with_if(void)
+{
+    int index = 0;
+    int result = 0;
+    do {
+        if ((index & 1) == 0) {
+            result += 7;
+        } else {
+            result += 11;
+        }
+        ++index;
+    } while (index < 2);
+    return result + index;
+}
+
 int loop_volatile_increment(void)
 {
     volatile int index = 0;
