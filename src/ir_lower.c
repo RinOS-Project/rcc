@@ -340,6 +340,7 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
                 expression->ident_decl->type->kind != TYPE_STRUCT &&
                 expression->ident_decl->type->kind != TYPE_UNION;
         case EXPR_NEG:
+        case EXPR_NOT:
         case EXPR_BITNOT:
         case EXPR_CAST:
             return lower_wide_ssa_expression_safe(
@@ -355,8 +356,20 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
         case EXPR_BITXOR:
         case EXPR_LSHIFT:
         case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
             return lower_wide_ssa_expression_safe(expression->binary_lhs) &&
                 lower_wide_ssa_expression_safe(expression->binary_rhs);
+        case EXPR_COND:
+            return lower_wide_ssa_expression_safe(expression->cond_test) &&
+                lower_wide_ssa_expression_safe(expression->cond_then) &&
+                lower_wide_ssa_expression_safe(expression->cond_else);
         default:
             return false;
     }
@@ -2768,6 +2781,7 @@ static bool lower_wide_scalar_expression_impl(
                     return false;
                 }
                 local->wide_value = value;
+                local->wide_ssa_block = context->current;
                 *result = value;
                 return true;
             }

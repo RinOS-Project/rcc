@@ -169,6 +169,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* lshr_symbol;
     ObjSymbol* ashr_symbol;
     ObjSymbol* conditional_symbol;
+    ObjSymbol* conditional_assign_symbol;
     ObjSymbol* truth_conditional_symbol;
     ObjSymbol* mul_symbol;
     ObjSymbol* call_symbol;
@@ -244,6 +245,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_ashr");
     conditional_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_conditional");
+    conditional_assign_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_conditional_assign");
     truth_conditional_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_truth_conditional");
     mul_symbol = objfile_find_symbol(object, "verified_wide_scalar_mul");
@@ -373,6 +376,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            conditional_symbol->type == SYM_GLOBAL &&
            conditional_symbol->binding == BIND_CODE &&
            conditional_symbol->section == 0);
+    assert(conditional_assign_symbol != NULL &&
+           conditional_assign_symbol->type == SYM_GLOBAL &&
+           conditional_assign_symbol->binding == BIND_CODE &&
+           conditional_assign_symbol->section == 0);
     assert(truth_conditional_symbol != NULL &&
            truth_conditional_symbol->type == SYM_GLOBAL &&
            truth_conditional_symbol->binding == BIND_CODE &&
@@ -515,6 +522,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
                                             unsigned int);
         long long RINOS_ABI (*ashr_function)(long long, unsigned int);
         unsigned long long RINOS_ABI (*conditional_function)(int);
+        unsigned long long RINOS_ABI (*conditional_assign_function)(
+            int, unsigned long long);
         unsigned long long RINOS_ABI (*truth_conditional_function)(unsigned long long);
         unsigned long long RINOS_ABI (*mul_function)(unsigned long long);
         unsigned long long RINOS_ABI (*call_function)(unsigned long long);
@@ -655,6 +664,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&conditional_function, &address, sizeof(conditional_function));
         assert(conditional_function(0) == 0x8877665544332211ULL);
         assert(conditional_function(1) == 0x1122334455667788ULL);
+        address = symbol_address(memory, conditional_assign_symbol);
+        memcpy(&conditional_assign_function, &address,
+               sizeof(conditional_assign_function));
+        assert(conditional_assign_function(0, 0ULL) == 7ULL);
+        assert(conditional_assign_function(1, 0ULL) == 7ULL);
+        assert(conditional_assign_function(1, 5ULL) == 6ULL);
         address = symbol_address(memory, truth_conditional_symbol);
         memcpy(&truth_conditional_function, &address,
                sizeof(truth_conditional_function));
@@ -1374,11 +1389,30 @@ static void verify_native_execution(const char* path, uint16_t arch)
 static void verify_cxx_object(const char* path)
 {
     ObjectFile* object = objfile_read(path);
+    ObjSection* text;
     ObjSymbol* symbol;
+    ObjSymbol* wide_symbol;
+    size_t mapping_size;
+    void* memory;
+    unsigned long long RINOS_ABI (*wide_function)(
+        int, unsigned long long);
+    void* address;
     assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(object, "verified_cxx");
+    wide_symbol = objfile_find_symbol(
+        object, "verified_cxx_wide_scalar_conditional_assign");
     assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
            symbol->binding == BIND_CODE && symbol->section == 0);
+    assert(wide_symbol != NULL && wide_symbol->type == SYM_GLOBAL &&
+           wide_symbol->binding == BIND_CODE && wide_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, wide_symbol);
+    memcpy(&wide_function, &address, sizeof(wide_function));
+    assert(wide_function(0, 0ULL) == 7ULL);
+    assert(wide_function(1, 0ULL) == 7ULL);
+    assert(wide_function(1, 5ULL) == 6ULL);
+    assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }
 

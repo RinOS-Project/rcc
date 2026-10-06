@@ -110,6 +110,14 @@ unsigned long long verified_wide_scalar_conditional(int condition)
     return condition ? 0x1122334455667788ULL : 0x8877665544332211ULL;
 }
 
+unsigned long long verified_wide_scalar_conditional_assign(
+    int condition, unsigned long long value)
+{
+    unsigned long long local = 0ULL;
+    local = (condition && value != 0ULL) ? value + 1ULL : 7ULL;
+    return local;
+}
+
 unsigned long long verified_wide_scalar_truth_conditional(
     unsigned long long value)
 {
