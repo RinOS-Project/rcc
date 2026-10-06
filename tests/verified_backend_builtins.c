@@ -12,10 +12,9 @@ int verified_builtin_choose(void)
     return __builtin_choose_expr(1, 31, 47);
 }
 
-typedef unsigned int verified_unsigned_alias;
-
 int verified_builtin_types_compatible(void)
 {
+    typedef unsigned int verified_unsigned_alias;
     if (!__builtin_types_compatible_p(int, int)) return 1;
     if (!__builtin_types_compatible_p(verified_unsigned_alias, unsigned int)) return 2;
     if (!__builtin_types_compatible_p(int *, int *)) return 3;

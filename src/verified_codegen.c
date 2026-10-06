@@ -142,7 +142,7 @@ static void verified_emit_typeinfo_stmt(Module* module, const Stmt* statement) {
             verified_emit_typeinfo_stmt(module, statement->label_stmt);
             break;
         case STMT_DECL:
-            if (statement->decl) {
+            if (statement->decl && statement->decl->kind == DECL_VAR) {
                 verified_emit_typeinfo_expr(
                     module, statement->decl->var_init);
             }

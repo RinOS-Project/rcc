@@ -7797,18 +7797,28 @@ static bool lower_declaration(RccIrLowerContext* context,
                               const Decl* declaration) {
     RccIrType type = rcc_ir_type_void();
     RccIrInstruction* allocation;
-    bool is_array = declaration && declaration->type &&
+    if (!declaration) {
+        context->unsupported = true;
+        return false;
+    }
+    bool is_array = declaration->type &&
         declaration->type->kind == TYPE_ARRAY;
-    bool is_struct = declaration && declaration->type &&
+    bool is_struct = declaration->type &&
         declaration->type->kind == TYPE_STRUCT;
-    bool is_union = declaration && declaration->type &&
+    bool is_union = declaration->type &&
         declaration->type->kind == TYPE_UNION;
-    bool wide_scalar = declaration &&
+    bool wide_scalar = declaration->type &&
         lower_i686_wide_scalar_type(declaration->type);
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
         declaration->var_init != NULL;
-    if (!declaration || declaration->kind != DECL_VAR ||
-        declaration->var_is_global || declaration->var_is_thread_local ||
+    /* Type-only declarations in a block (typedefs, local struct/union/enum
+     * declarations, and static assertions) have already been handled by the
+     * parser/sema layers. They do not allocate storage or produce IR. Keep
+     * them out of the value-local path instead of treating them as an
+     * unsupported object and sending a malformed function to the verified
+     * backend. */
+    if (declaration->kind != DECL_VAR) return true;
+    if (declaration->var_is_global || declaration->var_is_thread_local ||
         declaration->storage == STORAGE_EXTERN ||
         declaration->storage == STORAGE_STATIC || declaration->var_cleanup ||
         declaration->var_cleanups ||

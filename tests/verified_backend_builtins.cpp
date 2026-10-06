@@ -1,5 +1,3 @@
-using verified_cxx_unsigned_alias = unsigned int;
-
 extern "C" int verified_cxx_builtin_expect(int value)
 {
     return __builtin_expect(value, 1);
@@ -16,6 +14,7 @@ extern "C" int verified_cxx_builtin_choose(void)
 
 extern "C" int verified_cxx_builtin_types_compatible(void)
 {
+    using verified_cxx_unsigned_alias = unsigned int;
     if (!__builtin_types_compatible_p(int, int)) return 1;
     if (!__builtin_types_compatible_p(verified_cxx_unsigned_alias, unsigned int)) return 2;
     if (!__builtin_types_compatible_p(int *, int *)) return 3;
