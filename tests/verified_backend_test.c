@@ -190,6 +190,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* while_loop_symbol;
     ObjSymbol* for_loop_symbol;
     ObjSymbol* do_loop_symbol;
+    ObjSymbol* while_continue_symbol;
+    ObjSymbol* for_break_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -268,6 +270,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_for_loop");
     do_loop_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_do_loop");
+    while_continue_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_while_continue");
+    for_break_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_for_break");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -404,6 +410,14 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            do_loop_symbol->type == SYM_GLOBAL &&
            do_loop_symbol->binding == BIND_CODE &&
            do_loop_symbol->section == 0);
+    assert(while_continue_symbol != NULL &&
+           while_continue_symbol->type == SYM_GLOBAL &&
+           while_continue_symbol->binding == BIND_CODE &&
+           while_continue_symbol->section == 0);
+    assert(for_break_symbol != NULL &&
+           for_break_symbol->type == SYM_GLOBAL &&
+           for_break_symbol->binding == BIND_CODE &&
+           for_break_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -456,6 +470,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*for_loop_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*do_loop_function)(
+            unsigned long long, unsigned int);
+        unsigned long long RINOS_ABI (*while_continue_function)(
+            unsigned long long, unsigned int);
+        unsigned long long RINOS_ABI (*for_break_function)(
             unsigned long long, unsigned int);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
@@ -641,6 +659,15 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&do_loop_function, &address, sizeof(do_loop_function));
         assert(do_loop_function(0x0000000200000002ULL, 3u) ==
                0x0000000500000005ULL);
+        address = symbol_address(memory, while_continue_symbol);
+        memcpy(&while_continue_function, &address,
+               sizeof(while_continue_function));
+        assert(while_continue_function(0x0000000200000002ULL, 4u) ==
+               0x0000000500000005ULL);
+        address = symbol_address(memory, for_break_symbol);
+        memcpy(&for_break_function, &address, sizeof(for_break_function));
+        assert(for_break_function(0x0000000200000002ULL, 4u) ==
+               0x0000000400000004ULL);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

@@ -259,3 +259,30 @@ unsigned long long verified_wide_scalar_do_loop(
     } while (count != 0u);
     return local;
 }
+
+unsigned long long verified_wide_scalar_while_continue(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    while (count != 0u) {
+        --count;
+        if (count == 2u) {
+            continue;
+        }
+        local += 0x0000000100000001ULL;
+    }
+    return local;
+}
+
+unsigned long long verified_wide_scalar_for_break(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    for (unsigned int index = 0u; index < count; ++index) {
+        if (index == 2u) {
+            break;
+        }
+        local += 0x0000000100000001ULL;
+    }
+    return local;
+}
