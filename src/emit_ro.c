@@ -1933,16 +1933,30 @@ static void debug_line_point_add(
 static void debug_collect_line_stmt_points(
     const Stmt* statement, const ModuleSymbol* function,
     DebugLinePoint** points, int* point_count, size_t* point_capacity) {
+    const StmtDebugRange* debug_range;
     if (!statement) return;
-    switch (statement->kind) {
-        case STMT_BLOCK:
-            if (!statement->block_no_scope &&
-                statement->debug_code_end > statement->debug_code_start) {
+    if (statement->debug_code_ranges) {
+        for (debug_range = statement->debug_code_ranges; debug_range;
+             debug_range = debug_range->next) {
+            if (debug_range->end > debug_range->start) {
                 debug_line_point_add(
                     points, point_count, point_capacity, function,
-                    statement->loc.filename, statement->debug_code_start,
+                    statement->loc.filename, debug_range->start,
                     statement->loc.line, statement->loc.column, false);
             }
+        }
+    } else if (statement->kind == STMT_BLOCK &&
+               !statement->block_no_scope &&
+               statement->debug_code_end > statement->debug_code_start) {
+        /* Keep the classic coarse block range as a compatibility fallback
+         * for callers that have not exposed exact encoder envelopes. */
+        debug_line_point_add(
+            points, point_count, point_capacity, function,
+            statement->loc.filename, statement->debug_code_start,
+            statement->loc.line, statement->loc.column, false);
+    }
+    switch (statement->kind) {
+        case STMT_BLOCK:
             for (const StmtList* item = statement->block_stmts; item;
                  item = item->next) {
                 debug_collect_line_stmt_points(
@@ -2011,9 +2025,18 @@ static void debug_collect_line_stmt_points(
 static int debug_line_point_compare(const void* left, const void* right) {
     const DebugLinePoint* a = (const DebugLinePoint*)left;
     const DebugLinePoint* b = (const DebugLinePoint*)right;
+    int source_compare;
     if (a->offset < b->offset) return -1;
     if (a->offset > b->offset) return 1;
+    if (a->function->offset < b->function->offset) return -1;
+    if (a->function->offset > b->function->offset) return 1;
     if (a->is_function != b->is_function) return a->is_function ? -1 : 1;
+    source_compare = strcmp(a->source_file, b->source_file);
+    if (source_compare != 0) return source_compare;
+    if (a->line < b->line) return -1;
+    if (a->line > b->line) return 1;
+    if (a->column < b->column) return -1;
+    if (a->column > b->column) return 1;
     return 0;
 }
 

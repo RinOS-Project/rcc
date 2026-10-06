@@ -492,6 +492,7 @@ static void verified_apply_statement_debug_ranges(
         Stmt* statement = (Stmt*)range->source_statement;
         uint64_t start;
         uint64_t end;
+        StmtDebugRange* debug_range;
         if (!statement || range->offset > UINT32_MAX -
                 (uint32_t)object_symbol->value ||
             range->size > UINT32_MAX -
@@ -500,6 +501,26 @@ static void verified_apply_statement_debug_ranges(
         }
         start = object_symbol->value + range->offset;
         end = start + range->size;
+        if (end <= start || end > UINT32_MAX) continue;
+        debug_range = statement->debug_code_ranges;
+        if (!debug_range) {
+            debug_range = rcc_alloc(sizeof(*debug_range));
+            debug_range->start = (uint32_t)start;
+            debug_range->end = (uint32_t)end;
+            statement->debug_code_ranges = debug_range;
+        } else {
+            while (debug_range->next) debug_range = debug_range->next;
+            if (start <= debug_range->end) {
+                if (end > debug_range->end) {
+                    debug_range->end = (uint32_t)end;
+                }
+            } else {
+                StmtDebugRange* next = rcc_alloc(sizeof(*next));
+                next->start = (uint32_t)start;
+                next->end = (uint32_t)end;
+                debug_range->next = next;
+            }
+        }
         if (statement->debug_code_end <= statement->debug_code_start) {
             statement->debug_code_start = (uint32_t)start;
             statement->debug_code_end = (uint32_t)end;

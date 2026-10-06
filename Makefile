@@ -1222,6 +1222,20 @@ test-determinism: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
 		-o $(TEST_OUT)/determinism/cxx-x64-2.ro tests/hello.cpp
 	$(call COMPARE_FILES,$(TEST_OUT)/determinism/cxx-x64-1.ro,$(TEST_OUT)/determinism/cxx-x64-2.ro)
+	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/determinism/verified-x86-g-1.ro \
+		tests/verified_backend_debug.c
+	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/determinism/verified-x86-g-2.ro \
+		tests/verified_backend_debug.c
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/verified-x86-g-1.ro,$(TEST_OUT)/determinism/verified-x86-g-2.ro)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/determinism/verified-x64-g-1.ro \
+		tests/verified_backend_debug.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/determinism/verified-x64-g-2.ro \
+		tests/verified_backend_debug.c
+	$(call COMPARE_FILES,$(TEST_OUT)/determinism/verified-x64-g-1.ro,$(TEST_OUT)/determinism/verified-x64-g-2.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/determinism/cxx-x86-1.rin \
 		tests/hello.cpp

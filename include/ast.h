@@ -797,6 +797,12 @@ typedef struct StmtList {
     struct StmtList* next;
 } StmtList;
 
+typedef struct StmtDebugRange {
+    uint32_t start;
+    uint32_t end;
+    struct StmtDebugRange* next;
+} StmtDebugRange;
+
 struct Stmt {
     StmtKind kind;
     SourceLoc loc;
@@ -807,6 +813,10 @@ struct Stmt {
      * relocatable DWARF emitter after code generation has completed. */
     uint32_t debug_code_start;
     uint32_t debug_code_end;
+    /* Exact encoded instruction envelopes for this statement.  The legacy
+     * start/end pair remains the enclosing range used by lexical blocks;
+     * this list preserves holes introduced by control flow for line tables. */
+    StmtDebugRange* debug_code_ranges;
     /* C++ `if constexpr` is selected after semantic constant evaluation, so
      * the discarded branch is never analyzed or lowered. */
     bool if_is_constexpr;

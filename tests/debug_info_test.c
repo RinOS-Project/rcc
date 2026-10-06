@@ -101,6 +101,53 @@ static uint64_t read_uleb(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
+static unsigned count_line_copy_ops(const ObjSection* line)
+{
+    uint64_t offset;
+    unsigned copies = 0u;
+    assert(line != NULL && line->size >= 10u);
+    offset = 10u + read_u32(line->data, 6u);
+    assert(offset <= line->size);
+    while (offset < line->size) {
+        uint8_t opcode = line->data[offset++];
+        if (opcode == 0u) {
+            uint64_t length = read_uleb(line->data, line->size, &offset);
+            assert(length > 0u && length <= line->size - offset);
+            ++offset;
+            offset += length - 1u;
+            continue;
+        }
+        if (opcode == 1u) {
+            ++copies;
+            continue;
+        }
+        switch (opcode) {
+            case 2u:
+            case 4u:
+            case 5u:
+            case 12u:
+                (void)read_uleb(line->data, line->size, &offset);
+                break;
+            case 3u:
+                (void)read_uleb(line->data, line->size, &offset);
+                break;
+            case 9u:
+                assert(offset + 2u <= line->size);
+                offset += 2u;
+                break;
+            case 6u:
+            case 7u:
+            case 8u:
+            case 10u:
+            case 11u:
+                break;
+            default:
+                assert(0 && "unexpected DWARF line opcode");
+        }
+    }
+    return copies;
+}
+
 static void verify_recursive_aggregate_type(const ObjSection* info,
                                              const ObjSection* strings)
 {
@@ -662,6 +709,7 @@ static void verify_verified_debug_object(const char* path,
     assert(has_relocation_symbol(
         frame, static_symbol,
         architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
+    assert(count_line_copy_ops(line) >= 8u);
     verify_first_frame_fde(frame, architecture);
     assert(find_function_die(info, strings, "verified_debug_static",
                              architecture == ARCH_X64 ? 8u : 4u) !=
