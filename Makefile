@@ -11090,13 +11090,13 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/builtins-x86.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x86.log
-	$(GREP) -F -q 'Verified backend: 12 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/builtins-x64.ro \
 		tests/verified_backend_builtins.c \
 		>$(TEST_OUT)/verified-backend/builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 14 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/builtins-x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/bswap64-x86.ro \
@@ -11128,7 +11128,7 @@ test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-builtins-x64.ro \
 		tests/verified_backend_builtins.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
-	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-builtins-x64.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos \
 		-fverified-backend -c \

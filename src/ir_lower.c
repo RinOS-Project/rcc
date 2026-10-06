@@ -4758,6 +4758,26 @@ static RccIrLowerValue lower_builtin_call(
         return lower_invalid_value();
     }
     name = expression->call_func->ident_name;
+    if (strcmp(name, "__builtin_choose_expr") == 0) {
+        const ExprList* condition = expression->call_args;
+        const ExprList* selected;
+        int64_t condition_value = 0;
+        if (!condition || !condition->expr || !condition->next ||
+            !condition->next->next || condition->next->next->next ||
+            !expr_eval_integer_constant(condition->expr, &condition_value)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        selected = condition_value != 0 ? condition->next : condition->next->next;
+        if (!selected->expr) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        /* The condition is a translation-time constant.  Lower only the
+         * selected expression; the other expression was semantically checked
+         * but must not acquire runtime side effects in verified IR. */
+        return lower_expression(context, selected->expr);
+    }
     if (strcmp(name, "__builtin_add_overflow") == 0 ||
         strcmp(name, "__builtin_sub_overflow") == 0) {
         return lower_builtin_checked_add_sub(
@@ -5459,6 +5479,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                         "__builtin_object_size") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_strlen") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_choose_expr") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap16") == 0 ||
                  strcmp(expression->call_func->ident_name,

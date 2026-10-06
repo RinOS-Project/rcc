@@ -137,8 +137,8 @@
   - [x] Lower GCC-compatible `__builtin_choose_expr` by requiring an integer
         constant condition, type-checking both result expressions, and emitting
         only the selected expression so the unselected branch has no runtime
-        side effects; cover C17/C++20 i686/AMD64 execution and invalid-condition
-        and arity diagnostics.
+        side effects; cover legacy and verified typed-SSA C17/C++20 i686/AMD64
+        emission, execution, and invalid-condition and arity diagnostics.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] GCC互換のgeneric `__atomic_load`／`__atomic_store`／
