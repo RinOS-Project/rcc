@@ -704,6 +704,9 @@ static void verify_loop_invariant_code_motion(void)
     RccIrBlockId branch_targets[2];
     RccIrInstruction* phi;
     RccIrInstruction* compare;
+    RccIrInstruction* unsafe_division;
+    RccIrInstruction* unsafe_shift;
+    RccIrValue unsafe_operands[2];
     RccIrOptimizationStats stats;
     char error[256];
 
@@ -731,8 +734,20 @@ static void verify_loop_invariant_code_motion(void)
     invariant = append_binary(body, RCC_IR_ADD, i32,
                               function->parameters[0],
                               function->parameters[1]);
+    unsafe_operands[0] = function->parameters[0];
+    unsafe_operands[1] = function->parameters[1];
+    unsafe_division = rcc_ir_append(
+        body, RCC_IR_SDIV, i32, unsafe_operands, 2u, NULL, 0u);
+    assert(unsafe_division != NULL);
+    unsafe_shift = rcc_ir_append(
+        body, RCC_IR_SHL, i32, unsafe_operands, 2u, NULL, 0u);
+    assert(unsafe_shift != NULL);
     next = append_binary(body, RCC_IR_ADD, i32,
                          phi->result, invariant);
+    next = append_binary(body, RCC_IR_ADD, i32,
+                         next, unsafe_division->result);
+    next = append_binary(body, RCC_IR_ADD, i32,
+                         next, unsafe_shift->result);
     append_branch(body, header->id);
     phi->operands[1] = next;
     append_return(exit, phi->result);
@@ -743,6 +758,8 @@ static void verify_loop_invariant_code_motion(void)
     assert(stats.hoisted_instructions == 1u);
     assert(function->first_block->first->opcode == RCC_IR_CONST_INT);
     assert(function->first_block->first->next->opcode == RCC_IR_ADD);
+    assert(unsafe_division->block == body);
+    assert(unsafe_shift->block == body);
     assert(rcc_ir_verify_function(function, error, sizeof(error)));
     rcc_ir_module_destroy(module);
 }

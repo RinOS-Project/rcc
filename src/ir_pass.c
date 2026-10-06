@@ -1728,6 +1728,25 @@ static bool ir_pass_licm_candidate(const RccIrInstruction* instruction) {
         instruction->opcode == RCC_IR_CONST_INT) {
         return false;
     }
+    /*
+     * LICM may execute a candidate even when the loop takes no iterations.
+     * Do not speculate operations whose defined C/IR execution depends on a
+     * runtime precondition: a zero divisor or an in-range shift count.  GVN
+     * can still use these instructions after their original execution point;
+     * this restriction is specific to moving them before the loop.
+     */
+    switch (instruction->opcode) {
+        case RCC_IR_UDIV:
+        case RCC_IR_SDIV:
+        case RCC_IR_UREM:
+        case RCC_IR_SREM:
+        case RCC_IR_SHL:
+        case RCC_IR_LSHR:
+        case RCC_IR_ASHR:
+            return false;
+        default:
+            break;
+    }
     return ir_pass_cse_candidate(instruction);
 }
 
