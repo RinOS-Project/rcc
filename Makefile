@@ -11268,7 +11268,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		-o $(TEST_OUT)/verified-backend/cxx-x64.ro \
 		tests/verified_backend.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-x64.log
-	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-x64.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/typeinfo-x86.ro \
 		tests/verified_backend_typeinfo.cpp \

@@ -3,6 +3,17 @@ extern "C" int verified_cxx(int value)
     return value + 2;
 }
 
+extern "C" int verified_cxx_indirect_target(int value)
+{
+    return value + 4;
+}
+
+extern "C" int verified_cxx_indirect_parameter(int (*function)(int),
+                                                 int value)
+{
+    return function(value) + 5;
+}
+
 extern "C" unsigned long long verified_cxx_wide_scalar_conditional_assign(
     int condition, unsigned long long value)
 {

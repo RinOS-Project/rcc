@@ -1499,6 +1499,8 @@ static void verify_cxx_object(const char* path)
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
     ObjSymbol* symbol;
+    ObjSymbol* indirect_target_symbol;
+    ObjSymbol* indirect_parameter_symbol;
     ObjSymbol* wide_symbol;
     ObjSymbol* wide_compound_symbol;
     ObjSymbol* wide_pure_comma_symbol;
@@ -1509,10 +1511,17 @@ static void verify_cxx_object(const char* path)
         int, unsigned long long);
     unsigned long long RINOS_ABI (*wide_noexcept_function)(
         unsigned long long);
+    typedef int RINOS_ABI (*CxxFunctionPointer)(int);
+    CxxFunctionPointer indirect_target_function;
+    int RINOS_ABI (*indirect_parameter_function)(CxxFunctionPointer, int);
     void* address;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(object, "verified_cxx");
+    indirect_target_symbol = objfile_find_symbol(
+        object, "verified_cxx_indirect_target");
+    indirect_parameter_symbol = objfile_find_symbol(
+        object, "verified_cxx_indirect_parameter");
     wide_symbol = objfile_find_symbol(
         object, "verified_cxx_wide_scalar_conditional_assign");
     wide_compound_symbol = objfile_find_symbol(
@@ -1523,6 +1532,14 @@ static void verify_cxx_object(const char* path)
         object, "verified_cxx_wide_scalar_noexcept_compound");
     assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
            symbol->binding == BIND_CODE && symbol->section == 0);
+    assert(indirect_target_symbol != NULL &&
+           indirect_target_symbol->type == SYM_GLOBAL &&
+           indirect_target_symbol->binding == BIND_CODE &&
+           indirect_target_symbol->section == 0);
+    assert(indirect_parameter_symbol != NULL &&
+           indirect_parameter_symbol->type == SYM_GLOBAL &&
+           indirect_parameter_symbol->binding == BIND_CODE &&
+           indirect_parameter_symbol->section == 0);
     assert(wide_symbol != NULL && wide_symbol->type == SYM_GLOBAL &&
            wide_symbol->binding == BIND_CODE && wide_symbol->section == 0);
     assert(wide_compound_symbol != NULL &&
@@ -1538,6 +1555,14 @@ static void verify_cxx_object(const char* path)
            wide_noexcept_symbol->binding == BIND_CODE &&
            wide_noexcept_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, indirect_target_symbol);
+    memcpy(&indirect_target_function, &address,
+           sizeof(indirect_target_function));
+    address = symbol_address(memory, indirect_parameter_symbol);
+    memcpy(&indirect_parameter_function, &address,
+           sizeof(indirect_parameter_function));
+    assert(indirect_target_function(7) == 11);
+    assert(indirect_parameter_function(indirect_target_function, 7) == 16);
     address = symbol_address(memory, wide_symbol);
     memcpy(&wide_function, &address, sizeof(wide_function));
     assert(wide_function(0, 0ULL) == 7ULL);
