@@ -203,6 +203,25 @@ int loop_assignment_initializer_two(void)
     return result;
 }
 
+int loop_constant_post_value(void)
+{
+    int index = 0;
+    for (; index < 2; ++index) {
+    }
+    return index;
+}
+
+int loop_single_post_value_with_decl(void)
+{
+    int index = 0;
+    int result = 0;
+    for (; index < 1; ++index) {
+        int value = 7;
+        result += value;
+    }
+    return result + index;
+}
+
 int loop_volatile_increment(void)
 {
     volatile int index = 0;

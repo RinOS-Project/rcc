@@ -80,8 +80,11 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "loop_stride_for_unsigned_two") > 0);
     assert(function_extent(optimized, "loop_assignment_initializer_one") <
            function_extent(unoptimized, "loop_assignment_initializer_one"));
-    assert(function_extent(optimized, "loop_assignment_initializer_two") <
-           function_extent(unoptimized, "loop_assignment_initializer_two"));
+    /* Preserving the final increment can make this two-trip form larger;
+     * execution below verifies the required post-loop value semantics. */
+    assert(function_extent(optimized, "loop_assignment_initializer_two") > 0);
+    assert(function_extent(optimized, "loop_constant_post_value") > 0);
+    assert(function_extent(optimized, "loop_single_post_value_with_decl") > 0);
     assert(function_extent(optimized, "loop_volatile_increment") ==
            function_extent(unoptimized, "loop_volatile_increment"));
     assert(function_extent(optimized, "loop_descending_two") <
@@ -167,6 +170,10 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "loop_assignment_initializer_one");
         ObjSymbol* assignment_init_two_symbol = objfile_find_symbol(
             optimized, "loop_assignment_initializer_two");
+        ObjSymbol* constant_post_value_symbol = objfile_find_symbol(
+            optimized, "loop_constant_post_value");
+        ObjSymbol* single_post_value_symbol = objfile_find_symbol(
+            optimized, "loop_single_post_value_with_decl");
         ObjSymbol* volatile_symbol = objfile_find_symbol(
             optimized, "loop_volatile_increment");
         ObjSymbol* descending_two_symbol = objfile_find_symbol(
@@ -229,6 +236,8 @@ static void verify_pair(const char* unoptimized_path,
         int (*stride_for_unsigned_two_function)(void);
         int (*assignment_init_one_function)(void);
         int (*assignment_init_two_function)(void);
+        int (*constant_post_value_function)(void);
+        int (*single_post_value_function)(void);
         int (*volatile_function)(void);
         int (*descending_two_function)(void);
         int (*descending_assignment_two_function)(void);
@@ -264,6 +273,8 @@ static void verify_pair(const char* unoptimized_path,
                stride_for_unsigned_two_symbol != NULL &&
                assignment_init_one_symbol != NULL &&
                assignment_init_two_symbol != NULL &&
+               constant_post_value_symbol != NULL &&
+               single_post_value_symbol != NULL &&
                volatile_symbol != NULL &&
                descending_two_symbol != NULL &&
                descending_assignment_two_symbol != NULL &&
@@ -338,6 +349,12 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + assignment_init_two_symbol->value;
         memcpy(&assignment_init_two_function, &address,
                sizeof(assignment_init_two_function));
+        address = mapping + constant_post_value_symbol->value;
+        memcpy(&constant_post_value_function, &address,
+               sizeof(constant_post_value_function));
+        address = mapping + single_post_value_symbol->value;
+        memcpy(&single_post_value_function, &address,
+               sizeof(single_post_value_function));
         address = mapping + volatile_symbol->value;
         memcpy(&volatile_function, &address, sizeof(volatile_function));
         address = mapping + descending_two_symbol->value;
@@ -409,6 +426,8 @@ static void verify_pair(const char* unoptimized_path,
         assert(stride_for_unsigned_two_function() == 86);
         assert(assignment_init_one_function() == 31);
         assert(assignment_init_two_function() == 74);
+        assert(constant_post_value_function() == 2);
+        assert(single_post_value_function() == 8);
         assert(volatile_function() == 62);
         assert(descending_two_function() == 74);
         assert(descending_assignment_two_function() == 94);

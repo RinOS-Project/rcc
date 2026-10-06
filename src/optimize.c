@@ -2089,7 +2089,11 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
     for (unsigned index = 0u; index < count; ++index) {
         Stmt* body = clone_unrolled_stmt(statement->for_body);
         tail = append_unrolled_stmt(tail, body);
-        if (index + 1u < count) {
+        /* The increment also runs after the final completed iteration.  It
+         * cannot be dropped merely because the loop condition is false
+         * afterwards: a pre-existing induction declaration remains visible
+         * after the loop and its final value is observable. */
+        {
             StmtList* increment = ast_arena_alloc(sizeof(*increment));
             increment->stmt = stmt_expr(
                 index == 0u
@@ -2206,6 +2210,13 @@ static bool unroll_single_iteration_for(Stmt* statement) {
     first->next = NULL;
     tail = &first->next;
     tail = append_unrolled_stmt(tail, statement->for_body);
+    {
+        StmtList* increment = ast_arena_alloc(sizeof(*increment));
+        increment->stmt = stmt_expr(statement->for_inc,
+                                    statement->for_inc->loc);
+        increment->next = NULL;
+        *tail = increment;
+    }
     statement->kind = STMT_BLOCK;
     statement->block_stmts = first;
     return true;
