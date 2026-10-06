@@ -1722,7 +1722,32 @@ static void ir_pass_insert_before_terminator(
     terminator->previous = instruction;
 }
 
-static bool ir_pass_licm_candidate(const RccIrInstruction* instruction) {
+static const RccIrInstruction* ir_pass_find_definition(
+    const RccIrFunction* function, RccIrValue value) {
+    const RccIrBlock* block;
+    if (!function || value == RCC_IR_VALUE_NONE) return NULL;
+    for (block = function->first_block; block; block = block->next) {
+        const RccIrInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            if (instruction->result == value) return instruction;
+        }
+    }
+    return NULL;
+}
+
+static bool ir_pass_constant_operand(
+    const RccIrFunction* function, RccIrValue value, uint64_t* immediate_out) {
+    const RccIrInstruction* definition =
+        ir_pass_find_definition(function, value);
+    if (!definition || definition->opcode != RCC_IR_CONST_INT) return false;
+    if (immediate_out) *immediate_out = definition->immediate;
+    return true;
+}
+
+static bool ir_pass_licm_candidate(
+    const RccIrFunction* function, const RccIrInstruction* instruction) {
+    uint64_t immediate;
     if (!instruction || instruction->result == RCC_IR_VALUE_NONE ||
         instruction->target_count != 0u ||
         instruction->opcode == RCC_IR_CONST_INT) {
@@ -1731,18 +1756,39 @@ static bool ir_pass_licm_candidate(const RccIrInstruction* instruction) {
     /*
      * LICM may execute a candidate even when the loop takes no iterations.
      * Do not speculate operations whose defined C/IR execution depends on a
-     * runtime precondition: a zero divisor or an in-range shift count.  GVN
-     * can still use these instructions after their original execution point;
-     * this restriction is specific to moving them before the loop.
+     * runtime precondition: a non-zero divisor or an in-range shift count.
+     * GVN can still use these instructions after their original execution
+     * point; this restriction is specific to moving them before the loop.
      */
     switch (instruction->opcode) {
         case RCC_IR_UDIV:
-        case RCC_IR_SDIV:
         case RCC_IR_UREM:
+            return instruction->operand_count == 2u &&
+                ir_pass_constant_operand(
+                    function, instruction->operands[1], &immediate) &&
+                immediate != 0u;
+        case RCC_IR_SDIV:
         case RCC_IR_SREM:
-        case RCC_IR_SHL:
+            /* A signed -1 divisor can still overflow for INT_MIN. */
+            if (instruction->operand_count != 2u ||
+                !ir_pass_constant_operand(
+                    function, instruction->operands[1], &immediate)) {
+                return false;
+            }
+            if (instruction->type.bit_width >= 64u) {
+                return immediate != 0u && immediate != UINT64_MAX;
+            }
+            return immediate != 0u &&
+                immediate != ((UINT64_C(1) << instruction->type.bit_width) -
+                               UINT64_C(1));
         case RCC_IR_LSHR:
         case RCC_IR_ASHR:
+            return instruction->operand_count == 2u &&
+                instruction->type.bit_width != 0u &&
+                ir_pass_constant_operand(
+                    function, instruction->operands[1], &immediate) &&
+                immediate < instruction->type.bit_width;
+        case RCC_IR_SHL:
             return false;
         default:
             break;
@@ -1867,7 +1913,7 @@ static bool ir_pass_licm(
                         RccIrInstruction* next = instruction->next;
                         bool invariant = true;
                         size_t operand;
-                        if (!ir_pass_licm_candidate(instruction)) {
+                        if (!ir_pass_licm_candidate(function, instruction)) {
                             instruction = next;
                             continue;
                         }
