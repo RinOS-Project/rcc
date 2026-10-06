@@ -163,6 +163,13 @@ unsigned long long verified_wide_scalar_call(unsigned long long value)
     return verified_wide_scalar_identity(value);
 }
 
+unsigned long long verified_wide_scalar_call_local(unsigned long long value)
+{
+    unsigned long long local = verified_wide_scalar_identity(value);
+    local += verified_wide_scalar_identity(value);
+    return local;
+}
+
 long long verified_wide_scalar_expect(long long value)
 {
     return __builtin_expect(value, 1LL);

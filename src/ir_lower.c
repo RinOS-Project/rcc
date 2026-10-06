@@ -130,6 +130,8 @@ static bool lower_wide_scalar_conditional_expression(
 static bool lower_wide_scalar_call(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result);
+static bool lower_wide_ssa_expression_safe(const Expr* expression);
+static bool lower_wide_ssa_call_safe(const Expr* expression);
 static bool lower_wide_scalar_compare(
     RccIrLowerContext* context, ExprKind kind,
     RccIrLowerWideValue left, RccIrLowerWideValue right,
@@ -353,6 +355,8 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
         }
         case EXPR_NOEXCEPT:
             return expression->cxx_noexcept_value_valid;
+        case EXPR_CALL:
+            return lower_wide_ssa_call_safe(expression);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -381,6 +385,40 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
         default:
             return false;
     }
+}
+
+static bool lower_wide_ssa_call_safe(const Expr* expression) {
+    const Decl* callee;
+    Type* function_type;
+    const ExprList* argument;
+    TypeParam* parameter;
+    if (!expression || expression->kind != EXPR_CALL ||
+        expression->cxx_close_call || !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_decl ||
+        !lower_i686_wide_scalar_type(expression->type)) {
+        return false;
+    }
+    callee = expression->call_func->ident_decl;
+    function_type = callee->type;
+    if (callee->kind != DECL_FUNC || !function_type ||
+        function_type->kind != TYPE_FUNC || function_type->variadic ||
+        !function_type->ret_type ||
+        !lower_i686_wide_scalar_type(function_type->ret_type) ||
+        !type_is_compatible(function_type->ret_type, expression->type)) {
+        return false;
+    }
+    parameter = function_type->params;
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        if (!parameter || !argument->expr || !argument->expr->type ||
+            lower_abi_is_aggregate(parameter->type) ||
+            !lower_wide_ssa_expression_safe(argument->expr)) {
+            return false;
+        }
+        parameter = parameter->next;
+    }
+    return parameter == NULL;
 }
 
 static bool lower_wide_ssa_local_update_allowed(
