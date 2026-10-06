@@ -313,7 +313,7 @@ static Expr* make_unsigned_shift_add(const Expr* operand, unsigned factor,
     unsigned shift;
 
     if (!operand || !type) return NULL;
-    for (shift = 0u; shift < 6u; ++shift) {
+    for (shift = 0u; shift < 7u; ++shift) {
         Expr* term;
         if ((factor & (1u << shift)) == 0u) continue;
         term = shift == 0u
@@ -357,7 +357,7 @@ static bool simplify_unsigned_small_multiply(Expr** expression) {
     if (!integer_expression_type_matches(operand, value->type) ||
         expression_has_side_effect(operand)) return false;
     factor = integer_unsigned_value(factor_value, value->type);
-    if (factor < 3u || factor > 63u || factor == 4u || factor == 8u ||
+    if (factor < 3u || factor > 127u || factor == 4u || factor == 8u ||
         factor == 16u) {
         return false;
     }
@@ -394,7 +394,7 @@ static bool simplify_unsigned_small_multiply(Expr** expression) {
                 ? expr_binary(EXPR_SUB, left, right, value->loc) : NULL;
             break;
         default:
-            if (factor < 9u || factor > 63u) return false;
+            if (factor < 9u || factor > 127u) return false;
             replacement = make_unsigned_shift_add(
                 operand, (unsigned)factor, value->loc, value->type);
             break;
