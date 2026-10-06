@@ -447,6 +447,8 @@ static bool x86_legal_copy_selected_metadata(
     destination->auxiliary = source->auxiliary;
     destination->predicate = source->predicate;
     destination->cycle_break = source->cycle_break;
+    destination->symbol_is_code = source->symbol_is_code;
+    destination->has_callee = source->has_callee;
     if (source->symbol) destination->symbol = rcc_strdup(source->symbol);
     return true;
 }
@@ -566,6 +568,7 @@ static bool x86_legal_prepare_outgoing_frame(
             uint32_t bytes;
             if (instruction->opcode == RCC_X86_CALL &&
                 x86_legal_call_supported(instruction, abi)) {
+                if (instruction->has_callee) may_need_temporary = true;
                 if (abi->integer_argument_count > 1u &&
                     instruction->operand_count > 1u) {
                     may_need_temporary = true;
@@ -892,6 +895,8 @@ static bool x86_legalize_call(
     size_t register_count = source->operand_count;
     size_t index;
     RccX86LegalInstruction* call;
+    RccX86Value callee;
+    RccX86Value callee_temporary;
     if (register_count > abi->integer_argument_count) {
         register_count = abi->integer_argument_count;
     }
@@ -899,6 +904,22 @@ static bool x86_legalize_call(
         !x86_legal_resolve_instruction(
             source, abi, &destination, &operands,
             error, error_size)) {
+        return false;
+    }
+    if (source->has_callee &&
+        !x86_legal_resolve_location(
+            source->callee, rcc_mir_type_pointer(), abi, &callee,
+            error, error_size)) {
+        rcc_free(operands);
+        return false;
+    }
+    if (source->has_callee &&
+        (!x86_legal_reserve_parallel_temporary(
+             function, abi, &callee_temporary, error, error_size) ||
+         !x86_legal_append_copy(
+             function, block, rcc_mir_type_pointer(), callee,
+             callee_temporary, error, error_size))) {
+        rcc_free(operands);
         return false;
     }
     for (index = register_count; index < source->operand_count; ++index) {
@@ -941,6 +962,7 @@ static bool x86_legalize_call(
         return x86_legal_error(error, error_size,
                                "x86 legal call is too large");
     }
+    if (source->has_callee) call->callee = callee_temporary;
     call->auxiliary = stack_bytes;
     if (source->has_destination) {
         RccX86Value result = x86_legal_fixed_gpr(
@@ -1093,7 +1115,9 @@ static bool x86_legal_selected_shape(
                 instruction->target_count == 0u;
         case RCC_X86_CALL:
             return instruction->target_count == 0u &&
-                instruction->symbol && instruction->symbol[0];
+                ((instruction->symbol && instruction->symbol[0] &&
+                  !instruction->has_callee) ||
+                 (!instruction->symbol && instruction->has_callee));
         case RCC_X86_CAPTURE_RETURN_PAIR:
             return !instruction->has_destination &&
                 instruction->operand_count == 1u &&
@@ -1173,7 +1197,9 @@ static bool x86_legal_instruction_shape(
                 !instruction->has_destination &&
                 instruction->operand_count == 0u &&
                 instruction->target_count == 0u &&
-                instruction->symbol && instruction->symbol[0];
+                ((instruction->symbol && instruction->symbol[0] &&
+                  !instruction->has_callee) ||
+                 (!instruction->symbol && instruction->has_callee));
         case RCC_X86_LEGAL_RETURN:
             return instruction->selected_opcode == RCC_X86_RETURN &&
                 !instruction->has_destination &&
@@ -1503,6 +1529,11 @@ bool rcc_x86_verify_legal_function(
                 (instruction->has_destination &&
                  !x86_legal_value_valid(
                      instruction->destination, function, &abi)) ||
+                (instruction->has_callee &&
+                 (!x86_legal_value_valid(
+                      instruction->callee, function, &abi) ||
+                  instruction->callee.size != abi.pointer_size ||
+                  instruction->callee.alignment != abi.pointer_size)) ||
                 (x86_legal_is_terminator(instruction) &&
                  instruction->next)) {
                 return x86_legal_error(error, error_size,

@@ -973,7 +973,21 @@ static RccIrLowerValue lower_lvalue_address(
         if (!local) {
             const Decl* declaration = expression->ident_decl;
             RccIrInstruction* address;
-            if (!declaration || declaration->kind != DECL_VAR ||
+            if (!declaration) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (declaration->kind == DECL_FUNC) {
+                address = lower_append(
+                    context, RCC_IR_SYMBOL_ADDRESS,
+                    rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+                if (!address) return lower_invalid_value();
+                rcc_ir_set_callee(address, decl_link_name(declaration));
+                address->symbol_is_code = true;
+                return lower_value(
+                    address->result, rcc_ir_type_pointer(0u), true);
+            }
+            if (declaration->kind != DECL_VAR ||
                 !declaration->var_is_global ||
                 declaration->var_is_thread_local ||
                 !declaration->type || declaration->type->size <= 0 ||
@@ -3597,7 +3611,7 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
 
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
-    const Decl* callee;
+    const Decl* callee = NULL;
     const ExprList* argument;
     TypeParam* parameter;
     Type* function_type;
@@ -3611,18 +3625,38 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     RccIrType call_type;
     RccIrType hidden_type = rcc_ir_type_pointer(0u);
     RccIrLowerValue aggregate_address = lower_invalid_value();
+    RccIrLowerValue callee_value = lower_invalid_value();
     int return_kind = LOWER_ABI_RETURN_SCALAR;
+    bool indirect = false;
     RccIrInstruction* call;
-    if (expression->cxx_close_call || !expression->call_func ||
-        expression->call_func->kind != EXPR_IDENT) {
+    if (expression->cxx_close_call || !expression->call_func) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    callee = expression->call_func->ident_decl;
-    function_type = callee ? callee->type : NULL;
-    if (!callee || callee->kind != DECL_FUNC || !function_type ||
-        function_type->kind != TYPE_FUNC || !expression->type ||
-        !function_type->ret_type ||
+    if (expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_decl &&
+        expression->call_func->ident_decl->kind == DECL_FUNC) {
+        callee = expression->call_func->ident_decl;
+        function_type = callee->type;
+    } else {
+        function_type = expression->call_func->type;
+        if (!function_type || function_type->kind != TYPE_PTR ||
+            !function_type->base ||
+            function_type->base->kind != TYPE_FUNC) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        function_type = function_type->base;
+        callee_value = lower_expression(context, expression->call_func);
+        if (!callee_value.valid ||
+            callee_value.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        indirect = true;
+    }
+    if (!function_type || function_type->kind != TYPE_FUNC ||
+        !expression->type || !function_type->ret_type ||
         !type_is_compatible(function_type->ret_type, expression->type)) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -3769,7 +3803,11 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                         argument_count, NULL, 0u);
     rcc_free(operands);
     if (!call) return lower_invalid_value();
-    rcc_ir_set_callee(call, decl_link_name(callee));
+    if (indirect) {
+        call->callee_value = callee_value.value;
+    } else {
+        rcc_ir_set_callee(call, decl_link_name(callee));
+    }
     if (return_kind == LOWER_ABI_RETURN_SRET &&
         g_opts.target_arch != ARCH_X64) {
         rcc_ir_set_immediate(call, 4u);
@@ -5293,6 +5331,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 context, type, expression->type->is_unsigned,
                 (unsigned char)expression->char_val);
         case EXPR_IDENT:
+            if (expression->ident_decl &&
+                expression->ident_decl->kind == DECL_FUNC) {
+                return lower_lvalue_address(context, expression);
+            }
             if (expression->type &&
                 (expression->type->kind == TYPE_ARRAY ||
                  expression->type->kind == TYPE_STRUCT ||

@@ -122,16 +122,28 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
         int64_t target;
         int64_t delta;
         int32_t encoded;
-        assert(relocation->type == RELOC_REL32 && symbol != NULL &&
-               symbol->section == 0 && relocation->offset <= text->size &&
-               sizeof(encoded) <= text->size - relocation->offset);
+        assert(symbol != NULL && symbol->section == 0 &&
+               relocation->offset <= text->size);
         place = (uint8_t*)memory + relocation->offset;
         target = (int64_t)(uintptr_t)memory + (int64_t)symbol->value +
             relocation->addend;
-        delta = target - (int64_t)(uintptr_t)(place + sizeof(encoded));
-        encoded = (int32_t)delta;
-        assert((int64_t)encoded == delta);
-        memcpy(place, &encoded, sizeof(encoded));
+        if (relocation->type == RELOC_REL32) {
+            assert(sizeof(encoded) <= text->size - relocation->offset);
+            delta = target - (int64_t)(uintptr_t)(place + sizeof(encoded));
+            encoded = (int32_t)delta;
+            assert((int64_t)encoded == delta);
+            memcpy(place, &encoded, sizeof(encoded));
+        } else if (relocation->type == RELOC_ABS32U) {
+            uint32_t absolute = (uint32_t)target;
+            assert(sizeof(absolute) <= text->size - relocation->offset &&
+                   (uint64_t)absolute == (uint64_t)target);
+            memcpy(place, &absolute, sizeof(absolute));
+        } else {
+            uint64_t absolute = (uint64_t)target;
+            assert(relocation->type == RELOC_ABS64 &&
+                   sizeof(absolute) <= text->size - relocation->offset);
+            memcpy(place, &absolute, sizeof(absolute));
+        }
     }
     assert(verified_protect(memory, size, 0, 1) == 0);
     *mapping_size = size;
@@ -899,6 +911,7 @@ static void verify_object(const char* path, uint16_t arch)
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
     ObjSymbol* call;
+    ObjSymbol* indirect_call;
     ObjSymbol* helper;
     ObjSymbol* load;
     ObjSymbol* control;
@@ -941,6 +954,7 @@ static void verify_object(const char* path, uint16_t arch)
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     call = objfile_find_symbol(object, "verified_call");
+    indirect_call = objfile_find_symbol(object, "verified_indirect_call");
     helper = objfile_find_symbol(
         object, "tests/verified_backend.c::verified_helper");
     load = objfile_find_symbol(object, "verified_load");
@@ -1007,6 +1021,8 @@ static void verify_object(const char* path, uint16_t arch)
            (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
     assert((text->flags & SECT_FLAG_WRITE) == 0u);
     assert(call != NULL && call->type == SYM_GLOBAL && call->section == 0);
+    assert(indirect_call != NULL && indirect_call->type == SYM_GLOBAL &&
+           indirect_call->section == 0);
     assert(helper != NULL && helper->type == SYM_LOCAL && helper->section == 0);
     assert(load != NULL && load->type == SYM_GLOBAL && load->section == 0);
     assert(control != NULL && control->type == SYM_GLOBAL &&
@@ -1098,42 +1114,54 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_nested_case != NULL &&
            switch_nested_case->type == SYM_GLOBAL &&
            switch_nested_case->section == 0);
-    assert(object->symbol_count == 39);
+    assert(object->symbol_count == 40);
     {
         size_t relocation_count = 0u;
+        size_t absolute_count = 0u;
         bool found_helper = false;
+        bool found_indirect_target = false;
         bool found_struct_call = false;
         bool found_pair_return = false;
         bool found_triple_return = false;
         bool found_large_return = false;
         for (relocation = text->relocs; relocation;
              relocation = relocation->next) {
-            assert(relocation->type == RELOC_REL32);
-            ++relocation_count;
-            if (strcmp(relocation->symbol_name,
-                       "tests/verified_backend.c::verified_helper") == 0) {
-                found_helper = true;
-            }
-            if (strcmp(relocation->symbol_name,
-                       "verified_struct_parameter") == 0) {
-                found_struct_call = true;
-            }
-            if (strcmp(relocation->symbol_name,
-                       "verified_pair_return") == 0) {
-                found_pair_return = true;
-            }
-            if (strcmp(relocation->symbol_name,
-                       "verified_triple_return") == 0) {
-                found_triple_return = true;
-            }
-            if (strcmp(relocation->symbol_name,
-                       "verified_large_return") == 0) {
-                found_large_return = true;
+            if (relocation->type == RELOC_REL32) {
+                ++relocation_count;
+                if (strcmp(relocation->symbol_name,
+                           "tests/verified_backend.c::verified_helper") == 0) {
+                    found_helper = true;
+                }
+                if (strcmp(relocation->symbol_name,
+                           "verified_struct_parameter") == 0) {
+                    found_struct_call = true;
+                }
+                if (strcmp(relocation->symbol_name,
+                           "verified_pair_return") == 0) {
+                    found_pair_return = true;
+                }
+                if (strcmp(relocation->symbol_name,
+                           "verified_triple_return") == 0) {
+                    found_triple_return = true;
+                }
+                if (strcmp(relocation->symbol_name,
+                           "verified_large_return") == 0) {
+                    found_large_return = true;
+                }
+            } else {
+                assert(relocation->type ==
+                       (arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
+                ++absolute_count;
+                if (strcmp(relocation->symbol_name,
+                           "tests/verified_backend.c::verified_helper") == 0) {
+                    found_indirect_target = true;
+                }
             }
         }
-        assert(relocation_count == 5u && found_helper && found_struct_call &&
-               found_pair_return && found_triple_return &&
-               found_large_return);
+        assert(relocation_count == 5u && absolute_count == 1u &&
+               found_helper && found_indirect_target &&
+               found_struct_call && found_pair_return &&
+               found_triple_return && found_large_return);
     }
     objfile_free(object);
 }
@@ -1148,6 +1176,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int values[] = {11, 22, 33, 44, 55};
     int side_effect = 10;
     int RINOS_ABI (*call_function)(int);
+    int RINOS_ABI (*indirect_call_function)(int);
     int RINOS_ABI (*pointer_function)(int*, int);
     int RINOS_ABI (*local_array_function)(int, int, int);
     int RINOS_ABI (*local_pointer_array_function)(int*, int*);
@@ -1187,6 +1216,12 @@ static void verify_native_execution(const char* path, uint16_t arch)
     address = symbol_address(memory, symbol);
     memcpy(&call_function, &address, sizeof(call_function));
     assert(call_function(7) == 22);
+
+    symbol = objfile_find_symbol(object, "verified_indirect_call");
+    address = symbol_address(memory, symbol);
+    memcpy(&indirect_call_function, &address,
+           sizeof(indirect_call_function));
+    assert(indirect_call_function(7) == 23);
 
     symbol = objfile_find_symbol(object, "verified_index");
     address = symbol_address(memory, symbol);

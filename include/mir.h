@@ -78,6 +78,8 @@ struct RccMirInstruction {
     uint64_t immediate;
     RccIrIntPredicate predicate;
     char* callee;
+    bool symbol_is_code;
+    RccMirVReg callee_value;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     RccMirBlock* block;

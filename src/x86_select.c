@@ -129,6 +129,7 @@ static RccX86Instruction* x86_append_instruction(
     instruction = rcc_alloc(sizeof(*instruction));
     instruction->opcode = opcode;
     instruction->type = type;
+    instruction->symbol_is_code = false;
     if (destination) {
         instruction->has_destination = true;
         instruction->destination = *destination;
@@ -335,6 +336,11 @@ static bool x86_select_instruction(
         machine->auxiliary = instruction->immediate;
     }
     if (instruction->callee) machine->symbol = rcc_strdup(instruction->callee);
+    machine->symbol_is_code = instruction->symbol_is_code;
+    if (instruction->callee_value != RCC_MIR_VREG_NONE) {
+        machine->has_callee = true;
+        machine->callee = allocation->locations[instruction->callee_value];
+    }
     machine->source_statement = instruction->source_statement;
     ++selected->source_instruction_count;
     return true;
@@ -408,7 +414,9 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->target_count == 0u;
         case RCC_X86_CALL:
             return instruction->target_count == 0u &&
-                instruction->symbol && instruction->symbol[0];
+                ((instruction->symbol && instruction->symbol[0] &&
+                  !instruction->has_callee) ||
+                 (!instruction->symbol && instruction->has_callee));
         case RCC_X86_CAPTURE_RETURN_PAIR:
             return !instruction->has_destination &&
                 instruction->operand_count == 1u &&
@@ -522,6 +530,16 @@ bool rcc_x86_verify_function(
                  instruction->next)) {
                 return x86_select_error(error, error_size,
                                         "x86 instruction shape is invalid");
+            }
+            if (instruction->opcode == RCC_X86_CALL &&
+                instruction->has_callee &&
+                (!x86_location_valid(instruction->callee, policy,
+                                     function->frame_size) ||
+                 instruction->callee.register_class != RCC_MIR_REGCLASS_GPR ||
+                 (instruction->callee.kind == RCC_MIR_LOCATION_SPILL &&
+                  instruction->callee.spill_size != function->pointer_size))) {
+                return x86_select_error(error, error_size,
+                                        "x86 indirect call target is invalid");
             }
             if (instruction->has_destination &&
                 !x86_location_valid(instruction->destination, policy,

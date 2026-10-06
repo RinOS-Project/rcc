@@ -135,6 +135,8 @@ static RccMirInstruction* mir_append(
     instruction->opcode = opcode;
     instruction->type = type;
     instruction->definition = definition;
+    instruction->symbol_is_code = false;
+    instruction->callee_value = RCC_MIR_VREG_NONE;
     instruction->block = block;
     if (operand_count != 0u) {
         instruction->operands = rcc_alloc(
@@ -326,8 +328,20 @@ static bool mir_verify_instruction_type(
                 instruction->type.kind == RCC_MIR_TYPE_POINTER &&
                 instruction->callee && instruction->callee[0];
         case RCC_MIR_CALL:
-            return instruction->target_count == 0u &&
-                instruction->callee && instruction->callee[0];
+            if (instruction->target_count != 0u ||
+                ((instruction->callee == NULL) ==
+                 (instruction->callee_value == RCC_MIR_VREG_NONE)) ||
+                (instruction->callee && !instruction->callee[0])) {
+                return false;
+            }
+            if (instruction->callee_value != RCC_MIR_VREG_NONE) {
+                RccMirType callee_type = rcc_mir_type_void();
+                return mir_register_type(
+                    verifier, instruction->callee_value, &callee_type) &&
+                    rcc_mir_type_equal(
+                        callee_type, rcc_mir_type_pointer());
+            }
+            return true;
         case RCC_MIR_CAPTURE_RETURN_PAIR:
             return mir_shape(verifier, instruction, 1u, 0u) &&
                 rcc_mir_type_equal(instruction->type, void_type) &&
@@ -835,6 +849,10 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
             }
             instruction->immediate = ir_instruction->immediate;
             instruction->predicate = ir_instruction->predicate;
+            instruction->symbol_is_code = ir_instruction->symbol_is_code;
+            if (ir_instruction->callee_value != RCC_IR_VALUE_NONE) {
+                instruction->callee_value = ir_instruction->callee_value;
+            }
             instruction->source_statement = ir_instruction->source_statement;
             if (ir_instruction->callee) {
                 instruction->callee = rcc_strdup(ir_instruction->callee);

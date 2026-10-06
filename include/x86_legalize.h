@@ -52,6 +52,9 @@ struct RccX86LegalInstruction {
     uint64_t auxiliary;
     RccIrIntPredicate predicate;
     char* symbol;
+    bool symbol_is_code;
+    bool has_callee;
+    RccX86Value callee;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     bool cycle_break;

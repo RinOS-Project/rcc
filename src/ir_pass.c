@@ -615,6 +615,16 @@ static void ir_pass_rename_block(RccIrRenameContext* context,
             }
             instruction->operands[operand] = value;
         }
+        if (instruction->callee_value != RCC_IR_VALUE_NONE) {
+            RccIrValue value = ir_pass_resolve(
+                context->replacements, context->replacement_count,
+                instruction->callee_value);
+            if (value == RCC_IR_VALUE_NONE) {
+                context->failed = true;
+                break;
+            }
+            instruction->callee_value = value;
+        }
         if (context->failed) break;
         instruction = next;
     }
@@ -719,6 +729,19 @@ static bool ir_pass_compact_values(RccIrFunction* function,
                 }
                 instruction->operands[operand] =
                     (RccIrValue)mapping[old];
+            }
+            if (instruction->callee_value != RCC_IR_VALUE_NONE) {
+                RccIrValue old = ir_pass_resolve(
+                    replacements, replacement_count,
+                    instruction->callee_value);
+                if (old >= old_count || mapping[old] == SIZE_MAX) {
+                    rcc_free(mapping);
+                    rcc_free(types);
+                    return ir_pass_error(
+                        error, error_size,
+                        "mem2reg left a dangling indirect call target");
+                }
+                instruction->callee_value = (RccIrValue)mapping[old];
             }
         }
     }
@@ -944,6 +967,8 @@ static void ir_pass_make_integer_constant(RccIrInstruction* instruction,
     instruction->targets = NULL;
     instruction->target_count = 0u;
     instruction->callee = NULL;
+    instruction->symbol_is_code = false;
+    instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->opcode = RCC_IR_CONST_INT;
     instruction->immediate = value &
         ir_pass_integer_mask(instruction->type.bit_width);
@@ -964,6 +989,8 @@ static void ir_pass_make_unconditional_branch(
     instruction->targets[0] = target;
     instruction->target_count = 1u;
     instruction->callee = NULL;
+    instruction->symbol_is_code = false;
+    instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->opcode = RCC_IR_BRANCH;
 }
 
@@ -1629,6 +1656,15 @@ static bool ir_pass_remove_dead_instructions(
                             "SSA simplification found an invalid use");
                     }
                     ++uses[instruction->operands[operand]];
+                }
+                if (instruction->callee_value != RCC_IR_VALUE_NONE) {
+                    if (instruction->callee_value >= function->value_count) {
+                        rcc_free(uses);
+                        return ir_pass_error(
+                            error, error_size,
+                            "SSA simplification found an invalid call target");
+                    }
+                    ++uses[instruction->callee_value];
                 }
             }
         }

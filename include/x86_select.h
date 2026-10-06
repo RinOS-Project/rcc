@@ -61,6 +61,9 @@ struct RccX86Instruction {
     uint64_t auxiliary;
     RccIrIntPredicate predicate;
     char* symbol;
+    bool symbol_is_code;
+    bool has_callee;
+    RccMirLocation callee;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     bool cycle_break;

@@ -99,6 +99,8 @@ struct RccIrInstruction {
     uint64_t immediate;
     RccIrIntPredicate predicate;
     char* callee;
+    bool symbol_is_code;
+    RccIrValue callee_value;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     RccIrBlock* block;

@@ -48,6 +48,12 @@ int verified_call(int value)
     return verified_helper(value) + 1;
 }
 
+int verified_indirect_call(int value)
+{
+    int (*function)(int) = verified_helper;
+    return function(value) + 2;
+}
+
 static int verified_helper(int value)
 {
     return value * 3;

@@ -238,6 +238,16 @@ static bool mir_alloc_collect_positions(
                     }
                 }
             }
+            if (instruction->opcode == RCC_MIR_CALL &&
+                instruction->callee_value != RCC_MIR_VREG_NONE) {
+                RccMirVReg reg = instruction->callee_value;
+                if (position < intervals[reg].start) {
+                    intervals[reg].start = position;
+                }
+                if (position > intervals[reg].end) {
+                    intervals[reg].end = position;
+                }
+            }
             if (instruction->opcode == RCC_MIR_CALL) {
                 if (call_count == call_capacity) {
                     size_t next_capacity = call_capacity == 0u
@@ -334,6 +344,11 @@ static bool mir_alloc_extend_cfg_liveness(
                     RccMirVReg reg = instruction->operands[operand];
                     if (!definitions[base + reg]) uses[base + reg] = true;
                 }
+            }
+            if (instruction->opcode == RCC_MIR_CALL &&
+                instruction->callee_value != RCC_MIR_VREG_NONE &&
+                !definitions[base + instruction->callee_value]) {
+                uses[base + instruction->callee_value] = true;
             }
             if (instruction->definition != RCC_MIR_VREG_NONE) {
                 definitions[base + instruction->definition] = true;

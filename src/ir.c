@@ -263,6 +263,8 @@ RccIrInstruction* rcc_ir_append(RccIrBlock* block, RccIrOpcode opcode,
     instruction->opcode = opcode;
     instruction->type = result_type;
     instruction->result = RCC_IR_VALUE_NONE;
+    instruction->symbol_is_code = false;
+    instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->block = block;
     if (operand_count != 0u) {
         if (operand_count > SIZE_MAX / sizeof(*instruction->operands)) {
@@ -602,10 +604,22 @@ static bool ir_verify_instruction_types(
             }
             return true;
         case RCC_IR_CALL:
-            if (instruction->target_count != 0u || !instruction->callee ||
-                !instruction->callee[0]) {
+            if (instruction->target_count != 0u ||
+                ((instruction->callee == NULL) ==
+                 (instruction->callee_value == RCC_IR_VALUE_NONE)) ||
+                (instruction->callee && !instruction->callee[0])) {
                 return ir_verify_error(verifier,
-                                       "call requires a callee symbol");
+                                       "call requires a direct symbol or function pointer");
+            }
+            if (instruction->callee_value != RCC_IR_VALUE_NONE) {
+                RccIrType callee_type = rcc_ir_type_void();
+                if (!ir_value_type(verifier, instruction->callee_value,
+                                   &callee_type) ||
+                    !rcc_ir_type_equal(
+                        callee_type, rcc_ir_type_pointer(0u))) {
+                    return ir_verify_error(
+                        verifier, "indirect call target is not a pointer");
+                }
             }
             for (size_t index = 0u; index < instruction->operand_count;
                  ++index) {
