@@ -540,6 +540,10 @@
         非定数入力を拒否する診断を追加
   - [x] i686の汎用`r`／`X` input constraintをECXへ決定的に割り当て、重複・
         clobber衝突を診断して`mov`の実バイト生成まで両archで回帰検証
+  - [x] GCC互換の空output `::` 構文、`Nd` port constraintの即値／DX選択、
+        `%bN`／`%wN`／`%kN` register modifier、`inb`／`inw`／`inl`／
+        `outb`／`outw`／`outl`の実エンコード、およびmodifier付き`mov`の
+        byte/word/dword encodingをi686/AMD64のC/C++で検証
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend

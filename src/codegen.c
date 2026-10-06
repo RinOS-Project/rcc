@@ -10900,6 +10900,32 @@ static int constraint_to_reg(const char* constraint) {
     }
 }
 
+static const char* asm_constraint_name(const char* constraint) {
+    if (!constraint) return NULL;
+    while (*constraint == '=' || *constraint == '+' || *constraint == '&') {
+        ++constraint;
+    }
+    return constraint;
+}
+
+static bool asm_constraint_is_port(const char* constraint) {
+    const char* name = asm_constraint_name(constraint);
+    return name && strcmp(name, "Nd") == 0;
+}
+
+static int constraint_to_reg_for_operand(const char* constraint,
+                                         Expr* expression) {
+    int64_t value;
+    if (!asm_constraint_is_port(constraint)) {
+        return constraint_to_reg(constraint);
+    }
+    if (expression && expr_eval_integer_constant(expression, &value) &&
+        value >= 0 && value <= 255) {
+        return -3;  /* The Nd alternative is an 8-bit port immediate. */
+    }
+    return EDX;      /* Non-constant and out-of-range ports use %dx. */
+}
+
 static bool asm_parse_immediate8(const char* text, uint8_t* value) {
     char* end;
     long long parsed;
@@ -10917,16 +10943,26 @@ static bool asm_no_operands(const char* op1, const char* op2) {
     return !op1 && !op2;
 }
 
-static int asm_parse_register(const char* text) {
-    if (!text) return -1;
+static bool asm_parse_register_width(const char* text, int* reg, int* width) {
+    if (!text || !reg || !width) return false;
     if (*text == '%') ++text;
-    if (strcmp(text, "eax") == 0) return EAX;
-    if (strcmp(text, "ecx") == 0) return ECX;
-    if (strcmp(text, "edx") == 0) return EDX;
-    if (strcmp(text, "ebx") == 0) return EBX;
-    if (strcmp(text, "esi") == 0) return ESI;
-    if (strcmp(text, "edi") == 0) return EDI;
-    return -1;
+    if (strcmp(text, "al") == 0) { *reg = EAX; *width = 1; return true; }
+    if (strcmp(text, "cl") == 0) { *reg = ECX; *width = 1; return true; }
+    if (strcmp(text, "dl") == 0) { *reg = EDX; *width = 1; return true; }
+    if (strcmp(text, "bl") == 0) { *reg = EBX; *width = 1; return true; }
+    if (strcmp(text, "ax") == 0) { *reg = EAX; *width = 2; return true; }
+    if (strcmp(text, "cx") == 0) { *reg = ECX; *width = 2; return true; }
+    if (strcmp(text, "dx") == 0) { *reg = EDX; *width = 2; return true; }
+    if (strcmp(text, "bx") == 0) { *reg = EBX; *width = 2; return true; }
+    if (strcmp(text, "si") == 0) { *reg = ESI; *width = 2; return true; }
+    if (strcmp(text, "di") == 0) { *reg = EDI; *width = 2; return true; }
+    if (strcmp(text, "eax") == 0) { *reg = EAX; *width = 4; return true; }
+    if (strcmp(text, "ecx") == 0) { *reg = ECX; *width = 4; return true; }
+    if (strcmp(text, "edx") == 0) { *reg = EDX; *width = 4; return true; }
+    if (strcmp(text, "ebx") == 0) { *reg = EBX; *width = 4; return true; }
+    if (strcmp(text, "esi") == 0) { *reg = ESI; *width = 4; return true; }
+    if (strcmp(text, "edi") == 0) { *reg = EDI; *width = 4; return true; }
+    return false;
 }
 
 static const char* asm_register_name(int reg) {
@@ -10939,6 +10975,66 @@ static const char* asm_register_name(int reg) {
         case EDI: return "%edi";
         default: return NULL;
     }
+}
+
+static const char* asm_register_name_width(int reg, char modifier) {
+    if (!modifier) return asm_register_name(reg);
+    if (modifier == 'k') return asm_register_name(reg);
+    if (modifier == 'w') {
+        switch (reg) {
+            case EAX: return "%ax";
+            case ECX: return "%cx";
+            case EDX: return "%dx";
+            case EBX: return "%bx";
+            case ESI: return "%si";
+            case EDI: return "%di";
+            default: return NULL;
+        }
+    }
+    if (modifier == 'b') {
+        switch (reg) {
+            case EAX: return "%al";
+            case ECX: return "%cl";
+            case EDX: return "%dl";
+            case EBX: return "%bl";
+            default: return NULL;
+        }
+    }
+    return NULL;
+}
+
+static bool asm_parse_io_register(const char* text, int* reg, int* width) {
+    if (!text || !reg || !width) return false;
+    if (*text == '%') ++text;
+    if (strcmp(text, "al") == 0) { *reg = EAX; *width = 1; return true; }
+    if (strcmp(text, "ax") == 0) { *reg = EAX; *width = 2; return true; }
+    if (strcmp(text, "eax") == 0) { *reg = EAX; *width = 4; return true; }
+    if (strcmp(text, "dl") == 0) { *reg = EDX; *width = 1; return true; }
+    if (strcmp(text, "dx") == 0) { *reg = EDX; *width = 2; return true; }
+    if (strcmp(text, "edx") == 0) { *reg = EDX; *width = 4; return true; }
+    return false;
+}
+
+static bool asm_parse_port(const char* text, bool* immediate, uint8_t* value) {
+    char* end;
+    long long parsed;
+    int reg;
+    int width;
+    if (!text || !immediate || !value) return false;
+    if (text[0] == '$' && text[1]) {
+        parsed = strtoll(text + 1, &end, 0);
+        if (end == text + 1 || *end != '\0' || parsed < 0 || parsed > 255) {
+            return false;
+        }
+        *immediate = true;
+        *value = (uint8_t)parsed;
+        return true;
+    }
+    if (!asm_parse_io_register(text, &reg, &width) || reg != EDX ||
+        width != 2) return false;
+    *immediate = false;
+    *value = 0;
+    return true;
 }
 
 static char* asm_expand_template(const char* source, const int* registers,
@@ -10972,14 +11068,20 @@ static char* asm_expand_template(const char* source, const int* registers,
             read += 2u;
             continue;
         }
-        if (source[read + 1u] < '0' || source[read + 1u] > '9') {
+        char modifier = 0;
+        size_t index_start = read + 1u;
+        if (source[index_start] == 'b' || source[index_start] == 'w' ||
+            source[index_start] == 'k') {
+            modifier = source[index_start++];
+        }
+        if (source[index_start] < '0' || source[index_start] > '9') {
             rcc_error(loc, "inline asm placeholder must be %% or %%N");
             rcc_free(expanded);
             return NULL;
         }
         {
             uint64_t index = 0u;
-            size_t digit = read + 1u;
+            size_t digit = index_start;
             while (source[digit] >= '0' && source[digit] <= '9') {
                 if (index > (UINT64_MAX - 9u) / 10u) {
                     index = UINT64_MAX;
@@ -11010,10 +11112,10 @@ static char* asm_expand_template(const char* source, const int* registers,
                 read = digit;
                 continue;
             }
-            if (!registers || !(name = asm_register_name(
-                    registers[(size_t)index]))) {
+            if (!registers || !(name = asm_register_name_width(
+                    registers[(size_t)index], modifier))) {
                 rcc_error(loc,
-                          "i686 inline asm placeholder requires a fixed register operand");
+                          "i686 inline asm placeholder width is not available for this register");
                 rcc_free(expanded);
                 return NULL;
             }
@@ -11030,11 +11132,58 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
                                   const char* op1, const char* op2) {
     uint8_t immediate;
 
+    if (strcmp(mnemonic, "inb") == 0 || strcmp(mnemonic, "inw") == 0 ||
+        strcmp(mnemonic, "inl") == 0) {
+        bool port_immediate;
+        uint8_t port;
+        int destination;
+        int width;
+        int expected_width = strcmp(mnemonic, "inb") == 0 ? 1
+            : (strcmp(mnemonic, "inw") == 0 ? 2 : 4);
+        if (!op1 || !op2 || !asm_parse_port(op1, &port_immediate, &port) ||
+            !asm_parse_io_register(op2, &destination, &width) ||
+            destination != EAX || width != expected_width) return false;
+        if (width == 2) emit_byte(mod, 0x66);
+        emit_byte(mod, port_immediate ? (width == 1 ? 0xE4 : 0xE5)
+                                      : (width == 1 ? 0xEC : 0xED));
+        if (port_immediate) emit_byte(mod, port);
+        return true;
+    }
+    if (strcmp(mnemonic, "outb") == 0 || strcmp(mnemonic, "outw") == 0 ||
+        strcmp(mnemonic, "outl") == 0) {
+        bool port_immediate;
+        uint8_t port;
+        int source;
+        int width;
+        int expected_width = strcmp(mnemonic, "outb") == 0 ? 1
+            : (strcmp(mnemonic, "outw") == 0 ? 2 : 4);
+        if (!op1 || !op2 || !asm_parse_io_register(op1, &source, &width) ||
+            source != EAX || width != expected_width ||
+            !asm_parse_port(op2, &port_immediate, &port)) return false;
+        if (width == 2) emit_byte(mod, 0x66);
+        emit_byte(mod, port_immediate ? (width == 1 ? 0xE6 : 0xE7)
+                                      : (width == 1 ? 0xEE : 0xEF));
+        if (port_immediate) emit_byte(mod, port);
+        return true;
+    }
+
     if (strcmp(mnemonic, "mov") == 0) {
-        int source = asm_parse_register(op1);
-        int destination = asm_parse_register(op2);
-        if (source < 0 || destination < 0) return false;
-        emit_mov_reg_reg(mod, destination, source);
+        int source;
+        int destination;
+        int source_width;
+        int destination_width;
+        if (!asm_parse_register_width(op1, &source, &source_width) ||
+            !asm_parse_register_width(op2, &destination,
+                                       &destination_width) ||
+            source_width != destination_width) return false;
+        if (source_width == 1) {
+            emit_byte(mod, 0x88);
+            emit_byte(mod, modrm(3, source, destination));
+        } else {
+            if (source_width == 2) emit_byte(mod, 0x66);
+            emit_byte(mod, 0x89);
+            emit_byte(mod, modrm(3, source, destination));
+        }
         return true;
     }
 
@@ -11219,14 +11368,16 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         int idx = 0;
         /* Process outputs first */
         for (AsmOperand* op = outputs; op; op = op->next) {
-            operands[idx].reg = constraint_to_reg(op->constraint);
+            operands[idx].reg = constraint_to_reg_for_operand(
+                op->constraint, op->expr);
             operands[idx].op = op;
             operands[idx].stack_offset = 0;
             idx++;
         }
         /* Then inputs */
         for (AsmOperand* op = inputs; op; op = op->next) {
-            operands[idx].reg = constraint_to_reg(op->constraint);
+            operands[idx].reg = constraint_to_reg_for_operand(
+                op->constraint, op->expr);
             operands[idx].op = op;
             operands[idx].stack_offset = 0;
             idx++;

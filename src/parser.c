@@ -3529,10 +3529,13 @@ static Stmt* parse_statement(void) {
         AsmOperand* inputs = NULL;
         AsmClobber* clobbers = NULL;
 
-        /* Parse output operands */
-        if (match(TOK_COLON)) {
+        /* Parse output operands.  TOK_SCOPE is the lexer token for GCC's
+         * compact empty-output spelling "::"; it means the first colon and
+         * the input separator were written without whitespace. */
+        bool compact_empty_outputs = match(TOK_SCOPE);
+        if (compact_empty_outputs || match(TOK_COLON)) {
             AsmOperand** out_tail = &outputs;
-            while (check(TOK_STRING_LIT)) {
+            while (!compact_empty_outputs && check(TOK_STRING_LIT)) {
                 Token* constraint = advance();
                 expect(TOK_LPAREN, "(");
                 Expr* expr = parse_expression();
@@ -3546,7 +3549,7 @@ static Stmt* parse_statement(void) {
             }
 
             /* Parse input operands */
-            if (match(TOK_COLON)) {
+            if (compact_empty_outputs || match(TOK_COLON)) {
                 AsmOperand** in_tail = &inputs;
                 while (check(TOK_STRING_LIT)) {
                     Token* constraint = advance();

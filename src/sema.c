@@ -1231,6 +1231,10 @@ static bool sema_asm_immediate_name(const char* name) {
     return name && (strcmp(name, "i") == 0 || strcmp(name, "n") == 0);
 }
 
+static bool sema_asm_port_name(const char* name) {
+    return name && strcmp(name, "Nd") == 0;
+}
+
 static bool sema_asm_constraint_supported(const char* constraint,
                                           bool output, SourceLoc loc) {
     const char* name;
@@ -1271,7 +1275,12 @@ static bool sema_asm_constraint_supported(const char* constraint,
         rcc_error(loc, "malformed inline asm constraint '%s'", constraint);
         return false;
     }
-    if (!output && sema_asm_immediate_name(name)) return true;
+    if (!output && (sema_asm_immediate_name(name) ||
+                    sema_asm_port_name(name))) return true;
+    if (output && sema_asm_port_name(name)) {
+        rcc_error(loc, "inline asm port constraint 'Nd' is input-only");
+        return false;
+    }
     return sema_asm_register_name_supported(name, output, loc);
 }
 
@@ -1341,10 +1350,28 @@ static int sema_asm_fixed_register_id(const char* name) {
     return -1;
 }
 
-static int sema_asm_constraint_fixed_register_id(const char* constraint) {
+static const char* sema_asm_constraint_name(const char* constraint) {
     const char* name = constraint;
-    if (!name) return -1;
+    if (!name) return NULL;
     while (*name == '=' || *name == '+' || *name == '&') ++name;
+    return name;
+}
+
+static bool sema_asm_nd_uses_immediate(const AsmOperand* operand) {
+    int64_t value;
+    const char* name = operand
+        ? sema_asm_constraint_name(operand->constraint) : NULL;
+    return sema_asm_port_name(name) && operand->expr &&
+           expr_eval_integer_constant(operand->expr, &value) &&
+           value >= 0 && value <= 255;
+}
+
+static int sema_asm_operand_fixed_register_id(const AsmOperand* operand) {
+    const char* name = operand
+        ? sema_asm_constraint_name(operand->constraint) : NULL;
+    if (sema_asm_port_name(name)) {
+        return sema_asm_nd_uses_immediate(operand) ? -1 : 3;
+    }
     return sema_asm_fixed_register_id(name);
 }
 
@@ -1353,18 +1380,16 @@ static void sema_asm_validate_conflicts(Stmt* stmt) {
     AsmOperand* input;
     if (!stmt) return;
     for (output = stmt->asm_outputs; output; output = output->next) {
-        int output_id = sema_asm_constraint_fixed_register_id(
-            output->constraint);
+        int output_id = sema_asm_operand_fixed_register_id(output);
         for (AsmOperand* later = output->next; later; later = later->next) {
             if (output_id >= 0 && output_id ==
-                sema_asm_constraint_fixed_register_id(later->constraint)) {
+                sema_asm_operand_fixed_register_id(later)) {
                 rcc_error(stmt->loc,
                           "inline asm outputs use the same fixed register");
             }
         }
         for (input = stmt->asm_inputs; input; input = input->next) {
-            int input_id = sema_asm_constraint_fixed_register_id(
-                input->constraint);
+            int input_id = sema_asm_operand_fixed_register_id(input);
             if (output_id < 0 || output_id != input_id) continue;
             if (output->constraint[0] != '=') {
                 rcc_error(stmt->loc,
@@ -1373,11 +1398,10 @@ static void sema_asm_validate_conflicts(Stmt* stmt) {
         }
     }
     for (input = stmt->asm_inputs; input; input = input->next) {
-        int input_id = sema_asm_constraint_fixed_register_id(
-            input->constraint);
+        int input_id = sema_asm_operand_fixed_register_id(input);
         for (AsmOperand* later = input->next; later; later = later->next) {
             if (input_id >= 0 && input_id ==
-                sema_asm_constraint_fixed_register_id(later->constraint)) {
+                sema_asm_operand_fixed_register_id(later)) {
                 rcc_error(stmt->loc,
                           "inline asm inputs use the same fixed register");
             }
@@ -1399,14 +1423,14 @@ static void sema_asm_validate_conflicts(Stmt* stmt) {
         }
         for (output = stmt->asm_outputs; output; output = output->next) {
             if (clobber_id >= 0 && clobber_id ==
-                sema_asm_constraint_fixed_register_id(output->constraint)) {
+                sema_asm_operand_fixed_register_id(output)) {
                 rcc_error(stmt->loc,
                           "inline asm clobber conflicts with an operand fixed register");
             }
         }
         for (input = stmt->asm_inputs; input; input = input->next) {
             if (clobber_id >= 0 && clobber_id ==
-                sema_asm_constraint_fixed_register_id(input->constraint)) {
+                sema_asm_operand_fixed_register_id(input)) {
                 rcc_error(stmt->loc,
                           "inline asm clobber conflicts with an operand fixed register");
             }
@@ -1438,15 +1462,24 @@ static void sema_asm_stmt(Stmt* stmt) {
             cursor += 2;
             continue;
         }
-        if (cursor[1] < '0' || cursor[1] > '9') {
+        if (cursor[1] != 'b' && cursor[1] != 'w' && cursor[1] != 'k' &&
+            (cursor[1] < '0' || cursor[1] > '9')) {
             rcc_error(stmt->loc,
-                      "inline asm placeholder must be %% or %%N");
+                      "inline asm placeholder must be %%, %%N, %%bN, %%wN, or %%kN");
             ++cursor;
             continue;
         }
         {
             uint64_t index = 0u;
-            const char* digit = cursor + 1;
+            const char* digit = cursor +
+                ((cursor[1] == 'b' || cursor[1] == 'w' || cursor[1] == 'k')
+                     ? 2 : 1);
+            if (*digit < '0' || *digit > '9') {
+                rcc_error(stmt->loc,
+                          "inline asm width modifier must be followed by an operand index");
+                ++cursor;
+                continue;
+            }
             while (*digit >= '0' && *digit <= '9') {
                 if (index > (UINT64_MAX - 9u) / 10u) {
                     index = UINT64_MAX;
@@ -1488,6 +1521,10 @@ static void sema_asm_stmt(Stmt* stmt) {
                 rcc_error(op->expr->loc,
                           "inline asm immediate input must be an integer constant expression");
             }
+        } else if (sema_asm_port_name(op->constraint) &&
+                   !sema_is_integer_type(op->expr->type)) {
+            rcc_error(op->expr->loc,
+                      "inline asm port input must have integer type");
         }
     }
     for (AsmClobber* clobber = stmt->asm_clobbers; clobber;

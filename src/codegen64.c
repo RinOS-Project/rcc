@@ -8077,6 +8077,35 @@ static int codegen64_asm_register(const char* constraint)
     }
 }
 
+static const char* codegen64_asm_constraint_name(const char* constraint)
+{
+    if (!constraint) return NULL;
+    while (*constraint == '=' || *constraint == '+' || *constraint == '&') {
+        ++constraint;
+    }
+    return constraint;
+}
+
+static bool codegen64_asm_constraint_is_port(const char* constraint)
+{
+    const char* name = codegen64_asm_constraint_name(constraint);
+    return name && strcmp(name, "Nd") == 0;
+}
+
+static int codegen64_asm_register_for_operand(const char* constraint,
+                                              Expr* expression)
+{
+    int64_t value;
+    if (!codegen64_asm_constraint_is_port(constraint)) {
+        return codegen64_asm_register(constraint);
+    }
+    if (expression && expr_eval_integer_constant(expression, &value) &&
+        value >= 0 && value <= 255) {
+        return -2;  /* The Nd alternative is an 8-bit port immediate. */
+    }
+    return RDX;      /* Non-constant and out-of-range ports use %dx. */
+}
+
 static const char* codegen64_asm_register_name(int reg)
 {
     switch (reg) {
@@ -8093,31 +8122,223 @@ static const char* codegen64_asm_register_name(int reg)
     }
 }
 
-static int codegen64_asm_parse_register(const char* text, size_t length)
+static const char* codegen64_asm_register_name_width(int reg, char modifier)
 {
-    if (!text || length == 0u) return -1;
-    if (*text == '%') {
+    if (!modifier) return codegen64_asm_register_name(reg);
+    if (modifier == 'b') {
+        switch (reg) {
+            case RAX: return "%al";
+            case RCX: return "%cl";
+            case RDX: return "%dl";
+            case RBX: return "%bl";
+            case RSP: return "%spl";
+            case RBP: return "%bpl";
+            case RSI: return "%sil";
+            case RDI: return "%dil";
+            case R10: return "%r10b";
+            default: return NULL;
+        }
+    }
+    if (modifier == 'w') {
+        switch (reg) {
+            case RAX: return "%ax";
+            case RCX: return "%cx";
+            case RDX: return "%dx";
+            case RBX: return "%bx";
+            case RSP: return "%sp";
+            case RBP: return "%bp";
+            case RSI: return "%si";
+            case RDI: return "%di";
+            case R10: return "%r10w";
+            default: return NULL;
+        }
+    }
+    if (modifier == 'k') {
+        switch (reg) {
+            case RAX: return "%eax";
+            case RCX: return "%ecx";
+            case RDX: return "%edx";
+            case RBX: return "%ebx";
+            case RSP: return "%esp";
+            case RBP: return "%ebp";
+            case RSI: return "%esi";
+            case RDI: return "%edi";
+            case R10: return "%r10d";
+            default: return NULL;
+        }
+    }
+    return NULL;
+}
+
+static bool codegen64_asm_parse_register_width(const char* text, size_t length,
+                                               int* reg, int* width)
+{
+    if (!text || !reg || !width) return false;
+    if (length > 0u && text[0] == '%') {
         ++text;
         --length;
     }
-    if ((length == 3u && strncmp(text, "eax", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rax", 3u) == 0)) return RAX;
-    if ((length == 3u && strncmp(text, "ecx", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rcx", 3u) == 0)) return RCX;
-    if ((length == 3u && strncmp(text, "edx", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rdx", 3u) == 0)) return RDX;
-    if ((length == 3u && strncmp(text, "ebx", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rbx", 3u) == 0)) return RBX;
-    if ((length == 3u && strncmp(text, "esp", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rsp", 3u) == 0)) return RSP;
-    if ((length == 3u && strncmp(text, "ebp", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rbp", 3u) == 0)) return RBP;
-    if ((length == 3u && strncmp(text, "esi", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rsi", 3u) == 0)) return RSI;
-    if ((length == 3u && strncmp(text, "edi", 3u) == 0) ||
-        (length == 3u && strncmp(text, "rdi", 3u) == 0)) return RDI;
-    if (length == 3u && strncmp(text, "r10", 3u) == 0) return R10;
-    return -1;
+    if (length == 2u && strncmp(text, "al", 2u) == 0) {
+        *reg = RAX; *width = 1; return true;
+    }
+    if (length == 2u && strncmp(text, "cl", 2u) == 0) {
+        *reg = RCX; *width = 1; return true;
+    }
+    if (length == 2u && strncmp(text, "dl", 2u) == 0) {
+        *reg = RDX; *width = 1; return true;
+    }
+    if (length == 2u && strncmp(text, "bl", 2u) == 0) {
+        *reg = RBX; *width = 1; return true;
+    }
+    if (length == 3u && strncmp(text, "spl", 3u) == 0) {
+        *reg = RSP; *width = 1; return true;
+    }
+    if (length == 3u && strncmp(text, "bpl", 3u) == 0) {
+        *reg = RBP; *width = 1; return true;
+    }
+    if (length == 3u && strncmp(text, "sil", 3u) == 0) {
+        *reg = RSI; *width = 1; return true;
+    }
+    if (length == 3u && strncmp(text, "dil", 3u) == 0) {
+        *reg = RDI; *width = 1; return true;
+    }
+    if (length == 4u && strncmp(text, "r10b", 4u) == 0) {
+        *reg = R10; *width = 1; return true;
+    }
+    if (length == 2u && strncmp(text, "ax", 2u) == 0) {
+        *reg = RAX; *width = 2; return true;
+    }
+    if (length == 2u && strncmp(text, "cx", 2u) == 0) {
+        *reg = RCX; *width = 2; return true;
+    }
+    if (length == 2u && strncmp(text, "dx", 2u) == 0) {
+        *reg = RDX; *width = 2; return true;
+    }
+    if (length == 2u && strncmp(text, "bx", 2u) == 0) {
+        *reg = RBX; *width = 2; return true;
+    }
+    if (length == 2u && strncmp(text, "sp", 2u) == 0) {
+        *reg = RSP; *width = 2; return true;
+    }
+    if (length == 2u && strncmp(text, "bp", 2u) == 0) {
+        *reg = RBP; *width = 2; return true;
+    }
+    if (length == 2u && strncmp(text, "si", 2u) == 0) {
+        *reg = RSI; *width = 2; return true;
+    }
+    if (length == 2u && strncmp(text, "di", 2u) == 0) {
+        *reg = RDI; *width = 2; return true;
+    }
+    if (length == 4u && strncmp(text, "r10w", 4u) == 0) {
+        *reg = R10; *width = 2; return true;
+    }
+    if (length == 3u && strncmp(text, "eax", 3u) == 0) {
+        *reg = RAX; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "ecx", 3u) == 0) {
+        *reg = RCX; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "edx", 3u) == 0) {
+        *reg = RDX; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "ebx", 3u) == 0) {
+        *reg = RBX; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "esp", 3u) == 0) {
+        *reg = RSP; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "ebp", 3u) == 0) {
+        *reg = RBP; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "esi", 3u) == 0) {
+        *reg = RSI; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "edi", 3u) == 0) {
+        *reg = RDI; *width = 4; return true;
+    }
+    if (length == 4u && strncmp(text, "r10d", 4u) == 0) {
+        *reg = R10; *width = 4; return true;
+    }
+    if (length == 3u && strncmp(text, "rax", 3u) == 0) {
+        *reg = RAX; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "rcx", 3u) == 0) {
+        *reg = RCX; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "rdx", 3u) == 0) {
+        *reg = RDX; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "rbx", 3u) == 0) {
+        *reg = RBX; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "rsp", 3u) == 0) {
+        *reg = RSP; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "rbp", 3u) == 0) {
+        *reg = RBP; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "rsi", 3u) == 0) {
+        *reg = RSI; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "rdi", 3u) == 0) {
+        *reg = RDI; *width = 8; return true;
+    }
+    if (length == 3u && strncmp(text, "r10", 3u) == 0) {
+        *reg = R10; *width = 8; return true;
+    }
+    return false;
+}
+
+static bool codegen64_asm_parse_io_register(const char* text, size_t length,
+                                            int* reg, int* width)
+{
+    if (!text || !reg || !width) return false;
+    if (length > 0u && text[0] == '%') {
+        ++text;
+        --length;
+    }
+    if (length == 2u && strncmp(text, "al", 2u) == 0) {
+        *reg = RAX; *width = 1; return true;
+    }
+    if (length == 2u && strncmp(text, "ax", 2u) == 0) {
+        *reg = RAX; *width = 2; return true;
+    }
+    if (length == 3u && strncmp(text, "eax", 3u) == 0) {
+        *reg = RAX; *width = 4; return true;
+    }
+    if (length == 2u && strncmp(text, "dx", 2u) == 0) {
+        *reg = RDX; *width = 2; return true;
+    }
+    if (length == 3u && strncmp(text, "edx", 3u) == 0) {
+        *reg = RDX; *width = 4; return true;
+    }
+    return false;
+}
+
+static bool codegen64_asm_parse_port(const char* text, size_t length,
+                                     bool* immediate, uint8_t* value)
+{
+    char operand[64];
+    char* end;
+    long long parsed;
+    int reg;
+    int width;
+    if (!text || !immediate || !value || length == 0u) return false;
+    if (length < sizeof(operand) && text[0] == '$') {
+        memcpy(operand, text, length);
+        operand[length] = '\0';
+        parsed = strtoll(operand + 1, &end, 0);
+        if (length < 2u || end == operand + 1 || *end != '\0' ||
+            parsed < 0 || parsed > 255) return false;
+        *immediate = true;
+        *value = (uint8_t)parsed;
+        return true;
+    }
+    if (!codegen64_asm_parse_io_register(text, length, &reg, &width) ||
+        reg != RDX || width != 2) return false;
+    *immediate = false;
+    *value = 0;
+    return true;
 }
 
 static char* codegen64_asm_expand_template(const char* source,
@@ -8153,14 +8374,20 @@ static char* codegen64_asm_expand_template(const char* source,
             read += 2u;
             continue;
         }
-        if (source[read + 1u] < '0' || source[read + 1u] > '9') {
+        char modifier = 0;
+        size_t index_start = read + 1u;
+        if (source[index_start] == 'b' || source[index_start] == 'w' ||
+            source[index_start] == 'k') {
+            modifier = source[index_start++];
+        }
+        if (source[index_start] < '0' || source[index_start] > '9') {
             rcc_error(loc, "inline asm placeholder must be %% or %%N");
             rcc_free(expanded);
             return NULL;
         }
         {
             uint64_t index = 0u;
-            size_t digit = read + 1u;
+            size_t digit = index_start;
             while (source[digit] >= '0' && source[digit] <= '9') {
                 if (index > (UINT64_MAX - 9u) / 10u) {
                     index = UINT64_MAX;
@@ -8191,10 +8418,10 @@ static char* codegen64_asm_expand_template(const char* source,
                 read = digit;
                 continue;
             }
-            if (!registers || !(name = codegen64_asm_register_name(
-                    registers[(size_t)index]))) {
+            if (!registers || !(name = codegen64_asm_register_name_width(
+                    registers[(size_t)index], modifier))) {
                 rcc_error(loc,
-                          "AMD64 inline asm placeholder requires a supported register operand");
+                          "AMD64 inline asm placeholder width is not available for this register");
                 rcc_free(expanded);
                 return NULL;
             }
@@ -8256,6 +8483,8 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
     size_t destination_length;
     int source;
     int destination;
+    int source_width;
+    int destination_width;
 
     if (length < 4u || strncmp(text, "mov", 3u) != 0 ||
         (text[3] != ' ' && text[3] != '\t')) return false;
@@ -8283,12 +8512,92 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
             text[destination_begin + destination_length - 1u] == '\t')) {
         --destination_length;
     }
-    source = codegen64_asm_parse_register(text + source_begin,
-                                          source_length);
-    destination = codegen64_asm_parse_register(text + destination_begin,
-                                                destination_length);
-    if (source < 0 || destination < 0) return false;
-    emit64_mov_reg_reg(mod, destination, source);
+    if (!codegen64_asm_parse_register_width(text + source_begin,
+                                            source_length, &source,
+                                            &source_width) ||
+        !codegen64_asm_parse_register_width(text + destination_begin,
+                                            destination_length, &destination,
+                                            &destination_width) ||
+        source_width != destination_width) return false;
+    if (source_width == 8) {
+        emit64_mov_reg_reg(mod, destination, source);
+    } else {
+        if (source_width == 2) emit_byte(mod, 0x66);
+        emit_rex(mod, false, source, 0, destination);
+        emit_byte(mod, source_width == 1 ? 0x88 : 0x89);
+        emit_byte(mod, modrm64(3, source, destination));
+    }
+    return true;
+}
+
+static bool codegen64_asm_emit_io(Module* mod, const char* text,
+                                  size_t length, const char* mnemonic,
+                                  int width, bool is_input)
+{
+    size_t mnemonic_length = strlen(mnemonic);
+    size_t cursor;
+    size_t comma;
+    size_t first_begin;
+    size_t first_length;
+    size_t second_begin;
+    size_t second_length;
+    bool port_immediate;
+    uint8_t port;
+    int value_reg;
+    int value_width;
+    if (length <= mnemonic_length ||
+        strncmp(text, mnemonic, mnemonic_length) != 0 ||
+        (text[mnemonic_length] != ' ' && text[mnemonic_length] != '\t')) {
+        return false;
+    }
+    cursor = mnemonic_length + 1u;
+    while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
+        ++cursor;
+    }
+    first_begin = cursor;
+    comma = first_begin;
+    while (comma < length && text[comma] != ',') ++comma;
+    if (comma == length) return false;
+    first_length = comma - first_begin;
+    while (first_length > 0u &&
+           (text[first_begin + first_length - 1u] == ' ' ||
+            text[first_begin + first_length - 1u] == '\t')) {
+        --first_length;
+    }
+    second_begin = comma + 1u;
+    while (second_begin < length &&
+           (text[second_begin] == ' ' || text[second_begin] == '\t')) {
+        ++second_begin;
+    }
+    second_length = length - second_begin;
+    while (second_length > 0u &&
+           (text[second_begin + second_length - 1u] == ' ' ||
+            text[second_begin + second_length - 1u] == '\t')) {
+        --second_length;
+    }
+    if (is_input) {
+        if (!codegen64_asm_parse_port(text + first_begin, first_length,
+                                      &port_immediate, &port) ||
+            !codegen64_asm_parse_io_register(text + second_begin,
+                                              second_length, &value_reg,
+                                              &value_width) ||
+            value_reg != RAX || value_width != width) return false;
+    } else {
+        if (!codegen64_asm_parse_io_register(text + first_begin, first_length,
+                                             &value_reg, &value_width) ||
+            value_reg != RAX || value_width != width ||
+            !codegen64_asm_parse_port(text + second_begin, second_length,
+                                      &port_immediate, &port)) return false;
+    }
+    if (width == 2) emit_byte(mod, 0x66);
+    if (is_input) {
+        emit_byte(mod, port_immediate ? (width == 1 ? 0xE4 : 0xE5)
+                                      : (width == 1 ? 0xEC : 0xED));
+    } else {
+        emit_byte(mod, port_immediate ? (width == 1 ? 0xE6 : 0xE7)
+                                      : (width == 1 ? 0xEE : 0xEF));
+    }
+    if (port_immediate) emit_byte(mod, port);
     return true;
 }
 
@@ -8308,6 +8617,14 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         --length;
     }
     if (length == 0u) return true;
+    if (codegen64_asm_emit_io(mod, text, length, "inb", 1, true) ||
+        codegen64_asm_emit_io(mod, text, length, "inw", 2, true) ||
+        codegen64_asm_emit_io(mod, text, length, "inl", 4, true) ||
+        codegen64_asm_emit_io(mod, text, length, "outb", 1, false) ||
+        codegen64_asm_emit_io(mod, text, length, "outw", 2, false) ||
+        codegen64_asm_emit_io(mod, text, length, "outl", 4, false)) {
+        return true;
+    }
     if (codegen64_asm_emit_mov(mod, text, length)) return true;
     if (codegen64_asm_no_operands(text, length, "syscall")) {
         emit_byte(mod, 0x0F);
@@ -8426,7 +8743,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
         ++asm_input_count;
-        int reg = codegen64_asm_register(operand->constraint);
+        int reg = codegen64_asm_register_for_operand(operand->constraint,
+                                                     operand->expr);
         if (reg != -2) ++input_count;
     }
     inputs = input_count > 0
@@ -8441,7 +8759,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         }
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
-        int reg = codegen64_asm_register(operand->constraint);
+        int reg = codegen64_asm_register_for_operand(operand->constraint,
+                                                     operand->expr);
         if (reg < 0 && reg != -2) {
             rcc_error(stmt->loc,
                       "unsupported AMD64 inline asm constraint '%s'",
@@ -8471,7 +8790,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             operand->constraint);
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
-        int reg = codegen64_asm_register(operand->constraint);
+        int reg = codegen64_asm_register_for_operand(operand->constraint,
+                                                     operand->expr);
         immediate_flags[template_index] = reg == -2;
         if (reg == -2 &&
             !expr_eval_integer_constant(operand->expr,
@@ -8485,8 +8805,9 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             rcc_free(registers);
             return;
         }
-        template_registers[template_index++] = codegen64_asm_register(
-            operand->constraint);
+        template_registers[template_index++] =
+            codegen64_asm_register_for_operand(operand->constraint,
+                                               operand->expr);
     }
     for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
          clobber = clobber->next) {
