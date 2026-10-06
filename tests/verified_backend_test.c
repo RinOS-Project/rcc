@@ -1501,6 +1501,9 @@ static void verify_cxx_object(const char* path)
     ObjSymbol* symbol;
     ObjSymbol* indirect_target_symbol;
     ObjSymbol* indirect_parameter_symbol;
+    ObjSymbol* overload_pointer_symbol;
+    ObjSymbol* overload_assignment_symbol;
+    ObjSymbol* overload_address_symbol;
     ObjSymbol* wide_symbol;
     ObjSymbol* wide_compound_symbol;
     ObjSymbol* wide_pure_comma_symbol;
@@ -1514,6 +1517,9 @@ static void verify_cxx_object(const char* path)
     typedef int RINOS_ABI (*CxxFunctionPointer)(int);
     CxxFunctionPointer indirect_target_function;
     int RINOS_ABI (*indirect_parameter_function)(CxxFunctionPointer, int);
+    int RINOS_ABI (*overload_pointer_function)(int);
+    int RINOS_ABI (*overload_assignment_function)(int);
+    int RINOS_ABI (*overload_address_function)(int);
     void* address;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
@@ -1522,6 +1528,12 @@ static void verify_cxx_object(const char* path)
         object, "verified_cxx_indirect_target");
     indirect_parameter_symbol = objfile_find_symbol(
         object, "verified_cxx_indirect_parameter");
+    overload_pointer_symbol = objfile_find_symbol(
+        object, "verified_cxx_overload_pointer_call");
+    overload_assignment_symbol = objfile_find_symbol(
+        object, "verified_cxx_overload_pointer_assignment");
+    overload_address_symbol = objfile_find_symbol(
+        object, "verified_cxx_overload_address_of_call");
     wide_symbol = objfile_find_symbol(
         object, "verified_cxx_wide_scalar_conditional_assign");
     wide_compound_symbol = objfile_find_symbol(
@@ -1540,6 +1552,18 @@ static void verify_cxx_object(const char* path)
            indirect_parameter_symbol->type == SYM_GLOBAL &&
            indirect_parameter_symbol->binding == BIND_CODE &&
            indirect_parameter_symbol->section == 0);
+    assert(overload_pointer_symbol != NULL &&
+           overload_pointer_symbol->type == SYM_GLOBAL &&
+           overload_pointer_symbol->binding == BIND_CODE &&
+           overload_pointer_symbol->section == 0);
+    assert(overload_assignment_symbol != NULL &&
+           overload_assignment_symbol->type == SYM_GLOBAL &&
+           overload_assignment_symbol->binding == BIND_CODE &&
+           overload_assignment_symbol->section == 0);
+    assert(overload_address_symbol != NULL &&
+           overload_address_symbol->type == SYM_GLOBAL &&
+           overload_address_symbol->binding == BIND_CODE &&
+           overload_address_symbol->section == 0);
     assert(wide_symbol != NULL && wide_symbol->type == SYM_GLOBAL &&
            wide_symbol->binding == BIND_CODE && wide_symbol->section == 0);
     assert(wide_compound_symbol != NULL &&
@@ -1563,6 +1587,18 @@ static void verify_cxx_object(const char* path)
            sizeof(indirect_parameter_function));
     assert(indirect_target_function(7) == 11);
     assert(indirect_parameter_function(indirect_target_function, 7) == 16);
+    address = symbol_address(memory, overload_pointer_symbol);
+    memcpy(&overload_pointer_function, &address,
+           sizeof(overload_pointer_function));
+    assert(overload_pointer_function(7) == 20);
+    address = symbol_address(memory, overload_assignment_symbol);
+    memcpy(&overload_assignment_function, &address,
+           sizeof(overload_assignment_function));
+    assert(overload_assignment_function(7) == 21);
+    address = symbol_address(memory, overload_address_symbol);
+    memcpy(&overload_address_function, &address,
+           sizeof(overload_address_function));
+    assert(overload_address_function(7) == 22);
     address = symbol_address(memory, wide_symbol);
     memcpy(&wide_function, &address, sizeof(wide_function));
     assert(wide_function(0, 0ULL) == 7ULL);

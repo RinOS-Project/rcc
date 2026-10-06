@@ -14,6 +14,37 @@ extern "C" int verified_cxx_indirect_parameter(int (*function)(int),
     return function(value) + 5;
 }
 
+namespace verified_cxx_pointer_overload {
+int target(int value)
+{
+    return value + 6;
+}
+
+long target(long value)
+{
+    return value + 60;
+}
+}
+
+extern "C" int verified_cxx_overload_pointer_call(int value)
+{
+    int (*function)(int) = verified_cxx_pointer_overload::target;
+    return function(value) + 7;
+}
+
+extern "C" int verified_cxx_overload_pointer_assignment(int value)
+{
+    int (*function)(int);
+    function = verified_cxx_pointer_overload::target;
+    return function(value) + 8;
+}
+
+extern "C" int verified_cxx_overload_address_of_call(int value)
+{
+    int (*function)(int) = &verified_cxx_pointer_overload::target;
+    return function(value) + 9;
+}
+
 extern "C" unsigned long long verified_cxx_wide_scalar_conditional_assign(
     int condition, unsigned long long value)
 {

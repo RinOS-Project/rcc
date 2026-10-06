@@ -254,6 +254,8 @@ static Type* sema_expr(Expr* expr);
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 static void sema_resolve_function_noexcept(Decl* declaration);
+static bool sema_cxx_select_function_pointer_overload(
+    Type* target, Expr* expression);
 
 static bool sema_cxx_is_polymorphic(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
@@ -6396,6 +6398,57 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     return -1;
 }
 
+/* An overloaded function used as a value has no call arguments from which to
+ * select a candidate.  Its target function-pointer type is the contextual
+ * information required by C++ overload resolution.  Resolve only exact
+ * function-type matches here; function-pointer conversions that need a real
+ * expression conversion remain the responsibility of implicit_cast(). */
+static bool sema_cxx_select_function_pointer_overload(
+    Type* target, Expr* expression) {
+    Symbol* symbol;
+    Decl* candidate;
+    Decl* selected = NULL;
+    Type* function_type;
+    if (!rcc_parser_is_cxx_mode() || !target || !expression ||
+        expression->kind != EXPR_IDENT || target->kind != TYPE_PTR ||
+        !target->base || target->base->kind != TYPE_FUNC) {
+        return false;
+    }
+    symbol = sema_cxx_lookup_name(expression->ident_name, expression->loc);
+    if (!symbol || symbol->kind != SYM_FUNC || !symbol->decl ||
+        !symbol->decl->func_overload_next) {
+        return false;
+    }
+    function_type = target->base;
+    for (candidate = symbol->decl; candidate;
+         candidate = candidate->func_overload_next) {
+        if (candidate->kind != DECL_FUNC || !candidate->type ||
+            candidate->type->kind != TYPE_FUNC ||
+            candidate->func_this_param ||
+            !type_is_compatible(candidate->type, function_type)) {
+            continue;
+        }
+        if (selected) {
+            rcc_error(expression->loc,
+                      "ambiguous overload '%s' for function-pointer target",
+                      expression->ident_name);
+            expression->type = type_int;
+            return true;
+        }
+        selected = candidate;
+    }
+    if (!selected) {
+        rcc_error(expression->loc,
+                  "no matching overload '%s' for function-pointer target",
+                  expression->ident_name);
+        expression->type = type_int;
+        return true;
+    }
+    expression->ident_decl = selected;
+    expression->type = selected->type;
+    return true;
+}
+
 /* Overload conversion sequences are ordered per argument.  A scalar sum or
  * worst-rank tie breaker is not sufficient: candidates with ranks [0, 2] and
  * [1, 1], for example, are incomparable and must remain ambiguous. */
@@ -10007,7 +10060,20 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
-            Type* rt = sema_expr(expr->binary_rhs);
+            Type* rt;
+            Expr* contextual = expr->binary_rhs &&
+                    expr->binary_rhs->kind == EXPR_ADDR
+                ? expr->binary_rhs->unary_operand : expr->binary_rhs;
+            if (sema_cxx_select_function_pointer_overload(lt, contextual)) {
+                if (contextual->type == type_int) {
+                    expr->binary_rhs->type = type_int;
+                } else {
+                    (void)sema_expr(expr->binary_rhs);
+                }
+                rt = expr->binary_rhs->type;
+            } else {
+                rt = sema_expr(expr->binary_rhs);
+            }
             if (!is_modifiable_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
@@ -13087,7 +13153,17 @@ static void sema_initializer(Type* type, Expr* initializer) {
         }
     }
     if (initializer->kind != EXPR_COMPOUND) {
-        sema_expr(initializer);
+        Expr* contextual = initializer->kind == EXPR_ADDR
+            ? initializer->unary_operand : initializer;
+        bool contextual_function_pointer =
+            sema_cxx_select_function_pointer_overload(type, contextual);
+        if (contextual_function_pointer && contextual->type == type_int) {
+            initializer->type = type_int;
+            return;
+        }
+        if (!contextual_function_pointer || initializer->kind == EXPR_ADDR) {
+            sema_expr(initializer);
+        }
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
             if (rcc_parser_is_cxx_mode() && type->cxx_class &&
                 initializer->type && type_is_compatible(type, initializer->type) &&
