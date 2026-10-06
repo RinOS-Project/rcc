@@ -292,6 +292,89 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     return true;
 }
 
+static Expr* make_unsigned_shift(const Expr* operand, unsigned shift,
+                                 SourceLoc loc, Type* type) {
+    Expr* count;
+    Expr* shifted;
+    if (!operand || !type) return NULL;
+    count = expr_int((int64_t)shift, loc);
+    count->type = type_int;
+    shifted = expr_binary(
+        EXPR_LSHIFT, clone_inline_pure_scalar_expression(operand), count,
+        loc);
+    if (!shifted || !shifted->binary_lhs) return NULL;
+    shifted->type = type;
+    return shifted;
+}
+
+static bool simplify_unsigned_small_multiply(Expr** expression) {
+    Expr* value;
+    Expr* operand;
+    Expr* replacement;
+    Expr* left;
+    Expr* right;
+    int64_t factor_value;
+    uint64_t factor;
+    unsigned shift;
+
+    if (!expression || !*expression ||
+        (*expression)->kind != EXPR_MUL) return false;
+    value = *expression;
+    if (!value->type || !type_is_integer(value->type) ||
+        !value->type->is_unsigned || !value->binary_lhs ||
+        !value->binary_rhs) return false;
+    if (integer_literal(value->binary_lhs, &factor_value)) {
+        operand = value->binary_rhs;
+    } else if (integer_literal(value->binary_rhs, &factor_value)) {
+        operand = value->binary_lhs;
+    } else {
+        return false;
+    }
+    if (!integer_expression_type_matches(operand, value->type) ||
+        expression_has_side_effect(operand)) return false;
+    factor = integer_unsigned_value(factor_value, value->type);
+    if (factor < 3u || factor > 7u || factor == 4u) return false;
+
+    switch (factor) {
+        case 3u:
+            shift = 1u;
+            left = make_unsigned_shift(operand, shift, value->loc,
+                                        value->type);
+            right = clone_inline_pure_scalar_expression(operand);
+            replacement = left && right
+                ? expr_binary(EXPR_ADD, left, right, value->loc) : NULL;
+            break;
+        case 5u:
+            left = make_unsigned_shift(operand, 2u, value->loc,
+                                       value->type);
+            right = clone_inline_pure_scalar_expression(operand);
+            replacement = left && right
+                ? expr_binary(EXPR_ADD, left, right, value->loc) : NULL;
+            break;
+        case 6u:
+            left = make_unsigned_shift(operand, 2u, value->loc,
+                                       value->type);
+            right = make_unsigned_shift(operand, 1u, value->loc,
+                                        value->type);
+            replacement = left && right
+                ? expr_binary(EXPR_ADD, left, right, value->loc) : NULL;
+            break;
+        case 7u:
+            left = make_unsigned_shift(operand, 3u, value->loc,
+                                       value->type);
+            right = clone_inline_pure_scalar_expression(operand);
+            replacement = left && right
+                ? expr_binary(EXPR_SUB, left, right, value->loc) : NULL;
+            break;
+        default:
+            return false;
+    }
+    if (!replacement) return false;
+    replacement->type = value->type;
+    *expression = replacement;
+    return true;
+}
+
 static bool float_literal(const Expr* expression, double* value) {
     if (!expression || expression->kind != EXPR_FLOAT_LIT ||
         !expression->type || !type_is_floating(expression->type) || !value) {
@@ -3073,6 +3156,7 @@ static void optimize_expr(Expr** expression) {
 
     if (simplify_integer_identity(expression)) return;
     if (simplify_unsigned_power_of_two(expression)) return;
+    if (simplify_unsigned_small_multiply(expression)) return;
 
     switch (value->kind) {
         case EXPR_NEG:

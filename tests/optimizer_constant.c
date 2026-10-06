@@ -418,6 +418,26 @@ unsigned int strength_reduce_unsigned_left(unsigned int value)
     return 16U * value;
 }
 
+unsigned int strength_reduce_unsigned_three(unsigned int value)
+{
+    return value * 3U;
+}
+
+unsigned int strength_reduce_unsigned_five(unsigned int value)
+{
+    return value * 5U;
+}
+
+unsigned int strength_reduce_unsigned_six(unsigned int value)
+{
+    return value * 6U;
+}
+
+unsigned int strength_reduce_unsigned_seven(unsigned int value)
+{
+    return value * 7U;
+}
+
 unsigned int strength_reduce_unsigned_div(unsigned int value)
 {
     return value / 8U;

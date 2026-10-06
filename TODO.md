@@ -403,6 +403,9 @@
         integerへのcastをO1でtruncation semanticsを保って定数化し、NaN・
         infinity・範囲外の変換はbackendへ残す。i686/AMD64のsize、実行、
         範囲外retention回帰を追加
+  - [x] side-effect-free unsigned multiplication by 3／5／6／7を、剰余算術を
+        保ったshift/addまたはshift/subへ強度削減し、signed式・副作用式は
+        変換対象外のままi686/AMD64の`imul`除去と実行回帰を追加
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
