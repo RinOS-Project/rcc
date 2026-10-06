@@ -346,6 +346,13 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
             return lower_wide_ssa_expression_safe(
                 expression->kind == EXPR_CAST
                     ? expression->cast_expr : expression->unary_operand);
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF: {
+            int64_t constant;
+            return expr_eval_integer_constant((Expr*)expression, &constant);
+        }
+        case EXPR_NOEXCEPT:
+            return expression->cxx_noexcept_value_valid;
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:

@@ -26,3 +26,11 @@ extern "C" unsigned long long verified_cxx_wide_scalar_pure_comma_compound(
     local += (value, condition ? 1ULL : 2ULL);
     return local;
 }
+
+extern "C" unsigned long long verified_cxx_wide_scalar_noexcept_compound(
+    unsigned long long value)
+{
+    unsigned long long local = value;
+    local += noexcept(value + 1ULL) ? 1ULL : 2ULL;
+    return local;
+}

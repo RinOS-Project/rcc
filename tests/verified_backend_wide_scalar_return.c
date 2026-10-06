@@ -134,6 +134,14 @@ unsigned long long verified_wide_scalar_pure_comma_compound(
     return local;
 }
 
+unsigned long long verified_wide_scalar_sizeof_compound(
+    unsigned long long value)
+{
+    unsigned long long local = value;
+    local += sizeof(char);
+    return local;
+}
+
 unsigned long long verified_wide_scalar_truth_conditional(
     unsigned long long value)
 {

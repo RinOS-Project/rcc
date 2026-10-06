@@ -172,6 +172,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* conditional_assign_symbol;
     ObjSymbol* conditional_compound_symbol;
     ObjSymbol* pure_comma_compound_symbol;
+    ObjSymbol* sizeof_compound_symbol;
     ObjSymbol* truth_conditional_symbol;
     ObjSymbol* mul_symbol;
     ObjSymbol* call_symbol;
@@ -253,6 +254,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_conditional_compound");
     pure_comma_compound_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_pure_comma_compound");
+    sizeof_compound_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_sizeof_compound");
     truth_conditional_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_truth_conditional");
     mul_symbol = objfile_find_symbol(object, "verified_wide_scalar_mul");
@@ -394,6 +397,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            pure_comma_compound_symbol->type == SYM_GLOBAL &&
            pure_comma_compound_symbol->binding == BIND_CODE &&
            pure_comma_compound_symbol->section == 0);
+    assert(sizeof_compound_symbol != NULL &&
+           sizeof_compound_symbol->type == SYM_GLOBAL &&
+           sizeof_compound_symbol->binding == BIND_CODE &&
+           sizeof_compound_symbol->section == 0);
     assert(truth_conditional_symbol != NULL &&
            truth_conditional_symbol->type == SYM_GLOBAL &&
            truth_conditional_symbol->binding == BIND_CODE &&
@@ -542,6 +549,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
             int, unsigned long long);
         unsigned long long RINOS_ABI (*pure_comma_compound_function)(
             int, unsigned long long);
+        unsigned long long RINOS_ABI (*sizeof_compound_function)(
+            unsigned long long);
         unsigned long long RINOS_ABI (*truth_conditional_function)(unsigned long long);
         unsigned long long RINOS_ABI (*mul_function)(unsigned long long);
         unsigned long long RINOS_ABI (*call_function)(unsigned long long);
@@ -698,6 +707,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
                sizeof(pure_comma_compound_function));
         assert(pure_comma_compound_function(0, 5ULL) == 7ULL);
         assert(pure_comma_compound_function(1, 5ULL) == 6ULL);
+        address = symbol_address(memory, sizeof_compound_symbol);
+        memcpy(&sizeof_compound_function, &address,
+               sizeof(sizeof_compound_function));
+        assert(sizeof_compound_function(5ULL) == 6ULL);
         address = symbol_address(memory, truth_conditional_symbol);
         memcpy(&truth_conditional_function, &address,
                sizeof(truth_conditional_function));
@@ -1422,10 +1435,13 @@ static void verify_cxx_object(const char* path)
     ObjSymbol* wide_symbol;
     ObjSymbol* wide_compound_symbol;
     ObjSymbol* wide_pure_comma_symbol;
+    ObjSymbol* wide_noexcept_symbol;
     size_t mapping_size;
     void* memory;
     unsigned long long RINOS_ABI (*wide_function)(
         int, unsigned long long);
+    unsigned long long RINOS_ABI (*wide_noexcept_function)(
+        unsigned long long);
     void* address;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
@@ -1436,6 +1452,8 @@ static void verify_cxx_object(const char* path)
         object, "verified_cxx_wide_scalar_conditional_compound");
     wide_pure_comma_symbol = objfile_find_symbol(
         object, "verified_cxx_wide_scalar_pure_comma_compound");
+    wide_noexcept_symbol = objfile_find_symbol(
+        object, "verified_cxx_wide_scalar_noexcept_compound");
     assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
            symbol->binding == BIND_CODE && symbol->section == 0);
     assert(wide_symbol != NULL && wide_symbol->type == SYM_GLOBAL &&
@@ -1448,6 +1466,10 @@ static void verify_cxx_object(const char* path)
            wide_pure_comma_symbol->type == SYM_GLOBAL &&
            wide_pure_comma_symbol->binding == BIND_CODE &&
            wide_pure_comma_symbol->section == 0);
+    assert(wide_noexcept_symbol != NULL &&
+           wide_noexcept_symbol->type == SYM_GLOBAL &&
+           wide_noexcept_symbol->binding == BIND_CODE &&
+           wide_noexcept_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, wide_symbol);
     memcpy(&wide_function, &address, sizeof(wide_function));
@@ -1458,6 +1480,10 @@ static void verify_cxx_object(const char* path)
     memcpy(&wide_function, &address, sizeof(wide_function));
     assert(wide_function(0, 5ULL) == 7ULL);
     assert(wide_function(1, 5ULL) == 6ULL);
+    address = symbol_address(memory, wide_noexcept_symbol);
+    memcpy(&wide_noexcept_function, &address,
+           sizeof(wide_noexcept_function));
+    assert(wide_noexcept_function(5ULL) == 6ULL);
     address = symbol_address(memory, wide_pure_comma_symbol);
     memcpy(&wide_function, &address, sizeof(wide_function));
     assert(wide_function(0, 5ULL) == 7ULL);
