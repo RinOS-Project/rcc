@@ -10703,7 +10703,20 @@ static Type* sema_expr(Expr* expr) {
             parameter = ft->params;
             argument = expr->call_args;
             while (argument) {
-                if (!arguments_analyzed) sema_expr(argument->expr);
+                if (!arguments_analyzed) {
+                    Expr* contextual = argument->expr &&
+                            argument->expr->kind == EXPR_ADDR
+                        ? argument->expr->unary_operand : argument->expr;
+                    bool contextual_function_pointer = parameter &&
+                        sema_cxx_select_function_pointer_overload(
+                            parameter->type, contextual);
+                    if (!contextual_function_pointer ||
+                        contextual->type != type_int) {
+                        sema_expr(argument->expr);
+                    } else {
+                        argument->expr->type = type_int;
+                    }
+                }
                 if (parameter) {
                     if (!implicit_cast(argument->expr, parameter->type)) {
                         const char* function_name =

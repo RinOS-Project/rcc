@@ -45,6 +45,18 @@ extern "C" int verified_cxx_overload_address_of_call(int value)
     return function(value) + 9;
 }
 
+extern "C" int verified_cxx_overload_parameter_call(int value)
+{
+    return verified_cxx_indirect_parameter(
+        verified_cxx_pointer_overload::target, value) + 10;
+}
+
+extern "C" int verified_cxx_overload_parameter_address_call(int value)
+{
+    return verified_cxx_indirect_parameter(
+        &verified_cxx_pointer_overload::target, value) + 11;
+}
+
 extern "C" unsigned long long verified_cxx_wide_scalar_conditional_assign(
     int condition, unsigned long long value)
 {
