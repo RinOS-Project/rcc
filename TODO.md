@@ -517,9 +517,9 @@
         `DW_AT_inline=DW_INL_declared_inlined`を記録し、非inline関数の
         `DW_INL_not_inlined`と両archのdebug-info回帰で検証
   - [x] C++非staticメンバー関数の`DW_AT_name`にsource名を出し、mangled
-        `DW_AT_linkage_name`を維持しながら、`DW_AT_object_pointer`から
-        `DW_AT_artificial`付き`this` formal-parameter DIEを参照する形式を
-        i686/x86_64のobject回帰で検証
+        `DW_AT_linkage_name`を維持しながら、`DW_AT_object_pointer`と
+        `DW_AT_containing_type`から人工`this` parameterと所有class DIEを参照し、
+        i686/x86_64のobject回帰で両方の参照先を検証
   - [x] subprogram DIEへ実在する関数戻り型の`DW_AT_type`参照を追加し、
         AST型を持たない生成関数には型を捏造せず型無しabbrevを選択する
         両archのdebug-info回帰を追加

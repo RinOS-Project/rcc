@@ -79,6 +79,7 @@ static void verify_object_pointer_parameter(const char* path,
         uint32_t name_offset;
         uint32_t linkage_name_offset;
         uint32_t object_pointer_offset;
+        uint32_t containing_type_offset;
         uint64_t cursor;
         uint64_t expression_size;
         uint64_t parameter_cursor;
@@ -106,8 +107,18 @@ static void verify_object_pointer_parameter(const char* path,
         cursor += expression_size;
         ++cursor; /* DW_AT_inline */
         object_pointer_offset = read_u32(info->data, cursor);
-        cursor += 4u;
+        containing_type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
         assert(object_pointer_offset == cursor);
+        assert(containing_type_offset < info->size);
+        assert(info->data[containing_type_offset] == 12u);
+        {
+            uint32_t containing_name_offset =
+                read_u32(info->data, containing_type_offset + 1u);
+            assert(containing_name_offset < strings->size);
+            assert(strcmp((const char*)strings->data + containing_name_offset,
+                          "DebugMemberObject") == 0);
+        }
         assert(info->data[object_pointer_offset] == 27u);
         parameter_name_offset = read_u32(info->data,
                                          object_pointer_offset + 1u);

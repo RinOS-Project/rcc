@@ -1111,6 +1111,7 @@ static void debug_collect_function_types(DebugTypeContext* context,
         debug_type_collect(context, function->type->ret_type);
     }
     debug_type_collect(context, function->type);
+    debug_type_collect(context, function->func_method_owner);
     debug_collect_decl_type(context, function->func_this_param);
     for (const DeclList* parameter = function->func_params; parameter;
          parameter = parameter->next) {
@@ -2761,6 +2762,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0x64u);    /* DW_AT_object_pointer */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1du);    /* DW_AT_containing_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abbreviation 27 marks the synthetic C++ `this` parameter artificial. */
@@ -2820,6 +2823,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         const char* symbol_name = function->name;
         Decl* function_decl = debug_find_function_decl(mod, function);
         DebugTypeEntry* return_type = NULL;
+        DebugTypeEntry* containing_type = NULL;
         char* scoped_name = NULL;
         int file_index = debug_line_file_index(
             files, file_count, function->source_file);
@@ -2833,6 +2837,14 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                           function_decl->type->ret_type);
             if (!return_type) {
                 rcc_fatal("DWARF function return type was not collected");
+            }
+        }
+        if (function_decl && function_decl->func_this_param &&
+            function_decl->func_method_owner) {
+            containing_type = debug_type_find(
+                &types, function_decl->func_method_owner);
+            if (!containing_type) {
+                rcc_fatal("DWARF member-function owner type was not collected");
             }
         }
         section_add_byte(info,
@@ -2871,11 +2883,15 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                 ? 3u : 0u);
         if (return_type && function_decl &&
             function_decl->func_this_param) {
-            if (info->size > UINT32_MAX - sizeof(uint32_t)) {
+            if (!containing_type ||
+                info->size > UINT32_MAX - 2u * sizeof(uint32_t)) {
                 rcc_fatal("DWARF object-pointer reference exceeds 32-bit range");
             }
-            /* The artificial `this` parameter is emitted as the first child. */
-            debug_line_u32(info, (uint32_t)(info->size + sizeof(uint32_t)));
+            /* The artificial `this` parameter is emitted as the first child;
+             * the containing-type reference follows the object-pointer ref. */
+            debug_line_u32(info,
+                           (uint32_t)(info->size + 2u * sizeof(uint32_t)));
+            debug_line_u32(info, containing_type->offset);
         }
         debug_emit_function_locals(
             obj, info, strings, &types, files, file_count, mod, filename,
