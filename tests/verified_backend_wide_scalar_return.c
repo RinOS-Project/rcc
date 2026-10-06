@@ -303,3 +303,17 @@ unsigned long long verified_wide_scalar_do_control(
     } while (count != 0u);
     return local;
 }
+
+unsigned long long verified_wide_scalar_loop_return(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    while (count != 0u) {
+        if (count == 2u) {
+            return local;
+        }
+        local += 0x0000000100000001ULL;
+        --count;
+    }
+    return local;
+}

@@ -193,6 +193,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* while_continue_symbol;
     ObjSymbol* for_break_symbol;
     ObjSymbol* do_control_symbol;
+    ObjSymbol* loop_return_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -277,6 +278,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_for_break");
     do_control_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_do_control");
+    loop_return_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_loop_return");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -425,6 +428,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            do_control_symbol->type == SYM_GLOBAL &&
            do_control_symbol->binding == BIND_CODE &&
            do_control_symbol->section == 0);
+    assert(loop_return_symbol != NULL &&
+           loop_return_symbol->type == SYM_GLOBAL &&
+           loop_return_symbol->binding == BIND_CODE &&
+           loop_return_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -483,6 +490,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*for_break_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*do_control_function)(
+            unsigned long long, unsigned int);
+        unsigned long long RINOS_ABI (*loop_return_function)(
             unsigned long long, unsigned int);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
@@ -681,6 +690,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&do_control_function, &address, sizeof(do_control_function));
         assert(do_control_function(0x0000000200000002ULL, 4u) ==
                0x0000000300000003ULL);
+        address = symbol_address(memory, loop_return_symbol);
+        memcpy(&loop_return_function, &address,
+               sizeof(loop_return_function));
+        assert(loop_return_function(0x0000000200000002ULL, 4u) ==
+               0x0000000400000004ULL);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

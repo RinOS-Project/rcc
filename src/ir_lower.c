@@ -1257,6 +1257,8 @@ static bool lower_wide_loop_body_edge_safe(const Stmt* statement) {
         case STMT_CONTINUE:
             return true;
         case STMT_RETURN:
+            /* A return exits the function and does not add a loop edge. */
+            return true;
         case STMT_GOTO:
         case STMT_THROW:
         case STMT_LABEL:
