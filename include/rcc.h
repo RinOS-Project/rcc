@@ -64,6 +64,7 @@ typedef struct {
     int opt_level;              /* 0-3 */
     bool debug_info;
     bool cxx_mode;
+    int cxx_standard;           /* 11, 14, 17, or 20 when in C++ mode */
     bool warnings_as_errors;
     bool verbose;
 

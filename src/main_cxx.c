@@ -425,6 +425,11 @@ static int parse_cxx_args(int argc, char** argv) {
         }
     }
 
+    /* Preserve the selected source standard for relocatable debug metadata.
+     * The parser keeps this in g_cxx_standard; the emitter only sees the
+     * common compiler options, so copy it after all command-line/manifest
+     * validation and before any translation unit is compiled. */
+    g_opts.cxx_standard = g_cxx_standard;
     return 0;
 }
 

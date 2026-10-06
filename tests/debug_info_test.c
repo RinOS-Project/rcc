@@ -604,17 +604,23 @@ static void verify_without_debug(const char* path)
 
 int main(int argc, char** argv)
 {
-    assert(argc == 7);
+    assert(argc == 10);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
     verify_debug_object(argv[2], ARCH_X64, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
-    verify_debug_object(argv[3], ARCH_X64, 0x0021u,
+    verify_debug_object(argv[3], ARCH_X64, 0x002bu,
                         "tests/hello.cpp", "main", NULL);
     verify_without_debug(argv[4]);
     verify_aligned_debug_object(argv[5], ARCH_X86);
     verify_aligned_debug_object(argv[6], ARCH_X64);
+    verify_debug_object(argv[7], ARCH_X64, 0x001au,
+                        "tests/hello.cpp", "main", NULL);
+    verify_debug_object(argv[8], ARCH_X64, 0x0021u,
+                        "tests/hello.cpp", "main", NULL);
+    verify_debug_object(argv[9], ARCH_X64, 0x002au,
+                        "tests/hello.cpp", "main", NULL);
     return 0;
 }

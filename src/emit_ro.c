@@ -2204,6 +2204,16 @@ static uint32_t debug_function_size(const Module* mod,
     return size;
 }
 
+static uint16_t debug_cxx_language(void) {
+    switch (g_opts.cxx_standard) {
+        case 11: return 0x001au; /* DW_LANG_C_plus_plus_11 */
+        case 14: return 0x0021u; /* DW_LANG_C_plus_plus_14 */
+        case 17: return 0x002au; /* DW_LANG_C_plus_plus_17 */
+        case 20: return 0x002bu; /* DW_LANG_C_plus_plus_20 */
+        default: return 0x0004u; /* DW_LANG_C_plus_plus */
+    }
+}
+
 static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                    const char* filename) {
     const ModuleSymbol** functions;
@@ -2572,8 +2582,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(info, (uint8_t)(g_opts.target_arch == ARCH_X64 ? 8 : 4));
     section_add_byte(info, 1u);        /* compile-unit abbreviation */
     debug_line_u32(info, producer_offset);
-    debug_line_u16(info, g_opts.cxx_mode ? 0x0021u : 0x000cu);
-                                      /* DW_LANG_C_plus_plus_14 / C99 */
+    debug_line_u16(info, g_opts.cxx_mode ? debug_cxx_language() : 0x000cu);
+                                      /* C++ standard / C99 */
     debug_line_u32(info, 0u);          /* .debug_line offset */
     debug_line_u32(info, unit_name_offset);
 

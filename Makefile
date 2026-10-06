@@ -827,6 +827,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/debug-info/x64-aligned-g.ro tests/debug_info_aligned.c
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -g -c \
 		-o $(TEST_OUT)/debug-info/cxx-g.ro tests/hello.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -g -c \
+		-o $(TEST_OUT)/debug-info/cxx11-g.ro tests/hello.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -g -c \
+		-o $(TEST_OUT)/debug-info/cxx14-g.ro tests/hello.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -g -c \
+		-o $(TEST_OUT)/debug-info/cxx17-g.ro tests/hello.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -838,7 +844,10 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-g.ro \
 		$(TEST_OUT)/debug-info/x86-no-g.ro \
 		$(TEST_OUT)/debug-info/x86-aligned-g.ro \
-		$(TEST_OUT)/debug-info/x64-aligned-g.ro
+		$(TEST_OUT)/debug-info/x64-aligned-g.ro \
+		$(TEST_OUT)/debug-info/cxx11-g.ro \
+		$(TEST_OUT)/debug-info/cxx14-g.ro \
+		$(TEST_OUT)/debug-info/cxx17-g.ro
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
 		$(TEST_OUT)/debug-info/x86-g.ro
