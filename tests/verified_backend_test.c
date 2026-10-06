@@ -189,6 +189,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* branch_read_symbol;
     ObjSymbol* while_loop_symbol;
     ObjSymbol* for_loop_symbol;
+    ObjSymbol* do_loop_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     symbol = objfile_find_symbol(
@@ -265,6 +266,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_while_loop");
     for_loop_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_for_loop");
+    do_loop_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_do_loop");
     assert(text != NULL && text->size != 0u &&
            (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
                (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -397,6 +400,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            for_loop_symbol->type == SYM_GLOBAL &&
            for_loop_symbol->binding == BIND_CODE &&
            for_loop_symbol->section == 0);
+    assert(do_loop_symbol != NULL &&
+           do_loop_symbol->type == SYM_GLOBAL &&
+           do_loop_symbol->binding == BIND_CODE &&
+           do_loop_symbol->section == 0);
     if ((arch == ARCH_X86 && sizeof(void*) == 4u) ||
         (arch == ARCH_X64 && sizeof(void*) == 8u)) {
         size_t mapping_size;
@@ -447,6 +454,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*while_loop_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*for_loop_function)(
+            unsigned long long, unsigned int);
+        unsigned long long RINOS_ABI (*do_loop_function)(
             unsigned long long, unsigned int);
         void* address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
@@ -627,6 +636,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         address = symbol_address(memory, for_loop_symbol);
         memcpy(&for_loop_function, &address, sizeof(for_loop_function));
         assert(for_loop_function(0x0000000200000002ULL, 3u) ==
+               0x0000000500000005ULL);
+        address = symbol_address(memory, do_loop_symbol);
+        memcpy(&do_loop_function, &address, sizeof(do_loop_function));
+        assert(do_loop_function(0x0000000200000002ULL, 3u) ==
                0x0000000500000005ULL);
         assert(verified_unmap(memory, mapping_size) == 0);
     }

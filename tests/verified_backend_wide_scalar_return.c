@@ -248,3 +248,14 @@ unsigned long long verified_wide_scalar_for_loop(
     }
     return local;
 }
+
+unsigned long long verified_wide_scalar_do_loop(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    do {
+        local += 0x0000000100000001ULL;
+        --count;
+    } while (count != 0u);
+    return local;
+}
