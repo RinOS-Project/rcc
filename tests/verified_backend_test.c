@@ -196,6 +196,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* switch_symbol;
     ObjSymbol* switch_loop_symbol;
     ObjSymbol* switch_fallthrough_symbol;
+    ObjSymbol* switch_if_symbol;
     ObjSymbol* while_continue_symbol;
     ObjSymbol* for_break_symbol;
     ObjSymbol* do_control_symbol;
@@ -290,6 +291,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_switch_loop");
     switch_fallthrough_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_switch_fallthrough");
+    switch_if_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_switch_if");
     while_continue_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_while_continue");
     for_break_symbol = objfile_find_symbol(
@@ -458,6 +461,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            switch_fallthrough_symbol->type == SYM_GLOBAL &&
            switch_fallthrough_symbol->binding == BIND_CODE &&
            switch_fallthrough_symbol->section == 0);
+    assert(switch_if_symbol != NULL &&
+           switch_if_symbol->type == SYM_GLOBAL &&
+           switch_if_symbol->binding == BIND_CODE &&
+           switch_if_symbol->section == 0);
     assert(while_continue_symbol != NULL &&
            while_continue_symbol->type == SYM_GLOBAL &&
            while_continue_symbol->binding == BIND_CODE &&
@@ -538,6 +545,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*switch_loop_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*switch_fallthrough_function)(
+            unsigned long long, unsigned int);
+        unsigned long long RINOS_ABI (*switch_if_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*while_continue_function)(
             unsigned long long, unsigned int);
@@ -770,6 +779,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
                0x0000000200000004ULL);
         assert(switch_fallthrough_function(0x0000000200000002ULL, 1u) ==
                0x0000000200000006ULL);
+        address = symbol_address(memory, switch_if_symbol);
+        memcpy(&switch_if_function, &address, sizeof(switch_if_function));
+        assert(switch_if_function(0x0000000200000002ULL, 0u) ==
+               0x0000000200000003ULL);
+        assert(switch_if_function(0x0000000200000002ULL, 1u) ==
+               0x0000000200000005ULL);
         address = symbol_address(memory, while_continue_symbol);
         memcpy(&while_continue_function, &address,
                sizeof(while_continue_function));

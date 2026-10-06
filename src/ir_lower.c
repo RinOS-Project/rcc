@@ -1335,11 +1335,17 @@ static bool lower_wide_switch_case_linear(const Stmt* statement) {
         case STMT_SWITCH:
         case STMT_CASE:
         case STMT_DEFAULT:
-        case STMT_IF:
         case STMT_WHILE:
         case STMT_DO:
         case STMT_FOR:
             return false;
+        case STMT_IF:
+            if (!statement->if_else ||
+                !lower_wide_switch_case_linear(statement->if_then) ||
+                !lower_wide_switch_case_linear(statement->if_else)) {
+                return false;
+            }
+            return true;
         default:
             return true;
     }
@@ -1348,7 +1354,8 @@ static bool lower_wide_switch_case_linear(const Stmt* statement) {
 static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
     const StmtList* item;
     bool found_default = false;
-    bool last_terminates = false;
+    bool found_label = false;
+    bool segment_terminates = false;
     if (!statement || statement->kind != STMT_SWITCH ||
         !statement->switch_body ||
         statement->switch_body->kind != STMT_BLOCK) {
@@ -1356,21 +1363,24 @@ static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
     }
     for (item = statement->switch_body->block_stmts; item;
          item = item->next) {
-        if (!item->stmt || (item->stmt->kind != STMT_CASE &&
-                            item->stmt->kind != STMT_DEFAULT)) {
+        const Stmt* current = item->stmt;
+        if (!current) return false;
+        if (current->kind == STMT_CASE || current->kind == STMT_DEFAULT) {
+            found_label = true;
+            if (current->kind == STMT_DEFAULT) found_default = true;
+            current = current->kind == STMT_CASE
+                ? current->case_stmt : current->default_stmt;
+            if (!lower_wide_switch_case_linear(current)) return false;
+            segment_terminates = lower_wide_switch_case_terminates(current);
+            continue;
+        }
+        if (!found_label || segment_terminates ||
+            !lower_wide_switch_case_linear(current)) {
             return false;
         }
-        if (item->stmt->kind == STMT_DEFAULT) found_default = true;
-        if (!lower_wide_switch_case_linear(
-                item->stmt->kind == STMT_CASE
-                    ? item->stmt->case_stmt : item->stmt->default_stmt)) {
-            return false;
-        }
-        last_terminates = lower_wide_switch_case_terminates(
-            item->stmt->kind == STMT_CASE
-                ? item->stmt->case_stmt : item->stmt->default_stmt);
+        segment_terminates = lower_wide_switch_case_terminates(current);
     }
-    return found_default && last_terminates;
+    return found_label && found_default && segment_terminates;
 }
 
 static void lower_release_wide_loop_edges(RccIrLowerLoopEdge* edges) {

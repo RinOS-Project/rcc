@@ -356,6 +356,25 @@ unsigned long long verified_wide_scalar_switch_fallthrough(
     return local;
 }
 
+unsigned long long verified_wide_scalar_switch_if(
+    unsigned long long value, unsigned int selector)
+{
+    unsigned long long local = value;
+    switch (selector) {
+        case 0u:
+            if (selector == 0u) {
+                local += 1ULL;
+            } else {
+                local += 2ULL;
+            }
+            break;
+        default:
+            local += 3ULL;
+            break;
+    }
+    return local;
+}
+
 unsigned long long verified_wide_scalar_while_continue(
     unsigned long long value, unsigned int count)
 {
