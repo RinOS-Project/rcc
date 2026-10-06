@@ -337,6 +337,14 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(
         optimized, "strength_reduce_signed_div_eight", 0xf7u));
     assert(function_contains_byte(
+        unoptimized, "strength_reduce_signed_mod_two", 0xf7u));
+    assert(!function_contains_byte(
+        optimized, "strength_reduce_signed_mod_two", 0xf7u));
+    assert(function_contains_byte(
+        unoptimized, "strength_reduce_signed_mod_eight", 0xf7u));
+    assert(!function_contains_byte(
+        optimized, "strength_reduce_signed_mod_eight", 0xf7u));
+    assert(function_contains_byte(
         unoptimized, "preserved_signed_div_negative_power", 0xf7u));
     assert(function_contains_byte(
         optimized, "preserved_signed_div_negative_power", 0xf7u));
@@ -473,6 +481,10 @@ int main(int argc, char** argv)
             object, "strength_reduce_signed_div_two");
         ObjSymbol* strength_reduce_signed_div_eight_symbol = function_symbol(
             object, "strength_reduce_signed_div_eight");
+        ObjSymbol* strength_reduce_signed_mod_two_symbol = function_symbol(
+            object, "strength_reduce_signed_mod_two");
+        ObjSymbol* strength_reduce_signed_mod_eight_symbol = function_symbol(
+            object, "strength_reduce_signed_mod_eight");
         ObjSymbol* inlined_argument_call_symbol = function_symbol(
             object, "inlined_argument_call");
         ObjSymbol* inlined_local_temporary_call_symbol = function_symbol(
@@ -611,6 +623,8 @@ int main(int argc, char** argv)
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         int (*strength_reduce_signed_div_two)(int);
         int (*strength_reduce_signed_div_eight)(int);
+        int (*strength_reduce_signed_mod_two)(int);
+        int (*strength_reduce_signed_mod_eight)(int);
         int (*inlined_argument_call)(int);
         int (*inlined_local_temporary_call)(int);
         int (*inlined_two_local_temporaries_call)(int, int);
@@ -849,6 +863,12 @@ int main(int argc, char** argv)
         address = mapping + strength_reduce_signed_div_eight_symbol->value;
         memcpy(&strength_reduce_signed_div_eight, &address,
                sizeof(strength_reduce_signed_div_eight));
+        address = mapping + strength_reduce_signed_mod_two_symbol->value;
+        memcpy(&strength_reduce_signed_mod_two, &address,
+               sizeof(strength_reduce_signed_mod_two));
+        address = mapping + strength_reduce_signed_mod_eight_symbol->value;
+        memcpy(&strength_reduce_signed_mod_eight, &address,
+               sizeof(strength_reduce_signed_mod_eight));
         address = mapping + inlined_argument_call_symbol->value;
         memcpy(&inlined_argument_call, &address,
                sizeof(inlined_argument_call));
@@ -1164,6 +1184,11 @@ int main(int argc, char** argv)
         assert(strength_reduce_signed_div_eight(-17) == -2);
         assert(strength_reduce_signed_div_eight(17) == 2);
         assert(strength_reduce_signed_div_eight(INT32_MIN) == -268435456);
+        assert(strength_reduce_signed_mod_two(-17) == -1);
+        assert(strength_reduce_signed_mod_two(17) == 1);
+        assert(strength_reduce_signed_mod_eight(-17) == -1);
+        assert(strength_reduce_signed_mod_eight(17) == 1);
+        assert(strength_reduce_signed_mod_eight(INT32_MIN) == 0);
         assert(inlined_argument_call(-8) == -7);
         assert(inlined_local_temporary_call(-8) == -10);
         assert(inlined_two_local_temporaries_call(-8, 13) == 11);

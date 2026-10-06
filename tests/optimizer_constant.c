@@ -534,6 +534,16 @@ int strength_reduce_signed_div_eight(int value)
     return value / 8;
 }
 
+int strength_reduce_signed_mod_two(int value)
+{
+    return value % 2;
+}
+
+int strength_reduce_signed_mod_eight(int value)
+{
+    return value % 8;
+}
+
 int preserved_signed_div_negative_power(int value)
 {
     return value / -2147483648;
