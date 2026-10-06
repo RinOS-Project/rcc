@@ -438,6 +438,41 @@ unsigned int strength_reduce_unsigned_seven(unsigned int value)
     return value * 7U;
 }
 
+unsigned int strength_reduce_unsigned_nine(unsigned int value)
+{
+    return value * 9U;
+}
+
+unsigned int strength_reduce_unsigned_ten(unsigned int value)
+{
+    return value * 10U;
+}
+
+unsigned int strength_reduce_unsigned_eleven(unsigned int value)
+{
+    return value * 11U;
+}
+
+unsigned int strength_reduce_unsigned_twelve(unsigned int value)
+{
+    return value * 12U;
+}
+
+unsigned int strength_reduce_unsigned_thirteen(unsigned int value)
+{
+    return value * 13U;
+}
+
+unsigned int strength_reduce_unsigned_fourteen(unsigned int value)
+{
+    return value * 14U;
+}
+
+unsigned int strength_reduce_unsigned_fifteen(unsigned int value)
+{
+    return value * 15U;
+}
+
 unsigned int strength_reduce_unsigned_div(unsigned int value)
 {
     return value / 8U;

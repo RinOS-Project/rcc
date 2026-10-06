@@ -307,6 +307,30 @@ static Expr* make_unsigned_shift(const Expr* operand, unsigned shift,
     return shifted;
 }
 
+static Expr* make_unsigned_shift_add(const Expr* operand, unsigned factor,
+                                     SourceLoc loc, Type* type) {
+    Expr* result = NULL;
+    unsigned shift;
+
+    if (!operand || !type) return NULL;
+    for (shift = 0u; shift < 4u; ++shift) {
+        Expr* term;
+        if ((factor & (1u << shift)) == 0u) continue;
+        term = shift == 0u
+            ? clone_inline_pure_scalar_expression(operand)
+            : make_unsigned_shift(operand, shift, loc, type);
+        if (!term) return NULL;
+        if (!result) {
+            result = term;
+        } else {
+            result = expr_binary(EXPR_ADD, result, term, loc);
+            if (!result) return NULL;
+            result->type = type;
+        }
+    }
+    return result;
+}
+
 static bool simplify_unsigned_small_multiply(Expr** expression) {
     Expr* value;
     Expr* operand;
@@ -333,7 +357,9 @@ static bool simplify_unsigned_small_multiply(Expr** expression) {
     if (!integer_expression_type_matches(operand, value->type) ||
         expression_has_side_effect(operand)) return false;
     factor = integer_unsigned_value(factor_value, value->type);
-    if (factor < 3u || factor > 7u || factor == 4u) return false;
+    if (factor < 3u || factor > 15u || factor == 4u || factor == 8u) {
+        return false;
+    }
 
     switch (factor) {
         case 3u:
@@ -365,6 +391,16 @@ static bool simplify_unsigned_small_multiply(Expr** expression) {
             right = clone_inline_pure_scalar_expression(operand);
             replacement = left && right
                 ? expr_binary(EXPR_SUB, left, right, value->loc) : NULL;
+            break;
+        case 9u:
+        case 10u:
+        case 11u:
+        case 12u:
+        case 13u:
+        case 14u:
+        case 15u:
+            replacement = make_unsigned_shift_add(
+                operand, (unsigned)factor, value->loc, value->type);
             break;
         default:
             return false;
