@@ -227,3 +227,24 @@ unsigned long long verified_wide_scalar_branch_read(
     }
     return local + 7ULL;
 }
+
+unsigned long long verified_wide_scalar_while_loop(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    while (count != 0u) {
+        local += 0x0000000100000001ULL;
+        --count;
+    }
+    return local;
+}
+
+unsigned long long verified_wide_scalar_for_loop(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    for (unsigned int index = 0u; index < count; ++index) {
+        local += 0x0000000100000001ULL;
+    }
+    return local;
+}
