@@ -124,6 +124,12 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "do_descending_two") > 0);
     assert(function_extent(optimized, "do_stride_two") > 0);
     assert(function_extent(optimized, "do_descending_stride_two") > 0);
+    assert(function_extent(optimized, "switch_constant_direct") <
+           function_extent(unoptimized, "switch_constant_direct"));
+    assert(function_extent(optimized, "switch_constant_fallthrough") <
+           function_extent(unoptimized, "switch_constant_fallthrough"));
+    assert(function_extent(optimized, "switch_constant_no_match") <
+           function_extent(unoptimized, "switch_constant_no_match"));
 
 #if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
 #if defined(__i386__)
@@ -227,6 +233,12 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "do_stride_two");
         ObjSymbol* do_descending_stride_two_symbol = objfile_find_symbol(
             optimized, "do_descending_stride_two");
+        ObjSymbol* switch_constant_direct_symbol = objfile_find_symbol(
+            optimized, "switch_constant_direct");
+        ObjSymbol* switch_constant_fallthrough_symbol = objfile_find_symbol(
+            optimized, "switch_constant_fallthrough");
+        ObjSymbol* switch_constant_no_match_symbol = objfile_find_symbol(
+            optimized, "switch_constant_no_match");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
@@ -277,6 +289,9 @@ static void verify_pair(const char* unoptimized_path,
         int (*do_descending_two_function)(void);
         int (*do_stride_two_function)(void);
         int (*do_descending_stride_two_function)(void);
+        int (*switch_constant_direct_function)(void);
+        int (*switch_constant_fallthrough_function)(void);
+        int (*switch_constant_no_match_function)(void);
         void* address;
         assert(code != NULL && while_symbol != NULL && for_symbol != NULL &&
                mutate_symbol != NULL && one_symbol != NULL &&
@@ -315,6 +330,9 @@ static void verify_pair(const char* unoptimized_path,
                do_descending_two_symbol != NULL &&
                do_stride_two_symbol != NULL &&
                do_descending_stride_two_symbol != NULL &&
+               switch_constant_direct_symbol != NULL &&
+               switch_constant_fallthrough_symbol != NULL &&
+               switch_constant_no_match_symbol != NULL &&
                page_size > 0);
         mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
                         (size_t)page_size) * (size_t)page_size;
@@ -444,6 +462,15 @@ static void verify_pair(const char* unoptimized_path,
         address = mapping + do_descending_stride_two_symbol->value;
         memcpy(&do_descending_stride_two_function, &address,
                sizeof(do_descending_stride_two_function));
+        address = mapping + switch_constant_direct_symbol->value;
+        memcpy(&switch_constant_direct_function, &address,
+               sizeof(switch_constant_direct_function));
+        address = mapping + switch_constant_fallthrough_symbol->value;
+        memcpy(&switch_constant_fallthrough_function, &address,
+               sizeof(switch_constant_fallthrough_function));
+        address = mapping + switch_constant_no_match_symbol->value;
+        memcpy(&switch_constant_no_match_function, &address,
+               sizeof(switch_constant_no_match_function));
         assert(while_function() == 7);
         assert(for_function() == 11);
         assert(mutate_function(0) == 0);
@@ -492,6 +519,9 @@ static void verify_pair(const char* unoptimized_path,
         assert(do_descending_two_function() == 146);
         assert(do_stride_two_function() == 194);
         assert(do_descending_stride_two_function() == 202);
+        assert(switch_constant_direct_function() == 22);
+        assert(switch_constant_fallthrough_function() == 8);
+        assert(switch_constant_no_match_function() == 17);
         munmap(mapping, mapping_size);
     }
 #endif

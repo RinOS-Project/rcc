@@ -28,3 +28,50 @@ extern "C" int cxx_loop_do_two(void)
     } while (index < 2);
     return result;
 }
+
+extern "C" int cxx_switch_constant_direct(void)
+{
+    int result = 0;
+    switch (2) {
+        case 1:
+            result = 11;
+            break;
+        case 2:
+            result = 22;
+            break;
+        default:
+            result = 33;
+            break;
+    }
+    return result;
+}
+
+extern "C" int cxx_switch_constant_fallthrough(void)
+{
+    int result = 0;
+    switch (1) {
+        case 1:
+            result += 3;
+        case 2:
+            result += 5;
+            break;
+        default:
+            result += 9;
+            break;
+    }
+    return result;
+}
+
+extern "C" int cxx_switch_constant_no_match(void)
+{
+    int result = 17;
+    switch (9) {
+        case 1:
+            result = 23;
+            break;
+        case 2:
+            result = 29;
+            break;
+    }
+    return result;
+}

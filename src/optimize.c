@@ -65,6 +65,7 @@ static bool constant_do_iteration_count(const Stmt* statement,
 static bool while_body_constant_step(const Stmt* body, const Decl* induction,
                                      int* step);
 static bool unroll_constant_loop(Stmt* statement, unsigned count);
+static bool fold_constant_switch(Stmt* statement);
 
 enum {
     INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64,
@@ -4264,6 +4265,152 @@ static void eliminate_block_dead_stores(Stmt* statement) {
     }
 }
 
+/* A constant switch can be reduced to the statements reached by its selected
+ * label, but only when the selected path has no control-flow construct whose
+ * target would change after the switch wrapper disappears.  In particular,
+ * a break is accepted only as the direct statement attached to a case label;
+ * a nested break would become an outer-loop break after this rewrite. */
+static bool constant_switch_statement_safe(const Stmt* statement,
+                                           bool direct_case_statement) {
+    if (!statement) return true;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!constant_switch_statement_safe(item->stmt, false)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_EXPR:
+        case STMT_NULL:
+        case STMT_ASM:
+        case STMT_RETURN:
+        case STMT_THROW:
+            return true;
+        case STMT_BREAK:
+            return direct_case_statement;
+        case STMT_DECL:
+            return statement->decl && statement->decl->kind == DECL_VAR &&
+                !statement->decl->var_cleanup &&
+                !statement->decl->var_cleanups &&
+                (!statement->decl->type ||
+                 !statement->decl->type->cleanup_function);
+        default:
+            return false;
+    }
+}
+
+static uint64_t constant_switch_bits(int64_t value, const Type* type) {
+    unsigned width = type && type->size > 0 ? (unsigned)type->size * 8u : 64u;
+    uint64_t bits = (uint64_t)value;
+    if (width < 64u) bits &= (UINT64_C(1) << width) - 1u;
+    return bits;
+}
+
+static bool constant_switch_label_matches(const Stmt* label,
+                                          const Expr* switch_expression,
+                                          uint64_t selector) {
+    int64_t value;
+    if (!label || label->kind != STMT_CASE || !label->case_val ||
+        !expr_eval_integer_constant(label->case_val, &value)) {
+        return false;
+    }
+    return constant_switch_bits(value, switch_expression->type) == selector;
+}
+
+static bool fold_constant_switch(Stmt* statement) {
+    const Type* switch_type;
+    StmtList* selected = NULL;
+    StmtList* fallback = NULL;
+    StmtList* first = NULL;
+    StmtList** tail = &first;
+    uint64_t selector;
+    int64_t selector_value;
+    bool started = false;
+
+    if (!statement || statement->kind != STMT_SWITCH ||
+        !statement->switch_expr || !statement->switch_body ||
+        statement->switch_body->kind != STMT_BLOCK ||
+        !integer_literal(statement->switch_expr, &selector_value)) {
+        return false;
+    }
+    switch_type = statement->switch_expr->type;
+    if (!switch_type || (!type_is_integer((Type*)switch_type) &&
+                         switch_type->kind != TYPE_ENUM)) {
+        return false;
+    }
+    selector = constant_switch_bits(selector_value, switch_type);
+
+    /* Validate the complete switch before selecting a path.  This keeps the
+     * optimization conservative when another arm contains a label, a loop,
+     * cleanup, or any other construct whose reachability is non-local. */
+    for (StmtList* item = statement->switch_body->block_stmts; item;
+         item = item->next) {
+        Stmt* current = item->stmt;
+        if (!current) return false;
+        if (current->kind == STMT_CASE) {
+            if (!constant_switch_statement_safe(current->case_stmt, true)) {
+                return false;
+            }
+            if (!selected && constant_switch_label_matches(
+                    current, statement->switch_expr, selector)) {
+                selected = item;
+            }
+        } else if (current->kind == STMT_DEFAULT) {
+            if (!constant_switch_statement_safe(current->default_stmt, true)) {
+                return false;
+            }
+            if (!fallback) fallback = item;
+        } else if (!constant_switch_statement_safe(current, true)) {
+            return false;
+        }
+    }
+    if (!selected) selected = fallback;
+    if (!selected) {
+        statement->kind = STMT_NULL;
+        statement->switch_expr = NULL;
+        statement->switch_body = NULL;
+        return true;
+    }
+
+    for (StmtList* item = selected; item; item = item->next) {
+        Stmt* current = item->stmt;
+        Stmt* body;
+        StmtList* copy;
+        if (!current) return false;
+        if (current->kind == STMT_CASE) {
+            body = current->case_stmt;
+        } else if (current->kind == STMT_DEFAULT) {
+            body = current->default_stmt;
+        } else {
+            body = current;
+        }
+        if (!body) return false;
+        if (body->kind == STMT_BREAK) break;
+        copy = rcc_alloc(sizeof(*copy));
+        copy->stmt = body;
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+        started = true;
+        if (body->kind == STMT_RETURN || body->kind == STMT_THROW ||
+            statement_transfers_control(body)) {
+            break;
+        }
+    }
+    if (!started) {
+        statement->kind = STMT_NULL;
+        statement->switch_expr = NULL;
+        statement->switch_body = NULL;
+        return true;
+    }
+    statement->kind = STMT_BLOCK;
+    statement->block_no_scope = false;
+    statement->block_stmts = first;
+    return true;
+}
+
 static void optimize_stmt(Stmt* statement) {
     if (!statement) return;
     switch (statement->kind) {
@@ -4359,6 +4506,7 @@ static void optimize_stmt(Stmt* statement) {
         case STMT_SWITCH:
             optimize_expr(&statement->switch_expr);
             optimize_stmt(statement->switch_body);
+            (void)fold_constant_switch(statement);
             break;
         case STMT_CASE:
             optimize_expr(&statement->case_val);

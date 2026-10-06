@@ -40,8 +40,12 @@ static void verify_pair(const char* unoptimized_path,
                         const char* optimized_path, uint16_t architecture)
 {
     static const char* const names[] = {
-        "cxx_loop_for_two", "cxx_loop_while_two", "cxx_loop_do_two"
+        "cxx_loop_for_two", "cxx_loop_while_two", "cxx_loop_do_two",
+        "cxx_switch_constant_direct", "cxx_switch_constant_fallthrough",
+        "cxx_switch_constant_no_match"
     };
+    static const int expected[] = {146, 158, 166, 22, 8, 17};
+    (void)expected;
     ObjectFile* unoptimized = objfile_read(unoptimized_path);
     ObjectFile* optimized = objfile_read(optimized_path);
     assert(unoptimized != NULL && optimized != NULL);
@@ -79,8 +83,7 @@ static void verify_pair(const char* unoptimized_path,
             assert(symbol != NULL);
             address = mapping + symbol->value;
             memcpy(&function, &address, sizeof(function));
-            assert(function() == (index == 0u ? 146 :
-                                  index == 1u ? 158 : 166));
+            assert(function() == expected[index]);
         }
         assert(munmap(mapping, mapping_size) == 0);
     }
