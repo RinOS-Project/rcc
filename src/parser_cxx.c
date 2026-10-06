@@ -12762,7 +12762,67 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     return stmt_decl(declaration, loc);
 }
 
+static bool cxx_identifier_is(const Token* token, const char* spelling) {
+    return token && token->type == TOK_IDENT && token->value.str_val &&
+        spelling && strcmp(token->value.str_val, spelling) == 0;
+}
+
+static void cxx_skip_unsupported_statement(void) {
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    while (!at_end()) {
+        if (check(TOK_SEMICOLON) && paren_depth == 0 &&
+            bracket_depth == 0 && brace_depth == 0) {
+            advance();
+            return;
+        }
+        if (check(TOK_LPAREN)) {
+            ++paren_depth;
+        } else if (check(TOK_RPAREN) && paren_depth > 0) {
+            --paren_depth;
+        } else if (check(TOK_LBRACKET)) {
+            ++bracket_depth;
+        } else if (check(TOK_RBRACKET) && bracket_depth > 0) {
+            --bracket_depth;
+        } else if (check(TOK_LBRACE)) {
+            ++brace_depth;
+        } else if (check(TOK_RBRACE)) {
+            if (brace_depth == 0) return;
+            --brace_depth;
+        }
+        advance();
+    }
+}
+
+static const char* cxx_unsupported_coroutine_keyword(void) {
+    if (!rcc_parser_cxx_standard_at_least(20)) return NULL;
+    if (cxx_identifier_is(peek(), "co_await")) return "co_await";
+    if (cxx_identifier_is(peek(), "co_yield")) return "co_yield";
+    if (cxx_identifier_is(peek(), "co_return")) return "co_return";
+    return NULL;
+}
+
+static bool cxx_unsupported_module_directive(void) {
+    if (!rcc_parser_cxx_standard_at_least(20)) return false;
+    if (cxx_identifier_is(peek(), "module") ||
+        cxx_identifier_is(peek(), "import")) return true;
+    return cxx_identifier_is(peek(), "export") && parser.cur->next &&
+        (cxx_identifier_is(parser.cur->next, "module") ||
+         cxx_identifier_is(parser.cur->next, "import"));
+}
+
 static Stmt* parse_cxx_statement(void) {
+    const char* coroutine_keyword = cxx_unsupported_coroutine_keyword();
+    if (coroutine_keyword) {
+        SourceLoc loc = peek()->loc;
+        rcc_error(loc,
+                  "C++20 coroutine keyword '%s' is not supported by RCC++",
+                  coroutine_keyword);
+        cxx_skip_unsupported_statement();
+        return stmt_null(loc);
+    }
+
     if (check(TOK_CONSTEXPR)) return parse_declaration();
 
     if (match(TOK_USING)) {
@@ -13179,6 +13239,11 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 add_namespace_declaration(ast, g_global_namespace,
                                            declaration);
             }
+        } else if (cxx_unsupported_module_directive()) {
+            rcc_error(loc,
+                      "C++20 modules (module/import/export module) are not "
+                      "supported by RCC++");
+            cxx_skip_unsupported_statement();
         } else if (match(TOK_USING)) {
             parse_cxx_using(g_global_namespace);
         } else {

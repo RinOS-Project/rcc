@@ -418,7 +418,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-class-template-deduction test-cxx-aggregate-paren-init
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
-	test-cxx-raw-strings test-cxx-alternative-tokens
+	test-cxx-raw-strings test-cxx-alternative-tokens \
+	test-cxx20-unsupported-boundaries
 .PHONY: test-debug-info
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
@@ -501,6 +502,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-auto-non-type-template \
 	test-cxx-non-type-template-deduction \
 	test-cxx-constraints \
+	test-cxx20-unsupported-boundaries \
 	test-cxx-named-concepts \
 	test-cxx-alias-templates \
 	test-cxx-operator-overload \
@@ -868,6 +870,18 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
+
+test-cxx20-unsupported-boundaries: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-unsupported-boundaries)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro tests/cxx20_modules_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.log)
+	$(GREP) -F -q "C++20 modules (module/import/export module) are not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_await' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_yield' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/x64.ro tests/cxx20_modules_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/x64.log)
+	$(GREP) -F -q "C++20 modules (module/import/export module) are not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
+	@echo "C++20 module and coroutine unsupported-boundary diagnostics completed"
 
 test-cxx-predefined-function-identifiers: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-predefined-function-identifiers)
