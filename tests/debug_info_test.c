@@ -33,6 +33,18 @@ static bool contains_byte(const uint8_t* data, uint64_t size, uint8_t value)
     return false;
 }
 
+static unsigned count_sections_named(const ObjectFile* object,
+                                     const char* name)
+{
+    unsigned count = 0u;
+    if (!object || !name) return 0u;
+    for (const ObjSection* section = object->sections; section;
+         section = section->next) {
+        if (section->name && strcmp(section->name, name) == 0) ++count;
+    }
+    return count;
+}
+
 static uint32_t read_u32(const uint8_t* data, uint64_t offset)
 {
     return (uint32_t)data[offset] |
@@ -206,6 +218,20 @@ static bool has_relocation(const ObjSection* section, uint64_t offset,
         if (relocation->offset == offset && relocation->type == type &&
             relocation->symbol_name &&
             (!symbol_name || strcmp(relocation->symbol_name, symbol_name) == 0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool has_relocation_symbol(const ObjSection* section,
+                                  const char* symbol_name, RelocType type)
+{
+    if (!section || !symbol_name) return false;
+    for (const ObjReloc* relocation = section->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->type == type && relocation->symbol_name &&
+            strcmp(relocation->symbol_name, symbol_name) == 0) {
             return true;
         }
     }
@@ -602,9 +628,84 @@ static void verify_without_debug(const char* path)
     objfile_free(object);
 }
 
+static void verify_verified_debug_object(const char* path,
+                                         uint16_t architecture)
+{
+    const char* static_symbol =
+        "tests/verified_backend_debug.c::verified_debug_static";
+    ObjectFile* object = objfile_read(path);
+    ObjSection* line;
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* frame;
+    assert(object != NULL && object->arch == architecture);
+    line = objfile_get_section(object, ".debug_line");
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    frame = objfile_get_section(object, ".debug_frame");
+    assert(line != NULL && info != NULL && strings != NULL && frame != NULL);
+    assert(contains_bytes(line->data, line->size,
+                          "tests/verified_backend_debug.c"));
+    assert(contains_bytes(strings->data, strings->size,
+                          "verified_debug_static"));
+    assert(contains_bytes(strings->data, strings->size,
+                          "verified_debug_entry"));
+    assert(line->relocs != NULL && info->relocs != NULL &&
+           frame->relocs != NULL);
+    assert(objfile_find_symbol(object, static_symbol) != NULL);
+    assert(has_relocation_symbol(
+        line, static_symbol,
+        architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
+    assert(has_relocation_symbol(
+        info, static_symbol,
+        architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
+    assert(has_relocation_symbol(
+        frame, static_symbol,
+        architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
+    verify_first_frame_fde(frame, architecture);
+    assert(find_function_die(info, strings, "verified_debug_static",
+                             architecture == ARCH_X64 ? 8u : 4u) !=
+           UINT64_MAX);
+    assert(find_function_die(info, strings, "verified_debug_entry",
+                             architecture == ARCH_X64 ? 8u : 4u) !=
+           UINT64_MAX);
+    objfile_free(object);
+}
+
+static void verify_verified_global_debug_object(const char* path,
+                                                uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* line;
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* frame;
+    assert(object != NULL && object->arch == architecture);
+    assert(count_sections_named(object, ".debug_line") == 1u);
+    assert(count_sections_named(object, ".debug_info") == 1u);
+    assert(count_sections_named(object, ".debug_abbrev") == 1u);
+    assert(count_sections_named(object, ".debug_str") == 1u);
+    assert(count_sections_named(object, ".debug_frame") == 1u);
+    line = objfile_get_section(object, ".debug_line");
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    frame = objfile_get_section(object, ".debug_frame");
+    assert(line != NULL && info != NULL && strings != NULL && frame != NULL);
+    assert(contains_bytes(line->data, line->size,
+                          "tests/verified_backend_globals.c"));
+    assert(contains_bytes(strings->data, strings->size,
+                          "verified_global_data"));
+    assert(contains_bytes(strings->data, strings->size,
+                          "verified_global_read"));
+    assert(line->relocs != NULL && info->relocs != NULL &&
+           frame->relocs != NULL);
+    verify_first_frame_fde(frame, architecture);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
-    assert(argc == 10);
+    assert(argc == 14);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -622,5 +723,9 @@ int main(int argc, char** argv)
                         "tests/hello.cpp", "main", NULL);
     verify_debug_object(argv[9], ARCH_X64, 0x002au,
                         "tests/hello.cpp", "main", NULL);
+    verify_verified_debug_object(argv[10], ARCH_X86);
+    verify_verified_debug_object(argv[11], ARCH_X64);
+    verify_verified_global_debug_object(argv[12], ARCH_X86);
+    verify_verified_global_debug_object(argv[13], ARCH_X64);
     return 0;
 }

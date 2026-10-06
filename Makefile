@@ -839,6 +839,18 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/debug-info/cxx17-g.ro tests/hello.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
+	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/debug-info/verified-x86-g.ro \
+		tests/verified_backend_debug.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/debug-info/verified-x64-g.ro \
+		tests/verified_backend_debug.c
+	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/debug-info/verified-globals-x86-g.ro \
+		tests/verified_backend_globals.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -fverified-backend -c \
+		-o $(TEST_OUT)/debug-info/verified-globals-x64-g.ro \
+		tests/verified_backend_globals.c
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/debug-info/verify \
 		tests/debug_info_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
@@ -851,7 +863,11 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/x64-aligned-g.ro \
 		$(TEST_OUT)/debug-info/cxx11-g.ro \
 		$(TEST_OUT)/debug-info/cxx14-g.ro \
-		$(TEST_OUT)/debug-info/cxx17-g.ro
+		$(TEST_OUT)/debug-info/cxx17-g.ro \
+		$(TEST_OUT)/debug-info/verified-x86-g.ro \
+		$(TEST_OUT)/debug-info/verified-x64-g.ro \
+		$(TEST_OUT)/debug-info/verified-globals-x86-g.ro \
+		$(TEST_OUT)/debug-info/verified-globals-x64-g.ro
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
 		$(TEST_OUT)/debug-info/x86-g.ro

@@ -148,6 +148,10 @@ typedef struct Module {
     /* Translation-unit AST retained only while emitting relocatable debug
      * information.  The AST is owned by the frontend and is not freed here. */
     AST* debug_ast;
+    /* Statement ranges are populated by the classic code generators.  The
+     * verified backend supplies declaration locations first and intentionally
+     * leaves local statement ranges out until its MIR locations are exposed. */
+    bool debug_statement_ranges;
 } Module;
 
 struct CxxNamespace;
@@ -220,6 +224,8 @@ int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
 
 /* Object file output */
 struct ObjectFile;
+void module_emit_debug_sections(struct ObjectFile* obj, Module* mod,
+                                const char* filename);
 struct ObjectFile* module_to_objfile(Module* mod, const char* filename);
 bool rcc_emit_obj(Module* mod, const char* filename);
 

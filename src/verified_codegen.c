@@ -398,6 +398,102 @@ static void verified_scope_static_relocations(
     }
 }
 
+static ModuleSymbol* verified_debug_symbol(Module* module, const char* name) {
+    if (!module || !name) return NULL;
+    for (int index = 0; index < module->symbol_count; ++index) {
+        if (strcmp(module->symbols[index].name, name) == 0) {
+            return &module->symbols[index];
+        }
+    }
+    return NULL;
+}
+
+static void verified_copy_debug_symbol(Module* destination,
+                                       const ModuleSymbol* source) {
+    ModuleSymbol* copy;
+    if (!destination || !source || !source->name) return;
+    module_add_symbol(destination, source->name, source->offset,
+                     source->is_defined, source->section, source->is_global);
+    copy = verified_debug_symbol(destination, source->name);
+    if (!copy) {
+        rcc_fatal("verified DWARF symbol was not retained");
+        return;
+    }
+    copy->size = source->size;
+    copy->is_weak = source->is_weak;
+    copy->source_file = source->source_file;
+    copy->source_line = source->source_line;
+    copy->source_column = source->source_column;
+}
+
+static void verified_add_function_debug_symbol(
+    Module* debug_module, ObjectFile* object, const AST* ast,
+    const char* translation_unit, const Decl* declaration) {
+    const char* link_name;
+    const char* object_name;
+    char* scoped_name = NULL;
+    ObjSymbol* object_symbol;
+    ModuleSymbol* debug_symbol;
+    if (!debug_module || !object || !ast || !translation_unit ||
+        !declaration || declaration->kind != DECL_FUNC ||
+        !declaration->func_body) return;
+    link_name = decl_link_name(declaration);
+    if (!link_name || !link_name[0]) return;
+    object_name = link_name;
+    if (declaration->storage == STORAGE_STATIC) {
+        scoped_name = verified_scoped_symbol(translation_unit, link_name);
+        object_name = scoped_name;
+    }
+    object_symbol = objfile_find_symbol(object, object_name);
+    if (!object_symbol || object_symbol->binding != BIND_CODE ||
+        object_symbol->section < 0 ||
+        object_symbol->type == SYM_UNDEF ||
+        object_symbol->value > UINT32_MAX ||
+        object_symbol->size > UINT32_MAX) {
+        rcc_free(scoped_name);
+        return;
+    }
+    module_add_symbol(
+        debug_module, link_name, (uint32_t)object_symbol->value, true,
+        MODULE_SYMBOL_CODE, declaration->storage != STORAGE_STATIC);
+    debug_symbol = verified_debug_symbol(debug_module, link_name);
+    if (!debug_symbol) {
+        rcc_fatal("verified DWARF function symbol was not retained");
+        rcc_free(scoped_name);
+        return;
+    }
+    debug_symbol->size = (uint32_t)object_symbol->size;
+    module_set_symbol_source(debug_module, link_name, declaration->loc);
+    rcc_free(scoped_name);
+}
+
+static void verified_emit_debug_sections(
+    ObjectFile* object, Module* data_module, const AST* ast,
+    const char* translation_unit) {
+    ObjSection* text;
+    Module* debug_module;
+    if (!g_opts.debug_info || !object || !data_module || !ast ||
+        !translation_unit || !translation_unit[0]) return;
+    text = objfile_get_section(object, ".text");
+    if (!text || text->type != SECT_CODE ||
+        text->size > SIZE_MAX) {
+        rcc_fatal("verified DWARF object has no valid text section");
+        return;
+    }
+    debug_module = codegen_new();
+    debug_module->debug_ast = (AST*)ast;
+    if (text->size != 0u) emit_bytes(debug_module, text->data, text->size);
+    for (int index = 0; index < data_module->symbol_count; ++index) {
+        verified_copy_debug_symbol(debug_module, &data_module->symbols[index]);
+    }
+    for (const DeclList* item = ast->decls; item; item = item->next) {
+        verified_add_function_debug_symbol(
+            debug_module, object, ast, translation_unit, item->decl);
+    }
+    module_emit_debug_sections(object, debug_module, translation_unit);
+    codegen_free(debug_module);
+}
+
 RccVerifiedObjectStatus rcc_emit_verified_object(
     const AST* ast, const char* translation_unit,
     const char* output_path, size_t* function_count,
@@ -429,9 +525,18 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     data_module = codegen_new();
     codegen_emit_global_data(data_module, (AST*)ast);
     verified_emit_typeinfo_ast(data_module, ast);
-    object = module_to_objfile(data_module, translation_unit);
-    codegen_free(data_module);
+    /* The verified functions are appended after the data module has already
+     * been converted to an object.  Defer all debug emission until those
+     * functions are present so one DWARF unit covers data and code without
+     * duplicate named sections. */
+    {
+        bool debug_info = g_opts.debug_info;
+        g_opts.debug_info = false;
+        object = module_to_objfile(data_module, translation_unit);
+        g_opts.debug_info = debug_info;
+    }
     if (!object || object->arch != arch) {
+        codegen_free(data_module);
         objfile_free(object);
         return verified_reason(
             RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
@@ -522,11 +627,14 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         ++emitted;
     }
     if (emitted == 0u) {
+        codegen_free(data_module);
         objfile_free(object);
         return verified_reason(
             RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
             "translation unit has no supported function definitions");
     }
+    verified_emit_debug_sections(object, data_module, ast, translation_unit);
+    codegen_free(data_module);
     if (!objfile_write(object, output_path)) {
         objfile_free(object);
         return verified_reason(

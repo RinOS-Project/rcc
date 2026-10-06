@@ -1853,6 +1853,7 @@ static void debug_emit_function_locals(
     DebugTypeContext* types, const char* const* files, int file_count,
     const Module* mod, const char* filename, int info_section,
     const ModuleSymbol* symbol, int architecture) {
+    if (!mod || !mod->debug_statement_ranges) return;
     Decl* function = debug_find_function_decl(mod, symbol);
     if (!function) return;
     debug_emit_static_local_stmt(
@@ -2055,9 +2056,11 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
         Decl* declaration = debug_find_function_decl(mod, functions[index]);
         debug_collect_function_files(
             declaration, &files, &file_count, &file_capacity);
-        debug_collect_line_stmt_points(
-            declaration ? declaration->func_body : NULL, functions[index],
-            &points, &point_count, &point_capacity);
+        if (mod->debug_statement_ranges) {
+            debug_collect_line_stmt_points(
+                declaration ? declaration->func_body : NULL, functions[index],
+                &points, &point_count, &point_capacity);
+        }
     }
     for (int index = 0; index < point_count; ++index) {
         debug_file_add(&files, &file_count, &file_capacity,
@@ -2188,6 +2191,7 @@ static uint32_t debug_str_add(ObjSection* strings, const char* value) {
 static uint32_t debug_function_size(const Module* mod,
                                     const ModuleSymbol* function) {
     uint32_t size;
+    if (function && function->size != 0u) return function->size;
     if (!mod || !function || function->offset > mod->code.size ||
         mod->code.size - function->offset > UINT32_MAX) return 0u;
     size = (uint32_t)(mod->code.size - function->offset);
@@ -3002,9 +3006,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         rcc_free(scoped_name);
     }
 
-    module_emit_debug_line(obj, mod, filename);
-    module_emit_debug_info(obj, mod, filename);
-    module_emit_debug_frame(obj, mod, filename);
+    module_emit_debug_sections(obj, mod, filename);
 
     /* Add relocations */
     for (int i = 0; i < mod->reloc_count; i++) {
@@ -3080,6 +3082,13 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     }
 
     return obj;
+}
+
+void module_emit_debug_sections(ObjectFile* obj, Module* mod,
+                                const char* filename) {
+    module_emit_debug_line(obj, mod, filename);
+    module_emit_debug_info(obj, mod, filename);
+    module_emit_debug_frame(obj, mod, filename);
 }
 
 /* Emit object file from Module */
