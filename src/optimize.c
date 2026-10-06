@@ -32,8 +32,11 @@ static bool statement_modifies_decl(const Stmt* statement,
 static bool integer_literal(const Expr* expression, int64_t* value);
 static bool constant_integer_expression(const Expr* expression,
                                         int64_t* value);
+static bool float_literal(const Expr* expression, double* value);
+static bool constant_scalar_truth(const Expr* expression, bool* value);
 static int integer_width(const Type* type);
 static void replace_integer(Expr* expression, int64_t value);
+static void replace_float(Expr* expression, double value);
 static uint64_t integer_mask(const Type* type);
 static uint64_t integer_unsigned_value(int64_t value, const Type* type);
 static int64_t integer_signed_value(int64_t value, const Type* type);
@@ -284,6 +287,150 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     replacement->type = value->type;
     *expression = replacement;
     return true;
+}
+
+static bool float_literal(const Expr* expression, double* value) {
+    if (!expression || expression->kind != EXPR_FLOAT_LIT ||
+        !expression->type || !type_is_floating(expression->type) || !value) {
+        return false;
+    }
+    *value = expression->type->kind == TYPE_FLOAT
+        ? (double)(float)expression->float_val : expression->float_val;
+    return true;
+}
+
+static bool constant_scalar_truth(const Expr* expression, bool* value) {
+    int64_t integer;
+    double floating;
+    if (!value) return false;
+    if (integer_literal(expression, &integer)) {
+        *value = integer != 0;
+        return true;
+    }
+    if (float_literal(expression, &floating)) {
+        /* NaNs are true in a C scalar context; this comparison also keeps
+         * negative zero false without inspecting the host representation. */
+        *value = floating != 0.0;
+        return true;
+    }
+    return false;
+}
+
+static void replace_float(Expr* expression, double value) {
+    Type* type;
+    SourceLoc loc;
+    if (!expression) return;
+    type = expression->type;
+    loc = expression->loc;
+    expression->kind = EXPR_FLOAT_LIT;
+    expression->float_val = type && type->kind == TYPE_FLOAT
+        ? (double)(float)value : value;
+    expression->type = type;
+    expression->loc = loc;
+}
+
+static bool fold_float_literals(Expr* expression) {
+    double left;
+    double right;
+    double result;
+    bool comparison;
+    bool left_truth;
+    bool right_truth;
+    float left_float;
+    float right_float;
+    float float_result;
+    if (!expression) return false;
+    if (expression->kind == EXPR_NEG &&
+        float_literal(expression->unary_operand, &left)) {
+        replace_float(expression, -left);
+        return true;
+    }
+    if (expression->kind == EXPR_NOT &&
+        float_literal(expression->unary_operand, &left)) {
+        replace_integer(expression, left == 0.0 ? 1 : 0);
+        return true;
+    }
+    if ((expression->kind == EXPR_AND || expression->kind == EXPR_OR) &&
+        float_literal(expression->binary_lhs, &left) &&
+        float_literal(expression->binary_rhs, &right)) {
+        left_truth = left != 0.0;
+        right_truth = right != 0.0;
+        replace_integer(expression, expression->kind == EXPR_AND
+            ? (left_truth && right_truth) : (left_truth || right_truth));
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            break;
+        default:
+            return false;
+    }
+    if (!float_literal(expression->binary_lhs, &left) ||
+        !float_literal(expression->binary_rhs, &right)) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+            if (!expression->type || !type_is_floating(expression->type)) {
+                return false;
+            }
+            if (expression->type->kind == TYPE_FLOAT) {
+                left_float = (float)left;
+                right_float = (float)right;
+                float_result = expression->kind == EXPR_ADD
+                    ? left_float + right_float
+                    : expression->kind == EXPR_SUB
+                        ? left_float - right_float
+                        : left_float * right_float;
+                replace_float(expression, (double)float_result);
+            } else {
+                result = expression->kind == EXPR_ADD
+                    ? left + right
+                    : expression->kind == EXPR_SUB
+                        ? left - right : left * right;
+                replace_float(expression, result);
+            }
+            return true;
+        case EXPR_DIV:
+            /* Keep floating division by zero in the backend: its result and
+             * floating-environment behavior are target/runtime semantics. */
+            if (right == 0.0 || !expression->type ||
+                !type_is_floating(expression->type)) return false;
+            if (expression->type->kind == TYPE_FLOAT) {
+                float_result = (float)left / (float)right;
+                replace_float(expression, (double)float_result);
+            } else {
+                replace_float(expression, left / right);
+            }
+            return true;
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            comparison = expression->kind == EXPR_EQ ? left == right
+                : expression->kind == EXPR_NE ? left != right
+                : expression->kind == EXPR_LT ? left < right
+                : expression->kind == EXPR_GT ? left > right
+                : expression->kind == EXPR_LE ? left <= right
+                : left >= right;
+            replace_integer(expression, comparison ? 1 : 0);
+            return true;
+        default:
+            return false;
+    }
 }
 
 typedef struct InlineScalarBinding {
@@ -2749,12 +2896,14 @@ static void optimize_expr(Expr** expression) {
         case EXPR_RSHIFT_ASSIGN:
         case EXPR_COMMA:
             optimize_expr(&value->binary_lhs);
-            if ((value->kind == EXPR_AND || value->kind == EXPR_OR) &&
-                integer_literal(value->binary_lhs, &left) &&
-                ((value->kind == EXPR_AND && left == 0) ||
-                 (value->kind == EXPR_OR && left != 0))) {
-                replace_integer(value, value->kind == EXPR_OR);
-                return;
+            if (value->kind == EXPR_AND || value->kind == EXPR_OR) {
+                bool left_truth;
+                if (constant_scalar_truth(value->binary_lhs, &left_truth) &&
+                    ((value->kind == EXPR_AND && !left_truth) ||
+                     (value->kind == EXPR_OR && left_truth))) {
+                    replace_integer(value, value->kind == EXPR_OR);
+                    return;
+                }
             }
             optimize_expr(&value->binary_rhs);
             if (value->kind == EXPR_ASSIGN &&
@@ -2765,12 +2914,15 @@ static void optimize_expr(Expr** expression) {
             break;
         case EXPR_COND:
             optimize_expr(&value->cond_test);
-            if (integer_literal(value->cond_test, &left)) {
-                Expr** selected = left != 0
-                    ? &value->cond_then : &value->cond_else;
-                optimize_expr(selected);
-                *expression = *selected;
-                return;
+            {
+                bool condition;
+                if (constant_scalar_truth(value->cond_test, &condition)) {
+                    Expr** selected = condition
+                        ? &value->cond_then : &value->cond_else;
+                    optimize_expr(selected);
+                    *expression = *selected;
+                    return;
+                }
             }
             optimize_expr(&value->cond_then);
             optimize_expr(&value->cond_else);
@@ -2816,6 +2968,8 @@ static void optimize_expr(Expr** expression) {
      * comma expressions.  Fold only expressions accepted by that evaluator;
      * assignments, calls, volatile accesses, and other side-effecting forms
      * therefore remain untouched. */
+    if (fold_float_literals(value)) return;
+
     if (value->kind != EXPR_INT_LIT && value->kind != EXPR_CHAR_LIT &&
         expr_eval_integer_constant(value, &result)) {
         replace_integer(value, result);

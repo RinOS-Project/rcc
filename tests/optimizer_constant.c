@@ -3,6 +3,26 @@ int folded_arithmetic(void)
     return (2 + 3) * 4 - (8 / 2) + (7 % 4);
 }
 
+double folded_float_arithmetic(void)
+{
+    return (1.25 + 2.5) * 2.0 - 1.5;
+}
+
+float folded_float_unary(void)
+{
+    return -(-2.5f);
+}
+
+int folded_float_compare(void)
+{
+    return (1.25f < 2.5f) && !(3.0f == 4.0f);
+}
+
+int folded_float_branch(void)
+{
+    return 1.5f ? 17 : 19;
+}
+
 int folded_choice(int fallback)
 {
     return ((1 < 2) && (4 != 5)) ? 42 : fallback;

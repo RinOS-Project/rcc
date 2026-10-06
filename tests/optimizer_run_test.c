@@ -80,6 +80,14 @@ static void verify_smaller(const char* unoptimized_path,
     unoptimized_code = code_section(unoptimized);
     optimized_code = code_section(optimized);
     assert(optimized_code->size < unoptimized_code->size);
+    assert(function_extent(optimized, "folded_float_arithmetic") <
+           function_extent(unoptimized, "folded_float_arithmetic"));
+    assert(function_extent(optimized, "folded_float_unary") <
+           function_extent(unoptimized, "folded_float_unary"));
+    assert(function_extent(optimized, "folded_float_compare") <
+           function_extent(unoptimized, "folded_float_compare"));
+    assert(function_extent(optimized, "folded_float_branch") <
+           function_extent(unoptimized, "folded_float_branch"));
     assert(function_extent(optimized, "folded_unsigned_wrap") <
            function_extent(unoptimized, "folded_unsigned_wrap"));
     assert(function_extent(optimized, "folded_unsigned_divmod") <
@@ -302,6 +310,14 @@ int main(int argc, char** argv)
         ObjSection* code = code_section(object);
         ObjSymbol* arithmetic_symbol = function_symbol(
             object, "folded_arithmetic");
+        ObjSymbol* float_arithmetic_symbol = function_symbol(
+            object, "folded_float_arithmetic");
+        ObjSymbol* float_unary_symbol = function_symbol(
+            object, "folded_float_unary");
+        ObjSymbol* float_compare_symbol = function_symbol(
+            object, "folded_float_compare");
+        ObjSymbol* float_branch_symbol = function_symbol(
+            object, "folded_float_branch");
         ObjSymbol* choice_symbol = function_symbol(object, "folded_choice");
         ObjSymbol* short_circuit_symbol = function_symbol(
             object, "folded_short_circuit");
@@ -427,6 +443,10 @@ int main(int argc, char** argv)
         size_t mapping_size;
         uint8_t* mapping;
         int (*folded_arithmetic)(void);
+        double (*folded_float_arithmetic)(void);
+        float (*folded_float_unary)(void);
+        int (*folded_float_compare)(void);
+        int (*folded_float_branch)(void);
         int (*folded_choice)(int);
         int (*folded_short_circuit)(int*);
         uint64_t (*folded_unsigned_wrap)(void);
@@ -522,6 +542,15 @@ int main(int argc, char** argv)
 
         address = mapping + arithmetic_symbol->value;
         memcpy(&folded_arithmetic, &address, sizeof(folded_arithmetic));
+        address = mapping + float_arithmetic_symbol->value;
+        memcpy(&folded_float_arithmetic, &address,
+               sizeof(folded_float_arithmetic));
+        address = mapping + float_unary_symbol->value;
+        memcpy(&folded_float_unary, &address, sizeof(folded_float_unary));
+        address = mapping + float_compare_symbol->value;
+        memcpy(&folded_float_compare, &address, sizeof(folded_float_compare));
+        address = mapping + float_branch_symbol->value;
+        memcpy(&folded_float_branch, &address, sizeof(folded_float_branch));
         address = mapping + choice_symbol->value;
         memcpy(&folded_choice, &address, sizeof(folded_choice));
         address = mapping + short_circuit_symbol->value;
@@ -833,6 +862,12 @@ int main(int argc, char** argv)
         address = mapping + case_for_symbol->value;
         memcpy(&preserved_case_for, &address, sizeof(preserved_case_for));
         assert(folded_arithmetic() == 19);
+        assert(folded_float_arithmetic() > 5.999 &&
+               folded_float_arithmetic() < 6.001);
+        assert(folded_float_unary() > 2.499f &&
+               folded_float_unary() < 2.501f);
+        assert(folded_float_compare() == 1);
+        assert(folded_float_branch() == 17);
         assert(folded_choice(7) == 42);
         assert(folded_short_circuit(&value) == 1);
         assert(value == 3);
