@@ -524,6 +524,16 @@ unsigned int strength_reduce_unsigned_mod(unsigned int value)
     return value % 8U;
 }
 
+int strength_reduce_signed_div_two(int value)
+{
+    return value / 2;
+}
+
+int strength_reduce_signed_div_eight(int value)
+{
+    return value / 8;
+}
+
 int preserved_algebraic_side_effect(int* value)
 {
     return (*value += 1) * 0;

@@ -292,6 +292,106 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
     return true;
 }
 
+static Expr* make_signed_power_of_two_div(
+    const Expr* operand, unsigned shift, SourceLoc loc, Type* type) {
+    Expr* count;
+    Expr* shifted;
+    Expr* negative_zero;
+    Expr* negative;
+    Expr* mask;
+    Expr* remainder;
+    Expr* remainder_zero;
+    Expr* has_remainder;
+    Expr* correction;
+    Expr* one;
+    Expr* zero;
+    Expr* replacement;
+    uint64_t mask_value;
+
+    if (!operand || !type || shift == 0u || shift >= 63u) return NULL;
+    mask_value = (UINT64_C(1) << shift) - 1u;
+    count = expr_int((int64_t)shift, loc);
+    count->type = type_int;
+    shifted = expr_binary(
+        EXPR_RSHIFT, clone_inline_pure_scalar_expression(operand), count,
+        loc);
+    if (!shifted || !shifted->binary_lhs) return NULL;
+    shifted->type = type;
+
+    negative_zero = expr_int(0, loc);
+    negative_zero->type = type;
+    negative = expr_binary(
+        EXPR_LT, clone_inline_pure_scalar_expression(operand),
+        negative_zero, loc);
+    if (!negative || !negative->binary_lhs) return NULL;
+    negative->type = type_int;
+
+    mask = expr_int((int64_t)mask_value, loc);
+    mask->type = type;
+    remainder = expr_binary(
+        EXPR_BITAND, clone_inline_pure_scalar_expression(operand), mask,
+        loc);
+    if (!remainder || !remainder->binary_lhs) return NULL;
+    remainder->type = type;
+    remainder_zero = expr_int(0, loc);
+    remainder_zero->type = type;
+    has_remainder = expr_binary(
+        EXPR_NE, remainder, remainder_zero, loc);
+    if (!has_remainder || !has_remainder->binary_lhs) return NULL;
+    has_remainder->type = type_int;
+
+    correction = expr_binary(EXPR_AND, negative, has_remainder, loc);
+    if (!correction || !correction->binary_lhs) return NULL;
+    correction->type = type_int;
+    one = expr_int(1, loc);
+    one->type = type;
+    zero = expr_int(0, loc);
+    zero->type = type;
+    replacement = expr_cond(correction, one, zero, loc);
+    if (!replacement) return NULL;
+    replacement->type = type;
+    return expr_binary(EXPR_ADD, shifted, replacement, loc);
+}
+
+static bool simplify_signed_power_of_two(Expr** expression) {
+    Expr* value;
+    Expr* operand;
+    Expr* replacement;
+    int64_t factor_value;
+    uint64_t factor_bits;
+    unsigned shift_count = 0u;
+    int width;
+
+    if (!expression || !*expression ||
+        (*expression)->kind != EXPR_DIV) return false;
+    value = *expression;
+    if (!value->type || !type_is_integer(value->type) ||
+        value->type->is_unsigned || !value->binary_lhs ||
+        !value->binary_rhs ||
+        !integer_expression_type_matches(value->binary_lhs, value->type) ||
+        !integer_expression_type_matches(value->binary_rhs, value->type) ||
+        !integer_literal(value->binary_rhs, &factor_value)) {
+        return false;
+    }
+    operand = value->binary_lhs;
+    if (expression_has_side_effect(operand)) return false;
+    width = integer_width(value->type);
+    if (width <= 1) return false;
+    factor_bits = integer_unsigned_value(factor_value, value->type);
+    if (factor_bits < 2u || factor_bits > (uint64_t)INT64_MAX ||
+        (factor_bits & (factor_bits - 1u)) != 0u) return false;
+    while ((factor_bits >> shift_count) > 1u) ++shift_count;
+    if (shift_count == 0u || shift_count >= (unsigned)(width - 1)) {
+        return false;
+    }
+    replacement = make_signed_power_of_two_div(
+        operand, shift_count, value->loc, value->type);
+    if (!replacement || !replacement->binary_lhs) return false;
+    replacement->type = value->type;
+    *expression = replacement;
+    return true;
+}
+
 static Expr* make_unsigned_shift(const Expr* operand, unsigned shift,
                                  SourceLoc loc, Type* type) {
     Expr* count;
@@ -3186,6 +3286,7 @@ static void optimize_expr(Expr** expression) {
 
     if (simplify_integer_identity(expression)) return;
     if (simplify_unsigned_power_of_two(expression)) return;
+    if (simplify_signed_power_of_two(expression)) return;
     if (simplify_unsigned_small_multiply(expression)) return;
 
     switch (value->kind) {
