@@ -364,6 +364,7 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_COMMA:
             return lower_wide_ssa_expression_safe(expression->binary_lhs) &&
                 lower_wide_ssa_expression_safe(expression->binary_rhs);
         case EXPR_COND:

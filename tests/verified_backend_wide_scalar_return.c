@@ -126,6 +126,14 @@ unsigned long long verified_wide_scalar_conditional_compound(
     return local;
 }
 
+unsigned long long verified_wide_scalar_pure_comma_compound(
+    int condition, unsigned long long value)
+{
+    unsigned long long local = value;
+    local += (value, condition ? 1ULL : 2ULL);
+    return local;
+}
+
 unsigned long long verified_wide_scalar_truth_conditional(
     unsigned long long value)
 {
