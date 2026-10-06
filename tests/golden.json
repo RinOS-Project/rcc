@@ -80,6 +80,46 @@
           "drv": "9967d625ec9980f32e8169e1d3b1d275bc8a29d29641d3e8a95bd592185d608f"
         }
       }
+    },
+    {
+      "id": "c17-optimizer-loop",
+      "language": "C17",
+      "source": "tests/optimizer_loop.c",
+      "flags": ["-O1"],
+      "sha256": {
+        "i686-unknown-rinos": {
+          "ro": "93a21ca1eccbc507ca5069b2bc4cf23190d2c8ceca6c1aff1f93d38ace68cba8",
+          "rin": "6cb47cf6b249f1342214eb50ed58801318760de9ffe01f174c1239505b0ada8f",
+          "rll": "0d692348a025d6cfcb731d61149a47fb606e7b28ec5e6c357f1be8cb0361a90f",
+          "drv": "81545b94c84ddbbff2c20f426bee911b64fc2f86979505fc716dd6cdd7e3c2c3"
+        },
+        "x86_64-unknown-rinos": {
+          "ro": "49082741ccb33ed8bb3bd4291f5d0488352b554a2640a27acd005df90b1dab45",
+          "rin": "cbc79e3a14e0869c6f016148c9e7d5cc8d06097703f75921fb76869ba3053221",
+          "rll": "25f4c728daf42d09cf394c5940d0669b9d770e688905a8648ea4adeb49cbc808",
+          "drv": "c1b5b0b2f2c07bb097b6fdb31d5a018b6157ea98af32b0516fc545ddd4116a5c"
+        }
+      }
+    },
+    {
+      "id": "cxx20-optimizer-loop",
+      "language": "C++20",
+      "source": "tests/optimizer_loop_cpp.cpp",
+      "flags": ["-std=c++20", "-O1"],
+      "sha256": {
+        "i686-unknown-rinos": {
+          "ro": "37bda013e42f56b5fc6ca2fbe7e59456b08bc5831eec0856ffbadfd7ec76e5fe",
+          "rin": "5cf01b48273ecbe0c05f976abe5f01aac3f8d3d3c26777fde2fac3ed67941ee1",
+          "rll": "b89f3560c9e90153a6969afc4f1a74398788a0899d36a784cdecc573c381ef59",
+          "drv": "0a0f18edad12769d3331e63c7d0b9bfa852cbe375d94fc87d6458391b3998136"
+        },
+        "x86_64-unknown-rinos": {
+          "ro": "ee9c14e7b03e275201b06fa4a2f879a47eb677be23db3b742b26ec46cd166501",
+          "rin": "0c288617fa67ffa753f4c5f97518bf57f19511a94f824183f7d083d8be6878b0",
+          "rll": "e4744af38a1af9ef529858bcee9a1067672cf51a4094208b2922ef130aadba89",
+          "drv": "114c48499b00db4f24dd6a04dafdb6409040dd0d2ef4feeee09568381175893b"
+        }
+      }
     }
   ]
 }
