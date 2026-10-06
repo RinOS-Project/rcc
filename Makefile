@@ -837,6 +837,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/debug-info/cxx14-g.ro tests/hello.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -g -c \
 		-o $(TEST_OUT)/debug-info/cxx17-g.ro tests/hello.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -c \
+		-o $(TEST_OUT)/debug-info/cxx-member-x86-g.ro \
+		tests/debug_info_cxx_member.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -c \
+		-o $(TEST_OUT)/debug-info/cxx-member-x64-g.ro \
+		tests/debug_info_cxx_member.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
@@ -867,7 +873,9 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/verified-x86-g.ro \
 		$(TEST_OUT)/debug-info/verified-x64-g.ro \
 		$(TEST_OUT)/debug-info/verified-globals-x86-g.ro \
-		$(TEST_OUT)/debug-info/verified-globals-x64-g.ro
+		$(TEST_OUT)/debug-info/verified-globals-x64-g.ro \
+		$(TEST_OUT)/debug-info/cxx-member-x86-g.ro \
+		$(TEST_OUT)/debug-info/cxx-member-x64-g.ro
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
 		$(TEST_OUT)/debug-info/x86-g.ro

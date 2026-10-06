@@ -1801,6 +1801,23 @@ static Decl* debug_find_function_decl(const Module* mod,
     return NULL;
 }
 
+static const char* debug_function_source_name(const Decl* declaration,
+                                              const char* fallback) {
+    if (!declaration) return fallback;
+    if (declaration->func_is_cxx_method &&
+        declaration->func_method_owner &&
+        (declaration->func_method_owner->kind == TYPE_STRUCT ||
+         declaration->func_method_owner->kind == TYPE_UNION)) {
+        for (TypeMethod* method = declaration->func_method_owner->methods;
+             method; method = method->next) {
+            if (method->function_decl == declaration && method->name) {
+                return method->name;
+            }
+        }
+    }
+    return declaration->name ? declaration->name : fallback;
+}
+
 static const ModuleSymbol* debug_find_global_symbol(const Module* mod,
                                                      const Decl* declaration) {
     const char* link_name;
@@ -1957,13 +1974,11 @@ static void debug_emit_function_locals(
     if (!mod || !mod->debug_statement_ranges) return;
     Decl* function = debug_find_function_decl(mod, symbol);
     if (!function) return;
-    debug_emit_static_local_stmt(
-        obj, info, strings, types, files, file_count, mod, filename,
-        info_section, function->func_body, architecture);
     if (function->func_this_param) {
         debug_emit_variable_die(info, strings, types, files, file_count,
-                                function->func_this_param, 3u,
+                                function->func_this_param, 27u,
                                 architecture);
+        section_add_byte(info, 1u); /* DW_AT_artificial */
     }
     for (DeclList* parameter = function->func_params; parameter;
          parameter = parameter->next) {
@@ -1971,6 +1986,9 @@ static void debug_emit_function_locals(
                                 parameter->decl, 3u,
                                 architecture);
     }
+    debug_emit_static_local_stmt(
+        obj, info, strings, types, files, file_count, mod, filename,
+        info_section, function->func_body, architecture);
     debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                            mod, filename, info_section, symbol,
                            function->func_body, architecture);
@@ -2714,6 +2732,57 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    /* Abbreviation 26 is a source-level member function.  Its explicit
+     * object-pointer reference names the artificial `this` parameter DIE. */
+    debug_line_uleb(abbrev, 26u);
+    debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
+    debug_line_uleb(abbrev, 0x01u);    /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3fu);    /* DW_AT_external */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x64u);    /* DW_AT_object_pointer */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Abbreviation 27 marks the synthetic C++ `this` parameter artificial. */
+    debug_line_uleb(abbrev, 27u);
+    debug_line_uleb(abbrev, 0x05u);    /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x02u);    /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x34u);    /* DW_AT_artificial */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -2755,7 +2824,9 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         int file_index = debug_line_file_index(
             files, file_count, function->source_file);
         uint64_t address_offset;
-        uint32_t name_offset = debug_str_add(strings, function->name);
+        uint32_t name_offset = debug_str_add(
+            strings, debug_function_source_name(function_decl,
+                                                function->name));
         if (function_decl && function_decl->type &&
             function_decl->type->kind == TYPE_FUNC) {
             return_type = debug_type_find(&types,
@@ -2764,7 +2835,10 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                 rcc_fatal("DWARF function return type was not collected");
             }
         }
-        section_add_byte(info, return_type ? 2u : 8u);
+        section_add_byte(info,
+                         return_type && function_decl &&
+                                 function_decl->func_this_param
+                             ? 26u : return_type ? 2u : 8u);
         debug_line_u32(info, name_offset);
         address_offset = info->size;
         for (int byte = 0; byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4);
@@ -2795,6 +2869,14 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          * parsed declaration, not on a guessed call-site optimization state. */
         section_add_byte(info, function_decl && function_decl->func_is_inline
                                 ? 3u : 0u);
+        if (return_type && function_decl &&
+            function_decl->func_this_param) {
+            if (info->size > UINT32_MAX - sizeof(uint32_t)) {
+                rcc_fatal("DWARF object-pointer reference exceeds 32-bit range");
+            }
+            /* The artificial `this` parameter is emitted as the first child. */
+            debug_line_u32(info, (uint32_t)(info->size + sizeof(uint32_t)));
+        }
         debug_emit_function_locals(
             obj, info, strings, &types, files, file_count, mod, filename,
             info_section, function,

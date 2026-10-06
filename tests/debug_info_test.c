@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <string.h>
 
+static uint64_t read_uleb(const uint8_t* data, uint64_t size,
+                          uint64_t* offset);
+
 static bool contains_bytes(const uint8_t* data, uint64_t size,
                            const char* text)
 {
@@ -51,6 +54,78 @@ static uint32_t read_u32(const uint8_t* data, uint64_t offset)
            ((uint32_t)data[offset + 1u] << 8) |
            ((uint32_t)data[offset + 2u] << 16) |
            ((uint32_t)data[offset + 3u] << 24);
+}
+
+static void verify_object_pointer_parameter(const char* path,
+                                            uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x64u, 0x13u));
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x34u, 0x0cu));
+
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 1u +
+             4u + 4u + 1u + 4u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t linkage_name_offset;
+        uint32_t object_pointer_offset;
+        uint64_t cursor;
+        uint64_t expression_size;
+        uint64_t parameter_cursor;
+        uint64_t parameter_expression_size;
+        uint32_t parameter_name_offset;
+
+        if (info->data[die] != 26u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset, "read") != 0) {
+            continue;
+        }
+        linkage_name_offset = read_u32(
+            info->data, die + 1u + 4u + address_size + 4u + 1u + 4u +
+                       4u + 1u);
+        assert(linkage_name_offset < strings->size);
+        assert(strcmp((const char*)strings->data + linkage_name_offset,
+                      "read") != 0);
+        assert(strings->data[linkage_name_offset] == '_');
+        cursor = die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+                 1u + 4u + 4u;
+        assert(cursor < info->size);
+        expression_size = read_uleb(info->data, info->size, &cursor);
+        assert(cursor + expression_size + 5u <= info->size);
+        cursor += expression_size;
+        ++cursor; /* DW_AT_inline */
+        object_pointer_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(object_pointer_offset == cursor);
+        assert(info->data[object_pointer_offset] == 27u);
+        parameter_name_offset = read_u32(info->data,
+                                         object_pointer_offset + 1u);
+        assert(parameter_name_offset < strings->size);
+        assert(strcmp((const char*)strings->data + parameter_name_offset,
+                      "this") == 0);
+        parameter_cursor = object_pointer_offset + 1u + 4u + 4u +
+                           4u + 4u + 4u;
+        parameter_expression_size = read_uleb(
+            info->data, info->size, &parameter_cursor);
+        assert(parameter_cursor + parameter_expression_size < info->size);
+        parameter_cursor += parameter_expression_size;
+        assert(info->data[parameter_cursor] == 1u);
+        found = true;
+        break;
+    }
+    assert(found);
+    objfile_free(object);
 }
 
 static bool find_lexical_block_local(const ObjSection* info,
@@ -770,7 +845,7 @@ static void verify_verified_global_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 14);
+    assert(argc == 16);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -792,5 +867,7 @@ int main(int argc, char** argv)
     verify_verified_debug_object(argv[11], ARCH_X64);
     verify_verified_global_debug_object(argv[12], ARCH_X86);
     verify_verified_global_debug_object(argv[13], ARCH_X64);
+    verify_object_pointer_parameter(argv[14], ARCH_X86);
+    verify_object_pointer_parameter(argv[15], ARCH_X64);
     return 0;
 }
