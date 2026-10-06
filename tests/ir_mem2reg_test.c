@@ -515,6 +515,35 @@ static void verify_trivial_select_simplification(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_constant_condition_select_simplification(void)
+{
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType parameters[] = {pointer, pointer};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "constant_condition_select", pointer, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue condition;
+    RccIrValue selected;
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    assert(function != NULL && entry != NULL);
+    condition = append_const(entry, i1, 1u);
+    selected = append_select(entry, pointer, condition,
+                             function->parameters[0], function->parameters[1]);
+    append_return(entry, selected);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions >= 1u);
+    assert(count_opcode(function, RCC_IR_SELECT) == 0u);
+    assert(entry->last != NULL && entry->last->opcode == RCC_IR_RETURN);
+    assert(entry->last->operands[0] == function->parameters[0]);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_undefined_folds_are_preserved(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -872,6 +901,7 @@ int main(void)
     verify_constant_phi_and_select_folding();
     verify_trivial_phi_simplification();
     verify_trivial_select_simplification();
+    verify_constant_condition_select_simplification();
     verify_undefined_folds_are_preserved();
     verify_integer_identities();
     verify_block_local_cse();
