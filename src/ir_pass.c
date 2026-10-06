@@ -1201,6 +1201,17 @@ static bool ir_pass_simplify_integer_identities(
                         replacement = instruction->operands[0];
                     }
                     break;
+                case RCC_IR_UREM:
+                case RCC_IR_SREM:
+                    if (right_known && (right & mask) == 1u) {
+                        ir_pass_make_integer_constant(instruction, 0u);
+                        known[instruction->result] = true;
+                        constants[instruction->result] = instruction->immediate;
+                        if (stats) ++stats->folded_instructions;
+                        instruction = next;
+                        continue;
+                    }
+                    break;
                 case RCC_IR_AND:
                     if (right_known && (right & mask) == mask) {
                         replacement = instruction->operands[0];
