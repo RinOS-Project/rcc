@@ -88,16 +88,16 @@
       "flags": ["-O1"],
       "sha256": {
         "i686-unknown-rinos": {
-          "ro": "3842752c99567301c290ae4315b18f7c01f8b81e8286d8d1ce462541e60178ce",
-          "rin": "d9bc4e3d6da1441c6b0ddaa1350601a2f86cf84cebd67f7deb8213613f2a8421",
-          "rll": "d412b9d3f6383f3ec5d96f11679197ab29fbdf9b3f79eb39276f1251d9839a6d",
-          "drv": "16a1d57bec23436fb6c9cf8201b9f6e2fe86ba7c5cdb5c4f14080c8a74c9af06"
+          "ro": "4a2d05553fc1cadc26b264fe80cee7018881879ce095230a0e738ae0cfeb17bf",
+          "rin": "13600ebf519844373da0dbccfd7fcf276767851db72821c622dba92c04a9b2b0",
+          "rll": "efbe996e4011ee3b9a0c06944d474dfc0b97136f80f3635a252d8473c8518a59",
+          "drv": "c173ecbcbd7637157fd7bf1b38ee8dee7fb92785827c429743111e1a403386d4"
         },
         "x86_64-unknown-rinos": {
-          "ro": "b9baecf3728b489ccc255ebb2d2ac1d47d2a157fd6854d2a14fc77c2d755d5d5",
-          "rin": "9a11b3c8b326bb75700eeebe23f82348e1204463d7b4dc9f823cda3f9179643c",
-          "rll": "318eb3c6ac11d165180c6f9d163adfefd1b35cae823b65ac927429464f4da1c5",
-          "drv": "6cf76193af32baea3d05328016c25053196a16741e19669b5eb74837efa76262"
+          "ro": "be6ffa5021340a6c4fbd7a06e2e5846aded8e2e88fcf1f463349918650c1c04d",
+          "rin": "c172aff8f8225893dc73cd5968e341106a19cec34cc8e7a2a84150e85eeb7acd",
+          "rll": "031c735e4909019e6e6bd6889cde5b24156c4a3240b9821a966b611718a90bac",
+          "drv": "00bafe2cc1a59e56c13e9d53eaf3afdd8a8e2f9333274fd4bbfcb38d913fcb03"
         }
       }
     },
@@ -108,16 +108,16 @@
       "flags": ["-std=c++20", "-O1"],
       "sha256": {
         "i686-unknown-rinos": {
-          "ro": "37bda013e42f56b5fc6ca2fbe7e59456b08bc5831eec0856ffbadfd7ec76e5fe",
-          "rin": "5cf01b48273ecbe0c05f976abe5f01aac3f8d3d3c26777fde2fac3ed67941ee1",
-          "rll": "b89f3560c9e90153a6969afc4f1a74398788a0899d36a784cdecc573c381ef59",
-          "drv": "0a0f18edad12769d3331e63c7d0b9bfa852cbe375d94fc87d6458391b3998136"
+          "ro": "078e10253f0d333665cb1a35f87d7123704173393d7b8e9e0cf0d1b7a13e520b",
+          "rin": "f9217223ecc07a73b516e3f701442e948ea216bd136dc4dd76257798c17aa353",
+          "rll": "e4fd4338efca977e3087df9cefee7369839d4daff5a3eaf87102e059a1a0e210",
+          "drv": "a2c2e475b9c7e893e649af6d78d53de37fdbd3f96812f7cbcfabb42d45c83d64"
         },
         "x86_64-unknown-rinos": {
-          "ro": "ee9c14e7b03e275201b06fa4a2f879a47eb677be23db3b742b26ec46cd166501",
-          "rin": "0c288617fa67ffa753f4c5f97518bf57f19511a94f824183f7d083d8be6878b0",
-          "rll": "e4744af38a1af9ef529858bcee9a1067672cf51a4094208b2922ef130aadba89",
-          "drv": "114c48499b00db4f24dd6a04dafdb6409040dd0d2ef4feeee09568381175893b"
+          "ro": "c9c844df3c434dbe026e56d5552549f0d7a2bece2fb9abbb75ea62a1a46e0287",
+          "rin": "dea727b5e2f1a23a666a46501f341e9c50f43211df1235061ad1ba3ba02062ab",
+          "rll": "896c29f2a2853b56b6eb34064fbbd2b2d2282bafa8d23ec8cea8f3849ed813e3",
+          "drv": "c8b874da8178e85fe8f3d42f43409c531b79649830fe114e2eeeed1f4b6a33af"
         }
       }
     }
