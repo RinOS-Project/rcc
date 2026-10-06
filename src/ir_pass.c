@@ -1036,6 +1036,26 @@ static bool ir_pass_simplify_integer_identities(
                 }
                 instruction->operands[operand] = resolved;
             }
+            if (instruction->opcode == RCC_IR_PHI &&
+                instruction->result != RCC_IR_VALUE_NONE &&
+                instruction->operand_count != 0u) {
+                RccIrValue incoming = instruction->operands[0];
+                bool identical = incoming != instruction->result;
+                for (operand = 1u; identical &&
+                     operand < instruction->operand_count; ++operand) {
+                    identical = instruction->operands[operand] == incoming;
+                }
+                if (identical) {
+                    replacements[instruction->result] = incoming;
+                    ir_pass_unlink_instruction(instruction);
+                    if (stats) {
+                        ++stats->folded_instructions;
+                        ++stats->removed_instructions;
+                    }
+                    instruction = next;
+                    continue;
+                }
+            }
             if (instruction->opcode == RCC_IR_CONST_INT &&
                 instruction->result != RCC_IR_VALUE_NONE) {
                 known[instruction->result] = true;

@@ -447,6 +447,47 @@ static void verify_constant_phi_and_select_folding(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_trivial_phi_simplification(void)
+{
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "trivial_phi", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* left = rcc_ir_block_add(function, "left");
+    RccIrBlock* right = rcc_ir_block_add(function, "right");
+    RccIrBlock* merge = rcc_ir_block_add(function, "merge");
+    RccIrValue incoming[2];
+    RccIrBlockId targets[2];
+    RccIrInstruction* phi;
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    assert(function != NULL && entry != NULL && left != NULL &&
+           right != NULL && merge != NULL);
+    append_cond_branch(entry, function->parameters[1], left->id, right->id);
+    append_branch(left, merge->id);
+    append_branch(right, merge->id);
+    incoming[0] = function->parameters[0];
+    incoming[1] = function->parameters[0];
+    targets[0] = left->id;
+    targets[1] = right->id;
+    phi = rcc_ir_append(merge, RCC_IR_PHI, i32, incoming, 2u,
+                        targets, 2u);
+    assert(phi != NULL);
+    append_return(merge, phi->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.folded_instructions >= 1u);
+    assert(count_opcode(function, RCC_IR_PHI) == 0u);
+    assert(merge->first != NULL && merge->first->opcode == RCC_IR_RETURN);
+    assert(merge->first->operands[0] == function->parameters[0]);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_undefined_folds_are_preserved(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -802,6 +843,7 @@ int main(void)
     verify_integer_simplification();
     verify_constant_branch_pruning();
     verify_constant_phi_and_select_folding();
+    verify_trivial_phi_simplification();
     verify_undefined_folds_are_preserved();
     verify_integer_identities();
     verify_block_local_cse();
