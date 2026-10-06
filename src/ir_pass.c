@@ -1056,6 +1056,20 @@ static bool ir_pass_simplify_integer_identities(
                     continue;
                 }
             }
+            if (instruction->opcode == RCC_IR_SELECT &&
+                instruction->result != RCC_IR_VALUE_NONE &&
+                instruction->operand_count == 3u &&
+                instruction->operands[1] == instruction->operands[2] &&
+                instruction->operands[1] != instruction->result) {
+                replacements[instruction->result] = instruction->operands[1];
+                ir_pass_unlink_instruction(instruction);
+                if (stats) {
+                    ++stats->folded_instructions;
+                    ++stats->removed_instructions;
+                }
+                instruction = next;
+                continue;
+            }
             if (instruction->opcode == RCC_IR_CONST_INT &&
                 instruction->result != RCC_IR_VALUE_NONE) {
                 known[instruction->result] = true;
