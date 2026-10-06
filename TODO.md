@@ -136,6 +136,12 @@
         operands; cover C/C++ execution and verified object generation.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
+  - [x] GCC互換のgeneric `__atomic_load`／`__atomic_store`／
+        `__atomic_exchange`／`__atomic_compare_exchange`を、対応する
+        lock-free integer/pointer object widthのresult／expected pointer形式として
+        意味解析し、i686/AMD64の実atomic load/store/exchange/CASへlowerする。
+        load/storeのmemory-order制約、C/C++コンパイル、i686/AMD64実行、
+        および不正order／aggregate診断を回帰検証する。
   - [x] atomic-qualified整数の`&=`／`|=`／`^=`を一回評価のCAS retry loopでloweringし、
         i686/AMD64の8/16/32/64-bit幅で結果値と既存atomic API回帰を実行
   - [x] atomic-qualified整数の`*=`／`/=`／`%=`／`<<=`／`>>=`を一回評価のCAS retry loopで

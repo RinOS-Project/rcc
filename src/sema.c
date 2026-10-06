@@ -1126,7 +1126,11 @@ static bool atomic_allows_pointer_value(const char* name) {
     return strcmp(name, "__atomic_load_n") == 0 ||
            strcmp(name, "__atomic_store_n") == 0 ||
            strcmp(name, "__atomic_exchange_n") == 0 ||
-           strcmp(name, "__atomic_compare_exchange_n") == 0;
+           strcmp(name, "__atomic_compare_exchange_n") == 0 ||
+           strcmp(name, "__atomic_load") == 0 ||
+           strcmp(name, "__atomic_store") == 0 ||
+           strcmp(name, "__atomic_exchange") == 0 ||
+           strcmp(name, "__atomic_compare_exchange") == 0;
 }
 
 /* ═══════════════════════════════════════
@@ -12316,7 +12320,20 @@ static bool sema_atomic_builtin_call(Expr* expr) {
 
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
-    if (strcmp(name, "__atomic_load_n") == 0) {
+    if (strcmp(name, "__atomic_load") == 0) {
+        expected_count = 3;
+        returns_void = true;
+    } else if (strcmp(name, "__atomic_store") == 0) {
+        expected_count = 3;
+        returns_void = true;
+    } else if (strcmp(name, "__atomic_exchange") == 0) {
+        expected_count = 4;
+        returns_void = true;
+    } else if (strcmp(name, "__atomic_compare_exchange") == 0) {
+        expected_count = 6;
+        requires_expected_pointer = true;
+        returns_bool = true;
+    } else if (strcmp(name, "__atomic_load_n") == 0) {
         expected_count = 2;
     } else if (strcmp(name, "__atomic_store_n") == 0) {
         expected_count = 3;
@@ -12446,6 +12463,16 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             rcc_error(expr->loc,
                       "%s requires a supported lock-free object pointer",
                       name);
+        } else if ((strcmp(name, "__atomic_load") == 0 ||
+                    strcmp(name, "__atomic_store") == 0 ||
+                    strcmp(name, "__atomic_exchange") == 0 ||
+                    strcmp(name, "__atomic_compare_exchange") == 0) &&
+                   (!pointer_type->base ||
+                    (!type_is_integer(pointer_type->base) &&
+                     pointer_type->base->kind != TYPE_PTR))) {
+            rcc_error(expr->loc,
+                      "%s requires a lock-free integer or pointer object type",
+                      name);
         } else if ((strcmp(name, "__atomic_test_and_set") == 0 ||
                     strcmp(name, "__atomic_clear") == 0) &&
                    (!pointer_type->base || pointer_type->base->size != 1u)) {
@@ -12467,22 +12494,80 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                       name);
         }
     }
-    if (strcmp(name, "__atomic_load_n") == 0) {
-        if (sema_atomic_order(expr, name, 1, &success_order,
+    if (strcmp(name, "__atomic_load") == 0 ||
+        strcmp(name, "__atomic_store") == 0 ||
+        strcmp(name, "__atomic_exchange") == 0 ||
+        strcmp(name, "__atomic_compare_exchange") == 0) {
+        int first_value_index = 1;
+        int second_value_index = strcmp(name, "__atomic_exchange") == 0 ? 2 :
+            strcmp(name, "__atomic_compare_exchange") == 0 ? 2 : -1;
+        Expr* value_argument = sema_call_argument(expr, first_value_index);
+        Expr* second_value_argument = second_value_index >= 0
+            ? sema_call_argument(expr, second_value_index) : NULL;
+        Type* value_pointer_type = value_argument ? value_argument->type : NULL;
+        Type* second_pointer_type = second_value_argument
+            ? second_value_argument->type : NULL;
+        if (!value_pointer_type || value_pointer_type->kind != TYPE_PTR ||
+            !value_pointer_type->base || !pointer_type ||
+            !type_is_compatible(value_pointer_type->base, pointer_type->base)) {
+            rcc_error(expr->loc,
+                      "%s value pointer must match the object type", name);
+        }
+        if (second_value_argument &&
+            (!second_pointer_type || second_pointer_type->kind != TYPE_PTR ||
+             !second_pointer_type->base || !pointer_type ||
+             !type_is_compatible(second_pointer_type->base,
+                                 pointer_type->base))) {
+            rcc_error(expr->loc,
+                      "%s value pointers must match the object type", name);
+        }
+    }
+    if (strcmp(name, "__atomic_compare_exchange") == 0) {
+        Expr* weak = sema_call_argument(expr, 3);
+        int64_t weak_value;
+        bool weak_constant = weak &&
+            expr_eval_integer_constant(weak, &weak_value);
+        if (weak && (!weak->type ||
+            (!type_is_integer(weak->type) && weak->type->kind != TYPE_ENUM))) {
+            rcc_error(weak->loc, "%s weak flag must have integer type", name);
+        } else if (weak_constant && weak_value != 0 && weak_value != 1) {
+            rcc_error(weak->loc, "%s weak flag must be zero or one", name);
+        }
+        sema_atomic_order(expr, name, 4, &success_order,
+                          &success_constant);
+        sema_atomic_order(expr, name, 5, &failure_order,
+                          &failure_constant);
+        if (success_constant && failure_constant &&
+            success_order >= 0 && success_order <= 5 &&
+            failure_order >= 0 && failure_order <= 5 &&
+            !atomic_failure_order_allowed(success_order, failure_order)) {
+            rcc_error(sema_call_argument(expr, 5)->loc,
+                      "%s failure order is invalid or stronger than success",
+                      name);
+        }
+    } else if (strcmp(name, "__atomic_load") == 0 ||
+               strcmp(name, "__atomic_load_n") == 0) {
+        int order_index = strcmp(name, "__atomic_load") == 0 ? 2 : 1;
+        if (sema_atomic_order(expr, name, order_index, &success_order,
                               &success_constant) && success_constant &&
             (success_order == 3 || success_order == 4)) {
-            rcc_error(sema_call_argument(expr, 1)->loc,
+            rcc_error(sema_call_argument(expr, order_index)->loc,
                       "%s does not accept release or acq_rel order", name);
         }
-    } else if (strcmp(name, "__atomic_store_n") == 0) {
-        if (sema_atomic_order(expr, name, 2, &success_order,
+    } else if (strcmp(name, "__atomic_store") == 0 ||
+               strcmp(name, "__atomic_store_n") == 0) {
+        int order_index = 2;
+        if (sema_atomic_order(expr, name, order_index, &success_order,
                               &success_constant) && success_constant &&
             (success_order == 1 || success_order == 2 ||
              success_order == 4)) {
-            rcc_error(sema_call_argument(expr, 2)->loc,
+            rcc_error(sema_call_argument(expr, order_index)->loc,
                       "%s accepts only relaxed, release, or seq_cst order",
                       name);
         }
+    } else if (strcmp(name, "__atomic_exchange") == 0) {
+        sema_atomic_order(expr, name, 3, &success_order,
+                          &success_constant);
     } else if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
         Expr* weak = sema_call_argument(expr, 3);
         int64_t weak_value;

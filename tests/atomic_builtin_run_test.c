@@ -137,6 +137,14 @@ typedef void* (RCC_SYSV_ABI *atomic_pointer_load_fn)(void* volatile*);
 typedef void (RCC_SYSV_ABI *atomic_pointer_store_fn)(void* volatile*, void*);
 typedef void* (RCC_SYSV_ABI *atomic_pointer_binary_fn)(void* volatile*, void*);
 typedef int (RCC_SYSV_ABI *atomic_pointer_compare_fn)(void* volatile*, void**, void*);
+typedef void (RCC_SYSV_ABI *atomic_generic_load_fn)(volatile uint32_t*, uint32_t*);
+typedef void (RCC_SYSV_ABI *atomic_generic_store_fn)(volatile uint32_t*, uint32_t*);
+typedef uint32_t (RCC_SYSV_ABI *atomic_generic_binary_fn)(volatile uint32_t*, uint32_t*);
+typedef int (RCC_SYSV_ABI *atomic_generic_compare_fn)(volatile uint32_t*, uint32_t*, uint32_t*);
+typedef void (RCC_SYSV_ABI *atomic_generic_load64_fn)(volatile uint64_t*, uint64_t*);
+typedef void (RCC_SYSV_ABI *atomic_generic_store64_fn)(volatile uint64_t*, uint64_t*);
+typedef uint64_t (RCC_SYSV_ABI *atomic_generic_binary64_fn)(volatile uint64_t*, uint64_t*);
+typedef int (RCC_SYSV_ABI *atomic_generic_compare64_fn)(volatile uint64_t*, uint64_t*, uint64_t*);
 typedef uint64_t (RCC_SYSV_ABI *atomic_u32_wide_binary_fn)(volatile uint32_t*, uint32_t);
 typedef int64_t (RCC_SYSV_ABI *atomic_i32_wide_binary_fn)(volatile int32_t*, int32_t);
 typedef uint64_t (RCC_SYSV_ABI *atomic_u64_load_fn)(volatile uint64_t*);
@@ -342,6 +350,14 @@ int main(int argc, char** argv) {
     atomic_pointer_binary_fn pointer_exchange;
     atomic_pointer_compare_fn pointer_compare;
     atomic_pointer_binary_fn standard_pointer_exchange;
+    atomic_generic_load_fn generic_load;
+    atomic_generic_store_fn generic_store;
+    atomic_generic_binary_fn generic_exchange;
+    atomic_generic_compare_fn generic_compare;
+    atomic_generic_load64_fn generic_load64;
+    atomic_generic_store64_fn generic_store64;
+    atomic_generic_binary64_fn generic_exchange64;
+    atomic_generic_compare64_fn generic_compare64;
     volatile uint32_t value = 5u;
     volatile uint32_t counter = 0u;
     pthread_t threads[4];
@@ -521,6 +537,22 @@ int main(int argc, char** argv) {
                   "atomic_pointer_compare_exchange_value");
     LOAD_FUNCTION(standard_pointer_exchange, object, mapping,
                   "standard_atomic_pointer_exchange_value");
+    LOAD_FUNCTION(generic_load, object, mapping,
+                  "atomic_generic_load_value");
+    LOAD_FUNCTION(generic_store, object, mapping,
+                  "atomic_generic_store_value");
+    LOAD_FUNCTION(generic_exchange, object, mapping,
+                  "atomic_generic_exchange_value");
+    LOAD_FUNCTION(generic_compare, object, mapping,
+                  "atomic_generic_compare_exchange_value");
+    LOAD_FUNCTION(generic_load64, object, mapping,
+                  "atomic_generic_load64_value");
+    LOAD_FUNCTION(generic_store64, object, mapping,
+                  "atomic_generic_store64_value");
+    LOAD_FUNCTION(generic_exchange64, object, mapping,
+                  "atomic_generic_exchange64_value");
+    LOAD_FUNCTION(generic_compare64, object, mapping,
+                  "atomic_generic_compare_exchange64_value");
 
     assert(atomic_load(&value) == 5u);
     assert(atomic_dynamic_load(&value, 2u) == 5u);
@@ -663,6 +695,47 @@ int main(int argc, char** argv) {
         assert(expected_pointer == &first && pointer == &first);
         assert(standard_pointer_exchange(&pointer, &second) == &first &&
                pointer == &second);
+    }
+
+    {
+        volatile uint32_t generic = 5u;
+        uint32_t input = 9u;
+        uint32_t output = 0u;
+        uint32_t expected = 5u;
+        generic_load(&generic, &output);
+        assert(output == 5u);
+        generic_store(&generic, &input);
+        assert(generic == 9u);
+        assert(generic_exchange(&generic, &input) == 9u && generic == 9u);
+        expected = 9u;
+        input = 12u;
+        assert(generic_compare(&generic, &expected, &input) == 1 &&
+               generic == 12u);
+        expected = 7u;
+        input = 15u;
+        assert(generic_compare(&generic, &expected, &input) == 0 &&
+               expected == 12u && generic == 12u);
+    }
+
+    {
+        volatile uint64_t generic = UINT64_C(5);
+        uint64_t input = UINT64_C(9);
+        uint64_t output = 0u;
+        uint64_t expected = UINT64_C(5);
+        generic_load64(&generic, &output);
+        assert(output == UINT64_C(5));
+        generic_store64(&generic, &input);
+        assert(generic == UINT64_C(9));
+        assert(generic_exchange64(&generic, &input) == UINT64_C(9) &&
+               generic == UINT64_C(9));
+        expected = UINT64_C(9);
+        input = UINT64_C(12);
+        assert(generic_compare64(&generic, &expected, &input) == 1 &&
+               generic == UINT64_C(12));
+        expected = UINT64_C(7);
+        input = UINT64_C(15);
+        assert(generic_compare64(&generic, &expected, &input) == 0 &&
+               expected == UINT64_C(12) && generic == UINT64_C(12));
     }
 
     {

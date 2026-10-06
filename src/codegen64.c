@@ -2987,6 +2987,73 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     name = function->ident_name;
     value_type = atomic64_value_type(call);
     if (gen64_atomic_lock_free_query(mod, call)) return true;
+    if (strcmp(name, "__atomic_load") == 0) {
+        gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_load_typed(mod, RAX, RCX, 0, value_type);
+        emit64_pop_reg(mod, RCX);
+        emit64_store_typed(mod, RCX, 0, RAX, value_type);
+        emit64_add_reg_imm(mod, RSP, 8);
+        return true;
+    }
+    if (strcmp(name, "__atomic_store") == 0) {
+        gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_load_typed(mod, RAX, RCX, 0, value_type);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_atomic_exchange_width(mod, RAX, RCX, value_type);
+        emit64_add_reg_imm(mod, RSP, 16);
+        return true;
+    }
+    if (strcmp(name, "__atomic_exchange") == 0) {
+        gen64_expr(mod, call64_argument(call, 3));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 2));
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_load_typed(mod, RAX, RCX, 0, value_type);
+        emit64_mov_reg_mem(mod, RCX, RSP, 16);
+        emit64_atomic_exchange_width(mod, RAX, RCX, value_type);
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_store_typed(mod, RCX, 0, RAX, value_type);
+        emit64_add_reg_imm(mod, RSP, 24);
+        return true;
+    }
+    if (strcmp(name, "__atomic_compare_exchange") == 0) {
+        gen64_expr(mod, call64_argument(call, 5));
+        gen64_expr(mod, call64_argument(call, 4));
+        gen64_expr(mod, call64_argument(call, 3));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_push_reg(mod, RAX);
+        gen64_expr(mod, call64_argument(call, 2));
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_load_typed(mod, RAX, RCX, 0, value_type);
+        emit64_mov_reg_mem(mod, RDX, RSP, 0);
+        emit64_load_typed(mod, RDX, RDX, 0, value_type);
+        emit64_mov_reg_mem(mod, RCX, RSP, 16);
+        emit64_atomic_cmpxchg_width(mod, RDX, RCX, value_type);
+        emit64_setcc(mod, CC64_E, RDX);
+        emit64_movzx_r64_r8(mod, RDX, RDX);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_store_typed(mod, RCX, 0, RAX, value_type);
+        emit64_mov_reg_reg(mod, RAX, RDX);
+        emit64_add_reg_imm(mod, RSP, 24);
+        return true;
+    }
     if (strcmp(name, "__atomic_load_n") == 0) {
         gen64_expr(mod, call64_argument(call, 1));
         gen64_expr(mod, call64_argument(call, 0));

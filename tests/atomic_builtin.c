@@ -74,6 +74,50 @@ void atomic_pointer_store_value(void* volatile* value, void* desired) {
     __atomic_store_n(value, desired, __ATOMIC_RELEASE);
 }
 
+void atomic_generic_load_value(volatile uint32_t* value, uint32_t* result) {
+    __atomic_load(value, result, __ATOMIC_ACQUIRE);
+}
+
+void atomic_generic_store_value(volatile uint32_t* value, uint32_t* desired) {
+    __atomic_store(value, desired, __ATOMIC_RELEASE);
+}
+
+uint32_t atomic_generic_exchange_value(volatile uint32_t* value,
+                                       uint32_t* desired) {
+    uint32_t previous;
+    __atomic_exchange(value, desired, &previous, __ATOMIC_ACQ_REL);
+    return previous;
+}
+
+int atomic_generic_compare_exchange_value(volatile uint32_t* value,
+                                          uint32_t* expected,
+                                          uint32_t* desired) {
+    return __atomic_compare_exchange(value, expected, desired, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+
+void atomic_generic_load64_value(volatile uint64_t* value, uint64_t* result) {
+    __atomic_load(value, result, __ATOMIC_ACQUIRE);
+}
+
+void atomic_generic_store64_value(volatile uint64_t* value, uint64_t* desired) {
+    __atomic_store(value, desired, __ATOMIC_RELEASE);
+}
+
+uint64_t atomic_generic_exchange64_value(volatile uint64_t* value,
+                                         uint64_t* desired) {
+    uint64_t previous;
+    __atomic_exchange(value, desired, &previous, __ATOMIC_ACQ_REL);
+    return previous;
+}
+
+int atomic_generic_compare_exchange64_value(volatile uint64_t* value,
+                                            uint64_t* expected,
+                                            uint64_t* desired) {
+    return __atomic_compare_exchange(value, expected, desired, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+
 void* atomic_pointer_exchange_value(void* volatile* value, void* desired) {
     return __atomic_exchange_n(value, desired, __ATOMIC_ACQ_REL);
 }

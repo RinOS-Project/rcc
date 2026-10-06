@@ -8,6 +8,14 @@ void invalid_atomic_store_order(volatile uint32_t* value) {
     __atomic_store_n(value, 1u, __ATOMIC_ACQUIRE);
 }
 
+void invalid_generic_load_order(volatile uint32_t* value, uint32_t* result) {
+    __atomic_load(value, result, __ATOMIC_RELEASE);
+}
+
+void invalid_generic_store_order(volatile uint32_t* value, uint32_t* source) {
+    __atomic_store(value, source, __ATOMIC_ACQUIRE);
+}
+
 uint32_t invalid_atomic_order_range(volatile uint32_t* value) {
     return __atomic_exchange_n(value, 1u, __ATOMIC_ACQUIRE + 4);
 }

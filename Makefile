@@ -8461,9 +8461,15 @@ endif
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_is_lock_free second argument must have pointer or null-pointer type" \
 		$(TEST_OUT)/atomic-x86/invalid.log
+	$(GREP) -F -q "__atomic_load requires a supported lock-free object pointer" \
+		$(TEST_OUT)/atomic-x86/invalid.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \
 		tests/invalid_atomic_order.c,$(TEST_OUT)/atomic-x64/invalid-order.log)
+	$(GREP) -F -q "__atomic_load does not accept release or acq_rel order" \
+		$(TEST_OUT)/atomic-x64/invalid-order.log
+	$(GREP) -F -q "__atomic_store accepts only relaxed, release, or seq_cst order" \
+		$(TEST_OUT)/atomic-x64/invalid-order.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid-pointer.ro \
 		tests/invalid_pointer_atomic.c,$(TEST_OUT)/atomic-x86/invalid-pointer.log)

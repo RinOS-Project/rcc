@@ -1,5 +1,14 @@
 #include <stdint.h>
 
+struct generic_atomic_aggregate {
+    uint32_t value;
+};
+
+void invalid_generic_aggregate(struct generic_atomic_aggregate* value,
+                               struct generic_atomic_aggregate* result) {
+    __atomic_load(value, result, __ATOMIC_ACQUIRE);
+}
+
 int invalid_always_lock_free_nonconstant(unsigned size) {
     return __atomic_always_lock_free(size, (void*)0);
 }

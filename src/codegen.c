@@ -5003,6 +5003,129 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
         return true;
     }
 
+    if (strcmp(name, "__atomic_load") == 0) {
+        /* The generic form writes the loaded pair through its result
+         * pointer.  Keep both pointers on the expression stack while the
+         * CMPXCHG8B load executes so evaluation remains ordered. */
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ESI, ESP, 4);
+        emit_xor_reg_reg(mod, EAX, EAX);
+        emit_xor_reg_reg(mod, EDX, EDX);
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_pop_reg(mod, EDI);
+        emit_mov_mem_reg(mod, EDI, 0, EAX);
+        emit_mov_mem_reg(mod, EDI, 4, EDX);
+        emit_add_reg_imm(mod, ESP, 4);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (strcmp(name, "__atomic_store") == 0) {
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ESI, ESP, 4);
+        emit_mov_reg_mem(mod, EDI, ESP, 0);
+        emit_mov_reg_mem(mod, EAX, EDI, 0);
+        emit_mov_reg_mem(mod, EDX, EDI, 4);
+        emit_mov_reg_reg(mod, EBX, EAX);
+        emit_mov_reg_reg(mod, ECX, EDX);
+        emit_mov_reg_mem(mod, EAX, ESI, 0);
+        emit_mov_reg_mem(mod, EDX, ESI, 4);
+        retry_label = new_label();
+        emit_label(mod, retry_label);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_add_reg_imm(mod, ESP, 8);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (strcmp(name, "__atomic_exchange") == 0) {
+        gen_expr(mod, call_argument(call, 3));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ESI, ESP, 8);
+        emit_mov_reg_mem(mod, EDI, ESP, 4);
+        emit_mov_reg_mem(mod, EBX, EDI, 0);
+        emit_mov_reg_mem(mod, ECX, EDI, 4);
+        emit_mov_reg_mem(mod, EAX, ESI, 0);
+        emit_mov_reg_mem(mod, EDX, ESI, 4);
+        retry_label = new_label();
+        emit_label(mod, retry_label);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_mov_reg_mem(mod, EDI, ESP, 0);
+        emit_mov_mem_reg(mod, EDI, 0, EAX);
+        emit_mov_mem_reg(mod, EDI, 4, EDX);
+        emit_add_reg_imm(mod, ESP, 12);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (strcmp(name, "__atomic_compare_exchange") == 0) {
+        gen_expr(mod, call_argument(call, 5));
+        gen_expr(mod, call_argument(call, 4));
+        gen_expr(mod, call_argument(call, 3));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ESI, ESP, 8);
+        emit_mov_reg_mem(mod, EDI, ESP, 4);
+        emit_mov_reg_mem(mod, EAX, EDI, 0);
+        emit_mov_reg_mem(mod, EDX, EDI, 4);
+        emit_mov_reg_mem(mod, EBX, ESP, 0);
+        emit_mov_reg_mem(mod, ECX, EBX, 4);
+        emit_mov_reg_mem(mod, EBX, EBX, 0);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_setcc(mod, CC_E, EDI);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EDI, EDI));
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
+        emit_mov_mem_reg(mod, ECX, 0, EAX);
+        emit_mov_mem_reg(mod, ECX, 4, EDX);
+        emit_mov_reg_reg(mod, EAX, EDI);
+        emit_add_reg_imm(mod, ESP, 12);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
     if (strcmp(name, "__atomic_store_n") == 0 ||
         strcmp(name, "__atomic_exchange_n") == 0 ||
         strcmp(name, "__sync_lock_test_and_set") == 0) {
@@ -5324,6 +5447,75 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     value_type = atomic_value_type(call);
     if (gen_atomic_lock_free_query32(mod, call)) return true;
     if (gen_atomic_builtin64_i686(mod, call, name)) return true;
+    if (strcmp(name, "__atomic_load") == 0) {
+        gen_expr(mod, call_argument(call, 2));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
+        emit_load_typed32(mod, EAX, ECX, 0, value_type);
+        emit_pop_reg(mod, ECX);
+        emit_store_typed32(mod, ECX, 0, EAX, value_type);
+        emit_add_reg_imm(mod, ESP, 4);
+        return true;
+    }
+    if (strcmp(name, "__atomic_store") == 0) {
+        gen_expr(mod, call_argument(call, 2));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        emit_load_typed32(mod, EAX, ECX, 0, value_type);
+        emit_pop_reg(mod, ECX);
+        emit_atomic_exchange_width(mod, EAX, ECX, value_type);
+        emit_add_reg_imm(mod, ESP, 4);
+        return true;
+    }
+    if (strcmp(name, "__atomic_exchange") == 0) {
+        gen_expr(mod, call_argument(call, 3));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
+        emit_load_typed32(mod, EAX, ECX, 0, value_type);
+        emit_mov_reg_mem(mod, ECX, ESP, 8);
+        emit_atomic_exchange_width(mod, EAX, ECX, value_type);
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        emit_store_typed32(mod, ECX, 0, EAX, value_type);
+        emit_add_reg_imm(mod, ESP, 12);
+        return true;
+    }
+    if (strcmp(name, "__atomic_compare_exchange") == 0) {
+        gen_expr(mod, call_argument(call, 5));
+        gen_expr(mod, call_argument(call, 4));
+        gen_expr(mod, call_argument(call, 3));
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX);
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
+        emit_load_typed32(mod, EAX, ECX, 0, value_type);
+        emit_mov_reg_mem(mod, EDX, ESP, 0);
+        emit_load_typed32(mod, EDX, EDX, 0, value_type);
+        emit_mov_reg_mem(mod, ECX, ESP, 8);
+        emit_atomic_cmpxchg_width(mod, EDX, ECX, value_type);
+        emit_setcc(mod, CC_E, EDX);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, EDX, EDX));
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
+        emit_store_typed32(mod, ECX, 0, EAX, value_type);
+        emit_mov_reg_reg(mod, EAX, EDX);
+        emit_add_reg_imm(mod, ESP, 12);
+        return true;
+    }
     if (strcmp(name, "__atomic_load_n") == 0) {
         gen_expr(mod, call_argument(call, 1));
         gen_expr(mod, call_argument(call, 0));
