@@ -1,6 +1,7 @@
 static int verified_debug_static(int value)
 {
-    return value + 3;
+    int local = value + 3;
+    return local;
 }
 
 int verified_debug_entry(int value)

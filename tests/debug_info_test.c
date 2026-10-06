@@ -669,6 +669,8 @@ static void verify_verified_debug_object(const char* path,
     assert(find_function_die(info, strings, "verified_debug_entry",
                              architecture == ARCH_X64 ? 8u : 4u) !=
            UINT64_MAX);
+    assert(find_lexical_block_local(
+        info, strings, "local", architecture == ARCH_X64 ? 8u : 4u));
     objfile_free(object);
 }
 

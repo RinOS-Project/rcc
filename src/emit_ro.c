@@ -1604,18 +1604,22 @@ static void debug_emit_stmt_locals(
     if (!statement) return;
     switch (statement->kind) {
         case STMT_BLOCK:
-            if (!statement->block_no_scope) {
+            {
+                bool has_range = !statement->block_no_scope &&
+                    statement->debug_code_end > statement->debug_code_start;
+                if (has_range) {
                 debug_emit_lexical_block_die(
                     obj, info, files, file_count, mod, filename, info_section,
                     function, statement, architecture);
+                }
+                for (item = statement->block_stmts; item; item = item->next) {
+                    debug_emit_stmt_locals(
+                        obj, info, strings, types, files, file_count, mod,
+                        filename, info_section, function, item->stmt,
+                        architecture);
+                }
+                if (has_range) section_add_byte(info, 0u);
             }
-            for (item = statement->block_stmts; item; item = item->next) {
-                debug_emit_stmt_locals(
-                    obj, info, strings, types, files, file_count, mod,
-                    filename, info_section, function, item->stmt,
-                    architecture);
-            }
-            if (!statement->block_no_scope) section_add_byte(info, 0u);
             break;
         case STMT_IF:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,

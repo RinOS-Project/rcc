@@ -464,6 +464,18 @@ static void verified_add_function_debug_symbol(
     }
     debug_symbol->size = (uint32_t)object_symbol->size;
     module_set_symbol_source(debug_module, link_name, declaration->loc);
+    /* The verified encoder does not run the classic statement codegen pass,
+     * so its AST ranges are otherwise left at zero.  The function symbol is
+     * the exact text range produced by the verified encoder; expose that
+     * range as the function body's coarse lexical scope.  Nested statement
+     * ranges remain intentionally unset until MIR source locations exist. */
+    if (object_symbol->value <= UINT32_MAX &&
+        object_symbol->size <= UINT32_MAX - object_symbol->value) {
+        declaration->func_body->debug_code_start =
+            (uint32_t)object_symbol->value;
+        declaration->func_body->debug_code_end =
+            (uint32_t)(object_symbol->value + object_symbol->size);
+    }
     rcc_free(scoped_name);
 }
 
@@ -482,6 +494,7 @@ static void verified_emit_debug_sections(
     }
     debug_module = codegen_new();
     debug_module->debug_ast = (AST*)ast;
+    debug_module->debug_statement_ranges = true;
     if (text->size != 0u) emit_bytes(debug_module, text->data, text->size);
     for (int index = 0; index < data_module->symbol_count; ++index) {
         verified_copy_debug_symbol(debug_module, &data_module->symbols[index]);
