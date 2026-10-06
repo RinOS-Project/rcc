@@ -67,6 +67,7 @@ typedef struct RccIrLowerLoopFrame {
 typedef struct RccIrLowerSwitchLabel {
     const Stmt* statement;
     RccIrBlock* block;
+    RccIrBlock* dispatch_block;
     uint64_t case_bits;
     struct RccIrLowerSwitchLabel* next;
 } RccIrLowerSwitchLabel;
@@ -79,6 +80,7 @@ typedef struct RccIrLowerSwitch {
     RccIrLowerWideState* wide_baseline;
     RccIrLowerLoopEdge* wide_breaks;
     RccIrLowerLoopFrame* wide_loop_owner;
+    RccIrBlock* scan_block;
     bool wide_ssa;
     struct RccIrLowerSwitch* previous;
 } RccIrLowerSwitch;
@@ -1314,9 +1316,39 @@ static bool lower_wide_switch_case_terminates(const Stmt* statement) {
     }
 }
 
+static bool lower_wide_switch_case_linear(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (!lower_wide_switch_case_linear(item->stmt)) return false;
+            }
+            return true;
+        case STMT_BREAK:
+        case STMT_RETURN:
+            return true;
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_THROW:
+        case STMT_LABEL:
+        case STMT_SWITCH:
+        case STMT_CASE:
+        case STMT_DEFAULT:
+        case STMT_IF:
+        case STMT_WHILE:
+        case STMT_DO:
+        case STMT_FOR:
+            return false;
+        default:
+            return true;
+    }
+}
+
 static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
     const StmtList* item;
     bool found_default = false;
+    bool last_terminates = false;
     if (!statement || statement->kind != STMT_SWITCH ||
         !statement->switch_body ||
         statement->switch_body->kind != STMT_BLOCK) {
@@ -1329,13 +1361,16 @@ static bool lower_wide_switch_body_edge_safe(const Stmt* statement) {
             return false;
         }
         if (item->stmt->kind == STMT_DEFAULT) found_default = true;
-        if (!lower_wide_switch_case_terminates(
+        if (!lower_wide_switch_case_linear(
                 item->stmt->kind == STMT_CASE
                     ? item->stmt->case_stmt : item->stmt->default_stmt)) {
             return false;
         }
+        last_terminates = lower_wide_switch_case_terminates(
+            item->stmt->kind == STMT_CASE
+                ? item->stmt->case_stmt : item->stmt->default_stmt);
     }
-    return found_default;
+    return found_default && last_terminates;
 }
 
 static void lower_release_wide_loop_edges(RccIrLowerLoopEdge* edges) {
@@ -1530,6 +1565,52 @@ static bool lower_build_wide_exit_states(
         if (!low_phi || !high_phi) return false;
         initial->local->wide_ssa = true;
         initial->local->wide_ssa_block = exit_block;
+        initial->local->wide_value.low = lower_value(
+            low_phi->result, rcc_ir_type_integer(32u), true);
+        initial->local->wide_value.high = lower_value(
+            high_phi->result, rcc_ir_type_integer(32u), true);
+        initial->local->wide_value.is_unsigned = initial->value.is_unsigned;
+        initial->local->wide_value.valid = true;
+    }
+    return true;
+}
+
+static bool lower_merge_wide_switch_fallthrough(
+    RccIrLowerContext* context, RccIrLowerSwitch* switch_context,
+    RccIrLowerSwitchLabel* label, RccIrLowerWideState* incoming) {
+    if (!context || !switch_context || !switch_context->wide_baseline ||
+        !label || !label->dispatch_block || !incoming ||
+        !incoming->block || context->current != label->block ||
+        context->terminated) {
+        return false;
+    }
+    for (RccIrLowerWideState* initial = switch_context->wide_baseline;
+         initial; initial = initial->next) {
+        const RccIrLowerWideState* edge = lower_find_wide_state(
+            incoming, initial->local);
+        RccIrValue low_operands[2];
+        RccIrValue high_operands[2];
+        RccIrBlockId targets[2];
+        RccIrInstruction* low_phi;
+        RccIrInstruction* high_phi;
+        if (!edge || !edge->value.valid || !initial->value.valid) {
+            return false;
+        }
+        low_operands[0] = initial->value.low.value;
+        low_operands[1] = edge->value.low.value;
+        high_operands[0] = initial->value.high.value;
+        high_operands[1] = edge->value.high.value;
+        targets[0] = label->dispatch_block->id;
+        targets[1] = incoming->block->id;
+        low_phi = lower_append(
+            context, RCC_IR_PHI, rcc_ir_type_integer(32u),
+            low_operands, 2u, targets, 2u);
+        high_phi = lower_append(
+            context, RCC_IR_PHI, rcc_ir_type_integer(32u),
+            high_operands, 2u, targets, 2u);
+        if (!low_phi || !high_phi) return false;
+        initial->local->wide_ssa = true;
+        initial->local->wide_ssa_block = label->block;
         initial->local->wide_value.low = lower_value(
             low_phi->result, rcc_ir_type_integer(32u), true);
         initial->local->wide_value.high = lower_value(
@@ -6320,6 +6401,7 @@ static bool lower_switch_add_label(RccIrLowerContext* context,
     label->statement = statement;
     label->block = rcc_ir_block_add(
         context->function, is_default ? "switch.default" : "switch.case");
+    label->dispatch_block = NULL;
     label->case_bits = is_default ? 0u : lower_switch_case_bits(
         statement->case_val, switch_context->control_type, &valid);
     label->next = NULL;
@@ -6426,22 +6508,40 @@ static bool lower_switch_case(RccIrLowerContext* context,
                               const Stmt* statement) {
     RccIrLowerSwitchLabel* label = lower_find_switch_label(
         context ? context->current_switch : NULL, statement);
+    RccIrLowerWideState* fallthrough = NULL;
     const Stmt* child;
     if (!context || !label) {
         if (context) context->unsupported = true;
         return false;
     }
-    if (!context->terminated && context->current != label->block &&
-        !lower_branch(context, label->block->id)) {
-        return false;
+    if (!context->terminated && context->current != label->block) {
+        if (context->current_switch && context->current_switch->wide_ssa &&
+            context->current != context->current_switch->scan_block) {
+            fallthrough = lower_capture_wide_branch_states(
+                context, context->current_switch->wide_baseline);
+            if (!fallthrough) return false;
+        }
+        if (!lower_branch(context, label->block->id)) {
+            lower_release_wide_states(fallthrough);
+            return false;
+        }
     }
     context->current = label->block;
     context->terminated = false;
     if (context->current_switch && context->current_switch->wide_ssa) {
         lower_restore_wide_states(context->current_switch->wide_baseline);
-        lower_set_wide_state_block(
-            context->current_switch->wide_baseline, label->block);
+        if (fallthrough) {
+            if (!lower_merge_wide_switch_fallthrough(
+                    context, context->current_switch, label, fallthrough)) {
+                lower_release_wide_states(fallthrough);
+                return false;
+            }
+        } else {
+            lower_set_wide_state_block(
+                context->current_switch->wide_baseline, label->block);
+        }
     }
+    lower_release_wide_states(fallthrough);
     child = statement->kind == STMT_CASE
         ? statement->case_stmt : statement->default_stmt;
     return lower_statement(context, child);
@@ -6522,6 +6622,7 @@ static bool lower_switch(RccIrLowerContext* context,
             lower_release_switch_labels(&switch_context);
             return false;
         }
+        label->dispatch_block = context->current;
         compare_operands[0] = control.value;
         compare_operands[1] = case_value.value;
         compare = lower_append(context, RCC_IR_ICMP,
@@ -6534,6 +6635,10 @@ static bool lower_switch(RccIrLowerContext* context,
         rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
         condition = lower_value(compare->result,
                                 rcc_ir_type_integer(1u), true);
+        if (switch_context.default_label &&
+            miss_target == switch_context.default_label->block->id) {
+            switch_context.default_label->dispatch_block = context->current;
+        }
         if (!lower_conditional_branch(context, condition, label->block->id,
                                       miss_target)) {
             lower_release_switch_labels(&switch_context);
@@ -6547,6 +6652,9 @@ static bool lower_switch(RccIrLowerContext* context,
     if (!switch_context.labels) {
         RccIrBlockId target = switch_context.default_label
             ? switch_context.default_label->block->id : exit_block->id;
+        if (switch_context.default_label) {
+            switch_context.default_label->dispatch_block = context->current;
+        }
         if (!lower_branch(context, target)) {
             lower_release_switch_labels(&switch_context);
             return false;

@@ -339,6 +339,23 @@ unsigned long long verified_wide_scalar_switch_loop(
     return local;
 }
 
+unsigned long long verified_wide_scalar_switch_fallthrough(
+    unsigned long long value, unsigned int selector)
+{
+    unsigned long long local = value;
+    switch (selector) {
+        case 3u:
+            local += 1ULL;
+        case 2u:
+            local += 2ULL;
+            break;
+        default:
+            local += 4ULL;
+            break;
+    }
+    return local;
+}
+
 unsigned long long verified_wide_scalar_while_continue(
     unsigned long long value, unsigned int count)
 {
