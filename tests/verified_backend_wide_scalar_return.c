@@ -260,6 +260,21 @@ unsigned long long verified_wide_scalar_do_loop(
     return local;
 }
 
+unsigned long long verified_wide_scalar_nested_while(
+    unsigned long long value, unsigned int count)
+{
+    unsigned long long local = value;
+    while (count != 0u) {
+        unsigned int inner = 2u;
+        while (inner != 0u) {
+            local += 1ULL;
+            --inner;
+        }
+        --count;
+    }
+    return local;
+}
+
 unsigned long long verified_wide_scalar_while_continue(
     unsigned long long value, unsigned int count)
 {

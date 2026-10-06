@@ -190,6 +190,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* while_loop_symbol;
     ObjSymbol* for_loop_symbol;
     ObjSymbol* do_loop_symbol;
+    ObjSymbol* nested_while_symbol;
     ObjSymbol* while_continue_symbol;
     ObjSymbol* for_break_symbol;
     ObjSymbol* do_control_symbol;
@@ -272,6 +273,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_for_loop");
     do_loop_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_do_loop");
+    nested_while_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_nested_while");
     while_continue_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_while_continue");
     for_break_symbol = objfile_find_symbol(
@@ -416,6 +419,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            do_loop_symbol->type == SYM_GLOBAL &&
            do_loop_symbol->binding == BIND_CODE &&
            do_loop_symbol->section == 0);
+    assert(nested_while_symbol != NULL &&
+           nested_while_symbol->type == SYM_GLOBAL &&
+           nested_while_symbol->binding == BIND_CODE &&
+           nested_while_symbol->section == 0);
     assert(while_continue_symbol != NULL &&
            while_continue_symbol->type == SYM_GLOBAL &&
            while_continue_symbol->binding == BIND_CODE &&
@@ -484,6 +491,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*for_loop_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*do_loop_function)(
+            unsigned long long, unsigned int);
+        unsigned long long RINOS_ABI (*nested_while_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*while_continue_function)(
             unsigned long long, unsigned int);
@@ -677,6 +686,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&do_loop_function, &address, sizeof(do_loop_function));
         assert(do_loop_function(0x0000000200000002ULL, 3u) ==
                0x0000000500000005ULL);
+        address = symbol_address(memory, nested_while_symbol);
+        memcpy(&nested_while_function, &address,
+               sizeof(nested_while_function));
+        assert(nested_while_function(0x0000000200000002ULL, 3u) ==
+               0x0000000200000008ULL);
         address = symbol_address(memory, while_continue_symbol);
         memcpy(&while_continue_function, &address,
                sizeof(while_continue_function));

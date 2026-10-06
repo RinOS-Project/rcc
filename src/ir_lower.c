@@ -1259,13 +1259,20 @@ static bool lower_wide_loop_body_edge_safe(const Stmt* statement) {
         case STMT_RETURN:
             /* A return exits the function and does not add a loop edge. */
             return true;
+        case STMT_WHILE:
+        case STMT_DO:
+            /* Nested canonical loops re-enter the same pair-SSA state
+             * machine.  Their break/continue edges are owned by the nested
+             * frame; labels, switches, and arbitrary gotos remain outside
+             * this validated boundary below. */
+            return lower_wide_loop_body_edge_safe(statement->while_body);
+        case STMT_FOR:
+            return lower_wide_loop_body_edge_safe(statement->for_init) &&
+                lower_wide_loop_body_edge_safe(statement->for_body);
         case STMT_GOTO:
         case STMT_THROW:
         case STMT_LABEL:
         case STMT_SWITCH:
-        case STMT_WHILE:
-        case STMT_DO:
-        case STMT_FOR:
         case STMT_CASE:
         case STMT_DEFAULT:
             return false;
