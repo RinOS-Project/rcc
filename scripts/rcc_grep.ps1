@@ -1,17 +1,26 @@
 param(
+    [Alias('F')]
+    [switch] $Fixed,
+    [Alias('q')]
+    [switch] $Quiet,
+    [Alias('x')]
+    [switch] $WholeLine,
+    [Alias('c')]
+    [switch] $Count,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]] $Arguments
 )
 
-$fixed = $false
-$quiet = $false
-$wholeLine = $false
-$count = $false
+$fixed = $Fixed.IsPresent
+$quiet = $Quiet.IsPresent
+$wholeLine = $WholeLine.IsPresent
+$count = $Count.IsPresent
 $pattern = $null
 $paths = @()
 
 foreach ($argument in $Arguments) {
     if ($null -eq $argument) { continue }
+    if ($argument -eq '--') { continue }
     if ($argument -eq '-F') { $fixed = $true; continue }
     if ($argument -eq '-q') { $quiet = $true; continue }
     if ($argument -eq '-x') { $wholeLine = $true; continue }

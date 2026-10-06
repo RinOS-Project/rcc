@@ -4812,10 +4812,10 @@ else
 	test -f $(TEST_OUT)/multiple-inputs/cxx/second.ro
 endif
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/multiple-inputs/one.ro $(TEST_OUT)/multiple-inputs/c/first.c $(TEST_OUT)/multiple-inputs/c/second.c,$(TEST_OUT)/multiple-inputs/invalid-o-c.log)
-	$(GREP) -F -q -- "-o cannot name one output for multiple input files" \
+	$(GREP) -q "[-]o cannot name one output for multiple input files" \
 		$(TEST_OUT)/multiple-inputs/invalid-o-c.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/multiple-inputs/one-cxx.ro $(TEST_OUT)/multiple-inputs/cxx/first.cpp $(TEST_OUT)/multiple-inputs/cxx/second.cpp,$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log)
-	$(GREP) -F -q -- "-o cannot name one output for multiple input files" \
+	$(GREP) -q "[-]o cannot name one output for multiple input files" \
 		$(TEST_OUT)/multiple-inputs/invalid-o-cxx.log
 	@echo "RCC/RCC++ multiple-input compilation tests completed"
 
