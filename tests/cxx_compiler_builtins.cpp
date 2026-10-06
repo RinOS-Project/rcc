@@ -10,6 +10,16 @@ extern "C" int cxx_builtin_choose_expr(void) {
     return __builtin_choose_expr(0, 17, 43);
 }
 
+extern "C" int cxx_builtin_types_compatible(void) {
+    using unsigned_alias = unsigned int;
+    if (!__builtin_types_compatible_p(int, int)) return 1;
+    if (!__builtin_types_compatible_p(unsigned_alias, unsigned int)) return 2;
+    if (!__builtin_types_compatible_p(int *, int *)) return 3;
+    if (__builtin_types_compatible_p(int, unsigned int)) return 4;
+    if (__builtin_types_compatible_p(int *, const int *)) return 5;
+    return 0;
+}
+
 extern "C" int cxx_builtin_expect_probability(int value) {
     return __builtin_expect_with_probability(value, 1, 0.75);
 }
@@ -93,16 +103,17 @@ extern "C" int cxx_builtin_overflow(void) {
 extern "C" int main(void) {
     if (cxx_builtin_expect(31) != 31) return 1;
     if (cxx_builtin_choose_expr() != 43) return 2;
-    if (cxx_builtin_expect_probability(31) != 31) return 3;
-    if (cxx_builtin_unreachable_guard(1) != 19) return 4;
-    if (cxx_builtin_trap_guard(1) != 23) return 5;
+    if (cxx_builtin_types_compatible() != 0) return 3;
+    if (cxx_builtin_expect_probability(31) != 31) return 4;
+    if (cxx_builtin_unreachable_guard(1) != 19) return 5;
+    if (cxx_builtin_trap_guard(1) != 23) return 6;
     int value = 37;
-    if (cxx_scalar_builtins(&value) != 37) return 6;
-    if (cxx_builtin_object_size() != 0) return 7;
-    if (cxx_builtin_overflow() != 0) return 8;
+    if (cxx_scalar_builtins(&value) != 37) return 7;
+    if (cxx_builtin_object_size() != 0) return 8;
+    if (cxx_builtin_overflow() != 0) return 9;
     {
         const char value[] = "RinOS";
-        if (cxx_builtin_strlen_pointer(value + 1) != 4) return 9;
+        if (cxx_builtin_strlen_pointer(value + 1) != 4) return 10;
     }
     return 0;
 }

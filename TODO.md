@@ -139,6 +139,10 @@
         only the selected expression so the unselected branch has no runtime
         side effects; cover legacy and verified typed-SSA C17/C++20 i686/AMD64
         emission, execution, and invalid-condition and arity diagnostics.
+  - [x] Parse GCC-compatible `__builtin_types_compatible_p` type-name operands
+        and fold typedef, pointer, nested-qualifier, and signedness comparisons
+        to a target-independent integer constant with explicit non-type
+        diagnostics; cover C17/C++20 i686/AMD64 compilation and execution.
   - [x] `_Generic`のcompatible type選択、default、非評価control
   - [x] 8/16/32-bit整数atomic load/store/exchange/CAS/fetch add/sub/bitwiseとfull fenceの両arch codegen
   - [x] GCC互換のgeneric `__atomic_load`／`__atomic_store`／

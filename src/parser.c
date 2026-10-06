@@ -1060,6 +1060,73 @@ static Expr* parse_builtin_offsetof(SourceLoc loc) {
     return result;
 }
 
+static bool parser_builtin_types_compatible(Type* left, Type* right,
+                                            bool top_level) {
+    TypeParam* left_param;
+    TypeParam* right_param;
+
+    if (!left || !right || !type_is_compatible(left, right)) return false;
+    if (left->is_atomic != right->is_atomic) return false;
+    if (!top_level &&
+        (left->is_const != right->is_const ||
+         left->is_volatile != right->is_volatile ||
+         left->is_restrict != right->is_restrict)) {
+        return false;
+    }
+    if (left->kind == TYPE_PTR || left->kind == TYPE_ARRAY ||
+        left->kind == TYPE_VECTOR) {
+        return parser_builtin_types_compatible(left->base, right->base, false);
+    }
+    if (left->kind != TYPE_FUNC) return true;
+    if (!left->has_prototype || !right->has_prototype) return true;
+    if (!parser_builtin_types_compatible(left->ret_type, right->ret_type,
+                                         true)) {
+        return false;
+    }
+    left_param = left->params;
+    right_param = right->params;
+    while (left_param && right_param) {
+        if (!parser_builtin_types_compatible(left_param->type,
+                                             right_param->type, true)) {
+            return false;
+        }
+        left_param = left_param->next;
+        right_param = right_param->next;
+    }
+    return left_param == NULL && right_param == NULL;
+}
+
+static Expr* parse_builtin_types_compatible(SourceLoc loc) {
+    Type* left = NULL;
+    Type* right = NULL;
+    Expr* result;
+
+    advance(); /* __builtin_types_compatible_p */
+    expect(TOK_LPAREN, "(");
+    if (!is_type_start()) {
+        rcc_error(peek()->loc,
+                  "__builtin_types_compatible_p requires a type name");
+    } else {
+        left = parse_type_spec();
+        left = parse_declarator(left, NULL, NULL);
+    }
+    expect(TOK_COMMA, ",");
+    if (!is_type_start()) {
+        rcc_error(peek()->loc,
+                  "__builtin_types_compatible_p requires a type name");
+    } else {
+        right = parse_type_spec();
+        right = parse_declarator(right, NULL, NULL);
+    }
+    expect(TOK_RPAREN, ")");
+    result = expr_int(left && right &&
+                          parser_builtin_types_compatible(left, right, true)
+                          ? 1 : 0,
+                      loc);
+    result->type = type_int;
+    return result;
+}
+
 static bool parser_builtin_name(const char* name) {
     return check(TOK_IDENT) &&
            strcmp(peek()->value.str_val, name) == 0;
@@ -1362,6 +1429,10 @@ static Expr* parse_primary(void) {
     if (check(TOK_IDENT) &&
         strcmp(peek()->value.str_val, "__builtin_offsetof") == 0) {
         return parse_builtin_offsetof(loc);
+    }
+    if (check(TOK_IDENT) &&
+        strcmp(peek()->value.str_val, "__builtin_types_compatible_p") == 0) {
+        return parse_builtin_types_compatible(loc);
     }
     if (parser_builtin_name("__builtin_va_start") ||
         parser_builtin_name("__builtin_va_end") ||

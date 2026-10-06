@@ -10,6 +10,16 @@ int builtin_choose_expr(void) {
     return __builtin_choose_expr(1, 41, 99);
 }
 
+int builtin_types_compatible(void) {
+    typedef unsigned int unsigned_alias;
+    if (!__builtin_types_compatible_p(int, int)) return 1;
+    if (!__builtin_types_compatible_p(unsigned_alias, unsigned int)) return 2;
+    if (!__builtin_types_compatible_p(int*, int*)) return 3;
+    if (__builtin_types_compatible_p(int, unsigned int)) return 4;
+    if (__builtin_types_compatible_p(int*, const int*)) return 5;
+    return 0;
+}
+
 int builtin_expect_probability(int value) {
     return __builtin_expect_with_probability(value, 1, 0.75);
 }
@@ -169,12 +179,13 @@ int builtin_overflow_checks(void) {
 int main(void) {
     if (builtin_expect_int(23) != 23) return 1;
     if (builtin_choose_expr() != 41) return 2;
-    if (builtin_expect_probability(23) != 23) return 3;
-    if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 4;
-    if (builtin_unreachable_guard(1) != 17) return 5;
-    if (builtin_trap_guard(1) != 29) return 6;
-    if (builtin_bswap16(0x1234u) != 0x3412u) return 6;
-    if (builtin_bswap32(0x12345678u) != 0x78563412u) return 7;
+    if (builtin_types_compatible() != 0) return 3;
+    if (builtin_expect_probability(23) != 23) return 4;
+    if (builtin_expect_wide(0x100000005LL) != 0x100000005LL) return 5;
+    if (builtin_unreachable_guard(1) != 17) return 6;
+    if (builtin_trap_guard(1) != 29) return 7;
+    if (builtin_bswap16(0x1234u) != 0x3412u) return 8;
+    if (builtin_bswap32(0x12345678u) != 0x78563412u) return 9;
     if (builtin_bswap64(0x0102030405060708ULL) !=
         0x0807060504030201ULL) return 8;
     {

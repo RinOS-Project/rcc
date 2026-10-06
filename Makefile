@@ -8709,6 +8709,9 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_clrsb expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-types-x86.ro tests/invalid_types_compatible.c,$(TEST_OUT)/compiler-builtins/invalid-types-x86.log)
+	$(GREP) -F -q "__builtin_types_compatible_p requires a type name" \
+		$(TEST_OUT)/compiler-builtins/invalid-types-x86.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x86.log
 	$(GREP) -F -q "__builtin_constant_p expects 1 argument, got 2" \
@@ -8744,6 +8747,9 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_clrsb expects an integer argument no wider than 4 bytes" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/compiler-builtins/invalid-types-x64.ro tests/invalid_types_compatible.c,$(TEST_OUT)/compiler-builtins/invalid-types-x64.log)
+	$(GREP) -F -q "__builtin_types_compatible_p requires a type name" \
+		$(TEST_OUT)/compiler-builtins/invalid-types-x64.log
 	$(GREP) -F -q "__builtin_prefetch rw argument must be 0 or 1" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	$(GREP) -F -q "__builtin_constant_p expects 1 argument, got 2" \
