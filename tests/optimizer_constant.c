@@ -331,6 +331,17 @@ int* preserved_pointer_compound_side_effect_call(int* value, int* offset)
     return inline_pointer_compound_offset(value, (*offset)++);
 }
 
+static int* inline_pointer_compound_subtract(int* value, int offset)
+{
+    value -= offset;
+    return value;
+}
+
+int* inlined_pointer_compound_subtract_call(int* value, int offset)
+{
+    return inline_pointer_compound_subtract(value, offset);
+}
+
 static float inline_float_increment_mutations(float value)
 {
     float adjusted = value;
