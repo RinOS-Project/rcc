@@ -2267,8 +2267,51 @@ static void verify_wide_variadic_call_object(const char* path, uint16_t arch)
     objfile_free(object);
 }
 
+static void verify_optimized_switch_loop_labels(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* while_symbol;
+    ObjSymbol* do_symbol;
+    ObjSymbol* for_symbol;
+    int RINOS_ABI (*while_function)(int);
+    int RINOS_ABI (*do_function)(int);
+    int RINOS_ABI (*for_function)(int);
+    size_t mapping_size;
+    void* memory;
+    void* address;
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    while_symbol = objfile_find_symbol(
+        object, "verified_switch_while_case");
+    do_symbol = objfile_find_symbol(object, "verified_switch_do_case");
+    for_symbol = objfile_find_symbol(object, "verified_switch_for_case");
+    assert(text != NULL && while_symbol != NULL &&
+           while_symbol->type == SYM_GLOBAL && while_symbol->section == 0 &&
+           do_symbol != NULL && do_symbol->type == SYM_GLOBAL &&
+           do_symbol->section == 0 && for_symbol != NULL &&
+           for_symbol->type == SYM_GLOBAL && for_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, while_symbol);
+    memcpy(&while_function, &address, sizeof(while_function));
+    address = symbol_address(memory, do_symbol);
+    memcpy(&do_function, &address, sizeof(do_function));
+    address = symbol_address(memory, for_symbol);
+    memcpy(&for_function, &address, sizeof(for_function));
+    assert(while_function(1) == 3 && while_function(7) == 0);
+    assert(do_function(1) == 3 && do_function(7) == 0);
+    assert(for_function(1) == 3 && for_function(7) == 0);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
+    if (argc == 3 && strcmp(argv[1], "--switch-loop-labels") == 0) {
+        verify_optimized_switch_loop_labels(argv[2]);
+        puts("Verified optimized switch loop-label execution passed");
+        return 0;
+    }
     assert(argc == 6 || argc == 8 || argc == 10 || argc == 12 ||
            argc == 14 || argc == 16);
     verify_object(argv[1], ARCH_X86);
