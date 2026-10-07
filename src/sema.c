@@ -1840,6 +1840,33 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         return -1;
     }
     if (type_is_arithmetic(source) && type_is_arithmetic(target)) return 2;
+    if ((source->kind == TYPE_PTR && source->cxx_is_member_pointer) ||
+        (target->kind == TYPE_PTR && target->cxx_is_member_pointer)) {
+        if (source->kind == TYPE_NULLPTR && target->kind == TYPE_PTR &&
+            target->cxx_is_member_pointer) {
+            return 2;
+        }
+        if (source->kind != TYPE_PTR || target->kind != TYPE_PTR ||
+            !source->cxx_is_member_pointer ||
+            !target->cxx_is_member_pointer || !source->base ||
+            !target->base || source->base->kind == TYPE_FUNC ||
+            target->base->kind == TYPE_FUNC ||
+            !type_is_compatible(source->base, target->base) ||
+            !sema_pointee_qualification_preserved(source->base,
+                                                  target->base)) {
+            return -1;
+        }
+        if (type_is_compatible(source->cxx_member_pointer_owner,
+                               target->cxx_member_pointer_owner)) {
+            return 1;
+        }
+        return source->cxx_member_pointer_owner &&
+                       target->cxx_member_pointer_owner &&
+                       sema_cxx_nonvirtual_public_base_paths(
+                           target->cxx_member_pointer_owner,
+                           source->cxx_member_pointer_owner, NULL, 0u) == 1
+                   ? 2 : -1;
+    }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
         source_base = source->base;
         target_base = target->base;
@@ -2113,6 +2140,59 @@ reference_binding_validated:
             e->type = target;
             e->is_cxx_nullptr = true;
             return target;
+        }
+        if (e->type->kind == TYPE_PTR && e->type->cxx_is_member_pointer &&
+            target->kind == TYPE_PTR && target->cxx_is_member_pointer) {
+            Type* source_owner = e->type->cxx_member_pointer_owner;
+            Type* target_owner = target->cxx_member_pointer_owner;
+            int owner_adjustment = 0;
+            int paths = 0;
+            if (e->is_cxx_nullptr) {
+                e->type = target;
+                return target;
+            }
+            if (e->type->base && target->base &&
+                e->type->base->kind != TYPE_FUNC &&
+                target->base->kind != TYPE_FUNC &&
+                type_is_compatible(e->type->base, target->base) &&
+                sema_pointee_qualification_preserved(
+                    e->type->base, target->base) &&
+                source_owner && target_owner &&
+                !type_is_compatible(source_owner, target_owner)) {
+                paths = sema_cxx_nonvirtual_public_base_paths(
+                    target_owner, source_owner, &owner_adjustment, 0u);
+            }
+            if (paths == 1) {
+                int64_t total_adjustment = owner_adjustment;
+                if (e->cxx_member_pointer_adjustment_valid) {
+                    total_adjustment +=
+                        e->cxx_member_pointer_adjustment;
+                }
+                if (total_adjustment < INT32_MIN ||
+                    total_adjustment > INT32_MAX) {
+                    return NULL;
+                }
+                if (e->kind == EXPR_INT_LIT) {
+                    int64_t converted;
+                    if ((total_adjustment > 0 &&
+                         e->int_val > INT64_MAX - total_adjustment) ||
+                        (total_adjustment < 0 &&
+                         e->int_val < INT64_MIN - total_adjustment)) {
+                        return NULL;
+                    }
+                    converted = e->int_val + total_adjustment;
+                    e->type = target;
+                    e->int_val = converted;
+                    e->cxx_member_pointer_adjustment_valid = false;
+                    e->cxx_member_pointer_adjustment = 0;
+                } else {
+                    e->type = target;
+                    e->cxx_member_pointer_adjustment_valid = true;
+                    e->cxx_member_pointer_adjustment =
+                        (int32_t)total_adjustment;
+                }
+                return target;
+            }
         }
         if (e->type->kind == TYPE_PTR && target->kind == TYPE_PTR &&
             e->type->cxx_is_member_pointer &&
@@ -6636,6 +6716,13 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
         return false;
     }
     if (source->kind == TYPE_PTR) {
+        if (source->cxx_is_member_pointer !=
+            target->cxx_is_member_pointer) return false;
+        if (source->cxx_is_member_pointer &&
+            !type_is_compatible(source->cxx_member_pointer_owner,
+                                target->cxx_member_pointer_owner)) {
+            return false;
+        }
         return cxx_same_parameter_type(source->base, target->base, false);
     }
     if (source->kind == TYPE_ARRAY) {
@@ -6656,7 +6743,14 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     if (argument->type->kind == TYPE_NULLPTR) {
         if (target->kind == TYPE_NULLPTR) return 0;
         if (!target->is_reference && target->kind == TYPE_BOOL) return 1;
+        if (!target->is_reference && target->kind == TYPE_PTR &&
+            target->cxx_is_member_pointer) return 1;
         return !target->is_reference && type_is_pointer(target) ? 1 : -1;
+    }
+    if (!target->is_reference && target->kind == TYPE_PTR &&
+        target->cxx_is_member_pointer &&
+        sema_is_null_pointer_constant(argument)) {
+        return 2;
     }
     if (target->is_reference) {
         target_base = target->base;
@@ -6721,6 +6815,31 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         return -1;
     }
 
+    if ((source->kind == TYPE_PTR && source->cxx_is_member_pointer) ||
+        (target->kind == TYPE_PTR && target->cxx_is_member_pointer)) {
+        if (source->kind != TYPE_PTR || target->kind != TYPE_PTR ||
+            !source->cxx_is_member_pointer ||
+            !target->cxx_is_member_pointer || !source->base ||
+            !target->base || source->base->kind == TYPE_FUNC ||
+            target->base->kind == TYPE_FUNC ||
+            !type_is_compatible(source->base, target->base) ||
+            !sema_pointee_qualification_preserved(source->base,
+                                                  target->base)) {
+            return -1;
+        }
+        if (type_is_compatible(source->cxx_member_pointer_owner,
+                               target->cxx_member_pointer_owner)) {
+            return 1;
+        }
+        if (source->cxx_member_pointer_owner &&
+            target->cxx_member_pointer_owner &&
+            sema_cxx_nonvirtual_public_base_paths(
+                target->cxx_member_pointer_owner,
+                source->cxx_member_pointer_owner, NULL, 0u) == 1) {
+            return 2;
+        }
+        return -1;
+    }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
         source_base = source->base;
         target_base = target->base;

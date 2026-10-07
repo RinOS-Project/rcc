@@ -522,6 +522,10 @@ struct Expr {
      * pointer value. */
     bool cxx_pointer_adjustment_valid;
     int32_t cxx_pointer_adjustment;
+    /* Converting a data-member pointer from a base owner to a derived owner
+     * adds the base-subobject offset to the stored member displacement. */
+    bool cxx_member_pointer_adjustment_valid;
+    int32_t cxx_member_pointer_adjustment;
     /* A bounded dynamic_cast downcast carries the expected complete-object
      * vtable identity.  Code generation returns a null pointer when the
      * source subobject does not contain that exact table. */

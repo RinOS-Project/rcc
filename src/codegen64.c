@@ -7670,6 +7670,18 @@ static void codegen64_release_named_labels(void) {
 static void gen64_expr(Module* mod, Expr* expr) {
     if (!expr) return;
     gen64_expr_raw(mod, expr);
+    if (expr->cxx_member_pointer_adjustment_valid &&
+        expr->type && expr->type->kind == TYPE_PTR &&
+        expr->type->cxx_is_member_pointer) {
+        int done_label = new_label64();
+        emit64_compare_constant(mod, RAX, -1);
+        emit64_jcc_label(mod, CC64_E, done_label);
+        if (expr->cxx_member_pointer_adjustment != 0) {
+            emit64_add_reg_imm(mod, RAX,
+                               expr->cxx_member_pointer_adjustment);
+        }
+        emit64_label(mod, done_label);
+    }
     if (expr->cxx_virtual_base_adjustment &&
         !expr->cxx_virtual_base_member_access) {
         int end_label;
@@ -7724,7 +7736,9 @@ static void gen64_expr(Module* mod, Expr* expr) {
         emit64_label(mod, fail_label);
         emit64_xor_reg_reg(mod, RAX, RAX);
         emit64_label(mod, done_label);
-    } else if (expr->cxx_pointer_adjustment_valid &&
+    } else if (expr->kind != EXPR_CXX_MEMBER_PTR_DOT &&
+        expr->kind != EXPR_CXX_MEMBER_PTR_ARROW &&
+        expr->cxx_pointer_adjustment_valid &&
         expr->cxx_pointer_adjustment != 0) {
         if (expr->type && expr->type->kind == TYPE_PTR &&
             !expr->type->is_reference) {

@@ -370,15 +370,19 @@
   - [ ] Extend static-duration reference lifetime through
         pointer-to-member-selected subobjects. The source now supports direct
         public non-bit-field data-member pointers, lvalue/xvalue selection, and
-        one public non-virtual base path across both native backends and typed
-        IR. `nullptr`/integer-zero initialization, equality with null, and
-        static zero-initialization also use the member-pointer null sentinel.
-        These paths have not been regression-tested; the local fixture and
-        Makefile target remain untracked and unrun. Keep this open until
-        both-architecture generation, lifetime/destructor execution, and RinOS
-        integration are covered. Pointer-to-member functions, private access,
-        cross-owner conversions, ambiguous paths, and virtual-base member
-        pointers remain unsupported and must diagnose.
+        one public non-virtual base application path across both native backends
+        and typed IR. `nullptr`/integer-zero initialization, equality with null,
+        and static zero-initialization use the member-pointer null sentinel.
+        Base-owner data-member pointers also convert to a derived owner along one
+        public non-virtual path; constant and runtime offsets are adjusted while
+        preserving null. These paths have not been regression-tested; the local
+        fixture and Makefile target remain untracked and unrun. Keep this open
+        until both-architecture generation, lifetime/destructor execution, and
+        RinOS integration are covered.
+  - [ ] Complete remaining pointer-to-member conversions and contexts: function
+        member pointers/calls, private/protected access where permitted, explicit
+        owner conversions, ambiguous base paths, and virtual-base representation.
+        Member-function pointers and virtual-base forms still diagnose.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

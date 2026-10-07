@@ -13657,6 +13657,18 @@ static void gen_expr(Module* mod, Expr* expr) {
         return;
     }
     gen_expr_raw(mod, expr);
+    if (expr->cxx_member_pointer_adjustment_valid &&
+        expr->type && expr->type->kind == TYPE_PTR &&
+        expr->type->cxx_is_member_pointer) {
+        int done_label = new_label();
+        emit_cmp_reg_imm(mod, EAX, -1);
+        emit_jcc_label(mod, CC_E, done_label);
+        if (expr->cxx_member_pointer_adjustment != 0) {
+            emit_add_reg_imm(mod, EAX,
+                             expr->cxx_member_pointer_adjustment);
+        }
+        emit_label(mod, done_label);
+    }
     if (expr->cxx_virtual_base_adjustment &&
         !expr->cxx_virtual_base_member_access) {
         int end_label;
@@ -13711,7 +13723,9 @@ static void gen_expr(Module* mod, Expr* expr) {
         emit_label(mod, fail_label);
         emit_xor_reg_reg(mod, EAX, EAX);
         emit_label(mod, done_label);
-    } else if (expr->cxx_pointer_adjustment_valid &&
+    } else if (expr->kind != EXPR_CXX_MEMBER_PTR_DOT &&
+        expr->kind != EXPR_CXX_MEMBER_PTR_ARROW &&
+        expr->cxx_pointer_adjustment_valid &&
         expr->cxx_pointer_adjustment != 0) {
         if (expr->type && expr->type->kind == TYPE_PTR &&
             !expr->type->is_reference) {

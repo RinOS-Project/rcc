@@ -121,6 +121,8 @@ static bool lower_collect_labels(RccIrLowerContext* context,
                                  const Stmt* statement);
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
+static RccIrLowerValue lower_expression_impl(
+    RccIrLowerContext* context, const Expr* expression);
 static bool lower_i686_wide_scalar_type(const Type* type);
 static ExprKind lower_compound_binary_kind(ExprKind kind);
 static bool lower_wide_scalar_expression(
@@ -5799,8 +5801,8 @@ static bool lower_wide_scalar_call(
                                   expression->type->is_unsigned, result);
 }
 
-static RccIrLowerValue lower_expression(RccIrLowerContext* context,
-                                        const Expr* expression) {
+static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
+                                             const Expr* expression) {
     RccIrType type;
     RccIrLowerValue operand;
     RccIrLowerValue zero;
@@ -5819,6 +5821,15 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                 type.kind != RCC_IR_TYPE_INTEGER) {
                 context->unsupported = true;
                 return lower_invalid_value();
+            }
+            if (expression->is_cxx_nullptr && expression->type &&
+                expression->type->kind == TYPE_PTR &&
+                expression->type->cxx_is_member_pointer) {
+                uint64_t null_value = type.bit_width == 64u
+                    ? UINT64_MAX
+                    : (UINT64_C(1) << type.bit_width) - 1u;
+                return lower_integer_constant(context, type, true,
+                                              null_value);
             }
             return lower_integer_constant(context, type,
                                           expression->type->is_unsigned,
@@ -6424,6 +6435,61 @@ static bool lower_statement_has_goto_label(const Stmt* statement) {
         default:
             return false;
     }
+}
+
+static RccIrLowerValue lower_expression(RccIrLowerContext* context,
+                                        const Expr* expression) {
+    RccIrLowerValue value = lower_expression_impl(context, expression);
+    RccIrLowerValue null_value;
+    RccIrLowerValue condition;
+    RccIrLowerValue adjustment;
+    RccIrLowerValue adjusted;
+    RccIrValue operands[3];
+    RccIrInstruction* instruction;
+    bool volatile_access = value.volatile_access;
+    if (!value.valid || !expression ||
+        !expression->cxx_member_pointer_adjustment_valid) {
+        return value;
+    }
+    if (!expression->type || expression->type->kind != TYPE_PTR ||
+        !expression->type->cxx_is_member_pointer ||
+        value.type.kind != RCC_IR_TYPE_INTEGER ||
+        (value.type.bit_width != 32u && value.type.bit_width != 64u)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    null_value = lower_integer_constant(
+        context, value.type, true,
+        value.type.bit_width == 64u ? UINT64_MAX : UINT32_MAX);
+    if (!null_value.valid) return lower_invalid_value();
+    operands[0] = value.value;
+    operands[1] = null_value.value;
+    instruction = lower_append(context, RCC_IR_ICMP,
+                               rcc_ir_type_integer(1u), operands, 2u,
+                               NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    rcc_ir_set_predicate(instruction, RCC_IR_ICMP_NE);
+    condition = lower_value(instruction->result,
+                            rcc_ir_type_integer(1u), true);
+    adjustment = lower_integer_constant(
+        context, value.type, true,
+        (uint64_t)(int64_t)expression->cxx_member_pointer_adjustment);
+    if (!adjustment.valid) return lower_invalid_value();
+    operands[0] = value.value;
+    operands[1] = adjustment.value;
+    instruction = lower_append(context, RCC_IR_ADD, value.type,
+                               operands, 2u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    adjusted = lower_value(instruction->result, value.type, true);
+    operands[0] = condition.value;
+    operands[1] = adjusted.value;
+    operands[2] = value.value;
+    instruction = lower_append(context, RCC_IR_SELECT, value.type,
+                               operands, 3u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    value = lower_value(instruction->result, value.type, true);
+    value.volatile_access = volatile_access;
+    return value;
 }
 
 static bool lower_statement_has_switch_label(const Stmt* statement) {
