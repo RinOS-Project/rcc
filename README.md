@@ -261,10 +261,12 @@ sources, and explicit non-virtual/virtual base xvalue bindings, including
 exactly-once destruction order. A bounded direct public data-member pointer
 path now parses `T C::*`, `&C::member`, `object.*member`, and
 `pointer->*member` and reaches both native backends and typed IR. Owner
-conversions cover one public non-virtual base path, including explicit
-`static_cast` in both directions with null-preserving runtime and constant
-adjustment. `build-rcc` succeeds; a local regression fixture and Makefile
-target are present in the working tree but remain untracked and unrun.
+conversions and object application follow one unique public non-virtual path,
+even when the class also has unrelated virtual bases. `nullptr`/zero
+initialization and null comparison use the all-ones sentinel. Explicit
+`static_cast` owner conversion works in both directions with null-preserving
+runtime and constant adjustment. `build-rcc` succeeds; a local regression
+fixture and Makefile target remain untracked and unrun.
 Pointer-to-member-selected static reference lifetime remains open, as do
 thread-local temporaries and the broader member-pointer ABI cases in
 [`TODO.md`](TODO.md).

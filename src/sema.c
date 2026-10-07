@@ -431,7 +431,10 @@ static int sema_cxx_nonvirtual_public_base_paths(Type* derived, Type* target,
         return 1;
     }
     cls = derived->cxx_class;
-    if (!cls || cls->virtual_base_count > 0 || !cls->base_offsets) return 0;
+    if (!cls || !cls->base_offsets) return 0;
+    /* A class can own unrelated virtual bases while this selected route uses
+     * only fixed non-virtual edges.  Their virtual layout does not change the
+     * byte offset of a non-virtual base subobject. */
     for (int index = 0; index < cls->base_count; ++index) {
         Type* base_type = cls->bases[index].base
             ? cls->bases[index].base->type : NULL;

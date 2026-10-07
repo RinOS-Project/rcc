@@ -372,9 +372,10 @@
         member pointers support `.*`/`->*`, lvalue/xvalue selection, member
         assignment, floating-member loads, null/member-pointer comparisons,
         and null initialization. Unique public non-virtual base application,
-        base-owner-to-derived implicit conversion, and explicit `static_cast`
-        owner conversion in either direction are wired through native and
-        typed-IR lowering; null is preserved. `build-rcc` succeeds, but the
+        including a class with unrelated virtual bases, base-owner-to-derived
+        implicit conversion, and explicit `static_cast` owner conversion in
+        either direction are wired through native and typed-IR lowering; null
+        is preserved. `build-rcc` succeeds, but the
         member-pointer fixture is still unrun. Keep this open until regression
         execution proves the static-reference lifetime and destruction order,
         both target backends and typed IR, and RinOS runtime integration.
