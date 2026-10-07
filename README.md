@@ -246,11 +246,13 @@ use caller-frame temporary storage and cleanup on both target backends.
 `test-cxx-function-template-references` covers lvalue-reference,
 rvalue-reference, and class-prvalue conversion results, reference arguments,
 derived-to-base adjustment, cleanup order, and prvalue receiver materialization.
-Namespace and block-static reference-bound temporary initialization and
-destructor registration are implemented on both target backends, but this
-change has not been built or run. The implementation also emits guard-abort
-cleanup for exceptions during block-static initialization; exception-retry
-execution and RinOS runtime integration remain unverified.
+`test-cxx-static-reference-temporaries` covers namespace and block-static
+reference-bound scalar and class temporaries, guarded initialization, and
+destructor registration on both target backends. Its i686 PE object-generation
+and x64 host execution passed with one-time initialization and reverse-order,
+exactly-once class destruction checks. The implementation also emits guard-
+abort cleanup for exceptions during block-static initialization; exception
+retry execution and RinOS runtime integration remain unverified.
 Thread-local reference temporaries, converted class xvalues, and static
 class-subobject lifetime remain open in [`TODO.md`](TODO.md).
 

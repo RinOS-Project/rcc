@@ -426,6 +426,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-raw-strings test-cxx-alternative-tokens \
 	test-cxx20-unsupported-boundaries
 .PHONY: test-debug-info
+.PHONY: test-cxx-static-reference-temporaries \
+	test-cxx-static-reference-temporaries-posix
 .PHONY: test-verified-volatile
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
@@ -498,6 +500,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-variable-templates \
 	test-cxx-function-template-overloads \
 	test-cxx-function-template-references \
+	test-cxx-static-reference-temporaries \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
 	test-cxx-class-template-specialization-ambiguous \
@@ -2507,6 +2510,29 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-references/invalid.log
 	@echo "RCC++ function-template reference and function-pointer deduction tests completed"
 
+test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-temporaries)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s \
+		tests/cxx_static_reference_temporaries.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
+		> $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-temporaries/x64.s \
+		tests/cxx_static_reference_temporaries.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.o \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host \
+		tests/cxx_static_reference_host.c \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
+	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
+
 test-cxx-constraints-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -2658,6 +2684,18 @@ test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/invalid.ro tests/cxx_function_template_references_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/invalid.log)
 	$(GREP) -F -q "no matching function template overload for 'read_rvalue'" $(TEST_OUT)/cxx-function-template-references/invalid.log
 
+test-cxx-static-reference-temporaries: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-temporaries)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s tests/cxx_static_reference_temporaries.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o > $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.s tests/cxx_static_reference_temporaries.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.o $(TEST_OUT)/cxx-static-reference-temporaries/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-temporaries/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-temporaries/x64.o
+	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
+
 test-cxx-constraints: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constraints,cxx_constraints.cpp)
@@ -2685,6 +2723,7 @@ else
 test-cxx-variable-templates: test-cxx-variable-templates-posix
 test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
 test-cxx-function-template-references: test-cxx-function-template-references-posix
+test-cxx-static-reference-temporaries: test-cxx-static-reference-temporaries-posix
 test-cxx-constraints: test-cxx-constraints-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix

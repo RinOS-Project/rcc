@@ -342,9 +342,11 @@
         The implementation covers scalar and aggregate temporaries on i686 and
         AMD64, uses guarded initialization for block statics, registers
         nontrivial cleanup with `__cxa_atexit`, and emits guard-abort cleanup
-        for exceptions in a protected scope. This implementation has not been
-        built or run; exception retry execution and RinOS runtime integration
-        remain unverified.
+        for exceptions in a protected scope. The dedicated regression passed
+        i686 PE object generation and x64 host execution, checking scalar
+        initialization exactly once and reverse-order exactly-once class
+        destruction. `test-cxx` also passed. Exception retry execution and
+        RinOS runtime integration remain unverified.
   - [ ] Execute a throwing block-static reference initializer, catch the
         exception, and verify `__cxa_guard_abort` permits a later successful
         initialization and exactly-once cleanup.
