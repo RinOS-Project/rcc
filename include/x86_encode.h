@@ -44,6 +44,14 @@ typedef struct {
 } RccX86CodeEpilogue;
 
 typedef struct {
+    RccX86HardwareGpr gpr;
+    /* Bytes below the frame pointer where the incoming value is saved. */
+    uint32_t frame_offset;
+    /* First PC after the store that makes the saved-value rule valid. */
+    uint32_t save_pc;
+} RccX86CodeCalleeSave;
+
+typedef struct {
     RccX86Target target;
     uint8_t* code;
     size_t code_size;
@@ -57,6 +65,8 @@ typedef struct {
     size_t local_location_count;
     RccX86CodeEpilogue* epilogues;
     size_t epilogue_count;
+    RccX86CodeCalleeSave* callee_saves;
+    size_t callee_save_count;
 } RccX86EncodedFunction;
 
 bool rcc_x86_encode_function(

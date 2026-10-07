@@ -79,6 +79,12 @@ typedef struct ModuleDebugFrameEpilogue {
     uint32_t resume_pc;
 } ModuleDebugFrameEpilogue;
 
+typedef struct ModuleDebugFrameSave {
+    uint32_t save_pc;
+    uint32_t frame_offset;
+    uint8_t dwarf_register;
+} ModuleDebugFrameSave;
+
 /* Module relocation entry (for object files) */
 typedef struct ModuleReloc {
     ModuleSymbolSection source_section;
@@ -147,6 +153,10 @@ typedef struct Module {
     ModuleDebugFrameEpilogue* debug_frame_epilogues;
     size_t debug_frame_epilogue_count;
     size_t debug_frame_epilogue_capacity;
+    /* Verified-backend callee-saved GPR values stored relative to FP. */
+    ModuleDebugFrameSave* debug_frame_saves;
+    size_t debug_frame_save_count;
+    size_t debug_frame_save_capacity;
 
     /* Relocation table for object files */
     ModuleReloc* relocs_arr;
@@ -209,6 +219,9 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
 void module_set_symbol_size(Module* mod, const char* name, uint32_t size);
 void module_add_debug_frame_epilogue(Module* mod, uint32_t return_pc,
                                      uint32_t resume_pc);
+void module_add_debug_frame_save(Module* mod, uint32_t save_pc,
+                                 uint8_t dwarf_register,
+                                 uint32_t frame_offset);
 void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc);
 void module_mark_symbol_weak(Module* mod, const char* name);
 void module_mark_symbol_weak_any(Module* mod, const char* name);

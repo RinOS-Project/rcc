@@ -623,6 +623,11 @@
   - [x] legacy i686/AMD64 codegenで命令を出したstatementの開始offsetを
         source line rowへ対応付け、代入・分岐・returnの`.debug_line`行を
         objectからデコードして両archで検証
+  - [x] verified encoderからcallee-saved GPR・実FP相対保存slot・保存完了PCを
+        `.debug_frame`まで伝搬し、保存命令完了後だけ`DW_CFA_offset`を有効化。
+        CIEにABI-preserved GPRの`DW_CFA_same_value`を定義し、`leave`後は
+        CIE ruleへ戻す。non-terminal return後はstack-slot ruleを再適用。
+        live-across-call回帰でi686/AMD64のO0/O2 CIE/FDEをdecodeして検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

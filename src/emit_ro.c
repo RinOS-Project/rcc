@@ -3454,6 +3454,46 @@ static void debug_frame_advance(ObjSection* section, uint64_t delta) {
     }
 }
 
+static void debug_frame_emit_saved_offsets(
+    ObjSection* frame, const Module* mod, const ModuleSymbol* function,
+    uint64_t function_end, uint64_t through_pc, uint32_t pointer_size) {
+    for (size_t index = 0u; index < mod->debug_frame_save_count; ++index) {
+        const ModuleDebugFrameSave* save = &mod->debug_frame_saves[index];
+        uint64_t cfa_offset;
+        if (save->save_pc < function->offset ||
+            save->save_pc >= function_end || save->save_pc > through_pc) {
+            continue;
+        }
+        if (save->dwarf_register > 63u ||
+            save->frame_offset > UINT32_MAX - 2u * pointer_size) {
+            rcc_fatal("DWARF saved-register location is invalid");
+            return;
+        }
+        cfa_offset = (uint64_t)save->frame_offset + 2u * pointer_size;
+        if (cfa_offset % pointer_size != 0u) {
+            rcc_fatal("DWARF saved-register offset is not pointer aligned");
+            return;
+        }
+        section_add_byte(frame, (uint8_t)(0x80u + save->dwarf_register));
+        debug_line_uleb(frame, cfa_offset / pointer_size);
+    }
+}
+
+static void debug_frame_emit_saved_restores(
+    ObjSection* frame, const Module* mod, const ModuleSymbol* function,
+    uint64_t function_end) {
+    for (size_t index = 0u; index < mod->debug_frame_save_count; ++index) {
+        const ModuleDebugFrameSave* save = &mod->debug_frame_saves[index];
+        if (save->save_pc < function->offset ||
+            save->save_pc >= function_end) continue;
+        if (save->dwarf_register > 63u) {
+            rcc_fatal("DWARF restored-register number is invalid");
+            return;
+        }
+        section_add_byte(frame, (uint8_t)(0xc0u + save->dwarf_register));
+    }
+}
+
 typedef enum DebugFramePrologueKind {
     DEBUG_FRAME_PROLOGUE_NONE = 0,
     DEBUG_FRAME_PROLOGUE_STANDARD,
@@ -3553,6 +3593,23 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
     debug_line_uleb(frame, pointer_size);
     section_add_byte(frame, (uint8_t)(0x80u + return_register));
     debug_line_uleb(frame, 1u);
+    if (g_opts.target_arch == ARCH_X64) {
+        static const uint8_t preserved_registers[] = {
+            3u, 6u, 12u, 13u, 14u, 15u
+        };
+        for (size_t index = 0u;
+             index < sizeof(preserved_registers); ++index) {
+            section_add_byte(frame, 0x08u); /* DW_CFA_same_value */
+            debug_line_uleb(frame, preserved_registers[index]);
+        }
+    } else {
+        static const uint8_t preserved_registers[] = {3u, 5u, 6u, 7u};
+        for (size_t index = 0u;
+             index < sizeof(preserved_registers); ++index) {
+            section_add_byte(frame, 0x08u); /* DW_CFA_same_value */
+            debug_line_uleb(frame, preserved_registers[index]);
+        }
+    }
     if (frame->size - cie_offset - 4u > UINT32_MAX) {
         rcc_fatal("DWARF CIE is too large");
     }
@@ -3621,6 +3678,26 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
         debug_line_uleb(frame, frame_register);
         current_pc = prologue_after_fp;
+        for (size_t save_index = 0u;
+             save_index < mod->debug_frame_save_count; ++save_index) {
+            const ModuleDebugFrameSave* save =
+                &mod->debug_frame_saves[save_index];
+            uint64_t relative_save_pc;
+            if (save->save_pc < function->offset ||
+                save->save_pc >= function_end) continue;
+            relative_save_pc = save->save_pc - function->offset;
+            if (relative_save_pc < current_pc ||
+                relative_save_pc >= function_size) {
+                rcc_fatal("DWARF saved-register PC is outside function '%s'",
+                          function->name ? function->name : "<unnamed>");
+                continue;
+            }
+            debug_frame_advance(frame, relative_save_pc - current_pc);
+            debug_frame_emit_saved_offsets(
+                frame, mod, function, function_end, save->save_pc,
+                pointer_size);
+            current_pc = relative_save_pc;
+        }
         for (size_t epilogue_index = 0u;
              epilogue_index < mod->debug_frame_epilogue_count;
              ++epilogue_index) {
@@ -3659,6 +3736,8 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
             section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
             debug_line_uleb(frame, pointer_size);
             section_add_byte(frame, (uint8_t)(0xc0u + frame_register));
+            debug_frame_emit_saved_restores(
+                frame, mod, function, function_end);
             current_pc = relative_pc;
             ++emitted_epilogues;
 
@@ -3674,6 +3753,9 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
                 section_add_byte(frame,
                                  (uint8_t)(0x80u + frame_register));
                 debug_line_uleb(frame, 1u);
+                debug_frame_emit_saved_offsets(
+                    frame, mod, function, function_end, function_end,
+                    pointer_size);
                 current_pc = relative_resume_pc;
             }
         }
@@ -3685,6 +3767,8 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
             section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
             debug_line_uleb(frame, pointer_size);
             section_add_byte(frame, (uint8_t)(0xc0u + frame_register));
+            debug_frame_emit_saved_restores(
+                frame, mod, function, function_end);
         }
 
         if (frame->size - fde_offset - 4u > UINT32_MAX) {

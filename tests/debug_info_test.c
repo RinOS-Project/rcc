@@ -778,6 +778,9 @@ static bool find_variable_location(const ObjSection* info,
 
 static void verify_multiple_return_frame_fde(const ObjSection* frame,
                                              uint16_t architecture);
+static void verify_saved_callee_register_rules(
+    const ObjSection* frame, const char* function_symbol,
+    uint16_t architecture);
 
 static void verify_optimized_verified_debug_object(
     const char* path, uint16_t architecture)
@@ -794,6 +797,8 @@ static void verify_optimized_verified_debug_object(
     frame = objfile_get_section(object, ".debug_frame");
     assert(info != NULL && strings != NULL && frame != NULL);
     verify_multiple_return_frame_fde(frame, architecture);
+    verify_saved_callee_register_rules(
+        frame, "verified_debug_preserved_registers", architecture);
     assert(find_variable_location(info, strings, "value", architecture,
                                   &has_location, &frame_offset));
     assert(!has_location);
@@ -1248,6 +1253,153 @@ static bool has_relocation_symbol(const ObjSection* section,
         }
     }
     return false;
+}
+
+static void verify_cie_preserved_register_rules(
+    const ObjSection* frame, uint16_t architecture)
+{
+    uint32_t cie_length;
+    uint64_t cie_end;
+    uint64_t cursor = 8u;
+    uint32_t same_value_registers = 0u;
+    uint32_t expected_registers;
+    assert(frame != NULL && frame->size >= 12u);
+    cie_length = read_u32(frame->data, 0u);
+    cie_end = 4u + cie_length;
+    assert(cie_end <= frame->size && frame->data[cursor++] == 1u);
+    while (cursor < cie_end && frame->data[cursor++] != 0u) {
+    }
+    (void)read_uleb(frame->data, cie_end, &cursor);
+    while (cursor < cie_end) {
+        uint8_t byte = frame->data[cursor++];
+        if ((byte & 0x80u) == 0u) break;
+    }
+    (void)read_uleb(frame->data, cie_end, &cursor);
+    while (cursor < cie_end) {
+        uint8_t opcode = frame->data[cursor++];
+        if (opcode == 0x08u) {
+            uint64_t reg = read_uleb(frame->data, cie_end, &cursor);
+            assert(reg < 32u);
+            same_value_registers |= UINT32_C(1) << reg;
+        } else if (opcode == 0x0cu) {
+            (void)read_uleb(frame->data, cie_end, &cursor);
+            (void)read_uleb(frame->data, cie_end, &cursor);
+        } else if ((opcode & 0xc0u) == 0x80u) {
+            (void)read_uleb(frame->data, cie_end, &cursor);
+        } else {
+            assert(0 && "unexpected CIE frame instruction");
+        }
+    }
+    expected_registers = architecture == ARCH_X64
+        ? ((UINT32_C(1) << 3u) | (UINT32_C(1) << 6u) |
+           (UINT32_C(0x0f) << 12u))
+        : ((UINT32_C(1) << 3u) | (UINT32_C(1) << 5u) |
+           (UINT32_C(1) << 6u) | (UINT32_C(1) << 7u));
+    assert((same_value_registers & expected_registers) ==
+           expected_registers);
+}
+
+static void verify_saved_callee_register_rules(
+    const ObjSection* frame, const char* function_symbol,
+    uint16_t architecture)
+{
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t first_save_pc[32];
+    uint64_t last_restore_pc[32];
+    uint32_t saved_registers = 0u;
+    uint32_t restored_registers = 0u;
+    bool found_fde = false;
+    assert(frame != NULL && function_symbol != NULL);
+    verify_cie_preserved_register_rules(frame, architecture);
+    for (size_t reg = 0u; reg < 32u; ++reg) {
+        first_save_pc[reg] = UINT64_MAX;
+        last_restore_pc[reg] = UINT64_MAX;
+    }
+    for (const ObjReloc* relocation = frame->relocs; relocation;
+         relocation = relocation->next) {
+        uint64_t fde_offset;
+        uint64_t fde_end;
+        uint64_t cursor;
+        uint32_t fde_length;
+        uint64_t pc = 0u;
+        if (!relocation->symbol_name ||
+            strcmp(relocation->symbol_name, function_symbol) != 0 ||
+            relocation->offset < 8u) continue;
+        fde_offset = relocation->offset - 8u;
+        assert(fde_offset + 4u <= frame->size);
+        fde_length = read_u32(frame->data, fde_offset);
+        fde_end = fde_offset + 4u + fde_length;
+        assert(fde_end <= frame->size);
+        cursor = fde_offset + 4u + 4u + address_size * 2u;
+        assert(cursor <= fde_end);
+        found_fde = true;
+        while (cursor < fde_end) {
+            uint8_t opcode = frame->data[cursor++];
+            if ((opcode & 0xc0u) == 0x40u) {
+                pc += opcode & 0x3fu;
+            } else if ((opcode & 0xc0u) == 0x80u) {
+                uint8_t reg = opcode & 0x3fu;
+                uint64_t offset = read_uleb(
+                    frame->data, fde_end, &cursor);
+                if (pc > 0u && offset > 0u && reg < 32u) {
+                    saved_registers |= UINT32_C(1) << reg;
+                    if (first_save_pc[reg] == UINT64_MAX) {
+                        first_save_pc[reg] = pc;
+                    }
+                }
+            } else if ((opcode & 0xc0u) == 0xc0u) {
+                uint8_t reg = opcode & 0x3fu;
+                if (reg < 32u) {
+                    restored_registers |= UINT32_C(1) << reg;
+                    last_restore_pc[reg] = pc;
+                }
+            } else if (opcode == 0x00u) {
+                continue;
+            } else if (opcode == 0x02u) {
+                assert(cursor < fde_end);
+                pc += frame->data[cursor++];
+            } else if (opcode == 0x03u) {
+                assert(cursor + 2u <= fde_end);
+                pc += (uint16_t)frame->data[cursor] |
+                    (uint16_t)((uint16_t)frame->data[cursor + 1u] << 8u);
+                cursor += 2u;
+            } else if (opcode == 0x04u) {
+                assert(cursor + 4u <= fde_end);
+                pc += read_u32(frame->data, cursor);
+                cursor += 4u;
+            } else if (opcode == 0x0cu) {
+                (void)read_uleb(frame->data, fde_end, &cursor);
+                (void)read_uleb(frame->data, fde_end, &cursor);
+            } else if (opcode == 0x0du || opcode == 0x0eu) {
+                (void)read_uleb(frame->data, fde_end, &cursor);
+            } else {
+                assert(0 && "unexpected DWARF frame instruction");
+            }
+        }
+        break;
+    }
+    assert(found_fde);
+    if (architecture == ARCH_X64) {
+        uint32_t preserved =
+            (saved_registers & restored_registers) &
+            ((UINT32_C(1) << 3u) | (UINT32_C(0x0f) << 12u));
+        assert(preserved != 0u);
+        for (uint32_t reg = 0u; reg < 32u; ++reg) {
+            if ((preserved & (UINT32_C(1) << reg)) != 0u) {
+                assert(last_restore_pc[reg] > first_save_pc[reg]);
+            }
+        }
+    } else {
+        uint32_t preserved = (saved_registers & restored_registers) &
+            ((UINT32_C(1) << 3u) | (UINT32_C(1) << 6u) |
+             (UINT32_C(1) << 7u));
+        assert(preserved != 0u);
+        for (uint32_t reg = 0u; reg < 32u; ++reg) {
+            if ((preserved & (UINT32_C(1) << reg)) != 0u) {
+                assert(last_restore_pc[reg] > first_save_pc[reg]);
+            }
+        }
+    }
 }
 
 static bool has_positive_relocation_addend(const ObjSection* section)
@@ -1792,6 +1944,11 @@ static void verify_verified_debug_object(const char* path,
     assert(find_function_die(info, strings, "verified_debug_entry",
                              architecture == ARCH_X64 ? 8u : 4u) !=
            UINT64_MAX);
+    assert(find_function_die(
+        info, strings, "verified_debug_preserved_registers",
+        architecture == ARCH_X64 ? 8u : 4u) != UINT64_MAX);
+    verify_saved_callee_register_rules(
+        frame, "verified_debug_preserved_registers", architecture);
     assert(find_lexical_block_local(
         info, strings, "local", architecture == ARCH_X64 ? 8u : 4u));
     assert(find_lexical_block_local(

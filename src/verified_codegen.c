@@ -8,6 +8,7 @@
 #include "codegen.h"
 #include "ir_lower.h"
 #include "objfile.h"
+#include "x86_encode.h"
 #include "x86_object.h"
 #include "x86_pipeline.h"
 
@@ -510,6 +511,80 @@ static bool verified_record_debug_frame_epilogues(
     return true;
 }
 
+static bool verified_dwarf_register(
+    RccX86Target target, RccX86HardwareGpr hardware_register,
+    uint8_t* dwarf_register) {
+    if (!dwarf_register) return false;
+    if (target == RCC_X86_TARGET_I686) {
+        switch (hardware_register) {
+            case RCC_X86_GPR_AX: *dwarf_register = 0u; return true;
+            case RCC_X86_GPR_CX: *dwarf_register = 1u; return true;
+            case RCC_X86_GPR_DX: *dwarf_register = 2u; return true;
+            case RCC_X86_GPR_BX: *dwarf_register = 3u; return true;
+            case RCC_X86_GPR_SP: *dwarf_register = 4u; return true;
+            case RCC_X86_GPR_BP: *dwarf_register = 5u; return true;
+            case RCC_X86_GPR_SI: *dwarf_register = 6u; return true;
+            case RCC_X86_GPR_DI: *dwarf_register = 7u; return true;
+            default: return false;
+        }
+    }
+    if (target == RCC_X86_TARGET_X86_64) {
+        switch (hardware_register) {
+            case RCC_X86_GPR_AX: *dwarf_register = 0u; return true;
+            case RCC_X86_GPR_DX: *dwarf_register = 1u; return true;
+            case RCC_X86_GPR_CX: *dwarf_register = 2u; return true;
+            case RCC_X86_GPR_BX: *dwarf_register = 3u; return true;
+            case RCC_X86_GPR_SI: *dwarf_register = 4u; return true;
+            case RCC_X86_GPR_DI: *dwarf_register = 5u; return true;
+            case RCC_X86_GPR_BP: *dwarf_register = 6u; return true;
+            case RCC_X86_GPR_SP: *dwarf_register = 7u; return true;
+            case RCC_X86_GPR_R8: *dwarf_register = 8u; return true;
+            case RCC_X86_GPR_R9: *dwarf_register = 9u; return true;
+            case RCC_X86_GPR_R10: *dwarf_register = 10u; return true;
+            case RCC_X86_GPR_R11: *dwarf_register = 11u; return true;
+            case RCC_X86_GPR_R12: *dwarf_register = 12u; return true;
+            case RCC_X86_GPR_R13: *dwarf_register = 13u; return true;
+            case RCC_X86_GPR_R14: *dwarf_register = 14u; return true;
+            case RCC_X86_GPR_R15: *dwarf_register = 15u; return true;
+            default: return false;
+        }
+    }
+    return false;
+}
+
+static bool verified_record_debug_frame_saves(
+    Module* module, const ObjSymbol* function_symbol,
+    const RccX86EncodedFunction* encoded, char* error, size_t error_size) {
+    if (!module || !function_symbol || !encoded ||
+        function_symbol->binding != BIND_CODE ||
+        function_symbol->section < 0 ||
+        function_symbol->value > UINT32_MAX) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified function callee-save base is invalid");
+        }
+        return false;
+    }
+    for (size_t index = 0u; index < encoded->callee_save_count; ++index) {
+        const RccX86CodeCalleeSave* source = &encoded->callee_saves[index];
+        uint8_t dwarf_register;
+        uint64_t save_pc = function_symbol->value + source->save_pc;
+        if (!verified_dwarf_register(
+                encoded->target, source->gpr, &dwarf_register) ||
+            save_pc > UINT32_MAX || save_pc <= function_symbol->value) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified function callee-save record is invalid");
+            }
+            return false;
+        }
+        module_add_debug_frame_save(
+            module, (uint32_t)save_pc, dwarf_register,
+            source->frame_offset);
+    }
+    return true;
+}
+
 static void verified_append_statement_debug_range(
     Stmt* statement, uint32_t start, uint32_t end) {
     StmtDebugRange* debug_range;
@@ -764,6 +839,14 @@ static void verified_emit_debug_sections(
         module_add_debug_frame_epilogue(
             debug_module, epilogue->return_pc, epilogue->resume_pc);
     }
+    for (size_t index = 0u;
+         index < data_module->debug_frame_save_count; ++index) {
+        const ModuleDebugFrameSave* save =
+            &data_module->debug_frame_saves[index];
+        module_add_debug_frame_save(
+            debug_module, save->save_pc, save->dwarf_register,
+            save->frame_offset);
+    }
     for (int index = 0; index < data_module->symbol_count; ++index) {
         verified_copy_debug_symbol(debug_module, &data_module->symbols[index]);
     }
@@ -945,9 +1028,12 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 declaration->name, pipeline_error);
         }
         if (g_opts.debug_info &&
-            !verified_record_debug_frame_epilogues(
-                data_module, objfile_find_symbol(object, object_name),
-                &encoded, pipeline_error, sizeof(pipeline_error))) {
+            (!verified_record_debug_frame_epilogues(
+                 data_module, objfile_find_symbol(object, object_name),
+                 &encoded, pipeline_error, sizeof(pipeline_error)) ||
+             !verified_record_debug_frame_saves(
+                 data_module, objfile_find_symbol(object, object_name),
+                 &encoded, pipeline_error, sizeof(pipeline_error)))) {
             rcc_free(debug_variable_locations);
             rcc_free(scoped_name);
             rcc_x86_encoded_function_release(&encoded);

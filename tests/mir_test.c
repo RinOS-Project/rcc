@@ -747,6 +747,19 @@ static void verify_sysv_call_legalization_target(bool x64)
         legal, &policy, &encoded, error, sizeof(error)));
     assert(rcc_x86_verify_encoded_function(
         &encoded, error, sizeof(error)));
+    assert(encoded.callee_save_count == legal->callee_save_count);
+    for (size_t index = 0u; index < encoded.callee_save_count; ++index) {
+        assert(encoded.callee_saves[index].gpr ==
+               legal->callee_saves[index].gpr);
+        assert(encoded.callee_saves[index].frame_offset ==
+               legal->stack_adjustment -
+                   (legal->callee_saves[index].frame_offset +
+                    legal->outgoing_stack_size));
+        if (index != 0u) {
+            assert(encoded.callee_saves[index].save_pc >
+                   encoded.callee_saves[index - 1u].save_pc);
+        }
+    }
     assert(encoded.code[0] == 0x55u);
     assert(encoded.code[encoded.code_size - 1u] == 0xc3u);
     assert(encoded.relocation_count == 1u);

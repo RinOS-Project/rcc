@@ -110,6 +110,9 @@ Module* codegen_new(void) {
     mod->debug_frame_epilogues = NULL;
     mod->debug_frame_epilogue_count = 0u;
     mod->debug_frame_epilogue_capacity = 0u;
+    mod->debug_frame_saves = NULL;
+    mod->debug_frame_save_count = 0u;
+    mod->debug_frame_save_capacity = 0u;
     mod->relocs_arr = NULL;
     mod->reloc_count = 0;
     mod->reloc_capacity = 0;
@@ -177,6 +180,7 @@ void codegen_free(Module* mod) {
     rcc_free(mod->tls.data);
     rcc_free(mod->symbols);
     rcc_free(mod->debug_frame_epilogues);
+    rcc_free(mod->debug_frame_saves);
     rcc_free(mod->relocs_arr);
     rcc_free(mod);
 }
@@ -310,6 +314,36 @@ void module_add_debug_frame_epilogue(Module* mod, uint32_t return_pc,
     mod->debug_frame_epilogues[mod->debug_frame_epilogue_count].resume_pc =
         resume_pc;
     ++mod->debug_frame_epilogue_count;
+}
+
+void module_add_debug_frame_save(Module* mod, uint32_t save_pc,
+                                 uint8_t dwarf_register,
+                                 uint32_t frame_offset) {
+    size_t new_capacity;
+    if (!mod) return;
+    if (save_pc == 0u || frame_offset == 0u) {
+        rcc_fatal("debug frame callee-save location is invalid");
+        return;
+    }
+    if (mod->debug_frame_save_count >= mod->debug_frame_save_capacity) {
+        new_capacity = mod->debug_frame_save_capacity == 0u
+            ? 8u : mod->debug_frame_save_capacity * 2u;
+        if (new_capacity <= mod->debug_frame_save_capacity ||
+            new_capacity > SIZE_MAX / sizeof(*mod->debug_frame_saves)) {
+            rcc_fatal("debug frame callee-save table is too large");
+            return;
+        }
+        mod->debug_frame_saves = rcc_realloc(
+            mod->debug_frame_saves,
+            new_capacity * sizeof(*mod->debug_frame_saves));
+        mod->debug_frame_save_capacity = new_capacity;
+    }
+    mod->debug_frame_saves[mod->debug_frame_save_count].save_pc = save_pc;
+    mod->debug_frame_saves[mod->debug_frame_save_count].frame_offset =
+        frame_offset;
+    mod->debug_frame_saves[mod->debug_frame_save_count].dwarf_register =
+        dwarf_register;
+    ++mod->debug_frame_save_count;
 }
 
 void module_mark_symbol_weak(Module* mod, const char* name) {

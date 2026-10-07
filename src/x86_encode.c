@@ -1505,16 +1505,45 @@ static bool x86_emit_prologue(RccX86Encoder* encoder) {
             return false;
         }
     }
+    if (function->callee_save_count != 0u) {
+        if (function->callee_save_count >
+            SIZE_MAX / sizeof(*encoder->output.callee_saves)) {
+            return x86_encode_error(
+                encoder, "x86 encoded callee-save table is too large");
+        }
+        encoder->output.callee_saves = rcc_alloc(
+            function->callee_save_count *
+            sizeof(*encoder->output.callee_saves));
+    }
     for (size_t index = 0u; index < function->callee_save_count; ++index) {
         RccX86Value slot;
+        uint32_t frame_slot_offset =
+            function->callee_saves[index].frame_offset;
+        uint32_t frame_distance;
         memset(&slot, 0, sizeof(slot));
         slot.kind = RCC_X86_VALUE_FRAME;
-        slot.frame_offset = function->callee_saves[index].frame_offset;
+        slot.frame_offset = frame_slot_offset;
         slot.size = function->pointer_size;
         slot.alignment = function->pointer_size;
+        if (frame_slot_offset > UINT32_MAX -
+                function->outgoing_stack_size ||
+            frame_slot_offset + function->outgoing_stack_size >
+                function->stack_adjustment) {
+            return x86_encode_error(
+                encoder, "x86 callee-save frame location is invalid");
+        }
+        frame_distance = function->stack_adjustment -
+            (frame_slot_offset + function->outgoing_stack_size);
         if (!x86_emit_store(encoder, slot,
                             function->callee_saves[index].gpr,
                             function->pointer_size)) return false;
+        encoder->output.callee_saves[index].gpr =
+            function->callee_saves[index].gpr;
+        encoder->output.callee_saves[index].frame_offset =
+            frame_distance;
+        encoder->output.callee_saves[index].save_pc =
+            (uint32_t)encoder->output.code_size;
+        ++encoder->output.callee_save_count;
     }
     return true;
 }
@@ -1719,6 +1748,7 @@ void rcc_x86_encoded_function_release(RccX86EncodedFunction* encoded) {
     rcc_free(encoded->source_ranges);
     rcc_free(encoded->local_locations);
     rcc_free(encoded->epilogues);
+    rcc_free(encoded->callee_saves);
     rcc_free(encoded->block_offsets);
     rcc_free(encoded->code);
     memset(encoded, 0, sizeof(*encoded));
@@ -1738,7 +1768,8 @@ bool rcc_x86_verify_encoded_function(
         (encoded->source_range_count != 0u && !encoded->source_ranges) ||
         (encoded->local_location_count != 0u &&
          !encoded->local_locations) ||
-        (encoded->epilogue_count != 0u && !encoded->epilogues)) {
+        (encoded->epilogue_count != 0u && !encoded->epilogues) ||
+        (encoded->callee_save_count != 0u && !encoded->callee_saves)) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "x86 encoded-function header is invalid");
@@ -1774,6 +1805,42 @@ bool rcc_x86_verify_encoded_function(
                          "x86 encoded epilogue table is invalid");
             }
             return false;
+        }
+    }
+    for (size_t index = 0u; index < encoded->callee_save_count; ++index) {
+        const RccX86CodeCalleeSave* save = &encoded->callee_saves[index];
+        bool register_valid = encoded->target == RCC_X86_TARGET_I686
+            ? save->gpr == RCC_X86_GPR_BX ||
+              save->gpr == RCC_X86_GPR_SI ||
+              save->gpr == RCC_X86_GPR_DI
+            : save->gpr == RCC_X86_GPR_BX ||
+              save->gpr == RCC_X86_GPR_R12 ||
+              save->gpr == RCC_X86_GPR_R13 ||
+              save->gpr == RCC_X86_GPR_R14 ||
+              save->gpr == RCC_X86_GPR_R15;
+        uint32_t pointer_size = encoded->target == RCC_X86_TARGET_I686
+            ? 4u : 8u;
+        if (!register_valid || save->frame_offset < pointer_size ||
+            save->frame_offset % pointer_size != 0u ||
+            save->save_pc == 0u || save->save_pc >= encoded->code_size ||
+            (index != 0u && save->save_pc <=
+                encoded->callee_saves[index - 1u].save_pc)) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "x86 encoded callee-save table is invalid");
+            }
+            return false;
+        }
+        for (size_t previous = 0u; previous < index; ++previous) {
+            if (encoded->callee_saves[previous].gpr == save->gpr ||
+                encoded->callee_saves[previous].frame_offset ==
+                    save->frame_offset) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "x86 encoded callee-save table is duplicated");
+                }
+                return false;
+            }
         }
     }
     for (size_t index = 0u; index < encoded->relocation_count; ++index) {
