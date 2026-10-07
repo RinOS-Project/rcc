@@ -1680,6 +1680,12 @@ typedef struct {
     RccIrInstruction** block_loads;
     size_t block_load_count;
     bool* direct_allocas;
+    RccIrValue* stored_values;
+    bool* has_stored_values;
+    bool* block_store_slots;
+    RccIrValue* block_stores;
+    size_t block_store_count;
+    RccIrFunction* function;
     RccIrValue* replacements;
     size_t replacement_count;
     RccIrSimplifyStats* stats;
@@ -1710,6 +1716,40 @@ static bool ir_pass_store_is_disjoint_from_load(
         ir_pass_value_is_direct_alloca(context, store_address);
 }
 
+static void ir_pass_clear_block_store_facts(RccIrCseContext* context) {
+    size_t index;
+    if (!context) return;
+    for (index = 0u; index < context->block_store_count; ++index) {
+        RccIrValue address = context->block_stores[index];
+        context->has_stored_values[address] = false;
+        context->block_store_slots[address] = false;
+    }
+    context->block_store_count = 0u;
+}
+
+static void ir_pass_record_store_value(
+    RccIrCseContext* context, const RccIrInstruction* store) {
+    RccIrValue address;
+    RccIrValue value;
+    if (!context || !store || store->operand_count != 2u) return;
+    address = store->operands[1];
+    value = store->operands[0];
+    if (!ir_pass_value_is_direct_alloca(context, address)) {
+        ir_pass_clear_block_store_facts(context);
+        return;
+    }
+    if (!context->block_store_slots[address]) {
+        context->block_stores[context->block_store_count++] = address;
+        context->block_store_slots[address] = true;
+    }
+    if (store->volatile_access) {
+        context->has_stored_values[address] = false;
+        return;
+    }
+    context->stored_values[address] = value;
+    context->has_stored_values[address] = true;
+}
+
 static void ir_pass_common_block(RccIrCseContext* context,
                                  size_t block_index) {
     RccIrInstruction* instruction;
@@ -1722,6 +1762,7 @@ static void ir_pass_common_block(RccIrCseContext* context,
     }
     saved_count = context->available_count;
     saved_load_count = context->block_load_count;
+    ir_pass_clear_block_store_facts(context);
     context->block_load_count = 0u;
     instruction = context->blocks[block_index]->first;
     while (instruction) {
@@ -1747,37 +1788,58 @@ static void ir_pass_common_block(RccIrCseContext* context,
                 /* A volatile access is observable and may represent device
                  * state, so do not reuse ordinary loads across it. */
                 context->block_load_count = 0u;
+                ir_pass_clear_block_store_facts(context);
             } else if (instruction->result != RCC_IR_VALUE_NONE &&
                        instruction->operand_count == 1u) {
                 RccIrInstruction* previous_load = NULL;
-                for (size_t load_index = context->block_load_count;
-                     load_index != 0u; --load_index) {
-                    RccIrInstruction* candidate_load =
-                        context->block_loads[load_index - 1u];
-                    if (candidate_load->operands[0] ==
-                            instruction->operands[0] &&
-                        rcc_ir_type_equal(candidate_load->type,
-                                          instruction->type)) {
-                        previous_load = candidate_load;
-                        break;
+                RccIrValue address = instruction->operands[0];
+                RccIrValue stored_value = RCC_IR_VALUE_NONE;
+                if (ir_pass_value_is_direct_alloca(context, address) &&
+                    context->has_stored_values[address]) {
+                    RccIrValue candidate_value =
+                        context->stored_values[address];
+                    if (candidate_value < context->replacement_count &&
+                        rcc_ir_type_equal(
+                            context->function->value_types[candidate_value],
+                            instruction->type)) {
+                        stored_value = candidate_value;
                     }
                 }
-                if (previous_load) {
+                if (stored_value != RCC_IR_VALUE_NONE) {
                     context->replacements[instruction->result] =
-                        previous_load->result;
+                        stored_value;
                     ir_pass_unlink_instruction(instruction);
                     ++context->stats->commoned_instructions;
                     ++context->stats->removed_instructions;
                 } else {
-                    if (context->block_load_count >=
-                        context->replacement_count) {
-                        ir_pass_error(context->error, context->error_size,
-                                      "SSA load-CSE table overflow");
-                        context->failed = true;
-                        return;
+                    for (size_t load_index = context->block_load_count;
+                         load_index != 0u; --load_index) {
+                        RccIrInstruction* candidate_load =
+                            context->block_loads[load_index - 1u];
+                        if (candidate_load->operands[0] == address &&
+                            rcc_ir_type_equal(candidate_load->type,
+                                              instruction->type)) {
+                            previous_load = candidate_load;
+                            break;
+                        }
                     }
-                    context->block_loads[context->block_load_count++] =
-                        instruction;
+                    if (previous_load) {
+                        context->replacements[instruction->result] =
+                            previous_load->result;
+                        ir_pass_unlink_instruction(instruction);
+                        ++context->stats->commoned_instructions;
+                        ++context->stats->removed_instructions;
+                    } else {
+                        if (context->block_load_count >=
+                            context->replacement_count) {
+                            ir_pass_error(context->error, context->error_size,
+                                          "SSA load-CSE table overflow");
+                            context->failed = true;
+                            return;
+                        }
+                        context->block_loads[
+                            context->block_load_count++] = instruction;
+                    }
                 }
             }
             instruction = next;
@@ -1796,10 +1858,12 @@ static void ir_pass_common_block(RccIrCseContext* context,
                 }
             }
             context->block_load_count = retained;
+            ir_pass_record_store_value(context, instruction);
         } else if (instruction->opcode == RCC_IR_CALL) {
             /* Without a call memory-effect summary, any call may mutate every
              * address and invalidates all available loads. */
             context->block_load_count = 0u;
+            ir_pass_clear_block_store_facts(context);
         }
         if (!ir_pass_cse_candidate(instruction)) {
             instruction = next;
@@ -1870,6 +1934,15 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.block_loads));
     context.direct_allocas = rcc_alloc(
         function->value_count * sizeof(*context.direct_allocas));
+    context.stored_values = rcc_alloc(
+        function->value_count * sizeof(*context.stored_values));
+    context.has_stored_values = rcc_alloc(
+        function->value_count * sizeof(*context.has_stored_values));
+    context.block_store_slots = rcc_alloc(
+        function->value_count * sizeof(*context.block_store_slots));
+    context.block_stores = rcc_alloc(
+        function->value_count * sizeof(*context.block_stores));
+    context.function = function;
     context.replacements = rcc_alloc(
         function->value_count * sizeof(*context.replacements));
     context.replacement_count = function->value_count;
@@ -1878,6 +1951,9 @@ static bool ir_pass_common_subexpressions(
     context.error_size = error_size;
     for (index = 0u; index < function->value_count; ++index) {
         context.direct_allocas[index] = false;
+        context.stored_values[index] = RCC_IR_VALUE_NONE;
+        context.has_stored_values[index] = false;
+        context.block_store_slots[index] = false;
         context.replacements[index] = RCC_IR_VALUE_NONE;
     }
     for (index = 0u; index < context.block_count; ++index) {
@@ -1902,6 +1978,10 @@ cleanup:
     rcc_free(context.available);
     rcc_free(context.block_loads);
     rcc_free(context.direct_allocas);
+    rcc_free(context.stored_values);
+    rcc_free(context.has_stored_values);
+    rcc_free(context.block_store_slots);
+    rcc_free(context.block_stores);
     rcc_free(context.replacements);
     rcc_free(blocks);
     rcc_free(predecessors);

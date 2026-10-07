@@ -886,24 +886,23 @@ static void verify_block_local_cse(void)
     rcc_ir_module_destroy(module);
 }
 
-static void verify_memory_is_not_commoned(void)
+static void verify_store_to_load_forwarding_after_write(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
-    RccIrType parameters[] = {i32};
     RccIrModule* module = rcc_ir_module_create();
     RccIrFunction* function = rcc_ir_function_add(
-        module, "memory_cse_barrier", i32, parameters, 1u);
+        module, "store_to_load_write_barrier", i32, NULL, 0u);
     RccIrBlock* entry = rcc_ir_block_add(function, "entry");
     RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue replacement = append_const(entry, i32, 23u);
     RccIrValue first;
     RccIrValue second;
     RccIrValue operands[2];
     RccIrInstruction* sum;
     RccIrSimplifyStats stats;
     char error[256];
-    append_store(entry, function->parameters[0], address);
     first = append_load(entry, i32, address);
-    append_store(entry, first, address);
+    append_store(entry, replacement, address);
     second = append_load(entry, i32, address);
     operands[0] = first;
     operands[1] = second;
@@ -912,9 +911,11 @@ static void verify_memory_is_not_commoned(void)
     assert(sum != NULL);
     append_return(entry, sum->result);
     assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
-    assert(stats.commoned_instructions == 0u);
-    assert(count_opcode(function, RCC_IR_LOAD) == 2u);
-    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(stats.commoned_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert(count_opcode(function, RCC_IR_STORE) == 1u);
+    assert(sum->operands[0] == first);
+    assert(sum->operands[1] == replacement);
     assert(rcc_ir_verify_function(function, error, sizeof(error)));
     rcc_ir_module_destroy(module);
 }
@@ -924,25 +925,83 @@ static void verify_block_local_load_cse(void)
     RccIrType i32 = rcc_ir_type_integer(32u);
     RccIrType pointer = rcc_ir_type_pointer(0u);
     RccIrType one_pointer[] = {pointer};
-    RccIrModule* module = rcc_ir_module_create();
-    RccIrFunction* function = rcc_ir_function_add(
-        module, "block_local_load_cse", i32, one_pointer, 1u);
-    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
-    RccIrValue first = append_load(entry, i32, function->parameters[0]);
-    RccIrValue second = append_load(entry, i32, function->parameters[0]);
-    RccIrValue sum_operands[] = {first, second};
-    RccIrInstruction* sum = rcc_ir_append(
-        entry, RCC_IR_ADD, i32, sum_operands, 2u, NULL, 0u);
+    RccIrModule* module;
+    RccIrFunction* function;
+    RccIrBlock* entry;
+    RccIrValue first;
+    RccIrValue second;
+    RccIrValue sum_operands[2];
+    RccIrInstruction* sum;
     RccIrSimplifyStats stats;
     char error[256];
-    assert(sum != NULL);
-    append_return(entry, sum->result);
-    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
-    assert(error[0] == '\0');
-    assert(stats.commoned_instructions == 1u);
-    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
-    assert(rcc_ir_verify_function(function, error, sizeof(error)));
-    rcc_ir_module_destroy(module);
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "store_to_load_forwarding", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_alloca(entry, 4u);
+        stored = append_const(entry, i32, 37u);
+        append_store(entry, stored, address);
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 1u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+        assert(function->first_block->last->operands[0] == stored);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue first_address;
+        RccIrValue second_address;
+        RccIrValue first_value;
+        RccIrValue second_value;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "store_forwarding_disjoint_allocas", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        first_address = append_alloca(entry, 4u);
+        second_address = append_alloca(entry, 4u);
+        first_value = append_const(entry, i32, 13u);
+        second_value = append_const(entry, i32, 31u);
+        append_store(entry, first_value, first_address);
+        append_store(entry, second_value, second_address);
+        loaded = append_load(entry, i32, first_address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 1u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+        assert(function->first_block->last->operands[0] == first_value);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "block_local_load_cse", i32, one_pointer, 1u);
+        entry = rcc_ir_block_add(function, "entry");
+        first = append_load(entry, i32, function->parameters[0]);
+        second = append_load(entry, i32, function->parameters[0]);
+        sum_operands[0] = first;
+        sum_operands[1] = second;
+        sum = rcc_ir_append(entry, RCC_IR_ADD, i32, sum_operands, 2u,
+                            NULL, 0u);
+        assert(sum != NULL);
+        append_return(entry, sum->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(error[0] == '\0');
+        assert(stats.commoned_instructions == 1u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
 
     {
         RccIrType parameters[] = {pointer, pointer, i32};
@@ -971,6 +1030,7 @@ static void verify_block_local_load_cse(void)
         RccIrValue second_address;
         RccIrValue first_value;
         RccIrValue second_value;
+        RccIrInstruction* mutating_call;
         module = rcc_ir_module_create();
         function = rcc_ir_function_add(
             module, "load_cse_disjoint_allocas", i32, NULL, 0u);
@@ -980,7 +1040,11 @@ static void verify_block_local_load_cse(void)
         first_value = append_const(entry, i32, 11u);
         second_value = append_const(entry, i32, 29u);
         append_store(entry, first_value, first_address);
-        append_store(entry, second_value, second_address);
+        mutating_call = rcc_ir_append(
+            entry, RCC_IR_CALL, rcc_ir_type_void(), &first_address, 1u,
+            NULL, 0u);
+        assert(mutating_call != NULL);
+        rcc_ir_set_callee(mutating_call, "mutate_memory");
         first = append_load(entry, i32, first_address);
         append_store(entry, second_value, second_address);
         second = append_load(entry, i32, first_address);
@@ -992,6 +1056,104 @@ static void verify_block_local_load_cse(void)
         append_return(entry, sum->result);
         assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
         assert(stats.commoned_instructions == 1u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrType parameters[] = {pointer};
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "store_forwarding_unknown_alias", i32, parameters, 1u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_alloca(entry, 4u);
+        stored = append_const(entry, i32, 17u);
+        append_store(entry, stored, address);
+        append_store(entry, stored, function->parameters[0]);
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrInstruction* call;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "store_forwarding_call_barrier", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_alloca(entry, 4u);
+        stored = append_const(entry, i32, 19u);
+        append_store(entry, stored, address);
+        call = rcc_ir_append(entry, RCC_IR_CALL, rcc_ir_type_void(),
+                             &address, 1u, NULL, 0u);
+        assert(call != NULL);
+        rcc_ir_set_callee(call, "mutate_memory");
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrInstruction* volatile_load;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "store_forwarding_volatile_load", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_alloca(entry, 4u);
+        stored = append_const(entry, i32, 41u);
+        append_store(entry, stored, address);
+        volatile_load = rcc_ir_append(
+            entry, RCC_IR_LOAD, i32, &address, 1u, NULL, 0u);
+        assert(volatile_load != NULL);
+        rcc_ir_set_volatile_access(volatile_load, true);
+        append_return(entry, volatile_load->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrInstruction* volatile_store;
+        RccIrValue store_operands[2];
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "store_forwarding_volatile_store", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_alloca(entry, 4u);
+        stored = append_const(entry, i32, 43u);
+        store_operands[0] = stored;
+        store_operands[1] = address;
+        volatile_store = rcc_ir_append(
+            entry, RCC_IR_STORE, rcc_ir_type_void(), store_operands, 2u,
+            NULL, 0u);
+        assert(volatile_store != NULL);
+        rcc_ir_set_volatile_access(volatile_store, true);
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
         assert(count_opcode(function, RCC_IR_LOAD) == 1u);
         assert(rcc_ir_verify_function(function, error, sizeof(error)));
         rcc_ir_module_destroy(module);
@@ -1376,7 +1538,7 @@ int main(void)
     verify_undefined_folds_are_preserved();
     verify_integer_identities();
     verify_block_local_cse();
-    verify_memory_is_not_commoned();
+    verify_store_to_load_forwarding_after_write();
     verify_block_local_load_cse();
     verify_volatile_access_survives_mem2reg();
     verify_dominator_scoped_gvn();

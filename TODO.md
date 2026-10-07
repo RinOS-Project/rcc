@@ -412,6 +412,9 @@
         互いに別のdirect allocaと証明できるstoreだけを跨ぎ、それ以外の
         store/call/volatile access、型違い、block境界では再利用しないことを
         IR verifier regressionで検証
+  - [x] 同一block内でdirect allocaへの直近store値を同じ型のnon-volatile loadへ
+        forwardingし、unknown alias store/call/volatile loadでは全事実、
+        volatile storeでは対象slotの値事実を失効させるIR verifier regressionを追加
 - [ ] loop optimization、inlining
   - [x] 副作用なし・引数なし・単一整数returnの直接呼出しをO1で限定inline
   - [x] 副作用なし・単一整数returnの純粋整数式を最大8個の引数へ展開し、
