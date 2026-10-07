@@ -9814,13 +9814,14 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
     return false;
 }
 
-static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression) {
+static void gen_cxx_reference_adjustment32_impl(Module* mod, Expr* expression,
+                                                bool skip_static_cast) {
     if (!expression) return;
     /* Explicit reference casts apply their adjustment in gen_lvalue() (or in
      * gen_expr() after lowering the cast).  Initializer and call lowering also
      * invoke this helper for implicit bindings, so do not adjust that cast a
      * second time. */
-    if (expression->kind == EXPR_CAST && expression->type &&
+    if (skip_static_cast && expression->kind == EXPR_CAST && expression->type &&
         expression->type->is_reference &&
         expression->cxx_cast_kind == CXX_CAST_STATIC) {
         return;
@@ -9853,6 +9854,15 @@ static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression) {
                expression->cxx_pointer_adjustment != 0) {
         emit_add_reg_imm(mod, EAX, expression->cxx_pointer_adjustment);
     }
+}
+
+static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression) {
+    gen_cxx_reference_adjustment32_impl(mod, expression, true);
+}
+
+static void gen_cxx_reference_adjustment32_force(Module* mod,
+                                                 Expr* expression) {
+    gen_cxx_reference_adjustment32_impl(mod, expression, false);
 }
 
 static void gen_call(Module* mod, Expr* expr) {
@@ -14707,7 +14717,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     emit_byte(mod, modrm(2, EAX, EBP));
                     emit_dword(mod,
                                (uint32_t)d->var_reference_temporary_offset);
-                    gen_cxx_reference_adjustment32(mod, d->var_init);
+                    gen_cxx_reference_adjustment32_force(mod, d->var_init);
                     emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
                 } else if (d->var_init &&
                            !gen_local_initializer(mod, d->type, d->var_init,

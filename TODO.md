@@ -327,10 +327,12 @@
         exactly once through local initialization and reference-parameter calls.
         Verify both target codegens and x64 execution, including diamond layout
         and destructor ordering, in `test-cxx-function-template-references`.
-  - [ ] Preserve the complete derived temporary when an explicit
+  - [x] Preserve the complete derived temporary when an explicit
         `static_cast<Base&&>` binds to a public non-virtual or virtual base;
-        sema now retains the source class and both backends use the recorded
-        base adjustment, but this path has not been regression-tested.
+        apply the base adjustment after selecting the lifetime-extended stack
+        slot, and verify destructor order plus virtual-diamond member access
+        with i686/AMD64 generation and x64 execution in
+        `test-cxx-function-template-references`.
   - [x] Deduce local `auto&&` bindings from both lvalue and xvalue initializers,
         preserve aliasing through reference collapsing, and verify i686/AMD64
         code generation plus x64 execution in `test-cxx-function-template-references`.
@@ -363,11 +365,12 @@
         registration/unregistration, global finalizers, and optimizer analyses.
         Verify with a 4101-element local array plus existing array/member/
         reference lifetime gates on both target codegens and x64 execution.
-  - [ ] Verify reverse-order runtime finalization for large defined
-        namespace-scope arrays, including zero-initialized arrays without an
-        explicit initializer, on both targets and the x64 host. Function-local
-        static/TLS destructors and globals requiring generated default-constructor
-        work currently diagnose as unsupported.
+  - [x] Verify reverse-order runtime finalization for large defined
+        namespace-scope arrays using 4101-element explicit-empty and
+        no-initializer arrays; verify reverse element and declaration order on
+        both target codegens and the x64 host in `test-global-finalizers`.
+        Function-local static/TLS destructors and globals requiring generated
+        default-constructor work still diagnose as unsupported and remain open.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,

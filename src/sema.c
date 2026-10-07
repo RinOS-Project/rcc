@@ -7402,9 +7402,6 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         !sema_cxx_append_object_cleanups(declaration, object_type, object,
                                          &declaration->var_cleanups, 0,
                                          &cleanup_budget, true,
-                                         !declaration->var_is_global &&
-                                         !declaration->var_is_static_local &&
-                                         !declaration->var_is_block_extern &&
                                          !declaration->var_is_thread_local)) {
         rcc_error(declaration->loc,
                   "C++ object lifetime cleanup metadata is incomplete");

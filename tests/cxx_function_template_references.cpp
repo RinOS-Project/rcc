@@ -331,6 +331,19 @@ int main() {
             return 35;
     }
     if (derived_temporary_events != 21) return 36;
+    int cast_derived_temporary_events = 0;
+    {
+        const LifetimeExtendedBase&& cast_extended_base =
+                static_cast<const LifetimeExtendedBase&&>(
+                    LifetimeExtendedDerived{
+                        &cast_derived_temporary_events, 8});
+        if (cast_extended_base.value != 8 ||
+            cast_derived_temporary_events != 0)
+            return 50;
+        if (double_value(2) != 4 || cast_derived_temporary_events != 0)
+            return 51;
+    }
+    if (cast_derived_temporary_events != 21) return 52;
     int inherited_cleanup_events = 0;
     {
         LifetimeInheritedCleanup inherited_object(
@@ -349,6 +362,23 @@ int main() {
             return 40;
     }
     if (virtual_temporary_events != 21) return 41;
+    lifetime_virtual_diamond_cleanup_events = 0;
+    int cast_virtual_diamond_events = 0;
+    {
+        const LifetimeVirtualDiamondBase&& cast_diamond_base =
+                static_cast<const LifetimeVirtualDiamondBase&&>(
+                    LifetimeVirtualDiamondDerived{
+                        &cast_virtual_diamond_events});
+        if (cast_virtual_diamond_events != 0)
+            return 53;
+        if (cast_diamond_base.events != &cast_virtual_diamond_events)
+            return 56;
+        if (double_value(3) != 6 || cast_virtual_diamond_events != 0)
+            return 54;
+    }
+    if (cast_virtual_diamond_events != 4321 ||
+        lifetime_virtual_diamond_cleanup_events != 4321)
+        return 55;
     lifetime_virtual_diamond_cleanup_events = 0;
     int virtual_diamond_events = 0;
     {

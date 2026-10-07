@@ -5997,12 +5997,13 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
     emit64_label(mod, done);
 }
 
-static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression) {
+static void gen64_cxx_reference_adjustment_impl(Module* mod, Expr* expression,
+                                               bool skip_static_cast) {
     if (!expression) return;
     /* Explicit reference casts are already adjusted by gen64_lvalue() or by
      * gen64_expr()'s post-lowering conversion path.  This helper is also used
      * after argument/initializer lowering for implicit bindings. */
-    if (expression->kind == EXPR_CAST && expression->type &&
+    if (skip_static_cast && expression->kind == EXPR_CAST && expression->type &&
         expression->type->is_reference &&
         expression->cxx_cast_kind == CXX_CAST_STATIC) {
         return;
@@ -6035,6 +6036,15 @@ static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression) {
                expression->cxx_pointer_adjustment != 0) {
         emit64_add_reg_imm(mod, RAX, expression->cxx_pointer_adjustment);
     }
+}
+
+static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression) {
+    gen64_cxx_reference_adjustment_impl(mod, expression, true);
+}
+
+static void gen64_cxx_reference_adjustment_force(Module* mod,
+                                                 Expr* expression) {
+    gen64_cxx_reference_adjustment_impl(mod, expression, false);
 }
 
 static void gen64_expr_raw(Module* mod, Expr* expr) {
@@ -9915,7 +9925,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     }
                     emit64_lea(mod, RAX, RBP,
                                d->var_reference_temporary_offset);
-                    gen64_cxx_reference_adjustment(mod, d->var_init);
+                    gen64_cxx_reference_adjustment_force(mod, d->var_init);
                     emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
                 } else if (d->var_init &&
                            !gen64_local_initializer(mod, d->type, d->var_init,

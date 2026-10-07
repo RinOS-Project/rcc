@@ -41,6 +41,13 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
 - external signerを安全な引数配列で起動する最終v3出力
 - debug/release署名profile、衝突しないprivate staging、失敗時の既存成果物保持
 - Aquamarine Shader Language `.aq`からRinShader `RSH1`へのbounded native compiler
+- C++ local reference bindingは、public baseへの明示的な
+  `static_cast<Base&&>`を通じてもcomplete derived temporaryとcleanupを保持し、
+  `make test-cxx-function-template-references`で両target生成とx64実行を確認します。
+- C++ global finalizerは、初期化済みまたはzero-initializedの大きな配列を
+  reverse-order runtime loopで破棄し、`make test-global-finalizers`で4101要素の
+  明示的な空initializer付き／initializerなし配列の要素順と宣言順を両targetと
+  x64 hostで確認します。
 
 `-O1`以上では安全な整数constant folding、短絡式・定数分岐の除去を行いますが、各levelの
 SSA最適化pipelineと完全なDWARF生成は未完成です。C++ frontendも実験段階で、classの基本構文を
@@ -87,6 +94,8 @@ aqc --dump-ir -o sample.rsh sample.aq
 make test-static-assert
 make test-aqc
 make test-cxx-cli
+make test-cxx-function-template-references
+make test-global-finalizers
 make test-atomic-builtins
 make test-x86-wide-scalar
 make test-link
