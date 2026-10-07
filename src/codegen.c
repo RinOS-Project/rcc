@@ -6136,11 +6136,12 @@ static bool gen_expr_is_lvalue(Expr* expression) {
         case EXPR_IDENT:
         case EXPR_DEREF:
         case EXPR_INDEX:
-        case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:
         case EXPR_CXX_TYPEID:
             return true;
+        case EXPR_MEMBER:
+            return !expression->cxx_member_xvalue;
         case EXPR_COND:
             return expression->cxx_conditional_lvalue;
         case EXPR_CALL:
@@ -6154,6 +6155,9 @@ static bool gen_expr_is_lvalue(Expr* expression) {
 static bool gen_expr_is_xvalue(Expr* expression) {
     if (expression && expression->kind == EXPR_COND) {
         return expression->cxx_conditional_xvalue;
+    }
+    if (expression && expression->kind == EXPR_MEMBER) {
+        return expression->cxx_member_xvalue;
     }
     return expression && expression->type &&
            expression->type->is_reference &&

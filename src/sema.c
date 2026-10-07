@@ -70,11 +70,12 @@ static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
     if (!expression) return false;
     switch (expression->kind) {
         case EXPR_IDENT:
-        case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_INDEX:
         case EXPR_DEREF:
             return true;
+        case EXPR_MEMBER:
+            return !expression->cxx_member_xvalue;
         case EXPR_COMMA:
             return sema_decltype_auto_expression_is_lvalue(
                 expression->binary_rhs);
@@ -86,8 +87,11 @@ static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
 }
 
 static bool sema_decltype_auto_expression_is_xvalue(Expr* expression) {
-    return expression && expression->kind == EXPR_COND &&
-           expression->cxx_conditional_xvalue;
+    return expression &&
+        ((expression->kind == EXPR_COND &&
+          expression->cxx_conditional_xvalue) ||
+         (expression->kind == EXPR_MEMBER &&
+          expression->cxx_member_xvalue));
 }
 
 static bool sema_cxx_class_qualified_name(const CxxClass* cls,
@@ -1155,11 +1159,12 @@ static bool is_lvalue(Expr* e) {
         case EXPR_IDENT:
         case EXPR_DEREF:
         case EXPR_INDEX:
-        case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:
         case EXPR_CXX_TYPEID:
             return true;
+        case EXPR_MEMBER:
+            return !e->cxx_member_xvalue;
         case EXPR_COND:
             return e->cxx_conditional_lvalue;
         case EXPR_CALL:
@@ -1174,6 +1179,9 @@ static bool is_xvalue(Expr* expression) {
     if (!expression) return false;
     if (expression->kind == EXPR_COND) {
         return expression->cxx_conditional_xvalue;
+    }
+    if (expression->kind == EXPR_MEMBER) {
+        return expression->cxx_member_xvalue;
     }
     return expression->type && expression->type->is_reference &&
            expression->type->is_rvalue_reference &&
@@ -10923,6 +10931,7 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER: {
             Type* bt;
+            expr->cxx_member_xvalue = false;
             bool pretyped_class_base = expr->member_base &&
                 expr->member_base->kind == EXPR_IDENT &&
                 expr->member_base->type &&
@@ -11039,6 +11048,12 @@ static Type* sema_expr(Expr* expr) {
                 if (strcmp(field->name, expr->member_name) == 0) {
                     expr->member_field = field;
                     expr->type = field->type;
+                    if (rcc_parser_is_cxx_mode() &&
+                        expr->kind == EXPR_MEMBER && field->type &&
+                        !field->type->is_reference &&
+                        !is_lvalue(expr->member_base)) {
+                        expr->cxx_member_xvalue = true;
+                    }
                     if (field->is_deprecated) {
                         if (field->deprecated_message &&
                             *field->deprecated_message) {
@@ -14471,7 +14486,8 @@ static Type* sema_decltype_auto_return_type(Expr* expression) {
         (expression->kind == EXPR_COND &&
          expression->cxx_conditional_lvalue) ||
         expression->kind == EXPR_DEREF || expression->kind == EXPR_INDEX ||
-        expression->kind == EXPR_MEMBER ||
+        (expression->kind == EXPR_MEMBER &&
+         !expression->cxx_member_xvalue) ||
         expression->kind == EXPR_PTR_MEMBER) {
         if (result->kind == TYPE_PTR && result->is_reference) return result;
         if (result->kind == TYPE_ARRAY || result->kind == TYPE_FUNC) {

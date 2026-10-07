@@ -474,6 +474,9 @@ struct Expr {
      * operands have the same category and the same cv-qualified type. */
     bool cxx_conditional_lvalue;
     bool cxx_conditional_xvalue;
+    /* A non-reference data member selected through a C++ dot-expression on
+     * an xvalue object is itself an xvalue. */
+    bool cxx_member_xvalue;
     /* C++20 u8 character/string literal mapped to the RinOS byte ABI. */
     bool is_cxx_utf8_literal;
     /* EXPR_STRING_LIT payload length, excluding its required terminator. */
