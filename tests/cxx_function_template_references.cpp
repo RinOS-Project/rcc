@@ -88,6 +88,26 @@ struct LifetimeExtendedTemporary {
     }
 };
 
+struct MemberReceiverLifetime {
+    int* events;
+    int value;
+    int call_marker;
+    int destructor_marker;
+
+    int read() const {
+        *events = *events * 10 + call_marker;
+        return value;
+    }
+
+    ~MemberReceiverLifetime() {
+        *events = *events * 10 + destructor_marker;
+    }
+};
+
+MemberReceiverLifetime make_member_receiver_lifetime(int* events, int value) {
+    return {events, value, 2, 1};
+}
+
 struct LifetimeExtendedBase {
     int* events;
     int value;
@@ -478,6 +498,17 @@ int main() {
             true, &argument_temporary_events) != 11 ||
         argument_temporary_events != 11)
         return 78;
+    int member_receiver_events = 0;
+    int member_receiver_result = make_member_receiver_lifetime(
+        &member_receiver_events, 12).read();
+    if (member_receiver_result != 12 || member_receiver_events != 21)
+        return 79;
+    member_receiver_events = 0;
+    int compound_member_receiver_result = MemberReceiverLifetime{
+        &member_receiver_events, 13, 3, 4}.read();
+    if (compound_member_receiver_result != 13 ||
+        member_receiver_events != 34)
+        return 80;
     int converted_temporary_events = 0;
     {
         const LifetimeExtendedTemporary& converted_temporary =

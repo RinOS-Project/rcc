@@ -332,9 +332,11 @@
         binding, conditional/comma arguments, statement/condition/return
         boundaries, and destructor order are covered by
         `test-cxx-function-template-references`.
-  - [ ] Add a destructor-order regression for a nontrivial class-prvalue member
-        receiver on both target backends; normal and inline call lowering now
-        carry its cleanup plan through the full-expression.
+  - [x] Verify nontrivial class-prvalue member-receiver lifetime and destructor
+        order for both function-return and compound receivers. The regression
+        checks method-before-destructor ordering and exactly-once destruction,
+        generates i686/AMD64 code, and executes on x64 in
+        `test-cxx-function-template-references`.
   - [ ] Support static-duration reference temporaries, including initialization
         and destructor registration for namespace and block static storage.
   - [x] Preserve xvalue category for a non-reference data member selected

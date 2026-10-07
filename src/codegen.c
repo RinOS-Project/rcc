@@ -12645,21 +12645,6 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             }
             codegen_assign_compound_expr(expression->call_func, bytes,
                                          stack_alignment);
-            if (expression->cxx_temporary_owner &&
-                expression->cxx_temporary_source) {
-                Expr* source = expression->cxx_temporary_source;
-                int temporary_offset = source->kind == EXPR_CALL
-                    ? source->call_result_offset
-                    : source->kind == EXPR_COMPOUND
-                        ? source->compound_offset : 0;
-                if (temporary_offset < 0) {
-                    expression->cxx_temporary_owner->var_offset =
-                        temporary_offset;
-                } else {
-                    rcc_error(source->loc,
-                              "class-prvalue member receiver has no assigned result slot");
-                }
-            }
             for (ExprList* argument = expression->call_args; argument;
                  argument = argument->next) {
                 codegen_assign_compound_expr(argument->expr, bytes,
@@ -12685,6 +12670,33 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                             active_call_temporary_owners;
                         active_call_temporary_owners = argument;
                     }
+                }
+            }
+            if (expression->cxx_temporary_owner &&
+                expression->cxx_temporary_source) {
+                Expr* source = expression->cxx_temporary_source;
+                int temporary_offset = source->kind == EXPR_CALL
+                    ? source->call_result_offset
+                    : source->kind == EXPR_COMPOUND
+                        ? source->compound_offset : 0;
+                /* The implicit object argument recursively assigns its
+                 * receiver's result slot while traversing call_args.  Only
+                 * assign it here if this member-call form did not expose that
+                 * path, so cleanup always refers to the same live object. */
+                if (temporary_offset >= 0) {
+                    codegen_assign_compound_expr(source, bytes,
+                                                 stack_alignment);
+                    temporary_offset = source->kind == EXPR_CALL
+                        ? source->call_result_offset
+                        : source->kind == EXPR_COMPOUND
+                            ? source->compound_offset : 0;
+                }
+                if (temporary_offset < 0) {
+                    expression->cxx_temporary_owner->var_offset =
+                        temporary_offset;
+                } else {
+                    rcc_error(source->loc,
+                              "class-prvalue member receiver has no assigned result slot");
                 }
             }
             for (ExprList* argument = expression->call_new_args; argument;
