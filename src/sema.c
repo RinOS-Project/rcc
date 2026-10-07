@@ -1674,8 +1674,24 @@ static Type* sema_common_arithmetic_type(Type* left, Type* right) {
 static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
     Type* source_base;
     Type* target_base;
+    bool reference_target;
     if (!source || !target) return -1;
+    reference_target = target->is_reference;
+    if (source->is_reference) source = source->base;
+    if (reference_target) target = target->base;
+    if (!source || !target) return -1;
+    if (reference_target &&
+        ((source->is_const && !target->is_const) ||
+         (source->is_volatile && !target->is_volatile))) {
+        return -1;
+    }
     if (type_is_compatible(source, target)) return 0;
+    if (reference_target &&
+        (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
+        (target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
+        sema_cxx_unique_public_base(source, target, NULL)) {
+        return 2;
+    }
     if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
         return -1;
     }
@@ -1714,23 +1730,41 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         return NULL;
     }
     for (method = aggregate->methods; method; method = method->next) {
+        Type* result_type;
+        int rank;
         if (method->kind != TYPE_METHOD_FUNCTION ||
             !method->function_decl || !method->return_type ||
             !method->name || strcmp(method->name, "operator conversion") != 0 ||
             method->cxx_access != ACCESS_PUBLIC || method->is_explicit ||
-            method->function_decl->func_params ||
-            sema_cxx_conversion_result_rank(method->return_type, target) < 0) {
+            method->function_decl->func_params) {
             continue;
         }
-        {
-            int rank = sema_cxx_conversion_result_rank(
-                method->return_type, target);
-            if (!result || rank < result_rank) {
-                result = method;
-                result_rank = rank;
-                if (ambiguous) *ambiguous = false;
+        result_type = method->return_type;
+        if (target->is_reference) {
+            if (result_type->is_reference) {
+                if (target->is_rvalue_reference &&
+                    !result_type->is_rvalue_reference) {
+                    continue;
+                }
+                if (!target->is_rvalue_reference &&
+                    result_type->is_rvalue_reference &&
+                    !target->base->is_const) {
+                    continue;
+                }
+            } else if (!target->is_rvalue_reference &&
+                       !target->base->is_const) {
+                /* A non-const lvalue reference cannot bind a conversion
+                 * function's prvalue result. */
                 continue;
             }
+        }
+        rank = sema_cxx_conversion_result_rank(result_type, target);
+        if (rank < 0) continue;
+        if (!result || rank < result_rank) {
+            result = method;
+            result_rank = rank;
+            if (ambiguous) *ambiguous = false;
+            continue;
         }
         if (result) {
             if (ambiguous) *ambiguous = true;
@@ -1829,39 +1863,40 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     if (target->is_reference) {
         Type* referred = target->base;
-        Type* source = e->type;
+        Type* source;
+        Type* source_object;
+        bool conversion_attempted = false;
         /* Reference arguments are passed as addresses by the backend.  A
          * const lvalue reference may also bind a scalar rvalue; the backend
          * materializes that value for the duration of the call. */
-        if (!referred ||
-            (!target->is_rvalue_reference && !is_lvalue(e) &&
-             !referred->is_const) ||
-            (target->is_rvalue_reference && is_lvalue(e))) {
-            return NULL;
-        }
-        if (source && source->is_reference) source = source->base;
-        if (!source) return NULL;
-        if ((source->is_const && !referred->is_const) ||
-            (source->is_volatile && !referred->is_volatile)) {
-            return NULL;
-        }
+        if (!referred) return NULL;
+reference_binding_source:
+        source = e->type;
+        source_object = source && source->is_reference
+            ? source->base : source;
+        if (!source_object) return NULL;
         if (rcc_parser_is_cxx_mode() &&
-            (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
-            (referred->kind == TYPE_STRUCT || referred->kind == TYPE_UNION)) {
+            (source_object->kind == TYPE_STRUCT ||
+             source_object->kind == TYPE_UNION) &&
+            (referred->kind == TYPE_STRUCT || referred->kind == TYPE_UNION) &&
+            (!source_object->is_const || referred->is_const) &&
+            (!source_object->is_volatile || referred->is_volatile)) {
             int adjustment = 0;
             int virtual_index;
             int nested_adjustment;
             if (sema_cxx_virtual_object_conversion(
-                    source, referred, &virtual_index, &nested_adjustment)) {
+                    source_object, referred,
+                    &virtual_index, &nested_adjustment)) {
                 e->cxx_virtual_base_adjustment = true;
                 e->cxx_virtual_base_index = virtual_index;
                 e->cxx_virtual_base_nested_adjustment = nested_adjustment;
-                e->cxx_virtual_base_source_class = source->cxx_class;
-                e->cxx_virtual_base_pointer_offset = source->cxx_class
-                    ? source->cxx_class->virtual_base_pointer_offset : -1;
-                return target;
+                e->cxx_virtual_base_source_class = source_object->cxx_class;
+                e->cxx_virtual_base_pointer_offset = source_object->cxx_class
+                    ? source_object->cxx_class->virtual_base_pointer_offset
+                    : -1;
+                goto reference_binding_validated;
             }
-            if (sema_cxx_unique_public_base(source, referred,
+            if (sema_cxx_unique_public_base(source_object, referred,
                                             &adjustment)) {
                 /* Reference binding keeps the source lvalue address but uses
                  * the same fixed public-base displacement as a pointer
@@ -1870,11 +1905,47 @@ static Type* implicit_cast(Expr* e, Type* target) {
                  * address rather than the complete-object address. */
                 e->cxx_pointer_adjustment_valid = adjustment != 0;
                 e->cxx_pointer_adjustment = adjustment;
-                return target;
+                goto reference_binding_validated;
             }
         }
-        return cxx_reference_object_compatible(source, referred)
-            ? target : NULL;
+        if (cxx_reference_object_compatible(source_object, referred)) {
+            if ((source_object->is_const && !referred->is_const) ||
+                (source_object->is_volatile && !referred->is_volatile)) {
+                return NULL;
+            }
+            goto reference_binding_validated;
+        }
+        if (!conversion_attempted && rcc_parser_is_cxx_mode() &&
+            (referred->kind == TYPE_STRUCT ||
+             referred->kind == TYPE_UNION) &&
+            (source_object->kind == TYPE_STRUCT ||
+             source_object->kind == TYPE_UNION)) {
+            bool ambiguous = false;
+            TypeMethod* conversion = sema_find_cxx_conversion_method(
+                source_object, target, &ambiguous);
+            if (!ambiguous && conversion) {
+                Expr* source_expression =
+                    ast_arena_alloc(sizeof(*source_expression));
+                Expr* member;
+                Expr* call;
+                *source_expression = *e;
+                member = expr_member(source_expression, conversion->name,
+                                     e->loc);
+                call = expr_call(member, NULL, e->loc);
+                *e = *call;
+                sema_expr(e);
+                conversion_attempted = true;
+                goto reference_binding_source;
+            }
+        }
+        return NULL;
+reference_binding_validated:
+        if ((!target->is_rvalue_reference && !is_lvalue(e) &&
+             !referred->is_const) ||
+            (target->is_rvalue_reference && is_lvalue(e))) {
+            return NULL;
+        }
+        return target;
     }
 
     /* Same type */
