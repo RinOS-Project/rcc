@@ -363,9 +363,6 @@
         namespace-scope arrays on both targets and the x64 host. Function-local
         static and TLS destructor registration, plus globals requiring generated
         default-constructor work, still lack lifetime registration.
-  - [ ] Complete and verify explicit reference `static_cast` adjustment through
-        virtual bases; i686/AMD64 lowering and a virtual-diamond regression were
-        added, but no build or execution was run.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,
