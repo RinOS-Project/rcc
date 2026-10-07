@@ -1917,6 +1917,59 @@ static void unmap_object(MappedObject* mapping)
     memset(mapping, 0, sizeof(*mapping));
 }
 
+static void verify_virtual_dispatch_object(const char* path, uint16_t arch,
+                                           bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSymbol* dispatch_symbol;
+    ObjSymbol* base_call_symbol;
+    ObjSymbol* derived_call_symbol;
+    ObjSymbol* secondary_dispatch_symbol;
+    ObjSymbol* secondary_call_symbol;
+    assert(object != NULL && object->arch == arch);
+    dispatch_symbol = objfile_find_symbol(
+        object, "verified_virtual_dispatch");
+    base_call_symbol = objfile_find_symbol(
+        object, "verified_virtual_call_base");
+    derived_call_symbol = objfile_find_symbol(
+        object, "verified_virtual_call_derived");
+    secondary_dispatch_symbol = objfile_find_symbol(
+        object, "verified_virtual_secondary_dispatch");
+    secondary_call_symbol = objfile_find_symbol(
+        object, "verified_virtual_call_secondary");
+    assert(dispatch_symbol != NULL && dispatch_symbol->type == SYM_GLOBAL &&
+           dispatch_symbol->binding == BIND_CODE &&
+           dispatch_symbol->section == 0 && base_call_symbol != NULL &&
+           base_call_symbol->binding == BIND_CODE &&
+           base_call_symbol->section == 0 && derived_call_symbol != NULL &&
+           derived_call_symbol->binding == BIND_CODE &&
+           derived_call_symbol->section == 0 &&
+           secondary_dispatch_symbol != NULL &&
+           secondary_dispatch_symbol->binding == BIND_CODE &&
+           secondary_dispatch_symbol->section == 0 &&
+           secondary_call_symbol != NULL &&
+           secondary_call_symbol->binding == BIND_CODE &&
+           secondary_call_symbol->section == 0);
+    if (execute) {
+        MappedObject mapping = map_object(object);
+        int (RINOS_ABI *base_call)(void);
+        int (RINOS_ABI *derived_call)(void);
+        int (RINOS_ABI *secondary_call)(void);
+        void* address = symbol_address(
+            mapping.bases[0], base_call_symbol);
+        memcpy(&base_call, &address, sizeof(base_call));
+        address = symbol_address(mapping.bases[0], derived_call_symbol);
+        memcpy(&derived_call, &address, sizeof(derived_call));
+        address = symbol_address(mapping.bases[0], secondary_call_symbol);
+        memcpy(&secondary_call, &address, sizeof(secondary_call));
+        assert(base_call() == 17);
+        assert(derived_call() == 29);
+        assert(secondary_call() == 47);
+        unmap_object(&mapping);
+    }
+    objfile_free(object);
+}
+
 static void verify_global_object(const char* path, uint16_t arch,
                                  bool execute)
 {
@@ -2152,7 +2205,7 @@ static void verify_wide_variadic_call_object(const char* path, uint16_t arch)
 int main(int argc, char** argv)
 {
     assert(argc == 6 || argc == 8 || argc == 10 || argc == 12 ||
-           argc == 14);
+           argc == 14 || argc == 16);
     verify_object(argv[1], ARCH_X86);
     verify_object(argv[2], ARCH_X64);
     if (sizeof(void*) == 8u) {
@@ -2171,17 +2224,21 @@ int main(int argc, char** argv)
         verify_typeinfo_object(argv[8], ARCH_X86);
         verify_typeinfo_object(argv[9], ARCH_X64);
     }
-    if (argc == 12) {
+    if (argc == 12 || argc == 14 || argc == 16) {
         verify_wide_variadic_call_object(argv[10], ARCH_X86);
         verify_wide_variadic_call_object(argv[11], ARCH_X64);
     }
-    if (argc == 14) {
-        verify_wide_variadic_call_object(argv[10], ARCH_X86);
-        verify_wide_variadic_call_object(argv[11], ARCH_X64);
+    if (argc == 14 || argc == 16) {
         verify_member_methods_object(argv[12], ARCH_X86,
                                      sizeof(void*) == 4u);
         verify_member_methods_object(argv[13], ARCH_X64,
                                      sizeof(void*) == 8u);
+    }
+    if (argc == 16) {
+        verify_virtual_dispatch_object(argv[14], ARCH_X86,
+                                       sizeof(void*) == 4u);
+        verify_virtual_dispatch_object(argv[15], ARCH_X64,
+                                       sizeof(void*) == 8u);
     }
     puts("Verified typed-SSA production .ro bridge tests passed");
     return 0;

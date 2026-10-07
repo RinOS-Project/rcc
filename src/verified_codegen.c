@@ -836,6 +836,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     data_module = codegen_new();
     codegen_emit_global_data(data_module, (AST*)ast);
     verified_emit_typeinfo_ast(data_module, ast);
+    codegen_emit_cxx_vtables(data_module);
     /* The verified functions are appended after the data module has already
      * been converted to an object.  Defer all debug emission until those
      * functions are present so one DWARF unit covers data and code without

@@ -4099,6 +4099,54 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             return lower_invalid_value();
         }
     }
+    if (expression->call_is_virtual) {
+        size_t object_index = return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u;
+        size_t slot_offset;
+        RccIrValue object_operand;
+        RccIrInstruction* vtable_load;
+        RccIrLowerValue vtable_address;
+        RccIrInstruction* callee_load;
+        if (expression->call_virtual_index < 0 ||
+            !expression->call_virtual_object ||
+            !expression->call_virtual_object->type ||
+            expression->call_virtual_object->type->kind != TYPE_PTR ||
+            !callee || !callee->func_this_param ||
+            !function_type->params ||
+            !function_type->params->type ||
+            function_type->params->type->kind != TYPE_PTR ||
+            object_index >= index ||
+            (size_t)expression->call_virtual_index >
+                SIZE_MAX / chunk_size) {
+            rcc_free(operands);
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        slot_offset = (size_t)expression->call_virtual_index * chunk_size;
+        object_operand = operands[object_index];
+        vtable_load = lower_append(
+            context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+            &object_operand, 1u, NULL, 0u);
+        if (!vtable_load) {
+            rcc_free(operands);
+            return lower_invalid_value();
+        }
+        vtable_address = lower_byte_offset_address(
+            context,
+            lower_value(vtable_load->result, rcc_ir_type_pointer(0u), true),
+            (uint64_t)slot_offset);
+        callee_load = vtable_address.valid
+            ? lower_append(context, RCC_IR_LOAD,
+                           rcc_ir_type_pointer(0u),
+                           &vtable_address.value, 1u, NULL, 0u)
+            : NULL;
+        if (!callee_load) {
+            rcc_free(operands);
+            return lower_invalid_value();
+        }
+        callee_value = lower_value(
+            callee_load->result, rcc_ir_type_pointer(0u), true);
+        indirect = true;
+    }
     if (index != argument_count) {
         rcc_free(operands);
         context->unsupported = true;
