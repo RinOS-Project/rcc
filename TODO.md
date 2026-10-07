@@ -281,6 +281,9 @@
       integer underlying type, preserve the referenced base type's byte size
       and signedness, remove the stray non-standard enum encoding byte, and
       verify C, fixed/inferred unsigned C++, and signed C++ enums on i686/AMD64.
+- [x] Mark scoped `enum class`/`enum struct` DIEs with the DWARF 4
+      `DW_AT_enum_class` flag and verify the flag, underlying base type, and
+      enumerator value on i686/AMD64.
 - [x] Inferred/unscoped C++ enum coverage emits direct unsigned-v3 `.rin`, `.rll`,
       and `.drv` images on i686/AMD64 and validates each artifact with rinvalidate.
 - [x] bounded templates、concepts、constexpr/consteval、lambda

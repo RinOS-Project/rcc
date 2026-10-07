@@ -1431,11 +1431,15 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 rcc_fatal("DWARF enum underlying type was not collected");
                 return;
             }
-            section_add_byte(info, 15u);      /* DW_TAG_enumeration_type */
+            /* Abbreviation 36 carries DW_AT_enum_class for scoped enums. */
+            section_add_byte(info, type->enum_is_scoped ? 36u : 15u);
             debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
             debug_type_ref(info, patches, underlying_type);
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
                                              (type->size < 0 ? 0 : type->size)));
+            if (type->enum_is_scoped) {
+                section_add_byte(info, 1u);  /* DW_AT_enum_class */
+            }
             for (int constant = 0; constant < type->enum_constant_count;
                  ++constant) {
                 EnumConstantInfo* item = &type->enum_constants[constant];
@@ -2957,6 +2961,19 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_AT_byte_size */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 36u);
+    debug_line_uleb(abbrev, 0x04u);     /* DW_TAG_enumeration_type */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_AT_byte_size */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x6du);     /* DW_AT_enum_class */
+    debug_line_uleb(abbrev, 0x0cu);     /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 16u);

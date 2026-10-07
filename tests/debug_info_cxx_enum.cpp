@@ -22,3 +22,9 @@ enum DebugSignedEnum : signed char {
 };
 
 DebugSignedEnum debug_signed_enum;
+
+enum class DebugScopedEnum : unsigned short {
+    scoped_value = 7,
+};
+
+DebugScopedEnum debug_scoped_enum;
