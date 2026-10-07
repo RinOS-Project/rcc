@@ -186,6 +186,56 @@ static void verify_optimization_level_pipeline(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_debug_local_promotion_policy(void)
+{
+    static const int source_declaration_marker = 0;
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "debug_local_promotion", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrInstruction* source_allocation = rcc_ir_append(
+        entry, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u), NULL, 0u,
+        NULL, 0u);
+    RccIrValue temporary_address = append_alloca(entry, 4u);
+    RccIrValue source_value;
+    RccIrValue temporary_value;
+    RccIrValue result;
+    RccIrOptimizationStats stats;
+    RccIrInstruction* instruction;
+    size_t retained_source_allocas = 0u;
+    char error[256];
+
+    assert(source_allocation != NULL);
+    rcc_ir_set_immediate(source_allocation, 4u);
+    source_allocation->source_declaration = &source_declaration_marker;
+    append_store(entry, function->parameters[0], source_allocation->result);
+    append_store(entry, function->parameters[1], temporary_address);
+    source_value = append_load(entry, i32, source_allocation->result);
+    temporary_value = append_load(entry, i32, temporary_address);
+    result = append_binary(entry, RCC_IR_ADD, i32,
+                           source_value, temporary_value);
+    append_return(entry, result);
+
+    assert(rcc_ir_optimize_function_preserving_source_declarations(
+        function, 1u, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.mem2reg.promoted_allocas == 1u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert(count_opcode(function, RCC_IR_STORE) == 1u);
+    for (instruction = entry->first; instruction;
+         instruction = instruction->next) {
+        if (instruction->opcode != RCC_IR_ALLOCA) continue;
+        assert(instruction->source_declaration ==
+               &source_declaration_marker);
+        ++retained_source_allocas;
+    }
+    assert(retained_source_allocas == 1u);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_diamond_promotion(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -1135,6 +1185,7 @@ static void verify_loop_invariant_code_motion(void)
 int main(void)
 {
     verify_optimization_level_pipeline();
+    verify_debug_local_promotion_policy();
     verify_diamond_promotion();
     verify_loop_promotion();
     verify_escape_is_not_promoted();

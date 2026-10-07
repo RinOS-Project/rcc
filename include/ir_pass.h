@@ -36,5 +36,11 @@ bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
 bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
                               RccIrOptimizationStats* stats,
                               char* error, size_t error_size);
+/* Optimize while retaining stack allocations tied to source declarations.
+ * This keeps source locals addressable for DWARF without disabling promotion
+ * of compiler-generated temporaries. */
+bool rcc_ir_optimize_function_preserving_source_declarations(
+    RccIrFunction* function, unsigned level,
+    RccIrOptimizationStats* stats, char* error, size_t error_size);
 
 #endif /* RCC_IR_PASS_H */

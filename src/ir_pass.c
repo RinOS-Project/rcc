@@ -325,7 +325,8 @@ static bool ir_pass_find_variable_type(
 
 static bool ir_pass_collect_variables(
     RccIrFunction* function, RccIrPromotedVariable** variables_out,
-    size_t* variable_count_out, size_t** address_variables_out) {
+    size_t* variable_count_out, size_t** address_variables_out,
+    bool preserve_source_declarations) {
     RccIrPromotedVariable* variables;
     size_t* address_variables;
     size_t count = 0u;
@@ -347,6 +348,8 @@ static bool ir_pass_collect_variables(
          instruction = instruction->next) {
         RccIrPromotedVariable variable;
         if (instruction->opcode != RCC_IR_ALLOCA) continue;
+        if (preserve_source_declarations &&
+            instruction->source_declaration) continue;
         memset(&variable, 0, sizeof(variable));
         if (!ir_pass_find_variable_type(function, instruction, &variable)) {
             continue;
@@ -755,8 +758,10 @@ static bool ir_pass_compact_values(RccIrFunction* function,
     return true;
 }
 
-bool rcc_ir_mem2reg(RccIrFunction* function, RccIrMem2RegStats* stats,
-                    char* error, size_t error_size) {
+static bool ir_pass_mem2reg(RccIrFunction* function,
+                            RccIrMem2RegStats* stats,
+                            char* error, size_t error_size,
+                            bool preserve_source_declarations) {
     RccIrMem2RegStats local_stats;
     RccIrBlock** blocks = NULL;
     bool* predecessors = NULL;
@@ -783,7 +788,8 @@ bool rcc_ir_mem2reg(RccIrFunction* function, RccIrMem2RegStats* stats,
                                     &dominators, &immediate, &children,
                                     error, error_size) ||
         !ir_pass_collect_variables(function, &variables, &variable_count,
-                                   &address_variables)) {
+                                   &address_variables,
+                                   preserve_source_declarations)) {
         goto cleanup;
     }
     if (variable_count == 0u) {
@@ -846,6 +852,12 @@ cleanup:
     rcc_free(phis);
     if (result && stats) *stats = local_stats;
     return result;
+}
+
+bool rcc_ir_mem2reg(RccIrFunction* function, RccIrMem2RegStats* stats,
+                    char* error, size_t error_size) {
+    return ir_pass_mem2reg(
+        function, stats, error, error_size, false);
 }
 
 static uint64_t ir_pass_integer_mask(uint16_t bit_width) {
@@ -2122,9 +2134,10 @@ bool rcc_ir_simplify(RccIrFunction* function, RccIrSimplifyStats* stats,
     return ir_pass_simplify(function, true, stats, error, error_size);
 }
 
-bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
-                              RccIrOptimizationStats* stats,
-                              char* error, size_t error_size) {
+static bool ir_pass_optimize_function(
+    RccIrFunction* function, unsigned level,
+    RccIrOptimizationStats* stats, char* error, size_t error_size,
+    bool preserve_source_declarations) {
     RccIrOptimizationStats local_stats;
     size_t round;
     size_t round_limit;
@@ -2143,8 +2156,9 @@ bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
         if (stats) *stats = local_stats;
         return true;
     }
-    if (!rcc_ir_mem2reg(function, &local_stats.mem2reg,
-                        error, error_size)) {
+    if (!ir_pass_mem2reg(function, &local_stats.mem2reg,
+                         error, error_size,
+                         preserve_source_declarations)) {
         return false;
     }
     if (level >= 2u && !ir_pass_licm(
@@ -2177,4 +2191,18 @@ bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
     if (!rcc_ir_verify_function(function, error, error_size)) return false;
     if (stats) *stats = local_stats;
     return true;
+}
+
+bool rcc_ir_optimize_function(RccIrFunction* function, unsigned level,
+                              RccIrOptimizationStats* stats,
+                              char* error, size_t error_size) {
+    return ir_pass_optimize_function(
+        function, level, stats, error, error_size, false);
+}
+
+bool rcc_ir_optimize_function_preserving_source_declarations(
+    RccIrFunction* function, unsigned level,
+    RccIrOptimizationStats* stats, char* error, size_t error_size) {
+    return ir_pass_optimize_function(
+        function, level, stats, error, error_size, true);
 }

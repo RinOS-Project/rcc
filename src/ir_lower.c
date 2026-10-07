@@ -9493,9 +9493,14 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     context.labels = NULL;
     {
         RccIrOptimizationStats stats;
-        if (!rcc_ir_optimize_function(
-                function, (unsigned)g_opts.opt_level, &stats,
-                error, error_size)) {
+        bool optimized = g_opts.debug_info
+            ? rcc_ir_optimize_function_preserving_source_declarations(
+                  function, (unsigned)g_opts.opt_level, &stats,
+                  error, error_size)
+            : rcc_ir_optimize_function(
+                  function, (unsigned)g_opts.opt_level, &stats,
+                  error, error_size);
+        if (!optimized) {
             rcc_ir_module_destroy(module);
             return RCC_IR_LOWER_INVALID;
         }

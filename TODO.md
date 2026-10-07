@@ -566,9 +566,13 @@
         pointerが格納されるため、VLA localのlocation式だけ`DW_OP_deref`を
         追加し、対象DIEのregister／負offset／opcodeを両archで検証
   - [x] verified IRのsource allocaから宣言を最終x86 frame layoutまで追跡し、
-        EBP/RBP基準の実stack offsetをvariable/parameter DIEへ出力。mem2regで
-        allocaが消えた最適化変数は位置属性を省き、誤った`Decl.var_offset`を
-        出さないことをi686/AMD64のO0/O2 object regressionで検証
+        EBP/RBP基準の実stack offsetをvariable/parameter DIEへ出力。位置を持た
+        ない変数へ誤った`Decl.var_offset`を使わないことをi686/AMD64のO0/O2
+        object regressionで検証
+  - [x] `-g -O1`以上ではsource declarationに紐づくallocaだけをmem2regから
+        保持し、compiler temporaryのSSA昇格と残りの最適化は継続する。
+        optimized parameter/local/nested-local DIEが別々の実frame slotを指す
+        ことをi686/AMD64で検証
   - [x] stack declarationへ`DW_AT_type`を付与し、基本型・ポインタ型の
         v4 type DIEと、未対応の複合型をscalarと偽らないopaque DIEとして
         i686/AMD64 object回帰で検証

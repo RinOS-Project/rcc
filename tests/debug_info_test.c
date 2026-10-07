@@ -790,7 +790,9 @@ static void verify_optimized_verified_debug_object(
     ObjSection* strings;
     ObjSection* frame;
     bool has_location;
-    int64_t frame_offset;
+    int64_t value_offset;
+    int64_t local_offset;
+    int64_t nested_offset;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -800,14 +802,16 @@ static void verify_optimized_verified_debug_object(
     verify_saved_callee_register_rules(
         frame, "verified_debug_preserved_registers", architecture);
     assert(find_variable_location(info, strings, "value", architecture,
-                                  &has_location, &frame_offset));
-    assert(!has_location);
+                                  &has_location, &value_offset));
+    assert(has_location && value_offset < 0 && value_offset % 4 == 0);
     assert(find_variable_location(info, strings, "local", architecture,
-                                  &has_location, &frame_offset));
-    assert(!has_location);
+                                  &has_location, &local_offset));
+    assert(has_location && local_offset < 0 && local_offset % 4 == 0 &&
+           local_offset != value_offset);
     assert(find_variable_location(info, strings, "nested", architecture,
-                                  &has_location, &frame_offset));
-    assert(!has_location);
+                                  &has_location, &nested_offset));
+    assert(has_location && nested_offset < 0 && nested_offset % 4 == 0 &&
+           nested_offset != value_offset && nested_offset != local_offset);
     objfile_free(object);
 }
 
