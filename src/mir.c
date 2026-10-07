@@ -849,6 +849,8 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
             }
             instruction->immediate = ir_instruction->immediate;
             instruction->predicate = ir_instruction->predicate;
+            instruction->volatile_access =
+                ir_instruction->volatile_access;
             instruction->symbol_is_code = ir_instruction->symbol_is_code;
             if (ir_instruction->callee_value != RCC_IR_VALUE_NONE) {
                 instruction->callee_value = ir_instruction->callee_value;

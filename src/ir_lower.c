@@ -16,6 +16,7 @@ typedef struct {
     RccIrValue value;
     RccIrType type;
     bool is_unsigned;
+    bool volatile_access;
     bool valid;
 } RccIrLowerValue;
 
@@ -221,6 +222,8 @@ static RccIrLowerValue lower_load_aggregate_chunk(
 static RccIrLowerValue lower_load_address(
     RccIrLowerContext* context, RccIrLowerValue address,
     const Type* ast_type);
+static RccIrLowerValue lower_lvalue_address(
+    RccIrLowerContext* context, const Expr* expression);
 static RccIrLowerValue lower_cxx_typeid_address(
     RccIrLowerContext* context, const Expr* expression);
 static RccIrLowerValue lower_typeinfo_field(
@@ -242,6 +245,7 @@ static RccIrLowerValue lower_invalid_value(void) {
     value.value = RCC_IR_VALUE_NONE;
     value.type = rcc_ir_type_void();
     value.is_unsigned = false;
+    value.volatile_access = false;
     value.valid = false;
     return value;
 }
@@ -252,13 +256,13 @@ static RccIrLowerValue lower_value(RccIrValue id, RccIrType type,
     value.value = id;
     value.type = type;
     value.is_unsigned = is_unsigned;
+    value.volatile_access = false;
     value.valid = id != RCC_IR_VALUE_NONE;
     return value;
 }
 
 static bool lower_type(const Type* type, RccIrType* result) {
-    if (!type || !result || type->cleanup_function ||
-        type->is_volatile) {
+    if (!type || !result || type->cleanup_function) {
         return false;
     }
     switch (type->kind) {
@@ -941,8 +945,12 @@ static RccIrLowerValue lower_byte_offset_address(
                            NULL, 0u);
     if (!address) return lower_invalid_value();
     rcc_ir_set_immediate(address, 1u);
-    return lower_value(
-        address->result, rcc_ir_type_pointer(0u), true);
+    {
+        RccIrLowerValue result = lower_value(
+            address->result, rcc_ir_type_pointer(0u), true);
+        result.volatile_access = base.volatile_access;
+        return result;
+    }
 }
 
 static RccIrLowerValue lower_adjusted_pointer(
@@ -984,7 +992,7 @@ static RccIrLowerValue lower_adjusted_pointer(
     return lower_value(select->result, pointer_type, true);
 }
 
-static RccIrLowerValue lower_lvalue_address(
+static RccIrLowerValue lower_lvalue_address_impl(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
     if (!expression) return lower_invalid_value();
@@ -1012,7 +1020,6 @@ static RccIrLowerValue lower_lvalue_address(
                 declaration->var_is_thread_local ||
                 !declaration->type || declaration->type->size <= 0 ||
                 declaration->type->is_reference ||
-                declaration->type->is_volatile ||
                 declaration->type->cleanup_function) {
                 context->unsupported = true;
                 return lower_invalid_value();
@@ -1131,6 +1138,26 @@ static RccIrLowerValue lower_lvalue_address(
     return lower_invalid_value();
 }
 
+static RccIrLowerValue lower_lvalue_address(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerValue address = lower_lvalue_address_impl(context, expression);
+    const Type* object_type = NULL;
+    bool volatile_access;
+    if (!address.valid || !expression) return address;
+    volatile_access = expression->type && expression->type->is_volatile;
+    if (expression->kind == EXPR_MEMBER) {
+        object_type = expression->member_base
+            ? expression->member_base->type : NULL;
+    } else if (expression->kind == EXPR_PTR_MEMBER &&
+               expression->member_base && expression->member_base->type &&
+               expression->member_base->type->kind == TYPE_PTR) {
+        object_type = expression->member_base->type->base;
+    }
+    if (object_type && object_type->is_volatile) volatile_access = true;
+    address.volatile_access = volatile_access;
+    return address;
+}
+
 static RccIrLowerValue lower_load_address(RccIrLowerContext* context,
                                           RccIrLowerValue address,
                                           const Type* ast_type) {
@@ -1144,6 +1171,8 @@ static RccIrLowerValue lower_load_address(RccIrLowerContext* context,
     load = lower_append(context, RCC_IR_LOAD, type, &address.value, 1u,
                         NULL, 0u);
     if (!load) return lower_invalid_value();
+    rcc_ir_set_volatile_access(
+        load, address.volatile_access || ast_type->is_volatile);
     return lower_value(load->result, type, ast_type->is_unsigned);
 }
 
@@ -1227,8 +1256,14 @@ static bool lower_store_address(RccIrLowerContext* context,
     if (!address.valid || !value.valid) return false;
     operands[0] = value.value;
     operands[1] = address.value;
-    return lower_append(context, RCC_IR_STORE, rcc_ir_type_void(),
-                        operands, 2u, NULL, 0u) != NULL;
+    {
+        RccIrInstruction* store = lower_append(
+            context, RCC_IR_STORE, rcc_ir_type_void(),
+            operands, 2u, NULL, 0u);
+        if (!store) return false;
+        rcc_ir_set_volatile_access(store, address.volatile_access);
+        return true;
+    }
 }
 
 static bool lower_store_lvalue(RccIrLowerContext* context,

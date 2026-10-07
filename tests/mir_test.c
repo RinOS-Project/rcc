@@ -120,6 +120,54 @@ static void verify_ir_to_mir_diamond(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_volatile_access_metadata_reaches_mir(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "volatile_access_metadata", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* allocation = rcc_ir_append(
+        entry, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u), NULL, 0u,
+        NULL, 0u);
+    RccIrValue store_operands[2];
+    RccIrInstruction* store;
+    RccIrInstruction* load;
+    RccMirFunction* mir = NULL;
+    size_t volatile_loads = 0u;
+    size_t volatile_stores = 0u;
+    char error[256];
+
+    assert(allocation != NULL);
+    rcc_ir_set_immediate(allocation, 4u);
+    store_operands[0] = ir->parameters[0];
+    store_operands[1] = allocation->result;
+    store = rcc_ir_append(entry, RCC_IR_STORE, rcc_ir_type_void(),
+                          store_operands, 2u, NULL, 0u);
+    assert(store != NULL);
+    rcc_ir_set_volatile_access(store, true);
+    load = rcc_ir_append(entry, RCC_IR_LOAD, i32, &allocation->result,
+                         1u, NULL, 0u);
+    assert(load != NULL);
+    rcc_ir_set_volatile_access(load, true);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &load->result, 1u, NULL, 0u) != NULL);
+
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    for (RccMirInstruction* instruction = mir->first_block->first;
+         instruction; instruction = instruction->next) {
+        if (instruction->opcode == RCC_MIR_LOAD &&
+            instruction->volatile_access) ++volatile_loads;
+        if (instruction->opcode == RCC_MIR_STORE &&
+            instruction->volatile_access) ++volatile_stores;
+    }
+    assert(volatile_loads == 1u);
+    assert(volatile_stores == 1u);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_call_crossing_pressure(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -922,6 +970,7 @@ int main(void)
 {
     verify_x86_abi_mapping();
     verify_ir_to_mir_diamond();
+    verify_volatile_access_metadata_reaches_mir();
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();
     verify_cfg_liveness_across_backward_successor(false);

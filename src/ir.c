@@ -264,6 +264,7 @@ RccIrInstruction* rcc_ir_append(RccIrBlock* block, RccIrOpcode opcode,
     instruction->type = result_type;
     instruction->result = RCC_IR_VALUE_NONE;
     instruction->symbol_is_code = false;
+    instruction->volatile_access = false;
     instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->block = block;
     if (operand_count != 0u) {
@@ -312,6 +313,11 @@ void rcc_ir_set_immediate(RccIrInstruction* instruction, uint64_t immediate) {
 void rcc_ir_set_predicate(RccIrInstruction* instruction,
                           RccIrIntPredicate predicate) {
     if (instruction) instruction->predicate = predicate;
+}
+
+void rcc_ir_set_volatile_access(RccIrInstruction* instruction,
+                                bool volatile_access) {
+    if (instruction) instruction->volatile_access = volatile_access;
 }
 
 void rcc_ir_set_callee(RccIrInstruction* instruction, const char* callee) {
@@ -431,6 +437,12 @@ static bool ir_verify_instruction_types(
         return ir_verify_error(verifier, "%s in block %u has invalid type",
                                ir_opcode_name(instruction->opcode),
                                instruction->block->id);
+    }
+    if (instruction->volatile_access &&
+        instruction->opcode != RCC_IR_LOAD &&
+        instruction->opcode != RCC_IR_STORE) {
+        return ir_verify_error(verifier,
+                               "volatile access flag requires load or store");
     }
     if (ir_is_binary_integer(instruction->opcode)) {
         if (!ir_require_shape(verifier, instruction, 2u, 0u)) return false;

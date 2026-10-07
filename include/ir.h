@@ -98,6 +98,8 @@ struct RccIrInstruction {
     size_t target_count;
     uint64_t immediate;
     RccIrIntPredicate predicate;
+    /* Preserve observable C/C++ volatile memory accesses through lowering. */
+    bool volatile_access;
     char* callee;
     bool symbol_is_code;
     RccIrValue callee_value;
@@ -180,6 +182,8 @@ RccIrInstruction* rcc_ir_append(RccIrBlock* block, RccIrOpcode opcode,
 void rcc_ir_set_immediate(RccIrInstruction* instruction, uint64_t immediate);
 void rcc_ir_set_predicate(RccIrInstruction* instruction,
                           RccIrIntPredicate predicate);
+void rcc_ir_set_volatile_access(RccIrInstruction* instruction,
+                                bool volatile_access);
 void rcc_ir_set_callee(RccIrInstruction* instruction, const char* callee);
 
 bool rcc_ir_verify_function(const RccIrFunction* function, char* error,

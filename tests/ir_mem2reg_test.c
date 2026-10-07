@@ -869,6 +869,57 @@ static void verify_memory_is_not_commoned(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_volatile_access_survives_mem2reg(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "volatile_access_survives_mem2reg", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first;
+    RccIrValue second;
+    RccIrInstruction* store;
+    RccIrInstruction* load;
+    RccIrValue sum_operands[2];
+    RccIrInstruction* sum;
+    RccIrMem2RegStats stats;
+    char error[256];
+
+    append_store(entry, function->parameters[0], address);
+    load = rcc_ir_append(entry, RCC_IR_LOAD, i32, &address, 1u, NULL, 0u);
+    assert(load != NULL);
+    rcc_ir_set_volatile_access(load, true);
+    first = load->result;
+    store = rcc_ir_append(
+        entry, RCC_IR_STORE, rcc_ir_type_void(),
+        (RccIrValue[]){first, address}, 2u, NULL, 0u);
+    assert(store != NULL);
+    rcc_ir_set_volatile_access(store, true);
+    load = rcc_ir_append(entry, RCC_IR_LOAD, i32, &address, 1u, NULL, 0u);
+    assert(load != NULL);
+    rcc_ir_set_volatile_access(load, true);
+    second = load->result;
+    sum_operands[0] = first;
+    sum_operands[1] = second;
+    sum = rcc_ir_append(entry, RCC_IR_ADD, i32, sum_operands, 2u,
+                        NULL, 0u);
+    assert(sum != NULL);
+    append_return(entry, sum->result);
+
+    assert(rcc_ir_mem2reg(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.promoted_allocas == 0u);
+    assert(stats.removed_loads == 0u);
+    assert(stats.removed_stores == 0u);
+    assert(count_opcode(function, RCC_IR_ALLOCA) == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 2u);
+    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_dominator_scoped_gvn(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -1101,6 +1152,7 @@ int main(void)
     verify_integer_identities();
     verify_block_local_cse();
     verify_memory_is_not_commoned();
+    verify_volatile_access_survives_mem2reg();
     verify_dominator_scoped_gvn();
     verify_sibling_values_are_not_commoned();
     verify_loop_invariant_code_motion();

@@ -290,10 +290,12 @@ static bool ir_pass_find_variable_type(
                     continue;
                 }
                 if (instruction->opcode == RCC_IR_LOAD &&
-                    operand_index == 0u) {
+                    operand_index == 0u &&
+                    !instruction->volatile_access) {
                     use_type = instruction->type;
                 } else if (instruction->opcode == RCC_IR_STORE &&
                            operand_index == 1u &&
+                           !instruction->volatile_access &&
                            ir_pass_value_type(function,
                                               instruction->operands[0],
                                               &use_type)) {

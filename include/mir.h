@@ -77,6 +77,7 @@ struct RccMirInstruction {
     size_t target_count;
     uint64_t immediate;
     RccIrIntPredicate predicate;
+    bool volatile_access;
     char* callee;
     bool symbol_is_code;
     RccMirVReg callee_value;

@@ -421,6 +421,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-raw-strings test-cxx-alternative-tokens \
 	test-cxx20-unsupported-boundaries
 .PHONY: test-debug-info
+.PHONY: test-verified-volatile
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
 
@@ -11298,7 +11299,23 @@ test-verified-bitcounts: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/bitcounts-x64.ro
 	@echo "Verified backend clz/ctz/popcount/ffs/clrsb tests completed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins test-verified-bitcounts
+test-verified-volatile: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCC_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/volatile-x86.ro \
+		tests/verified_backend_volatile.c \
+		>$(TEST_OUT)/verified-backend/volatile-x86.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/volatile-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/volatile-x64.ro \
+		tests/verified_backend_volatile.c \
+		>$(TEST_OUT)/verified-backend/volatile-x64.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/volatile-x64.log
+	@echo "Verified backend volatile scalar access tests completed"
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
