@@ -522,6 +522,8 @@
         `DW_AT_linkage_name`を維持しながら、`DW_AT_object_pointer`と
         `DW_AT_containing_type`から人工`this` parameterと所有class DIEを参照し、
         i686/x86_64のobject回帰で両方の参照先を検証
+  - [x] static C++メンバー関数でもsource/mangled名を保ち、object pointerを
+        捏造せず`DW_AT_containing_type`から所有class DIEを参照する両arch回帰を追加
   - [x] subprogram DIEへ実在する関数戻り型の`DW_AT_type`参照を追加し、
         AST型を持たない生成関数には型を捏造せず型無しabbrevを選択する
         両archのdebug-info回帰を追加

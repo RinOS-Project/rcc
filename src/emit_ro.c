@@ -2786,6 +2786,36 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    /* Static C++ member functions have an owning class but no object pointer. */
+    debug_line_uleb(abbrev, 28u);
+    debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
+    debug_line_uleb(abbrev, 0x01u);    /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3fu);    /* DW_AT_external */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x1du);    /* DW_AT_containing_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -2839,8 +2869,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                 rcc_fatal("DWARF function return type was not collected");
             }
         }
-        if (function_decl && function_decl->func_this_param &&
-            function_decl->func_method_owner) {
+        if (function_decl && function_decl->func_method_owner) {
             containing_type = debug_type_find(
                 &types, function_decl->func_method_owner);
             if (!containing_type) {
@@ -2850,7 +2879,10 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         section_add_byte(info,
                          return_type && function_decl &&
                                  function_decl->func_this_param
-                             ? 26u : return_type ? 2u : 8u);
+                             ? 26u
+                             : return_type && function_decl &&
+                                       function_decl->func_method_owner
+                                   ? 28u : return_type ? 2u : 8u);
         debug_line_u32(info, name_offset);
         address_offset = info->size;
         for (int byte = 0; byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4);
@@ -2891,6 +2923,12 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
              * the containing-type reference follows the object-pointer ref. */
             debug_line_u32(info,
                            (uint32_t)(info->size + 2u * sizeof(uint32_t)));
+            debug_line_u32(info, containing_type->offset);
+        } else if (return_type && function_decl &&
+                   function_decl->func_method_owner) {
+            if (!containing_type) {
+                rcc_fatal("DWARF static member has no containing type");
+            }
             debug_line_u32(info, containing_type->offset);
         }
         debug_emit_function_locals(

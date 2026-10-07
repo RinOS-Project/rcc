@@ -139,6 +139,65 @@ static void verify_object_pointer_parameter(const char* path,
     objfile_free(object);
 }
 
+static void verify_static_member_containing_type(const char* path,
+                                                 uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x1du, 0x13u));
+
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 1u +
+             4u + 4u + 1u + 4u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t linkage_name_offset;
+        uint32_t containing_type_offset;
+        uint64_t cursor;
+        uint64_t expression_size;
+
+        if (info->data[die] != 28u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "create_value") != 0) {
+            continue;
+        }
+        cursor = die + 1u + 4u + address_size + 4u + 1u + 4u + 4u + 1u;
+        linkage_name_offset = read_u32(info->data, cursor);
+        assert(linkage_name_offset < strings->size);
+        assert(strcmp((const char*)strings->data + linkage_name_offset,
+                      "create_value") != 0);
+        assert(strings->data[linkage_name_offset] == '_');
+        cursor += 8u; /* DW_AT_linkage_name and DW_AT_type */
+        expression_size = read_uleb(info->data, info->size, &cursor);
+        assert(cursor + expression_size + 5u <= info->size);
+        cursor += expression_size + 1u; /* frame base, DW_AT_inline */
+        containing_type_offset = read_u32(info->data, cursor);
+        assert(containing_type_offset < info->size);
+        assert(info->data[containing_type_offset] == 12u);
+        {
+            uint32_t containing_name_offset = read_u32(
+                info->data, containing_type_offset + 1u);
+            assert(containing_name_offset < strings->size);
+            assert(strcmp((const char*)strings->data + containing_name_offset,
+                          "DebugMemberObject") == 0);
+        }
+        found = true;
+        break;
+    }
+    assert(found);
+    objfile_free(object);
+}
+
 static bool find_lexical_block_local(const ObjSection* info,
                                      const ObjSection* strings,
                                      const char* variable_name,
@@ -880,5 +939,7 @@ int main(int argc, char** argv)
     verify_verified_global_debug_object(argv[13], ARCH_X64);
     verify_object_pointer_parameter(argv[14], ARCH_X86);
     verify_object_pointer_parameter(argv[15], ARCH_X64);
+    verify_static_member_containing_type(argv[14], ARCH_X86);
+    verify_static_member_containing_type(argv[15], ARCH_X64);
     return 0;
 }
