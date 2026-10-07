@@ -472,8 +472,10 @@
         namespace-scope arrays using 4101-element explicit-empty and
         no-initializer arrays; verify reverse element and declaration order on
         both target codegens and the x64 host in `test-global-finalizers`.
-        Function-local static/TLS destructors and globals requiring generated
-        default-constructor work still diagnose as unsupported and remain open.
+        Non-TLS function-local static destructors and TLS objects requiring
+        unsupported default-constructor or dynamic-aggregate lowering remain open.
+        Supported TLS class initializers now use per-thread guards and cleanup
+        registration; runtime lifetime acceptance remains open below.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,
@@ -520,7 +522,13 @@
 - [x] cross-library exception transport and cleanup across `.rll` boundaries
 - [ ] remaining full Itanium ABI、`type_info` API、complete static/TLS
       destructor semantics
-- [ ] thread-local destructor and exception cleanup interaction
+- [ ] thread-local destructor and exception cleanup interaction. Both
+      native backends now allocate per-thread guards for destructible TLS
+      objects, lower supported dynamic initializers on first use, connect
+      guard-abort callbacks to exception cleanup, and register successful
+      destruction through `__cxa_thread_atexit`; `build-rcc` and
+      `build-rcxx` pass. Per-thread retry/order regressions and RinOS
+      thread-exit runtime acceptance remain required.
 
 ## 4. IR / optimization
 

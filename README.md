@@ -1,3 +1,5 @@
+2026-10-08 follow-up: Destructible TLS class objects now receive per-thread guards, supported dynamic initialization on first use, guard-abort cleanup, and `__cxa_thread_atexit` registration in both native backends. `build-rcc` and `build-rcxx` pass. Per-thread ordering, retry, and RinOS thread-exit acceptance remain open ([TODO](TODO.md)); no tests were run.
+
 2026-10-08: Both native backends now lower static reference temporaries in
 thread-local storage with per-thread lazy guards and `__cxa_thread_atexit`
 cleanup registration. `build-rcc` and `build-rcxx` pass. Per-thread lifetime

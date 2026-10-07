@@ -1084,7 +1084,8 @@ struct Decl {
             int var_reference_temporary_offset; /* Lifetime-extended object */
             Decl* var_reference_temporary_owner; /* Complete-object cleanup */
             Expr* var_reference_temporary_source; /* Static subobject source */
-            Decl* var_reference_temporary_guard; /* Static local init guard */
+            Decl* var_reference_temporary_guard; /* Static/TLS init guard */
+            bool var_tls_initializer_dynamic; /* Initialize on first use */
             int var_vla_size_offset; /* Saved runtime VLA byte size */
             int var_vla_extent_offset; /* First saved VLA dimension extent */
             int var_vla_extent_count;  /* Number of saved VLA dimensions */

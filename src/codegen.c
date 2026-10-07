@@ -1462,6 +1462,58 @@ static bool codegen_type_has_vtable_storage(Type* type) {
                              cls->virtual_base_count > 0)));
 }
 
+static bool codegen_emit_static_initializer_guard_storage(
+    Module* mod, Decl* declaration) {
+    Decl* guard = declaration
+        ? declaration->var_reference_temporary_guard : NULL;
+    const uint32_t guard_size = 8u;
+    const uint32_t guard_alignment = 8u;
+    uint64_t aligned;
+    uint32_t offset;
+    if (!mod || !declaration) return false;
+    if (!guard) return true;
+    if (declaration->var_is_thread_local) {
+        aligned = ((uint64_t)mod->tls.size + guard_alignment - 1u) &
+                  ~((uint64_t)guard_alignment - 1u);
+        if (aligned > INT_MAX || guard_size > UINT32_MAX - aligned) {
+            rcc_error(declaration->loc,
+                      "thread-local initialization guard exceeds TLS limits");
+            return false;
+        }
+        codegen_ensure_tls_capacity(mod, (size_t)aligned + guard_size);
+        if (mod->tls.size < aligned) {
+            memset(mod->tls.data + mod->tls.size, 0,
+                   (size_t)aligned - mod->tls.size);
+        }
+        offset = (uint32_t)aligned;
+        memset(mod->tls.data + offset, 0, guard_size);
+        mod->tls.size = (size_t)aligned + guard_size;
+        if (guard_alignment > mod->tls_align) {
+            mod->tls_align = guard_alignment;
+        }
+        guard->var_offset = (int)offset;
+        module_add_symbol(mod, decl_link_name(guard), offset, true,
+                          MODULE_SYMBOL_TLS, false);
+        return true;
+    }
+    aligned = ((uint64_t)mod->bss.size + guard_alignment - 1u) &
+              ~((uint64_t)guard_alignment - 1u);
+    if (aligned > INT_MAX || guard_size > UINT32_MAX - aligned) {
+        rcc_error(declaration->loc,
+                  "static initialization guard exceeds BSS limits");
+        return false;
+    }
+    offset = (uint32_t)aligned;
+    mod->bss.size = (size_t)(aligned + guard_size);
+    if (guard_alignment > mod->bss.align) {
+        mod->bss.align = guard_alignment;
+    }
+    guard->var_offset = (int)offset;
+    module_add_symbol(mod, decl_link_name(guard), offset, true,
+                      MODULE_SYMBOL_BSS, false);
+    return true;
+}
+
 static bool codegen_emit_static_reference_temporary_storage(
     Module* mod, Decl* declaration) {
     Decl* owner = declaration
@@ -1501,33 +1553,8 @@ static bool codegen_emit_static_reference_temporary_storage(
         module_add_symbol(mod, decl_link_name(owner), offset, true,
                           MODULE_SYMBOL_TLS, false);
 
-        if (declaration->var_reference_temporary_guard) {
-            Decl* guard = declaration->var_reference_temporary_guard;
-            const uint32_t guard_size = 8u;
-            const uint32_t guard_alignment = 8u;
-            aligned = ((uint64_t)mod->tls.size + guard_alignment - 1u) &
-                     ~((uint64_t)guard_alignment - 1u);
-            if (aligned > UINT32_MAX ||
-                guard_size > UINT32_MAX - aligned) {
-                rcc_error(declaration->loc,
-                          "thread-local reference guard exceeds TLS limits");
-                return false;
-            }
-            codegen_ensure_tls_capacity(mod, (size_t)aligned + guard_size);
-            if (mod->tls.size < aligned) {
-                memset(mod->tls.data + mod->tls.size, 0,
-                       (size_t)aligned - mod->tls.size);
-            }
-            offset = (uint32_t)aligned;
-            memset(mod->tls.data + offset, 0, guard_size);
-            mod->tls.size = (size_t)aligned + guard_size;
-            if (guard_alignment > mod->tls_align)
-                mod->tls_align = guard_alignment;
-            guard->var_offset = (int)offset;
-            module_add_symbol(mod, decl_link_name(guard), offset, true,
-                              MODULE_SYMBOL_TLS, false);
-        }
-        return true;
+        return codegen_emit_static_initializer_guard_storage(
+            mod, declaration);
     }
     aligned = ((uint64_t)mod->data.size + alignment - 1u) &
               ~((uint64_t)alignment - 1u);
@@ -1548,46 +1575,31 @@ static bool codegen_emit_static_reference_temporary_storage(
     module_add_symbol(mod, decl_link_name(owner), offset, true,
                       MODULE_SYMBOL_DATA, false);
 
-    if (declaration->var_reference_temporary_guard) {
-        Decl* guard = declaration->var_reference_temporary_guard;
-        uint32_t guard_size = 8u;
-        uint64_t guard_alignment = 8u;
-        aligned = ((uint64_t)mod->bss.size + guard_alignment - 1u) &
-                  ~(guard_alignment - 1u);
-        if (aligned > UINT32_MAX || guard_size > UINT32_MAX - aligned) {
-            rcc_error(declaration->loc,
-                      "static reference guard exceeds BSS limits");
-            return false;
-        }
-        guard->var_offset = (int)aligned;
-        mod->bss.size = (size_t)(aligned + guard_size);
-        if (mod->bss.align < guard_alignment) {
-            mod->bss.align = (uint32_t)guard_alignment;
-        }
-        module_add_symbol(mod, decl_link_name(guard), (uint32_t)aligned,
-                          true, MODULE_SYMBOL_BSS, false);
-    }
-    return true;
+    return codegen_emit_static_initializer_guard_storage(mod, declaration);
 }
 
 static void codegen_defer_static_local_cleanup(Module* mod,
                                                Decl* declaration) {
     StaticLocalCleanup* cleanup;
     StaticLocalCleanup** tail;
+    Decl* cleanup_object;
     const char* owner_name;
     const char* suffix = "$rcc_static_cleanup";
     size_t owner_length;
     size_t suffix_length = strlen(suffix);
     char* callback_name;
     if (!mod || !declaration || !declaration->var_cleanups ||
-        !declaration->var_reference_temporary_owner) {
+        (!declaration->var_reference_temporary_owner &&
+         !declaration->var_is_thread_local)) {
         return;
     }
     for (cleanup = mod->static_local_cleanups; cleanup;
          cleanup = cleanup->next) {
         if (cleanup->declaration == declaration) return;
     }
-    owner_name = decl_link_name(declaration->var_reference_temporary_owner);
+    cleanup_object = declaration->var_reference_temporary_owner
+        ? declaration->var_reference_temporary_owner : declaration;
+    owner_name = decl_link_name(cleanup_object);
     owner_length = owner_name ? strlen(owner_name) : 0u;
     if (owner_length > SIZE_MAX - suffix_length - 1u) {
         rcc_error(declaration->loc,
@@ -1642,6 +1654,14 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
             return true;
         }
     }
+    if (!declaration->var_reference_temporary_owner &&
+        declaration->var_is_thread_local) {
+        if (!codegen_emit_static_initializer_guard_storage(
+                mod, declaration)) {
+            return false;
+        }
+        codegen_defer_static_local_cleanup(mod, declaration);
+    }
     size = (uint32_t)declaration->type->size;
     alignment = declaration->type->align > 0
         ? (uint32_t)declaration->type->align : 1u;
@@ -1669,15 +1689,26 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         mod->tls.size = (size_t)aligned + size;
         if (alignment > mod->tls_align) mod->tls_align = alignment;
         declaration->var_offset = offset;
+        declaration->var_tls_initializer_dynamic = false;
         if (declaration->var_init &&
             !declaration->var_reference_temporary_owner &&
             !codegen_emit_tls_initializer(
                 mod, declaration->type, declaration->var_init, offset)) {
-            rcc_error(declaration->loc,
-                      "unsupported static local TLS initializer for '%s'",
-                      declaration->name);
-            return false;
+            if (declaration->var_reference_temporary_guard &&
+                (codegen_runtime_global_scalar(declaration->type) ||
+                 codegen_runtime_global_constructor(
+                     declaration->type, declaration->var_init))) {
+                memset(mod->tls.data + offset, 0, size);
+                declaration->var_tls_initializer_dynamic = true;
+            } else {
+                rcc_error(declaration->loc,
+                          "unsupported static local TLS initializer for '%s'",
+                          declaration->name);
+                return false;
+            }
         }
+        codegen_add_vtable_pointer(mod, MODULE_SYMBOL_TLS, offset,
+                                   declaration->type);
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
                           MODULE_SYMBOL_TLS, false);
         return true;
@@ -1831,6 +1862,12 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                     continue;
                 }
                 codegen_defer_static_local_cleanup(mod, declaration);
+            } else if (declaration->var_reference_temporary_guard) {
+                if (!codegen_emit_static_initializer_guard_storage(
+                        mod, declaration)) {
+                    continue;
+                }
+                codegen_defer_static_local_cleanup(mod, declaration);
             }
             aligned = ((uint64_t)mod->tls.size + alignment - 1u) &
                       ~((uint64_t)alignment - 1u);
@@ -1853,13 +1890,30 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             mod->tls.size = (size_t)aligned + size;
             if (alignment > mod->tls_align) mod->tls_align = alignment;
             declaration->var_offset = offset;
+            declaration->var_tls_initializer_dynamic = false;
             if (declaration->var_init &&
                 !declaration->var_reference_temporary_owner &&
                 !codegen_emit_tls_initializer(
                     mod, declaration->type, declaration->var_init, offset)) {
+                if (declaration->var_reference_temporary_guard &&
+                    (codegen_runtime_global_scalar(declaration->type) ||
+                     codegen_runtime_global_constructor(
+                         declaration->type, declaration->var_init))) {
+                    memset(mod->tls.data + offset, 0, size);
+                    declaration->var_tls_initializer_dynamic = true;
+                } else {
+                    rcc_error(declaration->loc,
+                              "unsupported thread-local initializer for '%s'",
+                              declaration->name);
+                }
+            }
+            codegen_add_vtable_pointer(mod, MODULE_SYMBOL_TLS, offset,
+                                       declaration->type);
+            if (declaration->var_cleanups &&
+                !declaration->var_reference_temporary_owner &&
+                !declaration->var_reference_temporary_guard) {
                 rcc_error(declaration->loc,
-                          "unsupported thread-local initializer for '%s'",
-                          declaration->name);
+                          "thread-local destructor has no initialization guard");
             }
             module_add_symbol(mod, decl_link_name(declaration), offset, true,
                               MODULE_SYMBOL_TLS,
@@ -6636,7 +6690,7 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 decl->var_is_thread_local &&
                 !gen_static_local_reference_initializer32(mod, decl)) {
                 rcc_error(expr->loc,
-                          "cannot initialize thread-local reference temporary for '%s'",
+                          "cannot initialize thread-local object for '%s'",
                           decl->name);
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
@@ -14893,7 +14947,7 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
             mod, declaration);
     }
     if (codegen_runtime_global_constructor(type, initializer)) {
-        gen_symbol_address(mod, decl_link_name(declaration), 0u);
+        gen_decl_storage_address32(mod, declaration);
         emit_mov_reg_reg(mod, ECX, EAX);
         gen_cxx_initialize_object32(
             mod, type, initializer->compound_constructor,
@@ -14904,13 +14958,13 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
         gen_expr_as_type(mod, initializer, type);
         if (gen_float_width(type) == 4) {
             emit_push_reg(mod, EAX);
-            gen_symbol_address(mod, decl_link_name(declaration), 0u);
+            gen_decl_storage_address32(mod, declaration);
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_pop_reg(mod, EAX);
         } else {
             emit_push_reg(mod, EDX);
             emit_push_reg(mod, EAX);
-            gen_symbol_address(mod, decl_link_name(declaration), 0u);
+            gen_decl_storage_address32(mod, declaration);
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_pop_reg(mod, EAX);
             emit_pop_reg(mod, EDX);
@@ -14922,7 +14976,7 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
         gen_expr_as_integer64(mod, initializer);
         emit_push_reg(mod, EDX);
         emit_push_reg(mod, EAX);
-        gen_symbol_address(mod, decl_link_name(declaration), 0u);
+        gen_decl_storage_address32(mod, declaration);
         emit_mov_reg_reg(mod, ECX, EAX);
         emit_pop_reg(mod, EAX);
         emit_pop_reg(mod, EDX);
@@ -14936,7 +14990,7 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
         emit_normalize_atomic_value(mod, EAX, type);
     }
     emit_push_reg(mod, EAX);
-    gen_symbol_address(mod, decl_link_name(declaration), 0u);
+    gen_decl_storage_address32(mod, declaration);
     emit_mov_reg_reg(mod, EDX, EAX);
     emit_pop_reg(mod, ECX);
     emit_store_typed32(mod, EDX, 0, ECX, type);
@@ -15014,11 +15068,13 @@ static void codegen_register_static_local_cleanup32(
     Module* mod, Decl* declaration) {
     StaticLocalCleanup* cleanup = codegen_find_static_local_cleanup(
         mod, declaration);
+    Decl* cleanup_object = declaration &&
+            declaration->var_reference_temporary_owner
+        ? declaration->var_reference_temporary_owner : declaration;
     if (!cleanup) return;
     gen_symbol_address(mod, cleanup->callback_name, 0u);
     emit_push_reg(mod, EAX);
-    gen_decl_storage_address32(
-        mod, declaration->var_reference_temporary_owner);
+    gen_decl_storage_address32(mod, cleanup_object);
     emit_push_reg(mod, EAX);
     gen_symbol_address(mod, "__dso_handle", 0u);
     emit_push_reg(mod, EAX);
@@ -15066,9 +15122,19 @@ static bool gen_static_local_reference_initializer32(
         gen_cxx_guard_exception_register32(mod, guard_cleanup);
     }
 
-    if (!gen_static_reference_temporary_initializer32(mod, declaration)) {
+    if (declaration->var_reference_temporary_owner) {
+        if (!gen_static_reference_temporary_initializer32(
+                mod, declaration)) {
+            rcc_error(declaration->loc,
+                      "cannot initialize static reference temporary for '%s'",
+                      declaration->name);
+            return false;
+        }
+    } else if (declaration->var_tls_initializer_dynamic &&
+               declaration->var_init &&
+               !gen_global_initializer32(mod, declaration)) {
         rcc_error(declaration->loc,
-                  "cannot initialize static reference temporary for '%s'",
+                  "cannot initialize thread-local object '%s'",
                   declaration->name);
         return false;
     }
@@ -15763,7 +15829,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 d->var_reference_temporary_guard) {
                 if (!gen_static_local_reference_initializer32(mod, d)) {
                     rcc_error(d->loc,
-                              "cannot initialize static reference temporary for '%s'",
+                              "cannot initialize static object for '%s'",
                               d->name);
                 }
                 break;

@@ -7834,6 +7834,30 @@ static const char* sema_reference_temporary_symbol(
     return symbol;
 }
 
+static bool sema_attach_thread_local_initializer_guard(
+    Decl* declaration) {
+    const char* guard_name;
+    if (!declaration || !declaration->var_is_thread_local ||
+        declaration->var_reference_temporary_guard) {
+        return declaration != NULL;
+    }
+    guard_name = sema_reference_temporary_symbol(
+        declaration, "$rcc_reference_guard");
+    if (!guard_name) {
+        rcc_error(declaration->loc,
+                  "thread-local initialization guard symbol is too large");
+        return false;
+    }
+    declaration->var_reference_temporary_guard = decl_var(
+        "__rcc_thread_local_guard", type_llong, NULL, declaration->loc);
+    declaration->var_reference_temporary_guard->name = guard_name;
+    declaration->var_reference_temporary_guard->link_name = guard_name;
+    declaration->var_reference_temporary_guard->storage = STORAGE_STATIC;
+    declaration->var_reference_temporary_guard->var_is_global = true;
+    declaration->var_reference_temporary_guard->var_is_thread_local = true;
+    return true;
+}
+
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
     Expr* materialized_xvalue_source = NULL;
@@ -7941,19 +7965,15 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
           declaration->storage == STORAGE_EXTERN))) {
         return;
     }
-    if (declaration->var_is_thread_local && !static_reference_temporary &&
-        sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
-        rcc_error(declaration->loc,
-                  "thread-local destructor registration is unsupported");
-        return;
-    }
-    if (declaration->var_is_static_local && !static_reference_temporary &&
+    if (declaration->var_is_static_local &&
+        !declaration->var_is_thread_local && !static_reference_temporary &&
         sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
         rcc_error(declaration->loc,
                   "static-local destructor registration is unsupported");
         return;
     }
-    if (!declaration->var_init && declaration->var_is_static_local) return;
+    if (!declaration->var_init && declaration->var_is_static_local &&
+        !declaration->var_is_thread_local) return;
     if (!declaration->var_init &&
         sema_cxx_default_initialization_needs_lowering(object_type, 0)) {
         rcc_error(declaration->loc,
@@ -8031,6 +8051,9 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                                          !declaration->var_is_thread_local)) {
         rcc_error(declaration->loc,
                   "C++ object lifetime cleanup metadata is incomplete");
+    }
+    if (declaration->var_is_thread_local && declaration->var_cleanups) {
+        (void)sema_attach_thread_local_initializer_guard(declaration);
     }
 }
 

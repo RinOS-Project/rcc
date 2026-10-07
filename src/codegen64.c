@@ -4077,7 +4077,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 decl->var_is_thread_local &&
                 !gen64_static_local_reference_initializer(mod, decl)) {
                 rcc_error(expr->loc,
-                          "cannot initialize thread-local reference temporary for '%s'",
+                          "cannot initialize thread-local object for '%s'",
                           decl->name);
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
@@ -8566,7 +8566,7 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
         initializer->compound_constructor->method &&
         initializer->compound_constructor->method->decl &&
         initializer->compound_constructor->method->decl->func_body) {
-        gen64_symbol_address(mod, decl_link_name(declaration), 0u);
+        gen64_decl_storage_address(mod, declaration);
         emit64_mov_reg_reg(mod, RCX, RAX);
         gen64_cxx_initialize_object(
             mod, type, initializer->compound_constructor,
@@ -8839,12 +8839,14 @@ static void gen64_register_static_local_cleanup(
     Module* mod, Decl* declaration) {
     StaticLocalCleanup* cleanup = gen64_find_static_local_cleanup(
         mod, declaration);
+    Decl* cleanup_object = declaration &&
+            declaration->var_reference_temporary_owner
+        ? declaration->var_reference_temporary_owner : declaration;
     int registered;
     if (!cleanup) return;
     gen64_symbol_address(mod, cleanup->callback_name, 0u);
     emit64_mov_reg_reg(mod, RDI, RAX);
-    gen64_decl_storage_address(
-        mod, declaration->var_reference_temporary_owner);
+    gen64_decl_storage_address(mod, cleanup_object);
     emit64_mov_reg_reg(mod, RSI, RAX);
     gen64_symbol_address(mod, "__dso_handle", 0u);
     emit64_mov_reg_reg(mod, RDX, RAX);
@@ -8883,9 +8885,19 @@ static bool gen64_static_local_reference_initializer(
         gen64_cxx_guard_exception_register(mod, guard_cleanup);
     }
 
-    if (!gen64_static_reference_temporary_initializer(mod, declaration)) {
+    if (declaration->var_reference_temporary_owner) {
+        if (!gen64_static_reference_temporary_initializer(
+                mod, declaration)) {
+            rcc_error(declaration->loc,
+                      "cannot initialize static reference temporary for '%s'",
+                      declaration->name);
+            return false;
+        }
+    } else if (declaration->var_tls_initializer_dynamic &&
+               declaration->var_init &&
+               !gen64_global_initializer(mod, declaration)) {
         rcc_error(declaration->loc,
-                  "cannot initialize static reference temporary for '%s'",
+                  "cannot initialize thread-local object '%s'",
                   declaration->name);
         return false;
     }
@@ -10546,7 +10558,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 d->var_reference_temporary_guard) {
                 if (!gen64_static_local_reference_initializer(mod, d)) {
                     rcc_error(d->loc,
-                              "cannot initialize static reference temporary for '%s'",
+                              "cannot initialize static object for '%s'",
                               d->name);
                 }
                 break;
