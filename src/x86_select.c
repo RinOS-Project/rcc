@@ -3,6 +3,7 @@
  */
 
 #include "rcc.h"
+#include "ast.h"
 #include "x86_select.h"
 
 #include <stdarg.h>
@@ -80,6 +81,33 @@ static bool x86_align_frame(uint32_t value, uint16_t alignment,
     mask = (uint32_t)alignment - 1u;
     if (value > UINT32_MAX - mask) return false;
     *result = (value + mask) & ~mask;
+    return true;
+}
+
+static bool x86_align_frame_for_object(
+    uint32_t value, uint32_t alignment,
+    const RccMirRegisterPolicy* policy, uint32_t* result) {
+    uint32_t mask;
+    uint32_t frame_pointer_residue;
+    uint32_t padding;
+    if (!policy || !result || alignment == 0u ||
+        (alignment & (alignment - 1u)) != 0u ||
+        alignment > policy->stack_alignment ||
+        policy->stack_alignment <
+            (uint32_t)policy->pointer_size * 2u) {
+        return false;
+    }
+    mask = alignment - 1u;
+    /* At function entry, the return address and saved frame pointer have
+     * consumed two pointer words from the ABI-aligned caller stack.  Local
+     * offsets are EBP/RBP-relative, so account for that base residue instead
+     * of merely aligning the offset itself. */
+    frame_pointer_residue =
+        (policy->stack_alignment - (uint32_t)policy->pointer_size * 2u) &
+        mask;
+    padding = (frame_pointer_residue - (value & mask)) & mask;
+    if (value > UINT32_MAX - padding) return false;
+    *result = value + padding;
     return true;
 }
 
@@ -288,9 +316,11 @@ static bool x86_select_instruction(
     }
     if (instruction->opcode == RCC_MIR_ALLOCA) {
         uint32_t offset;
+        uint32_t alignment = instruction->alignment != 0u
+            ? instruction->alignment : policy->pointer_size;
         if (instruction->immediate > UINT32_MAX ||
-            !x86_align_frame(selected->frame_size, policy->pointer_size,
-                             &offset) ||
+            !x86_align_frame_for_object(
+                selected->frame_size, alignment, policy, &offset) ||
             offset > UINT32_MAX - (uint32_t)instruction->immediate) {
             rcc_free(operands);
             rcc_free(operand_types);

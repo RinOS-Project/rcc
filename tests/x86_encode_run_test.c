@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "ir.h"
+#include "ast.h"
 #include "mir.h"
 #include "mir_alloc.h"
 #include "mir_phi.h"
@@ -494,6 +495,90 @@ static void verify_select_execution(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_aligned_alloca_offset(
+    RccX86Target target, uint32_t expected_residue)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_aligned_alloca", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrInstruction* allocation = rcc_ir_append(
+        entry, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    RccIrInstruction* value = rcc_ir_append(
+        entry, RCC_IR_CONST_INT, i32, NULL, 0u, NULL, 0u);
+    RccIrValue store_operands[2];
+    Type local_type;
+    Decl local_declaration;
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation registers;
+    RccMirPhiPlan phi_plan;
+    RccX86Function* selected = NULL;
+    RccX86LegalFunction* legal = NULL;
+    RccX86EncodedFunction encoded;
+    bool found_address = false;
+    char error[256];
+
+    memset(&local_type, 0, sizeof(local_type));
+    local_type.kind = TYPE_INT;
+    local_type.size = 4;
+    local_type.align = 16;
+    local_type.has_explicit_alignment = true;
+    memset(&local_declaration, 0, sizeof(local_declaration));
+    local_declaration.kind = DECL_VAR;
+    local_declaration.type = &local_type;
+    assert(allocation != NULL && value != NULL);
+    rcc_ir_set_immediate(allocation, 4u);
+    allocation->alignment = 16u;
+    allocation->source_declaration = &local_declaration;
+    rcc_ir_set_immediate(value, 7u);
+    store_operands[0] = value->result;
+    store_operands[1] = allocation->result;
+    assert(rcc_ir_append(
+        entry, RCC_IR_STORE, rcc_ir_type_void(), store_operands,
+        2u, NULL, 0u) != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &value->result, 1u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    if (target == RCC_X86_TARGET_X86_64) {
+        rcc_mir_register_policy_x86_64(&policy);
+    } else {
+        rcc_mir_register_policy_i686(&policy);
+    }
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &registers, error, sizeof(error)));
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &registers, &phi_plan, error, sizeof(error)));
+    assert(rcc_x86_select_function(
+        mir, target, &policy, &registers, &phi_plan,
+        &selected, error, sizeof(error)));
+    for (RccX86Block* block = selected->first_block; block;
+         block = block->next) {
+        for (RccX86Instruction* instruction = block->first; instruction;
+             instruction = instruction->next) {
+            if (instruction->opcode != RCC_X86_STACK_ADDRESS) continue;
+            assert(!found_address);
+            assert(instruction->immediate % 16u == expected_residue);
+            found_address = true;
+        }
+    }
+    assert(found_address);
+    assert(rcc_x86_legalize_function(
+        selected, &policy, &legal, error, sizeof(error)));
+    assert(rcc_x86_encode_function(
+        legal, &policy, &encoded, error, sizeof(error)));
+    assert(encoded.code_size != 0u);
+    rcc_x86_encoded_function_release(&encoded);
+    rcc_x86_legal_function_destroy(legal);
+    rcc_x86_function_destroy(selected);
+    rcc_mir_phi_plan_release(&phi_plan);
+    rcc_mir_allocation_release(&registers);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_i686_object(const char* object_path)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -549,6 +634,8 @@ int main(int argc, char** argv)
     verify_stack_memory_execution();
     verify_gep_execution();
     verify_select_execution();
+    verify_aligned_alloca_offset(RCC_X86_TARGET_I686, 8u);
+    verify_aligned_alloca_offset(RCC_X86_TARGET_X86_64, 0u);
     puts("Native legal-IR x86 encoding execution tests passed");
     return 0;
 }

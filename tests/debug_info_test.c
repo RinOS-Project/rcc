@@ -1318,7 +1318,9 @@ static void verify_verified_debug_object(const char* path,
     ObjSection* frame;
     ObjSection* ranges;
     bool has_location;
-    int64_t frame_offset;
+    int64_t value_offset;
+    int64_t local_offset;
+    int64_t nested_offset;
     assert(object != NULL && object->arch == architecture);
     line = objfile_get_section(object, ".debug_line");
     info = objfile_get_section(object, ".debug_info");
@@ -1359,14 +1361,16 @@ static void verify_verified_debug_object(const char* path,
     assert(find_lexical_block_local(
         info, strings, "nested", architecture == ARCH_X64 ? 8u : 4u));
     assert(find_variable_location(info, strings, "value", architecture,
-                                  &has_location, &frame_offset));
-    assert(has_location && frame_offset < 0);
+                                  &has_location, &value_offset));
+    assert(has_location && value_offset < 0 && value_offset % 4 == 0);
     assert(find_variable_location(info, strings, "local", architecture,
-                                  &has_location, &frame_offset));
-    assert(has_location && frame_offset < 0 && frame_offset != -4);
+                                  &has_location, &local_offset));
+    assert(has_location && local_offset < 0 && local_offset % 4 == 0 &&
+           local_offset != value_offset);
     assert(find_variable_location(info, strings, "nested", architecture,
-                                  &has_location, &frame_offset));
-    assert(has_location && frame_offset < 0 && frame_offset != -8);
+                                  &has_location, &nested_offset));
+    assert(has_location && nested_offset < 0 && nested_offset % 4 == 0 &&
+           nested_offset != value_offset && nested_offset != local_offset);
     objfile_free(object);
 }
 

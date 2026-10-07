@@ -11672,6 +11672,12 @@ ifeq ($(OS),Windows_NT)
 		-o $(TEST_OUT)/alignas/x86.ro tests/alignas.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/alignas/x64.ro tests/alignas.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/alignas/verified-x86.ro tests/alignas.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/alignas/verified-x64.ro tests/alignas.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/alignas/x64.s tests/alignas.c
 	$(CC) -o $(TEST_OUT)/alignas/x64 \
@@ -11680,7 +11686,8 @@ ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/alignas/run-test \
 		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/alignas/run-test \
-		$(TEST_OUT)/alignas/x86.ro $(TEST_OUT)/alignas/x64.ro
+		$(TEST_OUT)/alignas/x86.ro $(TEST_OUT)/alignas/x64.ro \
+		$(TEST_OUT)/alignas/verified-x64.ro
 else
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/alignas/x86.s tests/alignas.c
@@ -11702,6 +11709,17 @@ else
 		-o $(TEST_OUT)/alignas/x64 \
 		$(TEST_OUT)/alignas/start-x64.o $(TEST_OUT)/alignas/x64.o
 	$(TEST_OUT)/alignas/x64
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/alignas/verified-x86.ro tests/alignas.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/alignas/verified-x64.ro tests/alignas.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/alignas/run-test \
+		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/alignas/run-test \
+		$(TEST_OUT)/alignas/x86.ro $(TEST_OUT)/alignas/x64.ro \
+		$(TEST_OUT)/alignas/verified-x64.ro
 
 endif
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \

@@ -848,6 +848,7 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
                 return false;
             }
             instruction->immediate = ir_instruction->immediate;
+            instruction->alignment = ir_instruction->alignment;
             instruction->predicate = ir_instruction->predicate;
             instruction->volatile_access =
                 ir_instruction->volatile_access;

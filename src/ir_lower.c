@@ -317,6 +317,13 @@ static bool lower_add_local(RccIrLowerContext* context,
         lower_find_local(context, declaration)) {
         return false;
     }
+    /* The verified frame planner handles alignments guaranteed by the target
+     * ABI.  Preserve the complete backend for stronger alignments, which need
+     * dynamic stack realignment rather than a fixed frame slot. */
+    if (declaration->type && declaration->type->align > 16) {
+        context->unsupported = true;
+        return false;
+    }
     local = rcc_alloc(sizeof(*local));
     local->declaration = declaration;
     local->address = address;
@@ -8030,6 +8037,11 @@ static RccIrLowerValue lower_compound_literal_address(
         NULL, 0u, NULL, 0u);
     if (!allocation) return lower_invalid_value();
     rcc_ir_set_immediate(allocation, (uint64_t)type->size);
+    allocation->alignment = type->align > 0 ? (uint32_t)type->align : 0u;
+    if (type->align > 16) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
     if (type->kind == TYPE_ARRAY) {
         if (!lower_array_initializer(
                 context, allocation->result, type, expression)) {
@@ -8117,6 +8129,8 @@ static bool lower_declaration(RccIrLowerContext* context,
     rcc_ir_set_immediate(allocation,
                          declaration->type->size > 0
                              ? (uint64_t)declaration->type->size : 1u);
+    allocation->alignment = declaration->type->align > 0
+        ? (uint32_t)declaration->type->align : 0u;
     allocation->source_declaration = declaration;
     if (is_array || is_struct || is_union || wide_scalar) {
         type = rcc_ir_type_pointer(0u);
@@ -8983,6 +8997,8 @@ static bool lower_parameters(RccIrLowerContext* context,
         rcc_ir_set_immediate(
             allocation, item->type->size > 0
                 ? (uint64_t)item->type->size : 1u);
+        allocation->alignment = item->type->align > 0
+            ? (uint32_t)item->type->align : 0u;
         allocation->source_declaration = item;
         if (!lower_add_local(context, item, allocation->result, type)) {
             context->unsupported = true;
@@ -9028,6 +9044,8 @@ static bool lower_parameters(RccIrLowerContext* context,
                                   NULL, 0u);
         if (!allocation) return false;
         rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
+        allocation->alignment = item->type->align > 0
+            ? (uint32_t)item->type->align : 0u;
         allocation->source_declaration = item;
         if (aggregate || wide_scalar) type = rcc_ir_type_pointer(0u);
         if (!lower_add_local(context, item, allocation->result, type)) {

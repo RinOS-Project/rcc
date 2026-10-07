@@ -76,6 +76,7 @@ struct RccMirInstruction {
     RccMirBlockId* targets;
     size_t target_count;
     uint64_t immediate;
+    uint32_t alignment;
     RccIrIntPredicate predicate;
     bool volatile_access;
     char* callee;

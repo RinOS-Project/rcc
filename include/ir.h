@@ -97,6 +97,8 @@ struct RccIrInstruction {
     RccIrBlockId* targets;
     size_t target_count;
     uint64_t immediate;
+    /* Requested stack-object alignment for ALLOCA; zero means target default. */
+    uint32_t alignment;
     RccIrIntPredicate predicate;
     /* Preserve observable C/C++ volatile memory accesses through lowering. */
     bool volatile_access;
