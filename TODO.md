@@ -416,6 +416,10 @@
         forwardingし、unknown alias store/call/volatile loadでは全事実、
         volatile storeでは対象slotの値事実を失効させるIR verifier regressionを追加
 - [ ] loop optimization、inlining
+  - [x] 同一basic block内の同一direct alloca・同一値型への未観測の上書きstoreを
+        除去し、forward済みreadの値を保持する。derived-pointer read/write、
+        volatile read、call、型幅違いでは古いstoreを保持し、i686/AMD64のIR
+        verifier回帰と`test-optimize`で検証
   - [x] 副作用なし・引数なし・単一整数returnの直接呼出しをO1で限定inline
   - [x] 副作用なし・単一整数returnの純粋整数式を最大8個の引数へ展開し、
         各引数の評価を一回に限定したO1 inlineと両arch実行・call除去回帰

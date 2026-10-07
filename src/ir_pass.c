@@ -1685,6 +1685,7 @@ typedef struct {
     size_t block_load_count;
     bool* direct_allocas;
     RccIrValue* stored_values;
+    RccIrInstruction** pending_stores;
     bool* has_stored_values;
     bool* block_store_slots;
     RccIrValue* block_stores;
@@ -1726,9 +1727,49 @@ static void ir_pass_clear_block_store_facts(RccIrCseContext* context) {
     for (index = 0u; index < context->block_store_count; ++index) {
         RccIrValue address = context->block_stores[index];
         context->has_stored_values[address] = false;
+        context->pending_stores[address] = NULL;
         context->block_store_slots[address] = false;
     }
     context->block_store_count = 0u;
+}
+
+static void ir_pass_clear_pending_stores(RccIrCseContext* context) {
+    size_t index;
+    if (!context) return;
+    for (index = 0u; index < context->block_store_count; ++index) {
+        RccIrValue address = context->block_stores[index];
+        context->pending_stores[address] = NULL;
+    }
+}
+
+static void ir_pass_remove_dead_store(
+    RccIrCseContext* context, RccIrInstruction* store) {
+    RccIrValue address;
+    RccIrInstruction* previous;
+    if (!context || !store || store->opcode != RCC_IR_STORE ||
+        store->operand_count != 2u) {
+        return;
+    }
+    if (store->volatile_access) {
+        ir_pass_clear_pending_stores(context);
+        return;
+    }
+    address = store->operands[1];
+    if (!ir_pass_value_is_direct_alloca(context, address)) {
+        ir_pass_clear_pending_stores(context);
+        return;
+    }
+    previous = context->pending_stores[address];
+    if (previous && previous->operand_count == 2u &&
+        previous->operands[0] < context->function->value_count &&
+        store->operands[0] < context->function->value_count &&
+        rcc_ir_type_equal(
+            context->function->value_types[previous->operands[0]],
+            context->function->value_types[store->operands[0]])) {
+        ir_pass_unlink_instruction(previous);
+        ++context->stats->removed_instructions;
+    }
+    context->pending_stores[address] = store;
 }
 
 static void ir_pass_record_store_value(
@@ -1798,7 +1839,14 @@ static void ir_pass_common_block(RccIrCseContext* context,
                 RccIrInstruction* previous_load = NULL;
                 RccIrValue address = instruction->operands[0];
                 RccIrValue stored_value = RCC_IR_VALUE_NONE;
-                if (ir_pass_value_is_direct_alloca(context, address) &&
+                bool direct_address =
+                    ir_pass_value_is_direct_alloca(context, address);
+                if (!direct_address) {
+                    /* An indirect read may observe a local through an alias
+                     * or a derived pointer, so keep pending writes visible. */
+                    ir_pass_clear_pending_stores(context);
+                }
+                if (direct_address &&
                     context->has_stored_values[address]) {
                     RccIrValue candidate_value =
                         context->stored_values[address];
@@ -1816,6 +1864,11 @@ static void ir_pass_common_block(RccIrCseContext* context,
                     ++context->stats->commoned_instructions;
                     ++context->stats->removed_instructions;
                 } else {
+                    if (direct_address) {
+                        /* A differently typed read may observe bytes written
+                         * by the pending store; do not discard that write. */
+                        context->pending_stores[address] = NULL;
+                    }
                     for (size_t load_index = context->block_load_count;
                          load_index != 0u; --load_index) {
                         RccIrInstruction* candidate_load =
@@ -1862,6 +1915,7 @@ static void ir_pass_common_block(RccIrCseContext* context,
                 }
             }
             context->block_load_count = retained;
+            ir_pass_remove_dead_store(context, instruction);
             ir_pass_record_store_value(context, instruction);
         } else if (instruction->opcode == RCC_IR_CALL) {
             /* Without a call memory-effect summary, any call may mutate every
@@ -1940,6 +1994,8 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.direct_allocas));
     context.stored_values = rcc_alloc(
         function->value_count * sizeof(*context.stored_values));
+    context.pending_stores = rcc_alloc(
+        function->value_count * sizeof(*context.pending_stores));
     context.has_stored_values = rcc_alloc(
         function->value_count * sizeof(*context.has_stored_values));
     context.block_store_slots = rcc_alloc(
@@ -1956,6 +2012,7 @@ static bool ir_pass_common_subexpressions(
     for (index = 0u; index < function->value_count; ++index) {
         context.direct_allocas[index] = false;
         context.stored_values[index] = RCC_IR_VALUE_NONE;
+        context.pending_stores[index] = NULL;
         context.has_stored_values[index] = false;
         context.block_store_slots[index] = false;
         context.replacements[index] = RCC_IR_VALUE_NONE;
@@ -1983,6 +2040,7 @@ cleanup:
     rcc_free(context.block_loads);
     rcc_free(context.direct_allocas);
     rcc_free(context.stored_values);
+    rcc_free(context.pending_stores);
     rcc_free(context.has_stored_values);
     rcc_free(context.block_store_slots);
     rcc_free(context.block_stores);

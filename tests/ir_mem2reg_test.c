@@ -99,6 +99,29 @@ static size_t count_opcode(const RccIrFunction* function,
     return count;
 }
 
+static void assert_returned_constant(const RccIrFunction* function,
+                                     uint64_t expected)
+{
+    const RccIrInstruction* returned;
+    const RccIrBlock* block;
+    assert(function != NULL && function->last_block != NULL);
+    returned = function->last_block->last;
+    assert(returned != NULL && returned->opcode == RCC_IR_RETURN &&
+           returned->operand_count == 1u);
+    for (block = function->first_block; block; block = block->next) {
+        const RccIrInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            if (instruction->result == returned->operands[0] &&
+                instruction->opcode == RCC_IR_CONST_INT) {
+                assert(instruction->immediate == expected);
+                return;
+            }
+        }
+    }
+    assert(!"return value is not the expected integer constant");
+}
+
 static RccIrModule* build_optimization_pipeline_fixture(
     RccIrFunction** function_out)
 {
@@ -920,6 +943,211 @@ static void verify_store_to_load_forwarding_after_write(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_dead_store_elimination(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dead_store_elimination", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first = append_const(entry, i32, 7u);
+    RccIrValue last = append_const(entry, i32, 19u);
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    append_store(entry, first, address);
+    append_store(entry, last, address);
+    append_return(entry, append_load(entry, i32, address));
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_STORE) == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+    assert(stats.removed_instructions >= 2u);
+    assert_returned_constant(function, 19u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_dead_store_elimination_preserves_forwarded_read(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dead_store_after_forwarded_read", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first = append_const(entry, i32, 23u);
+    RccIrValue last = append_const(entry, i32, 41u);
+    RccIrValue observed;
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    append_store(entry, first, address);
+    observed = append_load(entry, i32, address);
+    append_store(entry, last, address);
+    append_return(entry, observed);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_STORE) == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+    assert_returned_constant(function, 23u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_dead_store_elimination_preserves_indirect_read(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dead_store_indirect_read", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first = append_const(entry, i32, 3u);
+    RccIrValue last = append_const(entry, i32, 5u);
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue gep_operands[] = {address, zero};
+    RccIrInstruction* derived = rcc_ir_append(
+        entry, RCC_IR_GEP, pointer, gep_operands, 2u, NULL, 0u);
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    assert(derived != NULL);
+    rcc_ir_set_immediate(derived, 4u);
+    append_store(entry, first, address);
+    (void)append_load(entry, i32, derived->result);
+    append_store(entry, last, address);
+    append_return(entry, append_load(entry, i32, address));
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert_returned_constant(function, 5u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_dead_store_elimination_preserves_volatile_read(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dead_store_volatile_read", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first = append_const(entry, i32, 31u);
+    RccIrValue last = append_const(entry, i32, 47u);
+    RccIrInstruction* observed;
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    append_store(entry, first, address);
+    observed = rcc_ir_append(entry, RCC_IR_LOAD, i32, &address, 1u,
+                             NULL, 0u);
+    assert(observed != NULL);
+    rcc_ir_set_volatile_access(observed, true);
+    append_store(entry, last, address);
+    append_return(entry, observed->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_dead_store_elimination_preserves_unknown_write(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dead_store_unknown_write", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first = append_const(entry, i32, 11u);
+    RccIrValue indirect = append_const(entry, i32, 13u);
+    RccIrValue last = append_const(entry, i32, 17u);
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue gep_operands[] = {address, zero};
+    RccIrInstruction* derived = rcc_ir_append(
+        entry, RCC_IR_GEP, pointer, gep_operands, 2u, NULL, 0u);
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    assert(derived != NULL);
+    rcc_ir_set_immediate(derived, 4u);
+    append_store(entry, first, address);
+    append_store(entry, indirect, derived->result);
+    append_store(entry, last, address);
+    append_return(entry, append_load(entry, i32, address));
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_STORE) == 3u);
+    assert_returned_constant(function, 17u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_dead_store_elimination_preserves_call_observation(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dead_store_call_observation", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue first = append_const(entry, i32, 29u);
+    RccIrValue last = append_const(entry, i32, 37u);
+    RccIrInstruction* call;
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    append_store(entry, first, address);
+    call = rcc_ir_append(entry, RCC_IR_CALL, rcc_ir_type_void(),
+                         &address, 1u, NULL, 0u);
+    assert(call != NULL);
+    rcc_ir_set_callee(call, "mutate_stack_value");
+    append_store(entry, last, address);
+    append_return(entry, append_load(entry, i32, address));
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(count_opcode(function, RCC_IR_CALL) == 1u);
+    assert_returned_constant(function, 37u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_dead_store_elimination_requires_matching_value_type(void)
+{
+    RccIrType i8 = rcc_ir_type_integer(8u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "dead_store_type_mismatch", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue address = append_alloca(entry, 4u);
+    RccIrValue wide = append_const(entry, i32, UINT32_C(0x12345678));
+    RccIrValue first_narrow = append_const(entry, i8, 0x34u);
+    RccIrValue last_narrow = append_const(entry, i8, 0x56u);
+    RccIrSimplifyStats stats;
+    char error[256];
+
+    append_store(entry, wide, address);
+    append_store(entry, first_narrow, address);
+    append_store(entry, last_narrow, address);
+    append_return(entry, append_load(entry, i32, address));
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_STORE) == 2u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_block_local_load_cse(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -1539,6 +1767,13 @@ int main(void)
     verify_integer_identities();
     verify_block_local_cse();
     verify_store_to_load_forwarding_after_write();
+    verify_dead_store_elimination();
+    verify_dead_store_elimination_preserves_forwarded_read();
+    verify_dead_store_elimination_preserves_indirect_read();
+    verify_dead_store_elimination_preserves_volatile_read();
+    verify_dead_store_elimination_preserves_unknown_write();
+    verify_dead_store_elimination_preserves_call_observation();
+    verify_dead_store_elimination_requires_matching_value_type();
     verify_block_local_load_cse();
     verify_volatile_access_survives_mem2reg();
     verify_dominator_scoped_gvn();
