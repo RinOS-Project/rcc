@@ -9668,15 +9668,15 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                             "cannot initialize reference temporary for '%s'",
                             d->name);
                     }
-                    emit64_lea(mod, RAX, RBP,
-                               d->var_reference_temporary_offset);
-                    gen64_cxx_reference_adjustment(mod, d->var_init);
-                    emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
                     if (!call_result_storage) {
                         gen64_local_vtable_init(
                             mod, temporary_type,
                             d->var_reference_temporary_offset);
                     }
+                    emit64_lea(mod, RAX, RBP,
+                               d->var_reference_temporary_offset);
+                    gen64_cxx_reference_adjustment(mod, d->var_init);
+                    emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
                 } else if (d->var_init &&
                            !gen64_local_initializer(mod, d->type, d->var_init,
                                                     d->var_offset)) {

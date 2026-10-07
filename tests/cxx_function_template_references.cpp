@@ -88,6 +88,53 @@ struct LifetimeExtendedTemporary {
     }
 };
 
+struct LifetimeExtendedBase {
+    int* events;
+    int value;
+
+    LifetimeExtendedBase(int* object_events, int object_value)
+        : events(object_events), value(object_value) {}
+
+    ~LifetimeExtendedBase() {
+        *events = *events * 10 + 1;
+    }
+};
+
+struct LifetimeExtendedDerived : LifetimeExtendedBase {
+    LifetimeExtendedDerived(int* events, int value)
+        : LifetimeExtendedBase(events, value) {}
+
+    ~LifetimeExtendedDerived() {
+        *events = *events * 10 + 2;
+    }
+};
+
+struct LifetimeInheritedCleanup : LifetimeExtendedBase {
+    LifetimeInheritedCleanup(int* events, int value)
+        : LifetimeExtendedBase(events, value) {}
+};
+
+struct LifetimeVirtualBase {
+    int* events;
+    int value;
+
+    LifetimeVirtualBase(int* object_events, int object_value)
+        : events(object_events), value(object_value) {}
+
+    ~LifetimeVirtualBase() {
+        *events = *events * 10 + 1;
+    }
+};
+
+struct LifetimeVirtualDerived : virtual LifetimeVirtualBase {
+    LifetimeVirtualDerived(int* events, int value)
+        : LifetimeVirtualBase(events, value) {}
+
+    ~LifetimeVirtualDerived() {
+        *events = *events * 10 + 2;
+    }
+};
+
 LifetimeExtendedTemporary make_lifetime_extended_temporary(int* events,
                                                            int value) {
     return {events, value};
@@ -212,6 +259,34 @@ int main() {
             return 29;
     }
     if (temporary_lifetime_events != 65) return 27;
+    int derived_temporary_events = 0;
+    {
+        const LifetimeExtendedBase& extended_base =
+                LifetimeExtendedDerived{&derived_temporary_events, 7};
+        if (extended_base.value != 7 || derived_temporary_events != 0)
+            return 34;
+        if (double_value(5) != 10 || derived_temporary_events != 0)
+            return 35;
+    }
+    if (derived_temporary_events != 21) return 36;
+    int inherited_cleanup_events = 0;
+    {
+        LifetimeInheritedCleanup inherited_object(
+                &inherited_cleanup_events, 9);
+        if (inherited_object.value != 9 || inherited_cleanup_events != 0)
+            return 37;
+    }
+    if (inherited_cleanup_events != 1) return 38;
+    int virtual_temporary_events = 0;
+    {
+        const LifetimeVirtualBase& virtual_base =
+                LifetimeVirtualDerived{&virtual_temporary_events, 10};
+        if (virtual_base.value != 10 || virtual_temporary_events != 0)
+            return 39;
+        if (double_value(6) != 12 || virtual_temporary_events != 0)
+            return 40;
+    }
+    if (virtual_temporary_events != 21) return 41;
     const int& extended_const_temporary = 47;
     if (read_rvalue(9) != 9) return 14;
     if (extended_const_temporary != 47) return 22;

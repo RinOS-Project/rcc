@@ -315,8 +315,9 @@
 - [ ] Complete ordinary non-template rvalue-reference binding and value-category
       semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
       function returns now have regressions that compile for both targets and
-      execute on the x64 host. Remaining reference collapsing, temporary
-      lifetime, and call/return interactions still need systematic coverage.
+      execute on the x64 host. Source-level reference collapsing is covered;
+      converted class xvalues, static-storage references, and broader
+      call/return ABI interactions still need systematic coverage.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
@@ -333,6 +334,14 @@
         and run destructors once in reverse declaration order at scope exit;
         verify i686/AMD64 generation and x64 execution in
         `test-cxx-function-template-references`.
+  - [ ] Preserve a complete derived prvalue when a local reference binds to
+        its non-virtual or virtual base; initialize virtual-base tables before
+        adjusting the reference, and run derived, direct-base, and virtual-base
+        destructors exactly once in reverse lifetime order, including inherited
+        implicit cleanup. Regression cases were added to
+        `test-cxx-function-template-references`, but they have not been run;
+        keep this item open until i686/AMD64 generation and x64 execution are
+        verified.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,

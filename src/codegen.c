@@ -14414,17 +14414,17 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                             "cannot initialize reference temporary for '%s'",
                             d->name);
                     }
+                    if (!call_result_storage) {
+                        gen_local_vtable_init(
+                            mod, temporary_type,
+                            d->var_reference_temporary_offset);
+                    }
                     emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
                     emit_byte(mod, modrm(2, EAX, EBP));
                     emit_dword(mod,
                                (uint32_t)d->var_reference_temporary_offset);
                     gen_cxx_reference_adjustment32(mod, d->var_init);
                     emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
-                    if (!call_result_storage) {
-                        gen_local_vtable_init(
-                            mod, temporary_type,
-                            d->var_reference_temporary_offset);
-                    }
                 } else if (d->var_init &&
                            !gen_local_initializer(mod, d->type, d->var_init,
                                                   d->var_offset)) {
