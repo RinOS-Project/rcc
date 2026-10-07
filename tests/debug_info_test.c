@@ -490,18 +490,24 @@ static bool find_variable_location(const ObjSection* info,
     return false;
 }
 
+static void verify_multiple_return_frame_fde(const ObjSection* frame,
+                                             uint16_t architecture);
+
 static void verify_optimized_verified_debug_object(
     const char* path, uint16_t architecture)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
+    ObjSection* frame;
     bool has_location;
     int64_t frame_offset;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
-    assert(info != NULL && strings != NULL);
+    frame = objfile_get_section(object, ".debug_frame");
+    assert(info != NULL && strings != NULL && frame != NULL);
+    verify_multiple_return_frame_fde(frame, architecture);
     assert(find_variable_location(info, strings, "value", architecture,
                                   &has_location, &frame_offset));
     assert(!has_location);
@@ -1341,6 +1347,7 @@ static void verify_verified_debug_object(const char* path,
         architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
     assert(count_line_copy_ops(line) >= 8u);
     verify_first_frame_fde(frame, architecture);
+    verify_multiple_return_frame_fde(frame, architecture);
     assert(find_function_die(info, strings, "verified_debug_static",
                              architecture == ARCH_X64 ? 8u : 4u) !=
            UINT64_MAX);

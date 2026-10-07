@@ -617,7 +617,8 @@ static void emit64_ret(Module* mod) {
 /* LEAVE */
 static void emit64_leave(Module* mod) {
     emit_byte(mod, 0xC9);
-    module_add_debug_frame_epilogue(mod, code_offset(mod));
+    module_add_debug_frame_epilogue(mod, code_offset(mod),
+                                    code_offset(mod) + 1u);
 }
 
 /* ═══════════════════════════════════════

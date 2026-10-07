@@ -479,6 +479,37 @@ static void verified_add_function_debug_symbol(
     rcc_free(scoped_name);
 }
 
+static bool verified_record_debug_frame_epilogues(
+    Module* module, const ObjSymbol* function_symbol,
+    const RccX86EncodedFunction* encoded, char* error, size_t error_size) {
+    if (!module || !function_symbol || !encoded ||
+        function_symbol->binding != BIND_CODE ||
+        function_symbol->section < 0 ||
+        function_symbol->value > UINT32_MAX) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified function epilogue base is invalid");
+        }
+        return false;
+    }
+    for (size_t index = 0u; index < encoded->epilogue_count; ++index) {
+        const RccX86CodeEpilogue* epilogue = &encoded->epilogues[index];
+        uint64_t return_pc = function_symbol->value + epilogue->return_pc;
+        uint64_t resume_pc = function_symbol->value + epilogue->resume_pc;
+        if (return_pc > UINT32_MAX || resume_pc > UINT32_MAX ||
+            resume_pc <= return_pc) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified function epilogue range exceeds 32 bits");
+            }
+            return false;
+        }
+        module_add_debug_frame_epilogue(
+            module, (uint32_t)return_pc, (uint32_t)resume_pc);
+    }
+    return true;
+}
+
 static void verified_append_statement_debug_range(
     Stmt* statement, uint32_t start, uint32_t end) {
     StmtDebugRange* debug_range;
@@ -620,6 +651,63 @@ static void verified_propagate_block_debug_ranges(Stmt* statement) {
     }
 }
 
+static void verified_clear_statement_debug_ranges(Stmt* statement) {
+    StmtDebugRange* range;
+    if (!statement) return;
+    statement->debug_code_start = 0u;
+    statement->debug_code_end = 0u;
+    statement->debug_line_offset = 0u;
+    statement->debug_line_valid = false;
+    range = statement->debug_code_ranges;
+    while (range) {
+        StmtDebugRange* next = range->next;
+        rcc_free(range);
+        range = next;
+    }
+    statement->debug_code_ranges = NULL;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                verified_clear_statement_debug_ranges(item->stmt);
+            }
+            break;
+        case STMT_IF:
+            verified_clear_statement_debug_ranges(statement->if_then);
+            verified_clear_statement_debug_ranges(statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            verified_clear_statement_debug_ranges(statement->while_body);
+            break;
+        case STMT_FOR:
+            verified_clear_statement_debug_ranges(statement->for_init);
+            verified_clear_statement_debug_ranges(statement->for_body);
+            break;
+        case STMT_SWITCH:
+            verified_clear_statement_debug_ranges(statement->switch_body);
+            break;
+        case STMT_CASE:
+            verified_clear_statement_debug_ranges(statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            verified_clear_statement_debug_ranges(statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            verified_clear_statement_debug_ranges(statement->label_stmt);
+            break;
+        case STMT_TRY:
+            verified_clear_statement_debug_ranges(statement->try_body);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                verified_clear_statement_debug_ranges(handler->body);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static void verified_apply_statement_debug_ranges(
     ObjectFile* object, const char* object_name,
     const RccX86EncodedFunction* encoded) {
@@ -669,6 +757,13 @@ static void verified_emit_debug_sections(
     debug_module->debug_variable_locations = variable_locations;
     debug_module->debug_variable_location_count = variable_location_count;
     if (text->size != 0u) emit_bytes(debug_module, text->data, text->size);
+    for (size_t index = 0u;
+         index < data_module->debug_frame_epilogue_count; ++index) {
+        const ModuleDebugFrameEpilogue* epilogue =
+            &data_module->debug_frame_epilogues[index];
+        module_add_debug_frame_epilogue(
+            debug_module, epilogue->return_pc, epilogue->resume_pc);
+    }
     for (int index = 0; index < data_module->symbol_count; ++index) {
         verified_copy_debug_symbol(debug_module, &data_module->symbols[index]);
     }
@@ -770,6 +865,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         memset(&encoded, 0, sizeof(encoded));
         if (!declaration || declaration->kind != DECL_FUNC ||
             !declaration->func_body) continue;
+        if (g_opts.debug_info) {
+            verified_clear_statement_debug_ranges(declaration->func_body);
+        }
         lower_status = rcc_ir_lower_function(
             declaration, &module, pipeline_error,
             sizeof(pipeline_error));
@@ -843,6 +941,20 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             return verified_reason(
                 RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
                 "function '%s' object emission failed: %s",
+                declaration->name, pipeline_error);
+        }
+        if (g_opts.debug_info &&
+            !verified_record_debug_frame_epilogues(
+                data_module, objfile_find_symbol(object, object_name),
+                &encoded, pipeline_error, sizeof(pipeline_error))) {
+            rcc_free(debug_variable_locations);
+            rcc_free(scoped_name);
+            rcc_x86_encoded_function_release(&encoded);
+            rcc_ir_module_destroy(module);
+            objfile_free(object);
+            return verified_reason(
+                RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+                "function '%s' debug epilogue recording failed: %s",
                 declaration->name, pipeline_error);
         }
         verified_apply_statement_debug_ranges(object, object_name, &encoded);

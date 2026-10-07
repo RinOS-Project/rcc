@@ -38,6 +38,12 @@ typedef struct {
 } RccX86CodeLocalLocation;
 
 typedef struct {
+    /* PC at the return instruction and the first PC after that instruction. */
+    uint32_t return_pc;
+    uint32_t resume_pc;
+} RccX86CodeEpilogue;
+
+typedef struct {
     RccX86Target target;
     uint8_t* code;
     size_t code_size;
@@ -49,6 +55,8 @@ typedef struct {
     size_t source_range_count;
     RccX86CodeLocalLocation* local_locations;
     size_t local_location_count;
+    RccX86CodeEpilogue* epilogues;
+    size_t epilogue_count;
 } RccX86EncodedFunction;
 
 bool rcc_x86_encode_function(

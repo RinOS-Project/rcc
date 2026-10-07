@@ -1673,7 +1673,11 @@ static void debug_emit_lexical_block_die(
                                        statement->loc.filename);
     if (statement->debug_code_end < statement->debug_code_start ||
         statement->debug_code_start < function->offset) {
-        rcc_fatal("DWARF lexical block code range is invalid");
+        rcc_fatal("DWARF lexical block code range is invalid in '%s' "
+                  "(function=%u, block=%u..%u)",
+                  function->name ? function->name : "<unnamed>",
+                  function->offset, statement->debug_code_start,
+                  statement->debug_code_end);
         return;
     }
     range_size = statement->debug_code_end - statement->debug_code_start;
@@ -3341,51 +3345,63 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
         debug_line_uleb(frame, frame_register);
         current_pc = prologue_after_fp;
-        if (!mod->debug_verified_backend) {
-            for (size_t epilogue_index = 0u;
-                 epilogue_index < mod->debug_frame_epilogue_count;
-                 ++epilogue_index) {
-                uint32_t return_pc =
-                    mod->debug_frame_epilogue_pcs[epilogue_index];
-                uint64_t relative_pc;
-                if (return_pc <= function->offset ||
-                    (uint64_t)return_pc >= function_end ||
-                    (size_t)return_pc >= mod->code.size ||
-                    mod->code.data[return_pc] != 0xc3u) {
-                    continue;
-                }
-                relative_pc = (uint64_t)return_pc - function->offset;
-                if (relative_pc <= current_pc ||
-                    relative_pc >= function_size) {
-                    continue;
-                }
-                debug_frame_advance(frame, relative_pc - current_pc);
-                section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
-                debug_line_uleb(frame, stack_register);
-                /* `leave` restores ESP to the return-address slot. */
-                section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
-                debug_line_uleb(frame, pointer_size);
-                section_add_byte(frame, (uint8_t)(0xc0u + frame_register));
-                current_pc = relative_pc;
-                ++emitted_epilogues;
+        for (size_t epilogue_index = 0u;
+             epilogue_index < mod->debug_frame_epilogue_count;
+             ++epilogue_index) {
+            const ModuleDebugFrameEpilogue* epilogue =
+                &mod->debug_frame_epilogues[epilogue_index];
+            uint64_t return_pc = epilogue->return_pc;
+            uint64_t resume_pc = epilogue->resume_pc;
+            uint64_t relative_pc;
+            uint64_t relative_resume_pc;
+            bool return_instruction_valid = false;
+            if (return_pc <= function->offset ||
+                return_pc >= function_end || resume_pc <= return_pc ||
+                resume_pc > function_end || resume_pc > mod->code.size) {
+                continue;
+            }
+            if (mod->code.data[return_pc] == 0xc3u &&
+                resume_pc == return_pc + 1u) {
+                return_instruction_valid = true;
+            } else if (mod->code.data[return_pc] == 0xc2u &&
+                       resume_pc == return_pc + 3u) {
+                return_instruction_valid = true;
+            }
+            if (!return_instruction_valid) continue;
+            relative_pc = return_pc - function->offset;
+            relative_resume_pc = resume_pc - function->offset;
+            if (relative_pc <= current_pc ||
+                relative_pc >= function_size ||
+                relative_resume_pc <= relative_pc ||
+                relative_resume_pc > function_size) {
+                continue;
+            }
+            debug_frame_advance(frame, relative_pc - current_pc);
+            section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
+            debug_line_uleb(frame, stack_register);
+            /* `leave` restores ESP to the return-address slot. */
+            section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
+            debug_line_uleb(frame, pointer_size);
+            section_add_byte(frame, (uint8_t)(0xc0u + frame_register));
+            current_pc = relative_pc;
+            ++emitted_epilogues;
 
-                /* A later branch target may resume the function after this
-                 * non-terminal return.  Restore the normal frame-body rules
-                 * at the next instruction boundary for that code range. */
-                if (relative_pc + 1u < function_size) {
-                    debug_frame_advance(frame, 1u);
-                    section_add_byte(frame, 0x0du);
-                    debug_line_uleb(frame, frame_register);
-                    section_add_byte(frame, 0x0eu);
-                    debug_line_uleb(frame, pointer_size * 2u);
-                    section_add_byte(frame,
-                                     (uint8_t)(0x80u + frame_register));
-                    debug_line_uleb(frame, 1u);
-                    current_pc = relative_pc + 1u;
-                }
+            /* A later branch target may resume the function after this
+             * non-terminal return.  Restore the normal frame-body rules at
+             * the return instruction's exact end address. */
+            if (relative_resume_pc < function_size) {
+                debug_frame_advance(frame, relative_resume_pc - current_pc);
+                section_add_byte(frame, 0x0du);
+                debug_line_uleb(frame, frame_register);
+                section_add_byte(frame, 0x0eu);
+                debug_line_uleb(frame, pointer_size * 2u);
+                section_add_byte(frame,
+                                 (uint8_t)(0x80u + frame_register));
+                debug_line_uleb(frame, 1u);
+                current_pc = relative_resume_pc;
             }
         }
-        if (emitted_epilogues == 0u &&
+        if (!mod->debug_verified_backend && emitted_epilogues == 0u &&
             after_leave > prologue_after_fp) {
             debug_frame_advance(frame, after_leave - current_pc);
             section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */

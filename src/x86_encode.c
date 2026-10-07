@@ -22,6 +22,7 @@ typedef struct {
     size_t relocation_capacity;
     size_t source_range_capacity;
     size_t local_location_capacity;
+    size_t epilogue_capacity;
     char* error;
     size_t error_size;
 } RccX86Encoder;
@@ -1533,6 +1534,9 @@ static bool x86_emit_epilogue(RccX86Encoder* encoder,
                               uint16_t stack_pop) {
     const RccX86LegalFunction* function = encoder->function;
     size_t index = function->callee_save_count;
+    uint32_t return_pc;
+    size_t capacity;
+    RccX86CodeEpilogue* epilogues;
     while (index != 0u) {
         RccX86Value slot;
         --index;
@@ -1546,9 +1550,33 @@ static bool x86_emit_epilogue(RccX86Encoder* encoder,
                            slot, function->pointer_size)) return false;
     }
     if (!x86_emit_u8(encoder, 0xc9u)) return false;
-    if (stack_pop == 0u) return x86_emit_u8(encoder, 0xc3u);
-    return x86_emit_u8(encoder, 0xc2u) &&
-        x86_emit_u16(encoder, stack_pop);
+    return_pc = (uint32_t)encoder->output.code_size;
+    if (stack_pop == 0u) {
+        if (!x86_emit_u8(encoder, 0xc3u)) return false;
+    } else if (!x86_emit_u8(encoder, 0xc2u) ||
+               !x86_emit_u16(encoder, stack_pop)) {
+        return false;
+    }
+    if (encoder->output.epilogue_count == encoder->epilogue_capacity) {
+        capacity = encoder->epilogue_capacity == 0u
+            ? 8u : encoder->epilogue_capacity * 2u;
+        if (capacity < encoder->epilogue_capacity ||
+            capacity > SIZE_MAX / sizeof(*epilogues)) {
+            return x86_encode_error(
+                encoder, "x86 epilogue table is too large");
+        }
+        epilogues = rcc_realloc(
+            encoder->output.epilogues,
+            capacity * sizeof(*epilogues));
+        encoder->output.epilogues = epilogues;
+        encoder->epilogue_capacity = capacity;
+    }
+    epilogues = encoder->output.epilogues;
+    epilogues[encoder->output.epilogue_count].return_pc = return_pc;
+    epilogues[encoder->output.epilogue_count].resume_pc =
+        (uint32_t)encoder->output.code_size;
+    ++encoder->output.epilogue_count;
+    return true;
 }
 
 static bool x86_emit_instruction(
@@ -1690,6 +1718,7 @@ void rcc_x86_encoded_function_release(RccX86EncodedFunction* encoded) {
     rcc_free(encoded->relocations);
     rcc_free(encoded->source_ranges);
     rcc_free(encoded->local_locations);
+    rcc_free(encoded->epilogues);
     rcc_free(encoded->block_offsets);
     rcc_free(encoded->code);
     memset(encoded, 0, sizeof(*encoded));
@@ -1708,7 +1737,8 @@ bool rcc_x86_verify_encoded_function(
         (encoded->relocation_count != 0u && !encoded->relocations) ||
         (encoded->source_range_count != 0u && !encoded->source_ranges) ||
         (encoded->local_location_count != 0u &&
-         !encoded->local_locations)) {
+         !encoded->local_locations) ||
+        (encoded->epilogue_count != 0u && !encoded->epilogues)) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "x86 encoded-function header is invalid");
@@ -1722,6 +1752,26 @@ bool rcc_x86_verify_encoded_function(
             if (error && error_size != 0u) {
                 snprintf(error, error_size,
                          "x86 encoded block table is invalid");
+            }
+            return false;
+        }
+    }
+    for (size_t index = 0u; index < encoded->epilogue_count; ++index) {
+        const RccX86CodeEpilogue* epilogue = &encoded->epilogues[index];
+        bool return_valid =
+            (epilogue->return_pc < encoded->code_size &&
+             encoded->code[epilogue->return_pc] == 0xc3u &&
+             epilogue->resume_pc == epilogue->return_pc + 1u) ||
+            (epilogue->return_pc <= encoded->code_size &&
+             encoded->code_size - epilogue->return_pc >= 3u &&
+             encoded->code[epilogue->return_pc] == 0xc2u &&
+             epilogue->resume_pc == epilogue->return_pc + 3u);
+        if (!return_valid || epilogue->resume_pc > encoded->code_size ||
+            (index != 0u && epilogue->return_pc <
+                encoded->epilogues[index - 1u].resume_pc)) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "x86 encoded epilogue table is invalid");
             }
             return false;
         }

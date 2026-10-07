@@ -74,6 +74,11 @@ typedef struct ModuleSymbol {
     uint32_t source_column;
 } ModuleSymbol;
 
+typedef struct ModuleDebugFrameEpilogue {
+    uint32_t return_pc;
+    uint32_t resume_pc;
+} ModuleDebugFrameEpilogue;
+
 /* Module relocation entry (for object files) */
 typedef struct ModuleReloc {
     ModuleSymbolSection source_section;
@@ -137,9 +142,9 @@ typedef struct Module {
     ModuleSymbol* symbols;
     int symbol_count;
     int symbol_capacity;
-    /* Absolute text offsets of the instruction immediately after each
-     * legacy `leave`; these are the PCs where epilogue CFI becomes active. */
-    uint32_t* debug_frame_epilogue_pcs;
+    /* Absolute text ranges covering each `ret`/`ret imm16` instruction,
+     * where epilogue CFI is active and normal body rules resume afterward. */
+    ModuleDebugFrameEpilogue* debug_frame_epilogues;
     size_t debug_frame_epilogue_count;
     size_t debug_frame_epilogue_capacity;
 
@@ -202,7 +207,8 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
                        bool is_defined, ModuleSymbolSection section,
                        bool is_global);
 void module_set_symbol_size(Module* mod, const char* name, uint32_t size);
-void module_add_debug_frame_epilogue(Module* mod, uint32_t return_pc);
+void module_add_debug_frame_epilogue(Module* mod, uint32_t return_pc,
+                                     uint32_t resume_pc);
 void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc);
 void module_mark_symbol_weak(Module* mod, const char* name);
 void module_mark_symbol_weak_any(Module* mod, const char* name);

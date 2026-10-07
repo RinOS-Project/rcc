@@ -1,3 +1,10 @@
+static int verified_debug_multi_return(int value)
+{
+    if (value == 0) return 3;
+    if (value < 0) return -value;
+    return value + 1;
+}
+
 static int verified_debug_static(int value)
 {
     int local = value + 3;
