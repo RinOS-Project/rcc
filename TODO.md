@@ -788,7 +788,8 @@
         CIEにABI-preserved GPRの`DW_CFA_same_value`を定義し、`leave`後は
         CIE ruleへ戻す。non-terminal return後はstack-slot ruleを再適用。
         live-across-call回帰でi686/AMD64のO0/O2 CIE/FDEをdecodeして検証
-  - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
+  - [ ] `.debug_info`のinline attribution／完全なvariable location listsと
+        非標準prologueを含む完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
