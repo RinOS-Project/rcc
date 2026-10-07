@@ -1064,6 +1064,7 @@ struct Decl {
             int var_offset;         /* Stack offset (set during codegen) */
             int var_reference_temporary_offset; /* Lifetime-extended object */
             Decl* var_reference_temporary_owner; /* Complete-object cleanup */
+            Decl* var_reference_temporary_guard; /* Static local init guard */
             int var_vla_size_offset; /* Saved runtime VLA byte size */
             int var_vla_extent_offset; /* First saved VLA dimension extent */
             int var_vla_extent_count;  /* Number of saved VLA dimensions */

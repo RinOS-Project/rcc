@@ -316,8 +316,8 @@
       semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
       function returns now have regressions that compile for both targets and
       execute on the x64 host. Source-level reference collapsing is covered;
-      static-storage references and broader call/return ABI interactions still
-      need systematic coverage.
+      thread-local reference temporaries, converted class xvalues, and broader
+      call/return ABI interactions still need systematic coverage.
   - [x] Verify public implicit conversion functions returning class lvalue
         references, rvalue references, and class prvalues during class-reference
         binding, including derived-to-base adjustment and lifetime cleanup.
@@ -337,8 +337,21 @@
         checks method-before-destructor ordering and exactly-once destruction,
         generates i686/AMD64 code, and executes on x64 in
         `test-cxx-function-template-references`.
-  - [ ] Support static-duration reference temporaries, including initialization
+  - [x] Support static-duration reference temporaries, including initialization
         and destructor registration for namespace and block static storage.
+        The implementation covers scalar and aggregate temporaries on i686 and
+        AMD64, uses guarded initialization for block statics, registers
+        nontrivial cleanup with `__cxa_atexit`, and emits guard-abort cleanup
+        for exceptions in a protected scope. This implementation has not been
+        built or run; exception retry execution and RinOS runtime integration
+        remain unverified.
+  - [ ] Execute a throwing block-static reference initializer, catch the
+        exception, and verify `__cxa_guard_abort` permits a later successful
+        initialization and exactly-once cleanup.
+  - [ ] Support thread-local reference temporaries and per-thread destructor
+        registration; sema still rejects these bindings.
+  - [ ] Extend static-duration lifetime through converted class xvalues and
+        class subobjects; converted class xvalues still diagnose unsupported.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

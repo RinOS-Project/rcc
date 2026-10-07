@@ -246,8 +246,13 @@ use caller-frame temporary storage and cleanup on both target backends.
 `test-cxx-function-template-references` covers lvalue-reference,
 rvalue-reference, and class-prvalue conversion results, reference arguments,
 derived-to-base adjustment, cleanup order, and prvalue receiver materialization.
-Dedicated nontrivial-receiver cleanup coverage and static-storage reference
-temporaries remain open in [`TODO.md`](TODO.md).
+Namespace and block-static reference-bound temporary initialization and
+destructor registration are implemented on both target backends, but this
+change has not been built or run. The implementation also emits guard-abort
+cleanup for exceptions during block-static initialization; exception-retry
+execution and RinOS runtime integration remain unverified.
+Thread-local reference temporaries, converted class xvalues, and static
+class-subobject lifetime remain open in [`TODO.md`](TODO.md).
 
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、

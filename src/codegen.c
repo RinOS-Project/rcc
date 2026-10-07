@@ -48,6 +48,8 @@ static bool codegen_cxx_virtual_base_offset(CxxClass* owner,
 /* Label management */
 static int label_counter = 0;
 static int current_stack_offset = 0;
+static Expr* active_static_reference_result_call32 = NULL;
+static const char* active_static_reference_result_symbol32 = NULL;
 
 #define INIT_CAPACITY 4096
 
@@ -122,6 +124,7 @@ Module* codegen_new(void) {
     mod->global_initializer_count = 0;
     mod->global_finalizers = NULL;
     mod->global_finalizer_count = 0;
+    mod->static_local_cleanups = NULL;
     mod->compound_literal_count = 0u;
     mod->debug_ast = NULL;
     mod->debug_variable_locations = NULL;
@@ -152,6 +155,12 @@ void codegen_free(Module* mod) {
         GlobalFinalizer* next = mod->global_finalizers->next;
         rcc_free(mod->global_finalizers);
         mod->global_finalizers = next;
+    }
+    while (mod->static_local_cleanups) {
+        StaticLocalCleanup* next = mod->static_local_cleanups->next;
+        rcc_free((void*)mod->static_local_cleanups->callback_name);
+        rcc_free(mod->static_local_cleanups);
+        mod->static_local_cleanups = next;
     }
     while (mod->got_entries) {
         ModuleGotEntry* next = mod->got_entries->next;
@@ -1399,6 +1408,99 @@ static bool codegen_type_has_vtable_storage(Type* type) {
                              cls->virtual_base_count > 0)));
 }
 
+static bool codegen_emit_static_reference_temporary_storage(
+    Module* mod, Decl* declaration) {
+    Decl* owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    uint8_t zero[32] = {0};
+    uint32_t size;
+    uint32_t alignment;
+    uint64_t aligned;
+    uint32_t offset;
+    if (!mod || !owner || !owner->type || owner->type->size <= 0) {
+        return false;
+    }
+    size = (uint32_t)owner->type->size;
+    alignment = owner->type->align > 0
+        ? (uint32_t)owner->type->align : 1u;
+    if (alignment > 16u) alignment = 16u;
+    aligned = ((uint64_t)mod->data.size + alignment - 1u) &
+              ~((uint64_t)alignment - 1u);
+    if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+        rcc_error(declaration->loc,
+                  "static reference temporary exceeds data limits");
+        return false;
+    }
+    while (mod->data.size < aligned) emit_data(mod, zero, 1u);
+    offset = (uint32_t)aligned;
+    while (size > sizeof(zero)) {
+        emit_data(mod, zero, sizeof(zero));
+        size -= sizeof(zero);
+    }
+    if (size) emit_data(mod, zero, size);
+    owner->var_offset = offset;
+    codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset, owner->type);
+    module_add_symbol(mod, decl_link_name(owner), offset, true,
+                      MODULE_SYMBOL_DATA, false);
+
+    if (declaration->var_reference_temporary_guard) {
+        Decl* guard = declaration->var_reference_temporary_guard;
+        uint32_t guard_size = 8u;
+        uint64_t guard_alignment = 8u;
+        aligned = ((uint64_t)mod->bss.size + guard_alignment - 1u) &
+                  ~(guard_alignment - 1u);
+        if (aligned > UINT32_MAX || guard_size > UINT32_MAX - aligned) {
+            rcc_error(declaration->loc,
+                      "static reference guard exceeds BSS limits");
+            return false;
+        }
+        guard->var_offset = (int)aligned;
+        mod->bss.size = (size_t)(aligned + guard_size);
+        if (mod->bss.align < guard_alignment) {
+            mod->bss.align = (uint32_t)guard_alignment;
+        }
+        module_add_symbol(mod, decl_link_name(guard), (uint32_t)aligned,
+                          true, MODULE_SYMBOL_BSS, false);
+    }
+    return true;
+}
+
+static void codegen_defer_static_local_cleanup(Module* mod,
+                                               Decl* declaration) {
+    StaticLocalCleanup* cleanup;
+    StaticLocalCleanup** tail;
+    const char* owner_name;
+    const char* suffix = "$rcc_static_cleanup";
+    size_t owner_length;
+    size_t suffix_length = strlen(suffix);
+    char* callback_name;
+    if (!mod || !declaration || !declaration->var_cleanups ||
+        !declaration->var_reference_temporary_owner) {
+        return;
+    }
+    for (cleanup = mod->static_local_cleanups; cleanup;
+         cleanup = cleanup->next) {
+        if (cleanup->declaration == declaration) return;
+    }
+    owner_name = decl_link_name(declaration->var_reference_temporary_owner);
+    owner_length = owner_name ? strlen(owner_name) : 0u;
+    if (owner_length > SIZE_MAX - suffix_length - 1u) {
+        rcc_error(declaration->loc,
+                  "static cleanup callback symbol is too large");
+        return;
+    }
+    callback_name = rcc_alloc(owner_length + suffix_length + 1u);
+    if (owner_length) memcpy(callback_name, owner_name, owner_length);
+    memcpy(callback_name + owner_length, suffix, suffix_length + 1u);
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    cleanup->declaration = declaration;
+    cleanup->callback_name = callback_name;
+    cleanup->next = NULL;
+    tail = &mod->static_local_cleanups;
+    while (*tail) tail = &(*tail)->next;
+    *tail = cleanup;
+}
+
 static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     uint8_t zero[32] = {0};
     uint32_t size;
@@ -1407,6 +1509,36 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     if (!mod || !declaration || !declaration->var_is_static_local ||
         !declaration->type || declaration->type->size <= 0) {
         return false;
+    }
+    if (declaration->var_reference_temporary_owner) {
+        if (declaration->var_is_thread_local) {
+            rcc_error(declaration->loc,
+                      "thread-local reference temporary storage is unsupported");
+            return false;
+        }
+        if (!codegen_emit_static_reference_temporary_storage(
+                mod, declaration)) {
+            return false;
+        }
+        codegen_defer_static_local_cleanup(mod, declaration);
+        alignment = declaration->type->align > 0
+            ? (uint32_t)declaration->type->align : 1u;
+        if (alignment > 16u) alignment = 16u;
+        while ((mod->data.size & (alignment - 1u)) != 0u) {
+            emit_data(mod, zero, 1u);
+        }
+        offset = (uint32_t)mod->data.size;
+        size = (uint32_t)declaration->type->size;
+        while (size > sizeof(zero)) {
+            emit_data(mod, zero, sizeof(zero));
+            size -= sizeof(zero);
+        }
+        if (size) emit_data(mod, zero, size);
+        declaration->var_offset = offset;
+        module_add_symbol(mod, decl_link_name(declaration), offset, true,
+                          MODULE_SYMBOL_DATA,
+                          declaration->storage != STORAGE_STATIC);
+        return true;
     }
     size = (uint32_t)declaration->type->size;
     alignment = declaration->type->align > 0
@@ -1598,6 +1730,36 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             if (declaration->var_is_inline || declaration->is_weak) {
                 module_mark_symbol_weak(mod, decl_link_name(declaration));
             }
+            continue;
+        }
+        if (declaration->var_reference_temporary_owner) {
+            uint64_t aligned = ((uint64_t)mod->data.size + alignment - 1u) &
+                               ~((uint64_t)alignment - 1u);
+            if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+                rcc_error(declaration->loc,
+                          "static reference object exceeds data limits");
+                continue;
+            }
+            while (mod->data.size < aligned) emit_data(mod, zero, 1u);
+            offset = (uint32_t)aligned;
+            while (size > sizeof(zero)) {
+                emit_data(mod, zero, sizeof(zero));
+                size -= sizeof(zero);
+            }
+            if (size) emit_data(mod, zero, size);
+            declaration->var_offset = offset;
+            if (!codegen_emit_static_reference_temporary_storage(
+                    mod, declaration)) {
+                continue;
+            }
+            module_add_symbol(mod, decl_link_name(declaration), offset, true,
+                              MODULE_SYMBOL_DATA,
+                              declaration->storage != STORAGE_STATIC);
+            if (declaration->var_is_inline || declaration->is_weak) {
+                module_mark_symbol_weak(mod, decl_link_name(declaration));
+            }
+            codegen_defer_global_initializer(mod, declaration);
+            codegen_defer_global_variable_cleanup(mod, declaration);
             continue;
         }
         if (declaration->storage == STORAGE_EXTERN &&
@@ -10095,13 +10257,19 @@ static void gen_call(Module* mod, Expr* expr) {
     codegen_push_call_temporary_cleanup32(
         mod, NULL, expr->cxx_temporary_cleanups);
     if (expr->type && gen_aggregate_type32(expr->type)) {
-        if (expr->call_result_offset >= 0) {
-            rcc_error(expr->loc,
-                      "aggregate call has no automatic result slot");
+        if (expr == active_static_reference_result_call32 &&
+            active_static_reference_result_symbol32) {
+            gen_symbol_address(
+                mod, active_static_reference_result_symbol32, 0u);
+        } else {
+            if (expr->call_result_offset >= 0) {
+                rcc_error(expr->loc,
+                          "aggregate call has no automatic result slot");
+            }
+            emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+            emit_byte(mod, modrm(2, EAX, EBP));
+            emit_dword(mod, (uint32_t)expr->call_result_offset);
         }
-        emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
-        emit_byte(mod, modrm(2, EAX, EBP));
-        emit_dword(mod, (uint32_t)expr->call_result_offset);
         emit_push_reg(mod, EAX);
         argument_bytes += 4;
     }
@@ -12763,8 +12931,8 @@ static bool codegen_reference_temporary_local(Type* type,
         type_is_compatible(type, initializer->type);
 }
 
-static void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,
-                                       int stack_alignment) {
+void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,
+                                int stack_alignment) {
     for (; plan; plan = plan->next) {
         if (plan->kind != CXX_CLEANUP_ARRAY_LOOP) continue;
         if (plan->index_decl && plan->index_decl->var_offset == 0) {
@@ -13023,6 +13191,18 @@ int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
     if (stack_alignment < 1) stack_alignment = 1;
     active_call_temporary_owners = NULL;
     codegen_assign_compound_stmt(statement, &bytes, stack_alignment);
+    return bytes;
+}
+
+int codegen_assign_global_initializer_storage(
+    GlobalInitializer* initializers, int stack_alignment) {
+    int bytes = 0;
+    if (stack_alignment < 1) stack_alignment = 1;
+    for (; initializers; initializers = initializers->next) {
+        Decl* declaration = initializers->declaration;
+        Expr* initializer = declaration ? declaration->var_init : NULL;
+        codegen_assign_compound_expr(initializer, &bytes, stack_alignment);
+    }
     return bytes;
 }
 
@@ -13409,6 +13589,7 @@ typedef struct CleanupCodegen {
     Expr* expression;
     CxxCleanupPlan* plan;
     Decl* temporary_owner;
+    Decl* guard_abort;
     struct CleanupCodegen* previous;
     Decl* declaration;
     int exception_frame_offset;
@@ -13432,6 +13613,9 @@ static void gen_cxx_exception_register_plan32(
 
 static void gen_cxx_exception_unregister_cleanup32(
     Module* mod, const CleanupCodegen* cleanup);
+static void gen_cxx_exception_call32(Module* mod, const char* name);
+static void gen_cxx_guard_exception_unregister32(
+    Module* mod, const CleanupCodegen* cleanup);
 static void gen_cxx_exception_cleanups_until_throw32(
     Module* mod, CleanupCodegen* marker);
 
@@ -13450,6 +13634,16 @@ static VLAScopeCodegen* continue_vla_marker = NULL;
 static void gen_call_temporary_cleanup32(Module* mod,
                                          CleanupCodegen* cleanup) {
     int done_label = -1;
+    if (cleanup->guard_abort) {
+        if (cleanup->exception_registered) {
+            gen_cxx_guard_exception_unregister32(mod, cleanup);
+        }
+        gen_symbol_address(mod, decl_link_name(cleanup->guard_abort), 0u);
+        emit_push_reg(mod, EAX);
+        gen_cxx_exception_call32(mod, "__cxa_guard_abort");
+        emit_add_reg_imm(mod, ESP, 4);
+        return;
+    }
     if (cleanup->temporary_owner) {
         done_label = new_label();
         emit_mov_reg_mem(mod, EAX, EBP,
@@ -13597,6 +13791,41 @@ static void gen_cxx_exception_call32(Module* mod, const char* name) {
     emit_call_rel32(mod, 0u);
     call_offset = code_offset(mod) - 4u;
     add_func_call_ref(name, call_offset);
+}
+
+static void gen_cxx_guard_exception_register32(
+    Module* mod, CleanupCodegen* cleanup) {
+    if (!mod || !cleanup || !cleanup->guard_abort ||
+        cleanup->exception_frame_offset == INT_MAX) {
+        return;
+    }
+    gen_symbol_address(mod, decl_link_name(cleanup->guard_abort), 0u);
+    emit_push_reg(mod, EAX); /* guard object */
+    gen_symbol_address(mod, "__cxa_guard_abort", 0u);
+    emit_push_reg(mod, EAX); /* cleanup callback */
+    gen_cxx_exception_frame_address32(mod,
+                                      cleanup->exception_frame_offset);
+    emit_push_reg(mod, EAX); /* exception frame */
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_register_cleanup");
+    emit_add_reg_imm(mod, ESP, 12);
+    cleanup->exception_registered = true;
+}
+
+static void gen_cxx_guard_exception_unregister32(
+    Module* mod, const CleanupCodegen* cleanup) {
+    if (!mod || !cleanup || !cleanup->guard_abort ||
+        cleanup->exception_frame_offset == INT_MAX) {
+        return;
+    }
+    gen_symbol_address(mod, decl_link_name(cleanup->guard_abort), 0u);
+    emit_push_reg(mod, EAX); /* guard object */
+    gen_symbol_address(mod, "__cxa_guard_abort", 0u);
+    emit_push_reg(mod, EAX); /* cleanup callback */
+    gen_cxx_exception_frame_address32(mod,
+                                      cleanup->exception_frame_offset);
+    emit_push_reg(mod, EAX); /* exception frame */
+    gen_cxx_exception_call32(mod, "rin_cpp_exception_unregister_cleanup");
+    emit_add_reg_imm(mod, ESP, 12);
 }
 
 static Decl* gen_cxx_cleanup_destructor(const CleanupCodegen* cleanup) {
@@ -14134,10 +14363,140 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
     active_cxx_exception_cleanup_marker = old_exception_cleanup_marker;
 }
 
+static bool gen_static_reference_aggregate_into_owner32(
+    Module* mod, Decl* declaration, Expr* expression, Type* type) {
+    Decl* owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    if (!mod || !declaration || !owner || !expression || !type) return false;
+    if (expression->kind == EXPR_COMMA) {
+        gen_expr(mod, expression->binary_lhs);
+        return gen_static_reference_aggregate_into_owner32(
+            mod, declaration, expression->binary_rhs, type);
+    }
+    if (expression->kind == EXPR_COND) {
+        int else_label = new_label();
+        int done_label = new_label();
+        gen_expr(mod, expression->cond_test);
+        emit_test_scalar_value(mod, expression->cond_test->type);
+        emit_jcc_label(mod, CC_E, else_label);
+        if (!gen_static_reference_aggregate_into_owner32(
+                mod, declaration, expression->cond_then, type)) {
+            return false;
+        }
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, else_label);
+        if (!gen_static_reference_aggregate_into_owner32(
+                mod, declaration, expression->cond_else, type)) {
+            return false;
+        }
+        emit_label(mod, done_label);
+        return true;
+    }
+    if (expression->kind == EXPR_COMPOUND) {
+        if (expression->compound_constructor && type->cxx_class) {
+            gen_symbol_address(mod, decl_link_name(owner), 0u);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            gen_cxx_initialize_object32(
+                mod, type, expression->compound_constructor,
+                expression->compound_value_init
+                    ? NULL : expression->compound_init);
+            return true;
+        }
+        if (expression->compound_offset >= 0) {
+            rcc_error(expression->loc,
+                      "static reference aggregate has no initializer storage");
+            return false;
+        }
+        gen_zero_local_storage(mod, expression->compound_offset,
+                               (size_t)type->size);
+        if (!gen_local_initializer(mod, type, expression,
+                                   expression->compound_offset)) {
+            return false;
+        }
+        gen_local_vtable_init(mod, type, expression->compound_offset);
+        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)expression->compound_offset);
+    } else if (expression->kind == EXPR_CALL &&
+               gen_aggregate_type32(type)) {
+        Expr* old_call = active_static_reference_result_call32;
+        const char* old_symbol = active_static_reference_result_symbol32;
+        active_static_reference_result_call32 = expression;
+        active_static_reference_result_symbol32 = decl_link_name(owner);
+        gen_expr(mod, expression);
+        active_static_reference_result_call32 = old_call;
+        active_static_reference_result_symbol32 = old_symbol;
+        return true;
+    } else if (gen_expr_is_lvalue(expression) ||
+               gen_expr_is_xvalue(expression)) {
+        gen_lvalue(mod, expression);
+    } else {
+        gen_expr(mod, expression);
+    }
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(mod, decl_link_name(owner), 0u);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_pop_reg(mod, EDX);
+    gen_copy_aggregate_to_address32(mod, ECX, EDX, type->size);
+    return true;
+}
+
+static bool gen_static_reference_temporary_initializer32(
+    Module* mod, Decl* declaration) {
+    Decl* owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    Expr* initializer = declaration ? declaration->var_init : NULL;
+    Expr* source = gen_reference_temporary_source(initializer);
+    Type* type = owner ? owner->type : NULL;
+    if (!source) source = initializer;
+    if (!mod || !declaration || !owner || !source || !type) return false;
+
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
+               type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
+        if (!gen_static_reference_aggregate_into_owner32(
+                mod, declaration, source, type)) {
+            return false;
+        }
+    } else if (gen_is_floating(type)) {
+        gen_expr_as_type(mod, source, type);
+        if (gen_float_width(type) == 8) emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        gen_symbol_address(mod, decl_link_name(owner), 0u);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_pop_reg(mod, EAX);
+        if (gen_float_width(type) == 8) emit_pop_reg(mod, EDX);
+        emit_store_floating_raw(mod, type, ECX, 0);
+    } else {
+        gen_expr(mod, source);
+        if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+            emit_convert_integer_value(mod, EAX, source->type, type);
+            emit_normalize_atomic_value(mod, EAX, type);
+        }
+        emit_push_reg(mod, EAX);
+        gen_symbol_address(mod, decl_link_name(owner), 0u);
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_pop_reg(mod, ECX);
+        emit_store_typed32(mod, EDX, 0, ECX, type);
+    }
+
+    gen_symbol_address(mod, decl_link_name(owner), 0u);
+    gen_cxx_reference_adjustment32_force(mod, initializer);
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(mod, decl_link_name(declaration), 0u);
+    emit_mov_reg_reg(mod, EDX, EAX);
+    emit_pop_reg(mod, ECX);
+    emit_store_typed32(mod, EDX, 0, ECX, declaration->type);
+    return true;
+}
+
 static bool gen_global_initializer32(Module* mod, Decl* declaration) {
     Type* type = declaration ? declaration->type : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
     if (!mod || !declaration || !type || !initializer) return false;
+    if (declaration->var_reference_temporary_owner) {
+        return gen_static_reference_temporary_initializer32(
+            mod, declaration);
+    }
     if (codegen_runtime_global_constructor(type, initializer)) {
         gen_symbol_address(mod, decl_link_name(declaration), 0u);
         emit_mov_reg_reg(mod, ECX, EAX);
@@ -14198,11 +14557,21 @@ static void codegen_emit_global_init32(Module* mod) {
     VLAScopeCodegen* old_break_vla;
     VLAScopeCodegen* old_continue_vla;
     uint32_t start;
+    int stack_size;
     if (!mod || !mod->global_initializers) return;
+    stack_size = codegen_assign_global_initializer_storage(
+        mod->global_initializers, 4);
+    if (stack_size > INT_MAX - 15) {
+        rcc_error((SourceLoc){"<global-init>", 0, 0},
+                  "global initializer frame exceeds compiler limits");
+        return;
+    }
+    stack_size = (stack_size + 15) & ~15;
     start = code_offset(mod);
     add_func_def(name, start);
     emit_push_reg(mod, EBP);
     emit_mov_reg_reg(mod, EBP, ESP);
+    if (stack_size > 0) emit_sub_reg_imm(mod, ESP, stack_size);
     old_return_type = current_function_return_type;
     current_function_return_type = NULL;
     old_cleanups = active_cleanups;
@@ -14215,10 +14584,13 @@ static void codegen_emit_global_init32(Module* mod) {
     continue_vla_marker = NULL;
     for (initializer = mod->global_initializers; initializer;
          initializer = initializer->next) {
+        CleanupCodegen* full_expression_marker = active_cleanups;
         if (!gen_global_initializer32(mod, initializer->declaration)) {
             rcc_error((SourceLoc){"<global-init>", 0, 0},
                       "cannot lower deferred global initializer");
         }
+        gen_cleanups_until(mod, full_expression_marker);
+        discard_cleanups_until(full_expression_marker);
     }
     discard_cleanups_until(NULL);
     discard_vla_scopes_until(NULL);
@@ -14232,6 +14604,138 @@ static void codegen_emit_global_init32(Module* mod) {
     emit_ret(mod);
     module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
     codegen_add_init_array_entry(mod, name);
+}
+
+static StaticLocalCleanup* codegen_find_static_local_cleanup(
+    Module* mod, Decl* declaration) {
+    for (StaticLocalCleanup* item = mod ? mod->static_local_cleanups : NULL;
+         item; item = item->next) {
+        if (item->declaration == declaration) return item;
+    }
+    return NULL;
+}
+
+static void codegen_register_static_local_cleanup32(
+    Module* mod, Decl* declaration) {
+    StaticLocalCleanup* cleanup = codegen_find_static_local_cleanup(
+        mod, declaration);
+    if (!cleanup) return;
+    gen_symbol_address(mod, cleanup->callback_name, 0u);
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(
+        mod, decl_link_name(declaration->var_reference_temporary_owner), 0u);
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(mod, "__dso_handle", 0u);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "__cxa_atexit");
+    emit_add_reg_imm(mod, ESP, 12);
+    emit_cmp_reg_imm(mod, EAX, 0);
+    {
+        int registered = new_label();
+        emit_jcc_label(mod, CC_E, registered);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref("abort", call_offset);
+        }
+        emit_label(mod, registered);
+    }
+}
+
+static bool gen_static_local_reference_initializer32(
+    Module* mod, Decl* declaration) {
+    Decl* guard = declaration
+        ? declaration->var_reference_temporary_guard : NULL;
+    CleanupCodegen* guard_cleanup;
+    int done;
+    if (!mod || !declaration || !guard) return false;
+    done = new_label();
+    gen_symbol_address(mod, decl_link_name(guard), 0u);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "__cxa_guard_acquire");
+    emit_add_reg_imm(mod, ESP, 4);
+    emit_test_reg_reg(mod, EAX, EAX);
+    emit_jcc_label(mod, CC_E, done);
+
+    guard_cleanup = rcc_alloc(sizeof(*guard_cleanup));
+    memset(guard_cleanup, 0, sizeof(*guard_cleanup));
+    guard_cleanup->guard_abort = guard;
+    guard_cleanup->previous = active_cleanups;
+    guard_cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset;
+    active_cleanups = guard_cleanup;
+    if (cxx_exception_cleanup_registration_enabled &&
+        active_cxx_exception_cleanup_frame_offset != INT_MAX) {
+        gen_cxx_guard_exception_register32(mod, guard_cleanup);
+    }
+
+    if (!gen_static_reference_temporary_initializer32(mod, declaration)) {
+        rcc_error(declaration->loc,
+                  "cannot initialize static reference temporary for '%s'",
+                  declaration->name);
+        return false;
+    }
+    gen_cleanups_until(mod, guard_cleanup);
+    discard_cleanups_until(guard_cleanup);
+    codegen_register_static_local_cleanup32(mod, declaration);
+    if (guard_cleanup->exception_registered) {
+        gen_cxx_guard_exception_unregister32(mod, guard_cleanup);
+        guard_cleanup->exception_registered = false;
+    }
+    gen_symbol_address(mod, decl_link_name(guard), 0u);
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_call32(mod, "__cxa_guard_release");
+    emit_add_reg_imm(mod, ESP, 4);
+    active_cleanups = guard_cleanup->previous;
+    rcc_free(guard_cleanup);
+    emit_label(mod, done);
+    return true;
+}
+
+static void codegen_emit_static_local_cleanups32(Module* mod) {
+    for (StaticLocalCleanup* item = mod ? mod->static_local_cleanups : NULL;
+         item; item = item->next) {
+        Type* old_return_type = current_function_return_type;
+        CleanupCodegen* old_cleanups = active_cleanups;
+        VLAScopeCodegen* old_vla_scopes = active_vla_scopes;
+        VLAScopeCodegen* old_break_vla = break_vla_marker;
+        VLAScopeCodegen* old_continue_vla = continue_vla_marker;
+        int stack_size = 0;
+        uint32_t start;
+        codegen_assign_cleanup_plan(item->declaration->var_cleanups,
+                                    &stack_size, 4);
+        if (stack_size > INT_MAX - 15) {
+            rcc_error(item->declaration->loc,
+                      "static cleanup frame exceeds compiler limits");
+            continue;
+        }
+        stack_size = (stack_size + 15) & ~15;
+        start = code_offset(mod);
+        add_func_def(item->callback_name, start);
+        emit_push_reg(mod, EBP);
+        emit_mov_reg_reg(mod, EBP, ESP);
+        if (stack_size > 0) emit_sub_reg_imm(mod, ESP, stack_size);
+        current_function_return_type = NULL;
+        active_cleanups = NULL;
+        active_vla_scopes = NULL;
+        break_vla_marker = NULL;
+        continue_vla_marker = NULL;
+        gen_cxx_cleanup_plan32(mod, item->declaration->var_cleanups,
+                               false, INT_MAX);
+        discard_cleanups_until(NULL);
+        discard_vla_scopes_until(NULL);
+        active_cleanups = old_cleanups;
+        active_vla_scopes = old_vla_scopes;
+        break_vla_marker = old_break_vla;
+        continue_vla_marker = old_continue_vla;
+        current_function_return_type = old_return_type;
+        emit_mov_reg_imm(mod, EAX, 0u);
+        emit_leave(mod);
+        emit_ret(mod);
+        module_add_symbol(mod, item->callback_name, start, true,
+                          MODULE_SYMBOL_CODE, false);
+    }
 }
 
 static void codegen_emit_global_fini32(Module* mod) {
@@ -14859,6 +15363,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
+            if (d->kind == DECL_VAR && d->var_is_static_local &&
+                d->var_reference_temporary_guard) {
+                if (!gen_static_local_reference_initializer32(mod, d)) {
+                    rcc_error(d->loc,
+                              "cannot initialize static reference temporary for '%s'",
+                              d->name);
+                }
+                break;
+            }
             if (d->kind == DECL_VAR &&
                 (d->var_is_static_local || d->var_is_block_extern)) break;
             CleanupCodegen* initializer_marker = active_cleanups;
@@ -14945,6 +15458,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
                 cleanup->expression = d->var_cleanup;
                 cleanup->previous = active_cleanups;
+                cleanup->guard_abort = NULL;
                 cleanup->declaration = d;
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset;
@@ -14959,6 +15473,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
                 cleanup->plan = d->var_cleanups;
                 cleanup->previous = active_cleanups;
+                cleanup->guard_abort = NULL;
                 cleanup->declaration = d;
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset;
@@ -15118,6 +15633,8 @@ Module* rcc_codegen(AST* ast) {
 
     /* Reset label counter and function call tracking */
     label_counter = 0;
+    active_static_reference_result_call32 = NULL;
+    active_static_reference_result_symbol32 = NULL;
     label_refs = NULL;
     label_defs = NULL;
     func_call_refs = NULL;
@@ -15168,6 +15685,7 @@ Module* rcc_codegen(AST* ast) {
         }
     }
 
+    codegen_emit_static_local_cleanups32(mod);
     codegen_emit_global_init32(mod);
     codegen_emit_global_fini32(mod);
 

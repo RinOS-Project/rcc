@@ -16,6 +16,8 @@
 
 /* Label management */
 static int label_counter64 = 0;
+static Expr* active_static_reference_result_call64 = NULL;
+static const char* active_static_reference_result_symbol64 = NULL;
 
 static const char* codegen_cxx_vbase_variant_symbol(CxxClass* owner,
                                                      bool is_virtual_base,
@@ -7312,7 +7314,14 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                           "aggregate call has no automatic result slot");
             }
             if (memory_result) {
-                emit64_lea(mod, RDI, RBP, expr->call_result_offset);
+                if (expr == active_static_reference_result_call64 &&
+                    active_static_reference_result_symbol64) {
+                    gen64_symbol_address(
+                        mod, active_static_reference_result_symbol64, 0u);
+                    emit64_mov_reg_reg(mod, RDI, RAX);
+                } else {
+                    emit64_lea(mod, RDI, RBP, expr->call_result_offset);
+                }
             }
 
             /* Direct calls use rel32 and produce a .ro relocation only when
@@ -7687,6 +7696,7 @@ typedef struct CleanupCodegen64 {
     Expr* expression;
     CxxCleanupPlan* plan;
     Decl* temporary_owner;
+    Decl* guard_abort;
     struct CleanupCodegen64* previous;
     Decl* declaration;
     int exception_frame_offset;
@@ -7709,6 +7719,9 @@ static void gen64_cxx_exception_register_plan(
     Module* mod, CxxCleanupPlan* plan, int frame_offset);
 static void gen64_cxx_exception_unregister_cleanup(
     Module* mod, const CleanupCodegen64* cleanup);
+static void gen64_cxx_guard_exception_unregister(
+    Module* mod, const CleanupCodegen64* cleanup);
+static void gen64_cxx_exception_call(Module* mod, const char* name);
 static void gen64_cxx_exception_cleanups_until_throw(
     Module* mod, CleanupCodegen64* marker);
 
@@ -7727,6 +7740,16 @@ static VLAScopeCodegen64* continue_vla_marker64 = NULL;
 static void gen64_call_temporary_cleanup(
     Module* mod, CleanupCodegen64* cleanup) {
     int done_label = -1;
+    if (cleanup->guard_abort) {
+        if (cleanup->exception_registered) {
+            gen64_cxx_guard_exception_unregister(mod, cleanup);
+        }
+        gen64_symbol_address(mod,
+                             decl_link_name(cleanup->guard_abort), 0u);
+        emit64_mov_reg_reg(mod, RDI, RAX);
+        gen64_cxx_exception_call(mod, "__cxa_guard_abort");
+        return;
+    }
     if (cleanup->temporary_owner) {
         done_label = new_label64();
         emit64_mov_reg_mem(mod, RAX, RBP,
@@ -7837,6 +7860,37 @@ static void gen64_cxx_exception_call(Module* mod, const char* name) {
     call_offset = code_offset(mod);
     emit_dword(mod, 0u);
     add_func_call_ref64(name, call_offset);
+}
+
+static void gen64_cxx_guard_exception_register(
+    Module* mod, CleanupCodegen64* cleanup) {
+    if (!mod || !cleanup || !cleanup->guard_abort ||
+        cleanup->exception_frame_offset == INT_MAX) {
+        return;
+    }
+    gen64_symbol_address(mod, decl_link_name(cleanup->guard_abort), 0u);
+    emit64_mov_reg_reg(mod, RDX, RAX); /* guard object */
+    gen64_symbol_address(mod, "__cxa_guard_abort", 0u);
+    emit64_mov_reg_reg(mod, RSI, RAX); /* cleanup callback */
+    gen64_cxx_exception_frame_address(
+        mod, cleanup->exception_frame_offset);
+    gen64_cxx_exception_call(mod, "rin_cpp_exception_register_cleanup");
+    cleanup->exception_registered = true;
+}
+
+static void gen64_cxx_guard_exception_unregister(
+    Module* mod, const CleanupCodegen64* cleanup) {
+    if (!mod || !cleanup || !cleanup->guard_abort ||
+        cleanup->exception_frame_offset == INT_MAX) {
+        return;
+    }
+    gen64_symbol_address(mod, decl_link_name(cleanup->guard_abort), 0u);
+    emit64_mov_reg_reg(mod, RDX, RAX); /* guard object */
+    gen64_symbol_address(mod, "__cxa_guard_abort", 0u);
+    emit64_mov_reg_reg(mod, RSI, RAX); /* cleanup callback */
+    gen64_cxx_exception_frame_address(
+        mod, cleanup->exception_frame_offset);
+    gen64_cxx_exception_call(mod, "rin_cpp_exception_unregister_cleanup");
 }
 
 static Decl* gen64_cxx_cleanup_destructor(
@@ -8384,10 +8438,17 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
         old_cleanup_registration_enabled;
 }
 
+static bool gen64_static_reference_temporary_initializer(
+    Module* mod, Decl* declaration);
+
 static bool gen64_global_initializer(Module* mod, Decl* declaration) {
     Type* type = declaration ? declaration->type : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
     if (!mod || !declaration || !type || !initializer) return false;
+    if (declaration->var_reference_temporary_owner) {
+        return gen64_static_reference_temporary_initializer(
+            mod, declaration);
+    }
     if (type->cxx_class && initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor &&
         initializer->compound_constructor->method &&
@@ -8414,6 +8475,206 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
     return true;
 }
 
+static bool gen64_static_reference_aggregate_into_owner(
+    Module* mod, Decl* declaration, Expr* expression, Type* type) {
+    Decl* owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    if (!mod || !declaration || !owner || !expression || !type) return false;
+    if (expression->kind == EXPR_COMMA) {
+        gen64_expr(mod, expression->binary_lhs);
+        return gen64_static_reference_aggregate_into_owner(
+            mod, declaration, expression->binary_rhs, type);
+    }
+    if (expression->kind == EXPR_COND) {
+        int else_label = new_label64();
+        int done_label = new_label64();
+        if (gen64_is_floating(expression->cond_test->type)) {
+            gen64_float_truth(mod, expression->cond_test);
+        } else {
+            gen64_expr(mod, expression->cond_test);
+        }
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, else_label);
+        if (!gen64_static_reference_aggregate_into_owner(
+                mod, declaration, expression->cond_then, type)) {
+            return false;
+        }
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, else_label);
+        if (!gen64_static_reference_aggregate_into_owner(
+                mod, declaration, expression->cond_else, type)) {
+            return false;
+        }
+        emit64_label(mod, done_label);
+        return true;
+    }
+    if (expression->kind == EXPR_COMPOUND) {
+        if (expression->compound_constructor && type->cxx_class) {
+            gen64_symbol_address(mod, decl_link_name(owner), 0u);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            gen64_cxx_initialize_object(
+                mod, type, expression->compound_constructor,
+                expression->compound_value_init
+                    ? NULL : expression->compound_init);
+            return true;
+        }
+        if (expression->compound_offset >= 0) {
+            rcc_error(expression->loc,
+                      "static reference aggregate has no initializer storage");
+            return false;
+        }
+        gen64_zero_local_storage(mod, expression->compound_offset,
+                                 (size_t)type->size);
+        if (!gen64_local_initializer(mod, type, expression,
+                                     expression->compound_offset)) {
+            return false;
+        }
+        gen64_local_vtable_init(mod, type, expression->compound_offset);
+        emit64_lea(mod, RAX, RBP, expression->compound_offset);
+    } else if (expression->kind == EXPR_CALL &&
+               gen64_is_aggregate(type) &&
+               gen64_classify_aggregate(type).memory) {
+        Expr* old_call = active_static_reference_result_call64;
+        const char* old_symbol = active_static_reference_result_symbol64;
+        active_static_reference_result_call64 = expression;
+        active_static_reference_result_symbol64 = decl_link_name(owner);
+        gen64_expr(mod, expression);
+        active_static_reference_result_call64 = old_call;
+        active_static_reference_result_symbol64 = old_symbol;
+        return true;
+    } else if (gen64_expr_is_lvalue(expression) ||
+               gen64_expr_is_xvalue(expression)) {
+        gen64_lvalue(mod, expression);
+    } else {
+        gen64_expr(mod, expression);
+        if (expression->kind == EXPR_CALL && gen64_is_aggregate(type)) {
+            emit64_lea(mod, RAX, RBP, expression->call_result_offset);
+        }
+    }
+    emit64_mov_reg_reg(mod, RDX, RAX);
+    gen64_symbol_address(mod, decl_link_name(owner), 0u);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    gen64_copy_memory(mod, RCX, 0, RDX, 0, type->size);
+    return true;
+}
+
+static bool gen64_static_reference_temporary_initializer(
+    Module* mod, Decl* declaration) {
+    Decl* owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    Expr* initializer = declaration ? declaration->var_init : NULL;
+    Expr* source = gen64_reference_temporary_source(initializer);
+    Type* type = owner ? owner->type : NULL;
+    if (!source) source = initializer;
+    if (!mod || !declaration || !owner || !source || !type) return false;
+
+    if (gen64_is_aggregate(type) || type->kind == TYPE_ARRAY) {
+        if (!gen64_static_reference_aggregate_into_owner(
+                mod, declaration, source, type)) {
+            return false;
+        }
+    } else {
+        gen64_expr(mod, source);
+        if (gen64_is_floating(type)) {
+            gen64_convert_to_float(mod, source->type, type);
+        } else if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+            emit64_normalize_atomic_value(mod, RAX, type);
+        }
+        emit64_push_reg(mod, RAX);
+        gen64_symbol_address(mod, decl_link_name(owner), 0u);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_pop_reg(mod, RAX);
+        emit64_store_typed(mod, RCX, 0, RAX, type);
+    }
+
+    gen64_symbol_address(mod, decl_link_name(owner), 0u);
+    gen64_cxx_reference_adjustment_force(mod, initializer);
+    emit64_push_reg(mod, RAX);
+    gen64_symbol_address(mod, decl_link_name(declaration), 0u);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_pop_reg(mod, RAX);
+    emit64_store_typed(mod, RCX, 0, RAX, declaration->type);
+    return true;
+}
+
+static StaticLocalCleanup* gen64_find_static_local_cleanup(
+    Module* mod, Decl* declaration) {
+    for (StaticLocalCleanup* item = mod ? mod->static_local_cleanups : NULL;
+         item; item = item->next) {
+        if (item->declaration == declaration) return item;
+    }
+    return NULL;
+}
+
+static void gen64_register_static_local_cleanup(
+    Module* mod, Decl* declaration) {
+    StaticLocalCleanup* cleanup = gen64_find_static_local_cleanup(
+        mod, declaration);
+    int registered;
+    if (!cleanup) return;
+    gen64_symbol_address(mod, cleanup->callback_name, 0u);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    gen64_symbol_address(
+        mod, decl_link_name(declaration->var_reference_temporary_owner), 0u);
+    emit64_mov_reg_reg(mod, RSI, RAX);
+    gen64_symbol_address(mod, "__dso_handle", 0u);
+    emit64_mov_reg_reg(mod, RDX, RAX);
+    gen64_cxx_exception_call(mod, "__cxa_atexit");
+    emit64_cmp_reg_imm(mod, RAX, 0);
+    registered = new_label64();
+    emit64_jcc_label(mod, CC64_E, registered);
+    gen64_cxx_exception_call(mod, "abort");
+    emit64_label(mod, registered);
+}
+
+static bool gen64_static_local_reference_initializer(
+    Module* mod, Decl* declaration) {
+    Decl* guard = declaration
+        ? declaration->var_reference_temporary_guard : NULL;
+    CleanupCodegen64* guard_cleanup;
+    int done;
+    if (!mod || !declaration || !guard) return false;
+    done = new_label64();
+    gen64_symbol_address(mod, decl_link_name(guard), 0u);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    gen64_cxx_exception_call(mod, "__cxa_guard_acquire");
+    emit64_test_reg_reg(mod, RAX, RAX);
+    emit64_jcc_label(mod, CC64_E, done);
+
+    guard_cleanup = rcc_alloc(sizeof(*guard_cleanup));
+    memset(guard_cleanup, 0, sizeof(*guard_cleanup));
+    guard_cleanup->guard_abort = guard;
+    guard_cleanup->previous = active_cleanups64;
+    guard_cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset64;
+    active_cleanups64 = guard_cleanup;
+    if (cxx_exception_cleanup_registration_enabled64 &&
+        active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
+        gen64_cxx_guard_exception_register(mod, guard_cleanup);
+    }
+
+    if (!gen64_static_reference_temporary_initializer(mod, declaration)) {
+        rcc_error(declaration->loc,
+                  "cannot initialize static reference temporary for '%s'",
+                  declaration->name);
+        return false;
+    }
+    gen64_cleanups_until(mod, guard_cleanup);
+    discard64_cleanups_until(guard_cleanup);
+    gen64_register_static_local_cleanup(mod, declaration);
+    if (guard_cleanup->exception_registered) {
+        gen64_cxx_guard_exception_unregister(mod, guard_cleanup);
+        guard_cleanup->exception_registered = false;
+    }
+    gen64_symbol_address(mod, decl_link_name(guard), 0u);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    gen64_cxx_exception_call(mod, "__cxa_guard_release");
+    active_cleanups64 = guard_cleanup->previous;
+    rcc_free(guard_cleanup);
+    emit64_label(mod, done);
+    return true;
+}
+
 static void codegen_emit_global_init64(Module* mod) {
     const char* name = "__rcc_global_init";
     GlobalInitializer* initializer;
@@ -8423,11 +8684,21 @@ static void codegen_emit_global_init64(Module* mod) {
     VLAScopeCodegen64* old_break_vla;
     VLAScopeCodegen64* old_continue_vla;
     uint32_t start;
+    int stack_size;
     if (!mod || !mod->global_initializers) return;
+    stack_size = codegen_assign_global_initializer_storage(
+        mod->global_initializers, 8);
+    if (stack_size > INT_MAX - 15) {
+        rcc_error((SourceLoc){"<global-init>", 0, 0},
+                  "global initializer frame exceeds compiler limits");
+        return;
+    }
+    stack_size = (stack_size + 15) & ~15;
     start = code_offset(mod);
     add_func_def64(name, start);
     emit64_push_reg(mod, RBP);
     emit64_mov_reg_reg(mod, RBP, RSP);
+    if (stack_size > 0) emit64_sub_reg_imm(mod, RSP, stack_size);
     old_return_type = current_function_return_type64;
     current_function_return_type64 = NULL;
     old_cleanups = active_cleanups64;
@@ -8440,12 +8711,14 @@ static void codegen_emit_global_init64(Module* mod) {
     continue_vla_marker64 = NULL;
     for (initializer = mod->global_initializers; initializer;
          initializer = initializer->next) {
+        CleanupCodegen64* full_expression_marker = active_cleanups64;
         if (!gen64_global_initializer(mod, initializer->declaration)) {
             rcc_error((SourceLoc){"<global-init>", 0, 0},
                       "cannot lower deferred global initializer");
         }
+        gen64_cleanups_until(mod, full_expression_marker);
+        discard64_cleanups_until(full_expression_marker);
     }
-    gen64_cleanups_until(mod, NULL);
     gen64_vla_scopes_until(mod, NULL);
     active_cleanups64 = old_cleanups;
     active_vla_scopes64 = old_vla_scopes;
@@ -8457,6 +8730,51 @@ static void codegen_emit_global_init64(Module* mod) {
     emit64_ret(mod);
     module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
     codegen_add_init_array_entry(mod, name);
+}
+
+static void codegen_emit_static_local_cleanups64(Module* mod) {
+    for (StaticLocalCleanup* item = mod ? mod->static_local_cleanups : NULL;
+         item; item = item->next) {
+        Type* old_return_type = current_function_return_type64;
+        CleanupCodegen64* old_cleanups = active_cleanups64;
+        VLAScopeCodegen64* old_vla_scopes = active_vla_scopes64;
+        VLAScopeCodegen64* old_break_vla = break_vla_marker64;
+        VLAScopeCodegen64* old_continue_vla = continue_vla_marker64;
+        int stack_size = 0;
+        uint32_t start;
+        codegen_assign_cleanup_plan(item->declaration->var_cleanups,
+                                    &stack_size, 8);
+        if (stack_size > INT_MAX - 15) {
+            rcc_error(item->declaration->loc,
+                      "static cleanup frame exceeds compiler limits");
+            continue;
+        }
+        stack_size = (stack_size + 15) & ~15;
+        start = code_offset(mod);
+        add_func_def64(item->callback_name, start);
+        emit64_push_reg(mod, RBP);
+        emit64_mov_reg_reg(mod, RBP, RSP);
+        if (stack_size > 0) emit64_sub_reg_imm(mod, RSP, stack_size);
+        current_function_return_type64 = NULL;
+        active_cleanups64 = NULL;
+        active_vla_scopes64 = NULL;
+        break_vla_marker64 = NULL;
+        continue_vla_marker64 = NULL;
+        gen64_cxx_cleanup_plan(mod, item->declaration->var_cleanups,
+                               false, INT_MAX);
+        discard64_cleanups_until(NULL);
+        discard64_vla_scopes_until(NULL);
+        active_cleanups64 = old_cleanups;
+        active_vla_scopes64 = old_vla_scopes;
+        break_vla_marker64 = old_break_vla;
+        continue_vla_marker64 = old_continue_vla;
+        current_function_return_type64 = old_return_type;
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        emit64_leave(mod);
+        emit64_ret(mod);
+        module_add_symbol(mod, item->callback_name, start, true,
+                          MODULE_SYMBOL_CODE, false);
+    }
 }
 
 static void codegen_emit_global_fini64(Module* mod) {
@@ -9994,6 +10312,15 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
+            if (d->kind == DECL_VAR && d->var_is_static_local &&
+                d->var_reference_temporary_guard) {
+                if (!gen64_static_local_reference_initializer(mod, d)) {
+                    rcc_error(d->loc,
+                              "cannot initialize static reference temporary for '%s'",
+                              d->name);
+                }
+                break;
+            }
             if (d->kind == DECL_VAR &&
                 (d->var_is_static_local || d->var_is_block_extern)) break;
             CleanupCodegen64* initializer_marker = active_cleanups64;
@@ -10083,6 +10410,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 CleanupCodegen64* cleanup = rcc_alloc(sizeof(*cleanup));
                 cleanup->expression = d->var_cleanup;
                 cleanup->previous = active_cleanups64;
+                cleanup->guard_abort = NULL;
                 cleanup->declaration = d;
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset64;
@@ -10097,6 +10425,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 CleanupCodegen64* cleanup = rcc_alloc(sizeof(*cleanup));
                 cleanup->plan = d->var_cleanups;
                 cleanup->previous = active_cleanups64;
+                cleanup->guard_abort = NULL;
                 cleanup->declaration = d;
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset64;
@@ -10566,6 +10895,8 @@ Module* rcc_codegen64(AST* ast) {
 
     /* Reset label counter */
     label_counter64 = 0;
+    active_static_reference_result_call64 = NULL;
+    active_static_reference_result_symbol64 = NULL;
     label_refs64 = NULL;
     label_defs64 = NULL;
     func_call_refs64 = NULL;
@@ -10613,6 +10944,7 @@ Module* rcc_codegen64(AST* ast) {
         }
     }
 
+    codegen_emit_static_local_cleanups64(mod);
     codegen_emit_global_init64(mod);
     codegen_emit_global_fini64(mod);
 

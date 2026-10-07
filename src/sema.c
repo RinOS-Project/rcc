@@ -7415,11 +7415,26 @@ static void sema_prepare_reference_argument_cleanup(ExprList* argument,
         "class-prvalue reference argument cleanup is unsupported");
 }
 
+static const char* sema_reference_temporary_symbol(
+    const Decl* declaration, const char* suffix) {
+    const char* base = decl_link_name(declaration);
+    size_t base_length = base ? strlen(base) : 0u;
+    size_t suffix_length = suffix ? strlen(suffix) : 0u;
+    char* symbol;
+    if (base_length > SIZE_MAX - suffix_length - 1u) return NULL;
+    symbol = rcc_alloc(base_length + suffix_length + 1u);
+    if (base_length) memcpy(symbol, base, base_length);
+    if (suffix_length) memcpy(symbol + base_length, suffix, suffix_length);
+    symbol[base_length + suffix_length] = '\0';
+    return symbol;
+}
+
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
     Expr* materialized_xvalue_source = NULL;
     Type* object_type;
     bool reference_temporary = false;
+    bool static_reference_temporary = false;
     int cleanup_budget = 4096;
     if (!rcc_parser_is_cxx_mode() || !declaration ||
         !declaration->type || declaration->var_cleanup ||
@@ -7435,11 +7450,9 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         prvalue_initializer = !is_lvalue(declaration->var_init) &&
                               !is_xvalue(declaration->var_init);
         if ((prvalue_initializer || materialized_xvalue_source) &&
-            (declaration->var_is_global ||
-             declaration->var_is_static_local ||
-             declaration->var_is_block_extern)) {
+            declaration->var_is_thread_local) {
             rcc_error(declaration->loc,
-                      "static-storage reference temporary lifetime is unsupported");
+                      "thread-local reference temporary lifetime is unsupported");
             return;
         }
         object_type = materialized_xvalue_source
@@ -7466,11 +7479,16 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                 object_type = materialized_xvalue_source->type;
             }
         }
-        reference_temporary = object_type &&
-            !declaration->var_is_global &&
-            !declaration->var_is_static_local &&
+        static_reference_temporary = object_type &&
+            (declaration->var_is_global || declaration->var_is_static_local) &&
             !declaration->var_is_block_extern &&
             (prvalue_initializer || materialized_xvalue_source);
+        reference_temporary = object_type &&
+            (static_reference_temporary ||
+             (!declaration->var_is_global &&
+              !declaration->var_is_static_local &&
+              !declaration->var_is_block_extern &&
+              (prvalue_initializer || materialized_xvalue_source)));
         if (materialized_xvalue_source && object_type &&
             (object_type->kind == TYPE_STRUCT ||
              object_type->kind == TYPE_UNION) &&
@@ -7492,11 +7510,16 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
           declaration->storage == STORAGE_EXTERN))) {
         return;
     }
-    if ((declaration->var_is_static_local ||
-         declaration->var_is_thread_local) &&
+    if (declaration->var_is_thread_local &&
         sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
         rcc_error(declaration->loc,
-                  "static-local or thread-local destructor registration is unsupported");
+                  "thread-local destructor registration is unsupported");
+        return;
+    }
+    if (declaration->var_is_static_local && !static_reference_temporary &&
+        sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
+        rcc_error(declaration->loc,
+                  "static-local destructor registration is unsupported");
         return;
     }
     if (!declaration->var_init && declaration->var_is_static_local) return;
@@ -7506,7 +7529,8 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                   "default initialization of this C++ object requires unsupported constructor or member initialization");
         return;
     }
-    if (object_type->kind != TYPE_STRUCT &&
+    if (!static_reference_temporary &&
+        object_type->kind != TYPE_STRUCT &&
         object_type->kind != TYPE_UNION &&
         object_type->kind != TYPE_ARRAY) return;
     if (object_type->kind == TYPE_UNION &&
@@ -7517,10 +7541,43 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                   "union with a nontrivial member requires an explicit cleanup");
         return;
     }
-    if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
-        reference_temporary) {
+    if (static_reference_temporary ||
+        (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
+         reference_temporary)) {
         Decl* owner = decl_var("__rcc_reference_temporary", object_type,
                                NULL, declaration->loc);
+        if (static_reference_temporary) {
+            const char* owner_name = sema_reference_temporary_symbol(
+                declaration, "$rcc_reference_temporary");
+            if (!owner_name) {
+                rcc_error(declaration->loc,
+                          "static reference temporary symbol is too large");
+                return;
+            }
+            owner->name = owner_name;
+            owner->link_name = owner_name;
+            owner->storage = STORAGE_STATIC;
+            owner->var_is_global = true;
+            if (declaration->var_is_static_local) {
+                const char* guard_name = sema_reference_temporary_symbol(
+                    declaration, "$rcc_reference_guard");
+                if (!guard_name) {
+                    rcc_error(declaration->loc,
+                              "static reference guard symbol is too large");
+                    return;
+                }
+                declaration->var_reference_temporary_guard = decl_var(
+                    "__rcc_reference_guard", type_llong, NULL,
+                    declaration->loc);
+                declaration->var_reference_temporary_guard->name = guard_name;
+                declaration->var_reference_temporary_guard->link_name =
+                    guard_name;
+                declaration->var_reference_temporary_guard->storage =
+                    STORAGE_STATIC;
+                declaration->var_reference_temporary_guard->var_is_global =
+                    true;
+            }
+        }
         declaration->var_reference_temporary_owner = owner;
         object = expr_ident(owner->name, declaration->loc);
         object->ident_decl = owner;

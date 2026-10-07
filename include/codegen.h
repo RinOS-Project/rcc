@@ -125,6 +125,12 @@ typedef struct GlobalFinalizer {
     struct GlobalFinalizer* next;
 } GlobalFinalizer;
 
+typedef struct StaticLocalCleanup {
+    Decl* declaration;
+    const char* callback_name;
+    struct StaticLocalCleanup* next;
+} StaticLocalCleanup;
+
 typedef struct {
     const Decl* declaration;
     int64_t frame_offset;
@@ -170,6 +176,7 @@ typedef struct Module {
     int global_initializer_count;
     GlobalFinalizer* global_finalizers;
     int global_finalizer_count;
+    StaticLocalCleanup* static_local_cleanups;
     uint32_t compound_literal_count;
     /* Translation-unit AST retained only while emitting relocatable debug
      * information.  The AST is owned by the frontend and is not freed here. */
@@ -262,9 +269,13 @@ int codegen_assign_local_vla_extent_slots(Stmt* statement, int initial_bytes,
                                           int word_size);
 int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
                                     int stack_alignment);
+int codegen_assign_global_initializer_storage(
+    GlobalInitializer* initializers, int stack_alignment);
 ExprList* codegen_call_temporary_owners(void);
 int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
                                           int stack_alignment);
+void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,
+                                 int stack_alignment);
 
 /* Object file output */
 struct ObjectFile;
