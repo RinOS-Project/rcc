@@ -6269,12 +6269,56 @@ static RccIrLowerValue lower_logical_expression(
                        expression->type->is_unsigned);
 }
 
+static bool lower_statement_has_goto_label(const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_LABEL:
+            return true;
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (lower_statement_has_goto_label(item->stmt)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return lower_statement_has_goto_label(statement->if_then) ||
+                lower_statement_has_goto_label(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return lower_statement_has_goto_label(statement->while_body);
+        case STMT_FOR:
+            return lower_statement_has_goto_label(statement->for_init) ||
+                lower_statement_has_goto_label(statement->for_body);
+        case STMT_SWITCH:
+            return lower_statement_has_goto_label(statement->switch_body);
+        case STMT_CASE:
+            return lower_statement_has_goto_label(statement->case_stmt);
+        case STMT_DEFAULT:
+            return lower_statement_has_goto_label(statement->default_stmt);
+        case STMT_TRY:
+            if (lower_statement_has_goto_label(statement->try_body)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (lower_statement_has_goto_label(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
 static bool lower_statement_has_switch_label(const Stmt* statement) {
     const StmtList* item;
     if (!statement) return false;
     switch (statement->kind) {
         case STMT_SWITCH:
-            return false;
+            /* A goto can enter a nested switch at an ordinary C label. Case
+             * labels remain owned by lower_switch and are not entry points. */
+            return lower_statement_has_goto_label(statement->switch_body);
         case STMT_CASE:
         case STMT_DEFAULT:
             return true;
@@ -6295,66 +6339,10 @@ static bool lower_statement_has_switch_label(const Stmt* statement) {
             return lower_statement_has_switch_label(statement->for_body);
         case STMT_LABEL:
             return true;
+        case STMT_TRY:
+            return lower_statement_has_goto_label(statement);
         default:
             return false;
-    }
-}
-
-static bool lower_nested_label_entries(RccIrLowerContext* context,
-                                       const Stmt* statement) {
-    if (!context || !statement) return false;
-    switch (statement->kind) {
-        case STMT_LABEL: {
-            RccIrLowerLabel* label = lower_find_label_statement(
-                context, statement);
-            if (!label) {
-                context->unsupported = true;
-                return false;
-            }
-            context->current = label->block;
-            context->terminated = false;
-            return statement->label_stmt
-                ? lower_statement(context, statement->label_stmt) : true;
-        }
-        case STMT_BLOCK:
-            for (const StmtList* item = statement->block_stmts; item;
-                 item = item->next) {
-                if (item->stmt &&
-                    lower_statement_has_switch_label(item->stmt) &&
-                    !lower_nested_label_entries(context, item->stmt)) {
-                    return false;
-                }
-            }
-            return true;
-        case STMT_IF:
-            if (statement->if_then &&
-                lower_statement_has_switch_label(statement->if_then) &&
-                !lower_nested_label_entries(context, statement->if_then)) {
-                return false;
-            }
-            if (statement->if_else &&
-                lower_statement_has_switch_label(statement->if_else) &&
-                !lower_nested_label_entries(context, statement->if_else)) {
-                return false;
-            }
-            return true;
-        case STMT_WHILE:
-        case STMT_DO:
-            return statement->while_body &&
-                lower_statement_has_switch_label(statement->while_body)
-                ? lower_nested_label_entries(context, statement->while_body)
-                : true;
-        case STMT_FOR:
-            return statement->for_body &&
-                lower_statement_has_switch_label(statement->for_body)
-                ? lower_nested_label_entries(context, statement->for_body)
-                : true;
-        case STMT_SWITCH:
-            /* Nested case/default entries belong to lower_switch, not to a
-             * goto that bypasses this switch. */
-            return true;
-        default:
-            return true;
     }
 }
 
@@ -6972,10 +6960,9 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement(context, statement->while_body)) return false;
-    if (context->terminated) {
-        context->unsupported = true;
-        return false;
-    }
+    /* A return/break may terminate the lexical fallthrough, while continue
+     * edges can still make the condition block reachable.  Lower it either
+     * way so every allocated block has a terminator. */
     if (!context->terminated && !lower_branch(context, condition_block->id)) {
         return false;
     }
@@ -7036,13 +7023,11 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement(context, statement->for_body)) return false;
-    if (context->terminated) {
-        context->unsupported = true;
-        return false;
-    }
     if (!context->terminated && !lower_branch(context, increment_block->id)) {
         return false;
     }
+    /* Continue edges may enter the increment block even when every normal
+     * body path returns or breaks; retain and terminate that block. */
     context->current = increment_block;
     context->terminated = false;
     if (statement->for_inc) {
@@ -9029,7 +9014,18 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         statement->kind != STMT_LABEL && statement->kind != STMT_CASE &&
         statement->kind != STMT_DEFAULT && !context->current_switch &&
         lower_statement_has_switch_label(statement)) {
-        return lower_nested_label_entries(context, statement);
+        RccIrBlock* disconnected_entry = rcc_ir_block_add(
+            context->function, "goto.label.entry");
+        if (!disconnected_entry) {
+            context->unsupported = true;
+            return false;
+        }
+        /* The ordinary flow has already terminated, but a goto may enter a
+         * label nested in this construct. Lower the construct from an
+         * unreachable entry so the label block and its lexical continuation
+         * are fully formed; reachability pruning removes the dead prefix. */
+        context->current = disconnected_entry;
+        context->terminated = false;
     }
     if (!context || context->unsupported || !statement) {
         if (context) context->unsupported = true;

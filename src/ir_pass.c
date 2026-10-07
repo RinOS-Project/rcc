@@ -686,15 +686,38 @@ static bool ir_pass_compact_values(RccIrFunction* function,
                                    const RccIrValue* replacements,
                                    size_t replacement_count,
                                    char* error, size_t error_size) {
-    size_t old_count = function->value_count;
-    size_t* mapping = rcc_alloc(old_count * sizeof(*mapping));
-    RccIrType* types = rcc_alloc(old_count * sizeof(*types));
+    size_t old_count;
+    size_t* mapping;
+    RccIrType* types;
     size_t count = 0u;
     size_t index;
     RccIrBlock* block;
+    if (!function) {
+        return ir_pass_error(error, error_size,
+                             "missing SSA function during value compaction");
+    }
+    old_count = function->value_count;
+    if (old_count > function->value_capacity ||
+        old_count > SIZE_MAX / sizeof(*mapping) ||
+        old_count > SIZE_MAX / sizeof(*types) ||
+        old_count > UINT32_MAX || function->parameter_count > old_count ||
+        (old_count != 0u && !function->value_types) ||
+        (function->parameter_count != 0u &&
+         (!function->parameters || !function->parameter_types))) {
+        return ir_pass_error(error, error_size,
+                             "SSA value table is inconsistent during compaction");
+    }
+    mapping = rcc_alloc(old_count * sizeof(*mapping));
+    types = rcc_alloc(old_count * sizeof(*types));
     for (index = 0u; index < old_count; ++index) mapping[index] = SIZE_MAX;
     for (index = 0u; index < function->parameter_count; ++index) {
         RccIrValue old = function->parameters[index];
+        if (old >= old_count || mapping[old] != SIZE_MAX || count >= old_count) {
+            rcc_free(mapping);
+            rcc_free(types);
+            return ir_pass_error(error, error_size,
+                                 "mem2reg found an invalid or duplicate parameter value");
+        }
         mapping[old] = count;
         function->parameters[index] = (RccIrValue)count;
         types[count++] = function->parameter_types[index];
@@ -704,7 +727,7 @@ static bool ir_pass_compact_values(RccIrFunction* function,
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
             if (instruction->result == RCC_IR_VALUE_NONE) continue;
-            if (instruction->result >= old_count ||
+            if (instruction->result >= old_count || count >= old_count ||
                 mapping[instruction->result] != SIZE_MAX) {
                 rcc_free(mapping);
                 rcc_free(types);
@@ -721,6 +744,16 @@ static bool ir_pass_compact_values(RccIrFunction* function,
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
             size_t operand;
+            if ((instruction->operand_count != 0u &&
+                 !instruction->operands) ||
+                (instruction->target_count != 0u &&
+                 !instruction->targets)) {
+                rcc_free(mapping);
+                rcc_free(types);
+                return ir_pass_error(
+                    error, error_size,
+                    "mem2reg found an inconsistent instruction operand table");
+            }
             for (operand = 0u; operand < instruction->operand_count;
                  ++operand) {
                 RccIrValue old = ir_pass_resolve(
@@ -1394,6 +1427,7 @@ static bool ir_pass_prune_unreachable(
     size_t new_count = 0u;
     RccIrBlock* block;
     RccIrBlock* previous = NULL;
+    size_t listed = 0u;
 
     if (!function || function->block_count == 0u) return true;
     count = function->block_count;
@@ -1408,15 +1442,53 @@ static bool ir_pass_prune_unreachable(
     queue = rcc_alloc(count * sizeof(*queue));
     mapping = rcc_alloc(count * sizeof(*mapping));
     for (block = function->first_block; block; block = block->next) {
-        if (block->id >= count) {
+        RccIrInstruction* instruction;
+        RccIrInstruction* previous_instruction = NULL;
+        if (listed >= count || block->id != listed ||
+            block->function != function || !block->name ||
+            !block->name[0]) {
             rcc_free(blocks);
             rcc_free(reachable);
             rcc_free(queue);
             rcc_free(mapping);
             return ir_pass_error(error, error_size,
-                                 "SSA CFG pruning found an invalid block id");
+                                 "SSA CFG pruning found an inconsistent block list");
         }
-        blocks[block->id] = block;
+        blocks[listed++] = block;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            if (instruction->block != block ||
+                instruction->previous != previous_instruction ||
+                (instruction->operand_count != 0u &&
+                 !instruction->operands) ||
+                (instruction->target_count != 0u &&
+                 !instruction->targets)) {
+                rcc_free(blocks);
+                rcc_free(reachable);
+                rcc_free(queue);
+                rcc_free(mapping);
+                return ir_pass_error(
+                    error, error_size,
+                    "SSA CFG pruning found an inconsistent instruction list");
+            }
+            previous_instruction = instruction;
+        }
+        if (previous_instruction != block->last) {
+            rcc_free(blocks);
+            rcc_free(reachable);
+            rcc_free(queue);
+            rcc_free(mapping);
+            return ir_pass_error(error, error_size,
+                                 "SSA CFG pruning found an inconsistent block tail");
+        }
+    }
+    if (listed != count || function->last_block != blocks[count - 1u]) {
+        rcc_free(blocks);
+        rcc_free(reachable);
+        rcc_free(queue);
+        rcc_free(mapping);
+        return ir_pass_error(error, error_size,
+                             "SSA CFG pruning found an inconsistent block count");
     }
     reachable[0] = true;
     queue[tail++] = 0u;
@@ -1429,7 +1501,9 @@ static bool ir_pass_prune_unreachable(
             rcc_free(queue);
             rcc_free(mapping);
             return ir_pass_error(error, error_size,
-                                 "SSA CFG pruning found an unterminated block");
+                                 "SSA CFG pruning found unterminated block %u ('%s')",
+                                 current->id,
+                                 current->name ? current->name : "");
         }
         for (index = 0u; index < terminator->target_count; ++index) {
             RccIrBlockId target = terminator->targets[index];
@@ -2139,6 +2213,7 @@ static bool ir_pass_optimize_function(
     RccIrOptimizationStats* stats, char* error, size_t error_size,
     bool preserve_source_declarations) {
     RccIrOptimizationStats local_stats;
+    RccIrSimplifyStats initial_prune;
     size_t round;
     size_t round_limit;
     memset(&local_stats, 0, sizeof(local_stats));
@@ -2149,9 +2224,22 @@ static bool ir_pass_optimize_function(
         return ir_pass_error(error, error_size,
                              "invalid SSA optimization level %u", level);
     }
-    if (!function || !rcc_ir_verify_function(function, error, error_size)) {
+    if (!function) {
+        return ir_pass_error(error, error_size,
+                             "missing SSA function");
+    }
+    /* Lowering can leave structurally terminated blocks with no incoming
+     * edge when every loop-body path returns or breaks. Remove those blocks
+     * before dominance verification; continue edges keep their destinations
+     * reachable and therefore preserve the loop condition/increment path. */
+    memset(&initial_prune, 0, sizeof(initial_prune));
+    if (!ir_pass_prune_unreachable(
+            function, &initial_prune, error, error_size) ||
+        !ir_pass_compact_values(function, NULL, 0u, error, error_size) ||
+        !rcc_ir_verify_function(function, error, error_size)) {
         return false;
     }
+    local_stats.simplify.removed_blocks += initial_prune.removed_blocks;
     if (level == 0u) {
         if (stats) *stats = local_stats;
         return true;

@@ -1017,6 +1017,12 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* switch_do_case;
     ObjSymbol* switch_for_case;
     ObjSymbol* switch_labeled_case;
+    ObjSymbol* switch_do_return_case;
+    ObjSymbol* switch_for_return_case;
+    ObjSymbol* switch_do_continue_case;
+    ObjSymbol* switch_for_continue_case;
+    ObjSymbol* switch_do_break_case;
+    ObjSymbol* switch_for_break_case;
     ObjReloc* relocation;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -1091,6 +1097,18 @@ static void verify_object(const char* path, uint16_t arch)
     switch_for_case = objfile_find_symbol(object, "verified_switch_for_case");
     switch_labeled_case = objfile_find_symbol(
         object, "verified_switch_labeled_case");
+    switch_do_return_case = objfile_find_symbol(
+        object, "verified_switch_do_return_case");
+    switch_for_return_case = objfile_find_symbol(
+        object, "verified_switch_for_return_case");
+    switch_do_continue_case = objfile_find_symbol(
+        object, "verified_switch_do_continue_case");
+    switch_for_continue_case = objfile_find_symbol(
+        object, "verified_switch_for_continue_case");
+    switch_do_break_case = objfile_find_symbol(
+        object, "verified_switch_do_break_case");
+    switch_for_break_case = objfile_find_symbol(
+        object, "verified_switch_for_break_case");
     assert(text != NULL && text->size != 0u && text->memory_size == text->size);
     assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
            (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -1202,7 +1220,25 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_labeled_case != NULL &&
            switch_labeled_case->type == SYM_GLOBAL &&
            switch_labeled_case->section == 0);
-    assert(object->symbol_count == 45);
+    assert(switch_do_return_case != NULL &&
+           switch_do_return_case->type == SYM_GLOBAL &&
+           switch_do_return_case->section == 0);
+    assert(switch_for_return_case != NULL &&
+           switch_for_return_case->type == SYM_GLOBAL &&
+           switch_for_return_case->section == 0);
+    assert(switch_do_continue_case != NULL &&
+           switch_do_continue_case->type == SYM_GLOBAL &&
+           switch_do_continue_case->section == 0);
+    assert(switch_for_continue_case != NULL &&
+           switch_for_continue_case->type == SYM_GLOBAL &&
+           switch_for_continue_case->section == 0);
+    assert(switch_do_break_case != NULL &&
+           switch_do_break_case->type == SYM_GLOBAL &&
+           switch_do_break_case->section == 0);
+    assert(switch_for_break_case != NULL &&
+           switch_for_break_case->type == SYM_GLOBAL &&
+           switch_for_break_case->section == 0);
+    assert(object->symbol_count == 51);
     {
         size_t relocation_count = 0u;
         size_t absolute_count = 0u;
@@ -1301,6 +1337,12 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int RINOS_ABI (*switch_do_case_function)(int);
     int RINOS_ABI (*switch_for_case_function)(int);
     int RINOS_ABI (*switch_labeled_case_function)(int);
+    int RINOS_ABI (*switch_do_return_case_function)(int);
+    int RINOS_ABI (*switch_for_return_case_function)(int);
+    int RINOS_ABI (*switch_do_continue_case_function)(int);
+    int RINOS_ABI (*switch_for_continue_case_function)(int);
+    int RINOS_ABI (*switch_do_break_case_function)(int);
+    int RINOS_ABI (*switch_for_break_case_function)(int);
     int* cursor;
     void* address;
     assert(object != NULL && object->arch == arch);
@@ -1604,6 +1646,48 @@ static void verify_native_execution(const char* path, uint16_t arch)
     assert(switch_labeled_case_function(-1) == 11);
     assert(switch_labeled_case_function(1) == 11);
     assert(switch_labeled_case_function(7) == 22);
+
+    symbol = objfile_find_symbol(object, "verified_switch_do_return_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_do_return_case_function, &address,
+           sizeof(switch_do_return_case_function));
+    assert(switch_do_return_case_function(1) == 31);
+    assert(switch_do_return_case_function(7) == 47);
+
+    symbol = objfile_find_symbol(object, "verified_switch_for_return_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_for_return_case_function, &address,
+           sizeof(switch_for_return_case_function));
+    assert(switch_for_return_case_function(1) == 37);
+    assert(switch_for_return_case_function(7) == 53);
+
+    symbol = objfile_find_symbol(object, "verified_switch_do_continue_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_do_continue_case_function, &address,
+           sizeof(switch_do_continue_case_function));
+    assert(switch_do_continue_case_function(1) == 41);
+    assert(switch_do_continue_case_function(7) == 47);
+
+    symbol = objfile_find_symbol(object, "verified_switch_for_continue_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_for_continue_case_function, &address,
+           sizeof(switch_for_continue_case_function));
+    assert(switch_for_continue_case_function(1) == 43);
+    assert(switch_for_continue_case_function(7) == 53);
+
+    symbol = objfile_find_symbol(object, "verified_switch_do_break_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_do_break_case_function, &address,
+           sizeof(switch_do_break_case_function));
+    assert(switch_do_break_case_function(1) == 31);
+    assert(switch_do_break_case_function(7) == 47);
+
+    symbol = objfile_find_symbol(object, "verified_switch_for_break_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_for_break_case_function, &address,
+           sizeof(switch_for_break_case_function));
+    assert(switch_for_break_case_function(1) == 37);
+    assert(switch_for_break_case_function(7) == 53);
 
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
@@ -2290,10 +2374,22 @@ static void verify_optimized_switch_loop_labels(const char* path)
     ObjSymbol* do_symbol;
     ObjSymbol* for_symbol;
     ObjSymbol* labeled_symbol;
+    ObjSymbol* do_return_symbol;
+    ObjSymbol* for_return_symbol;
+    ObjSymbol* do_continue_symbol;
+    ObjSymbol* for_continue_symbol;
+    ObjSymbol* do_break_symbol;
+    ObjSymbol* for_break_symbol;
     int RINOS_ABI (*while_function)(int);
     int RINOS_ABI (*do_function)(int);
     int RINOS_ABI (*for_function)(int);
     int RINOS_ABI (*labeled_function)(int);
+    int RINOS_ABI (*do_return_function)(int);
+    int RINOS_ABI (*for_return_function)(int);
+    int RINOS_ABI (*do_continue_function)(int);
+    int RINOS_ABI (*for_continue_function)(int);
+    int RINOS_ABI (*do_break_function)(int);
+    int RINOS_ABI (*for_break_function)(int);
     size_t mapping_size;
     void* memory;
     void* address;
@@ -2305,13 +2401,37 @@ static void verify_optimized_switch_loop_labels(const char* path)
     for_symbol = objfile_find_symbol(object, "verified_switch_for_case");
     labeled_symbol = objfile_find_symbol(
         object, "verified_switch_labeled_case");
+    do_return_symbol = objfile_find_symbol(
+        object, "verified_switch_do_return_case");
+    for_return_symbol = objfile_find_symbol(
+        object, "verified_switch_for_return_case");
+    do_continue_symbol = objfile_find_symbol(
+        object, "verified_switch_do_continue_case");
+    for_continue_symbol = objfile_find_symbol(
+        object, "verified_switch_for_continue_case");
+    do_break_symbol = objfile_find_symbol(
+        object, "verified_switch_do_break_case");
+    for_break_symbol = objfile_find_symbol(
+        object, "verified_switch_for_break_case");
     assert(text != NULL && while_symbol != NULL &&
            while_symbol->type == SYM_GLOBAL && while_symbol->section == 0 &&
            do_symbol != NULL && do_symbol->type == SYM_GLOBAL &&
            do_symbol->section == 0 && for_symbol != NULL &&
            for_symbol->type == SYM_GLOBAL && for_symbol->section == 0 &&
            labeled_symbol != NULL && labeled_symbol->type == SYM_GLOBAL &&
-           labeled_symbol->section == 0);
+           labeled_symbol->section == 0 && do_return_symbol != NULL &&
+           do_return_symbol->type == SYM_GLOBAL &&
+           do_return_symbol->section == 0 && for_return_symbol != NULL &&
+           for_return_symbol->type == SYM_GLOBAL &&
+           for_return_symbol->section == 0 && do_continue_symbol != NULL &&
+           do_continue_symbol->type == SYM_GLOBAL &&
+           do_continue_symbol->section == 0 && for_continue_symbol != NULL &&
+           for_continue_symbol->type == SYM_GLOBAL &&
+           for_continue_symbol->section == 0 && do_break_symbol != NULL &&
+           do_break_symbol->type == SYM_GLOBAL &&
+           do_break_symbol->section == 0 && for_break_symbol != NULL &&
+           for_break_symbol->type == SYM_GLOBAL &&
+           for_break_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, while_symbol);
     memcpy(&while_function, &address, sizeof(while_function));
@@ -2321,11 +2441,29 @@ static void verify_optimized_switch_loop_labels(const char* path)
     memcpy(&for_function, &address, sizeof(for_function));
     address = symbol_address(memory, labeled_symbol);
     memcpy(&labeled_function, &address, sizeof(labeled_function));
+    address = symbol_address(memory, do_return_symbol);
+    memcpy(&do_return_function, &address, sizeof(do_return_function));
+    address = symbol_address(memory, for_return_symbol);
+    memcpy(&for_return_function, &address, sizeof(for_return_function));
+    address = symbol_address(memory, do_continue_symbol);
+    memcpy(&do_continue_function, &address, sizeof(do_continue_function));
+    address = symbol_address(memory, for_continue_symbol);
+    memcpy(&for_continue_function, &address, sizeof(for_continue_function));
+    address = symbol_address(memory, do_break_symbol);
+    memcpy(&do_break_function, &address, sizeof(do_break_function));
+    address = symbol_address(memory, for_break_symbol);
+    memcpy(&for_break_function, &address, sizeof(for_break_function));
     assert(while_function(1) == 3 && while_function(7) == 0);
     assert(do_function(1) == 3 && do_function(7) == 0);
     assert(for_function(1) == 3 && for_function(7) == 0);
     assert(labeled_function(-1) == 11 && labeled_function(1) == 11 &&
            labeled_function(7) == 22);
+    assert(do_return_function(1) == 31 && do_return_function(7) == 47);
+    assert(for_return_function(1) == 37 && for_return_function(7) == 53);
+    assert(do_continue_function(1) == 41 && do_continue_function(7) == 47);
+    assert(for_continue_function(1) == 43 && for_continue_function(7) == 53);
+    assert(do_break_function(1) == 31 && do_break_function(7) == 47);
+    assert(for_break_function(1) == 37 && for_break_function(7) == 53);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

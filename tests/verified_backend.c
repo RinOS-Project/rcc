@@ -420,3 +420,85 @@ selected:
     }
     return 33;
 }
+
+int verified_switch_do_return_case(int value)
+{
+    switch (value) {
+        do {
+            case 1:
+                return 31;
+        } while (value);
+        default:
+            return 47;
+    }
+    return 0;
+}
+
+int verified_switch_for_return_case(int value)
+{
+    switch (value) {
+        for (;;) {
+            case 1:
+                return 37;
+        }
+        default:
+            return 53;
+    }
+    return 0;
+}
+
+int verified_switch_do_continue_case(int value)
+{
+    switch (value) {
+        do {
+            case 1:
+                continue;
+        } while (0);
+        return 41;
+        default:
+            return 47;
+    }
+    return 0;
+}
+
+int verified_switch_for_continue_case(int value)
+{
+    switch (value) {
+        for (; value > 0; value = 0) {
+            case 1:
+                continue;
+        }
+        return 43;
+        default:
+            return 53;
+    }
+    return 0;
+}
+
+int verified_switch_do_break_case(int value)
+{
+    switch (value) {
+        do {
+            case 1:
+                break;
+        } while (1);
+        return 31;
+        default:
+            return 47;
+    }
+    return 0;
+}
+
+int verified_switch_for_break_case(int value)
+{
+    switch (value) {
+        for (;;) {
+            case 1:
+                break;
+        }
+        return 37;
+        default:
+            return 53;
+    }
+    return 0;
+}

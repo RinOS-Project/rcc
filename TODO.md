@@ -366,6 +366,9 @@
   - [x] `switch`内のgoto label配下にある`case`を収集し、前段caseからのgotoと
         switch直dispatchを同じlabel/case CFGへ合流させる。両archの通常/O2で
         fallbackなし、x86_64で両経路を実行検証
+  - [x] `do`/`for`本体の`return`/`break`終端をSSA CFGとして保持し、continue edgeが
+        必要とするcondition/increment blockも検証する。switch内caseのreturn/break/
+        continueを両arch通常/O2でfallbackなし、x86_64実行で検証
   - [x] i686 cdeclの64-bit整数を、EDX:EAXのverified SSA return-pair、8-byte引数、
         local/global load、narrow cast、加減算のcarry/borrow、bitwise、
         signed/unsigned比較、0..63-bit shift、direct／間接function-pointer call、
