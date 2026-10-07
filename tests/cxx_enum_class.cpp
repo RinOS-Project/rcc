@@ -27,6 +27,8 @@ enum class SignedByte : signed char {
 enum UnscopedWideUnsigned : unsigned long long {
     wide_value = 0x100000000ULL,
 };
+static_assert(wide_value == 0x100000000ULL,
+              "unscoped wide enumerator value");
 
 enum class FullUnsigned : unsigned long long {
     almost = 18446744073709551614ULL,
@@ -94,20 +96,23 @@ static_assert(inferred_full_unsigned == 18446744073709551615ULL,
 int cxx_enum_class_probe() {
     Color color = Color::blue;
     Mode mode = Mode::hot;
-    return color == Color::blue && mode == Mode::hot &&
-                   first == 7 && second == 14 && third == 7 &&
-                   static_cast<unsigned>(UnsignedByte::maximum) == 255u &&
-                   static_cast<int>(SignedByte::minimum) == -128 &&
-                   static_cast<int>(SignedByte::maximum) == 127 &&
-                   wide_value == 0x100000000ULL &&
-                   static_cast<unsigned long long>(FullUnsigned::maximum) ==
-                       18446744073709551615ULL &&
-                   inferred_unsigned_next == 0x80000001U &&
-                   inferred_negative_next == 0 &&
-                   inferred_int_overflow == 2147483648U &&
-                   inferred_wide_next == 0x100000001ULL &&
-                   inferred_full_unsigned == 18446744073709551615ULL
-        ? 0 : 1;
+    if (color != Color::blue) return 1;
+    if (mode != Mode::hot) return 2;
+    if (first != 7) return 3;
+    if (second != 14) return 4;
+    if (third != 7) return 5;
+    if (static_cast<unsigned>(UnsignedByte::maximum) != 255u) return 6;
+    if (static_cast<int>(SignedByte::minimum) != -128) return 7;
+    if (static_cast<int>(SignedByte::maximum) != 127) return 8;
+    if (wide_value != 0x100000000ULL) return 9;
+    if (static_cast<unsigned long long>(FullUnsigned::maximum) !=
+        18446744073709551615ULL) return 10;
+    if (inferred_unsigned_next != 0x80000001U) return 11;
+    if (inferred_negative_next != 0) return 12;
+    if (inferred_int_overflow != 2147483648U) return 13;
+    if (inferred_wide_next != 0x100000001ULL) return 14;
+    if (inferred_full_unsigned != 18446744073709551615ULL) return 15;
+    return 0;
 }
 
 int main() {

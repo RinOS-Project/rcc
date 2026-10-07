@@ -3820,7 +3820,9 @@ static void gen_vla_parameter_extents(Module* mod, Decl* decl) {
 
 static bool gen_is_integer64(const Type* type) {
     return type && type->size == 8 &&
-           type_is_integer((Type*)type);
+           (type_is_integer((Type*)type) ||
+            (type->kind == TYPE_ENUM && type->enum_underlying_type &&
+             type_is_integer(type->enum_underlying_type)));
 }
 
 /* A scalar expression wider than the i686 register width is returned in
@@ -5597,11 +5599,14 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         emit_push_reg(mod, EAX);
         gen_expr(mod, call_argument(call, 1));
         emit_push_reg(mod, EAX);
+        /* The expression stack contains desired* at [ESP] and object at
+         * [ESP+4].  Load the value from desired*, but perform the atomic
+         * exchange against the object address. */
         emit_mov_reg_mem(mod, ECX, ESP, 0);
         emit_load_typed32(mod, EAX, ECX, 0, value_type);
-        emit_pop_reg(mod, ECX);
+        emit_mov_reg_mem(mod, ECX, ESP, 4);
         emit_atomic_exchange_width(mod, EAX, ECX, value_type);
-        emit_add_reg_imm(mod, ESP, 4);
+        emit_add_reg_imm(mod, ESP, 8);
         return true;
     }
     if (strcmp(name, "__atomic_exchange") == 0) {
