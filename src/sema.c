@@ -217,14 +217,11 @@ static bool sema_cxx_member_pointer_form_accessible(const Expr* expression) {
 
     context = current_cxx_method_owner
         ? current_cxx_method_owner->cxx_class : NULL;
-    if (context == declaring ||
-        sema_cxx_class_is_friend(declaring, context)) {
-        access_class = declaring;
-    } else if (sema_cxx_class_derives_from(context, declaring, 0u)) {
-        access_class = context;
-    } else {
-        return false;
-    }
+    /* C in the protected-member pointer rule is the class containing the
+     * member or friend function. For a friend class this is the friend class,
+     * not the class that granted friendship. */
+    access_class = context;
+    if (!access_class) return false;
     return designating == access_class ||
            sema_cxx_class_derives_from(designating, access_class, 0u);
 }
