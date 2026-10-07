@@ -3474,6 +3474,16 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         emit64_store_typed(mod, RBP, displacement, RAX, type);
         return true;
     }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+        !type->is_reference &&
+        (initializer->is_cxx_nullptr ||
+         (initializer->type &&
+          initializer->type->kind == TYPE_NULLPTR) ||
+         gen64_aggregate_zero_initializer(type, initializer))) {
+        emit64_mov_reg_imm64(mod, RAX, UINT64_MAX);
+        emit64_store_typed(mod, RBP, displacement, RAX, type);
+        return true;
+    }
     if (string) {
         size_t storage = (size_t)type->size;
         size_t text_size = string->str_length + 1u;
@@ -6097,7 +6107,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
-            emit64_mov_reg_imm64(mod, RAX, (uint64_t)expr->int_val);
+            emit64_mov_reg_imm64(
+                mod, RAX,
+                expr->is_cxx_nullptr && expr->type &&
+                expr->type->kind == TYPE_PTR &&
+                expr->type->cxx_is_member_pointer
+                    ? UINT64_MAX : (uint64_t)expr->int_val);
             break;
 
         case EXPR_NOEXCEPT:

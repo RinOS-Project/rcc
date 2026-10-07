@@ -2001,6 +2001,12 @@ static Type* implicit_cast(Expr* e, Type* target) {
     if (e->type->kind == TYPE_NULLPTR) {
         if (target->kind == TYPE_NULLPTR) return target;
         if (!target->is_reference && target->kind == TYPE_BOOL) return target;
+        if (!target->is_reference && target->kind == TYPE_PTR &&
+            target->cxx_is_member_pointer) {
+            e->type = target;
+            e->is_cxx_nullptr = true;
+            return target;
+        }
         return !target->is_reference && type_is_pointer(target)
             ? target : NULL;
     }
@@ -2101,6 +2107,13 @@ reference_binding_validated:
     if ((e->type->kind == TYPE_PTR &&
          e->type->cxx_is_member_pointer) ||
         (target->kind == TYPE_PTR && target->cxx_is_member_pointer)) {
+        if (target->kind == TYPE_PTR && target->cxx_is_member_pointer &&
+            (e->type->kind == TYPE_NULLPTR ||
+             sema_is_null_pointer_constant(e))) {
+            e->type = target;
+            e->is_cxx_nullptr = true;
+            return target;
+        }
         if (e->type->kind == TYPE_PTR && target->kind == TYPE_PTR &&
             e->type->cxx_is_member_pointer &&
             target->cxx_is_member_pointer &&
@@ -10840,6 +10853,12 @@ static Type* sema_expr(Expr* expr) {
                                  right_value->kind == TYPE_ENUM)));
             bool pointers = type_is_pointer(left_value) &&
                             type_is_pointer(right_value);
+            bool left_member_pointer = left_value &&
+                left_value->kind == TYPE_PTR &&
+                left_value->cxx_is_member_pointer;
+            bool right_member_pointer = right_value &&
+                right_value->kind == TYPE_PTR &&
+                right_value->cxx_is_member_pointer;
             int64_t left_constant = 1;
             int64_t right_constant = 1;
             bool left_zero = sema_is_integer_type(left_value) &&
@@ -10859,7 +10878,21 @@ static Type* sema_expr(Expr* expr) {
                   (right_nullptr || right_zero)) ||
                  (type_is_pointer(right_value) &&
                   (left_nullptr || left_zero)));
+            bool member_pointer_comparison = equality &&
+                left_member_pointer && right_member_pointer &&
+                type_is_compatible(left_value, right_value);
+            bool member_pointer_null = equality &&
+                ((left_member_pointer && (right_nullptr || right_zero)) ||
+                 (right_member_pointer && (left_nullptr || left_zero)));
+            if (member_pointer_null) {
+                if (left_member_pointer) {
+                    (void)implicit_cast(expr->binary_rhs, left_value);
+                } else {
+                    (void)implicit_cast(expr->binary_lhs, right_value);
+                }
+            }
             if (!arithmetic && !pointers && !pointer_null &&
+                !member_pointer_comparison && !member_pointer_null &&
                 !typeinfo_equality &&
                 !nullptr_equality) {
                 rcc_error(expr->loc,

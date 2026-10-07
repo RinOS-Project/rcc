@@ -368,17 +368,16 @@
         `test-cxx-static-reference-conversions` with i686/AMD64 generation and
         x64 host execution.
   - [ ] Extend static-duration reference lifetime through
-        pointer-to-member-selected subobjects. The bounded source path now
-        represents direct public non-bit-field data-member pointers and lowers
-        `.*`/`->*` through both native backends and typed IR; it has not been
-        regression-tested. A local fixture and Makefile target are present in
-        the working tree but are untracked and have not been run. Keep this
-        open until both-architecture generation,
-        lifetime/destructor execution, and RinOS integration are covered.
-        A unique public non-virtual base path now adjusts the object before
-        applying the member offset in both native backends and typed IR.
-        Pointer-to-member functions, private-access contexts, null/member
-        pointer conversions, ambiguous base paths, and virtual-base member
+        pointer-to-member-selected subobjects. The source now supports direct
+        public non-bit-field data-member pointers, lvalue/xvalue selection, and
+        one public non-virtual base path across both native backends and typed
+        IR. `nullptr`/integer-zero initialization, equality with null, and
+        static zero-initialization also use the member-pointer null sentinel.
+        These paths have not been regression-tested; the local fixture and
+        Makefile target remain untracked and unrun. Keep this open until
+        both-architecture generation, lifetime/destructor execution, and RinOS
+        integration are covered. Pointer-to-member functions, private access,
+        cross-owner conversions, ambiguous paths, and virtual-base member
         pointers remain unsupported and must diagnose.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64

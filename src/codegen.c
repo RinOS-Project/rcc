@@ -1058,7 +1058,13 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
     }
     if (type->cxx_is_member_pointer) {
         uint64_t bits;
-        if (!codegen_static_integer(initializer, &integer)) return false;
+        if (initializer->is_cxx_nullptr ||
+            (initializer->type &&
+             initializer->type->kind == TYPE_NULLPTR)) {
+            integer = -1;
+        } else if (!codegen_static_integer(initializer, &integer)) {
+            return false;
+        }
         bits = (uint64_t)integer;
         for (uint32_t byte = 0u; byte < width; ++byte) {
             mod->data.data[offset + byte] =
@@ -1168,6 +1174,11 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
     if (initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor) {
         return false;
+    }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+        codegen_aggregate_zero_initializer(type, initializer)) {
+        memset(mod->data.data + offset, 0xFF, (size_t)type->size);
+        return true;
     }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     string = codegen_character_array_string(type, initializer);
@@ -1372,6 +1383,20 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     }
     if (type->kind == TYPE_PTR) {
         int64_t constant;
+        if (type->cxx_is_member_pointer) {
+            if (initializer->is_cxx_nullptr ||
+                (initializer->type &&
+                 initializer->type->kind == TYPE_NULLPTR)) {
+                constant = -1;
+            } else if (!codegen_static_integer(initializer, &constant)) {
+                return false;
+            }
+            for (uint32_t byte = 0u; byte < (uint32_t)type->size; ++byte) {
+                mod->tls.data[offset + byte] =
+                    (uint8_t)((uint64_t)constant >> (byte * 8u));
+            }
+            return true;
+        }
         return (initializer->type &&
                 initializer->type->kind == TYPE_NULLPTR) ||
                (codegen_static_integer(initializer, &constant) &&
@@ -1569,6 +1594,11 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
                    (size_t)aligned - mod->tls.size);
         }
         memset(mod->tls.data + offset, 0, size);
+        if (!declaration->var_init &&
+            declaration->type->kind == TYPE_PTR &&
+            declaration->type->cxx_is_member_pointer) {
+            memset(mod->tls.data + offset, 0xFF, size);
+        }
         mod->tls.size = (size_t)aligned + size;
         if (alignment > mod->tls_align) mod->tls_align = alignment;
         declaration->var_offset = offset;
@@ -1585,6 +1615,22 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         return true;
     }
     if (!declaration->var_init) {
+        if (declaration->type->kind == TYPE_PTR &&
+            declaration->type->cxx_is_member_pointer &&
+            !declaration->type->is_reference) {
+            while ((mod->data.size & (alignment - 1u)) != 0u) {
+                emit_data(mod, zero, 1u);
+            }
+            offset = (uint32_t)mod->data.size;
+            for (uint32_t byte = 0u; byte < size; ++byte) {
+                const uint8_t null_byte = 0xFFu;
+                emit_data(mod, &null_byte, sizeof(null_byte));
+            }
+            declaration->var_offset = offset;
+            module_add_symbol(mod, decl_link_name(declaration), offset, true,
+                              MODULE_SYMBOL_DATA, false);
+            return true;
+        }
         uint64_t aligned = ((uint64_t)mod->bss.size + alignment - 1u) &
                            ~((uint64_t)alignment - 1u);
         if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
@@ -1724,6 +1770,11 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                        (size_t)aligned - mod->tls.size);
             }
             memset(mod->tls.data + offset, 0, size);
+            if (!declaration->var_init &&
+                declaration->type->kind == TYPE_PTR &&
+                declaration->type->cxx_is_member_pointer) {
+                memset(mod->tls.data + offset, 0xFF, size);
+            }
             mod->tls.size = (size_t)aligned + size;
             if (alignment > mod->tls_align) mod->tls_align = alignment;
             declaration->var_offset = offset;
@@ -1809,6 +1860,32 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             continue;
         }
         if (!declaration->var_init) {
+            if (declaration->type->kind == TYPE_PTR &&
+                declaration->type->cxx_is_member_pointer &&
+                !declaration->type->is_reference) {
+                uint64_t aligned = ((uint64_t)mod->data.size + alignment - 1u) &
+                                   ~((uint64_t)alignment - 1u);
+                if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+                    rcc_error(declaration->loc,
+                              "member-pointer initializer exceeds data limits");
+                    continue;
+                }
+                while (mod->data.size < aligned) emit_data(mod, zero, 1u);
+                offset = (uint32_t)aligned;
+                for (uint32_t byte = 0u; byte < size; ++byte) {
+                    const uint8_t null_byte = 0xFFu;
+                    emit_data(mod, &null_byte, sizeof(null_byte));
+                }
+                declaration->var_offset = offset;
+                module_add_symbol(mod, decl_link_name(declaration), offset,
+                                  true, MODULE_SYMBOL_DATA,
+                                  declaration->storage != STORAGE_STATIC);
+                if (declaration->var_is_inline || declaration->is_weak) {
+                    module_mark_symbol_weak(mod, decl_link_name(declaration));
+                }
+                codegen_defer_global_variable_cleanup(mod, declaration);
+                continue;
+            }
             uint64_t aligned = ((uint64_t)mod->bss.size + alignment - 1u) &
                                ~((uint64_t)alignment - 1u);
             if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
@@ -10381,7 +10458,11 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
-            emit_mov_reg_imm(mod, EAX, (uint32_t)expr->int_val);
+            emit_mov_reg_imm(mod, EAX,
+                expr->is_cxx_nullptr && expr->type &&
+                expr->type->kind == TYPE_PTR &&
+                expr->type->cxx_is_member_pointer
+                    ? UINT32_MAX : (uint32_t)expr->int_val);
             break;
 
         case EXPR_NOEXCEPT:
@@ -13339,6 +13420,16 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
     if (type->kind == TYPE_PTR && type->is_reference) {
         gen_lvalue(mod, initializer);
         gen_cxx_reference_adjustment32(mod, initializer);
+        emit_store_typed32(mod, EBP, displacement, EAX, type);
+        return true;
+    }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+        !type->is_reference &&
+        (initializer->is_cxx_nullptr ||
+         (initializer->type &&
+          initializer->type->kind == TYPE_NULLPTR) ||
+         codegen_aggregate_zero_initializer(type, initializer))) {
+        emit_mov_reg_imm(mod, EAX, UINT32_MAX);
         emit_store_typed32(mod, EBP, displacement, EAX, type);
         return true;
     }
