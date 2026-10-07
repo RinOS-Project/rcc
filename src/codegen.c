@@ -14482,7 +14482,7 @@ static Expr* gen_static_reference_subobject_rebase32(
                 &child_replaced);
             {
                 bool rhs_replaced = false;
-            copy->binary_rhs = gen_static_reference_subobject_rebase32(
+                copy->binary_rhs = gen_static_reference_subobject_rebase32(
                     expression->binary_rhs, complete_object, owner,
                     &rhs_replaced);
                 if (!copy->binary_lhs || !copy->binary_rhs ||
@@ -14496,10 +14496,10 @@ static Expr* gen_static_reference_subobject_rebase32(
             {
                 bool then_replaced = false;
                 bool else_replaced = false;
-            copy->cond_then = gen_static_reference_subobject_rebase32(
+                copy->cond_then = gen_static_reference_subobject_rebase32(
                     expression->cond_then, complete_object, owner,
                     &then_replaced);
-            copy->cond_else = gen_static_reference_subobject_rebase32(
+                copy->cond_else = gen_static_reference_subobject_rebase32(
                     expression->cond_else, complete_object, owner,
                     &else_replaced);
                 if (!copy->cond_then || !copy->cond_else ||

@@ -1289,6 +1289,44 @@ static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
     return NULL;
 }
 
+static bool sema_cxx_static_reference_has_temporary_source(
+    Expr* expression) {
+    Type* type;
+    if (!expression) return false;
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        !is_lvalue(expression) && !is_xvalue(expression)) {
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_CAST:
+            return expression->cast_type &&
+                   expression->cast_type->is_reference &&
+                   expression->cast_type->is_rvalue_reference &&
+                   sema_cxx_static_reference_has_temporary_source(
+                       expression->cast_expr);
+        case EXPR_MEMBER:
+            return expression->cxx_member_xvalue &&
+                   sema_cxx_static_reference_has_temporary_source(
+                       expression->member_base);
+        case EXPR_COMMA:
+            return is_xvalue(expression) &&
+                   sema_cxx_static_reference_has_temporary_source(
+                       expression->binary_rhs);
+        case EXPR_COND:
+            return expression->cxx_conditional_xvalue &&
+                   (sema_cxx_static_reference_has_temporary_source(
+                        expression->cond_then) ||
+                    sema_cxx_static_reference_has_temporary_source(
+                        expression->cond_else));
+        default:
+            return false;
+    }
+}
+
 static bool sema_cxx_reference_subobject_path(Expr* expression,
                                                Expr* complete_object) {
     if (!expression || !complete_object || expression == complete_object) {
@@ -7519,6 +7557,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Type* object_type;
     bool reference_temporary = false;
     bool static_reference_temporary = false;
+    bool static_xvalue_has_temporary = false;
     int cleanup_budget = 4096;
     if (!rcc_parser_is_cxx_mode() || !declaration ||
         !declaration->type || declaration->var_cleanup ||
@@ -7535,9 +7574,17 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
              declaration->var_is_static_local) &&
             !declaration->var_is_thread_local &&
             is_xvalue(declaration->var_init)) {
+            static_xvalue_has_temporary =
+                sema_cxx_static_reference_has_temporary_source(
+                    declaration->var_init);
             static_xvalue_source =
                 sema_cxx_static_reference_temporary_source(
                     declaration->var_init);
+            if (static_xvalue_has_temporary && !static_xvalue_source) {
+                rcc_error(declaration->loc,
+                          "static reference lifetime extension for this class xvalue path is unsupported");
+                return;
+            }
             if (static_xvalue_source &&
                 sema_cxx_reference_subobject_path(
                     declaration->var_init, static_xvalue_source)) {
