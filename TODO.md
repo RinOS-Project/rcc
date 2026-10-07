@@ -263,6 +263,11 @@
         conversion vectorを引数ごとに比較。直交したテンプレート候補の
         ambiguityと既存の両arch実行を回帰検証
   - [ ] 標準C++の全conversion rank、ADL、two-phase lookup互換性
+- [x] C++ enumのfixed underlying typeを保持し、signed/unsigned各幅の明示列挙子と
+      暗黙の次値が表現可能か検査。i686/AMD64で境界値を実行し、範囲外を診断する。
+      現在のenum定数保存域を超えるunsigned 64-bit値は引き続き明示診断する
+- [ ] unsigned 64-bit enum定数を`ULLONG_MAX`まで保持し、underlying type未指定enumの
+      標準に沿ったunderlying type選択を定数評価・debug infoまで伝播する
 - [x] bounded templates、concepts、constexpr/consteval、lambda
   - [x] bounded type/non-type parameter packs、pack expansion、fold expression、
         empty-pack identity、pack-based static membersの両arch回帰

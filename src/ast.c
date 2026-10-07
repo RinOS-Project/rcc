@@ -312,6 +312,8 @@ Type* type_enum(const char* tag) {
     t->is_atomic = false;
     t->enum_tag = tag;
     t->enum_is_scoped = false;
+    t->enum_has_fixed_underlying = false;
+    t->enum_underlying_type = NULL;
     t->enum_constants = NULL;
     t->enum_constant_count = 0;
     t->cxx_is_class = false;

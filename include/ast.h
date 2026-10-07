@@ -146,6 +146,10 @@ struct Type {
     bool cxx_is_class;
     bool cxx_nontrivial;
     bool cxx_dependent;
+    /* C++ fixed-underlying-type enums retain the actual integer type so the
+     * parser can validate every enumerator against its signedness and width. */
+    bool enum_has_fixed_underlying;
+    Type* enum_underlying_type;
     struct CxxClass* cxx_class;
     /* Lowerable C++ constructor arities remain attached to the type so
      * template instances survive parser-scope restoration. */
