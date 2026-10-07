@@ -360,6 +360,9 @@
       lowerし、i686/AMD64 verified backend emit回帰を追加。cleanup/VLA跨ぎは
       引き続き明示的にverified subset外として扱う。
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
+  - [x] `switch`の`case`ラベルを`while`/`do`/`for`本体内から収集し、通常のswitch
+        dispatchとloop backedgeを保ったverified SSA CFGへlowerする。i686/AMD64
+        emissionとx86_64実行結果を回帰検証
   - [x] i686 cdeclの64-bit整数を、EDX:EAXのverified SSA return-pair、8-byte引数、
         local/global load、narrow cast、加減算のcarry/borrow、bitwise、
         signed/unsigned比較、0..63-bit shift、direct／間接function-pointer call、

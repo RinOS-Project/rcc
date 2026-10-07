@@ -1013,6 +1013,9 @@ static void verify_object(const char* path, uint16_t arch)
     ObjSymbol* switch_promotion;
     ObjSymbol* switch_skips_prefix;
     ObjSymbol* switch_nested_case;
+    ObjSymbol* switch_while_case;
+    ObjSymbol* switch_do_case;
+    ObjSymbol* switch_for_case;
     ObjReloc* relocation;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -1081,6 +1084,10 @@ static void verify_object(const char* path, uint16_t arch)
         object, "verified_switch_skips_prefix");
     switch_nested_case = objfile_find_symbol(
         object, "verified_switch_nested_case");
+    switch_while_case = objfile_find_symbol(
+        object, "verified_switch_while_case");
+    switch_do_case = objfile_find_symbol(object, "verified_switch_do_case");
+    switch_for_case = objfile_find_symbol(object, "verified_switch_for_case");
     assert(text != NULL && text->size != 0u && text->memory_size == text->size);
     assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
            (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
@@ -1182,7 +1189,14 @@ static void verify_object(const char* path, uint16_t arch)
     assert(switch_nested_case != NULL &&
            switch_nested_case->type == SYM_GLOBAL &&
            switch_nested_case->section == 0);
-    assert(object->symbol_count == 41);
+    assert(switch_while_case != NULL &&
+           switch_while_case->type == SYM_GLOBAL &&
+           switch_while_case->section == 0);
+    assert(switch_do_case != NULL && switch_do_case->type == SYM_GLOBAL &&
+           switch_do_case->section == 0);
+    assert(switch_for_case != NULL && switch_for_case->type == SYM_GLOBAL &&
+           switch_for_case->section == 0);
+    assert(object->symbol_count == 44);
     {
         size_t relocation_count = 0u;
         size_t absolute_count = 0u;
@@ -1277,6 +1291,9 @@ static void verify_native_execution(const char* path, uint16_t arch)
     int RINOS_ABI (*ternary_function)(int, int, int);
     int RINOS_ABI (*switch_promotion_function)(unsigned char);
     int RINOS_ABI (*switch_nested_case_function)(int);
+    int RINOS_ABI (*switch_while_case_function)(int);
+    int RINOS_ABI (*switch_do_case_function)(int);
+    int RINOS_ABI (*switch_for_case_function)(int);
     int* cursor;
     void* address;
     assert(object != NULL && object->arch == arch);
@@ -1551,6 +1568,27 @@ static void verify_native_execution(const char* path, uint16_t arch)
            sizeof(switch_nested_case_function));
     assert(switch_nested_case_function(1) == 11);
     assert(switch_nested_case_function(7) == 22);
+
+    symbol = objfile_find_symbol(object, "verified_switch_while_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_while_case_function, &address,
+           sizeof(switch_while_case_function));
+    assert(switch_while_case_function(1) == 3);
+    assert(switch_while_case_function(7) == 0);
+
+    symbol = objfile_find_symbol(object, "verified_switch_do_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_do_case_function, &address,
+           sizeof(switch_do_case_function));
+    assert(switch_do_case_function(1) == 3);
+    assert(switch_do_case_function(7) == 0);
+
+    symbol = objfile_find_symbol(object, "verified_switch_for_case");
+    address = symbol_address(memory, symbol);
+    memcpy(&switch_for_case_function, &address,
+           sizeof(switch_for_case_function));
+    assert(switch_for_case_function(1) == 3);
+    assert(switch_for_case_function(7) == 0);
 
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);

@@ -363,3 +363,46 @@ int verified_switch_nested_case(int value)
     }
     return 33;
 }
+
+int verified_switch_while_case(int value)
+{
+    int iterations = 0;
+    switch (value) {
+        while (iterations < 3) {
+            case 1:
+                ++iterations;
+        }
+        default:
+            return iterations;
+    }
+    return -1;
+}
+
+int verified_switch_do_case(int value)
+{
+    int iterations = 0;
+    switch (value) {
+        do {
+            case 1:
+                ++iterations;
+        } while (iterations < 3);
+        default:
+            return iterations;
+    }
+    return -1;
+}
+
+int verified_switch_for_case(int value)
+{
+    int index = 0;
+    int iterations = 0;
+    switch (value) {
+        for (; index < 3; ++index) {
+            case 1:
+                ++iterations;
+        }
+        default:
+            return iterations;
+    }
+    return -1;
+}

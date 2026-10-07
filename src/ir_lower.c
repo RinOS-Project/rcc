@@ -7166,13 +7166,17 @@ static bool lower_collect_switch_labels(
             return true;
         case STMT_WHILE:
         case STMT_DO:
-        case STMT_FOR:
+            return lower_collect_switch_labels(
+                context, switch_context, statement->while_body);
         case STMT_LABEL:
             if (lower_statement_has_switch_label(statement)) {
                 context->unsupported = true;
                 return false;
             }
             return true;
+        case STMT_FOR:
+            return lower_collect_switch_labels(
+                context, switch_context, statement->for_body);
         default:
             return true;
     }
