@@ -6141,6 +6141,8 @@ static bool gen_expr_is_lvalue(Expr* expression) {
         case EXPR_COMPOUND:
         case EXPR_CXX_TYPEID:
             return true;
+        case EXPR_COND:
+            return expression->cxx_conditional_lvalue;
         case EXPR_CALL:
             return expression->type && expression->type->is_reference &&
                    !expression->type->is_rvalue_reference;
@@ -6150,6 +6152,9 @@ static bool gen_expr_is_lvalue(Expr* expression) {
 }
 
 static bool gen_expr_is_xvalue(Expr* expression) {
+    if (expression && expression->kind == EXPR_COND) {
+        return expression->cxx_conditional_xvalue;
+    }
     return expression && expression->type &&
            expression->type->is_reference &&
            expression->type->is_rvalue_reference &&
@@ -6389,8 +6394,12 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 ? expr->cond_else : NULL;
             int else_label = expr->kind == EXPR_COND ? new_label() : -1;
             int end_label = expr->kind == EXPR_COND ? new_label() : -1;
-            if (!gen_aggregate_type32(expr->type) ||
-                expr->aggregate_offset >= 0 || !then_expr ||
+            bool conditional_glvalue = expr->kind == EXPR_COND &&
+                (gen_expr_is_lvalue(expr) || gen_expr_is_xvalue(expr));
+            bool aggregate_result = gen_aggregate_type32(expr->type);
+            if ((!conditional_glvalue && !aggregate_result) ||
+                (!conditional_glvalue && expr->aggregate_offset >= 0) ||
+                !then_expr ||
                 (expr->kind == EXPR_COND && !else_expr)) {
                 rcc_error(expr->loc, "aggregate expression has no automatic result slot");
                 return;
@@ -6403,19 +6412,25 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 gen_expr(mod, expr->binary_lhs);
             }
             gen_lvalue(mod, then_expr);
-            gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
-                                 expr->type->size);
+            if (!conditional_glvalue) {
+                gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
+                                     expr->type->size);
+            }
             if (expr->kind == EXPR_COND) {
                 emit_jmp_label(mod, end_label);
                 emit_label(mod, else_label);
                 gen_lvalue(mod, else_expr);
-                gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
-                                     expr->type->size);
+                if (!conditional_glvalue) {
+                    gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
+                                         expr->type->size);
+                }
                 emit_label(mod, end_label);
             }
-            emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
-            emit_byte(mod, modrm(2, EAX, EBP));
-            emit_dword(mod, (uint32_t)expr->aggregate_offset);
+            if (!conditional_glvalue) {
+                emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                emit_byte(mod, modrm(2, EAX, EBP));
+                emit_dword(mod, (uint32_t)expr->aggregate_offset);
+            }
             break;
         }
 
@@ -10700,7 +10715,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_ASSIGN:
             if (gen_cxx_move_assignment(mod, expr)) break;
-            if (expr->binary_lhs && expr->binary_lhs->member_field &&
+            if (expr->binary_lhs &&
+                (expr->binary_lhs->kind == EXPR_MEMBER ||
+                 expr->binary_lhs->kind == EXPR_PTR_MEMBER) &&
+                expr->binary_lhs->member_field &&
                 expr->binary_lhs->member_field->is_bitfield) {
                 gen_expr(mod, expr->binary_rhs);
                 if (type_is_integer(expr->binary_lhs->type) ||
@@ -10847,7 +10865,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
                 break;
             }
-            if (expr->binary_lhs && expr->binary_lhs->member_field &&
+            if (expr->binary_lhs &&
+                (expr->binary_lhs->kind == EXPR_MEMBER ||
+                 expr->binary_lhs->kind == EXPR_PTR_MEMBER) &&
+                expr->binary_lhs->member_field &&
                 expr->binary_lhs->member_field->is_bitfield) {
                 gen_lvalue(mod, expr->binary_lhs);
                 emit_push_reg(mod, EAX);
@@ -10914,7 +10935,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                           "atomic compound assignment operator is not supported by the target RMW backend");
                 break;
             }
-            if (expr->binary_lhs && expr->binary_lhs->member_field &&
+            if (expr->binary_lhs &&
+                (expr->binary_lhs->kind == EXPR_MEMBER ||
+                 expr->binary_lhs->kind == EXPR_PTR_MEMBER) &&
+                expr->binary_lhs->member_field &&
                 expr->binary_lhs->member_field->is_bitfield) {
                 if (gen_is_integer64(operation_type)) {
                     rcc_error(expr->loc,

@@ -39,6 +39,21 @@ int&& return_rvalue_reference(int&& value) {
     return static_cast<int&&>(value);
 }
 
+int& select_conditional_lvalue(bool choose_first, int& first, int& second) {
+    return choose_first ? first : second;
+}
+
+int&& select_conditional_xvalue(bool choose_first, int&& first, int&& second) {
+    return choose_first ? static_cast<int&&>(first)
+                        : static_cast<int&&>(second);
+}
+
+decltype(auto) select_conditional_decltype_xvalue(
+        bool choose_first, int&& first, int&& second) {
+    return (choose_first ? static_cast<int&&>(first)
+                         : static_cast<int&&>(second));
+}
+
 template<typename R, typename A>
 R invoke(R (*function)(A), A value) {
     return function(value);
@@ -73,11 +88,30 @@ int main() {
             static_cast<int&&>(mutable_value));
     rvalue_result += 2;
     if (mutable_value != 12) return 7;
-    if (read_rvalue(9) != 9) return 8;
-    if (read_rvalue(mutable_value) != 12) return 9;
-    if (invoke(double_value, 6) != 12) return 10;
-    if (copy_from_const_pointer(&constant) != 8) return 11;
-    if (default_type_copy(13) != 13) return 12;
-    if (read_array_element(values) != 6) return 13;
+    int other_value = 20;
+    int& selected_lvalue = select_conditional_lvalue(
+            false, mutable_value, other_value);
+    selected_lvalue += 1;
+    if (mutable_value != 12 || other_value != 21) return 8;
+    char small_first = 'a';
+    char small_second = 'b';
+    (true ? small_first : small_second) = 'z';
+    if (small_first != 'z' || small_second != 'b') return 9;
+    int&& selected_xvalue = select_conditional_xvalue(
+            true, static_cast<int&&>(mutable_value),
+            static_cast<int&&>(other_value));
+    selected_xvalue += 2;
+    if (mutable_value != 14 || other_value != 21) return 10;
+    decltype(auto) deduced_xvalue = select_conditional_decltype_xvalue(
+            false, static_cast<int&&>(mutable_value),
+            static_cast<int&&>(other_value));
+    deduced_xvalue += 3;
+    if (mutable_value != 14 || other_value != 24) return 11;
+    if (read_rvalue(9) != 9) return 12;
+    if (read_rvalue(mutable_value) != 14) return 13;
+    if (invoke(double_value, 6) != 12) return 14;
+    if (copy_from_const_pointer(&constant) != 8) return 15;
+    if (default_type_copy(13) != 13) return 16;
+    if (read_array_element(values) != 6) return 17;
     return 0;
 }

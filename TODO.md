@@ -315,9 +315,16 @@
 - [ ] Complete ordinary non-template rvalue-reference binding and value-category
       semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
       function returns now have regressions that compile for both targets and
-      execute on the x64 host. Conditional/member xvalue classification, broader
-      reference collapsing, temporary lifetime, and remaining call/return
-      interactions still need systematic coverage.
+      execute on the x64 host. Member xvalue classification, broader reference
+      collapsing, temporary lifetime, and remaining call/return interactions
+      still need systematic coverage.
+  - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
+        cv-qualified result type when both operands match; lower the selected
+        object address on i686/AMD64 and test reference returns, `decltype(auto)`,
+        and narrow-character assignment in `test-cxx-function-template-references`.
+  - [x] Read bit-field metadata only from member-expression AST nodes in both
+        assignment backends; conditional expressions share union storage with
+        those fields and must not be misidentified as bit-fields.
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
   - [x] Implement the validated C++ empty-base optimization for a leading,
         non-polymorphic direct empty base, preserve the standard same-type

@@ -79,13 +79,15 @@ static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
             return sema_decltype_auto_expression_is_lvalue(
                 expression->binary_rhs);
         case EXPR_COND:
-            return sema_decltype_auto_expression_is_lvalue(
-                       expression->cond_then) &&
-                   sema_decltype_auto_expression_is_lvalue(
-                       expression->cond_else);
+            return expression->cxx_conditional_lvalue;
         default:
             return false;
     }
+}
+
+static bool sema_decltype_auto_expression_is_xvalue(Expr* expression) {
+    return expression && expression->kind == EXPR_COND &&
+           expression->cxx_conditional_xvalue;
 }
 
 static bool sema_cxx_class_qualified_name(const CxxClass* cls,
@@ -1140,6 +1142,7 @@ static bool atomic_allows_pointer_value(const char* name) {
  * ═══════════════════════════════════════ */
 
 static bool is_lvalue(Expr* e) {
+    if (!e) return false;
     if (e && e->kind == EXPR_CAST && e->type && e->type->is_reference &&
         !e->type->is_rvalue_reference &&
         (e->cxx_cast_kind == CXX_CAST_NONE ||
@@ -1157,12 +1160,46 @@ static bool is_lvalue(Expr* e) {
         case EXPR_COMPOUND:
         case EXPR_CXX_TYPEID:
             return true;
+        case EXPR_COND:
+            return e->cxx_conditional_lvalue;
         case EXPR_CALL:
             return e->type && e->type->is_reference &&
                    !e->type->is_rvalue_reference;
         default:
             return false;
     }
+}
+
+static bool is_xvalue(Expr* expression) {
+    if (!expression) return false;
+    if (expression->kind == EXPR_COND) {
+        return expression->cxx_conditional_xvalue;
+    }
+    return expression->type && expression->type->is_reference &&
+           expression->type->is_rvalue_reference &&
+           (expression->kind == EXPR_CAST ||
+            expression->kind == EXPR_CALL);
+}
+
+static bool sema_cxx_same_glvalue_type(Type* left, Type* right,
+                                       unsigned depth) {
+    if (!left || !right || depth > 64u ||
+        !type_is_compatible(left, right) ||
+        left->is_const != right->is_const ||
+        left->is_volatile != right->is_volatile ||
+        left->is_atomic != right->is_atomic ||
+        left->is_restrict != right->is_restrict) {
+        return false;
+    }
+    if (left->kind == TYPE_ARRAY && left->array_len != right->array_len) {
+        return false;
+    }
+    if (left->kind == TYPE_PTR || left->kind == TYPE_ARRAY ||
+        left->kind == TYPE_VECTOR) {
+        return sema_cxx_same_glvalue_type(left->base, right->base,
+                                           depth + 1u);
+    }
+    return true;
 }
 
 static bool is_modifiable_lvalue(Expr* expression) {
@@ -10133,6 +10170,12 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_COND: {
+            bool then_lvalue;
+            bool else_lvalue;
+            bool then_xvalue;
+            bool else_xvalue;
+            expr->cxx_conditional_lvalue = false;
+            expr->cxx_conditional_xvalue = false;
             expr->cond_test = sema_contextual_bool(expr->cond_test);
             Type* tt = sema_expr(expr->cond_then);
             Type* et = sema_expr(expr->cond_else);
@@ -10157,6 +10200,24 @@ static Type* sema_expr(Expr* expr) {
                 expr->type = type_int;
             } else {
                 expr->type = type_common(tt, et);
+            }
+            then_lvalue = is_lvalue(expr->cond_then);
+            else_lvalue = is_lvalue(expr->cond_else);
+            then_xvalue = is_xvalue(expr->cond_then);
+            else_xvalue = is_xvalue(expr->cond_else);
+            if (rcc_parser_is_cxx_mode() &&
+                sema_cxx_same_glvalue_type(tt, et, 0u)) {
+                expr->cxx_conditional_lvalue =
+                    then_lvalue && else_lvalue;
+                expr->cxx_conditional_xvalue =
+                    then_xvalue && else_xvalue;
+                if (expr->cxx_conditional_lvalue ||
+                    expr->cxx_conditional_xvalue) {
+                    /* The conditional expression has the operands' exact
+                     * type; arithmetic usual conversions do not apply to
+                     * the C++ glvalue result. */
+                    expr->type = tt;
+                }
             }
             break;
         }
@@ -14395,10 +14456,20 @@ static Type* sema_decltype_auto_return_type(Expr* expression) {
         return expression->ident_decl->type;
     }
 
+    if (sema_decltype_auto_expression_is_xvalue(expression)) {
+        if (result->kind == TYPE_PTR && result->is_reference) return result;
+        Type* reference = type_ptr(result);
+        reference->is_reference = true;
+        reference->is_rvalue_reference = true;
+        return reference;
+    }
+
     /* These expression forms are lvalues.  Preserve that category for the
      * lowered reference ABI instead of silently copying the object value. */
     if ((expression->cxx_parenthesized &&
          sema_decltype_auto_expression_is_lvalue(expression)) ||
+        (expression->kind == EXPR_COND &&
+         expression->cxx_conditional_lvalue) ||
         expression->kind == EXPR_DEREF || expression->kind == EXPR_INDEX ||
         expression->kind == EXPR_MEMBER ||
         expression->kind == EXPR_PTR_MEMBER) {
