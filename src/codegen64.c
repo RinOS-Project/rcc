@@ -1062,8 +1062,9 @@ static bool gen64_expr_is_lvalue(Expr* expression) {
         case EXPR_DEREF:
         case EXPR_INDEX:
         case EXPR_PTR_MEMBER:
-        case EXPR_COMPOUND:
             return true;
+        case EXPR_COMPOUND:
+            return !rcc_parser_is_cxx_mode();
         case EXPR_STRING_LIT:
             return rcc_parser_is_cxx_mode();
         case EXPR_MEMBER:
