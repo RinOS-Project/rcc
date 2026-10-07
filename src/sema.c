@@ -1705,6 +1705,19 @@ static bool sema_pointee_qualification_preserved(const Type* source,
         source, target, false, false);
 }
 
+static bool sema_is_null_pointer_constant(const Expr* expression) {
+    int64_t value;
+    if (!expression || !expression->type ||
+        (!type_is_integer(expression->type) &&
+         expression->type->kind != TYPE_ENUM)) {
+        return false;
+    }
+    if (rcc_parser_is_cxx_mode()) {
+        return expression->kind == EXPR_INT_LIT && expression->int_val == 0;
+    }
+    return expr_eval_integer_constant((Expr*)expression, &value) && value == 0;
+}
+
 static Type* implicit_cast(Expr* e, Type* target) {
     if (!e->type || !target) return NULL;
 
@@ -1822,12 +1835,16 @@ static Type* implicit_cast(Expr* e, Type* target) {
         return target;
     }
 
-    /* Pointer to/from integer */
+    /* A pointer converts implicitly to C++ bool (and C _Bool), but converting
+     * between pointers and other integer types requires an explicit cast.
+     * The only implicit integer-to-pointer conversion is a null pointer
+     * constant: an integer constant expression equal to zero in C, and an
+     * integer literal equal to zero in C++. */
     if (type_is_pointer(e->type) && type_is_integer(target)) {
-        return target;
+        return target->kind == TYPE_BOOL ? target : NULL;
     }
     if (type_is_integer(e->type) && type_is_pointer(target)) {
-        return target;
+        return sema_is_null_pointer_constant(e) ? target : NULL;
     }
 
     /* Array to pointer decay */

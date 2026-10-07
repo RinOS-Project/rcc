@@ -12,7 +12,7 @@ public:
 
     int* release() noexcept {
         int* value = value_;
-        value_ = 1;
+        value_ = (int*)1;
         return value;
     }
 

@@ -8,6 +8,7 @@ int assignment_conversions(int* output, const int* input, double number)
     readonly = input;
     generic = output;
     nullable = nullptr;
+    nullable = 0;
     value = number;
     *output = value;
     return *readonly + (*((int*)generic)) + *output + (nullable == nullptr);

@@ -11538,10 +11538,10 @@ test-assignment-constraints: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/assignment-constraints/invalid-cxx-x64.ro \
 		tests/invalid_assignment_types.cpp,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log)
-	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x86.log,3)
-	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x64.log,3)
-	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x86.log,3)
-	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log,3)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x86.log,5)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x64.log,5)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x86.log,5)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log,5)
 	@echo "C17/C++20 assignment conversion constraints passed for i686 and AMD64"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
