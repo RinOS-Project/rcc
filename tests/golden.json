@@ -120,6 +120,26 @@
           "drv": "1c7ec48c48d6ec6ae84b8ec9935d52ef16f4b8de4a749701566b1cd67bfc0f7a"
         }
       }
+    },
+    {
+      "id": "c17-wide-scalar",
+      "language": "C17",
+      "source": "tests/golden/wide_scalar.c",
+      "flags": ["-O0"],
+      "sha256": {
+        "i686-unknown-rinos": {
+          "ro": "87f31da5f19a280a6a3ba1beab8b2553bd46893e49378b3f9c2e61c859814d87",
+          "rin": "c551de5b3110bc92dd6285090d98ee13b5926fbf12299ba0162d234da44bf5da",
+          "rll": "c5c125a808ca9f7b8aedd45723599419179223720896bfb87b05dccd55611439",
+          "drv": "91917026c8ca138f9992f6cda08a8d2d193eb1f7bf8525815f1760272b9b2496"
+        },
+        "x86_64-unknown-rinos": {
+          "ro": "727014b1dc9597a050600e24cb056f429d675da9e6715b1c0e1daa44987700f5",
+          "rin": "dad1fea24007b05b8e5d40a5baf2e69ee05d0cd3ab8bcdfd7ceb032e3a08de18",
+          "rll": "6dee827e22aa8171a4f35c0f8999d713ee2f2e4f7d1edeb34154f2e8fd3cefcc",
+          "drv": "5e04879a6ffba0fa946663b107bf2747d39e4dc291d41ccbc097ef779343d154"
+        }
+      }
     }
   ]
 }
