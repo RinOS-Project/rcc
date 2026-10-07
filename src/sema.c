@@ -12940,6 +12940,9 @@ static void initializer_designator_cursor_advance(
     }
 }
 
+static void normalize_brace_elided_initializer(Type* type,
+                                                Expr* initializer);
+
 /* A nested C designator creates initializer lists for the remaining levels
  * of the path. Following positional scalar clauses continue in depth-first
  * subobject order: first within the innermost aggregate, then in the next
@@ -13004,9 +13007,60 @@ static void initializer_absorb_designator_followups(
             --path_index;
             continue;
         }
-        /* Aggregate siblings need brace-elision normalization at their own
-         * level. Leave those clauses to the ordinary initializer walker. */
-        if (initializer_is_aggregate_type(next_type)) break;
+        if (initializer_is_aggregate_type(next_type)) {
+            ExprList* next_source;
+            if (initializer_directly_initializes(next_type, source->expr)) {
+                next_source = source->next;
+                source->next = NULL;
+                cursor->tail->next = source;
+                cursor->tail = source;
+                source = next_source;
+                initializer_designator_cursor_advance(cursor);
+                continue;
+            }
+            {
+                ExprList* segment_last = source;
+                ExprList* after_segment;
+                ExprList* probe;
+                ExprList* stop;
+                ExprList* nested_items = NULL;
+                Expr* nested;
+                ExprList* appended;
+
+                while (segment_last->next &&
+                       segment_last->next->designator_kind ==
+                           INIT_DESIGNATOR_NONE) {
+                    segment_last = segment_last->next;
+                }
+                after_segment = segment_last->next;
+                segment_last->next = NULL;
+                probe = source;
+                consume_brace_elided_subobject(next_type, &probe);
+                segment_last->next = after_segment;
+                if (probe == source) break;
+                stop = probe ? probe : after_segment;
+                for (ExprList* item = source; item != stop;
+                     item = item->next) {
+                    exprlist_append_designated(&nested_items, item->expr,
+                                               INIT_DESIGNATOR_NONE, 0, NULL);
+                }
+                nested = expr_initializer_list(
+                    nested_items, source->expr ? source->expr->loc
+                                               : selected_item->expr->loc);
+                nested->compound_type = next_type;
+                nested->type = next_type;
+                normalize_brace_elided_initializer(next_type, nested);
+                appended = exprlist_new(nested);
+                appended->designator_kind = INIT_DESIGNATOR_NONE;
+                appended->designator_index = 0;
+                appended->designator_field = NULL;
+                cursor->tail->next = appended;
+                cursor->tail = appended;
+                source = stop;
+                initializer_designator_cursor_advance(cursor);
+                continue;
+            }
+        }
         {
             ExprList* next_source = source->next;
             source->next = NULL;

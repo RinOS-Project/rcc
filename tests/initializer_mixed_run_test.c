@@ -40,6 +40,8 @@ static void verify_globals(ObjectFile* object)
     static const int32_t expected_nested_struct[4] = {0, 5, 7, 8};
     static const int32_t expected_designator_before_aggregate[5] = {
         1, 2, 3, 4, 5};
+    static const int32_t expected_nested_array_designator[5] = {
+        0, 6, 7, 8, 9};
     static const int32_t expected_array[4] = {1, 2, 3, 4};
     const uint8_t* rows = global_bytes(object, "string_rows",
                                        sizeof(expected_rows));
@@ -54,6 +56,9 @@ static void verify_globals(ObjectFile* object)
     const uint8_t* aggregate_followup = global_bytes(
         object, "mixed_designator_before_aggregate",
         sizeof(expected_designator_before_aggregate));
+    const uint8_t* nested_array_followup = global_bytes(
+        object, "mixed_nested_array_designator",
+        sizeof(expected_nested_array_designator));
     const uint8_t* array = global_bytes(object, "mixed_array",
                                          sizeof(expected_array));
     assert(memcmp(rows, expected_rows, sizeof(expected_rows)) == 0);
@@ -65,6 +70,8 @@ static void verify_globals(ObjectFile* object)
                   sizeof(expected_nested_struct)) == 0);
     assert(memcmp(aggregate_followup, expected_designator_before_aggregate,
                   sizeof(expected_designator_before_aggregate)) == 0);
+    assert(memcmp(nested_array_followup, expected_nested_array_designator,
+                  sizeof(expected_nested_array_designator)) == 0);
     assert(memcmp(array, expected_array, sizeof(expected_array)) == 0);
 }
 
@@ -103,7 +110,8 @@ static void run_local_initializer(ObjectFile* object)
         assert(result == 'x' + 'y' + 'z' + 0 + 0 + 9 + 11 +
                          12 + 13 + 0 + 14 + 15 + 16 +
                          17 + 18 + 19 + 20 +
-                         21 + 22 + 23 + 24 + 25 + 1);
+                         21 + 22 + 23 + 24 + 25 +
+                         26 + 27 + 28 + 29 + 1);
         assert(munmap(mapping, mapping_size) == 0);
     }
 }

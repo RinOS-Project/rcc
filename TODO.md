@@ -81,6 +81,9 @@
   - [x] 直接field designatorの後続scalar節がaggregate subobjectへ進む場合、
        そのsubobjectをbrace-elision順にscalar leafへ分配してから外側の次memberへ
        継続。static／automatic、legacy／verified、両archとx64実行で検証
+  - [x] chained designatorの次subobject自体がarray等のaggregateの場合も、
+       brace-elisionでscalar leafを埋めてから同じpath上の次subobjectへ継続。
+       2次元arrayのstatic／automatic、両backend・両archとGCC実行結果を照合
 - [x] block-scope VLAの非定数境界、実体ポインタ・byte extent保存、添字、
       `sizeof`、i686/AMD64 dynamic stack allocation、通常のscope exitと
       `break`／`continue`／`return`／有効な`goto`でのstack reclamation

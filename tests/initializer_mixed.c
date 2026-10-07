@@ -19,6 +19,11 @@ struct MixedLeadingOuter {
     int tail;
 };
 
+struct MixedMatrixHolder {
+    int values[2][2];
+    int tail;
+};
+
 char string_rows[2][4] = {"a", "bc"};
 char mixed_string_rows[2][4] = {"a", 'b', 'c'};
 char inferred_string_rows[][4] = {"a", "bc"};
@@ -38,6 +43,12 @@ struct MixedLeadingOuter mixed_designator_before_aggregate = {
     3,
     4,
     5,
+};
+struct MixedMatrixHolder mixed_nested_array_designator = {
+    .values[0][1] = 6,
+    7,
+    8,
+    9,
 };
 int mixed_array[4] = {[2] = 3, 4, [0] = 1, 2};
 
@@ -71,6 +82,12 @@ int mixed_initializer_local(void)
         24,
         25,
     };
+    struct MixedMatrixHolder local_nested_array_designator = {
+        .values[0][1] = 26,
+        27,
+        28,
+        29,
+    };
     large_rows[1][1023] = 1;
     return local_rows[0][0] + local_rows[0][1] + local_rows[1][0] +
            local.values[0] + local.values[1] + local.values[2] + local.tail +
@@ -89,5 +106,9 @@ int mixed_initializer_local(void)
            local_designator_before_aggregate.inner.values[1] +
            local_designator_before_aggregate.inner.tail +
            local_designator_before_aggregate.tail +
+           local_nested_array_designator.values[0][1] +
+           local_nested_array_designator.values[1][0] +
+           local_nested_array_designator.values[1][1] +
+           local_nested_array_designator.tail +
            large_rows[1][1023];
 }
