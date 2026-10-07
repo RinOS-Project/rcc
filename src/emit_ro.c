@@ -1809,21 +1809,34 @@ static Decl* debug_find_function_decl(const Module* mod,
     return NULL;
 }
 
+static const TypeMethod* debug_find_function_method(
+    const Decl* declaration) {
+    if (!declaration || !declaration->func_is_cxx_method ||
+        !declaration->func_method_owner ||
+        (declaration->func_method_owner->kind != TYPE_STRUCT &&
+         declaration->func_method_owner->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    for (TypeMethod* method = declaration->func_method_owner->methods;
+         method; method = method->next) {
+        if (method->function_decl == declaration) return method;
+    }
+    return NULL;
+}
+
 static const char* debug_function_source_name(const Decl* declaration,
                                               const char* fallback) {
-    if (!declaration) return fallback;
-    if (declaration->func_is_cxx_method &&
-        declaration->func_method_owner &&
-        (declaration->func_method_owner->kind == TYPE_STRUCT ||
-         declaration->func_method_owner->kind == TYPE_UNION)) {
-        for (TypeMethod* method = declaration->func_method_owner->methods;
-             method; method = method->next) {
-            if (method->function_decl == declaration && method->name) {
-                return method->name;
-            }
-        }
+    const TypeMethod* method = debug_find_function_method(declaration);
+    if (method && method->name) return method->name;
+    return declaration && declaration->name ? declaration->name : fallback;
+}
+
+static uint8_t debug_function_accessibility(const TypeMethod* method) {
+    if (method->cxx_access > 2u) {
+        rcc_fatal("DWARF member-function accessibility is invalid");
     }
-    return declaration->name ? declaration->name : fallback;
+    /* DWARF uses 1=public, 2=protected, 3=private. */
+    return (uint8_t)(method->cxx_access + 1u);
 }
 
 static const ModuleSymbol* debug_find_global_symbol(const Module* mod,
@@ -2827,6 +2840,71 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    /* Member-function variants carry the source access specifier. */
+    debug_line_uleb(abbrev, 29u);
+    debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
+    debug_line_uleb(abbrev, 0x01u);    /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3fu);    /* DW_AT_external */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x64u);    /* DW_AT_object_pointer */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1du);    /* DW_AT_containing_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 30u);
+    debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
+    debug_line_uleb(abbrev, 0x01u);    /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3fu);    /* DW_AT_external */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x40u);    /* DW_AT_frame_base */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x1du);    /* DW_AT_containing_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -2863,6 +2941,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         const ModuleSymbol* function = functions[index];
         const char* symbol_name = function->name;
         Decl* function_decl = debug_find_function_decl(mod, function);
+        const TypeMethod* function_method =
+            debug_find_function_method(function_decl);
         DebugTypeEntry* return_type = NULL;
         DebugTypeEntry* containing_type = NULL;
         char* scoped_name = NULL;
@@ -2872,6 +2952,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         uint32_t name_offset = debug_str_add(
             strings, debug_function_source_name(function_decl,
                                                 function->name));
+        uint8_t function_abbreviation;
         if (function_decl && function_decl->type &&
             function_decl->type->kind == TYPE_FUNC) {
             return_type = debug_type_find(&types,
@@ -2887,13 +2968,18 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                 rcc_fatal("DWARF member-function owner type was not collected");
             }
         }
-        section_add_byte(info,
-                         return_type && function_decl &&
-                                 function_decl->func_this_param
-                             ? 26u
-                             : return_type && function_decl &&
-                                       function_decl->func_method_owner
-                                   ? 28u : return_type ? 2u : 8u);
+        if (return_type && function_method) {
+            function_abbreviation = function_decl->func_this_param ? 29u : 30u;
+        } else if (return_type && function_decl &&
+                   function_decl->func_this_param) {
+            function_abbreviation = 26u;
+        } else if (return_type && function_decl &&
+                   function_decl->func_method_owner) {
+            function_abbreviation = 28u;
+        } else {
+            function_abbreviation = return_type ? 2u : 8u;
+        }
+        section_add_byte(info, function_abbreviation);
         debug_line_u32(info, name_offset);
         address_offset = info->size;
         for (int byte = 0; byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4);
@@ -2931,9 +3017,11 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                 rcc_fatal("DWARF object-pointer reference exceeds 32-bit range");
             }
             /* The artificial `this` parameter is emitted as the first child;
-             * the containing-type reference follows the object-pointer ref. */
+             * the containing-type reference and access byte follow the
+             * object-pointer ref before that child begins. */
             debug_line_u32(info,
-                           (uint32_t)(info->size + 2u * sizeof(uint32_t)));
+                           (uint32_t)(info->size + 2u * sizeof(uint32_t) +
+                                      (function_method ? 1u : 0u)));
             debug_line_u32(info, containing_type->offset);
         } else if (return_type && function_decl &&
                    function_decl->func_method_owner) {
@@ -2941,6 +3029,10 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                 rcc_fatal("DWARF static member has no containing type");
             }
             debug_line_u32(info, containing_type->offset);
+        }
+        if (return_type && function_method) {
+            section_add_byte(info,
+                             debug_function_accessibility(function_method));
         }
         debug_emit_function_locals(
             obj, info, strings, &types, files, file_count, mod, filename,

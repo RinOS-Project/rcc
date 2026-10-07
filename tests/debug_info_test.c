@@ -87,7 +87,7 @@ static void verify_object_pointer_parameter(const char* path,
         uint64_t parameter_expression_size;
         uint32_t parameter_name_offset;
 
-        if (info->data[die] != 26u) continue;
+        if (info->data[die] != 26u && info->data[die] != 29u) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset >= strings->size ||
             strcmp((const char*)strings->data + name_offset, "read") != 0) {
@@ -110,7 +110,7 @@ static void verify_object_pointer_parameter(const char* path,
         object_pointer_offset = read_u32(info->data, cursor);
         containing_type_offset = read_u32(info->data, cursor + 4u);
         cursor += 8u;
-        assert(object_pointer_offset == cursor);
+        assert(object_pointer_offset == cursor + 1u);
         assert(containing_type_offset < info->size);
         assert(info->data[containing_type_offset] == 12u);
         {
@@ -165,7 +165,7 @@ static void verify_static_member_containing_type(const char* path,
         uint64_t cursor;
         uint64_t expression_size;
 
-        if (info->data[die] != 28u) continue;
+        if (info->data[die] != 28u && info->data[die] != 30u) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset >= strings->size ||
             strcmp((const char*)strings->data + name_offset,
@@ -274,6 +274,92 @@ static void verify_cxx_member_accessibility(const char* path,
         break;
     }
     assert(found_type && found_private && found_protected && found_public);
+    objfile_free(object);
+}
+
+static void verify_cxx_method_accessibility(const char* path,
+                                            uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found_private = false;
+    bool found_protected = false;
+    bool found_public = false;
+    bool found_static_public = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x32u, 0x0bu));
+
+    for (uint64_t die = 11u; die < info->size; ++die) {
+        uint8_t die_abbreviation = info->data[die];
+        uint32_t name_offset;
+        uint64_t cursor;
+        uint64_t expression_size;
+        uint32_t containing_type_offset;
+        uint8_t accessibility;
+        const char* name;
+
+        if (die_abbreviation != 29u && die_abbreviation != 30u) continue;
+        if (die + 1u + 4u > info->size) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size) continue;
+        name = (const char*)strings->data + name_offset;
+        if (strcmp(name, "secret_value") != 0 &&
+            strcmp(name, "protected_read") != 0 &&
+            strcmp(name, "read") != 0 &&
+            strcmp(name, "create_value") != 0) {
+            continue;
+        }
+
+        cursor = die + 1u + 4u + address_size + 4u + 1u + 4u + 4u + 1u +
+                 4u + 4u;
+        if (cursor >= info->size) continue;
+        expression_size = read_uleb(info->data, info->size, &cursor);
+        if (expression_size > info->size - cursor) continue;
+        cursor += expression_size;
+        if (cursor >= info->size) continue;
+        ++cursor; /* DW_AT_inline */
+        if (die_abbreviation == 29u) {
+            if (info->size - cursor < 4u) continue;
+            cursor += 4u; /* DW_AT_object_pointer */
+        }
+        if (info->size - cursor < 5u) continue;
+        containing_type_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        accessibility = info->data[cursor];
+        assert(containing_type_offset < info->size);
+        assert(info->data[containing_type_offset] == 12u);
+        {
+            uint32_t class_name_offset = read_u32(
+                info->data, containing_type_offset + 1u);
+            assert(class_name_offset < strings->size);
+            assert(strcmp((const char*)strings->data + class_name_offset,
+                          "DebugMemberObject") == 0);
+        }
+        if (strcmp(name, "secret_value") == 0) {
+            assert(die_abbreviation == 29u && accessibility == 3u);
+            found_private = true;
+        } else if (strcmp(name, "protected_read") == 0) {
+            assert(die_abbreviation == 29u && accessibility == 2u);
+            found_protected = true;
+        } else if (strcmp(name, "read") == 0) {
+            assert(die_abbreviation == 29u && accessibility == 1u);
+            found_public = true;
+        } else {
+            assert(die_abbreviation == 30u && accessibility == 1u);
+            found_static_public = true;
+        }
+    }
+
+    assert(found_private && found_protected && found_public &&
+           found_static_public);
     objfile_free(object);
 }
 
@@ -1025,5 +1111,7 @@ int main(int argc, char** argv)
     verify_static_member_containing_type(argv[15], ARCH_X64);
     verify_cxx_member_accessibility(argv[14], ARCH_X86);
     verify_cxx_member_accessibility(argv[15], ARCH_X64);
+    verify_cxx_method_accessibility(argv[14], ARCH_X86);
+    verify_cxx_method_accessibility(argv[15], ARCH_X64);
     return 0;
 }
