@@ -1128,6 +1128,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 field->bit_width = f->bit_width;
                 field->bit_offset = bitfield_used;
                 field->from_virtual_base = false;
+                field->virtual_base_owner = NULL;
+                field->virtual_base_member_offset = -1;
                 field->initializer = f->initializer;
                 field->is_deprecated = f->is_deprecated;
                 field->deprecated_message = f->deprecated_message;
@@ -1157,6 +1159,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->bit_width = 0u;
         field->bit_offset = 0u;
         field->from_virtual_base = false;
+        field->virtual_base_owner = NULL;
+        field->virtual_base_member_offset = -1;
         field->initializer = f->initializer;
         field->is_deprecated = f->is_deprecated;
         field->deprecated_message = f->deprecated_message;
@@ -1195,6 +1199,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->bit_width = base_field->bit_width;
             field->bit_offset = base_field->bit_offset;
             field->from_virtual_base = false;
+            field->virtual_base_owner = NULL;
+            field->virtual_base_member_offset = -1;
             field->initializer = base_field->initializer;
             field->is_deprecated = base_field->is_deprecated;
             field->deprecated_message = base_field->deprecated_message;
@@ -1274,6 +1280,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->bit_width = base_field->bit_width;
             field->bit_offset = base_field->bit_offset;
             field->from_virtual_base = true;
+            field->virtual_base_owner = base;
+            field->virtual_base_member_offset = base_field->offset;
             field->initializer = base_field->initializer;
             field->is_deprecated = base_field->is_deprecated;
             field->deprecated_message = base_field->deprecated_message;

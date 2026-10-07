@@ -135,6 +135,64 @@ struct LifetimeVirtualDerived : virtual LifetimeVirtualBase {
     }
 };
 
+int lifetime_virtual_diamond_cleanup_events = 0;
+
+struct LifetimeVirtualDiamondBase {
+    int* events;
+
+    explicit LifetimeVirtualDiamondBase(int* object_events)
+        : events(object_events) {}
+
+    ~LifetimeVirtualDiamondBase() {
+        *events = *events * 10 + 1;
+        lifetime_virtual_diamond_cleanup_events =
+                lifetime_virtual_diamond_cleanup_events * 10 + 1;
+    }
+};
+
+struct LifetimeVirtualDiamondLeft : virtual LifetimeVirtualDiamondBase {
+    LifetimeVirtualDiamondLeft() : LifetimeVirtualDiamondBase(0) {}
+
+    ~LifetimeVirtualDiamondLeft() {
+        *events = *events * 10 + 2;
+        lifetime_virtual_diamond_cleanup_events =
+                lifetime_virtual_diamond_cleanup_events * 10 + 2;
+    }
+};
+
+struct LifetimeVirtualDiamondRight : virtual LifetimeVirtualDiamondBase {
+    LifetimeVirtualDiamondRight() : LifetimeVirtualDiamondBase(0) {}
+
+    ~LifetimeVirtualDiamondRight() {
+        *events = *events * 10 + 3;
+        lifetime_virtual_diamond_cleanup_events =
+                lifetime_virtual_diamond_cleanup_events * 10 + 3;
+    }
+};
+
+struct LifetimeVirtualDiamondDerived : LifetimeVirtualDiamondLeft,
+                                       LifetimeVirtualDiamondRight {
+    explicit LifetimeVirtualDiamondDerived(int* object_events)
+        : LifetimeVirtualDiamondBase(object_events),
+          LifetimeVirtualDiamondLeft(), LifetimeVirtualDiamondRight() {}
+
+    ~LifetimeVirtualDiamondDerived() {
+        *events = *events * 10 + 4;
+        lifetime_virtual_diamond_cleanup_events =
+                lifetime_virtual_diamond_cleanup_events * 10 + 4;
+    }
+};
+
+int* lifetime_virtual_diamond_left_events(
+        LifetimeVirtualDiamondLeft* object) {
+    return object->events;
+}
+
+int* lifetime_virtual_diamond_right_events(
+        LifetimeVirtualDiamondRight* object) {
+    return object->events;
+}
+
 LifetimeExtendedTemporary make_lifetime_extended_temporary(int* events,
                                                            int value) {
     return {events, value};
@@ -287,6 +345,31 @@ int main() {
             return 40;
     }
     if (virtual_temporary_events != 21) return 41;
+    lifetime_virtual_diamond_cleanup_events = 0;
+    int virtual_diamond_events = 0;
+    {
+        const LifetimeVirtualDiamondBase& diamond_base =
+                LifetimeVirtualDiamondDerived{&virtual_diamond_events};
+        if (diamond_base.events != &virtual_diamond_events ||
+            virtual_diamond_events != 0)
+            return 42;
+    }
+    if (virtual_diamond_events != 4321 ||
+        lifetime_virtual_diamond_cleanup_events != 4321)
+        return 43;
+    lifetime_virtual_diamond_cleanup_events = 0;
+    virtual_diamond_events = 0;
+    {
+        LifetimeVirtualDiamondDerived diamond{&virtual_diamond_events};
+        if (lifetime_virtual_diamond_left_events(&diamond) !=
+                &virtual_diamond_events ||
+            lifetime_virtual_diamond_right_events(&diamond) !=
+                &virtual_diamond_events)
+            return 44;
+    }
+    if (virtual_diamond_events != 4321 ||
+        lifetime_virtual_diamond_cleanup_events != 4321)
+        return 45;
     const int& extended_const_temporary = 47;
     if (read_rvalue(9) != 9) return 14;
     if (extended_const_temporary != 47) return 22;

@@ -38,7 +38,16 @@ extern "C" int cxx_constructed_array_destructor(void) {
     return cxx_array_destruct_count == 32 ? 0 : 1;
 }
 
+extern "C" int cxx_large_local_array_destructor(void) {
+    cxx_array_destruct_count = 0;
+    {
+        ArrayDestructor values[4101];
+    }
+    return cxx_array_destruct_count == 4101 ? 0 : 1;
+}
+
 int main() {
     return cxx_array_destructor() + cxx_array_destructor_value_init() +
-           cxx_constructed_array_destructor();
+           cxx_constructed_array_destructor() +
+           cxx_large_local_array_destructor();
 }

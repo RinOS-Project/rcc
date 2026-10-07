@@ -19,6 +19,7 @@ typedef struct CxxCompoundRequirement CxxCompoundRequirement;
 typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
+typedef struct CxxCleanupPlan CxxCleanupPlan;
 struct Token;
 struct CxxClass;
 struct CxxTemplate;
@@ -58,6 +59,11 @@ typedef struct TypeField {
     unsigned bit_offset;
     /* True when this field is exposed from a virtual-base subobject. */
     bool from_virtual_base;
+    /* Origin and in-subobject displacement for fields exposed through a
+     * virtual base.  `offset` remains the complete-class layout offset; these
+     * fields let member access use the current most-derived vbtable instead. */
+    struct CxxClass* virtual_base_owner;
+    int virtual_base_member_offset;
     /* C++ default member initializer, if one was declared in the class. */
     Expr* initializer;
     bool is_deprecated;          /* C++ deprecated data member. */
@@ -429,6 +435,22 @@ typedef struct ExprList {
     struct ExprList* next;
 } ExprList;
 
+typedef enum {
+    CXX_CLEANUP_EXPRESSION,
+    CXX_CLEANUP_ARRAY_LOOP,
+} CxxCleanupPlanKind;
+
+/* Validated automatic-object cleanup actions.  Array nodes execute their
+ * body once per element with index_decl holding the current element index. */
+struct CxxCleanupPlan {
+    CxxCleanupPlanKind kind;
+    Expr* expression;
+    Decl* index_decl;
+    int element_count;
+    CxxCleanupPlan* body;
+    CxxCleanupPlan* next;
+};
+
 typedef struct TypeList {
     Type* type;
     SourceLoc loc;
@@ -501,6 +523,9 @@ struct Expr {
     /* A static/implicit conversion through a virtual base reads the
      * most-derived offset from the source subobject's hidden vbptr. */
     bool cxx_virtual_base_adjustment;
+    /* The virtual-base adjustment is part of forming a data-member address,
+     * so it must run before applying the field's in-base displacement. */
+    bool cxx_virtual_base_member_access;
     int cxx_virtual_base_index;
     int32_t cxx_virtual_base_nested_adjustment;
     int32_t cxx_virtual_base_pointer_offset;
@@ -1050,7 +1075,7 @@ struct Decl {
             bool var_is_deprecated; /* C++17 deprecated variable declaration. */
             const char* var_deprecated_message;
             Expr* var_cleanup;       /* Validated C++ scope-exit expression. */
-            ExprList* var_cleanups;  /* Validated object/member cleanup calls. */
+            CxxCleanupPlan* var_cleanups; /* Validated object cleanup plan. */
         };
 
         /* DECL_FUNC */

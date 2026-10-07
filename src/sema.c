@@ -1013,10 +1013,26 @@ static bool sema_statement_has_current_switch_label(Stmt* statement) {
 
 static bool sema_decl_has_scope_cleanup(const Decl* declaration) {
     if (!declaration || declaration->kind != DECL_VAR) return false;
-    if (declaration->var_cleanup) return true;
-    for (const ExprList* item = declaration->var_cleanups; item;
-         item = item->next) {
-        if (item->expr) return true;
+    return declaration->var_cleanup || declaration->var_cleanups;
+}
+
+static bool sema_cleanup_plan_has_unregistered_call(
+    const CxxCleanupPlan* plan) {
+    for (; plan; plan = plan->next) {
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            if (sema_cleanup_plan_has_unregistered_call(plan->body)) {
+                return true;
+            }
+        } else {
+            Expr* function = plan->expression &&
+                    plan->expression->kind == EXPR_CALL
+                ? plan->expression->call_func : NULL;
+            Decl* destructor = function && function->kind == EXPR_IDENT
+                ? function->ident_decl : NULL;
+            if (!destructor || !destructor->func_is_cxx_destructor) {
+                return true;
+            }
+        }
     }
     return false;
 }
@@ -2162,17 +2178,9 @@ static bool sema_exception_body_has_unregistered_cleanup(
             if (cleanup && (!destructor || !destructor->func_is_cxx_destructor)) {
                 return true;
             }
-            for (ExprList* item = declaration->var_cleanups; item;
-                 item = item->next) {
-                Expr* expression = item->expr;
-                Expr* function = expression && expression->kind == EXPR_CALL
-                    ? expression->call_func : NULL;
-                Decl* member_destructor = function &&
-                    function->kind == EXPR_IDENT ? function->ident_decl : NULL;
-                if (!member_destructor ||
-                    !member_destructor->func_is_cxx_destructor) {
-                    return true;
-                }
+            if (sema_cleanup_plan_has_unregistered_call(
+                    declaration->var_cleanups)) {
+                return true;
             }
             return false;
         }
@@ -6935,6 +6943,22 @@ static Expr* sema_cxx_object_base(Expr* object, Type* object_type,
     return base_object;
 }
 
+static void sema_cxx_cleanup_append(CxxCleanupPlan** cleanups,
+                                    CxxCleanupPlan* item) {
+    CxxCleanupPlan** tail = cleanups;
+    while (*tail) tail = &(*tail)->next;
+    *tail = item;
+}
+
+static void sema_cxx_cleanup_append_expression(CxxCleanupPlan** cleanups,
+                                              Expr* expression) {
+    CxxCleanupPlan* item = rcc_alloc(sizeof(*item));
+    memset(item, 0, sizeof(*item));
+    item->kind = CXX_CLEANUP_EXPRESSION;
+    item->expression = expression;
+    sema_cxx_cleanup_append(cleanups, item);
+}
+
 static Expr* sema_cxx_destructor_call_for_object(Type* object_type,
                                                   Expr* object,
                                                   SourceLoc loc) {
@@ -7092,10 +7116,11 @@ static bool sema_cxx_default_initialization_needs_lowering(
 static bool sema_cxx_append_object_cleanups(Decl* declaration,
                                             Type* object_type,
                                             Expr* object,
-                                            ExprList** cleanups,
+                                            CxxCleanupPlan** cleanups,
                                             int depth,
                                             int* cleanup_budget,
-                                            bool include_virtual_bases) {
+                                            bool include_virtual_bases,
+                                            bool allow_runtime_array_loops) {
     CxxClass* cls;
     TypeField** fields;
     int field_count = 0;
@@ -7105,17 +7130,49 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
     if (!object_type || !object || !cleanups || !cleanup_budget ||
         depth > 32) return false;
     if (object_type->kind == TYPE_ARRAY) {
-        if (!object_type->base || object_type->array_len < 0 ||
-            object_type->array_len > 4096) {
+        if (!object_type->base || object_type->array_len < 0) {
             return false;
         }
+        if (object_type->array_len == 0 ||
+            !sema_cxx_type_has_destructor_cleanup(object_type->base, 0)) {
+            return true;
+        }
+        if (allow_runtime_array_loops && object_type->array_len > 1) {
+            Decl* index_decl = decl_var("__rcc_cleanup_array_index",
+                                        type_int, NULL, object->loc);
+            Expr* index = expr_ident(index_decl->name, object->loc);
+            Expr* element;
+            CxxCleanupPlan* body = NULL;
+            CxxCleanupPlan* loop;
+            index->ident_decl = index_decl;
+            index->type = type_int;
+            element = expr_index(object, index, object->loc);
+            element->type = object_type->base;
+            if (!sema_cxx_append_object_cleanups(
+                    declaration, object_type->base, element, &body,
+                    depth + 1, cleanup_budget, include_virtual_bases,
+                    allow_runtime_array_loops)) {
+                return false;
+            }
+            if (!body) return true;
+            loop = rcc_alloc(sizeof(*loop));
+            memset(loop, 0, sizeof(*loop));
+            loop->kind = CXX_CLEANUP_ARRAY_LOOP;
+            loop->index_decl = index_decl;
+            loop->element_count = object_type->array_len;
+            loop->body = body;
+            sema_cxx_cleanup_append(cleanups, loop);
+            return true;
+        }
+        if (object_type->array_len > 4096) return false;
         for (int index = 0; index < object_type->array_len; ++index) {
             Expr* element = expr_index(
                 object, expr_int(index, object->loc), object->loc);
             element->type = object_type->base;
             if (!sema_cxx_append_object_cleanups(
                     declaration, object_type->base, element, cleanups,
-                    depth + 1, cleanup_budget, include_virtual_bases)) {
+                    depth + 1, cleanup_budget, include_virtual_bases,
+                    allow_runtime_array_loops)) {
                 valid = false;
             }
         }
@@ -7143,7 +7200,8 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
                 cls->virtual_bases[index].offset);
             if (!base_object || !sema_cxx_append_object_cleanups(
                     declaration, base->type, base_object, cleanups,
-                    depth + 1, cleanup_budget, false)) {
+                    depth + 1, cleanup_budget, false,
+                    allow_runtime_array_loops)) {
                 valid = false;
             }
         }
@@ -7163,7 +7221,8 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
                 cls->base_offsets[index]);
             if (!base_object || !sema_cxx_append_object_cleanups(
                     declaration, base->type, base_object, cleanups,
-                    depth + 1, cleanup_budget, false)) {
+                    depth + 1, cleanup_budget, false,
+                    allow_runtime_array_loops)) {
                 valid = false;
             }
         }
@@ -7199,7 +7258,8 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
         Expr* member = sema_cxx_object_member(object, fields[index]);
         if (!member || !sema_cxx_append_object_cleanups(
                 declaration, fields[index]->type, member, cleanups,
-                depth + 1, cleanup_budget, true)) {
+                depth + 1, cleanup_budget, true,
+                allow_runtime_array_loops)) {
             valid = false;
         }
     }
@@ -7208,7 +7268,7 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
             object_type, object, declaration ? declaration->loc : object->loc);
         if (destructor && *cleanup_budget > 0) {
             --*cleanup_budget;
-            exprlist_append(cleanups, destructor);
+            sema_cxx_cleanup_append_expression(cleanups, destructor);
         }
         else valid = false;
     } else if (object_type->cleanup_function && object_type->cleanup_field) {
@@ -7216,7 +7276,7 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
             object_type, object, declaration ? declaration->loc : object->loc);
         if (cleanup && *cleanup_budget > 0) {
             --*cleanup_budget;
-            exprlist_append(cleanups, cleanup);
+            sema_cxx_cleanup_append_expression(cleanups, cleanup);
         }
         else valid = false;
     }
@@ -7313,7 +7373,10 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
         !sema_cxx_append_object_cleanups(declaration, object_type, object,
                                          &declaration->var_cleanups, 0,
-                                          &cleanup_budget, true)) {
+                                         &cleanup_budget, true,
+                                         !declaration->var_is_global &&
+                                         !declaration->var_is_static_local &&
+                                         !declaration->var_is_block_extern)) {
         rcc_error(declaration->loc,
                   "C++ object lifetime cleanup metadata is incomplete");
     }
@@ -11342,6 +11405,37 @@ static Type* sema_expr(Expr* expr) {
                     expr->member_field = field;
                     expr->type = field->type;
                     if (rcc_parser_is_cxx_mode() &&
+                        field->from_virtual_base) {
+                        CxxClass* source_class = bt->cxx_class;
+                        int virtual_index = -1;
+                        if (source_class && field->virtual_base_owner &&
+                            field->virtual_base_member_offset >= 0) {
+                            for (int index = 0;
+                                 index < source_class->virtual_base_count;
+                                 ++index) {
+                                if (source_class->virtual_bases[index].base ==
+                                    field->virtual_base_owner) {
+                                    virtual_index = index;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!source_class || virtual_index < 0 ||
+                            source_class->virtual_base_pointer_offset < 0) {
+                            rcc_error(expr->loc,
+                                      "virtual-base member has no vbtable layout");
+                        } else {
+                            expr->cxx_virtual_base_adjustment = true;
+                            expr->cxx_virtual_base_member_access = true;
+                            expr->cxx_virtual_base_index = virtual_index;
+                            expr->cxx_virtual_base_nested_adjustment =
+                                field->virtual_base_member_offset;
+                            expr->cxx_virtual_base_pointer_offset =
+                                source_class->virtual_base_pointer_offset;
+                            expr->cxx_virtual_base_source_class = source_class;
+                        }
+                    }
+                    if (rcc_parser_is_cxx_mode() &&
                         expr->kind == EXPR_MEMBER && field->type &&
                         !field->type->is_reference &&
                         !is_lvalue(expr->member_base)) {
@@ -11792,7 +11886,7 @@ static void sema_stmt(Stmt* stmt) {
                     if (!sema_cxx_append_object_cleanups(
                             handler->parameter, handler->type, object,
                             &handler->parameter->var_cleanups, 0,
-                            &cleanup_budget, true)) {
+                            &cleanup_budget, true, false)) {
                         rcc_error(handler->parameter->loc,
                                   "C++ catch object lifetime cleanup metadata is incomplete");
                     }
@@ -14344,7 +14438,7 @@ static void sema_collect_cleanup_gotos(Stmt* statement,
                                        SemaCleanupGotoContext* context) {
     SemaCleanupPath* marker;
     Decl* declaration;
-    ExprList* cleanup_item;
+    CxxCleanupPlan* cleanup_item;
     if (!statement) return;
     switch (statement->kind) {
         case STMT_BLOCK:
@@ -14415,7 +14509,6 @@ static void sema_collect_cleanup_gotos(Stmt* statement,
             if (declaration && declaration->kind == DECL_VAR) {
                 for (cleanup_item = declaration->var_cleanups;
                      cleanup_item; cleanup_item = cleanup_item->next) {
-                    if (!cleanup_item->expr) continue;
                     SemaCleanupPath* path = rcc_alloc(sizeof(*path));
                     path->previous = *active;
                     path->allocation_next = context->allocations;

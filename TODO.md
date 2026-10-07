@@ -342,6 +342,18 @@
         `test-cxx-function-template-references`; the complete `test-cxx` gate
         and related virtual-base, array-destructor, member-lifetime, and global-
         constructor gates pass.
+  - [x] Resolve data-member access exposed through a virtual base using the
+        active subobject's vbtable and member-in-base offset; verify inherited
+        access from both arms of a shared virtual diamond during destruction,
+        direct and pointer-member access through both arms, and exactly-once
+        virtual-base cleanup, on i686/AMD64 codegen and x64 execution in
+        `test-cxx-function-template-references`.
+  - [x] Represent object destructor cleanup as nested cleanup plans so large
+        automatic arrays use reverse-order runtime loops instead of a fixed
+        per-element expansion; connect normal scope exits, exception callback
+        registration/unregistration, global finalizers, and optimizer analyses.
+        Verify with a 4101-element local array plus existing array/member/
+        reference lifetime gates on both target codegens and x64 execution.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,

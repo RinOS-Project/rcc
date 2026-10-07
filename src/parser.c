@@ -2666,6 +2666,9 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     field->is_bitfield = false;
     field->bit_width = 0u;
     field->bit_offset = 0u;
+    field->from_virtual_base = false;
+    field->virtual_base_owner = NULL;
+    field->virtual_base_member_offset = -1;
     field->cxx_access = 0u;
     field->is_deprecated = false;
     field->deprecated_message = NULL;
@@ -2785,6 +2788,9 @@ static void parser_append_bitfield(Type* aggregate,
     field->is_bitfield = true;
     field->bit_width = width;
     field->bit_offset = layout->used;
+    field->from_virtual_base = false;
+    field->virtual_base_owner = NULL;
+    field->virtual_base_member_offset = -1;
     field->cxx_access = 0u;
     field->is_deprecated = false;
     field->deprecated_message = NULL;
@@ -2928,6 +2934,10 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
         field->is_bitfield = source->is_bitfield;
         field->bit_width = source->bit_width;
         field->bit_offset = source->bit_offset;
+        field->from_virtual_base = source->from_virtual_base;
+        field->virtual_base_owner = source->virtual_base_owner;
+        field->virtual_base_member_offset =
+            source->virtual_base_member_offset;
         field->cxx_access = source->cxx_access;
         field->is_deprecated = source->is_deprecated;
         field->deprecated_message = source->deprecated_message;

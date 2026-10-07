@@ -4777,6 +4777,14 @@ static void mark_address_escapes_expr(const Expr* expression,
     }
 }
 
+static void mark_address_escapes_cleanup_plan(
+    const CxxCleanupPlan* plan, DeadStoreLocal* locals) {
+    for (; plan; plan = plan->next) {
+        mark_address_escapes_expr(plan->expression, locals);
+        mark_address_escapes_cleanup_plan(plan->body, locals);
+    }
+}
+
 static void mark_address_escapes_stmt(const Stmt* statement,
                                       DeadStoreLocal* locals) {
     if (!statement) return;
@@ -4842,10 +4850,8 @@ static void mark_address_escapes_stmt(const Stmt* statement,
                 mark_address_escapes_expr(statement->decl->var_init, locals);
                 mark_address_escapes_expr(statement->decl->var_cleanup,
                                           locals);
-                for (ExprList* item = statement->decl->var_cleanups;
-                     item; item = item->next) {
-                    mark_address_escapes_expr(item->expr, locals);
-                }
+                mark_address_escapes_cleanup_plan(
+                    statement->decl->var_cleanups, locals);
             }
             return;
         case STMT_ASM:
@@ -5028,6 +5034,14 @@ static void mark_dead_store_reads(const Expr* expression,
     }
 }
 
+static void mark_dead_store_cleanup_plan_reads(
+    const CxxCleanupPlan* plan, DeadStoreLocal* locals) {
+    for (; plan; plan = plan->next) {
+        mark_dead_store_reads(plan->expression, locals);
+        mark_dead_store_cleanup_plan_reads(plan->body, locals);
+    }
+}
+
 static void mark_all_dead_store_locals_live(DeadStoreLocal* locals) {
     for (; locals; locals = locals->next) locals->live = true;
 }
@@ -5173,10 +5187,8 @@ static void eliminate_block_dead_stores(Stmt* statement) {
                            current->decl->kind == DECL_VAR) {
                     mark_dead_store_reads(current->decl->var_init, locals);
                     mark_dead_store_reads(current->decl->var_cleanup, locals);
-                    for (ExprList* item = current->decl->var_cleanups;
-                         item; item = item->next) {
-                        mark_dead_store_reads(item->expr, locals);
-                    }
+                    mark_dead_store_cleanup_plan_reads(
+                        current->decl->var_cleanups, locals);
                 }
                 break;
             case STMT_RETURN:

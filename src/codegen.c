@@ -751,6 +751,19 @@ static void codegen_defer_global_finalizer(Module* mod, Expr* expression) {
     ++mod->global_finalizer_count;
 }
 
+static void codegen_defer_global_cleanup_plan(Module* mod,
+                                             CxxCleanupPlan* plan) {
+    for (; plan; plan = plan->next) {
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            rcc_error(plan->expression ? plan->expression->loc
+                                       : (SourceLoc){"<global-cleanup>", 0, 0},
+                      "global cleanup plan cannot contain an automatic array loop");
+            continue;
+        }
+        codegen_defer_global_finalizer(mod, plan->expression);
+    }
+}
+
 /* Evaluate the floating subset permitted in a static initializer.  Keeping
  * this separate from the integer evaluator avoids converting through a
  * machine integer and preserves the IEEE bit pattern that the data emitter
@@ -1659,12 +1672,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         if (declaration->var_cleanup) {
             codegen_defer_global_finalizer(mod, declaration->var_cleanup);
         }
-        for (ExprList* item = declaration->var_cleanups; item;
-             item = item->next) {
-            if (item->expr) {
-                codegen_defer_global_finalizer(mod, item->expr);
-            }
-        }
+        codegen_defer_global_cleanup_plan(mod,
+                                          declaration->var_cleanups);
         codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
                                    declaration->type);
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
@@ -6351,7 +6360,34 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             } else {
                 gen_lvalue(mod, expr->member_base);
             }
-            if (expr->member_field && expr->member_field->offset > 0) {
+            if (expr->cxx_virtual_base_member_access) {
+                int end_label;
+                if (!expr->cxx_virtual_base_source_class ||
+                    expr->cxx_virtual_base_pointer_offset < 0 ||
+                    expr->cxx_virtual_base_index < 0 ||
+                    expr->cxx_virtual_base_index >=
+                        expr->cxx_virtual_base_source_class
+                            ->virtual_base_count) {
+                    rcc_error(expr->loc,
+                              "virtual-base member has incomplete vbtable metadata");
+                    return;
+                }
+                end_label = new_label();
+                emit_test_reg_reg(mod, EAX, EAX);
+                emit_jcc_label(mod, CC_E, end_label);
+                emit_mov_reg_mem(mod, EDX, EAX,
+                                 expr->cxx_virtual_base_pointer_offset);
+                emit_mov_reg_mem(mod, ECX, EDX,
+                                 expr->cxx_virtual_base_index * 4);
+                emit_add_reg_reg(mod, EAX, ECX);
+                if (expr->cxx_virtual_base_nested_adjustment != 0) {
+                    emit_add_reg_imm(
+                        mod, EAX,
+                        expr->cxx_virtual_base_nested_adjustment);
+                }
+                emit_label(mod, end_label);
+            } else if (expr->member_field &&
+                       expr->member_field->offset > 0) {
                 emit_add_reg_imm(mod, EAX, expr->member_field->offset);
             }
             break;
@@ -12572,6 +12608,28 @@ static bool codegen_reference_temporary_local(Type* type,
         type_is_compatible(type, initializer->type);
 }
 
+static void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,
+                                       int stack_alignment) {
+    for (; plan; plan = plan->next) {
+        if (plan->kind != CXX_CLEANUP_ARRAY_LOOP) continue;
+        if (plan->index_decl && plan->index_decl->var_offset == 0) {
+            int size = type_int && type_int->size > 0 ? type_int->size : 4;
+            int alignment = type_int && type_int->align > 0
+                ? type_int->align : 4;
+            int64_t extent;
+            if (alignment < stack_alignment) alignment = stack_alignment;
+            extent = (int64_t)*bytes + size;
+            if (extent > INT_MAX) {
+                *bytes = INT_MAX;
+            } else {
+                *bytes = codegen_align_frame_bytes((int)extent, alignment);
+                plan->index_decl->var_offset = -*bytes;
+            }
+        }
+        codegen_assign_cleanup_plan(plan->body, bytes, stack_alignment);
+    }
+}
+
 static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                                          int stack_alignment) {
     if (!statement) return;
@@ -12718,6 +12776,8 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                     ? type->base : NULL;
                 codegen_assign_compound_expr(declaration->var_init, bytes,
                                              stack_alignment);
+                codegen_assign_cleanup_plan(declaration->var_cleanups, bytes,
+                                            stack_alignment);
                 if (temporary_type &&
                     !codegen_reference_temporary_scalar(temporary_type) &&
                     temporary_initializer && temporary_initializer->type &&
@@ -13107,7 +13167,8 @@ static void gen_expr(Module* mod, Expr* expr) {
         return;
     }
     gen_expr_raw(mod, expr);
-    if (expr->cxx_virtual_base_adjustment) {
+    if (expr->cxx_virtual_base_adjustment &&
+        !expr->cxx_virtual_base_member_access) {
         int end_label;
         if (!expr->cxx_virtual_base_source_class ||
             expr->cxx_virtual_base_pointer_offset < 0 ||
@@ -13180,6 +13241,7 @@ static void gen_expr(Module* mod, Expr* expr) {
 
 typedef struct CleanupCodegen {
     Expr* expression;
+    CxxCleanupPlan* plan;
     struct CleanupCodegen* previous;
     Decl* declaration;
     int exception_frame_offset;
@@ -13193,6 +13255,13 @@ typedef struct CleanupCodegen {
 static CleanupCodegen* active_cxx_exception_cleanup_marker = NULL;
 static bool cxx_exception_cleanup_registration_enabled = false;
 static int active_cxx_exception_cleanup_frame_offset = INT_MAX;
+
+static void gen_cxx_cleanup_plan32(Module* mod, CxxCleanupPlan* plan,
+                                  bool unregister, int frame_offset);
+static bool gen_cxx_cleanup_plan_registerable32(
+    const CxxCleanupPlan* plan);
+static void gen_cxx_exception_register_plan32(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset);
 
 static void gen_cxx_exception_unregister_cleanup32(
     Module* mod, const CleanupCodegen* cleanup);
@@ -13214,20 +13283,32 @@ static VLAScopeCodegen* continue_vla_marker = NULL;
 static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
     for (CleanupCodegen* item = active_cleanups; item && item != marker;
          item = item->previous) {
-        if (item->exception_registered) {
-            gen_cxx_exception_unregister_cleanup32(mod, item);
+        if (item->plan) {
+            gen_cxx_cleanup_plan32(mod, item->plan,
+                                   item->exception_registered,
+                                   item->exception_frame_offset);
+        } else {
+            if (item->exception_registered) {
+                gen_cxx_exception_unregister_cleanup32(mod, item);
+            }
+            gen_expr(mod, item->expression);
         }
-        gen_expr(mod, item->expression);
     }
 }
 
 static bool gen_cleanup_count(Module* mod, unsigned count) {
     CleanupCodegen* item = active_cleanups;
     while (item && count > 0u) {
-        if (item->exception_registered) {
-            gen_cxx_exception_unregister_cleanup32(mod, item);
+        if (item->plan) {
+            gen_cxx_cleanup_plan32(mod, item->plan,
+                                   item->exception_registered,
+                                   item->exception_frame_offset);
+        } else {
+            if (item->exception_registered) {
+                gen_cxx_exception_unregister_cleanup32(mod, item);
+            }
+            gen_expr(mod, item->expression);
         }
-        gen_expr(mod, item->expression);
         item = item->previous;
         --count;
     }
@@ -13248,7 +13329,13 @@ static void gen_cxx_exception_cleanups_until_throw32(
          item = item->previous) {
         /* Registered destructor cleanups are consumed by the runtime before
          * it longjmps.  Inline-only wrapper cleanups still need code here. */
-        if (!item->exception_registered) gen_expr(mod, item->expression);
+        if (!item->exception_registered) {
+            if (item->plan) {
+                gen_cxx_cleanup_plan32(mod, item->plan, false, INT_MAX);
+            } else {
+                gen_expr(mod, item->expression);
+            }
+        }
     }
 }
 
@@ -13382,6 +13469,132 @@ static void gen_cxx_exception_register_cleanup32(
     gen_cxx_exception_call32(mod, "rin_cpp_exception_register_cleanup");
     emit_add_reg_imm(mod, ESP, 12);
     cleanup->exception_registered = true;
+}
+
+static bool gen_cxx_cleanup_plan_registerable32(
+    const CxxCleanupPlan* plan) {
+    for (; plan; plan = plan->next) {
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            if (!gen_cxx_cleanup_plan_registerable32(plan->body)) return false;
+        } else {
+            Expr* function = plan->expression &&
+                    plan->expression->kind == EXPR_CALL
+                ? plan->expression->call_func : NULL;
+            ExprList* arguments = plan->expression
+                ? plan->expression->call_args : NULL;
+            Expr* address = arguments ? arguments->expr : NULL;
+            Decl* destructor = function && function->kind == EXPR_IDENT
+                ? function->ident_decl : NULL;
+            if (!destructor || !destructor->func_is_cxx_destructor ||
+                !address || address->kind != EXPR_ADDR ||
+                !address->unary_operand) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void gen_cxx_cleanup_plan_execute_reverse32(
+    Module* mod, CxxCleanupPlan* plan, bool unregister, int frame_offset) {
+    size_t count = 0u;
+    size_t index = 0u;
+    CxxCleanupPlan** items;
+    for (CxxCleanupPlan* item = plan; item; item = item->next) ++count;
+    if (!count) return;
+    if (count > SIZE_MAX / sizeof(*items)) {
+        rcc_fatal("C++ cleanup plan is too large");
+    }
+    items = rcc_alloc(count * sizeof(*items));
+    for (CxxCleanupPlan* item = plan; item; item = item->next) {
+        items[index++] = item;
+    }
+    while (index > 0u) {
+        CxxCleanupPlan* item = items[--index];
+        if (item->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            int loop;
+            int done;
+            if (!item->index_decl || item->index_decl->var_offset >= 0 ||
+                item->element_count < 0) {
+                rcc_error(item->expression ? item->expression->loc
+                                           : (SourceLoc){"<array-cleanup>", 0, 0},
+                          "automatic array cleanup loop has no frame index");
+                continue;
+            }
+            if (item->element_count == 0) continue;
+            loop = new_label();
+            done = new_label();
+            emit_mov_reg_imm(mod, EAX, (uint32_t)item->element_count);
+            emit_mov_mem_reg(mod, EBP, item->index_decl->var_offset, EAX);
+            emit_label(mod, loop);
+            emit_mov_reg_mem(mod, EAX, EBP, item->index_decl->var_offset);
+            emit_test_reg_reg(mod, EAX, EAX);
+            emit_jcc_label(mod, CC_E, done);
+            emit_sub_reg_imm(mod, EAX, 1);
+            emit_mov_mem_reg(mod, EBP, item->index_decl->var_offset, EAX);
+            gen_cxx_cleanup_plan_execute_reverse32(
+                mod, item->body, unregister, frame_offset);
+            emit_jmp_label(mod, loop);
+            emit_label(mod, done);
+        } else {
+            if (unregister) {
+                CleanupCodegen cleanup = {0};
+                cleanup.expression = item->expression;
+                cleanup.exception_frame_offset = frame_offset;
+                gen_cxx_exception_unregister_cleanup32(mod, &cleanup);
+            }
+            gen_expr(mod, item->expression);
+        }
+    }
+    rcc_free(items);
+}
+
+static void gen_cxx_cleanup_plan32(Module* mod, CxxCleanupPlan* plan,
+                                   bool unregister, int frame_offset) {
+    gen_cxx_cleanup_plan_execute_reverse32(
+        mod, plan, unregister, frame_offset);
+}
+
+static void gen_cxx_cleanup_plan_register_forward32(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset) {
+    for (; plan; plan = plan->next) {
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            int loop;
+            int done;
+            if (!plan->index_decl || plan->index_decl->var_offset >= 0 ||
+                plan->element_count < 0) {
+                rcc_error(plan->expression ? plan->expression->loc
+                                           : (SourceLoc){"<array-cleanup>", 0, 0},
+                          "automatic array cleanup loop has no frame index");
+                continue;
+            }
+            loop = new_label();
+            done = new_label();
+            emit_mov_reg_imm(mod, EAX, 0u);
+            emit_mov_mem_reg(mod, EBP, plan->index_decl->var_offset, EAX);
+            emit_label(mod, loop);
+            emit_mov_reg_mem(mod, EAX, EBP, plan->index_decl->var_offset);
+            emit_cmp_reg_imm(mod, EAX, plan->element_count);
+            emit_jcc_label(mod, CC_AE, done);
+            gen_cxx_cleanup_plan_register_forward32(
+                mod, plan->body, frame_offset);
+            emit_mov_reg_mem(mod, EAX, EBP, plan->index_decl->var_offset);
+            emit_add_reg_imm(mod, EAX, 1);
+            emit_mov_mem_reg(mod, EBP, plan->index_decl->var_offset, EAX);
+            emit_jmp_label(mod, loop);
+            emit_label(mod, done);
+        } else {
+            CleanupCodegen cleanup = {0};
+            cleanup.expression = plan->expression;
+            cleanup.exception_frame_offset = frame_offset;
+            gen_cxx_exception_register_cleanup32(mod, &cleanup);
+        }
+    }
+}
+
+static void gen_cxx_exception_register_plan32(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset) {
+    gen_cxx_cleanup_plan_register_forward32(mod, plan, frame_offset);
 }
 
 static void gen_cxx_exception_unwind_cleanup32(Module* mod) {
@@ -14448,20 +14661,20 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 }
             }
             if (d->kind == DECL_VAR && d->var_cleanups) {
-                for (ExprList* item = d->var_cleanups; item;
-                     item = item->next) {
-                    CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
-                    cleanup->expression = item->expr;
-                    cleanup->previous = active_cleanups;
-                    cleanup->declaration = d;
-                    cleanup->exception_frame_offset =
-                        active_cxx_exception_cleanup_frame_offset;
-                    cleanup->exception_registered = false;
-                    active_cleanups = cleanup;
-                    if (cxx_exception_cleanup_registration_enabled &&
-                        active_cxx_exception_cleanup_frame_offset != INT_MAX) {
-                        gen_cxx_exception_register_cleanup32(mod, cleanup);
-                    }
+                CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
+                cleanup->plan = d->var_cleanups;
+                cleanup->previous = active_cleanups;
+                cleanup->declaration = d;
+                cleanup->exception_frame_offset =
+                    active_cxx_exception_cleanup_frame_offset;
+                active_cleanups = cleanup;
+                if (cxx_exception_cleanup_registration_enabled &&
+                    active_cxx_exception_cleanup_frame_offset != INT_MAX &&
+                    gen_cxx_cleanup_plan_registerable32(d->var_cleanups)) {
+                    gen_cxx_exception_register_plan32(
+                        mod, d->var_cleanups,
+                        active_cxx_exception_cleanup_frame_offset);
+                    cleanup->exception_registered = true;
                 }
             }
             break;
