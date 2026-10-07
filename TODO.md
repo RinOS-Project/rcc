@@ -490,6 +490,10 @@
         実行回帰で検証
   - [x] i686 wide-scalarのtruth、論理否定、short-circuit AND/ORを既存の
         two-word truth reductionとCFGへ接続し、両archのobject・x64実行で検証
+  - [x] wide-scalar戻り値を持つdirect variadic callでi686のinteger/pointer
+        引数をSSA loweringし、narrow integerのC default promotionと64-bit
+        引数のlow/high配置を含むi686/x64 object・外部call relocationを検証。
+        floating-point/aggregate variadic引数と`va_arg`関数本体は対象外
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

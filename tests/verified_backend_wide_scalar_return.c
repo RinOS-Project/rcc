@@ -1,3 +1,5 @@
+#include <stdarg.h>
+
 unsigned long long verified_wide_scalar_constant_return(void)
 {
     return ((unsigned long long)0x11223344ULL << 32) |
@@ -177,6 +179,22 @@ unsigned long long verified_wide_scalar_indirect_call(
     VerifiedWideScalarUnary function, unsigned long long value)
 {
     return function(value);
+}
+
+unsigned long long verified_wide_scalar_variadic_target(int increment, ...)
+{
+    va_list arguments;
+    unsigned long long value;
+    va_start(arguments, increment);
+    value = va_arg(arguments, unsigned long long);
+    va_end(arguments);
+    return value + (unsigned int)increment;
+}
+
+unsigned long long verified_wide_scalar_variadic_call(
+    unsigned long long value)
+{
+    return verified_wide_scalar_variadic_target(5, value);
 }
 
 long long verified_wide_scalar_expect(long long value)

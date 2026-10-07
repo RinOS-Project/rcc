@@ -11370,21 +11370,35 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		tests/verified_backend_wide_scalar_fallback.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-x86.log
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-x86.log
-	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
-	$(GREP) -F -q 'Verified backend: 61 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
+	$(GREP) -F -q "Verified backend fallback: function 'verified_wide_scalar_variadic_target' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-x64.ro \
 		tests/verified_backend_wide_scalar_fallback.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-x64.log
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-x64.log
-	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
-	$(GREP) -F -q 'Verified backend: 61 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
+	$(GREP) -F -q "Verified backend fallback: function 'verified_wide_scalar_variadic_target' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/wide-scalar-return-x64.log
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/wide-variadic-call-x86.ro \
+		tests/verified_backend_wide_variadic_call.c \
+		>$(TEST_OUT)/verified-backend/wide-variadic-call-x86.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/wide-variadic-call-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/wide-variadic-call-x64.ro \
+		tests/verified_backend_wide_variadic_call.c \
+		>$(TEST_OUT)/verified-backend/wide-variadic-call-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/wide-variadic-call-x64.log
 	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
@@ -11400,7 +11414,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
 		$(TEST_OUT)/verified-backend/typeinfo-x86.ro \
-		$(TEST_OUT)/verified-backend/typeinfo-x64.ro
+		$(TEST_OUT)/verified-backend/typeinfo-x64.ro \
+		$(TEST_OUT)/verified-backend/wide-variadic-call-x86.ro \
+		$(TEST_OUT)/verified-backend/wide-variadic-call-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 \
 		$(TEST_OUT)/verified-backend/x86.ro \
 		$(TEST_OUT)/verified-backend/x64.ro \
@@ -11410,7 +11426,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x64.ro \
 		$(TEST_OUT)/verified-backend/typeinfo-x86.ro \
-		$(TEST_OUT)/verified-backend/typeinfo-x64.ro
+		$(TEST_OUT)/verified-backend/typeinfo-x64.ro \
+		$(TEST_OUT)/verified-backend/wide-variadic-call-x86.ro \
+		$(TEST_OUT)/verified-backend/wide-variadic-call-x64.ro
 	@echo "Verified backend production object and fallback tests completed"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)

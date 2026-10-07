@@ -414,7 +414,7 @@ static bool lower_wide_ssa_call_safe(const Expr* expression) {
     callee = expression->call_func->ident_decl;
     function_type = callee->type;
     if (callee->kind != DECL_FUNC || !function_type ||
-        function_type->kind != TYPE_FUNC || function_type->variadic ||
+        function_type->kind != TYPE_FUNC ||
         !function_type->ret_type ||
         !lower_i686_wide_scalar_type(function_type->ret_type) ||
         !type_is_compatible(function_type->ret_type, expression->type)) {
@@ -423,12 +423,32 @@ static bool lower_wide_ssa_call_safe(const Expr* expression) {
     parameter = function_type->params;
     for (argument = expression->call_args; argument;
          argument = argument->next) {
-        if (!parameter || !argument->expr || !argument->expr->type ||
-            lower_abi_is_aggregate(parameter->type) ||
-            !lower_wide_ssa_expression_safe(argument->expr)) {
+        RccIrType argument_type;
+        bool argument_safe;
+        if (!argument->expr || !argument->expr->type) {
             return false;
         }
-        parameter = parameter->next;
+        argument_safe = lower_wide_ssa_expression_safe(argument->expr);
+        if (!argument_safe &&
+            argument->expr->kind == EXPR_IDENT &&
+            argument->expr->ident_decl &&
+            argument->expr->ident_decl->type &&
+            argument->expr->ident_decl->type->kind == TYPE_PTR &&
+            !argument->expr->ident_decl->type->is_volatile) {
+            argument_safe = true;
+        }
+        if (!argument_safe) return false;
+        if (parameter) {
+            if (lower_abi_is_aggregate(parameter->type)) return false;
+            parameter = parameter->next;
+        } else if (!function_type->variadic ||
+                   (!lower_i686_wide_scalar_type(argument->expr->type) &&
+                    (!lower_type(argument->expr->type, &argument_type) ||
+                     !((argument_type.kind == RCC_IR_TYPE_INTEGER &&
+                        argument_type.bit_width <= 32u) ||
+                       argument_type.kind == RCC_IR_TYPE_POINTER)))) {
+            return false;
+        }
     }
     return parameter == NULL;
 }
@@ -5229,7 +5249,6 @@ static bool lower_wide_scalar_call(
         indirect = true;
     }
     if (!function_type || function_type->kind != TYPE_FUNC ||
-        function_type->variadic ||
         !function_type->ret_type ||
         !lower_i686_wide_scalar_type(function_type->ret_type) ||
         !type_is_compatible(function_type->ret_type, expression->type)) {
@@ -5239,12 +5258,30 @@ static bool lower_wide_scalar_call(
     for (argument = expression->call_args; argument;
          argument = argument->next) {
         size_t units;
-        if (!parameter || !argument->expr || !argument->expr->type ||
-            lower_abi_is_aggregate(parameter->type)) return false;
-        units = lower_i686_wide_scalar_type(parameter->type) ? 2u : 1u;
+        if (!argument->expr || !argument->expr->type) return false;
+        if (parameter) {
+            if (lower_abi_is_aggregate(parameter->type)) return false;
+            units = lower_i686_wide_scalar_type(parameter->type) ? 2u : 1u;
+        } else {
+            RccIrType argument_type;
+            if (!function_type->variadic) return false;
+            if (lower_i686_wide_scalar_type(argument->expr->type)) {
+                units = 2u;
+            } else if (lower_type(argument->expr->type, &argument_type) &&
+                       ((argument_type.kind == RCC_IR_TYPE_INTEGER &&
+                         argument_type.bit_width <= 32u) ||
+                        argument_type.kind == RCC_IR_TYPE_POINTER)) {
+                units = 1u;
+            } else {
+                /* The typed i686 path supports scalar integer/pointer
+                 * varargs.  Floating and aggregate varargs continue through
+                 * the existing complete ABI lowering path. */
+                return false;
+            }
+        }
         if (units > SIZE_MAX - argument_count) return false;
         argument_count += units;
-        parameter = parameter->next;
+        if (parameter) parameter = parameter->next;
     }
     if (parameter || argument_count > SIZE_MAX / sizeof(*operands)) {
         return false;
@@ -5255,7 +5292,9 @@ static bool lower_wide_scalar_call(
     parameter = function_type->params;
     for (argument = expression->call_args; argument;
          argument = argument->next) {
-        if (lower_i686_wide_scalar_type(parameter->type)) {
+        if ((parameter &&
+             lower_i686_wide_scalar_type(parameter->type)) ||
+            lower_i686_wide_scalar_type(argument->expr->type)) {
             RccIrLowerWideValue value;
             if (!lower_wide_scalar_expression(
                     context, argument->expr, &value)) {
@@ -5268,21 +5307,31 @@ static bool lower_wide_scalar_call(
             RccIrLowerValue value = lower_expression(
                 context, argument->expr);
             RccIrType parameter_type;
-            if (!lower_type(parameter->type, &parameter_type) ||
-                (parameter_type.kind == RCC_IR_TYPE_INTEGER &&
-                 parameter_type.bit_width > 32u) ||
-                !value.valid) {
-                rcc_free(operands);
-                return false;
+            if (parameter) {
+                if (!lower_type(parameter->type, &parameter_type) ||
+                    (parameter_type.kind == RCC_IR_TYPE_INTEGER &&
+                     parameter_type.bit_width > 32u) ||
+                    !value.valid) {
+                    rcc_free(operands);
+                    return false;
+                }
+                value = lower_cast(context, value, parameter->type);
+            } else if (value.valid &&
+                       (type_is_integer(argument->expr->type) ||
+                        argument->expr->type->kind == TYPE_ENUM) &&
+                       argument->expr->type->size < 4) {
+                /* C default argument promotions convert every sub-int
+                 * integer (including bool, char, short, and narrow enums)
+                 * to int before placing it in the variadic argument area. */
+                value = lower_cast(context, value, type_int);
             }
-            value = lower_cast(context, value, parameter->type);
             if (!value.valid) {
                 rcc_free(operands);
                 return false;
             }
             operands[index++] = value.value;
         }
-        parameter = parameter->next;
+        if (parameter) parameter = parameter->next;
     }
     allocation = lower_append(
         context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),

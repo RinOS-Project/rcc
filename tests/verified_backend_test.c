@@ -190,6 +190,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* call_symbol;
     ObjSymbol* call_local_symbol;
     ObjSymbol* indirect_call_symbol;
+    ObjSymbol* variadic_call_symbol;
     ObjSymbol* expect_symbol;
     ObjSymbol* assignment_symbol;
     ObjSymbol* compound_symbol;
@@ -278,6 +279,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_call_local");
     indirect_call_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_indirect_call");
+    variadic_call_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_call");
     expect_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_expect");
     assignment_symbol = objfile_find_symbol(
@@ -435,6 +438,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            indirect_call_symbol->type == SYM_GLOBAL &&
            indirect_call_symbol->binding == BIND_CODE &&
            indirect_call_symbol->section == 0);
+    assert(variadic_call_symbol != NULL &&
+           variadic_call_symbol->type == SYM_GLOBAL &&
+           variadic_call_symbol->binding == BIND_CODE &&
+           variadic_call_symbol->section == 0);
     assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
            expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
     assert(assignment_symbol != NULL &&
@@ -584,6 +591,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*indirect_call_function)(
             unsigned long long RINOS_ABI (*)(unsigned long long),
             unsigned long long);
+        unsigned long long RINOS_ABI (*variadic_call_function)(
+            unsigned long long);
         long long RINOS_ABI (*expect_function)(long long);
         unsigned long long RINOS_ABI (*assignment_function)(unsigned long long);
         unsigned long long RINOS_ABI (*compound_function)(unsigned long long);
@@ -653,6 +662,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         assert(indirect_call_function(add_function,
                                       0x0000000200000002ULL) ==
                0x010203060506070aULL);
+        address = symbol_address(memory, variadic_call_symbol);
+        memcpy(&variadic_call_function, &address,
+               sizeof(variadic_call_function));
+        assert(variadic_call_function(0x0000000200000002ULL) ==
+               0x0000000200000007ULL);
         address = symbol_address(memory, carry_symbol);
         memcpy(&carry_function, &address, sizeof(carry_function));
         assert(carry_function(1ULL) == 0x0000000100000000ULL);
@@ -1962,9 +1976,44 @@ static void verify_typeinfo_object(const char* path, uint16_t arch)
     objfile_free(object);
 }
 
+static void verify_wide_variadic_call_object(const char* path, uint16_t arch)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* caller;
+    bool target_relocation = false;
+    bool pointer_target_relocation = false;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    caller = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_call");
+    assert(text != NULL && caller != NULL &&
+           caller->type == SYM_GLOBAL && caller->binding == BIND_CODE &&
+           caller->section == 0);
+    for (ObjReloc* relocation = text->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->symbol_name &&
+            strcmp(relocation->symbol_name,
+                   "verified_wide_scalar_variadic_target") == 0) {
+            target_relocation = true;
+        }
+        if (relocation->symbol_name &&
+            strcmp(relocation->symbol_name,
+                   "verified_wide_scalar_variadic_pointer_target") == 0) {
+            pointer_target_relocation = true;
+        }
+    }
+    caller = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_pointer_call");
+    assert(caller != NULL && caller->type == SYM_GLOBAL &&
+           caller->binding == BIND_CODE && caller->section == 0 &&
+           target_relocation && pointer_target_relocation);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
-    assert(argc == 6 || argc == 8 || argc == 10);
+    assert(argc == 6 || argc == 8 || argc == 10 || argc == 12);
     verify_object(argv[1], ARCH_X86);
     verify_object(argv[2], ARCH_X64);
     if (sizeof(void*) == 8u) {
@@ -1975,15 +2024,17 @@ int main(int argc, char** argv)
     verify_cxx_object(argv[3]);
     verify_global_object(argv[4], ARCH_X86, sizeof(void*) == 4u);
     verify_global_object(argv[5], ARCH_X64, sizeof(void*) == 8u);
-    if (argc == 8) {
+    if (argc == 8 || argc == 10 || argc == 12) {
         verify_wide_scalar_object(argv[6], ARCH_X86);
         verify_wide_scalar_object(argv[7], ARCH_X64);
     }
-    if (argc == 10) {
-        verify_wide_scalar_object(argv[6], ARCH_X86);
-        verify_wide_scalar_object(argv[7], ARCH_X64);
+    if (argc == 10 || argc == 12) {
         verify_typeinfo_object(argv[8], ARCH_X86);
         verify_typeinfo_object(argv[9], ARCH_X64);
+    }
+    if (argc == 12) {
+        verify_wide_variadic_call_object(argv[10], ARCH_X86);
+        verify_wide_variadic_call_object(argv[11], ARCH_X64);
     }
     puts("Verified typed-SSA production .ro bridge tests passed");
     return 0;
