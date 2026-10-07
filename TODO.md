@@ -408,6 +408,9 @@
   - [x] side effectのない未使用SSA定義の再帰的除去
   - [x] alias-free整数・cast・GEP・select・symbol addressのbasic-block内CSE
   - [x] dominator scopeと兄弟分岐隔離を持つSSA global value numbering
+  - [x] 同一block内の同一SSA address・同一型のnon-volatile loadをCSEし、
+        store/call/volatile access、型違い、block境界では再利用しないことを
+        IR verifier regressionで検証
 - [ ] loop optimization、inlining
   - [x] 副作用なし・引数なし・単一整数returnの直接呼出しをO1で限定inline
   - [x] 副作用なし・単一整数returnの純粋整数式を最大8個の引数へ展開し、

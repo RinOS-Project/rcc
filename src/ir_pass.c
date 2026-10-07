@@ -1677,6 +1677,8 @@ typedef struct {
     const bool* dominator_children;
     RccIrInstruction** available;
     size_t available_count;
+    RccIrInstruction** block_loads;
+    size_t block_load_count;
     RccIrValue* replacements;
     size_t replacement_count;
     RccIrSimplifyStats* stats;
@@ -1689,12 +1691,15 @@ static void ir_pass_common_block(RccIrCseContext* context,
                                  size_t block_index) {
     RccIrInstruction* instruction;
     size_t saved_count;
+    size_t saved_load_count;
     size_t child;
     if (!context || context->failed || block_index >= context->block_count) {
         if (context) context->failed = true;
         return;
     }
     saved_count = context->available_count;
+    saved_load_count = context->block_load_count;
+    context->block_load_count = 0u;
     instruction = context->blocks[block_index]->first;
     while (instruction) {
         RccIrInstruction* next = instruction->next;
@@ -1713,6 +1718,53 @@ static void ir_pass_common_block(RccIrCseContext* context,
                 return;
             }
             instruction->operands[operand] = resolved;
+        }
+        if (instruction->opcode == RCC_IR_LOAD) {
+            if (instruction->volatile_access) {
+                /* A volatile access is observable and may represent device
+                 * state, so do not reuse ordinary loads across it. */
+                context->block_load_count = 0u;
+            } else if (instruction->result != RCC_IR_VALUE_NONE &&
+                       instruction->operand_count == 1u) {
+                RccIrInstruction* previous_load = NULL;
+                for (size_t load_index = context->block_load_count;
+                     load_index != 0u; --load_index) {
+                    RccIrInstruction* candidate_load =
+                        context->block_loads[load_index - 1u];
+                    if (candidate_load->operands[0] ==
+                            instruction->operands[0] &&
+                        rcc_ir_type_equal(candidate_load->type,
+                                          instruction->type)) {
+                        previous_load = candidate_load;
+                        break;
+                    }
+                }
+                if (previous_load) {
+                    context->replacements[instruction->result] =
+                        previous_load->result;
+                    ir_pass_unlink_instruction(instruction);
+                    ++context->stats->commoned_instructions;
+                    ++context->stats->removed_instructions;
+                } else {
+                    if (context->block_load_count >=
+                        context->replacement_count) {
+                        ir_pass_error(context->error, context->error_size,
+                                      "SSA load-CSE table overflow");
+                        context->failed = true;
+                        return;
+                    }
+                    context->block_loads[context->block_load_count++] =
+                        instruction;
+                }
+            }
+            instruction = next;
+            continue;
+        }
+        if (instruction->opcode == RCC_IR_STORE ||
+            instruction->opcode == RCC_IR_CALL) {
+            /* Without a memory-effect summary, either operation may mutate
+             * every address and invalidates this block's available loads. */
+            context->block_load_count = 0u;
         }
         if (!ir_pass_cse_candidate(instruction)) {
             instruction = next;
@@ -1750,6 +1802,7 @@ static void ir_pass_common_block(RccIrCseContext* context,
         }
     }
     context->available_count = saved_count;
+    context->block_load_count = saved_load_count;
 }
 
 static bool ir_pass_common_subexpressions(
@@ -1778,6 +1831,8 @@ static bool ir_pass_common_subexpressions(
     context.dominator_children = children;
     context.available = rcc_alloc(
         function->value_count * sizeof(*context.available));
+    context.block_loads = rcc_alloc(
+        function->value_count * sizeof(*context.block_loads));
     context.replacements = rcc_alloc(
         function->value_count * sizeof(*context.replacements));
     context.replacement_count = function->value_count;
@@ -1797,6 +1852,7 @@ static bool ir_pass_common_subexpressions(
     result = true;
 cleanup:
     rcc_free(context.available);
+    rcc_free(context.block_loads);
     rcc_free(context.replacements);
     rcc_free(blocks);
     rcc_free(predecessors);

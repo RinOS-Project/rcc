@@ -919,6 +919,149 @@ static void verify_memory_is_not_commoned(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_block_local_load_cse(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType one_pointer[] = {pointer};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "block_local_load_cse", i32, one_pointer, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue first = append_load(entry, i32, function->parameters[0]);
+    RccIrValue second = append_load(entry, i32, function->parameters[0]);
+    RccIrValue sum_operands[] = {first, second};
+    RccIrInstruction* sum = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, sum_operands, 2u, NULL, 0u);
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(sum != NULL);
+    append_return(entry, sum->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.commoned_instructions == 1u);
+    assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+
+    {
+        RccIrType parameters[] = {pointer, pointer, i32};
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "load_cse_store_barrier", i32, parameters, 3u);
+        entry = rcc_ir_block_add(function, "entry");
+        first = append_load(entry, i32, function->parameters[0]);
+        append_store(entry, function->parameters[2], function->parameters[1]);
+        second = append_load(entry, i32, function->parameters[0]);
+        sum_operands[0] = first;
+        sum_operands[1] = second;
+        sum = rcc_ir_append(entry, RCC_IR_ADD, i32, sum_operands, 2u,
+                            NULL, 0u);
+        assert(sum != NULL);
+        append_return(entry, sum->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 2u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrType parameters[] = {pointer, pointer};
+        RccIrValue call_argument;
+        RccIrInstruction* call;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "load_cse_call_barrier", i32, parameters, 2u);
+        entry = rcc_ir_block_add(function, "entry");
+        first = append_load(entry, i32, function->parameters[0]);
+        call_argument = function->parameters[1];
+        call = rcc_ir_append(entry, RCC_IR_CALL, rcc_ir_type_void(),
+                             &call_argument, 1u, NULL, 0u);
+        assert(call != NULL);
+        rcc_ir_set_callee(call, "mutate_memory");
+        second = append_load(entry, i32, function->parameters[0]);
+        sum_operands[0] = first;
+        sum_operands[1] = second;
+        sum = rcc_ir_append(entry, RCC_IR_ADD, i32, sum_operands, 2u,
+                            NULL, 0u);
+        assert(sum != NULL);
+        append_return(entry, sum->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 2u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrType parameters[] = {pointer, pointer};
+        RccIrInstruction* volatile_load;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "load_cse_volatile_barrier", i32, parameters, 2u);
+        entry = rcc_ir_block_add(function, "entry");
+        first = append_load(entry, i32, function->parameters[0]);
+        volatile_load = rcc_ir_append(
+            entry, RCC_IR_LOAD, i32, &function->parameters[1], 1u,
+            NULL, 0u);
+        assert(volatile_load != NULL);
+        rcc_ir_set_volatile_access(volatile_load, true);
+        second = append_load(entry, i32, function->parameters[0]);
+        sum_operands[0] = first;
+        sum_operands[1] = second;
+        sum = rcc_ir_append(entry, RCC_IR_ADD, i32, sum_operands, 2u,
+                            NULL, 0u);
+        assert(sum != NULL);
+        append_return(entry, sum->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 3u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrType i8 = rcc_ir_type_integer(8u);
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "load_cse_type_barrier", i32, one_pointer, 1u);
+        entry = rcc_ir_block_add(function, "entry");
+        first = append_load(entry, i32, function->parameters[0]);
+        (void)append_load(entry, i8, function->parameters[0]);
+        append_return(entry, first);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 2u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrType parameters[] = {pointer};
+        RccIrBlock* successor;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "load_cse_block_barrier", i32, parameters, 1u);
+        entry = rcc_ir_block_add(function, "entry");
+        successor = rcc_ir_block_add(function, "successor");
+        first = append_load(entry, i32, function->parameters[0]);
+        append_branch(entry, successor->id);
+        second = append_load(successor, i32, function->parameters[0]);
+        sum_operands[0] = first;
+        sum_operands[1] = second;
+        sum = rcc_ir_append(successor, RCC_IR_ADD, i32, sum_operands, 2u,
+                            NULL, 0u);
+        assert(sum != NULL);
+        append_return(successor, sum->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 2u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+}
+
 static void verify_volatile_access_survives_mem2reg(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -1203,6 +1346,7 @@ int main(void)
     verify_integer_identities();
     verify_block_local_cse();
     verify_memory_is_not_commoned();
+    verify_block_local_load_cse();
     verify_volatile_access_survives_mem2reg();
     verify_dominator_scoped_gvn();
     verify_sibling_values_are_not_commoned();
