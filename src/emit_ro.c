@@ -1430,7 +1430,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
 }
 
 static void debug_expr_breg(ObjSection* section, int architecture,
-                            int32_t offset) {
+                            int32_t offset, bool dereference) {
     uint8_t expression[16];
     size_t size = 1u;
     int64_t value = offset;
@@ -1449,6 +1449,13 @@ static void debug_expr_breg(ObjSection* section, int architecture,
         }
         expression[size++] = byte;
     } while (more);
+    if (dereference) {
+        if (size >= sizeof(expression)) {
+            rcc_fatal("DWARF VLA location expression is too large");
+            return;
+        }
+        expression[size++] = 0x06u; /* DW_OP_deref: load saved VLA address */
+    }
     debug_line_uleb(section, (uint64_t)size);
     section_add_bytes(section, expression, size);
 }
@@ -1502,7 +1509,8 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
     debug_line_u32(info, (uint32_t)file_index);
     debug_line_u32(info, declaration->loc.line);
     debug_line_u32(info, declaration->loc.column);
-    debug_expr_breg(info, architecture, declaration->var_offset);
+    debug_expr_breg(info, architecture, declaration->var_offset,
+                    declaration->var_is_vla);
 }
 
 static void debug_emit_global_variable_die(
@@ -3014,7 +3022,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          * the same EBP/RBP base used by stack-local locations.  Full CFI and
          * unwind ranges remain a separate debug/unwind feature. */
         debug_expr_breg(info, g_opts.target_arch == ARCH_X64
-                               ? ARCH_X64 : ARCH_X86, 0);
+                                  ? ARCH_X64 : ARCH_X86, 0, false);
         /* DW_INL_declared_inlined is 3.  This is deliberately based on the
          * parsed declaration, not on a guessed call-site optimization state. */
         section_add_byte(info, function_decl && function_decl->func_is_inline

@@ -442,6 +442,44 @@ static int64_t read_sleb(const uint8_t* data, uint64_t size,
     return 0;
 }
 
+static void verify_vla_variable_location(const ObjSection* info,
+                                         const ObjSection* strings,
+                                         uint16_t architecture)
+{
+    bool found = false;
+    uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 1u + 20u < info->size; ++die) {
+        uint32_t name_offset;
+        uint64_t expression_offset;
+        uint64_t expression_size;
+        uint64_t displacement_offset;
+        if (info->data[die] != 4u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_vla_values") != 0) {
+            continue;
+        }
+        expression_offset = die + 1u + 20u;
+        expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        assert(expression_size >= 3u &&
+               expression_size <= info->size - expression_offset);
+        assert(info->data[expression_offset] == frame_register);
+        displacement_offset = expression_offset + 1u;
+        assert(read_sleb(info->data,
+                         expression_offset + expression_size,
+                         &displacement_offset) < 0);
+        assert(displacement_offset + 1u ==
+               expression_offset + expression_size);
+        assert(info->data[displacement_offset] == 0x06u); /* DW_OP_deref */
+        found = true;
+        break;
+    }
+    assert(found);
+}
+
 static bool line_table_has_row(const ObjSection* line,
                                uint32_t expected_line)
 {
@@ -995,6 +1033,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(abbrev->size > 8u && strings->size > 1u && strings->data[0] == 0u);
     assert(contains_bytes(strings->data, strings->size, function_name));
     if (language == 0x000cu) {
+        verify_vla_variable_location(info, strings, architecture);
         verify_global_variable(info, strings, "debug_global_data",
                                "debug_global_data",
                                "debug_global_data",

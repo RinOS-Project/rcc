@@ -62,6 +62,13 @@ int debug_info_parameters(int left, int right)
     }
 }
 
+int debug_vla_location(int count)
+{
+    int debug_vla_values[count];
+    debug_vla_values[0] = count;
+    return debug_vla_values[0];
+}
+
 #line 100
 int debug_statement_lines(int value)
 {

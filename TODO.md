@@ -524,6 +524,9 @@
   - [x] `DW_TAG_formal_parameter`／`DW_TAG_variable`へ実在するC/C++ stack
         declarationの名前とEBP/RBP相対`DW_OP_breg` locationを出力し、
         i686/AMD64 object・RLD link回帰で検証
+  - [x] VLAのstack slotには動的配列のaddressではなくaddressを保持する
+        pointerが格納されるため、VLA localのlocation式だけ`DW_OP_deref`を
+        追加し、対象DIEのregister／負offset／opcodeを両archで検証
   - [x] stack declarationへ`DW_AT_type`を付与し、基本型・ポインタ型の
         v4 type DIEと、未対応の複合型をscalarと偽らないopaque DIEとして
         i686/AMD64 object回帰で検証
