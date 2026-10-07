@@ -2260,11 +2260,10 @@ static bool codegen_materialize_static_compound(Module* mod,
         return false;
     }
     type = expression->compound_type;
-    if (!type_is_complete(type) || type->size <= 0 || type->align <= 0 ||
-        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
-         type->kind != TYPE_UNION)) {
+    if (!type_is_complete(type) || type->kind == TYPE_FUNC ||
+        type->size <= 0 || type->align <= 0) {
         rcc_error(expression->loc,
-                  "static compound literal requires a complete aggregate type");
+                  "static compound literal requires a complete object type");
         return false;
     }
     if (expression->compound_static_symbol) return true;
