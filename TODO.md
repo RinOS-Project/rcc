@@ -334,14 +334,14 @@
         and run destructors once in reverse declaration order at scope exit;
         verify i686/AMD64 generation and x64 execution in
         `test-cxx-function-template-references`.
-  - [ ] Preserve a complete derived prvalue when a local reference binds to
+  - [x] Preserve a complete derived prvalue when a local reference binds to
         its non-virtual or virtual base; initialize virtual-base tables before
         adjusting the reference, and run derived, direct-base, and virtual-base
         destructors exactly once in reverse lifetime order, including inherited
-        implicit cleanup. Regression cases were added to
-        `test-cxx-function-template-references`, but they have not been run;
-        keep this item open until i686/AMD64 generation and x64 execution are
-        verified.
+        implicit cleanup. Verify i686/AMD64 generation and x64 execution in
+        `test-cxx-function-template-references`; the complete `test-cxx` gate
+        and related virtual-base, array-destructor, member-lifetime, and global-
+        constructor gates pass.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,
