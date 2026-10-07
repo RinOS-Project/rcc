@@ -963,6 +963,8 @@ Stmt* stmt_return(Expr* val, SourceLoc loc) {
     Stmt* s = rcc_alloc(sizeof(Stmt));
     s->kind = STMT_RETURN;
     s->loc = loc;
+    s->return_reference_result = false;
+    s->return_reference_temporary_offset = 0;
     s->return_val = val;
     return s;
 }

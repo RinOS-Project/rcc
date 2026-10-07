@@ -11316,6 +11316,9 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_RETURN:
+            stmt->return_reference_result =
+                !current_func_auto_return_pending && stmt->return_val &&
+                current_func_ret && current_func_ret->is_reference;
             if (stmt->return_val) {
                 if (!current_func_auto_return_pending &&
                     stmt->return_val->kind == EXPR_COMPOUND &&

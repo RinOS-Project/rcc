@@ -9446,7 +9446,19 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     current_function_return_type64->is_reference) {
                     /* C++ references use the pointer ABI.  A reference
                      * return carries the lvalue address, not its value. */
-                    gen64_lvalue(mod, stmt->return_val);
+                    if (stmt->return_reference_temporary_offset < 0) {
+                        if (!gen64_local_initializer(
+                                mod, current_function_return_type64->base,
+                                stmt->return_val,
+                                stmt->return_reference_temporary_offset)) {
+                            rcc_error(stmt->loc,
+                                      "cannot materialize scalar reference return");
+                        }
+                        emit64_lea(mod, RAX, RBP,
+                                   stmt->return_reference_temporary_offset);
+                    } else {
+                        gen64_lvalue(mod, stmt->return_val);
+                    }
                 } else if (current_function_return_type64 &&
                     (current_function_return_type64->kind == TYPE_STRUCT ||
                      current_function_return_type64->kind == TYPE_UNION ||

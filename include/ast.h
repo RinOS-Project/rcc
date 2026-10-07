@@ -845,6 +845,11 @@ struct Stmt {
     /* Structured bindings are represented as a parser-generated statement
      * list, but their names belong to the surrounding scope. */
     bool block_no_scope;
+    /* A reference-return statement has pointer ABI lowering.  A scalar
+     * prvalue operand needs temporary storage to form that pointer, even
+     * though C++ does not extend the temporary beyond the return full-expression. */
+    bool return_reference_result;
+    int return_reference_temporary_offset;
 
     union {
         /* STMT_EXPR */

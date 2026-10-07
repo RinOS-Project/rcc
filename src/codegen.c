@@ -12524,6 +12524,12 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
     }
 }
 
+static bool codegen_reference_temporary_scalar(const Type* type) {
+    return type && (type_is_integer(type) || type->kind == TYPE_ENUM ||
+                    type_is_floating(type) || type->kind == TYPE_PTR ||
+                    type->kind == TYPE_NULLPTR);
+}
+
 static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                                          int stack_alignment) {
     if (!statement) return;
@@ -12620,6 +12626,30 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
         case STMT_RETURN:
             codegen_assign_compound_expr(statement->return_val, bytes,
                                          stack_alignment);
+            if (statement->return_reference_result &&
+                statement->return_reference_temporary_offset == 0 &&
+                statement->return_val && statement->return_val->type &&
+                !statement->return_val->type->is_reference &&
+                !gen_expr_is_lvalue(statement->return_val) &&
+                !gen_expr_is_xvalue(statement->return_val) &&
+                codegen_reference_temporary_scalar(
+                    statement->return_val->type)) {
+                int size = statement->return_val->type->size;
+                int alignment = statement->return_val->type->align;
+                int64_t extent;
+                if (size <= 0) size = 1;
+                if (alignment < stack_alignment) {
+                    alignment = stack_alignment;
+                }
+                extent = (int64_t)*bytes + size;
+                if (extent > INT_MAX) {
+                    *bytes = INT_MAX;
+                } else {
+                    *bytes = codegen_align_frame_bytes((int)extent,
+                                                       alignment);
+                    statement->return_reference_temporary_offset = -*bytes;
+                }
+            }
             break;
         case STMT_LABEL:
             codegen_assign_compound_stmt(statement->label_stmt, bytes,
@@ -12648,11 +12678,7 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                     type->base && declaration->var_init &&
                     !gen_expr_is_lvalue(declaration->var_init) &&
                     !gen_expr_is_xvalue(declaration->var_init) &&
-                    (type_is_integer(type->base) ||
-                     type->base->kind == TYPE_ENUM ||
-                     type_is_floating(type->base) ||
-                     type->base->kind == TYPE_PTR ||
-                     type->base->kind == TYPE_NULLPTR)) {
+                    codegen_reference_temporary_scalar(type->base)) {
                     int size = type->base->size;
                     int alignment = type->base->align;
                     int64_t extent;
@@ -14138,7 +14164,21 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     current_function_return_type->is_reference) {
                     /* C++ references use the pointer ABI.  A reference
                      * return carries the lvalue address, not its value. */
-                    gen_lvalue(mod, stmt->return_val);
+                    if (stmt->return_reference_temporary_offset < 0) {
+                        if (!gen_local_initializer(
+                                mod, current_function_return_type->base,
+                                stmt->return_val,
+                                stmt->return_reference_temporary_offset)) {
+                            rcc_error(stmt->loc,
+                                      "cannot materialize scalar reference return");
+                        }
+                        emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                        emit_byte(mod, modrm(2, EAX, EBP));
+                        emit_dword(mod, (uint32_t)
+                            stmt->return_reference_temporary_offset);
+                    } else {
+                        gen_lvalue(mod, stmt->return_val);
+                    }
                 } else if (gen_is_floating(current_function_return_type)) {
                     gen_expr_as_type(mod, stmt->return_val,
                                      current_function_return_type);
