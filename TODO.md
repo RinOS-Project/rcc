@@ -669,12 +669,14 @@
 - [x] production validatorによる署名付き成果物検査
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
 - [x] C17/C++20 aggregate、IR/MIR、verified backend、optimizerをhost CIでgate
-- [ ] GCC専用のfull `test-ci` production gateをClangにも拡張し、C17/C++20、
-      IR/MIR、verified backend、optimizer、ABI、image、bootstrap全経路を
-      両host compilerで検証する
-  - [x] Makefileが環境変数／command-lineの`CC`を保持し、GNU makeのbuilt-in
-        `cc`だけが選択されている場合にGCCを既定値とする。CI matrixのCC指定が
-        実際のRCC host binary buildへ届くことをMakeの変数解決で回帰検証
+- [x] CI workflowでfull `test-ci` production gateをGCC/Clang双方に設定し、
+      C17/C++20、IR/MIR、verified backend、optimizer、ABI、image、bootstrapを
+      matrix実行。Makefileの環境変数／command-line `CC`保持と、built-in `cc`
+      のみの場合のGCC defaultを回帰検証
+- [ ] GCC/Clang双方のfull `test-ci` production gate成功を確認し、C17/C++20、
+      IR/MIR、verified backend、optimizer、ABI、image、bootstrap全経路を記録する
+- [x] ASan/UBSan regression gateもGCC/Clang双方の独立matrix jobで実行し、
+      各jobが要求したhost compilerを実際に選択していることを検証
 - [x] CI regression gateでC/C++ global initializer/finalizerのhost実行、
       `.init_array`/`.fini_array`伝播、RIN/RLL/DRV/RLD image validationを常時gate
 - [ ] clang/gcc互換の全golden `.ro/.ra/.rin/.rll/.drv` corpusとfuzz corpus

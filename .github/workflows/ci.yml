@@ -123,11 +123,17 @@ jobs:
         run: make test-ci
 
   sanitizer-gate:
-    name: sanitizer-regression-gate
+    name: sanitizer-${{ matrix.cc }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        cc:
+          - gcc
+          - clang
     env:
-      CC: gcc
+      CC: ${{ matrix.cc }}
     defaults:
       run:
         working-directory: public-base/toolchain/RinCompiler
@@ -150,6 +156,9 @@ jobs:
         with:
           repository: RinOS-Project/rinvalidate
           path: public-base/toolchain/rinvalidate
+
+      - name: Verify selected host compiler
+        run: test "$(make --no-print-directory print-host-cc)" = "$CC"
 
       - name: Run ASan and UBSan regression suite
         run: make -j2 test-sanitize
