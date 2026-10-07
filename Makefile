@@ -11305,14 +11305,28 @@ test-verified-volatile: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/volatile-x86.ro \
 		tests/verified_backend_volatile.c \
 		>$(TEST_OUT)/verified-backend/volatile-x86.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/volatile-x86.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/volatile-x64.ro \
 		tests/verified_backend_volatile.c \
 		>$(TEST_OUT)/verified-backend/volatile-x64.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/volatile-x64.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/volatile-cxx-x86.ro \
+		tests/verified_backend_volatile.cpp \
+		>$(TEST_OUT)/verified-backend/volatile-cxx-x86.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/volatile-cxx-x86.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/volatile-cxx-x64.ro \
+		tests/verified_backend_volatile.cpp \
+		>$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
 	@echo "Verified backend volatile scalar access tests completed"
 
 test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile

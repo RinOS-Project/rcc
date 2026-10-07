@@ -1,5 +1,10 @@
 volatile int verified_volatile_global;
 
+struct VerifiedVolatilePair {
+    int first;
+    int second;
+};
+
 int verified_volatile_local(int value)
 {
     volatile int local = value;
@@ -26,4 +31,11 @@ int verified_volatile_global_access(int value)
 {
     verified_volatile_global = value;
     return verified_volatile_global;
+}
+
+int verified_volatile_aggregate_member(
+    volatile struct VerifiedVolatilePair* pair, int value)
+{
+    pair->first = value;
+    return pair->first + pair->second;
 }

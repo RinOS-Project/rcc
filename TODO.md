@@ -62,9 +62,9 @@
 - [ ] qualifierとeffective typeの完全なC17規則
   - [x] 前置・後置cv指定、pointer level cv、modifiable lvalue検査
   - [x] `volatile` object/pointerの未使用readに対するDCE抑止
-  - [x] scalar `volatile` object/pointerのload/storeをtyped SSA→MIRで保持し、
-        mem2regで除去・昇格させず、`-O2` verified backendのi686/AMD64で
-        local／indirect／global accessを検証
+  - [x] C17/C++20 scalar `volatile` object/pointerのload/storeをtyped SSA→MIRで
+        保持し、mem2regで除去・昇格させず、`-O2` verified backendのi686/AMD64で
+        local／reference／indirect aggregate member／global accessを検証
   - [x] `restrict`をpointer自体へ保持し、object/incomplete typeを指す制約、
         function pointer・非pointer適用の明示diagnosticを型名・宣言・member・
         `sizeof`/cast経路と両arch回帰で検証
