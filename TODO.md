@@ -71,6 +71,9 @@
   - [x] nested pointer cv qualification conversionで、直接pointeeの修飾追加を
         維持しつつ、保護されていない内側levelの危険な修飾追加・破棄を拒否。
         const-protected intermediate pointerとi686/AMD64のdiagnosticを回帰検証
+  - [x] built-in assignmentのRHSも初期化・引数・returnと同じ暗黙変換規則で
+        検査し、const喪失・非互換pointer・異なるaggregate間の代入を拒否。
+        C17/C++20正例・負例をi686/AMD64で回帰検証
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] brace省略列でbraced／文字列aggregate節を一つのsubobjectとして
        扱い、その後のscalar節を次のsubobjectへ進める。未指定長の多次元

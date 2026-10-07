@@ -10077,18 +10077,25 @@ static Type* sema_expr(Expr* expr) {
             if (!is_modifiable_lvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
+            } else {
+                bool move_assignment =
+                    sema_prepare_cxx_move_assignment(expr, lt);
+                if (!move_assignment &&
+                    !implicit_cast(expr->binary_rhs, lt)) {
+                    if (sema_is_cxx_nullptr_expr(expr->binary_rhs) &&
+                        !type_is_pointer(lt) && lt->kind != TYPE_NULLPTR) {
+                        rcc_error(expr->loc,
+                                  "nullptr can only be assigned to a pointer");
+                    } else if (sema_is_scoped_enum(lt) ||
+                               sema_is_scoped_enum(rt)) {
+                        rcc_error(expr->loc,
+                                  "incompatible scoped enum assignment");
+                    } else {
+                        rcc_error(expr->loc,
+                                  "incompatible assignment");
+                    }
+                }
             }
-            if (sema_is_cxx_nullptr_expr(expr->binary_rhs) &&
-                !type_is_pointer(lt) && lt->kind != TYPE_NULLPTR) {
-                rcc_error(expr->loc,
-                          "nullptr can only be assigned to a pointer");
-            }
-            if ((sema_is_scoped_enum(lt) || sema_is_scoped_enum(rt)) &&
-                !implicit_cast(expr->binary_rhs, lt)) {
-                rcc_error(expr->loc,
-                          "incompatible scoped enum assignment");
-            }
-            sema_prepare_cxx_move_assignment(expr, lt);
             expr->type = lt;
             break;
         }

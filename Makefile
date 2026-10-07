@@ -376,6 +376,7 @@ endif
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates
+.PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-designated-initializer
@@ -712,6 +713,7 @@ TEST_CI_TARGETS = \
 	test-ir-lowering \
 	test-verified-backend \
 	test-optimize \
+	test-assignment-constraints \
 	test-debug-info \
 	test-aggregate-union-abi \
 	test-aggregate-flexible-abi \
@@ -11509,6 +11511,38 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		$(TEST_OUT)/verified-backend/virtual-dispatch-x86.ro \
 		$(TEST_OUT)/verified-backend/virtual-dispatch-x64.ro
 	@echo "Verified backend production object and fallback tests completed"
+
+test-assignment-constraints: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/assignment-constraints)
+	$(RCC_TARGET) --target i686-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/assignment-constraints/c-x86.ro \
+		tests/assignment_conversions.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/assignment-constraints/c-x64.ro \
+		tests/assignment_conversions.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O1 -c \
+		-o $(TEST_OUT)/assignment-constraints/cxx-x86.ro \
+		tests/assignment_conversions.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O1 -c \
+		-o $(TEST_OUT)/assignment-constraints/cxx-x64.ro \
+		tests/assignment_conversions.cpp
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/assignment-constraints/invalid-c-x86.ro \
+		tests/invalid_assignment_types.c,$(TEST_OUT)/assignment-constraints/invalid-c-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/assignment-constraints/invalid-c-x64.ro \
+		tests/invalid_assignment_types.c,$(TEST_OUT)/assignment-constraints/invalid-c-x64.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/assignment-constraints/invalid-cxx-x86.ro \
+		tests/invalid_assignment_types.cpp,$(TEST_OUT)/assignment-constraints/invalid-cxx-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/assignment-constraints/invalid-cxx-x64.ro \
+		tests/invalid_assignment_types.cpp,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x86.log,3)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x64.log,3)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x86.log,3)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log,3)
+	@echo "C17/C++20 assignment conversion constraints passed for i686 and AMD64"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/optimize)
