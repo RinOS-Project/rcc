@@ -75,6 +75,8 @@
         検査し、const喪失・非互換pointer・異なるaggregate間の代入を拒否。
         整数／pointerの暗黙変換はCのゼロ整数定数式とC++のゼロ整数literal
         のみ許可し、pointer→integerはbool以外の暗黙変換を拒否。
+        `void*` と関数pointer間の暗黙変換、C++の`void*`からobject pointer
+        への暗黙変換も拒否し、Cのobject pointer↔`void*`は維持。
         C17/C++20正例・負例をi686/AMD64で回帰検証
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] brace省略列でbraced／文字列aggregate節を一つのsubobjectとして

@@ -1865,6 +1865,16 @@ static Type* implicit_cast(Expr* e, Type* target) {
 
     /* void* conversions */
     if (type_is_pointer(e->type) && type_is_pointer(target)) {
+        bool source_points_to_function = type_is_function(e->type->base);
+        bool target_points_to_function = type_is_function(target->base);
+        if (source_points_to_function != target_points_to_function) {
+            return NULL;
+        }
+        if (rcc_parser_is_cxx_mode() && e->type->base && target->base &&
+            e->type->base->kind == TYPE_VOID &&
+            target->base->kind != TYPE_VOID) {
+            return NULL;
+        }
         if (!sema_pointee_qualification_preserved(
                 e->type->base, target->base)) {
             return NULL;

@@ -1,7 +1,16 @@
+typedef int (*AssignmentFunction)(int);
+
+static int assignment_callback(int value)
+{
+    return value;
+}
+
 int assignment_conversions(int* output, const int* input, double number)
 {
     const int* readonly = output;
     void* generic = output;
+    int* restored = generic;
+    AssignmentFunction callback = assignment_callback;
     int* nullable = output;
     int value = 0;
 
@@ -10,5 +19,5 @@ int assignment_conversions(int* output, const int* input, double number)
     nullable = 1 - 1;
     value = number;
     *output = value;
-    return *readonly + (*((int*)generic)) + *output;
+    return *readonly + *restored + *output + callback(value);
 }
