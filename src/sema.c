@@ -12885,6 +12885,7 @@ typedef struct InitializerDesignatorCursor {
     Type* aggregate;
     TypeField* field;
     int64_t array_index;
+    ExprList* tail;
 } InitializerDesignatorCursor;
 
 static Type* initializer_designator_target(Type* aggregate,
@@ -12940,17 +12941,17 @@ static void initializer_designator_cursor_advance(
 }
 
 /* A nested C designator creates initializer lists for the remaining levels
- * of the path.  Following positional scalar clauses continue in the same
- * aggregate list after the final designated subobject, rather than jumping
- * directly to the next outer field.  Move the consecutive scalar siblings
- * into that list before the normal typed initializer passes consume it. */
+ * of the path. Following positional scalar clauses continue in depth-first
+ * subobject order: first within the innermost aggregate, then in the next
+ * enclosing designated aggregate once that child is exhausted. */
 static void initializer_absorb_designator_followups(
     Type* selected_type, ExprList* selected_item) {
     Expr* wrapper;
     Type* aggregate = selected_type;
-    ExprList* nested_tail;
     ExprList* source;
-    InitializerDesignatorCursor cursor;
+    InitializerDesignatorCursor* path;
+    size_t path_length = 0;
+    size_t path_index;
 
     if (rcc_parser_is_cxx_mode() || !selected_item ||
         !selected_item->next || !selected_item->expr) {
@@ -12960,43 +12961,63 @@ static void initializer_absorb_designator_followups(
     while (wrapper && wrapper->kind == EXPR_COMPOUND &&
            wrapper->compound_designator_wrapper) {
         ExprList* designated = wrapper->compound_init;
-        TypeField* field = NULL;
         Type* target = designated && !designated->next
-            ? initializer_designator_target(aggregate, designated, &field)
+            ? initializer_designator_target(aggregate, designated, NULL)
             : NULL;
         if (!target) return;
+        ++path_length;
         if (designated->expr && designated->expr->kind == EXPR_COMPOUND &&
             designated->expr->compound_designator_wrapper) {
             aggregate = target;
             wrapper = designated->expr;
             continue;
         }
-        if (aggregate->kind != TYPE_ARRAY &&
-            aggregate->kind != TYPE_STRUCT) {
-            return;
-        }
-        nested_tail = designated;
-        cursor.aggregate = aggregate;
-        cursor.field = field;
-        cursor.array_index = designated->designator_index;
-        source = selected_item->next;
-        while (source && source->designator_kind == INIT_DESIGNATOR_NONE &&
-               source->expr) {
-            Type* next_type = initializer_designator_cursor_next(&cursor);
-            ExprList* next_source;
-            if (!next_type || initializer_is_aggregate_type(next_type)) break;
-            next_source = source->next;
-            source->next = NULL;
-            nested_tail->next = source;
-            nested_tail = source;
-            source = next_source;
-            initializer_designator_cursor_advance(&cursor);
-        }
-        if (source != selected_item->next) {
-            selected_item->next = source;
-        }
-        return;
+        break;
     }
+    if (path_length == 0 ||
+        path_length > SIZE_MAX / sizeof(*path)) return;
+    path = rcc_alloc(path_length * sizeof(*path));
+
+    aggregate = selected_type;
+    wrapper = selected_item->expr;
+    for (path_index = 0; path_index < path_length; ++path_index) {
+        ExprList* designated = wrapper->compound_init;
+        Type* target = initializer_designator_target(
+            aggregate, designated, &path[path_index].field);
+        path[path_index].aggregate = aggregate;
+        path[path_index].array_index = designated->designator_index;
+        path[path_index].tail = designated;
+        if (path_index + 1 < path_length) {
+            aggregate = target;
+            wrapper = designated->expr;
+        }
+    }
+
+    source = selected_item->next;
+    path_index = path_length;
+    while (source && source->designator_kind == INIT_DESIGNATOR_NONE &&
+           source->expr) {
+        InitializerDesignatorCursor* cursor = &path[path_index - 1];
+        Type* next_type = initializer_designator_cursor_next(cursor);
+        if (!next_type) {
+            if (path_index == 1) break;
+            --path_index;
+            continue;
+        }
+        /* Aggregate siblings need brace-elision normalization at their own
+         * level. Leave those clauses to the ordinary initializer walker. */
+        if (initializer_is_aggregate_type(next_type)) break;
+        {
+            ExprList* next_source = source->next;
+            source->next = NULL;
+            cursor->tail->next = source;
+            cursor->tail = source;
+            source = next_source;
+            initializer_designator_cursor_advance(cursor);
+        }
+    }
+    if (source != selected_item->next) selected_item->next = source;
+    rcc_free(path);
 }
 
 /* C++20 designated initialization is narrower than the C designator

@@ -75,6 +75,9 @@
   - [x] C17のネストしたfield／index designatorの直後に続くscalar節を、
        外側aggregateではなく指定subobject内の次のscalarへ継続。static／
        automatic初期化をlegacy／verified backendと両arch object、x64実行で検証
+  - [x] chained C field/index designatorの次節が内側arrayの末尾を越える場合、
+       enclosing designated struct内の次scalar memberへdepth-first継続。途中の
+       array element消費も含めstatic／automatic、両backend・両archで検証
 - [x] block-scope VLAの非定数境界、実体ポインタ・byte extent保存、添字、
       `sizeof`、i686/AMD64 dynamic stack allocation、通常のscope exitと
       `break`／`continue`／`return`／有効な`goto`でのstack reclamation
