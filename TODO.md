@@ -690,6 +690,9 @@
   - [x] RCC単体checkoutから実行できるbounded C17/C++20 golden manifestで、
         i686/AMD64の`.ro`、unsigned-v3`.rin`、`.rll`、`.drv`を2回再生成し、
         SHA-256をCIで固定検証する
+  - [x] C17 atomic languageとbounded C++20 `typeid`のgolden caseを追加し、
+        両archの`.ro/.rin/.rll/.drv`を反復生成してhash一致を確認、v3画像は
+        `rinvalidate`にも通す
   - [x] RCC単体checkoutから実行できる決定的parser/compiler fuzz gateで、
         C17/C++20の有効変異を両archで再現コンパイルし、無効変異のsignal／
         timeout／空診断／誤った成果物を拒否する

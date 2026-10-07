@@ -140,6 +140,46 @@
           "drv": "5e04879a6ffba0fa946663b107bf2747d39e4dc291d41ccbc097ef779343d154"
         }
       }
+    },
+    {
+      "id": "c17-atomic-language",
+      "language": "C17",
+      "source": "tests/atomic_language.c",
+      "flags": ["-std=c17"],
+      "sha256": {
+        "i686-unknown-rinos": {
+          "ro": "a02bade5247251b7d5996d35f9428a8444f0c6132bc41ddf05ba0a12525f8110",
+          "rin": "4cd5ef8efac55d804a92e6f33653bc2f25822f422dc68c3b818fe8992bf803ca",
+          "rll": "5670618a712c512dfba6f71c30e2157a1d89a028313ab6be7b27396bd71044aa",
+          "drv": "0b2fa875502b9dd6dc27f976efcdb311472fa2906b27ed094034c282eb1f2f6a"
+        },
+        "x86_64-unknown-rinos": {
+          "ro": "01de0d91d35d0c27e7df3fada882db72bd132707be90b994d5a195be8928f661",
+          "rin": "cb67b3079962e5608a37dc57ae350506a29ceab08080603573f033f48c1a3ac9",
+          "rll": "206955dd939527f6deef8277bf88b0cd9505bf0f84b0978acbb41b12eaa7e30d",
+          "drv": "c0952d7e66f476f5628b8e5574cc91983812e32193c7a7cf73cf958a7332975e"
+        }
+      }
+    },
+    {
+      "id": "cxx20-typeid",
+      "language": "C++20",
+      "source": "tests/cxx_typeid.cpp",
+      "flags": ["-std=c++20"],
+      "sha256": {
+        "i686-unknown-rinos": {
+          "ro": "b80b2b87b25e3c6d154f4976f0e8fc68777ecc4fd981688276f9dc915cfc0b0f",
+          "rin": "98eb82c55593411eb151265de97d83c9ed21f74a1bf9eb62311a8dec4b6c041e",
+          "rll": "1d9dd3f911b9162bf286ed43068c30fec21169f9fd577f494bd039f9ced85240",
+          "drv": "fbc93035ac3816f3f1b874dff8133d9b829cc8bce4561b936b072b8378565048"
+        },
+        "x86_64-unknown-rinos": {
+          "ro": "48b8e38deceda2a89c5f08f4fcdf9c5ba5619ce2888caba89d8023a5bf5dfdc1",
+          "rin": "0d0336c707016fbf1e553188918d64b382121363c3ad2bdd54182dbf8e17a306",
+          "rll": "5c7bf6871d6c9754d358ea37da7fbce04668edf3c5cce271c2e2e986dd1f87cd",
+          "drv": "d473e6fcab7e736f6c99b918a93b0b813497224e39d5c94b897c0ca07f5435f6"
+        }
+      }
     }
   ]
 }
