@@ -12696,19 +12696,31 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
             if (statement->decl && statement->decl->kind == DECL_VAR) {
                 Decl* declaration = statement->decl;
                 Type* type = declaration->type;
+                Type* temporary_type = type && type->is_reference
+                    ? type->base : NULL;
                 codegen_assign_compound_expr(declaration->var_init, bytes,
                                              stack_alignment);
+                if (temporary_type &&
+                    !codegen_reference_temporary_scalar(temporary_type) &&
+                    declaration->var_init && declaration->var_init->type &&
+                    (declaration->var_init->type->kind == TYPE_STRUCT ||
+                     declaration->var_init->type->kind == TYPE_UNION ||
+                     declaration->var_init->type->kind == TYPE_VECTOR)) {
+                    temporary_type = declaration->var_reference_temporary_owner
+                        ? declaration->var_reference_temporary_owner->type
+                        : declaration->var_init->type;
+                }
                 if (declaration->var_reference_temporary_offset == 0 &&
                     !declaration->var_is_global &&
                     !declaration->var_is_static_local &&
                     !declaration->var_is_block_extern &&
                     type && type->kind == TYPE_PTR && type->is_reference &&
-                    type->base && declaration->var_init &&
+                    temporary_type && declaration->var_init &&
                     !gen_expr_is_lvalue(declaration->var_init) &&
                     !gen_expr_is_xvalue(declaration->var_init) &&
                     codegen_reference_temporary_local(
-                        type->base, declaration->var_init)) {
-                    if (!codegen_reference_temporary_scalar(type->base) &&
+                        temporary_type, declaration->var_init)) {
+                    if (!codegen_reference_temporary_scalar(temporary_type) &&
                         declaration->var_init->kind == EXPR_CALL &&
                         declaration->var_init->call_result_offset < 0) {
                         /* The ABI result slot is already the materialized
@@ -12716,10 +12728,14 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                          * does not create a second class object. */
                         declaration->var_reference_temporary_offset =
                             declaration->var_init->call_result_offset;
+                        if (declaration->var_reference_temporary_owner) {
+                            declaration->var_reference_temporary_owner->var_offset =
+                                declaration->var_reference_temporary_offset;
+                        }
                         break;
                     }
-                    int size = type->base->size;
-                    int alignment = type->base->align;
+                    int size = temporary_type->size;
+                    int alignment = temporary_type->align;
                     int64_t extent;
                     if (size <= 0) size = 1;
                     if (alignment < stack_alignment) {
@@ -12732,6 +12748,10 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                         *bytes = codegen_align_frame_bytes((int)extent,
                                                            alignment);
                         declaration->var_reference_temporary_offset = -*bytes;
+                        if (declaration->var_reference_temporary_owner) {
+                            declaration->var_reference_temporary_owner->var_offset =
+                                declaration->var_reference_temporary_offset;
+                        }
                     }
                 }
             }
@@ -14338,7 +14358,16 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 }
                 if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
-                    Type* temporary_type = d->type->base;
+                    Type* temporary_type = d->var_reference_temporary_owner
+                        ? d->var_reference_temporary_owner->type
+                        : d->type->base;
+                    if (!d->var_reference_temporary_owner &&
+                        d->var_init->type &&
+                        (d->var_init->type->kind == TYPE_STRUCT ||
+                         d->var_init->type->kind == TYPE_UNION ||
+                         d->var_init->type->kind == TYPE_VECTOR)) {
+                        temporary_type = d->var_init->type;
+                    }
                     bool call_result_storage = temporary_type &&
                         !codegen_reference_temporary_scalar(temporary_type) &&
                         d->var_init->kind == EXPR_CALL &&
@@ -14366,6 +14395,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     emit_byte(mod, modrm(2, EAX, EBP));
                     emit_dword(mod,
                                (uint32_t)d->var_reference_temporary_offset);
+                    gen_cxx_reference_adjustment32(mod, d->var_init);
                     emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
                     if (!call_result_storage) {
                         gen_local_vtable_init(

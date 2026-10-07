@@ -1064,6 +1064,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_init = init;
     d->var_offset = 0;
     d->var_reference_temporary_offset = 0;
+    d->var_reference_temporary_owner = NULL;
     d->var_vla_size_offset = 0;
     d->var_vla_extent_offset = 0;
     d->var_vla_extent_count = 0;

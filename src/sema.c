@@ -7049,27 +7049,41 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                       "static-storage reference temporary lifetime is unsupported");
             return;
         }
-        object_type = object_type->base;
+        object_type = declaration->var_init->type;
         reference_temporary = object_type &&
             !declaration->var_is_global &&
             !declaration->var_is_static_local &&
             !declaration->var_is_block_extern &&
             !is_lvalue(declaration->var_init) &&
-            !is_xvalue(declaration->var_init) &&
-            declaration->var_init->type &&
-            type_is_compatible(object_type, declaration->var_init->type);
+            !is_xvalue(declaration->var_init);
         if (!reference_temporary) return;
     }
-    if (!object_type || object_type->kind != TYPE_STRUCT) return;
-    object = expr_ident(declaration->name, declaration->loc);
-    object->ident_decl = declaration;
-    /* The identifier is still the reference variable, so codegen loads its
-     * stored address while cleanup member accesses use the referred type. */
-    object->type = object_type;
+    if (!object_type) return;
+    if (object_type->kind == TYPE_UNION) {
+        if (reference_temporary &&
+            sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
+            rcc_error(declaration->loc,
+                      "union temporary cleanup is unsupported");
+        }
+        return;
+    }
+    if (object_type->kind != TYPE_STRUCT) return;
     if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
-        !sema_cxx_append_object_cleanups(
-            declaration, object_type, object,
-            &declaration->var_cleanups, 0)) {
+        reference_temporary) {
+        Decl* owner = decl_var("__rcc_reference_temporary", object_type,
+                               NULL, declaration->loc);
+        declaration->var_reference_temporary_owner = owner;
+        object = expr_ident(owner->name, declaration->loc);
+        object->ident_decl = owner;
+        object->type = object_type;
+    } else {
+        object = expr_ident(declaration->name, declaration->loc);
+        object->ident_decl = declaration;
+        object->type = object_type;
+    }
+    if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
+        !sema_cxx_append_object_cleanups(declaration, object_type, object,
+                                         &declaration->var_cleanups, 0)) {
         rcc_error(declaration->loc,
                   "C++ object lifetime cleanup metadata is incomplete");
     }
@@ -13656,9 +13670,6 @@ static void sema_initializer(Type* type, Expr* initializer) {
     if (rcc_parser_is_cxx_mode() && type->kind == TYPE_PTR &&
         type->is_reference) {
         Expr* binding_expression = initializer;
-        Type* source_type;
-        Type* referred_type = type->base;
-        bool glvalue;
         if (initializer->kind == EXPR_COMPOUND &&
             !initializer->compound_type) {
             ExprList* item = initializer->compound_init;
@@ -13671,27 +13682,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
             }
             binding_expression = item->expr;
         }
-        source_type = sema_expr(binding_expression);
-        glvalue = is_lvalue(binding_expression) ||
-                  is_xvalue(binding_expression);
+        sema_expr(binding_expression);
         if (!implicit_cast(binding_expression, type)) {
             rcc_error(initializer->loc,
                       "invalid C++ reference binding");
             return;
-        }
-        /* A derived prvalue bound through a base reference must retain the
-         * complete derived object and destroy that object at the end of the
-         * extended lifetime.  The current local-temporary storage model only
-         * represents exact referred-object types, so reject that conversion
-         * until complete-object temporary metadata is available. */
-        if (!glvalue && source_type && referred_type &&
-            (source_type->kind == TYPE_STRUCT ||
-             source_type->kind == TYPE_UNION) &&
-            (referred_type->kind == TYPE_STRUCT ||
-             referred_type->kind == TYPE_UNION) &&
-            !type_is_compatible(source_type, referred_type)) {
-            rcc_error(initializer->loc,
-                      "base reference binding to a class temporary is unsupported");
         }
         if (binding_expression != initializer) {
             *initializer = *binding_expression;

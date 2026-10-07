@@ -9615,7 +9615,16 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 }
                 if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
-                    Type* temporary_type = d->type->base;
+                    Type* temporary_type = d->var_reference_temporary_owner
+                        ? d->var_reference_temporary_owner->type
+                        : d->type->base;
+                    if (!d->var_reference_temporary_owner &&
+                        d->var_init->type &&
+                        (d->var_init->type->kind == TYPE_STRUCT ||
+                         d->var_init->type->kind == TYPE_UNION ||
+                         d->var_init->type->kind == TYPE_VECTOR)) {
+                        temporary_type = d->var_init->type;
+                    }
                     bool call_result_storage = temporary_type &&
                         (temporary_type->kind == TYPE_STRUCT ||
                          temporary_type->kind == TYPE_UNION ||
@@ -9643,6 +9652,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     }
                     emit64_lea(mod, RAX, RBP,
                                d->var_reference_temporary_offset);
+                    gen64_cxx_reference_adjustment(mod, d->var_init);
                     emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
                     if (!call_result_storage) {
                         gen64_local_vtable_init(
