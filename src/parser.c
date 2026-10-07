@@ -2975,6 +2975,7 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
         field->virtual_base_member_offset =
             source->virtual_base_member_offset;
         field->cxx_access = source->cxx_access;
+        field->cxx_declaring_class = source->cxx_declaring_class;
         field->is_deprecated = source->is_deprecated;
         field->deprecated_message = source->deprecated_message;
         field->next = NULL;

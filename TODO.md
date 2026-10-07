@@ -382,22 +382,22 @@
         public path cannot hide an ambiguous private/virtual subobject. Direct
         private/protected member forms now reach sema, which checks the enclosing
         member-function access context and the protected `&Derived::member`
-        designator rule. Inherited forms remain fail-closed, as do contexts not
-        represented by the current method-owner metadata. The fixture is still
-        unrun. Keep this open until regression
-        execution proves the static-reference lifetime and destruction order,
-        both target backends and typed IR, and RinOS runtime integration.
+        designator rule. Unique public inherited data members now retain the
+        actual declaring-class owner, including members reached through public
+        virtual bases. Ambiguous, hidden, nonpublic, and non-modelled access
+        contexts remain fail-closed. `build-rcxx` succeeds; this change did not
+        run the member-pointer fixture. Keep this item open until committed
+        regression coverage and RinOS runtime integration verify lifetime and
+        exactly-once destruction on both native backends and typed IR.
   - [ ] Complete remaining pointer-to-member conversions and contexts:
-        private/protected-member access where permitted, pointer-to-member
-        function types/calls, ambiguous paths, virtual-base owner conversions,
-        and virtual-base data-member-pointer representation. Data-member-pointer
-        application supports one public virtual-base route; member-function
-        forms and virtual-base owner conversions remain unsupported. Ambiguous
-        object/owner paths count private and virtual duplicate subobjects before
-        selecting a public fixed or vbtable path; inherited private/protected
-        member forms and access-authorized private/protected inheritance
-        application contexts remain unsupported. Friend free-function access
-        contexts are not represented by the method-owner metadata.
+        pointer-to-member function types/calls, ambiguous or hidden inherited
+        lookup, nonpublic inherited forms, and the remaining access-authorized
+        contexts. Owner conversions across virtual bases are ill-formed under
+        C++ `[conv.mem]` and must be rejected; they are not a supported
+        conversion feature. Ambiguous object/owner paths count private and
+        virtual duplicate subobjects before selecting a public fixed or vbtable
+        path. Friend free-function access contexts are not represented by the
+        method-owner metadata.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

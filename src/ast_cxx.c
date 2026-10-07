@@ -1135,6 +1135,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 field->deprecated_message = f->deprecated_message;
                 field->cxx_no_unique_address = false;
                 field->cxx_access = f->cxx_access;
+                field->cxx_declaring_class = cls;
                 field->next = NULL;
                 *field_tail = field;
                 field_tail = &field->next;
@@ -1166,6 +1167,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->deprecated_message = f->deprecated_message;
         field->cxx_no_unique_address = use_no_unique_address;
         field->cxx_access = f->cxx_access;
+        field->cxx_declaring_class = cls;
         field->next = NULL;
         *field_tail = field;
         field_tail = &field->next;
@@ -1206,6 +1208,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->deprecated_message = base_field->deprecated_message;
             field->cxx_no_unique_address = base_field->cxx_no_unique_address;
             field->cxx_access = access;
+            field->cxx_declaring_class =
+                base_field->cxx_declaring_class;
             field->next = NULL;
             *field_tail = field;
             field_tail = &field->next;
@@ -1287,6 +1291,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->deprecated_message = base_field->deprecated_message;
             field->cxx_no_unique_address = base_field->cxx_no_unique_address;
             field->cxx_access = access;
+            field->cxx_declaring_class =
+                base_field->cxx_declaring_class;
             field->next = NULL;
             *field_tail = field;
             field_tail = &field->next;

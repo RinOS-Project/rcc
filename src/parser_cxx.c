@@ -52,9 +52,38 @@ static bool cxx_leading_alignas_class_starts(void) {
 
 static const char* cxx_method_source_name(CxxMethod* method);
 
+static bool cxx_inherited_nonfield_name(CxxClass* cls, const char* name,
+                                        unsigned depth) {
+    if (!cls || !name || depth > 32u) return false;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        if (member->decl && member->decl->name &&
+            strcmp(member->decl->name, name) == 0) {
+            return true;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static && field->name &&
+            strcmp(field->name, name) == 0) {
+            return true;
+        }
+    }
+    for (CxxTypeAlias* alias = cls->type_aliases; alias;
+         alias = alias->next) {
+        if (alias->name && strcmp(alias->name, name) == 0) return true;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (cxx_inherited_nonfield_name(cls->bases[index].base, name,
+                                        depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Parse `&Class::data_member` as a bounded data-member pointer constant.
- * Function members, bit-fields, and virtual-base subobjects require a wider
- * member-pointer ABI and are left to the ordinary diagnostic path. */
+ * Public unambiguous inherited fields retain their declaring-class owner;
+ * function members and bit-fields remain outside this data-member ABI. */
 Expr* rcc_parse_cxx_member_pointer_address(void) {
     Token* cursor = parser.cur;
     Token* segments[32];
@@ -62,11 +91,16 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     char owner_name[256];
     size_t owner_length = 0u;
     Type* owner;
+    Type* member_owner;
     TypeField* field;
+    TypeField* declaring_field = NULL;
     Expr* value;
     Type* member_pointer_type;
     SourceLoc loc;
     bool direct_member = false;
+    bool direct_nonstatic_method = false;
+    bool direct_static_name = false;
+    int matching_fields = 0;
 
     if (!cursor || cursor->type != TOK_IDENT) return NULL;
     while (cursor && cursor->type == TOK_IDENT) {
@@ -104,12 +138,41 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         return NULL;
     }
 
+    if (owner->cxx_class) {
+        const char* member_name =
+            segments[segment_count - 1u]->value.str_val;
+        for (TypeParam* declared = owner->cxx_class->fields;
+             declared; declared = declared->next) {
+            if (declared->name && strcmp(declared->name, member_name) == 0) {
+                if (declared->is_static) direct_static_name = true;
+                else direct_member = true;
+                break;
+            }
+        }
+        for (struct CxxMember* member = owner->cxx_class->members;
+             member; member = member->next) {
+            if (!member->decl || !member->decl->name ||
+                strcmp(member->decl->name, member_name) != 0) {
+                continue;
+            }
+            if (member->is_static) direct_static_name = true;
+            else direct_nonstatic_method = true;
+        }
+        for (CxxTypeAlias* alias = owner->cxx_class->type_aliases; alias;
+             alias = alias->next) {
+            if (alias->name && strcmp(alias->name, member_name) == 0) {
+                direct_static_name = true;
+            }
+        }
+    }
+
     field = owner->fields;
     while (field && strcmp(field->name, segments[segment_count - 1u]
                                            ->value.str_val) != 0) {
         field = field->next;
     }
     if (!field) {
+        if (direct_static_name && !direct_nonstatic_method) return NULL;
         TypeMethod* method = owner->methods;
         while (method && (!method->name ||
                           strcmp(method->name,
@@ -126,28 +189,73 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         value->type = type_int;
         return value;
     }
-    if (owner->cxx_class) {
-        for (TypeParam* declared = owner->cxx_class->fields;
-             declared; declared = declared->next) {
-            if (!declared->is_static && declared->name &&
-                strcmp(declared->name,
-                       segments[segment_count - 1u]->value.str_val) == 0) {
-                direct_member = true;
-                break;
-            }
-        }
-    }
-    if (!direct_member) {
+    if (!direct_member && direct_nonstatic_method) {
         loc = segments[segment_count - 1u]->loc;
         parser.prev = segments[segment_count - 1u];
         parser.cur = parser.prev->next;
-        rcc_error(loc,
-                  "inherited data-member pointer forms are unsupported");
+        rcc_error(loc, "pointer-to-member functions are unsupported");
         value = expr_int(0, loc);
         value->type = type_int;
         return value;
     }
-    if (field->is_bitfield || field->from_virtual_base || !field->type ||
+    if (!direct_member && direct_static_name) {
+        return NULL;
+    }
+    if (!direct_member) {
+        matching_fields = 0;
+        for (TypeField* candidate = owner->fields; candidate;
+             candidate = candidate->next) {
+            if (!candidate->name ||
+                strcmp(candidate->name,
+                       segments[segment_count - 1u]->value.str_val) != 0) {
+                continue;
+            }
+            field = candidate;
+            ++matching_fields;
+        }
+        if (matching_fields != 1 || !field ||
+            !field->cxx_declaring_class ||
+            field->cxx_access != ACCESS_PUBLIC ||
+            (owner->cxx_class &&
+             cxx_inherited_nonfield_name(owner->cxx_class,
+                                         segments[segment_count - 1u]
+                                             ->value.str_val,
+                                         0u))) {
+            loc = segments[segment_count - 1u]->loc;
+            parser.prev = segments[segment_count - 1u];
+            parser.cur = parser.prev->next;
+            rcc_error(loc,
+                      "inherited data-member pointer form requires one public declaration");
+            value = expr_int(0, loc);
+            value->type = type_int;
+            return value;
+        }
+        member_owner = field->cxx_declaring_class->type;
+        for (declaring_field = member_owner ? member_owner->fields : NULL;
+             declaring_field; declaring_field = declaring_field->next) {
+            if (declaring_field->name &&
+                strcmp(declaring_field->name,
+                       segments[segment_count - 1u]->value.str_val) == 0 &&
+                declaring_field->cxx_declaring_class ==
+                    field->cxx_declaring_class) {
+                break;
+            }
+        }
+        if (!member_owner || !declaring_field) {
+            loc = segments[segment_count - 1u]->loc;
+            parser.prev = segments[segment_count - 1u];
+            parser.cur = parser.prev->next;
+            rcc_error(loc,
+                      "inherited data-member pointer declaration metadata is incomplete");
+            value = expr_int(0, loc);
+            value->type = type_int;
+            return value;
+        }
+    } else {
+        member_owner = owner;
+        declaring_field = field;
+    }
+    if (declaring_field->is_bitfield || !field->type ||
         field->type->is_reference) {
         loc = segments[segment_count - 1u]->loc;
         parser.prev = segments[segment_count - 1u];
@@ -162,14 +270,15 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     loc = segments[segment_count - 1u]->loc;
     parser.prev = segments[segment_count - 1u];
     parser.cur = parser.prev->next;
-    value = expr_int(field->offset, loc);
+    value = expr_int(declaring_field->offset, loc);
     member_pointer_type = type_ptr(field->type);
     member_pointer_type->cxx_is_member_pointer = true;
-    member_pointer_type->cxx_member_pointer_owner = owner;
+    member_pointer_type->cxx_member_pointer_owner = member_owner;
     value->type = member_pointer_type;
     value->cxx_member_pointer_form = true;
-    value->cxx_member_pointer_form_access = field->cxx_access;
-    value->cxx_member_pointer_form_declaring_class = owner->cxx_class;
+    value->cxx_member_pointer_form_access = declaring_field->cxx_access;
+    value->cxx_member_pointer_form_declaring_class =
+        member_owner->cxx_class;
     value->cxx_member_pointer_form_designating_class = owner->cxx_class;
     return value;
 }

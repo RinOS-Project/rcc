@@ -281,3 +281,5 @@ thread-local temporaries and the broader member-pointer ABI cases in
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、
 RinOS上の32/64-bitセルフホストです。進捗は[`TODO.md`](TODO.md)を参照してください。
+
+Current follow-up: RCC++ forms unique public inherited data-member pointers with the actual declaring-class owner, including members reached through public virtual bases. `build-rcxx` succeeds. This extension has no regression coverage yet; ambiguous, hidden, and nonpublic inherited forms remain fail-closed. C++ owner conversions across virtual bases are ill-formed under `[conv.mem]` and remain rejected.

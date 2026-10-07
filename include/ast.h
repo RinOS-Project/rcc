@@ -73,6 +73,10 @@ typedef struct TypeField {
     /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
      * C AST does not depend on the C++ extension header. */
     unsigned char cxx_access;
+    /* Class that declared this non-static C++ data member.  Inherited
+     * TypeFields retain this owner so `&Derived::inherited_member` has the
+     * standard pointer-to-member owner type. */
+    struct CxxClass* cxx_declaring_class;
     struct TypeField* next;
 } TypeField;
 
