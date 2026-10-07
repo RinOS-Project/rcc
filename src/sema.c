@@ -14566,13 +14566,9 @@ static Type* sema_decltype_auto_return_type(Expr* expression) {
         expression->kind == EXPR_DEREF || expression->kind == EXPR_INDEX ||
         (expression->kind == EXPR_MEMBER &&
          !expression->cxx_member_xvalue) ||
-        expression->kind == EXPR_PTR_MEMBER) {
+        expression->kind == EXPR_PTR_MEMBER ||
+        expression->kind == EXPR_STRING_LIT) {
         if (result->kind == TYPE_PTR && result->is_reference) return result;
-        if (result->kind == TYPE_ARRAY || result->kind == TYPE_FUNC) {
-            rcc_error(expression->loc,
-                      "decltype(auto) cannot return an array or function lvalue");
-            return type_int;
-        }
         return type_reference(result, false);
     }
 
