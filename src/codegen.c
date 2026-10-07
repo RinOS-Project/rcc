@@ -6140,6 +6140,8 @@ static bool gen_expr_is_lvalue(Expr* expression) {
         case EXPR_COMPOUND:
         case EXPR_CXX_TYPEID:
             return true;
+        case EXPR_STRING_LIT:
+            return rcc_parser_is_cxx_mode();
         case EXPR_MEMBER:
             return !expression->cxx_member_xvalue;
         case EXPR_COND:
@@ -6217,6 +6219,9 @@ static void gen_copy_aggregate_to_address32(Module* mod, int destination_registe
 /* Generate lvalue address in EAX */
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
+        case EXPR_STRING_LIT:
+            gen_expr(mod, expr);
+            break;
         case EXPR_CXX_THIS:
             if (expr->cxx_this_stack_offset < 0) {
                 rcc_fatal("constructor this argument has no saved object");

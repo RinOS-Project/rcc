@@ -1064,6 +1064,8 @@ static bool gen64_expr_is_lvalue(Expr* expression) {
         case EXPR_PTR_MEMBER:
         case EXPR_COMPOUND:
             return true;
+        case EXPR_STRING_LIT:
+            return rcc_parser_is_cxx_mode();
         case EXPR_MEMBER:
             return !expression->cxx_member_xvalue;
         case EXPR_COND:
@@ -3992,6 +3994,9 @@ static bool gen64_inline_method_address(Module* mod, Expr* expr);
 /* Generate lvalue address in RAX */
 static void gen64_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
+        case EXPR_STRING_LIT:
+            gen64_expr(mod, expr);
+            break;
         case EXPR_CXX_THIS:
             emit64_mov_reg_reg(mod, RAX, RCX);
             break;

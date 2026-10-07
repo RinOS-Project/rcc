@@ -73,6 +73,7 @@ static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
         case EXPR_PTR_MEMBER:
         case EXPR_INDEX:
         case EXPR_DEREF:
+        case EXPR_STRING_LIT:
             return true;
         case EXPR_MEMBER:
             return !expression->cxx_member_xvalue;
@@ -1167,6 +1168,8 @@ static bool is_lvalue(Expr* e) {
         case EXPR_COMPOUND:
         case EXPR_CXX_TYPEID:
             return true;
+        case EXPR_STRING_LIT:
+            return rcc_parser_is_cxx_mode();
         case EXPR_MEMBER:
             return !e->cxx_member_xvalue;
         case EXPR_COND:
@@ -9200,11 +9203,19 @@ static Type* sema_expr(Expr* expr) {
             expr->type = expr->is_cxx_utf8_literal ? type_uchar : type_int;
             break;
 
-        case EXPR_STRING_LIT:
-            expr->type = type_array(expr->is_cxx_utf8_literal
-                                        ? type_uchar : type_char,
+        case EXPR_STRING_LIT: {
+            Type* element_type = expr->is_cxx_utf8_literal
+                ? type_uchar : type_char;
+            if (rcc_parser_is_cxx_mode()) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *element_type;
+                qualified->is_const = true;
+                element_type = qualified;
+            }
+            expr->type = type_array(element_type,
                                     (int)expr->str_length + 1);
             break;
+        }
 
         case EXPR_IDENT: {
             if (expr->cxx_pack_expansion) {
