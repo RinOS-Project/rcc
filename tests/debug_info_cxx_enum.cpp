@@ -15,3 +15,10 @@ enum DebugInferredUnsignedInt {
 };
 
 DebugInferredUnsignedInt debug_inferred_unsigned_int;
+
+enum DebugSignedEnum : signed char {
+    signed_negative = -2,
+    signed_positive = 6,
+};
+
+DebugSignedEnum debug_signed_enum;

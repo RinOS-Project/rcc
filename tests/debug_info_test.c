@@ -430,9 +430,84 @@ static uint64_t read_uleb(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
+static uint64_t verify_enum_type_underlying(const ObjSection* info,
+                                            const ObjSection* abbrev,
+                                            const ObjSection* strings,
+                                            const char* type_name,
+                                            const char* underlying_name,
+                                            uint8_t expected_size,
+                                            uint8_t expected_encoding)
+{
+    static const uint8_t enum_type_abbrev[] = {
+        15u, 0x04u, 1u, 0x03u, 0x0eu, 0x49u, 0x13u,
+        0x0bu, 0x0bu, 0u, 0u
+    };
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size, enum_type_abbrev,
+                             sizeof(enum_type_abbrev)));
+    for (uint64_t offset = 0u; offset + 10u <= info->size; ++offset) {
+        uint32_t name_offset;
+        uint64_t underlying_offset;
+        uint32_t underlying_name_offset;
+        if (info->data[offset] != 15u) continue;
+        name_offset = read_u32(info->data, offset + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset, type_name) != 0) {
+            continue;
+        }
+        assert(info->data[offset + 9u] == expected_size);
+        underlying_offset = read_u32(info->data, offset + 5u);
+        assert(underlying_offset != 0u &&
+               underlying_offset + 7u <= info->size);
+        assert(info->data[underlying_offset] == 5u); /* DW_TAG_base_type */
+        underlying_name_offset = read_u32(info->data,
+                                          underlying_offset + 1u);
+        assert(underlying_name_offset < strings->size);
+        if (strcmp((const char*)strings->data + underlying_name_offset,
+                   underlying_name) != 0) {
+            fprintf(stderr, "enum %s references underlying type '%s', "
+                            "expected '%s' (DIE offset %llu)\n",
+                    type_name,
+                    (const char*)strings->data + underlying_name_offset,
+                    underlying_name,
+                    (unsigned long long)underlying_offset);
+        }
+        assert(strcmp((const char*)strings->data + underlying_name_offset,
+                      underlying_name) == 0);
+        assert(info->data[underlying_offset + 5u] == expected_size);
+        assert(info->data[underlying_offset + 6u] == expected_encoding);
+        return offset;
+    }
+    assert(0 && "enumeration DIE with expected underlying type not found");
+    return 0u;
+}
+
+static void verify_enum_underlying_dwarf(const char* path,
+                                         uint16_t architecture,
+                                         const char* type_name,
+                                         const char* underlying_name,
+                                         uint8_t expected_size,
+                                         uint8_t expected_encoding)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    (void)verify_enum_type_underlying(info, abbrev, strings, type_name,
+                                      underlying_name, expected_size,
+                                      expected_encoding);
+    objfile_free(object);
+}
+
 static void verify_unsigned_enum_dwarf(const char* path,
                                        uint16_t architecture,
                                        const char* type_name,
+                                       const char* underlying_name,
                                        const char* enumerator_name,
                                        uint8_t expected_size,
                                        uint64_t expected_value)
@@ -444,7 +519,10 @@ static void verify_unsigned_enum_dwarf(const char* path,
     ObjSection* info;
     ObjSection* abbrev;
     ObjSection* strings;
-    bool found = false;
+    uint64_t enum_offset;
+    uint64_t child;
+    uint32_t enumerator_name_offset;
+    uint64_t value;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -456,36 +534,20 @@ static void verify_unsigned_enum_dwarf(const char* path,
     assert(contains_sequence(abbrev->data, abbrev->size,
                              unsigned_enumerator_abbrev,
                              sizeof(unsigned_enumerator_abbrev)));
-
-    for (uint64_t offset = 0u; offset + 7u <= info->size; ++offset) {
-        uint32_t name_offset;
-        uint64_t child;
-        uint32_t enumerator_name_offset;
-        uint64_t value;
-        if (info->data[offset] != 15u) continue;
-        name_offset = read_u32(info->data, offset + 1u);
-        if (name_offset >= strings->size ||
-            strcmp((const char*)strings->data + name_offset,
-                   type_name) != 0) {
-            continue;
-        }
-        assert(info->data[offset + 5u] == expected_size);
-        assert(info->data[offset + 6u] == 0x07u); /* DW_ATE_unsigned */
-        child = offset + 7u;
-        assert(child < info->size && info->data[child++] == 35u);
-        assert(child + 4u <= info->size);
-        enumerator_name_offset = read_u32(info->data, child);
-        child += 4u;
-        assert(enumerator_name_offset < strings->size);
-        assert(strcmp((const char*)strings->data + enumerator_name_offset,
-                      enumerator_name) == 0);
-        value = read_uleb(info->data, info->size, &child);
-        assert(value == expected_value);
-        assert(child < info->size && info->data[child] == 0u);
-        found = true;
-        break;
-    }
-    assert(found);
+    enum_offset = verify_enum_type_underlying(
+        info, abbrev, strings, type_name, underlying_name, expected_size,
+        0x07u); /* DW_ATE_unsigned on the referenced base type */
+    child = enum_offset + 10u;
+    assert(child < info->size && info->data[child++] == 35u);
+    assert(child + 4u <= info->size);
+    enumerator_name_offset = read_u32(info->data, child);
+    child += 4u;
+    assert(enumerator_name_offset < strings->size);
+    assert(strcmp((const char*)strings->data + enumerator_name_offset,
+                  enumerator_name) == 0);
+    value = read_uleb(info->data, info->size, &child);
+    assert(value == expected_value);
+    assert(child < info->size && info->data[child] == 0u);
     objfile_free(object);
 }
 
@@ -1670,10 +1732,14 @@ int main(int argc, char** argv)
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
+    verify_enum_underlying_dwarf(argv[1], ARCH_X86, "debug_enum", "int",
+                                 4u, 0x05u);
     verify_legacy_statement_line_rows(argv[1], ARCH_X86);
     verify_debug_object(argv[2], ARCH_X64, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
+    verify_enum_underlying_dwarf(argv[2], ARCH_X64, "debug_enum", "int",
+                                 4u, 0x05u);
     verify_legacy_statement_line_rows(argv[2], ARCH_X64);
     verify_debug_object(argv[3], ARCH_X64, 0x002bu,
                         "tests/hello.cpp", "main", NULL);
@@ -1701,20 +1767,30 @@ int main(int argc, char** argv)
     verify_optimized_verified_debug_object(argv[16], ARCH_X86);
     verify_optimized_verified_debug_object(argv[17], ARCH_X64);
     verify_unsigned_enum_dwarf(argv[18], ARCH_X86, "DebugUnsignedEnum",
-                               "maximum", 8u, UINT64_MAX);
+                               "unsigned long long", "maximum", 8u,
+                               UINT64_MAX);
     verify_unsigned_enum_dwarf(argv[19], ARCH_X64, "DebugUnsignedEnum",
-                               "maximum", 8u, UINT64_MAX);
+                               "unsigned long long", "maximum", 8u,
+                               UINT64_MAX);
     verify_unsigned_enum_dwarf(argv[18], ARCH_X86,
                                "DebugInferredUnsignedEnum",
-                               "inferred_maximum", 8u, UINT64_MAX);
+                               "unsigned long long", "inferred_maximum",
+                               8u, UINT64_MAX);
     verify_unsigned_enum_dwarf(argv[19], ARCH_X64,
                                "DebugInferredUnsignedEnum",
-                               "inferred_maximum", 8u, UINT64_MAX);
+                               "unsigned long", "inferred_maximum", 8u,
+                               UINT64_MAX);
     verify_unsigned_enum_dwarf(argv[18], ARCH_X86,
                                "DebugInferredUnsignedInt",
-                               "inferred_uint_max", 4u, UINT32_MAX);
+                               "unsigned int", "inferred_uint_max", 4u,
+                               UINT32_MAX);
     verify_unsigned_enum_dwarf(argv[19], ARCH_X64,
                                "DebugInferredUnsignedInt",
-                               "inferred_uint_max", 4u, UINT32_MAX);
+                               "unsigned int", "inferred_uint_max", 4u,
+                               UINT32_MAX);
+    verify_enum_underlying_dwarf(argv[18], ARCH_X86, "DebugSignedEnum",
+                                 "char", 1u, 0x06u);
+    verify_enum_underlying_dwarf(argv[19], ARCH_X64, "DebugSignedEnum",
+                                 "char", 1u, 0x06u);
     return 0;
 }

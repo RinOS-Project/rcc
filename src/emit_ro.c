@@ -833,6 +833,7 @@ static void debug_expr_member_location(ObjSection* info, int offset);
 typedef struct DebugTypeEntry {
     const Type* type;
     Type* qualifier_base;
+    Type* enum_underlying_fallback;
     uint32_t offset;
     bool collecting;
     bool recursive;
@@ -913,6 +914,8 @@ static void debug_type_context_free(DebugTypeContext* context) {
     for (size_t index = 0u; index < context->count; ++index) {
         rcc_free(context->entries[index].qualifier_base);
         context->entries[index].qualifier_base = NULL;
+        rcc_free(context->entries[index].enum_underlying_fallback);
+        context->entries[index].enum_underlying_fallback = NULL;
     }
     rcc_free(context->entries);
     context->entries = NULL;
@@ -951,6 +954,7 @@ static DebugTypeEntry* debug_type_add(DebugTypeContext* context,
     entry = &context->entries[context->count++];
     entry->type = type;
     entry->qualifier_base = NULL;
+    entry->enum_underlying_fallback = NULL;
     entry->offset = 0u;
     entry->collecting = false;
     entry->recursive = false;
@@ -1028,6 +1032,27 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
                         sizeof(*context->entries));
             context->entries[context->count - 1u] = saved;
         }
+        return;
+    }
+    if (type->kind == TYPE_ENUM) {
+        Type* underlying_type = type->enum_underlying_type;
+        Type* fallback = NULL;
+        if (!underlying_type) {
+            /* C enums have an int-compatible representation but do not
+             * retain a Type pointer for it. Build a local scalar descriptor
+             * so this shared object/RLD emitter has no parser-only builtin
+             * dependency. */
+            fallback = rcc_alloc(sizeof(*fallback));
+            memset(fallback, 0, sizeof(*fallback));
+            fallback->kind = TYPE_INT;
+            fallback->size = type->size;
+            fallback->align = type->align;
+            fallback->is_unsigned = type->is_unsigned;
+            underlying_type = fallback;
+        }
+        debug_type_collect(context, underlying_type);
+        entry = debug_type_add(context, type);
+        entry->enum_underlying_fallback = fallback;
         return;
     }
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
@@ -1398,11 +1423,19 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             }
             section_add_byte(info, 0u);
         } else if (type->kind == TYPE_ENUM) {
+            const Type* underlying_type_value = type->enum_underlying_type
+                ? type->enum_underlying_type : entry->enum_underlying_fallback;
+            DebugTypeEntry* underlying_type = debug_type_find(
+                context, underlying_type_value);
+            if (!underlying_type) {
+                rcc_fatal("DWARF enum underlying type was not collected");
+                return;
+            }
             section_add_byte(info, 15u);      /* DW_TAG_enumeration_type */
             debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
+            debug_type_ref(info, patches, underlying_type);
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
                                              (type->size < 0 ? 0 : type->size)));
-            section_add_byte(info, debug_type_encoding(type));
             for (int constant = 0; constant < type->enum_constant_count;
                  ++constant) {
                 EnumConstantInfo* item = &type->enum_constants[constant];
@@ -2920,6 +2953,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 1u);
     debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
     debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_AT_byte_size */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
