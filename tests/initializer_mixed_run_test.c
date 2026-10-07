@@ -36,7 +36,7 @@ static void verify_globals(ObjectFile* object)
                                              'b', 'c', 0, 0};
     static const uint8_t expected_mixed_rows[8] = {'a', 0, 0, 0,
                                                    'b', 'c', 0, 0};
-    static const int32_t expected_struct[4] = {0, 5, 0, 7};
+    static const int32_t expected_struct[4] = {0, 5, 7, 0};
     static const int32_t expected_array[4] = {1, 2, 3, 4};
     const uint8_t* rows = global_bytes(object, "string_rows",
                                        sizeof(expected_rows));
@@ -56,33 +56,21 @@ static void verify_globals(ObjectFile* object)
     assert(memcmp(array, expected_array, sizeof(expected_array)) == 0);
 }
 
-static ObjSection* code_section(ObjectFile* object)
+#if defined(__x86_64__) && !defined(_WIN32)
+static void run_local_initializer(ObjectFile* object)
 {
+    ObjSection* code = NULL;
     for (ObjSection* section = object->sections; section;
          section = section->next) {
-        if (section->type == SECT_CODE) return section;
+        if (section->type == SECT_CODE) {
+            code = section;
+            break;
+        }
     }
-    assert(!"code section was not found");
-    return NULL;
-}
-
-int main(int argc, char** argv)
-{
-    ObjectFile* x86;
-    ObjectFile* x64;
-    assert(argc == 3);
-    x86 = objfile_read(argv[1]);
-    x64 = objfile_read(argv[2]);
-    assert(x86 != NULL && x86->arch == ARCH_X86);
-    assert(x64 != NULL && x64->arch == ARCH_X64);
-    verify_globals(x86);
-    verify_globals(x64);
-    objfile_free(x86);
-
-#if defined(__x86_64__) && !defined(_WIN32)
+    assert(code != NULL);
     {
-        ObjSection* code = code_section(x64);
-        ObjSymbol* symbol = objfile_find_symbol(x64, "mixed_initializer_local");
+        ObjSymbol* symbol = objfile_find_symbol(object,
+                                                "mixed_initializer_local");
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;
@@ -100,10 +88,40 @@ int main(int argc, char** argv)
         address = mapping + symbol->value;
         memcpy(&function, &address, sizeof(function));
         int result = function();
-        assert(result == 'x' + 'y' + 'z' + 0 + 0 + 9 + 11 + 1);
+        assert(result == 'x' + 'y' + 'z' + 0 + 0 + 9 + 11 +
+                         12 + 13 + 0 + 1);
         assert(munmap(mapping, mapping_size) == 0);
     }
+}
 #endif
+
+int main(int argc, char** argv)
+{
+    ObjectFile* x86;
+    ObjectFile* x64;
+    ObjectFile* verified_x86;
+    ObjectFile* verified_x64;
+    assert(argc == 5);
+    x86 = objfile_read(argv[1]);
+    x64 = objfile_read(argv[2]);
+    verified_x86 = objfile_read(argv[3]);
+    verified_x64 = objfile_read(argv[4]);
+    assert(x86 != NULL && x86->arch == ARCH_X86);
+    assert(x64 != NULL && x64->arch == ARCH_X64);
+    assert(verified_x86 != NULL && verified_x86->arch == ARCH_X86);
+    assert(verified_x64 != NULL && verified_x64->arch == ARCH_X64);
+    verify_globals(x86);
+    verify_globals(x64);
+    verify_globals(verified_x86);
+    verify_globals(verified_x64);
+
+#if defined(__x86_64__) && !defined(_WIN32)
+    run_local_initializer(x64);
+    run_local_initializer(verified_x64);
+#endif
+    objfile_free(verified_x86);
+    objfile_free(verified_x64);
+    objfile_free(x86);
     objfile_free(x64);
     return 0;
 }

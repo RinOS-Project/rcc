@@ -666,6 +666,9 @@ struct Expr {
             bool compound_value_init; /* Spelled as an empty C++ {} list. */
             bool compound_copy_init;  /* C++ copy-initialization (`T t = x`). */
             bool compound_paren_init; /* C++20 aggregate `T t(a, b)`. */
+            /* True only for a list synthesized for remaining levels of a
+             * C aggregate designator. */
+            bool compound_designator_wrapper;
             bool compound_cxx_default_member_normalized;
             /* True when C++ default member initializers rewrote this list
              * into compiler-generated designated clauses. */

@@ -6320,14 +6320,28 @@ test-initializer-mixed: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/initializer-mixed/x64.ro \
 		tests/initializer_mixed.c
+	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/initializer-mixed/verified-x86.ro \
+		tests/initializer_mixed.c \
+		>$(TEST_OUT)/initializer-mixed/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/initializer-mixed/verified-x86.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/initializer-mixed/verified-x64.ro \
+		tests/initializer_mixed.c \
+		>$(TEST_OUT)/initializer-mixed/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/initializer-mixed/verified-x64.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/initializer_mixed_run_test \
 		tests/initializer_mixed_run_test.c src/emit_ro.c \
 		src/utils.c
 	$(TEST_OUT)/initializer_mixed_run_test \
 		$(TEST_OUT)/initializer-mixed/x86.ro \
-		$(TEST_OUT)/initializer-mixed/x64.ro
-	@echo "C17 mixed designator and string-row initializer tests completed"
+		$(TEST_OUT)/initializer-mixed/x64.ro \
+		$(TEST_OUT)/initializer-mixed/verified-x86.ro \
+		$(TEST_OUT)/initializer-mixed/verified-x64.ro
+	@echo "C17 legacy/verified mixed designator and string-row initializer tests completed"
 
 test-flexible-arrays: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/flexible-arrays)

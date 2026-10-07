@@ -72,6 +72,9 @@
   - [x] brace省略列でbraced／文字列aggregate節を一つのsubobjectとして
        扱い、その後のscalar節を次のsubobjectへ進める。未指定長の多次元
        配列bound推論と、static／automaticの両arch実行を検証
+  - [x] C17のネストしたfield／index designatorの直後に続くscalar節を、
+       外側aggregateではなく指定subobject内の次のscalarへ継続。static／
+       automatic初期化をlegacy／verified backendと両arch object、x64実行で検証
 - [x] block-scope VLAの非定数境界、実体ポインタ・byte extent保存、添字、
       `sizeof`、i686/AMD64 dynamic stack allocation、通常のscope exitと
       `break`／`continue`／`return`／有効な`goto`でのstack reclamation

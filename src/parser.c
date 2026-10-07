@@ -2159,6 +2159,7 @@ static Expr* parse_initializer(void) {
                             &nested, value, reversed->kind,
                             reversed->index, reversed->field);
                         value = expr_initializer_list(nested, reversed->loc);
+                        value->compound_designator_wrapper = true;
                         rcc_free(reversed);
                         reversed = next;
                     }

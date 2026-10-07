@@ -12881,6 +12881,124 @@ static bool initializer_is_aggregate_type(Type* type) {
                     type->kind == TYPE_UNION);
 }
 
+typedef struct InitializerDesignatorCursor {
+    Type* aggregate;
+    TypeField* field;
+    int64_t array_index;
+} InitializerDesignatorCursor;
+
+static Type* initializer_designator_target(Type* aggregate,
+                                           const ExprList* item,
+                                           TypeField** field_out) {
+    if (field_out) *field_out = NULL;
+    if (!aggregate || !item) return NULL;
+    if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+        if (aggregate->kind != TYPE_ARRAY || !aggregate->base ||
+            item->designator_index < 0 ||
+            item->designator_index >= aggregate->array_len) {
+            return NULL;
+        }
+        return aggregate->base;
+    }
+    if (item->designator_kind == INIT_DESIGNATOR_FIELD &&
+        (aggregate->kind == TYPE_STRUCT || aggregate->kind == TYPE_UNION)) {
+        TypeField* field = initializer_field(
+            aggregate, item->designator_field);
+        if (!field) return NULL;
+        if (field_out) *field_out = field;
+        return field->type;
+    }
+    return NULL;
+}
+
+static Type* initializer_designator_cursor_next(
+    InitializerDesignatorCursor* cursor) {
+    if (!cursor || !cursor->aggregate) return NULL;
+    if (cursor->aggregate->kind == TYPE_ARRAY) {
+        if (!cursor->aggregate->base || cursor->array_index < 0 ||
+            cursor->array_index == INT64_MAX ||
+            cursor->array_index + 1 >= cursor->aggregate->array_len) {
+            return NULL;
+        }
+        return cursor->aggregate->base;
+    }
+    if (cursor->aggregate->kind == TYPE_STRUCT) {
+        return cursor->field && cursor->field->next
+            ? cursor->field->next->type : NULL;
+    }
+    return NULL;
+}
+
+static void initializer_designator_cursor_advance(
+    InitializerDesignatorCursor* cursor) {
+    if (!cursor || !cursor->aggregate) return;
+    if (cursor->aggregate->kind == TYPE_ARRAY) {
+        if (cursor->array_index < INT64_MAX) ++cursor->array_index;
+    } else if (cursor->aggregate->kind == TYPE_STRUCT && cursor->field) {
+        cursor->field = cursor->field->next;
+    }
+}
+
+/* A nested C designator creates initializer lists for the remaining levels
+ * of the path.  Following positional scalar clauses continue in the same
+ * aggregate list after the final designated subobject, rather than jumping
+ * directly to the next outer field.  Move the consecutive scalar siblings
+ * into that list before the normal typed initializer passes consume it. */
+static void initializer_absorb_designator_followups(
+    Type* selected_type, ExprList* selected_item) {
+    Expr* wrapper;
+    Type* aggregate = selected_type;
+    ExprList* nested_tail;
+    ExprList* source;
+    InitializerDesignatorCursor cursor;
+
+    if (rcc_parser_is_cxx_mode() || !selected_item ||
+        !selected_item->next || !selected_item->expr) {
+        return;
+    }
+    wrapper = selected_item->expr;
+    while (wrapper && wrapper->kind == EXPR_COMPOUND &&
+           wrapper->compound_designator_wrapper) {
+        ExprList* designated = wrapper->compound_init;
+        TypeField* field = NULL;
+        Type* target = designated && !designated->next
+            ? initializer_designator_target(aggregate, designated, &field)
+            : NULL;
+        if (!target) return;
+        if (designated->expr && designated->expr->kind == EXPR_COMPOUND &&
+            designated->expr->compound_designator_wrapper) {
+            aggregate = target;
+            wrapper = designated->expr;
+            continue;
+        }
+        if (aggregate->kind != TYPE_ARRAY &&
+            aggregate->kind != TYPE_STRUCT) {
+            return;
+        }
+        nested_tail = designated;
+        cursor.aggregate = aggregate;
+        cursor.field = field;
+        cursor.array_index = designated->designator_index;
+        source = selected_item->next;
+        while (source && source->designator_kind == INIT_DESIGNATOR_NONE &&
+               source->expr) {
+            Type* next_type = initializer_designator_cursor_next(&cursor);
+            ExprList* next_source;
+            if (!next_type || initializer_is_aggregate_type(next_type)) break;
+            next_source = source->next;
+            source->next = NULL;
+            nested_tail->next = source;
+            nested_tail = source;
+            source = next_source;
+            initializer_designator_cursor_advance(&cursor);
+        }
+        if (source != selected_item->next) {
+            selected_item->next = source;
+        }
+        return;
+    }
+}
+
 /* C++20 designated initialization is narrower than the C designator
  * grammar shared by the parser: only direct non-static data members may be
  * named, names must follow declaration order, and one initializer list
@@ -13302,6 +13420,7 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 rcc_error(item->expr->loc,
                           "array initializer index is out of bounds");
             } else {
+                initializer_absorb_designator_followups(type->base, item);
                 sema_initializer(type->base, item->expr);
             }
             if (cursor < INT64_MAX) ++cursor;
@@ -13350,6 +13469,7 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 ++initialized;
                 continue;
             }
+            initializer_absorb_designator_followups(field->type, item);
             sema_initializer(field->type, item->expr);
             cursor = field->next;
             ++initialized;

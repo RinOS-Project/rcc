@@ -7,6 +7,7 @@ char string_rows[2][4] = {"a", "bc"};
 char mixed_string_rows[2][4] = {"a", 'b', 'c'};
 char inferred_string_rows[][4] = {"a", "bc"};
 struct MixedAggregate mixed_designators = {
+    /* The following positional clause continues at values[2], not tail. */
     .values[1] = 5,
     7,
 };
@@ -20,8 +21,15 @@ int mixed_initializer_local(void)
         .values = {[2] = 9},
         11,
     };
+    struct MixedAggregate local_nested_designator = {
+        .values[1] = 12,
+        13,
+    };
     large_rows[1][1023] = 1;
     return local_rows[0][0] + local_rows[0][1] + local_rows[1][0] +
            local.values[0] + local.values[1] + local.values[2] + local.tail +
+           local_nested_designator.values[1] +
+           local_nested_designator.values[2] +
+           local_nested_designator.tail +
            large_rows[1][1023];
 }
