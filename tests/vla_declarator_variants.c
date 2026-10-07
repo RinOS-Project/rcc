@@ -22,11 +22,22 @@ int matrix_parameter(int rows, int cols, int values[rows][cols])
     return values[rows - 1][cols - 1];
 }
 
+int for_initializer_vla(int count)
+{
+    int total = 0;
+    for (int values[count], index = 0; index < count; ++index) {
+        values[index] = index + 1;
+        total += values[index];
+    }
+    return total;
+}
+
 int main(void)
 {
     int values[6] = {4, 5, 6, 7, 8, 9};
     int matrix[2][3] = {{1, 2, 3}, {7, 8, 9}};
     if (pointer_to_vla(3, values) != 9) return 1;
     if (typedef_pointer_to_vla(3, values) != 9) return 2;
-    return matrix_parameter(2, 3, matrix) == 9 ? 0 : 3;
+    if (matrix_parameter(2, 3, matrix) != 9) return 3;
+    return for_initializer_vla(5) == 15 ? 0 : 4;
 }

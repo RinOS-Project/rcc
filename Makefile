@@ -7187,6 +7187,12 @@ test-vla-declarations: $(RCC_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-initializer-x64.ro \
 		tests/invalid_vla_initializer.c,$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-for-scope-x86.ro \
+		tests/invalid_vla_for_initializer_scope.c,$(TEST_OUT)/vla-declarations/invalid-for-scope-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/vla-declarations/invalid-for-scope-x64.ro \
+		tests/invalid_vla_for_initializer_scope.c,$(TEST_OUT)/vla-declarations/invalid-for-scope-x64.log)
 	$(GREP) -q "variably modified object cannot have linkage" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
 	$(GREP) -q "variably modified typedef is only valid at block scope" \
@@ -7203,6 +7209,10 @@ test-vla-declarations: $(RCC_TARGET)
 		$(TEST_OUT)/vla-declarations/invalid-initializer-x86.log
 	$(GREP) -q "variable-length array cannot have an initializer" \
 		$(TEST_OUT)/vla-declarations/invalid-initializer-x64.log
+	$(GREP) -F -q "undefined identifier 'values'" \
+		$(TEST_OUT)/vla-declarations/invalid-for-scope-x86.log
+	$(GREP) -F -q "undefined identifier 'values'" \
+		$(TEST_OUT)/vla-declarations/invalid-for-scope-x64.log
 	@echo "C17 invalid variably modified declaration tests completed"
 
 ifeq ($(OS),Windows_NT)

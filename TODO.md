@@ -108,6 +108,9 @@
   - [x] parameter boundをfunction entry／VLA宣言時に一度だけ評価し、
         多次元strideと`sizeof`で保存extentを再利用
   - [ ] 全宣言形式
+    - [x] for初期化宣言内のVLAとscalarの複数declaratorをlowerし、
+          array lifetimeをloop全体へ保持。i686/AMD64で実行し、loop後の
+          identifierがscope外として診断されることを検証
     - [x] block-scope variably modified typedefをloweringし、linkageを持つ
           variably modified objectとstruct/union memberを両archで診断
     - [x] C17の旧式identifier-list function declaration/definitionを型付き
