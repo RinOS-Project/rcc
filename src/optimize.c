@@ -864,20 +864,32 @@ typedef struct InlineScalarBinding {
     size_t uses;
 } InlineScalarBinding;
 
+typedef enum InlineScalarOperationKind {
+    INLINE_SCALAR_LOCAL_INITIALIZER,
+    INLINE_SCALAR_LOCAL_ASSIGNMENT
+} InlineScalarOperationKind;
+
+typedef struct InlineScalarOperation {
+    InlineScalarOperationKind kind;
+    const Decl* declaration;
+    const Expr* expression;
+} InlineScalarOperation;
+
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
  * contain only scalar, non-volatile automatic declarations with pure
- * initializers followed by one return.  This lets a small wrapper such as
- * `int f(int x) { int y = x + 1; return y * 2; }` be expanded without
+ * initializers, direct side-effect-free assignments to those locals, and one
+ * final return.  This lets small wrappers such as
+ * `int f(int x) { int y = x + 1; y = y * 2; return y; }` be expanded without
  * pretending that arbitrary control flow, cleanup, or lifetime-sensitive
  * objects are safe to clone into the caller. */
 static bool collect_inline_scalar_body(
-    const Stmt* body, const Decl** locals, const Expr** initializers,
-    size_t* local_count, const Expr** returned) {
+    const Stmt* body, InlineScalarOperation* operations,
+    size_t* operation_count, const Expr** returned) {
     const StmtList* item;
-    if (!locals || !initializers || !local_count || !returned || !body) {
+    if (!operations || !operation_count || !returned || !body) {
         return false;
     }
-    *local_count = 0u;
+    *operation_count = 0u;
     *returned = NULL;
     if (body->kind == STMT_RETURN) {
         *returned = body->return_val;
@@ -899,12 +911,48 @@ static bool collect_inline_scalar_body(
                 !type_is_scalar(declaration->type) ||
                 !declaration->var_init || declaration->var_cleanup ||
                 declaration->var_cleanups ||
-                *local_count >= INLINE_SCALAR_BINDING_LIMIT) {
+                *operation_count >= INLINE_SCALAR_BINDING_LIMIT) {
                 return false;
             }
-            locals[*local_count] = declaration;
-            initializers[*local_count] = declaration->var_init;
-            ++*local_count;
+            operations[*operation_count].kind =
+                INLINE_SCALAR_LOCAL_INITIALIZER;
+            operations[*operation_count].declaration = declaration;
+            operations[*operation_count].expression = declaration->var_init;
+            ++*operation_count;
+            continue;
+        }
+        if (statement->kind == STMT_EXPR && statement->expr &&
+            statement->expr->kind == EXPR_ASSIGN &&
+            statement->expr->binary_lhs &&
+            statement->expr->binary_lhs->kind == EXPR_IDENT &&
+            statement->expr->binary_lhs->ident_decl &&
+            statement->expr->binary_rhs &&
+            *returned == NULL &&
+            *operation_count < INLINE_SCALAR_BINDING_LIMIT) {
+            const Decl* declaration =
+                statement->expr->binary_lhs->ident_decl;
+            bool is_prior_local = false;
+            for (size_t index = 0u; index < *operation_count; ++index) {
+                if (operations[index].kind ==
+                        INLINE_SCALAR_LOCAL_INITIALIZER &&
+                    operations[index].declaration == declaration) {
+                    is_prior_local = true;
+                }
+            }
+            if (!is_prior_local || !declaration->type ||
+                declaration->type->is_volatile ||
+                !type_is_scalar(declaration->type) ||
+                !type_is_compatible(declaration->type,
+                                    statement->expr->binary_rhs->type) ||
+                expression_has_side_effect(statement->expr->binary_rhs)) {
+                return false;
+            }
+            operations[*operation_count].kind =
+                INLINE_SCALAR_LOCAL_ASSIGNMENT;
+            operations[*operation_count].declaration = declaration;
+            operations[*operation_count].expression =
+                statement->expr->binary_rhs;
+            ++*operation_count;
             continue;
         }
         if (statement->kind == STMT_RETURN) {
@@ -1348,12 +1396,11 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     DeclList* parameters;
     ExprList* arguments;
     const Expr* returned;
-    const Decl* local_declarations[INLINE_SCALAR_BINDING_LIMIT];
-    const Expr* local_initializers[INLINE_SCALAR_BINDING_LIMIT];
+    InlineScalarOperation operations[INLINE_SCALAR_BINDING_LIMIT];
     InlineScalarBinding bindings[INLINE_SCALAR_BINDING_LIMIT];
     size_t binding_count = 0u;
     size_t parameter_count = 0u;
-    size_t local_count = 0u;
+    size_t operation_count = 0u;
     size_t index;
     if (!expression_out || !*expression_out) return false;
     expression = *expression_out;
@@ -1373,9 +1420,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         function->func_this_param != NULL || !type_is_scalar(expression->type)) {
         return false;
     }
-    if (!collect_inline_scalar_body(function->func_body, local_declarations,
-                                    local_initializers, &local_count,
-                                    &returned)) {
+    if (!collect_inline_scalar_body(function->func_body, operations,
+                                    &operation_count, &returned)) {
         return false;
     }
     parameters = function->func_params;
@@ -1417,20 +1463,37 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         }
         if (extra_argument) return false;
     }
-    for (index = 0u; index < local_count; ++index) {
-        const Decl* local = local_declarations[index];
-        const Expr* initializer = local_initializers[index];
-        if (binding_count >= INLINE_SCALAR_BINDING_LIMIT ||
-            !type_is_compatible(local->type, initializer->type) ||
-            expression_has_side_effect(initializer) ||
-            !inline_scalar_expression_shape(initializer, bindings,
+    for (index = 0u; index < operation_count; ++index) {
+        const InlineScalarOperation* operation = &operations[index];
+        size_t local_binding;
+        Expr* value;
+        if (!operation->declaration || !operation->expression ||
+            !type_is_compatible(operation->declaration->type,
+                                operation->expression->type) ||
+            expression_has_side_effect(operation->expression) ||
+            !inline_scalar_expression_shape(operation->expression, bindings,
                                              binding_count)) {
             return false;
         }
-        bindings[binding_count].parameter = local;
-        bindings[binding_count].argument = (Expr*)initializer;
-        bindings[binding_count].uses = 0u;
-        ++binding_count;
+        value = clone_inline_scalar_expression(
+            operation->expression, bindings, binding_count);
+        if (!value) return false;
+        value->type = operation->declaration->type;
+        if (operation->kind == INLINE_SCALAR_LOCAL_INITIALIZER) {
+            if (binding_count >= INLINE_SCALAR_BINDING_LIMIT) return false;
+            bindings[binding_count].parameter = operation->declaration;
+            bindings[binding_count].argument = value;
+            bindings[binding_count].uses = 0u;
+            ++binding_count;
+            continue;
+        }
+        local_binding = inline_scalar_binding_index(
+            operation->declaration, bindings, binding_count);
+        if (local_binding < parameter_count || local_binding >= binding_count) {
+            return false;
+        }
+        bindings[local_binding].argument = value;
+        bindings[local_binding].uses = 0u;
     }
     if (!returned || !type_is_scalar(returned->type) ||
         !type_is_compatible(returned->type, expression->type) ||

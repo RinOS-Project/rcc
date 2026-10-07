@@ -143,6 +143,44 @@ int inlined_two_local_temporaries_call(int left, int right)
     return inline_two_local_temporaries(left, right);
 }
 
+static int inline_local_mutations(int value)
+{
+    int adjusted = value + 3;
+    adjusted = adjusted * 2;
+    adjusted = adjusted - 1;
+    return adjusted;
+}
+
+int inlined_local_mutations_call(int value)
+{
+    return inline_local_mutations(value);
+}
+
+static int inline_local_snapshot_before_mutation(int value)
+{
+    int original = value;
+    int snapshot = original + 2;
+    original = original * 5;
+    return snapshot + original;
+}
+
+int inlined_local_snapshot_before_mutation_call(int value)
+{
+    return inline_local_snapshot_before_mutation(value);
+}
+
+static int inline_local_mutation_side_effect(int* value)
+{
+    int result = *value;
+    result = result + (*value)++;
+    return result;
+}
+
+int preserved_local_mutation_side_effect_call(int* value)
+{
+    return inline_local_mutation_side_effect(value);
+}
+
 static int inline_local_side_effect(volatile int* value)
 {
     int loaded = *value;
