@@ -379,9 +379,12 @@
         followed by fixed non-virtual edges now uses the vbtable in both native
         backends and typed IR. `build-rcc` succeeds. The member-pointer path
         counter now counts inaccessible duplicate base subobjects too, so a
-        public path cannot hide an ambiguous private/virtual subobject.
-        Private/protected routes that require member-context access still fail
-        closed. The fixture is still unrun. Keep this open until regression
+        public path cannot hide an ambiguous private/virtual subobject. Direct
+        private/protected member forms now reach sema, which checks the enclosing
+        member-function access context and the protected `&Derived::member`
+        designator rule. Inherited forms remain fail-closed, as do contexts not
+        represented by the current method-owner metadata. The fixture is still
+        unrun. Keep this open until regression
         execution proves the static-reference lifetime and destruction order,
         both target backends and typed IR, and RinOS runtime integration.
   - [ ] Complete remaining pointer-to-member conversions and contexts:
@@ -391,8 +394,10 @@
         application supports one public virtual-base route; member-function
         forms and virtual-base owner conversions remain unsupported. Ambiguous
         object/owner paths count private and virtual duplicate subobjects before
-        selecting a public fixed or vbtable path; access-authorized private or
-        protected inheritance contexts remain unsupported.
+        selecting a public fixed or vbtable path; inherited private/protected
+        member forms and access-authorized private/protected inheritance
+        application contexts remain unsupported. Friend free-function access
+        contexts are not represented by the method-owner metadata.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

@@ -526,6 +526,13 @@ struct Expr {
      * adds the base-subobject offset to the stored member displacement. */
     bool cxx_member_pointer_adjustment_valid;
     int32_t cxx_member_pointer_adjustment;
+    /* The parser records the declaring/access classes for a bounded
+     * `&Class::member` expression so sema can apply private/protected access
+     * rules after the enclosing function context is known. */
+    bool cxx_member_pointer_form;
+    unsigned char cxx_member_pointer_form_access;
+    struct CxxClass* cxx_member_pointer_form_declaring_class;
+    struct CxxClass* cxx_member_pointer_form_designating_class;
     /* A bounded dynamic_cast downcast carries the expected complete-object
      * vtable identity.  Code generation returns a null pointer when the
      * source subobject does not contain that exact table. */

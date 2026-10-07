@@ -66,6 +66,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     Expr* value;
     Type* member_pointer_type;
     SourceLoc loc;
+    bool direct_member = false;
 
     if (!cursor || cursor->type != TOK_IDENT) return NULL;
     while (cursor && cursor->type == TOK_IDENT) {
@@ -125,8 +126,28 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         value->type = type_int;
         return value;
     }
-    if (field->is_bitfield || field->from_virtual_base ||
-        field->cxx_access != ACCESS_PUBLIC || !field->type ||
+    if (owner->cxx_class) {
+        for (TypeParam* declared = owner->cxx_class->fields;
+             declared; declared = declared->next) {
+            if (!declared->is_static && declared->name &&
+                strcmp(declared->name,
+                       segments[segment_count - 1u]->value.str_val) == 0) {
+                direct_member = true;
+                break;
+            }
+        }
+    }
+    if (!direct_member) {
+        loc = segments[segment_count - 1u]->loc;
+        parser.prev = segments[segment_count - 1u];
+        parser.cur = parser.prev->next;
+        rcc_error(loc,
+                  "inherited data-member pointer forms are unsupported");
+        value = expr_int(0, loc);
+        value->type = type_int;
+        return value;
+    }
+    if (field->is_bitfield || field->from_virtual_base || !field->type ||
         field->type->is_reference) {
         loc = segments[segment_count - 1u]->loc;
         parser.prev = segments[segment_count - 1u];
@@ -146,6 +167,10 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     member_pointer_type->cxx_is_member_pointer = true;
     member_pointer_type->cxx_member_pointer_owner = owner;
     value->type = member_pointer_type;
+    value->cxx_member_pointer_form = true;
+    value->cxx_member_pointer_form_access = field->cxx_access;
+    value->cxx_member_pointer_form_declaring_class = owner->cxx_class;
+    value->cxx_member_pointer_form_designating_class = owner->cxx_class;
     return value;
 }
 
@@ -11497,6 +11522,63 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
     return result;
 }
 
+/* Parse the owner suffix in a type-id such as `int ns::Base::*`.  In a
+ * declaration the shared declarator parser can retain a member pointer too,
+ * but named casts and sizeof(type-id) enter through this type parser and must
+ * consume the same owner syntax here. */
+static bool parse_cxx_member_pointer_owner_type(Type** owner_out) {
+    Token* cursor = parser.cur;
+    Token* star = NULL;
+    char owner_name[256];
+    size_t owner_length = 0u;
+    SourceLoc loc;
+
+    if (!cursor || !owner_out) return false;
+    owner_name[0] = '\0';
+    if (cursor->type == TOK_SCOPE) {
+        owner_name[owner_length++] = ':';
+        owner_name[owner_length++] = ':';
+        cursor = cursor->next;
+    }
+    while (cursor && cursor->type == TOK_IDENT) {
+        size_t segment_length = strlen(cursor->value.str_val);
+        if (owner_length + segment_length >= sizeof(owner_name)) return false;
+        memcpy(owner_name + owner_length, cursor->value.str_val,
+               segment_length);
+        owner_length += segment_length;
+        owner_name[owner_length] = '\0';
+        if (!cursor->next || cursor->next->type != TOK_SCOPE ||
+            !cursor->next->next) {
+            return false;
+        }
+        if (cursor->next->next->type == TOK_STAR) {
+            star = cursor->next->next;
+            break;
+        }
+        if (cursor->next->next->type != TOK_IDENT ||
+            owner_length + 2u >= sizeof(owner_name)) {
+            return false;
+        }
+        memcpy(owner_name + owner_length, "::", 2u);
+        owner_length += 2u;
+        owner_name[owner_length] = '\0';
+        cursor = cursor->next->next;
+    }
+    if (!star) return false;
+
+    loc = parser.cur->loc;
+    while (parser.cur && parser.cur != star) advance();
+    if (parser.cur == star) advance();
+    *owner_out = rcc_parser_lookup_type(owner_name);
+    if (!*owner_out || ((*owner_out)->kind != TYPE_STRUCT &&
+                        (*owner_out)->kind != TYPE_UNION)) {
+        rcc_error(loc, "unknown C++ member-pointer owner type '%s'",
+                  owner_name);
+        *owner_out = type_int;
+    }
+    return true;
+}
+
 static Type* parse_cxx_type_spec(void) {
     SourceLoc loc = peek()->loc;
     Type* t = NULL;
@@ -11733,7 +11815,28 @@ static Type* parse_cxx_type_spec(void) {
 
     /* Reference and pointer */
     while (1) {
-        if (match(TOK_STAR)) {
+        Type* member_owner = NULL;
+        if (parse_cxx_member_pointer_owner_type(&member_owner)) {
+            Type* member_pointer = type_ptr(t);
+            if (!member_pointer) {
+                rcc_error(peek()->loc,
+                          "invalid C++ pointer-to-member type");
+                return type_int;
+            }
+            member_pointer->cxx_is_member_pointer = true;
+            member_pointer->cxx_member_pointer_owner = member_owner;
+            while (match(TOK_CONST) || match(TOK_VOLATILE) ||
+                   match(TOK_RESTRICT)) {
+                if (previous()->type == TOK_CONST) {
+                    member_pointer->is_const = true;
+                } else if (previous()->type == TOK_VOLATILE) {
+                    member_pointer->is_volatile = true;
+                } else {
+                    member_pointer->is_restrict = true;
+                }
+            }
+            t = member_pointer;
+        } else if (match(TOK_STAR)) {
             t = type_ptr(t);
             while (match(TOK_CONST)) t->is_const = true;
         } else if (match(TOK_AMP)) {

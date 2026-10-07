@@ -193,6 +193,42 @@ static bool sema_cxx_member_accessible(CxxClass* target,
     return target && sema_cxx_class_is_friend(target, context);
 }
 
+/* A data-member pointer formation also has a constraint on the class named
+ * to the left of `::`.  For protected members, that class must be the access
+ * class (or one derived from it); merely being inside a derived method does
+ * not make `&Base::protected_member` valid. */
+static bool sema_cxx_member_pointer_form_accessible(const Expr* expression) {
+    CxxClass* declaring;
+    CxxClass* designating;
+    CxxClass* context;
+    CxxClass* access_class;
+    unsigned char access;
+
+    if (!expression || !expression->cxx_member_pointer_form) return true;
+    declaring = expression->cxx_member_pointer_form_declaring_class;
+    designating = expression->cxx_member_pointer_form_designating_class;
+    access = expression->cxx_member_pointer_form_access;
+    if (access == ACCESS_PUBLIC) return true;
+    if (!declaring || !designating ||
+        !sema_cxx_member_accessible(declaring, access)) {
+        return false;
+    }
+    if (access != ACCESS_PROTECTED) return true;
+
+    context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    if (context == declaring ||
+        sema_cxx_class_is_friend(declaring, context)) {
+        access_class = declaring;
+    } else if (sema_cxx_class_derives_from(context, declaring, 0u)) {
+        access_class = context;
+    } else {
+        return false;
+    }
+    return designating == access_class ||
+           sema_cxx_class_derives_from(designating, access_class, 0u);
+}
+
 static bool sema_cxx_check_qualified_member_access(const char* name,
                                                    Decl* declaration,
                                                    SourceLoc loc) {
@@ -10145,6 +10181,13 @@ static Type* sema_expr(Expr* expr) {
     switch (expr->kind) {
         case EXPR_INT_LIT:
             if (!expr->type) expr->type = type_int;
+            if (rcc_parser_is_cxx_mode() &&
+                expr->cxx_member_pointer_form &&
+                !sema_cxx_member_pointer_form_accessible(expr)) {
+                rcc_error(expr->loc,
+                          "data-member pointer formation is not accessible in this context");
+                expr->cxx_member_pointer_form = false;
+            }
             break;
 
         case EXPR_FLOAT_LIT:
