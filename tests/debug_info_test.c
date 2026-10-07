@@ -815,6 +815,36 @@ static void verify_optimized_verified_debug_object(
     objfile_free(object);
 }
 
+static void verify_optimized_cxx_verified_debug_object(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* frame;
+    bool has_location;
+    int64_t value_offset;
+    int64_t local_offset;
+    int64_t nested_offset;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    frame = objfile_get_section(object, ".debug_frame");
+    assert(info != NULL && strings != NULL && frame != NULL);
+    assert(find_variable_location(info, strings, "value", architecture,
+                                  &has_location, &value_offset));
+    assert(has_location && value_offset < 0 && value_offset % 4 == 0);
+    assert(find_variable_location(info, strings, "local", architecture,
+                                  &has_location, &local_offset));
+    assert(has_location && local_offset < 0 && local_offset % 4 == 0 &&
+           local_offset != value_offset);
+    assert(find_variable_location(info, strings, "nested", architecture,
+                                  &has_location, &nested_offset));
+    assert(has_location && nested_offset < 0 && nested_offset % 4 == 0 &&
+           nested_offset != value_offset && nested_offset != local_offset);
+    objfile_free(object);
+}
+
 static void verify_vla_variable_location(const ObjSection* info,
                                          const ObjSection* strings,
                                          uint16_t architecture)
@@ -2004,7 +2034,7 @@ static void verify_verified_global_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 20);
+    assert(argc == 22);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -2068,6 +2098,8 @@ int main(int argc, char** argv)
                                "DebugInferredUnsignedInt",
                                "unsigned int", "inferred_uint_max", false,
                                4u, UINT32_MAX);
+    verify_optimized_cxx_verified_debug_object(argv[20], ARCH_X86);
+    verify_optimized_cxx_verified_debug_object(argv[21], ARCH_X64);
     verify_enum_underlying_dwarf(argv[18], ARCH_X86, "DebugSignedEnum",
                                  "char", 1u, 0x06u, false);
     verify_enum_underlying_dwarf(argv[19], ARCH_X64, "DebugSignedEnum",

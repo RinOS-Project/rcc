@@ -569,10 +569,10 @@
         EBP/RBP基準の実stack offsetをvariable/parameter DIEへ出力。位置を持た
         ない変数へ誤った`Decl.var_offset`を使わないことをi686/AMD64のO0/O2
         object regressionで検証
-  - [x] `-g -O1`以上ではsource declarationに紐づくallocaだけをmem2regから
-        保持し、compiler temporaryのSSA昇格と残りの最適化は継続する。
-        optimized parameter/local/nested-local DIEが別々の実frame slotを指す
-        ことをi686/AMD64で検証
+  - [x] C17/C++20の`-g -O2`でsource declarationに紐づくallocaだけをmem2reg
+        から保持し、compiler temporaryのSSA昇格と残りの最適化は継続する。
+        parameter/local/nested-local DIEが別々の実frame slotを指すことを
+        i686/AMD64で検証
   - [x] stack declarationへ`DW_AT_type`を付与し、基本型・ポインタ型の
         v4 type DIEと、未対応の複合型をscalarと偽らないopaque DIEとして
         i686/AMD64 object回帰で検証

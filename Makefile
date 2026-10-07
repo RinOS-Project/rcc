@@ -873,6 +873,14 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O2 -fverified-backend -c \
 		-o $(TEST_OUT)/debug-info/verified-opt-x64-g.ro \
 		tests/verified_backend_debug.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/debug-info/verified-cxx-opt-x86-g.ro \
+		tests/verified_backend_debug.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O2 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/debug-info/verified-cxx-opt-x64-g.ro \
+		tests/verified_backend_debug.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
 		-o $(TEST_OUT)/debug-info/verified-globals-x86-g.ro \
 		tests/verified_backend_globals.c
@@ -901,7 +909,9 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/verified-opt-x86-g.ro \
 		$(TEST_OUT)/debug-info/verified-opt-x64-g.ro \
 		$(TEST_OUT)/debug-info/cxx-enum-x86-g.ro \
-		$(TEST_OUT)/debug-info/cxx-enum-x64-g.ro
+		$(TEST_OUT)/debug-info/cxx-enum-x64-g.ro \
+		$(TEST_OUT)/debug-info/verified-cxx-opt-x86-g.ro \
+		$(TEST_OUT)/debug-info/verified-cxx-opt-x64-g.ro
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
 		$(TEST_OUT)/debug-info/x86-g.ro
