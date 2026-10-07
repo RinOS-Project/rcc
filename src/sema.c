@@ -6978,33 +6978,39 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
     int field_count = 0;
     int field_index = 0;
     bool valid = true;
+    bool is_union;
     if (!object_type || !object || !cleanups || depth > 32) return false;
     cls = object_type->cxx_class;
     if (!cls) return true;
-    for (TypeParam* parameter = cls->fields; parameter;
-         parameter = parameter->next) {
-        if (!parameter->is_static && parameter->type &&
-            parameter->type->cxx_class &&
-            sema_cxx_type_has_destructor_cleanup(parameter->type, 0)) {
-            ++field_count;
+    is_union = object_type->kind == TYPE_UNION;
+    if (!is_union) {
+        for (TypeParam* parameter = cls->fields; parameter;
+             parameter = parameter->next) {
+            if (!parameter->is_static && parameter->type &&
+                parameter->type->cxx_class &&
+                sema_cxx_type_has_destructor_cleanup(parameter->type, 0)) {
+                ++field_count;
+            }
         }
     }
     fields = field_count ? rcc_alloc(sizeof(*fields) * (size_t)field_count)
                          : NULL;
-    for (TypeParam* parameter = cls->fields; parameter;
-         parameter = parameter->next) {
-        TypeField* field;
-        if (parameter->is_static || !parameter->type ||
-            !parameter->type->cxx_class ||
-            !sema_cxx_type_has_destructor_cleanup(parameter->type, 0)) {
-            continue;
+    if (!is_union) {
+        for (TypeParam* parameter = cls->fields; parameter;
+             parameter = parameter->next) {
+            TypeField* field;
+            if (parameter->is_static || !parameter->type ||
+                !parameter->type->cxx_class ||
+                !sema_cxx_type_has_destructor_cleanup(parameter->type, 0)) {
+                continue;
+            }
+            field = sema_cxx_object_field(object_type, parameter->name);
+            if (!field) {
+                valid = false;
+                continue;
+            }
+            fields[field_index++] = field;
         }
-        field = sema_cxx_object_field(object_type, parameter->name);
-        if (!field) {
-            valid = false;
-            continue;
-        }
-        fields[field_index++] = field;
     }
     for (int index = 0; index < field_index; ++index) {
         Expr* member = sema_cxx_object_member(object, fields[index]);
@@ -7059,15 +7065,16 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         if (!reference_temporary) return;
     }
     if (!object_type) return;
-    if (object_type->kind == TYPE_UNION) {
-        if (reference_temporary &&
-            sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
-            rcc_error(declaration->loc,
-                      "union temporary cleanup is unsupported");
-        }
+    if (object_type->kind != TYPE_STRUCT &&
+        object_type->kind != TYPE_UNION) return;
+    if (object_type->kind == TYPE_UNION &&
+        sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
+        !sema_cxx_destructor_function(object_type) &&
+        !(object_type->cleanup_function && object_type->cleanup_field)) {
+        rcc_error(declaration->loc,
+                  "union with a nontrivial member requires an explicit cleanup");
         return;
     }
-    if (object_type->kind != TYPE_STRUCT) return;
     if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
         reference_temporary) {
         Decl* owner = decl_var("__rcc_reference_temporary", object_type,
