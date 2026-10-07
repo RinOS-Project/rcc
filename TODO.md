@@ -318,15 +318,18 @@
       execute on the x64 host. Source-level reference collapsing is covered;
       static-storage references and broader call/return ABI interactions still
       need systematic coverage.
-  - [ ] Verify public implicit conversion functions returning class lvalue
+  - [x] Verify public implicit conversion functions returning class lvalue
         references, rvalue references, and class prvalues during class-reference
         binding, including derived-to-base adjustment and lifetime cleanup.
         Sema lowers these conversion candidates, preserves the result category,
         and applies public derived-to-base adjustment. Codegen now materializes
-        a class-prvalue receiver for the generated implicit object argument, and
-        the regression fixture covers prvalue conversion sources and cleanup;
-        this updated case has not yet been run. Class-prvalue call arguments and
-        static-duration temporaries remain unverified or unsupported.
+        a class-prvalue receiver for the generated implicit object argument.
+        `test-cxx-function-template-references` passes i686/AMD64 generation,
+        x64 execution, cleanup-order checks, and invalid overload diagnostics.
+  - [ ] Support class-prvalue reference arguments with full-expression
+        temporary storage and cleanup on both target backends.
+  - [ ] Support static-duration reference temporaries, including initialization
+        and destructor registration for namespace and block static storage.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
