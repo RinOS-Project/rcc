@@ -12541,10 +12541,20 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
     }
 }
 
-static bool codegen_reference_temporary_scalar(const Type* type) {
+static bool codegen_reference_temporary_scalar(Type* type) {
     return type && (type_is_integer(type) || type->kind == TYPE_ENUM ||
                     type_is_floating(type) || type->kind == TYPE_PTR ||
                     type->kind == TYPE_NULLPTR);
+}
+
+static bool codegen_reference_temporary_local(Type* type,
+                                              Expr* initializer) {
+    if (codegen_reference_temporary_scalar(type)) return true;
+    return type && initializer && initializer->type &&
+        type_is_complete(type) && type->size > 0 &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
+         type->kind == TYPE_VECTOR) &&
+        type_is_compatible(type, initializer->type);
 }
 
 static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
@@ -12695,7 +12705,18 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                     type->base && declaration->var_init &&
                     !gen_expr_is_lvalue(declaration->var_init) &&
                     !gen_expr_is_xvalue(declaration->var_init) &&
-                    codegen_reference_temporary_scalar(type->base)) {
+                    codegen_reference_temporary_local(
+                        type->base, declaration->var_init)) {
+                    if (!codegen_reference_temporary_scalar(type->base) &&
+                        declaration->var_init->kind == EXPR_CALL &&
+                        declaration->var_init->call_result_offset < 0) {
+                        /* The ABI result slot is already the materialized
+                         * prvalue object.  Reuse it so extending a reference
+                         * does not create a second class object. */
+                        declaration->var_reference_temporary_offset =
+                            declaration->var_init->call_result_offset;
+                        break;
+                    }
                     int size = type->base->size;
                     int alignment = type->base->align;
                     int64_t extent;
@@ -14316,18 +14337,40 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 }
                 if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
-                    if (!gen_local_initializer(
-                            mod, d->type->base, d->var_init,
-                            d->var_reference_temporary_offset)) {
-                        rcc_error(d->loc,
-                                  "cannot initialize reference temporary for '%s'",
-                                  d->name);
+                    Type* temporary_type = d->type->base;
+                    bool call_result_storage = temporary_type &&
+                        !codegen_reference_temporary_scalar(temporary_type) &&
+                        d->var_init->kind == EXPR_CALL &&
+                        d->var_init->call_result_offset ==
+                            d->var_reference_temporary_offset;
+                    if (!call_result_storage && temporary_type &&
+                        (temporary_type->kind == TYPE_STRUCT ||
+                         temporary_type->kind == TYPE_UNION ||
+                         temporary_type->kind == TYPE_VECTOR)) {
+                        gen_zero_local_storage(
+                            mod, d->var_reference_temporary_offset,
+                            (size_t)temporary_type->size);
+                    }
+                    if (call_result_storage) {
+                        gen_expr(mod, d->var_init);
+                    } else if (!gen_local_initializer(
+                                   mod, temporary_type, d->var_init,
+                                   d->var_reference_temporary_offset)) {
+                        rcc_error(
+                            d->loc,
+                            "cannot initialize reference temporary for '%s'",
+                            d->name);
                     }
                     emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
                     emit_byte(mod, modrm(2, EAX, EBP));
                     emit_dword(mod,
                                (uint32_t)d->var_reference_temporary_offset);
                     emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
+                    if (!call_result_storage) {
+                        gen_local_vtable_init(
+                            mod, temporary_type,
+                            d->var_reference_temporary_offset);
+                    }
                 } else if (d->var_init &&
                            !gen_local_initializer(mod, d->type, d->var_init,
                                                   d->var_offset)) {

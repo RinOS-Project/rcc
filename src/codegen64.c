@@ -9614,16 +9614,40 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 }
                 if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
-                    if (!gen64_local_initializer(
-                            mod, d->type->base, d->var_init,
-                            d->var_reference_temporary_offset)) {
-                        rcc_error(d->loc,
-                                  "cannot initialize reference temporary for '%s'",
-                                  d->name);
+                    Type* temporary_type = d->type->base;
+                    bool call_result_storage = temporary_type &&
+                        (temporary_type->kind == TYPE_STRUCT ||
+                         temporary_type->kind == TYPE_UNION ||
+                         temporary_type->kind == TYPE_VECTOR) &&
+                        d->var_init->kind == EXPR_CALL &&
+                        d->var_init->call_result_offset ==
+                            d->var_reference_temporary_offset;
+                    if (!call_result_storage && temporary_type &&
+                        (temporary_type->kind == TYPE_STRUCT ||
+                         temporary_type->kind == TYPE_UNION ||
+                         temporary_type->kind == TYPE_VECTOR)) {
+                        gen64_zero_local_storage(
+                            mod, d->var_reference_temporary_offset,
+                            (size_t)temporary_type->size);
+                    }
+                    if (call_result_storage) {
+                        gen64_expr(mod, d->var_init);
+                    } else if (!gen64_local_initializer(
+                                   mod, temporary_type, d->var_init,
+                                   d->var_reference_temporary_offset)) {
+                        rcc_error(
+                            d->loc,
+                            "cannot initialize reference temporary for '%s'",
+                            d->name);
                     }
                     emit64_lea(mod, RAX, RBP,
                                d->var_reference_temporary_offset);
                     emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
+                    if (!call_result_storage) {
+                        gen64_local_vtable_init(
+                            mod, temporary_type,
+                            d->var_reference_temporary_offset);
+                    }
                 } else if (d->var_init &&
                            !gen64_local_initializer(mod, d->type, d->var_init,
                                                     d->var_offset)) {
