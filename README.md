@@ -268,7 +268,10 @@ through the vbtable in both native backends and typed IR. `nullptr`/zero
 initialization and null comparison use the all-ones sentinel. Explicit
 `static_cast` owner conversion works in both directions with null-preserving
 runtime and constant adjustment. `build-rcc` succeeds; a local regression
-fixture and Makefile target remain untracked and unrun.
+fixture and Makefile target remain untracked and unrun. Ambiguous path checks
+count inaccessible duplicate subobjects as well, so a public route cannot hide
+a second private or virtual base subobject. Private/protected inherited routes
+that depend on member-context access remain unsupported.
 Pointer-to-member-selected static reference lifetime remains open, as do
 thread-local temporaries and the broader member-pointer ABI cases in
 [`TODO.md`](TODO.md).

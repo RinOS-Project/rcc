@@ -415,12 +415,12 @@ static bool sema_cxx_public_base(Type* derived, Type* target,
     return false;
 }
 
-/* Count non-virtual public paths separately.  A conversion to a repeated
- * non-virtual base is ambiguous even when the first path has a usable fixed
- * offset; silently selecting that first path would change the C++ program. */
-static int sema_cxx_nonvirtual_public_base_paths(Type* derived, Type* target,
-                                                 int* adjustment,
-                                                 unsigned depth) {
+/* Count fixed non-virtual routes.  Callers that need an accessible route
+ * request public edges; ambiguity checks also count private/protected routes
+ * because an inaccessible duplicate is still a distinct base subobject. */
+static int sema_cxx_nonvirtual_base_paths_impl(
+    Type* derived, Type* target, int* adjustment, unsigned depth,
+    bool require_public) {
     CxxClass* cls;
     int count = 0;
     if (!derived || !target || depth > 32u) return 0;
@@ -441,12 +441,14 @@ static int sema_cxx_nonvirtual_public_base_paths(Type* derived, Type* target,
         int nested_adjustment = 0;
         int nested_count;
         if (!base_type || cls->bases[index].is_virtual ||
-            cls->bases[index].access != ACCESS_PUBLIC ||
+            (require_public &&
+             cls->bases[index].access != ACCESS_PUBLIC) ||
             cls->base_offsets[index] < 0) {
             continue;
         }
-        nested_count = sema_cxx_nonvirtual_public_base_paths(
-            base_type, target, &nested_adjustment, depth + 1u);
+        nested_count = sema_cxx_nonvirtual_base_paths_impl(
+            base_type, target, &nested_adjustment, depth + 1u,
+            require_public);
         if (nested_count <= 0) continue;
         if (count == 0 && adjustment) {
             *adjustment = cls->base_offsets[index] + nested_adjustment;
@@ -457,13 +459,26 @@ static int sema_cxx_nonvirtual_public_base_paths(Type* derived, Type* target,
     return count;
 }
 
+static int sema_cxx_nonvirtual_public_base_paths(Type* derived, Type* target,
+                                                 int* adjustment,
+                                                 unsigned depth) {
+    return sema_cxx_nonvirtual_base_paths_impl(
+        derived, target, adjustment, depth, true);
+}
+
+static int sema_cxx_nonvirtual_all_base_paths(Type* derived, Type* target,
+                                               unsigned depth) {
+    return sema_cxx_nonvirtual_base_paths_impl(
+        derived, target, NULL, depth, false);
+}
+
 /* Count public routes from a most-derived object through one shared virtual
  * base and then only fixed non-virtual edges to target.  The returned virtual
  * index identifies the runtime vbtable entry; nested_adjustment identifies a
  * target that is itself a non-virtual base of that virtual base. */
-static int sema_cxx_public_virtual_member_base_paths(
+static int sema_cxx_virtual_member_base_paths_impl(
     Type* derived, Type* target, int* virtual_index,
-    int* nested_adjustment) {
+    int* nested_adjustment, bool require_public) {
     CxxClass* cls = derived ? derived->cxx_class : NULL;
     int count = 0;
     if (virtual_index) *virtual_index = -1;
@@ -473,11 +488,12 @@ static int sema_cxx_public_virtual_member_base_paths(
         CxxVirtualBaseInfo* base = &cls->virtual_bases[index];
         int nested = 0;
         int paths;
-        if (!base->base || !base->public_path || !base->base->type) {
+        if (!base->base || !base->base->type ||
+            (require_public && !base->public_path)) {
             continue;
         }
-        paths = sema_cxx_nonvirtual_public_base_paths(
-            base->base->type, target, &nested, 0u);
+        paths = sema_cxx_nonvirtual_base_paths_impl(
+            base->base->type, target, &nested, 0u, require_public);
         if (paths <= 0) continue;
         if (count == 0 && paths == 1) {
             if (virtual_index) *virtual_index = index;
@@ -487,6 +503,32 @@ static int sema_cxx_public_virtual_member_base_paths(
         if (count > 1) return 2;
     }
     return count;
+}
+
+static int sema_cxx_public_virtual_member_base_paths(
+    Type* derived, Type* target, int* virtual_index,
+    int* nested_adjustment) {
+    return sema_cxx_virtual_member_base_paths_impl(
+        derived, target, virtual_index, nested_adjustment, true);
+}
+
+static int sema_cxx_all_virtual_member_base_paths(Type* derived,
+                                                  Type* target) {
+    return sema_cxx_virtual_member_base_paths_impl(
+        derived, target, NULL, NULL, false);
+}
+
+/* Pointer-to-member owner conversion requires one accessible non-virtual
+ * base subobject.  Count every route first so a private duplicate or a
+ * virtual duplicate cannot be hidden by selecting the sole public fixed path. */
+static bool sema_cxx_unique_public_nonvirtual_member_owner_path(
+    Type* derived, Type* target, int* adjustment) {
+    int public_paths = sema_cxx_nonvirtual_public_base_paths(
+        derived, target, adjustment, 0u);
+    int all_paths = sema_cxx_nonvirtual_all_base_paths(
+        derived, target, 0u) +
+        sema_cxx_all_virtual_member_base_paths(derived, target);
+    return public_paths == 1 && all_paths == 1;
 }
 
 static bool sema_cxx_unique_public_base(Type* derived, Type* target,
@@ -1897,9 +1939,9 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         }
         return source->cxx_member_pointer_owner &&
                        target->cxx_member_pointer_owner &&
-                       sema_cxx_nonvirtual_public_base_paths(
+                       sema_cxx_unique_public_nonvirtual_member_owner_path(
                            target->cxx_member_pointer_owner,
-                           source->cxx_member_pointer_owner, NULL, 0u) == 1
+                           source->cxx_member_pointer_owner, NULL)
                    ? 2 : -1;
     }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
@@ -2194,8 +2236,8 @@ reference_binding_validated:
                     e->type->base, target->base) &&
                 source_owner && target_owner &&
                 !type_is_compatible(source_owner, target_owner)) {
-                paths = sema_cxx_nonvirtual_public_base_paths(
-                    target_owner, source_owner, &owner_adjustment, 0u);
+                paths = sema_cxx_unique_public_nonvirtual_member_owner_path(
+                    target_owner, source_owner, &owner_adjustment) ? 1 : 0;
             }
             if (paths == 1) {
                 int64_t total_adjustment = owner_adjustment;
@@ -6868,9 +6910,9 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         }
         if (source->cxx_member_pointer_owner &&
             target->cxx_member_pointer_owner &&
-            sema_cxx_nonvirtual_public_base_paths(
+            sema_cxx_unique_public_nonvirtual_member_owner_path(
                 target->cxx_member_pointer_owner,
-                source->cxx_member_pointer_owner, NULL, 0u) == 1) {
+                source->cxx_member_pointer_owner, NULL)) {
             return 2;
         }
         return -1;
@@ -10557,18 +10599,18 @@ static Type* sema_expr(Expr* expr) {
                         !target->cxx_member_pointer_owner) {
                         paths = 0;
                     } else {
-                        paths = sema_cxx_nonvirtual_public_base_paths(
+                        paths = sema_cxx_unique_public_nonvirtual_member_owner_path(
                             target->cxx_member_pointer_owner,
                             source->cxx_member_pointer_owner,
-                            &base_adjustment, 0u);
+                            &base_adjustment) ? 1 : 0;
                         if (paths == 1) {
                             expr->cxx_member_pointer_adjustment =
                                 base_adjustment;
                         } else {
-                            paths = sema_cxx_nonvirtual_public_base_paths(
+                            paths = sema_cxx_unique_public_nonvirtual_member_owner_path(
                                 source->cxx_member_pointer_owner,
                                 target->cxx_member_pointer_owner,
-                                &base_adjustment, 0u);
+                                &base_adjustment) ? 1 : 0;
                             if (paths == 1) {
                                 expr->cxx_member_pointer_adjustment =
                                     -base_adjustment;
@@ -12111,14 +12153,21 @@ static Type* sema_expr(Expr* expr) {
                 int object_adjustment = 0;
                 int nonvirtual_paths =
                     sema_cxx_nonvirtual_public_base_paths(
-                    object_type,
-                    member_pointer_type->cxx_member_pointer_owner,
-                    &object_adjustment, 0u);
+                        object_type,
+                        member_pointer_type->cxx_member_pointer_owner,
+                        &object_adjustment, 0u);
                 int virtual_paths = sema_cxx_public_virtual_member_base_paths(
                     object_type,
                     member_pointer_type->cxx_member_pointer_owner,
                     &virtual_index, &virtual_nested_adjustment);
-                if (nonvirtual_paths + virtual_paths != 1) {
+                int all_paths = sema_cxx_nonvirtual_all_base_paths(
+                    object_type,
+                    member_pointer_type->cxx_member_pointer_owner, 0u) +
+                    sema_cxx_all_virtual_member_base_paths(
+                        object_type,
+                        member_pointer_type->cxx_member_pointer_owner);
+                if (all_paths != 1 ||
+                    nonvirtual_paths + virtual_paths != 1) {
                     rcc_error(expr->loc,
                               "member-pointer application requires one public base subobject path");
                     expr->type = type_int;

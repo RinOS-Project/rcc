@@ -377,8 +377,11 @@
         either direction are wired through native and typed-IR lowering; null
         is preserved. Application through one public shared virtual base
         followed by fixed non-virtual edges now uses the vbtable in both native
-        backends and typed IR. `build-rcc` succeeds, but the member-pointer
-        fixture is still unrun. Keep this open until regression
+        backends and typed IR. `build-rcc` succeeds. The member-pointer path
+        counter now counts inaccessible duplicate base subobjects too, so a
+        public path cannot hide an ambiguous private/virtual subobject.
+        Private/protected routes that require member-context access still fail
+        closed. The fixture is still unrun. Keep this open until regression
         execution proves the static-reference lifetime and destruction order,
         both target backends and typed IR, and RinOS runtime integration.
   - [ ] Complete remaining pointer-to-member conversions and contexts:
@@ -386,7 +389,10 @@
         function types/calls, ambiguous paths, virtual-base owner conversions,
         and virtual-base data-member-pointer representation. Data-member-pointer
         application supports one public virtual-base route; member-function
-        forms and virtual-base owner conversions remain unsupported.
+        forms and virtual-base owner conversions remain unsupported. Ambiguous
+        object/owner paths count private and virtual duplicate subobjects before
+        selecting a public fixed or vbtable path; access-authorized private or
+        protected inheritance contexts remain unsupported.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
