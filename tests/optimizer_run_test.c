@@ -137,6 +137,18 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(
         optimized, "inlined_local_mutations_call", 0xe8u));
     assert(function_contains_byte(
+        unoptimized, "inlined_local_compound_mutations_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_local_compound_mutations_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "inlined_local_compound_operator_coverage_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_local_compound_operator_coverage_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_narrow_local_compound_call", 0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_narrow_local_compound_call", 0xe8u));
+    assert(function_contains_byte(
         unoptimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
     assert(!function_contains_byte(
         optimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
@@ -641,6 +653,9 @@ int main(int argc, char** argv)
         int (*inlined_local_temporary_call)(int);
         int (*inlined_two_local_temporaries_call)(int, int);
         int (*inlined_local_mutations_call)(int);
+        int (*inlined_local_compound_mutations_call)(int);
+        int (*inlined_local_compound_operator_coverage_call)(int);
+        short (*preserved_narrow_local_compound_call)(int);
         int (*inlined_local_snapshot_before_mutation_call)(int);
         int (*preserved_local_mutation_side_effect_call)(int*);
         int (*preserved_local_side_effect_call)(volatile int*);
@@ -899,6 +914,27 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&inlined_local_mutations_call, &address,
                    sizeof(inlined_local_mutations_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_local_compound_mutations_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_local_compound_mutations_call, &address,
+                   sizeof(inlined_local_compound_mutations_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_local_compound_operator_coverage_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_local_compound_operator_coverage_call, &address,
+                   sizeof(inlined_local_compound_operator_coverage_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "preserved_narrow_local_compound_call");
+            address = mapping + symbol->value;
+            memcpy(&preserved_narrow_local_compound_call, &address,
+                   sizeof(preserved_narrow_local_compound_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -1230,6 +1266,10 @@ int main(int argc, char** argv)
         assert(inlined_two_local_temporaries_call(-8, 13) == 11);
         assert(inlined_local_mutations_call(-8) == -11);
         assert(inlined_local_mutations_call(5) == 15);
+        assert(inlined_local_compound_mutations_call(-5) == -5);
+        assert(inlined_local_compound_mutations_call(6) == 17);
+        assert(inlined_local_compound_operator_coverage_call(2) == 12);
+        assert(preserved_narrow_local_compound_call(5) == 7);
         assert(inlined_local_snapshot_before_mutation_call(3) == 20);
         assert(inlined_local_snapshot_before_mutation_call(-4) == -22);
         {

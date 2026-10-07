@@ -866,14 +866,34 @@ typedef struct InlineScalarBinding {
 
 typedef enum InlineScalarOperationKind {
     INLINE_SCALAR_LOCAL_INITIALIZER,
-    INLINE_SCALAR_LOCAL_ASSIGNMENT
+    INLINE_SCALAR_LOCAL_ASSIGNMENT,
+    INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT
 } InlineScalarOperationKind;
 
 typedef struct InlineScalarOperation {
     InlineScalarOperationKind kind;
     const Decl* declaration;
     const Expr* expression;
+    ExprKind assignment_operator;
 } InlineScalarOperation;
+
+static bool inline_scalar_compound_operator(ExprKind assignment_operator,
+                                            ExprKind* binary_operator) {
+    if (!binary_operator) return false;
+    switch (assignment_operator) {
+        case EXPR_ADD_ASSIGN: *binary_operator = EXPR_ADD; return true;
+        case EXPR_SUB_ASSIGN: *binary_operator = EXPR_SUB; return true;
+        case EXPR_MUL_ASSIGN: *binary_operator = EXPR_MUL; return true;
+        case EXPR_DIV_ASSIGN: *binary_operator = EXPR_DIV; return true;
+        case EXPR_MOD_ASSIGN: *binary_operator = EXPR_MOD; return true;
+        case EXPR_AND_ASSIGN: *binary_operator = EXPR_BITAND; return true;
+        case EXPR_OR_ASSIGN: *binary_operator = EXPR_BITOR; return true;
+        case EXPR_XOR_ASSIGN: *binary_operator = EXPR_BITXOR; return true;
+        case EXPR_LSHIFT_ASSIGN: *binary_operator = EXPR_LSHIFT; return true;
+        case EXPR_RSHIFT_ASSIGN: *binary_operator = EXPR_RSHIFT; return true;
+        default: return false;
+    }
+}
 
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
  * contain only scalar, non-volatile automatic declarations with pure
@@ -918,20 +938,26 @@ static bool collect_inline_scalar_body(
                 INLINE_SCALAR_LOCAL_INITIALIZER;
             operations[*operation_count].declaration = declaration;
             operations[*operation_count].expression = declaration->var_init;
+            operations[*operation_count].assignment_operator = EXPR_INT_LIT;
             ++*operation_count;
             continue;
         }
         if (statement->kind == STMT_EXPR && statement->expr &&
-            statement->expr->kind == EXPR_ASSIGN &&
             statement->expr->binary_lhs &&
             statement->expr->binary_lhs->kind == EXPR_IDENT &&
             statement->expr->binary_lhs->ident_decl &&
             statement->expr->binary_rhs &&
             *returned == NULL &&
             *operation_count < INLINE_SCALAR_BINDING_LIMIT) {
+            ExprKind binary_operator;
+            bool simple_assignment =
+                statement->expr->kind == EXPR_ASSIGN;
+            bool compound_assignment = inline_scalar_compound_operator(
+                statement->expr->kind, &binary_operator);
             const Decl* declaration =
                 statement->expr->binary_lhs->ident_decl;
             bool is_prior_local = false;
+            if (!simple_assignment && !compound_assignment) return false;
             for (size_t index = 0u; index < *operation_count; ++index) {
                 if (operations[index].kind ==
                         INLINE_SCALAR_LOCAL_INITIALIZER &&
@@ -942,16 +968,24 @@ static bool collect_inline_scalar_body(
             if (!is_prior_local || !declaration->type ||
                 declaration->type->is_volatile ||
                 !type_is_scalar(declaration->type) ||
+                (compound_assignment &&
+                 (!type_is_integer(declaration->type) ||
+                  declaration->type->size < 4 ||
+                  !type_is_compatible(declaration->type,
+                                      statement->expr->binary_lhs->type))) ||
                 !type_is_compatible(declaration->type,
                                     statement->expr->binary_rhs->type) ||
                 expression_has_side_effect(statement->expr->binary_rhs)) {
                 return false;
             }
             operations[*operation_count].kind =
-                INLINE_SCALAR_LOCAL_ASSIGNMENT;
+                simple_assignment ? INLINE_SCALAR_LOCAL_ASSIGNMENT
+                                  : INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT;
             operations[*operation_count].declaration = declaration;
             operations[*operation_count].expression =
                 statement->expr->binary_rhs;
+            operations[*operation_count].assignment_operator =
+                statement->expr->kind;
             ++*operation_count;
             continue;
         }
@@ -1491,6 +1525,23 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             operation->declaration, bindings, binding_count);
         if (local_binding < parameter_count || local_binding >= binding_count) {
             return false;
+        }
+        if (operation->kind ==
+            INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT) {
+            ExprKind binary_operator;
+            Expr* previous_value;
+            Expr* combined;
+            if (!inline_scalar_compound_operator(
+                    operation->assignment_operator, &binary_operator)) {
+                return false;
+            }
+            previous_value = clone_inline_pure_scalar_expression(
+                bindings[local_binding].argument);
+            if (!previous_value) return false;
+            combined = expr_binary(binary_operator, previous_value, value,
+                                   operation->expression->loc);
+            combined->type = operation->declaration->type;
+            value = combined;
         }
         bindings[local_binding].argument = value;
         bindings[local_binding].uses = 0u;
