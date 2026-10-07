@@ -129,6 +129,15 @@ int main() {
             static_cast<ReferenceMemberValue&&>(member_value));
     member_auto_result += 2;
     if (member_value.value != 31) return 13;
+    int auto_lvalue_value = 32;
+    auto&& deduced_lvalue_reference = auto_lvalue_value;
+    deduced_lvalue_reference += 1;
+    if (auto_lvalue_value != 33) return 20;
+    int auto_xvalue_value = 42;
+    auto&& deduced_xvalue_reference =
+            static_cast<int&&>(auto_xvalue_value);
+    deduced_xvalue_reference += 2;
+    if (auto_xvalue_value != 44) return 21;
     if (read_rvalue(9) != 9) return 14;
     if (read_rvalue(mutable_value) != 14) return 15;
     if (invoke(double_value, 6) != 12) return 16;
