@@ -4194,6 +4194,11 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             } else {
                 gen64_lvalue(mod, expr->binary_lhs);
             }
+            if (expr->cxx_pointer_adjustment_valid &&
+                expr->cxx_pointer_adjustment != 0) {
+                emit64_add_reg_imm(mod, RAX,
+                                   expr->cxx_pointer_adjustment);
+            }
             emit64_push_reg(mod, RAX);
             gen64_expr(mod, expr->binary_rhs);
             emit64_pop_reg(mod, RCX);

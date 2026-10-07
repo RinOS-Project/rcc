@@ -11793,9 +11793,11 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW: {
             bool arrow = expr->kind == EXPR_CXX_MEMBER_PTR_ARROW;
+            int object_adjustment = 0;
             Type* object_type = sema_expr(expr->binary_lhs);
             Type* member_pointer_type = sema_expr(expr->binary_rhs);
             Type* member_type;
+            expr->cxx_pointer_adjustment_valid = false;
             if (object_type && object_type->kind == TYPE_PTR &&
                 object_type->is_reference) {
                 object_type = object_type->base;
@@ -11829,10 +11831,18 @@ static Type* sema_expr(Expr* expr) {
             if (!type_is_compatible(object_type,
                                     member_pointer_type
                                         ->cxx_member_pointer_owner)) {
-                rcc_error(expr->loc,
-                          "member-pointer application across a base class is unsupported");
-                expr->type = type_int;
-                break;
+                int paths = sema_cxx_nonvirtual_public_base_paths(
+                    object_type,
+                    member_pointer_type->cxx_member_pointer_owner,
+                    &object_adjustment, 0u);
+                if (paths != 1) {
+                    rcc_error(expr->loc,
+                              "member-pointer application requires one public non-virtual base path");
+                    expr->type = type_int;
+                    break;
+                }
+                expr->cxx_pointer_adjustment_valid = true;
+                expr->cxx_pointer_adjustment = object_adjustment;
             }
             member_type = member_pointer_type->base;
             if (!member_type || member_type->kind == TYPE_FUNC) {

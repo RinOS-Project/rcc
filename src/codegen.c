@@ -6619,6 +6619,11 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             } else {
                 gen_lvalue(mod, expr->binary_lhs);
             }
+            if (expr->cxx_pointer_adjustment_valid &&
+                expr->cxx_pointer_adjustment != 0) {
+                emit_add_reg_imm(mod, EAX,
+                                 expr->cxx_pointer_adjustment);
+            }
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
             emit_pop_reg(mod, ECX);

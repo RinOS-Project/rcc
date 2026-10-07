@@ -1233,11 +1233,16 @@ static RccIrLowerValue lower_lvalue_address_impl(
         if (!aggregate_type ||
             (aggregate_type->kind != TYPE_STRUCT &&
              aggregate_type->kind != TYPE_UNION) ||
-            !type_is_compatible(
-                (Type*)aggregate_type,
-                member_pointer_type->cxx_member_pointer_owner)) {
+            (!type_is_compatible(
+                 (Type*)aggregate_type,
+                 member_pointer_type->cxx_member_pointer_owner) &&
+             !expression->cxx_pointer_adjustment_valid)) {
             context->unsupported = true;
             return lower_invalid_value();
+        }
+        if (expression->cxx_pointer_adjustment_valid) {
+            base = lower_adjusted_pointer(
+                context, base, expression->cxx_pointer_adjustment);
         }
         offset = lower_expression(context, expression->binary_rhs);
         return lower_dynamic_byte_offset_address(context, base, offset);

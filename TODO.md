@@ -375,9 +375,11 @@
         the working tree but are untracked and have not been run. Keep this
         open until both-architecture generation,
         lifetime/destructor execution, and RinOS integration are covered.
+        A unique public non-virtual base path now adjusts the object before
+        applying the member offset in both native backends and typed IR.
         Pointer-to-member functions, private-access contexts, null/member
-        pointer conversions, derived-object application, and virtual-base
-        member pointers remain unsupported and must diagnose.
+        pointer conversions, ambiguous base paths, and virtual-base member
+        pointers remain unsupported and must diagnose.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
