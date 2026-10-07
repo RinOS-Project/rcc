@@ -9832,7 +9832,11 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_ADDR: {
             Type* t = sema_expr(expr->unary_operand);
-            if (!is_lvalue(expr->unary_operand)) {
+            bool materialized_implicit_object =
+                expr->cxx_implicit_object_address && t &&
+                (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION);
+            if (!is_lvalue(expr->unary_operand) &&
+                !materialized_implicit_object) {
                 rcc_error(expr->loc, "cannot take address of rvalue");
             }
             if (expr->unary_operand &&
@@ -11165,10 +11169,14 @@ static Type* sema_expr(Expr* expr) {
                     function_expression->type = method->function_decl->type;
                     expr->call_func = function_expression;
                     if (method->function_decl->func_this_param) {
-                        Expr* this_argument = member->kind == EXPR_PTR_MEMBER
-                            ? member->member_base
-                            : expr_unary(EXPR_ADDR, member->member_base,
-                                         member->loc);
+                        Expr* this_argument;
+                        if (member->kind == EXPR_PTR_MEMBER) {
+                            this_argument = member->member_base;
+                        } else {
+                            this_argument = expr_unary(
+                                EXPR_ADDR, member->member_base, member->loc);
+                            this_argument->cxx_implicit_object_address = true;
+                        }
                         Type* expected_this =
                             method->function_decl->func_this_param->type;
                         /* Establish the source object's type before deciding

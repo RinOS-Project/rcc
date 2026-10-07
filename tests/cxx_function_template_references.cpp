@@ -109,6 +109,61 @@ struct LifetimeExtendedDerived : LifetimeExtendedBase {
     }
 };
 
+struct ConversionLifetimeDerived : LifetimeExtendedBase {
+    ConversionLifetimeDerived(int* events, int value)
+        : LifetimeExtendedBase(events, value) {}
+
+    ~ConversionLifetimeDerived() {
+        *events = *events * 10 + 2;
+    }
+};
+
+struct ConversionTemporarySource {
+    int* events;
+    int value;
+
+    operator LifetimeExtendedTemporary() const {
+        return {events, value};
+    }
+};
+
+struct ConversionDerivedSource {
+    int* events;
+    int value;
+
+    operator ConversionLifetimeDerived() const {
+        return {events, value};
+    }
+};
+
+struct ConversionReferenceValue {
+    int value;
+};
+
+struct ConversionLvalueSource {
+    ConversionReferenceValue* value;
+
+    operator ConversionReferenceValue&() {
+        return *value;
+    }
+};
+
+struct ConversionXvalueSource {
+    ConversionReferenceValue* value;
+
+    operator ConversionReferenceValue&&() {
+        return static_cast<ConversionReferenceValue&&>(*value);
+    }
+};
+
+int read_conversion_lvalue(const ConversionReferenceValue& value) {
+    return value.value;
+}
+
+int read_conversion_xvalue(ConversionReferenceValue&& value) {
+    return value.value;
+}
+
 struct LifetimeInheritedCleanup : LifetimeExtendedBase {
     LifetimeInheritedCleanup(int* events, int value)
         : LifetimeExtendedBase(events, value) {}
@@ -321,6 +376,44 @@ int main() {
             return 29;
     }
     if (temporary_lifetime_events != 65) return 27;
+    int converted_temporary_events = 0;
+    {
+        const LifetimeExtendedTemporary& converted_temporary =
+            ConversionTemporarySource{&converted_temporary_events, 7};
+        if (converted_temporary.value != 7 ||
+            converted_temporary_events != 0)
+            return 57;
+        if (double_value(5) != 10 || converted_temporary_events != 0)
+            return 58;
+    }
+    if (converted_temporary_events != 7) return 59;
+    int converted_derived_events = 0;
+    {
+        const LifetimeExtendedBase& converted_derived =
+            ConversionDerivedSource{&converted_derived_events, 8};
+        if (converted_derived.value != 8 || converted_derived_events != 0)
+            return 60;
+        if (double_value(6) != 12 || converted_derived_events != 0)
+            return 61;
+    }
+    if (converted_derived_events != 21) return 62;
+    ConversionReferenceValue converted_reference_value{63};
+    ConversionLvalueSource conversion_lvalue_source{
+        &converted_reference_value};
+    const ConversionReferenceValue& converted_lvalue =
+        conversion_lvalue_source;
+    if (&converted_lvalue != &converted_reference_value ||
+        read_conversion_lvalue(conversion_lvalue_source) != 63)
+        return 63;
+    ConversionXvalueSource conversion_xvalue_source{
+        &converted_reference_value};
+    ConversionReferenceValue&& converted_xvalue =
+        conversion_xvalue_source;
+    if (&converted_xvalue != &converted_reference_value ||
+        read_conversion_xvalue(conversion_xvalue_source) != 63)
+        return 64;
+    converted_xvalue.value = 65;
+    if (converted_reference_value.value != 65) return 65;
     int derived_temporary_events = 0;
     {
         const LifetimeExtendedBase& extended_base =

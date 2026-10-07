@@ -587,6 +587,10 @@ struct Expr {
     /* Synthetic constructor this argument.  The offset is relative to the
      * active call's temporary/argument area and is set only by codegen. */
     int cxx_this_stack_offset;
+    /* Address-of generated for the implicit object parameter of a C++ member
+     * call.  It may materialize a class prvalue receiver in its aggregate
+     * result slot; source-written unary & remains restricted to lvalues. */
+    bool cxx_implicit_object_address;
 
     union {
         /* EXPR_INT_LIT */

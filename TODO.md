@@ -321,9 +321,12 @@
   - [ ] Verify public implicit conversion functions returning class lvalue
         references, rvalue references, and class prvalues during class-reference
         binding, including derived-to-base adjustment and lifetime cleanup.
-        Sema now lowers these conversion candidates and the compiler builds, but
-        no regression has run; class-prvalue call arguments and static-duration
-        temporaries remain unverified or unsupported.
+        Sema lowers these conversion candidates, preserves the result category,
+        and applies public derived-to-base adjustment. Codegen now materializes
+        a class-prvalue receiver for the generated implicit object argument, and
+        the regression fixture covers prvalue conversion sources and cleanup;
+        this updated case has not yet been run. Class-prvalue call arguments and
+        static-duration temporaries remain unverified or unsupported.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
