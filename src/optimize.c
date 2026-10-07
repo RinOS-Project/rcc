@@ -77,7 +77,8 @@ static bool fold_constant_switch(Stmt* statement);
 
 enum {
     INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64,
-    INLINE_SCALAR_BINDING_LIMIT = 16
+    INLINE_SCALAR_BINDING_LIMIT = 16,
+    CONSTANT_LOOP_UNROLL_LIMIT = 8
 };
 
 static void replace_integer_with_side_effect(Expr** expression,
@@ -2800,7 +2801,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
              (step < 0 && current < bound))) {
             return false;
         }
-        while (iterations <= 4u) {
+        while (iterations <= CONSTANT_LOOP_UNROLL_LIMIT) {
             bool runs;
             if (condition->kind == EXPR_NE) {
                 runs = current != bound;
@@ -2837,7 +2838,7 @@ static bool constant_for_iteration_count(const Stmt* statement,
              (step < 0 && current < bound))) {
             return false;
         }
-        while (iterations <= 4u) {
+        while (iterations <= CONSTANT_LOOP_UNROLL_LIMIT) {
             bool runs;
             if (condition->kind == EXPR_NE) {
                 runs = current != bound;
@@ -3072,7 +3073,8 @@ static bool unroll_constant_for(Stmt* statement, unsigned count) {
     StmtList* head;
     StmtList** tail;
     if (!statement || statement->kind != STMT_FOR || count < 1u ||
-        count > 4u || !statement->for_init || !statement->for_body ||
+        count > CONSTANT_LOOP_UNROLL_LIMIT || !statement->for_init ||
+        !statement->for_body ||
         !statement->for_inc || !clone_unrolled_stmt(statement->for_body)) {
         return false;
     }
@@ -3109,7 +3111,7 @@ static bool unroll_constant_loop(Stmt* statement, unsigned count) {
     StmtList** tail = &head;
     if (!statement || (statement->kind != STMT_WHILE &&
                        statement->kind != STMT_DO) || count < 1u ||
-        count > 4u || !statement->while_body ||
+        count > CONSTANT_LOOP_UNROLL_LIMIT || !statement->while_body ||
         !clone_unrolled_stmt(statement->while_body)) {
         return false;
     }
@@ -4020,7 +4022,7 @@ static bool constant_loop_iteration_count(const Stmt* statement,
         return false;
     }
     iterations = 0u;
-    while (iterations < 4u) {
+    while (iterations < CONSTANT_LOOP_UNROLL_LIMIT) {
         if (!do_first && !constant_loop_condition_holds(
                 condition, induction->type, signed_current, unsigned_current,
                 step, bound_value)) {

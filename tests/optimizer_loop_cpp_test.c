@@ -1,11 +1,64 @@
 #include "objfile.h"
 
 #include <assert.h>
+#include <stdbool.h>
 #include <string.h>
 
-#if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
+
+#if (defined(_WIN32) && (defined(_M_X64) || defined(_M_IX86) || \
+                         defined(__x86_64__) || defined(__i386__))) || \
+    defined(__x86_64__) || defined(__i386__)
+#define RCC_OPTIMIZER_NATIVE_X86 1
+
+static size_t execution_page_size(void)
+{
+#if defined(_WIN32)
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return (size_t)info.dwPageSize;
+#else
+    long size = sysconf(_SC_PAGESIZE);
+    return size > 0 ? (size_t)size : 0u;
+#endif
+}
+
+static void* allocate_execution_memory(size_t size)
+{
+#if defined(_WIN32)
+    return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    void* memory = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return memory == MAP_FAILED ? NULL : memory;
+#endif
+}
+
+static bool protect_execution_memory(void* memory, size_t size)
+{
+#if defined(_WIN32)
+    DWORD old_protection;
+    return VirtualProtect(memory, size, PAGE_EXECUTE_READ,
+                          &old_protection) != 0;
+#else
+    return mprotect(memory, size, PROT_READ | PROT_EXEC) == 0;
+#endif
+}
+
+static bool release_execution_memory(void* memory, size_t size)
+{
+#if defined(_WIN32)
+    (void)size;
+    return VirtualFree(memory, 0u, MEM_RELEASE) != 0;
+#else
+    return munmap(memory, size) == 0;
+#endif
+}
 #endif
 
 static ObjSection* code_section(ObjectFile* object)
@@ -41,6 +94,8 @@ static void verify_pair(const char* unoptimized_path,
 {
     static const char* const names[] = {
         "cxx_loop_for_two", "cxx_loop_while_two", "cxx_loop_do_two",
+        "cxx_loop_for_eight", "cxx_loop_while_eight", "cxx_loop_do_eight",
+        "cxx_loop_for_nine",
         "cxx_switch_constant_direct", "cxx_switch_constant_fallthrough",
         "cxx_switch_constant_no_match", "cxx_switch_constant_sizeof",
         "cxx_switch_constant_alignof", "cxx_if_constant_sizeof",
@@ -48,7 +103,8 @@ static void verify_pair(const char* unoptimized_path,
         "cxx_for_constant_sizeof_bound", "cxx_expression_constant_alignof"
     };
     static const int expected[] = {
-        146, 158, 166, 22, 8, 17, 71, 77, 83, 101, 107, 109, 256
+        146, 158, 166, 584, 632, 664, 801, 22, 8, 17, 71, 77, 83, 101,
+        107, 109, 256
     };
     (void)expected;
     ObjectFile* unoptimized = objfile_read(unoptimized_path);
@@ -57,29 +113,33 @@ static void verify_pair(const char* unoptimized_path,
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
     for (size_t index = 0u; index < sizeof(names) / sizeof(names[0]); ++index) {
         assert(function_extent(optimized, names[index]) > 0u);
-        assert(function_extent(optimized, names[index]) !=
-               function_extent(unoptimized, names[index]));
+        if (strcmp(names[index], "cxx_loop_for_nine") == 0) {
+            assert(function_extent(optimized, names[index]) ==
+                   function_extent(unoptimized, names[index]));
+        } else {
+            assert(function_extent(optimized, names[index]) !=
+                   function_extent(unoptimized, names[index]));
+        }
     }
 
-#if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
-#if defined(__i386__)
+#if defined(RCC_OPTIMIZER_NATIVE_X86)
+#if defined(__i386__) || defined(_M_IX86)
     if (architecture == ARCH_X86)
 #else
     if (architecture == ARCH_X64)
 #endif
     {
         ObjSection* code = code_section(optimized);
-        long page_size = sysconf(_SC_PAGESIZE);
+        size_t page_size = execution_page_size();
         size_t mapping_size;
         uint8_t* mapping;
-        assert(code != NULL && page_size > 0);
-        mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
-                        (size_t)page_size) * (size_t)page_size;
-        mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        assert(mapping != MAP_FAILED);
+        assert(code != NULL && page_size > 0u && code->size > 0u);
+        mapping_size = (((size_t)code->size + page_size - 1u) /
+                        page_size) * page_size;
+        mapping = allocate_execution_memory(mapping_size);
+        assert(mapping != NULL);
         memcpy(mapping, code->data, (size_t)code->size);
-        assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
+        assert(protect_execution_memory(mapping, mapping_size));
         for (size_t index = 0u; index < sizeof(names) / sizeof(names[0]);
              ++index) {
             ObjSymbol* symbol = objfile_find_symbol(optimized, names[index]);
@@ -90,7 +150,7 @@ static void verify_pair(const char* unoptimized_path,
             memcpy(&function, &address, sizeof(function));
             assert(function() == expected[index]);
         }
-        assert(munmap(mapping, mapping_size) == 0);
+        assert(release_execution_memory(mapping, mapping_size));
     }
 #endif
     objfile_free(unoptimized);

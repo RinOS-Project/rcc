@@ -29,6 +29,46 @@ extern "C" int cxx_loop_do_two(void)
     return result;
 }
 
+extern "C" int cxx_loop_for_eight(void)
+{
+    int result = 0;
+    for (int index = 0; index < 8; ++index) {
+        result += 73;
+    }
+    return result;
+}
+
+extern "C" int cxx_loop_while_eight(void)
+{
+    int index = 0;
+    int result = 0;
+    while (index < 8) {
+        result += 79;
+        ++index;
+    }
+    return result;
+}
+
+extern "C" int cxx_loop_do_eight(void)
+{
+    int index = 0;
+    int result = 0;
+    do {
+        result += 83;
+        ++index;
+    } while (index < 8);
+    return result;
+}
+
+extern "C" int cxx_loop_for_nine(void)
+{
+    int result = 0;
+    for (int index = 0; index < 9; ++index) {
+        result += 89;
+    }
+    return result;
+}
+
 extern "C" int cxx_switch_constant_direct(void)
 {
     int result = 0;
