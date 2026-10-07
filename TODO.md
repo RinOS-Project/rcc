@@ -78,6 +78,9 @@
   - [x] chained C field/index designatorの次節が内側arrayの末尾を越える場合、
        enclosing designated struct内の次scalar memberへdepth-first継続。途中の
        array element消費も含めstatic／automatic、両backend・両archで検証
+  - [x] 直接field designatorの後続scalar節がaggregate subobjectへ進む場合、
+       そのsubobjectをbrace-elision順にscalar leafへ分配してから外側の次memberへ
+       継続。static／automatic、legacy／verified、両archとx64実行で検証
 - [x] block-scope VLAの非定数境界、実体ポインタ・byte extent保存、添字、
       `sizeof`、i686/AMD64 dynamic stack allocation、通常のscope exitと
       `break`／`continue`／`return`／有効な`goto`でのstack reclamation

@@ -38,6 +38,8 @@ static void verify_globals(ObjectFile* object)
                                                    'b', 'c', 0, 0};
     static const int32_t expected_struct[4] = {0, 5, 7, 0};
     static const int32_t expected_nested_struct[4] = {0, 5, 7, 8};
+    static const int32_t expected_designator_before_aggregate[5] = {
+        1, 2, 3, 4, 5};
     static const int32_t expected_array[4] = {1, 2, 3, 4};
     const uint8_t* rows = global_bytes(object, "string_rows",
                                        sizeof(expected_rows));
@@ -49,6 +51,9 @@ static void verify_globals(ObjectFile* object)
                                              sizeof(expected_struct));
     const uint8_t* nested_aggregate = global_bytes(
         object, "mixed_nested_designators", sizeof(expected_nested_struct));
+    const uint8_t* aggregate_followup = global_bytes(
+        object, "mixed_designator_before_aggregate",
+        sizeof(expected_designator_before_aggregate));
     const uint8_t* array = global_bytes(object, "mixed_array",
                                          sizeof(expected_array));
     assert(memcmp(rows, expected_rows, sizeof(expected_rows)) == 0);
@@ -58,6 +63,8 @@ static void verify_globals(ObjectFile* object)
     assert(memcmp(aggregate, expected_struct, sizeof(expected_struct)) == 0);
     assert(memcmp(nested_aggregate, expected_nested_struct,
                   sizeof(expected_nested_struct)) == 0);
+    assert(memcmp(aggregate_followup, expected_designator_before_aggregate,
+                  sizeof(expected_designator_before_aggregate)) == 0);
     assert(memcmp(array, expected_array, sizeof(expected_array)) == 0);
 }
 
@@ -95,7 +102,8 @@ static void run_local_initializer(ObjectFile* object)
         int result = function();
         assert(result == 'x' + 'y' + 'z' + 0 + 0 + 9 + 11 +
                          12 + 13 + 0 + 14 + 15 + 16 +
-                         17 + 18 + 19 + 20 + 1);
+                         17 + 18 + 19 + 20 +
+                         21 + 22 + 23 + 24 + 25 + 1);
         assert(munmap(mapping, mapping_size) == 0);
     }
 }

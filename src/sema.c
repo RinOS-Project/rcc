@@ -13159,6 +13159,9 @@ static void consume_brace_elided_subobject(Type* type, ExprList** source) {
     }
 }
 
+static void normalize_designated_brace_elision(Type* type,
+                                                Expr* initializer);
+
 static void normalize_brace_elided_initializer(Type* type,
                                                 Expr* initializer) {
     ExprList* source;
@@ -13172,7 +13175,10 @@ static void normalize_brace_elided_initializer(Type* type,
         return;
     }
     plain_sequence = initializer_is_plain_sequence(initializer);
-    if (!plain_sequence) return;
+    if (!plain_sequence) {
+        normalize_designated_brace_elision(type, initializer);
+        return;
+    }
 
     source = initializer->compound_init;
     if (type->kind == TYPE_VECTOR) {
@@ -13259,6 +13265,140 @@ static void normalize_brace_elided_initializer(Type* type,
     initializer->compound_init = normalized;
 }
 
+static void absorb_nested_designator_followups(Type* type,
+                                                Expr* initializer) {
+    if (rcc_parser_is_cxx_mode() || !type || !initializer ||
+        initializer->kind != EXPR_COMPOUND) {
+        return;
+    }
+    for (ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        Type* selected_type = NULL;
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX &&
+            type->kind == TYPE_ARRAY) {
+            selected_type = initializer_designator_target(type, item, NULL);
+        } else if (item->designator_kind == INIT_DESIGNATOR_FIELD &&
+                   (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+            selected_type = initializer_designator_target(type, item, NULL);
+        }
+        if (selected_type) {
+            initializer_absorb_designator_followups(selected_type, item);
+        }
+    }
+}
+
+static void normalize_designated_brace_elision(Type* type,
+                                                Expr* initializer) {
+    ExprList* source;
+    ExprList* normalized = NULL;
+    TypeField* field_cursor;
+    int64_t array_cursor = 0;
+    bool has_designator = false;
+
+    if (!type || !initializer || initializer->kind != EXPR_COMPOUND ||
+        (type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+         type->kind != TYPE_UNION)) {
+        return;
+    }
+    for (ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        if (item->designator_kind != INIT_DESIGNATOR_NONE) {
+            has_designator = true;
+            break;
+        }
+    }
+    if (!has_designator) return;
+
+    source = initializer->compound_init;
+    field_cursor = type->fields;
+    while (source) {
+        ExprList* item = source;
+        ExprList* next_source = item->next;
+        TypeField* selected_field = NULL;
+        Type* selected_type = NULL;
+        bool positional = item->designator_kind == INIT_DESIGNATOR_NONE;
+
+        if (type->kind == TYPE_ARRAY) {
+            if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                array_cursor = item->designator_index;
+                selected_type = initializer_designator_target(type, item,
+                                                               NULL);
+            } else if (positional && type->base) {
+                selected_type = type->base;
+            }
+        } else if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+            selected_type = initializer_designator_target(
+                type, item, &selected_field);
+            field_cursor = selected_field;
+        } else if (positional && field_cursor) {
+            selected_field = field_cursor;
+            selected_type = selected_field->type;
+        }
+
+        if (positional && selected_type &&
+            initializer_is_aggregate_type(selected_type) && item->expr &&
+            !initializer_directly_initializes(selected_type, item->expr)) {
+            ExprList* segment_last = source;
+            ExprList* after_segment;
+            ExprList* probe;
+            ExprList* stop;
+            ExprList* nested_items = NULL;
+            Expr* nested;
+
+            while (segment_last->next &&
+                   segment_last->next->designator_kind ==
+                       INIT_DESIGNATOR_NONE) {
+                segment_last = segment_last->next;
+            }
+            after_segment = segment_last->next;
+            segment_last->next = NULL;
+            probe = source;
+            consume_brace_elided_subobject(selected_type, &probe);
+            segment_last->next = after_segment;
+            if (probe == source) {
+                exprlist_append_designated(&normalized, item->expr,
+                                           item->designator_kind,
+                                           item->designator_index,
+                                           item->designator_field);
+                source = next_source;
+            } else {
+                stop = probe ? probe : after_segment;
+                while (source != stop) {
+                    ExprList* consumed_next = source->next;
+                    exprlist_append_designated(&nested_items, source->expr,
+                                               INIT_DESIGNATOR_NONE, 0, NULL);
+                    source = consumed_next;
+                }
+                nested = expr_initializer_list(nested_items,
+                                               initializer->loc);
+                nested->compound_type = selected_type;
+                nested->type = selected_type;
+                normalize_brace_elided_initializer(selected_type, nested);
+                exprlist_append_designated(&normalized, nested,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+            }
+        } else {
+            exprlist_append_designated(&normalized, item->expr,
+                                       item->designator_kind,
+                                       item->designator_index,
+                                       item->designator_field);
+            source = next_source;
+        }
+
+        if (type->kind == TYPE_ARRAY) {
+            if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                if (array_cursor < INT64_MAX) ++array_cursor;
+            } else if (positional && array_cursor < INT64_MAX) {
+                ++array_cursor;
+            }
+        } else if (selected_field) {
+            field_cursor = type->kind == TYPE_UNION
+                ? NULL : selected_field->next;
+        }
+    }
+    initializer->compound_init = normalized;
+}
+
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
@@ -13272,6 +13412,7 @@ static void sema_initializer(Type* type, Expr* initializer) {
     if (!(rcc_parser_is_cxx_mode() && type->cxx_class &&
           (type->cxx_class->has_user_constructor ||
            initializer->compound_paren_init))) {
+        absorb_nested_designator_followups(type, initializer);
         normalize_brace_elided_initializer(type, initializer);
     }
     string_literal = initializer_string_literal(initializer);
