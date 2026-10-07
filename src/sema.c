@@ -6968,6 +6968,44 @@ static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
     return false;
 }
 
+/* Automatic objects without an initializer are safe to leave untouched only
+ * when their default-initialization needs no constructor/member/base work.
+ * This conservative predicate keeps array declarations from silently
+ * skipping required C++ initialization while still allowing cleanup for
+ * implicitly trivial default construction. */
+static bool sema_cxx_default_initialization_needs_lowering(
+    Type* object_type, int depth) {
+    CxxClass* cls;
+    if (!object_type || depth > 32) return true;
+    if (object_type->kind == TYPE_ARRAY) {
+        if (object_type->array_len < 0 || !object_type->base) return true;
+        if (object_type->array_len == 0) return false;
+        return sema_cxx_default_initialization_needs_lowering(
+            object_type->base, depth + 1);
+    }
+    if (object_type->kind != TYPE_STRUCT &&
+        object_type->kind != TYPE_UNION) {
+        return object_type->is_reference;
+    }
+    cls = object_type->cxx_class;
+    if (!cls) return false;
+    if (cls->has_user_constructor || cls->has_field_initializer ||
+        cls->base_count > 0 || cls->virtual_base_count > 0 ||
+        cls->vtable_size > 0 || cls->secondary_vtable_count > 0 ||
+        object_type->cxx_vtable_size > 0) {
+        return true;
+    }
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        if (!parameter->is_static && parameter->type &&
+            sema_cxx_default_initialization_needs_lowering(
+                parameter->type, depth + 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Append cleanup calls in the order needed by the cleanup stack.  The stack
  * is executed from its newest entry, so each subobject's children are
  * appended before that subobject and the complete object's own destructor is
@@ -7076,11 +7114,12 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     int cleanup_budget = 4096;
     if (!rcc_parser_is_cxx_mode() || !declaration ||
         !declaration->type || declaration->var_cleanup ||
-        declaration->var_cleanups || !declaration->var_init) {
+        declaration->var_cleanups) {
         return;
     }
     object_type = declaration->type;
     if (object_type->kind == TYPE_PTR && object_type->is_reference) {
+        if (!declaration->var_init) return;
         if (!is_lvalue(declaration->var_init) &&
             !is_xvalue(declaration->var_init) &&
             (declaration->var_is_global ||
@@ -7100,6 +7139,17 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         if (!reference_temporary) return;
     }
     if (!object_type) return;
+    if (!declaration->var_init &&
+        (declaration->var_is_global || declaration->var_is_static_local ||
+         declaration->var_is_block_extern)) {
+        return;
+    }
+    if (!declaration->var_init &&
+        sema_cxx_default_initialization_needs_lowering(object_type, 0)) {
+        rcc_error(declaration->loc,
+                  "default initialization of this C++ object requires unsupported constructor or member initialization");
+        return;
+    }
     if (object_type->kind != TYPE_STRUCT &&
         object_type->kind != TYPE_UNION &&
         object_type->kind != TYPE_ARRAY) return;
