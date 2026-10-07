@@ -910,9 +910,10 @@ static bool inline_scalar_increment_operator(ExprKind unary_operator,
 
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
  * contain only scalar, non-volatile automatic declarations with pure
- * initializers, direct side-effect-free assignments and discarded increment /
- * decrement operations on those locals, and one final return or a terminal
- * if/else with direct returns.  This lets small wrappers such as
+ * initializers, direct side-effect-free assignments to locals, discarded
+ * increment/decrement operations on locals or by-value parameters, and one
+ * final return or a terminal if/else with direct returns.  This lets small
+ * wrappers such as
  * `int f(int x) { int y = x + 1; y = y * 2; return y; }` be expanded without
  * pretending that arbitrary control flow, cleanup, or lifetime-sensitive
  * objects are safe to clone into the caller. */
@@ -971,7 +972,7 @@ static bool collect_inline_scalar_body(
             ExprKind binary_operator;
             const Decl* declaration =
                 statement->expr->unary_operand->ident_decl;
-            bool is_prior_local = false;
+            bool is_prior_local = declaration->kind == DECL_PARAM;
             if (inline_scalar_increment_operator(statement->expr->kind,
                                                  &binary_operator)) {
                 for (size_t index = 0u; index < *operation_count; ++index) {
@@ -1594,8 +1595,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             binary_operator = operation->assignment_operator;
             local_binding = inline_scalar_binding_index(
                 operation->declaration, bindings, binding_count);
-            if (local_binding < parameter_count ||
-                local_binding >= binding_count) {
+            if (local_binding >= binding_count) {
                 return false;
             }
             previous_value = clone_inline_pure_scalar_expression(

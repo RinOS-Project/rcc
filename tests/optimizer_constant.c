@@ -234,6 +234,29 @@ short preserved_narrow_local_increment_call(int value)
     return inline_narrow_local_increment(value);
 }
 
+static int inline_parameter_increment_mutations(int value)
+{
+    value++;
+    int after_post_increment = value;
+    ++value;
+    int after_pre_increment = value;
+    value--;
+    int after_post_decrement = value;
+    --value;
+    return after_post_increment * 100 + after_pre_increment * 10 +
+           after_post_decrement + value;
+}
+
+int inlined_parameter_increment_mutations_call(int value)
+{
+    return inline_parameter_increment_mutations(value);
+}
+
+int preserved_parameter_increment_side_effect_call(int* value)
+{
+    return inline_parameter_increment_mutations((*value)++);
+}
+
 static int inline_local_snapshot_before_mutation(int value)
 {
     int original = value;
