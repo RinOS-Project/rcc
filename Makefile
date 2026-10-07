@@ -11511,6 +11511,22 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/tls-import-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-import-x64.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/tls-cxx-x86.ro \
+		tests/verified_backend_tls.cpp \
+		>$(TEST_OUT)/verified-backend/tls-cxx-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/tls-cxx-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-cxx-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/tls-cxx-x64.ro \
+		tests/verified_backend_tls.cpp \
+		>$(TEST_OUT)/verified-backend/tls-cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/tls-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-cxx-x64.log,0)
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e verified_fallback_read \
 		-o $(TEST_OUT)/verified-backend/tls-x86.rin \
@@ -11521,10 +11537,24 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/tls-x64.rin \
 		$(TEST_OUT)/verified-backend/tls-x64.ro \
 		$(TEST_OUT)/verified-backend/tls-import-x64.ro
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e verified_fallback_read \
+		-o $(TEST_OUT)/verified-backend/tls-cxx-x86.rin \
+		$(TEST_OUT)/verified-backend/tls-cxx-x86.ro \
+		$(TEST_OUT)/verified-backend/tls-import-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e verified_fallback_read \
+		-o $(TEST_OUT)/verified-backend/tls-cxx-x64.rin \
+		$(TEST_OUT)/verified-backend/tls-cxx-x64.ro \
+		$(TEST_OUT)/verified-backend/tls-import-x64.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/verified-backend/tls-x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/verified-backend/tls-x64.rin
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/verified-backend/tls-cxx-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/verified-backend/tls-cxx-x64.rin
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/switch-nested.ro \
 		tests/verified_backend_switch_fallback.c \
@@ -11660,6 +11690,10 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/verified-backend/tls-import-x86.ro x86
 	$(TEST_OUT)/verified-backend/verify-x64 --tls-import-object \
 		$(TEST_OUT)/verified-backend/tls-import-x64.ro x64
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
+		$(TEST_OUT)/verified-backend/tls-cxx-x86.ro x86
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
+		$(TEST_OUT)/verified-backend/tls-cxx-x64.ro x64
 	@echo "Verified backend production object and fallback tests completed"
 
 test-assignment-constraints: $(RCC_TARGET) $(RCXX_TARGET)
