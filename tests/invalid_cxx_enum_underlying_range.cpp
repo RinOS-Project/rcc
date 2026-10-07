@@ -23,3 +23,12 @@ enum ImplicitSignedOverflow : signed char {
     maximum = 127,
     overflow,
 };
+
+enum class ImplicitUnsignedLongLongOverflow : unsigned long long {
+    maximum = 18446744073709551615ULL,
+    overflow,
+};
+
+enum class SignedLongLongTooSmall : long long {
+    value = 18446744073709551615ULL,
+};

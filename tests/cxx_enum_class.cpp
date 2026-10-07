@@ -28,6 +28,14 @@ enum UnscopedWideUnsigned : unsigned long long {
     wide_value = 0x100000000ULL,
 };
 
+enum class FullUnsigned : unsigned long long {
+    almost = 18446744073709551614ULL,
+    maximum,
+};
+
+static_assert(static_cast<unsigned long long>(FullUnsigned::maximum) ==
+              18446744073709551615ULL, "unsigned 64-bit enum progression");
+
 int cxx_enum_class_probe() {
     Color color = Color::blue;
     Mode mode = Mode::hot;
@@ -36,7 +44,9 @@ int cxx_enum_class_probe() {
                    static_cast<unsigned>(UnsignedByte::maximum) == 255u &&
                    static_cast<int>(SignedByte::minimum) == -128 &&
                    static_cast<int>(SignedByte::maximum) == 127 &&
-                   wide_value == 0x100000000ULL
+                   wide_value == 0x100000000ULL &&
+                   static_cast<unsigned long long>(FullUnsigned::maximum) ==
+                       18446744073709551615ULL
         ? 0 : 1;
 }
 

@@ -19,6 +19,16 @@ static bool contains_bytes(const uint8_t* data, uint64_t size,
     return false;
 }
 
+static bool contains_sequence(const uint8_t* data, uint64_t size,
+                              const uint8_t* sequence, uint64_t length)
+{
+    if (!data || !sequence || length == 0u || size < length) return false;
+    for (uint64_t offset = 0u; offset <= size - length; ++offset) {
+        if (memcmp(data + offset, sequence, (size_t)length) == 0) return true;
+    }
+    return false;
+}
+
 static bool contains_byte_pair(const uint8_t* data, uint64_t size,
                                uint8_t first, uint8_t second)
 {
@@ -418,6 +428,62 @@ static uint64_t read_uleb(const uint8_t* data, uint64_t size,
     }
     assert(0 && "invalid ULEB128");
     return 0u;
+}
+
+static void verify_full_unsigned_enum_dwarf(const char* path,
+                                            uint16_t architecture)
+{
+    static const uint8_t unsigned_enumerator_abbrev[] = {
+        35u, 0x28u, 0u, 0x03u, 0x0eu, 0x1cu, 0x0fu, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    bool found = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_bytes(strings->data, strings->size,
+                          "DebugUnsignedEnum"));
+    assert(contains_bytes(strings->data, strings->size, "maximum"));
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             unsigned_enumerator_abbrev,
+                             sizeof(unsigned_enumerator_abbrev)));
+
+    for (uint64_t offset = 0u; offset + 7u <= info->size; ++offset) {
+        uint32_t name_offset;
+        uint64_t child;
+        uint32_t enumerator_name_offset;
+        uint64_t value;
+        if (info->data[offset] != 15u) continue;
+        name_offset = read_u32(info->data, offset + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "DebugUnsignedEnum") != 0) {
+            continue;
+        }
+        assert(info->data[offset + 5u] == 8u);
+        assert(info->data[offset + 6u] == 0x07u); /* DW_ATE_unsigned */
+        child = offset + 7u;
+        assert(child < info->size && info->data[child++] == 35u);
+        assert(child + 4u <= info->size);
+        enumerator_name_offset = read_u32(info->data, child);
+        child += 4u;
+        assert(enumerator_name_offset < strings->size);
+        assert(strcmp((const char*)strings->data + enumerator_name_offset,
+                      "maximum") == 0);
+        value = read_uleb(info->data, info->size, &child);
+        assert(value == UINT64_MAX);
+        assert(child < info->size && info->data[child] == 0u);
+        found = true;
+        break;
+    }
+    assert(found);
+    objfile_free(object);
 }
 
 static int64_t read_sleb(const uint8_t* data, uint64_t size,
@@ -1597,7 +1663,7 @@ static void verify_verified_global_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 18);
+    assert(argc == 20);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -1631,5 +1697,7 @@ int main(int argc, char** argv)
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
     verify_optimized_verified_debug_object(argv[16], ARCH_X86);
     verify_optimized_verified_debug_object(argv[17], ARCH_X64);
+    verify_full_unsigned_enum_dwarf(argv[18], ARCH_X86);
+    verify_full_unsigned_enum_dwarf(argv[19], ARCH_X64);
     return 0;
 }

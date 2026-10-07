@@ -1402,13 +1402,19 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
                                              (type->size < 0 ? 0 : type->size)));
+            section_add_byte(info, debug_type_encoding(type));
             for (int constant = 0; constant < type->enum_constant_count;
                  ++constant) {
                 EnumConstantInfo* item = &type->enum_constants[constant];
                 if (!item->name) continue;
-                section_add_byte(info, 16u); /* DW_TAG_enumerator */
+                /* Abbreviation 35 stores full-width unsigned values. */
+                section_add_byte(info, type->is_unsigned ? 35u : 16u);
                 debug_line_u32(info, debug_str_add(strings, item->name));
-                debug_line_sleb(info, item->value);
+                if (type->is_unsigned) {
+                    debug_line_uleb(info, (uint64_t)item->value);
+                } else {
+                    debug_line_sleb(info, item->value);
+                }
             }
             section_add_byte(info, 0u);
         } else if (debug_type_encoding(type) != 0xffu) {
@@ -2850,6 +2856,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_AT_byte_size */
     debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x3eu);     /* DW_AT_encoding */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abbreviations 10-14 describe the aggregate type DIEs emitted below:
@@ -2923,6 +2931,15 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x1cu);     /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0du);     /* DW_FORM_sdata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 35u);
+    debug_line_uleb(abbrev, 0x28u);     /* DW_TAG_enumerator */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);     /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);     /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x1cu);     /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0fu);     /* DW_FORM_udata */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 17u);

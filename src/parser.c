@@ -2255,6 +2255,7 @@ Type* rcc_parser_apply_explicit_alignment(Type* type, int alignment,
 }
 
 static bool enum_value_fits_fixed_underlying(int64_t value,
+                                             bool value_is_unsigned,
                                              const Type* enum_type) {
     const Type* underlying;
     unsigned width;
@@ -2271,7 +2272,14 @@ static bool enum_value_fits_fixed_underlying(int64_t value,
     unsigned_max = width >= 64u
         ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
     if (underlying->is_unsigned) {
-        return value >= 0 && (uint64_t)value <= unsigned_max;
+        return (value_is_unsigned || value >= 0) &&
+               (uint64_t)value <= unsigned_max;
+    }
+    if (value_is_unsigned) {
+        uint64_t signed_limit = width >= 64u
+            ? (uint64_t)INT64_MAX
+            : (UINT64_C(1) << (width - 1u)) - 1u;
+        return (uint64_t)value <= signed_limit;
     }
     if (width >= 64u) return true;
     signed_min = -(INT64_C(1) << (width - 1u));
@@ -2279,7 +2287,8 @@ static bool enum_value_fits_fixed_underlying(int64_t value,
     return value >= signed_min && value <= signed_max;
 }
 
-static int64_t parse_enum_value(Type* enum_type, int64_t fallback) {
+static int64_t parse_enum_value(Type* enum_type, int64_t fallback,
+                                bool* result_is_unsigned) {
     Expr* expression = parse_conditional();
     IntegerConstantValue evaluated;
     int64_t value;
@@ -2289,6 +2298,7 @@ static int64_t parse_enum_value(Type* enum_type, int64_t fallback) {
                   "enumerator value is not an integer constant expression");
         return fallback;
     }
+    if (result_is_unsigned) *result_is_unsigned = false;
     bits = evaluated.bits & integer_type_mask(evaluated.type);
     if (!parser_cxx_mode) {
         unsigned int_bits = type_int && type_int->size > 0
@@ -2307,19 +2317,32 @@ static int64_t parse_enum_value(Type* enum_type, int64_t fallback) {
         value = evaluated.type && evaluated.type->is_unsigned
             ? (int64_t)bits : integer_constant_signed(evaluated);
     } else {
-        if (evaluated.type && evaluated.type->is_unsigned &&
-            bits > (uint64_t)INT64_MAX) {
-            rcc_error(expression->loc,
-                      "enumerator value exceeds the supported 64-bit range");
+        bool is_unsigned = evaluated.type && evaluated.type->is_unsigned;
+        bool full_unsigned_underlying =
+            enum_type && enum_type->enum_has_fixed_underlying &&
+            enum_type->enum_underlying_type &&
+            enum_type->enum_underlying_type->is_unsigned &&
+            enum_type->enum_underlying_type->size == 8;
+        if (is_unsigned && bits > (uint64_t)INT64_MAX &&
+            !full_unsigned_underlying) {
+            if (enum_type && enum_type->enum_has_fixed_underlying) {
+                rcc_error(expression->loc,
+                          "enumerator value is not representable in its fixed underlying type");
+            } else {
+                rcc_error(expression->loc,
+                          "enumerator value exceeds the supported 64-bit range");
+            }
             return fallback;
         }
         value = evaluated.type && evaluated.type->is_unsigned
             ? (int64_t)bits : integer_constant_signed(evaluated);
-        if (!enum_value_fits_fixed_underlying(value, enum_type)) {
+        if (!enum_value_fits_fixed_underlying(value, is_unsigned,
+                                               enum_type)) {
             rcc_error(expression->loc,
                       "enumerator value is not representable in its fixed underlying type");
             return fallback;
         }
+        if (result_is_unsigned) *result_is_unsigned = is_unsigned;
     }
     return value;
 }
@@ -2335,15 +2358,18 @@ static bool enum_value_fits_c_int(int64_t value) {
 static void parse_enum_body(Type* enum_type, bool scoped,
                             const char* enum_tag) {
     int64_t next_value = 0;
+    bool next_value_is_unsigned = false;
     bool next_value_valid = true;
     bool next_value_exceeds_underlying = false;
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* name = expect(TOK_IDENT, "enumerator name");
         int64_t value;
+        bool value_is_unsigned = false;
         bool explicit_value = match(TOK_ASSIGN);
         if (explicit_value) {
             value = parse_enum_value(enum_type,
-                                     next_value_valid ? next_value : 0);
+                                     next_value_valid ? next_value : 0,
+                                     &value_is_unsigned);
             next_value_valid = true;
             next_value_exceeds_underlying = false;
         } else if (!next_value_valid) {
@@ -2354,11 +2380,13 @@ static void parse_enum_body(Type* enum_type, bool scoped,
             value = 0;
         } else {
             value = next_value;
+            value_is_unsigned = next_value_is_unsigned;
             if (!parser_cxx_mode && !enum_value_fits_c_int(value)) {
                 rcc_error(name ? name->loc : peek()->loc,
                           "enumerator value is not representable as int");
             } else if (parser_cxx_mode &&
-                       !enum_value_fits_fixed_underlying(value, enum_type)) {
+                       !enum_value_fits_fixed_underlying(
+                           value, value_is_unsigned, enum_type)) {
                 rcc_error(name ? name->loc : peek()->loc,
                           "implicit enumerator value is not representable in its fixed underlying type");
             }
@@ -2389,13 +2417,38 @@ static void parse_enum_body(Type* enum_type, bool scoped,
                 enum_type->enum_constant_count].value = value;
             ++enum_type->enum_constant_count;
         }
-        if (value == INT64_MAX) {
+        if (parser_cxx_mode && enum_type &&
+            enum_type->enum_has_fixed_underlying &&
+            enum_type->enum_underlying_type &&
+            enum_type->enum_underlying_type->is_unsigned) {
+            unsigned width = (unsigned)enum_type->enum_underlying_type->size * 8u;
+            uint64_t maximum = width >= 64u
+                ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
+            uint64_t current = (uint64_t)value;
+            if (!value_is_unsigned && value < 0) {
+                next_value_valid = false;
+                next_value_exceeds_underlying = true;
+                next_value_is_unsigned = true;
+            } else if (current == maximum) {
+                next_value_valid = false;
+                next_value_exceeds_underlying = true;
+                next_value_is_unsigned = true;
+            } else {
+                next_value = (int64_t)(current + 1u);
+                next_value_is_unsigned = true;
+                next_value_valid = enum_value_fits_fixed_underlying(
+                    next_value, true, enum_type);
+                next_value_exceeds_underlying = !next_value_valid;
+            }
+        } else if (value == INT64_MAX) {
             next_value_valid = false;
             next_value_exceeds_underlying = false;
         } else {
             next_value = value + 1;
+            next_value_is_unsigned = false;
             next_value_valid = !parser_cxx_mode ||
-                enum_value_fits_fixed_underlying(next_value, enum_type);
+                enum_value_fits_fixed_underlying(next_value, false,
+                                                  enum_type);
             next_value_exceeds_underlying = !next_value_valid;
         }
         if (!match(TOK_COMMA)) break;
