@@ -14442,49 +14442,73 @@ static bool gen_static_reference_aggregate_into_owner32(
 }
 
 static Expr* gen_static_reference_subobject_rebase32(
-    Expr* expression, Expr* complete_object, Decl* owner) {
+    Expr* expression, Expr* complete_object, Decl* owner, bool* replaced) {
     Expr* copy;
+    bool child_replaced = false;
+    *replaced = false;
     if (!expression || !complete_object || !owner) return NULL;
     if (expression == complete_object) {
         Expr* replacement = expr_ident(owner->name, expression->loc);
         replacement->ident_decl = owner;
         replacement->type = owner->type;
+        *replaced = true;
         return replacement;
     }
-    copy = rcc_alloc(sizeof(*copy));
-    *copy = *expression;
     switch (expression->kind) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
             copy->member_base = gen_static_reference_subobject_rebase32(
-                expression->member_base, complete_object, owner);
-            if (!copy->member_base) return NULL;
+                expression->member_base, complete_object, owner,
+                &child_replaced);
+            if (!copy->member_base || !child_replaced) return expression;
+            *replaced = true;
             return copy;
         case EXPR_CAST:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
             copy->cast_expr = gen_static_reference_subobject_rebase32(
-                expression->cast_expr, complete_object, owner);
-            if (!copy->cast_expr) return NULL;
+                expression->cast_expr, complete_object, owner,
+                &child_replaced);
+            if (!copy->cast_expr || !child_replaced) return expression;
+            *replaced = true;
             return copy;
         case EXPR_COMMA:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
             copy->binary_lhs = gen_static_reference_subobject_rebase32(
-                expression->binary_lhs, complete_object, owner);
+                expression->binary_lhs, complete_object, owner,
+                &child_replaced);
+            {
+                bool rhs_replaced = false;
             copy->binary_rhs = gen_static_reference_subobject_rebase32(
-                expression->binary_rhs, complete_object, owner);
-            if (!copy->binary_lhs || !copy->binary_rhs) return NULL;
+                    expression->binary_rhs, complete_object, owner,
+                    &rhs_replaced);
+                if (!copy->binary_lhs || !copy->binary_rhs ||
+                    (!child_replaced && !rhs_replaced)) return expression;
+                *replaced = true;
+            }
             return copy;
         case EXPR_COND:
-            copy->cond_test = gen_static_reference_subobject_rebase32(
-                expression->cond_test, complete_object, owner);
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            {
+                bool then_replaced = false;
+                bool else_replaced = false;
             copy->cond_then = gen_static_reference_subobject_rebase32(
-                expression->cond_then, complete_object, owner);
+                    expression->cond_then, complete_object, owner,
+                    &then_replaced);
             copy->cond_else = gen_static_reference_subobject_rebase32(
-                expression->cond_else, complete_object, owner);
-            if (!copy->cond_test || !copy->cond_then || !copy->cond_else) {
-                return NULL;
+                    expression->cond_else, complete_object, owner,
+                    &else_replaced);
+                if (!copy->cond_then || !copy->cond_else ||
+                    (!then_replaced && !else_replaced)) return expression;
+                *replaced = true;
             }
             return copy;
         default:
-            return NULL;
+            return expression;
     }
 }
 
@@ -14544,9 +14568,11 @@ static bool gen_static_reference_temporary_initializer32(
     gen_static_reference_owner_vtable_init32(mod, type, owner);
 
     if (declaration->var_reference_temporary_source) {
+        bool replaced = false;
         Expr* subobject = gen_static_reference_subobject_rebase32(
-            initializer, declaration->var_reference_temporary_source, owner);
-        if (!subobject) {
+            initializer, declaration->var_reference_temporary_source, owner,
+            &replaced);
+        if (!subobject || !replaced) {
             rcc_error(declaration->loc,
                       "cannot rebase static reference subobject for '%s'",
                       declaration->name);
