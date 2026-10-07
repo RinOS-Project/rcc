@@ -457,6 +457,38 @@ static int sema_cxx_nonvirtual_public_base_paths(Type* derived, Type* target,
     return count;
 }
 
+/* Count public routes from a most-derived object through one shared virtual
+ * base and then only fixed non-virtual edges to target.  The returned virtual
+ * index identifies the runtime vbtable entry; nested_adjustment identifies a
+ * target that is itself a non-virtual base of that virtual base. */
+static int sema_cxx_public_virtual_member_base_paths(
+    Type* derived, Type* target, int* virtual_index,
+    int* nested_adjustment) {
+    CxxClass* cls = derived ? derived->cxx_class : NULL;
+    int count = 0;
+    if (virtual_index) *virtual_index = -1;
+    if (nested_adjustment) *nested_adjustment = 0;
+    if (!cls || !target || !cls->virtual_bases) return 0;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxVirtualBaseInfo* base = &cls->virtual_bases[index];
+        int nested = 0;
+        int paths;
+        if (!base->base || !base->public_path || !base->base->type) {
+            continue;
+        }
+        paths = sema_cxx_nonvirtual_public_base_paths(
+            base->base->type, target, &nested, 0u);
+        if (paths <= 0) continue;
+        if (count == 0 && paths == 1) {
+            if (virtual_index) *virtual_index = index;
+            if (nested_adjustment) *nested_adjustment = nested;
+        }
+        count += paths;
+        if (count > 1) return 2;
+    }
+    return count;
+}
+
 static bool sema_cxx_unique_public_base(Type* derived, Type* target,
                                          int* adjustment) {
     CxxClass* cls;
@@ -12030,11 +12062,16 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW: {
             bool arrow = expr->kind == EXPR_CXX_MEMBER_PTR_ARROW;
-            int object_adjustment = 0;
             Type* object_type = sema_expr(expr->binary_lhs);
             Type* member_pointer_type = sema_expr(expr->binary_rhs);
             Type* member_type;
             expr->cxx_pointer_adjustment_valid = false;
+            expr->cxx_virtual_base_adjustment = false;
+            expr->cxx_virtual_base_member_access = false;
+            expr->cxx_virtual_base_source_class = NULL;
+            expr->cxx_virtual_base_index = -1;
+            expr->cxx_virtual_base_pointer_offset = -1;
+            expr->cxx_virtual_base_nested_adjustment = 0;
             if (object_type && object_type->kind == TYPE_PTR &&
                 object_type->is_reference) {
                 object_type = object_type->base;
@@ -12068,18 +12105,45 @@ static Type* sema_expr(Expr* expr) {
             if (!type_is_compatible(object_type,
                                     member_pointer_type
                                         ->cxx_member_pointer_owner)) {
-                int paths = sema_cxx_nonvirtual_public_base_paths(
+                CxxClass* object_class = object_type->cxx_class;
+                int virtual_index = -1;
+                int virtual_nested_adjustment = 0;
+                int object_adjustment = 0;
+                int nonvirtual_paths =
+                    sema_cxx_nonvirtual_public_base_paths(
                     object_type,
                     member_pointer_type->cxx_member_pointer_owner,
                     &object_adjustment, 0u);
-                if (paths != 1) {
+                int virtual_paths = sema_cxx_public_virtual_member_base_paths(
+                    object_type,
+                    member_pointer_type->cxx_member_pointer_owner,
+                    &virtual_index, &virtual_nested_adjustment);
+                if (nonvirtual_paths + virtual_paths != 1) {
                     rcc_error(expr->loc,
-                              "member-pointer application requires one public non-virtual base path");
+                              "member-pointer application requires one public base subobject path");
                     expr->type = type_int;
                     break;
                 }
-                expr->cxx_pointer_adjustment_valid = true;
-                expr->cxx_pointer_adjustment = object_adjustment;
+                if (nonvirtual_paths == 1) {
+                    expr->cxx_pointer_adjustment_valid = true;
+                    expr->cxx_pointer_adjustment = object_adjustment;
+                } else if (virtual_paths == 1 && object_class &&
+                           virtual_index >= 0 &&
+                           object_class->virtual_base_pointer_offset >= 0) {
+                    expr->cxx_virtual_base_adjustment = true;
+                    expr->cxx_virtual_base_member_access = true;
+                    expr->cxx_virtual_base_source_class = object_class;
+                    expr->cxx_virtual_base_index = virtual_index;
+                    expr->cxx_virtual_base_pointer_offset =
+                        object_class->virtual_base_pointer_offset;
+                    expr->cxx_virtual_base_nested_adjustment =
+                        virtual_nested_adjustment;
+                } else {
+                    rcc_error(expr->loc,
+                              "member-pointer virtual-base path has incomplete vbtable metadata");
+                    expr->type = type_int;
+                    break;
+                }
             }
             member_type = member_pointer_type->base;
             if (!member_type || member_type->kind == TYPE_FUNC) {

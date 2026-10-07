@@ -3,6 +3,7 @@
  */
 
 #include "rcc.h"
+#include "ast_cxx.h"
 #include "ir_lower.h"
 #include "ir_pass.h"
 #include "mir.h"
@@ -1050,6 +1051,53 @@ static RccIrLowerValue lower_adjusted_pointer(
     return lower_value(select->result, pointer_type, true);
 }
 
+static RccIrLowerValue lower_virtual_base_member_pointer_object(
+    RccIrLowerContext* context, RccIrLowerValue pointer,
+    int virtual_base_pointer_offset, int virtual_base_index,
+    int nested_adjustment) {
+    uint64_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    RccIrType pointer_type = rcc_ir_type_pointer(0u);
+    RccIrType displacement_type = rcc_ir_type_integer(
+        (uint16_t)(pointer_size * 8u));
+    RccIrLowerValue vbtable_address;
+    RccIrLowerValue vbtable;
+    RccIrLowerValue entry_address;
+    RccIrLowerValue displacement;
+    RccIrLowerValue adjusted;
+    RccIrInstruction* load;
+
+    if (!pointer.valid || pointer.type.kind != RCC_IR_TYPE_POINTER ||
+        virtual_base_pointer_offset < 0 || virtual_base_index < 0) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    vbtable_address = lower_byte_offset_address(
+        context, pointer, (uint64_t)virtual_base_pointer_offset);
+    if (!vbtable_address.valid) return lower_invalid_value();
+    load = lower_append(context, RCC_IR_LOAD, pointer_type,
+                        &vbtable_address.value, 1u, NULL, 0u);
+    if (!load) return lower_invalid_value();
+    vbtable = lower_value(load->result, pointer_type, true);
+    vbtable.volatile_access = vbtable_address.volatile_access;
+    entry_address = lower_byte_offset_address(
+        context, vbtable,
+        (uint64_t)virtual_base_index * pointer_size);
+    if (!entry_address.valid) return lower_invalid_value();
+    load = lower_append(context, RCC_IR_LOAD, displacement_type,
+                        &entry_address.value, 1u, NULL, 0u);
+    if (!load) return lower_invalid_value();
+    displacement = lower_value(load->result, displacement_type, false);
+    displacement.volatile_access = entry_address.volatile_access;
+    adjusted = lower_dynamic_byte_offset_address(
+        context, pointer, displacement);
+    if (!adjusted.valid) return lower_invalid_value();
+    if (nested_adjustment != 0) {
+        adjusted = lower_byte_offset_address(
+            context, adjusted, (uint64_t)(int64_t)nested_adjustment);
+    }
+    return adjusted;
+}
+
 static RccIrLowerValue lower_lvalue_address_impl(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
@@ -1242,7 +1290,24 @@ static RccIrLowerValue lower_lvalue_address_impl(
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (expression->cxx_pointer_adjustment_valid) {
+        if (expression->cxx_virtual_base_member_access) {
+            struct CxxClass* source_class =
+                expression->cxx_virtual_base_source_class;
+            if (!source_class ||
+                expression->cxx_virtual_base_pointer_offset < 0 ||
+                expression->cxx_virtual_base_index < 0 ||
+                expression->cxx_virtual_base_index >=
+                    source_class->virtual_base_count) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            base = lower_virtual_base_member_pointer_object(
+                context, base,
+                expression->cxx_virtual_base_pointer_offset,
+                expression->cxx_virtual_base_index,
+                expression->cxx_virtual_base_nested_adjustment);
+            if (!base.valid) return lower_invalid_value();
+        } else if (expression->cxx_pointer_adjustment_valid) {
             base = lower_adjusted_pointer(
                 context, base, expression->cxx_pointer_adjustment);
         }

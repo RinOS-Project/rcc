@@ -262,7 +262,9 @@ exactly-once destruction order. A bounded direct public data-member pointer
 path now parses `T C::*`, `&C::member`, `object.*member`, and
 `pointer->*member` and reaches both native backends and typed IR. Owner
 conversions and object application follow one unique public non-virtual path,
-even when the class also has unrelated virtual bases. `nullptr`/zero
+even when the class also has unrelated virtual bases. Application through one
+public virtual base followed by fixed non-virtual edges resolves the base
+through the vbtable in both native backends and typed IR. `nullptr`/zero
 initialization and null comparison use the all-ones sentinel. Explicit
 `static_cast` owner conversion works in both directions with null-preserving
 runtime and constant adjustment. `build-rcc` succeeds; a local regression

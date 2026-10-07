@@ -4204,6 +4204,30 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             } else {
                 gen64_lvalue(mod, expr->binary_lhs);
             }
+            if (expr->cxx_virtual_base_member_access) {
+                if (!expr->cxx_virtual_base_source_class ||
+                    expr->cxx_virtual_base_pointer_offset < 0 ||
+                    expr->cxx_virtual_base_index < 0 ||
+                    expr->cxx_virtual_base_index >=
+                        expr->cxx_virtual_base_source_class
+                            ->virtual_base_count) {
+                    rcc_error(expr->loc,
+                              "member-pointer virtual-base path has incomplete vbtable metadata");
+                    return;
+                }
+                emit64_mov_reg_mem(
+                    mod, RDX, RAX,
+                    expr->cxx_virtual_base_pointer_offset);
+                emit64_mov_reg_mem(
+                    mod, RCX, RDX,
+                    expr->cxx_virtual_base_index * 8);
+                emit64_add_reg_reg(mod, RAX, RCX);
+                if (expr->cxx_virtual_base_nested_adjustment != 0) {
+                    emit64_add_reg_imm(
+                        mod, RAX,
+                        expr->cxx_virtual_base_nested_adjustment);
+                }
+            }
             if (expr->cxx_pointer_adjustment_valid &&
                 expr->cxx_pointer_adjustment != 0) {
                 emit64_add_reg_imm(mod, RAX,

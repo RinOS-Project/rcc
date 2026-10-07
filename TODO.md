@@ -375,16 +375,18 @@
         including a class with unrelated virtual bases, base-owner-to-derived
         implicit conversion, and explicit `static_cast` owner conversion in
         either direction are wired through native and typed-IR lowering; null
-        is preserved. `build-rcc` succeeds, but the
-        member-pointer fixture is still unrun. Keep this open until regression
+        is preserved. Application through one public shared virtual base
+        followed by fixed non-virtual edges now uses the vbtable in both native
+        backends and typed IR. `build-rcc` succeeds, but the member-pointer
+        fixture is still unrun. Keep this open until regression
         execution proves the static-reference lifetime and destruction order,
         both target backends and typed IR, and RinOS runtime integration.
   - [ ] Complete remaining pointer-to-member conversions and contexts:
         private/protected-member access where permitted, pointer-to-member
-        function types/calls, ambiguous and virtual-base paths, and virtual-base
-        data-member-pointer representation. Owner conversions currently cover
-        only one public non-virtual base path; member-function and virtual-base
-        forms remain unsupported.
+        function types/calls, ambiguous paths, virtual-base owner conversions,
+        and virtual-base data-member-pointer representation. Data-member-pointer
+        application supports one public virtual-base route; member-function
+        forms and virtual-base owner conversions remain unsupported.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

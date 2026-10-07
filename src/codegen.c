@@ -6714,6 +6714,30 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             } else {
                 gen_lvalue(mod, expr->binary_lhs);
             }
+            if (expr->cxx_virtual_base_member_access) {
+                if (!expr->cxx_virtual_base_source_class ||
+                    expr->cxx_virtual_base_pointer_offset < 0 ||
+                    expr->cxx_virtual_base_index < 0 ||
+                    expr->cxx_virtual_base_index >=
+                        expr->cxx_virtual_base_source_class
+                            ->virtual_base_count) {
+                    rcc_error(expr->loc,
+                              "member-pointer virtual-base path has incomplete vbtable metadata");
+                    return;
+                }
+                emit_mov_reg_mem(
+                    mod, EDX, EAX,
+                    expr->cxx_virtual_base_pointer_offset);
+                emit_mov_reg_mem(
+                    mod, ECX, EDX,
+                    expr->cxx_virtual_base_index * 4);
+                emit_add_reg_reg(mod, EAX, ECX);
+                if (expr->cxx_virtual_base_nested_adjustment != 0) {
+                    emit_add_reg_imm(
+                        mod, EAX,
+                        expr->cxx_virtual_base_nested_adjustment);
+                }
+            }
             if (expr->cxx_pointer_adjustment_valid &&
                 expr->cxx_pointer_adjustment != 0) {
                 emit_add_reg_imm(mod, EAX,
