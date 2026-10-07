@@ -634,6 +634,9 @@
 - [x] production validatorによる署名付き成果物検査
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
 - [x] C17/C++20 aggregate、IR/MIR、verified backend、optimizerをhost CIでgate
+- [ ] GCC専用のfull `test-ci` production gateをClangにも拡張し、C17/C++20、
+      IR/MIR、verified backend、optimizer、ABI、image、bootstrap全経路を
+      両host compilerで検証する
 - [x] CI regression gateでC/C++ global initializer/finalizerのhost実行、
       `.init_array`/`.fini_array`伝播、RIN/RLL/DRV/RLD image validationを常時gate
 - [ ] clang/gcc互換の全golden `.ro/.ra/.rin/.rll/.drv` corpusとfuzz corpus

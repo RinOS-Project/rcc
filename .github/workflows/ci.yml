@@ -76,11 +76,17 @@ jobs:
           make test-direct-relocation
 
   regression-gate:
-    name: aggregate-regression-gate
+    name: aggregate-regression-${{ matrix.cc }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        cc:
+          - gcc
+          - clang
     env:
-      CC: gcc
+      CC: ${{ matrix.cc }}
     defaults:
       run:
         working-directory: public-base/toolchain/RinCompiler
