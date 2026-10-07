@@ -967,6 +967,37 @@ static void verify_block_local_load_cse(void)
     }
 
     {
+        RccIrValue first_address;
+        RccIrValue second_address;
+        RccIrValue first_value;
+        RccIrValue second_value;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "load_cse_disjoint_allocas", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        first_address = append_alloca(entry, 4u);
+        second_address = append_alloca(entry, 4u);
+        first_value = append_const(entry, i32, 11u);
+        second_value = append_const(entry, i32, 29u);
+        append_store(entry, first_value, first_address);
+        append_store(entry, second_value, second_address);
+        first = append_load(entry, i32, first_address);
+        append_store(entry, second_value, second_address);
+        second = append_load(entry, i32, first_address);
+        sum_operands[0] = first;
+        sum_operands[1] = second;
+        sum = rcc_ir_append(entry, RCC_IR_ADD, i32, sum_operands, 2u,
+                            NULL, 0u);
+        assert(sum != NULL);
+        append_return(entry, sum->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 1u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
         RccIrType parameters[] = {pointer, pointer};
         RccIrValue call_argument;
         RccIrInstruction* call;

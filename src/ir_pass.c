@@ -1679,6 +1679,7 @@ typedef struct {
     size_t available_count;
     RccIrInstruction** block_loads;
     size_t block_load_count;
+    bool* direct_allocas;
     RccIrValue* replacements;
     size_t replacement_count;
     RccIrSimplifyStats* stats;
@@ -1686,6 +1687,28 @@ typedef struct {
     size_t error_size;
     bool failed;
 } RccIrCseContext;
+
+static bool ir_pass_value_is_direct_alloca(
+    const RccIrCseContext* context, RccIrValue value) {
+    return context && context->direct_allocas &&
+        value < context->replacement_count && context->direct_allocas[value];
+}
+
+static bool ir_pass_store_is_disjoint_from_load(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    const RccIrInstruction* store) {
+    RccIrValue load_address;
+    RccIrValue store_address;
+    if (!load || !store || load->operand_count != 1u ||
+        store->operand_count != 2u) {
+        return false;
+    }
+    load_address = load->operands[0];
+    store_address = store->operands[1];
+    return load_address != store_address &&
+        ir_pass_value_is_direct_alloca(context, load_address) &&
+        ir_pass_value_is_direct_alloca(context, store_address);
+}
 
 static void ir_pass_common_block(RccIrCseContext* context,
                                  size_t block_index) {
@@ -1760,10 +1783,22 @@ static void ir_pass_common_block(RccIrCseContext* context,
             instruction = next;
             continue;
         }
-        if (instruction->opcode == RCC_IR_STORE ||
-            instruction->opcode == RCC_IR_CALL) {
-            /* Without a memory-effect summary, either operation may mutate
-             * every address and invalidates this block's available loads. */
+        if (instruction->opcode == RCC_IR_STORE) {
+            size_t retained = 0u;
+            size_t load_index;
+            for (load_index = 0u;
+                 load_index < context->block_load_count; ++load_index) {
+                RccIrInstruction* prior_load =
+                    context->block_loads[load_index];
+                if (ir_pass_store_is_disjoint_from_load(
+                        context, prior_load, instruction)) {
+                    context->block_loads[retained++] = prior_load;
+                }
+            }
+            context->block_load_count = retained;
+        } else if (instruction->opcode == RCC_IR_CALL) {
+            /* Without a call memory-effect summary, any call may mutate every
+             * address and invalidates all available loads. */
             context->block_load_count = 0u;
         }
         if (!ir_pass_cse_candidate(instruction)) {
@@ -1833,6 +1868,8 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.available));
     context.block_loads = rcc_alloc(
         function->value_count * sizeof(*context.block_loads));
+    context.direct_allocas = rcc_alloc(
+        function->value_count * sizeof(*context.direct_allocas));
     context.replacements = rcc_alloc(
         function->value_count * sizeof(*context.replacements));
     context.replacement_count = function->value_count;
@@ -1840,7 +1877,18 @@ static bool ir_pass_common_subexpressions(
     context.error = error;
     context.error_size = error_size;
     for (index = 0u; index < function->value_count; ++index) {
+        context.direct_allocas[index] = false;
         context.replacements[index] = RCC_IR_VALUE_NONE;
+    }
+    for (index = 0u; index < context.block_count; ++index) {
+        RccIrInstruction* instruction = context.blocks[index]->first;
+        while (instruction) {
+            if (instruction->opcode == RCC_IR_ALLOCA &&
+                instruction->result != RCC_IR_VALUE_NONE) {
+                context.direct_allocas[instruction->result] = true;
+            }
+            instruction = instruction->next;
+        }
     }
     ir_pass_common_block(&context, 0u);
     if (context.failed) goto cleanup;
@@ -1853,6 +1901,7 @@ static bool ir_pass_common_subexpressions(
 cleanup:
     rcc_free(context.available);
     rcc_free(context.block_loads);
+    rcc_free(context.direct_allocas);
     rcc_free(context.replacements);
     rcc_free(blocks);
     rcc_free(predecessors);
