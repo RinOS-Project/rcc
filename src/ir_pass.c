@@ -1913,13 +1913,12 @@ static bool ir_pass_licm_candidate(
                                UINT64_C(1));
         case RCC_IR_LSHR:
         case RCC_IR_ASHR:
+        case RCC_IR_SHL:
             return instruction->operand_count == 2u &&
                 instruction->type.bit_width != 0u &&
                 ir_pass_constant_operand(
                     function, instruction->operands[1], &immediate) &&
                 immediate < instruction->type.bit_width;
-        case RCC_IR_SHL:
-            return false;
         default:
             break;
     }

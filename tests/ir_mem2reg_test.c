@@ -979,15 +979,19 @@ static void verify_loop_invariant_code_motion(void)
     RccIrInstruction* unsafe_shift;
     RccIrInstruction* safe_division;
     RccIrInstruction* safe_shift;
+    RccIrInstruction* safe_left_shift;
+    RccIrInstruction* out_of_range_left_shift;
     RccIrValue unsafe_operands[2];
     RccIrValue safe_operands[2];
     RccIrValue safe_divisor;
     RccIrValue safe_shift_count;
+    RccIrValue out_of_range_shift_count;
     RccIrOptimizationStats stats;
     char error[256];
 
     safe_divisor = append_const(entry, i32, 3u);
     safe_shift_count = append_const(entry, i32, 2u);
+    out_of_range_shift_count = append_const(entry, i32, 32u);
     append_branch(entry, header->id);
     phi_operands[0] = zero;
     phi_operands[1] = RCC_IR_VALUE_NONE;
@@ -1029,12 +1033,23 @@ static void verify_loop_invariant_code_motion(void)
     safe_shift = rcc_ir_append(
         body, RCC_IR_LSHR, i32, safe_operands, 2u, NULL, 0u);
     assert(safe_shift != NULL);
+    safe_left_shift = rcc_ir_append(
+        body, RCC_IR_SHL, i32, safe_operands, 2u, NULL, 0u);
+    assert(safe_left_shift != NULL);
+    safe_operands[1] = out_of_range_shift_count;
+    out_of_range_left_shift = rcc_ir_append(
+        body, RCC_IR_SHL, i32, safe_operands, 2u, NULL, 0u);
+    assert(out_of_range_left_shift != NULL);
     next = append_binary(body, RCC_IR_ADD, i32,
                          phi->result, invariant);
     next = append_binary(body, RCC_IR_ADD, i32,
                          next, safe_division->result);
     next = append_binary(body, RCC_IR_ADD, i32,
                          next, safe_shift->result);
+    next = append_binary(body, RCC_IR_ADD, i32,
+                         next, safe_left_shift->result);
+    next = append_binary(body, RCC_IR_ADD, i32,
+                         next, out_of_range_left_shift->result);
     next = append_binary(body, RCC_IR_ADD, i32,
                          next, unsafe_division->result);
     next = append_binary(body, RCC_IR_ADD, i32,
@@ -1046,7 +1061,7 @@ static void verify_loop_invariant_code_motion(void)
     assert(rcc_ir_optimize_function(function, 2u, &stats,
                                     error, sizeof(error)));
     assert(error[0] == '\0');
-    assert(stats.hoisted_instructions == 3u);
+    assert(stats.hoisted_instructions == 4u);
     {
         RccIrInstruction* entry_instruction;
         size_t entry_adds = 0u;
@@ -1058,8 +1073,10 @@ static void verify_loop_invariant_code_motion(void)
     }
     assert(safe_division->block == entry);
     assert(safe_shift->block == entry);
+    assert(safe_left_shift->block == entry);
     assert(unsafe_division->block == body);
     assert(unsafe_shift->block == body);
+    assert(out_of_range_left_shift->block == body);
     assert(rcc_ir_verify_function(function, error, sizeof(error)));
     rcc_ir_module_destroy(module);
 }
