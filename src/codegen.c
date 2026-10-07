@@ -3230,6 +3230,12 @@ static bool gen_unsigned_magic_divisor32(
         *high_shift = 2u;
         return true;
     }
+    if (constant == 7) {
+        *divisor = 7u;
+        *multiplier = UINT32_C(0x24924925);
+        *high_shift = 2u;
+        return true;
+    }
     return false;
 }
 
@@ -10437,19 +10443,43 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 if (gen_unsigned_magic_divisor32(
                         expr, &divisor, &multiplier, &high_shift)) {
                     gen_expr(mod, expr->binary_lhs);
-                    if (expr->kind == EXPR_MOD) emit_push_reg(mod, EAX);
+                    if (divisor == 7u || expr->kind == EXPR_MOD) {
+                        emit_push_reg(mod, EAX);
+                    }
+                    if (divisor == 7u && expr->kind == EXPR_MOD) {
+                        emit_push_reg(mod, EAX);
+                    }
                     emit_mov_reg_imm(mod, ECX, multiplier);
                     emit_mul_reg(mod, ECX);
-                    emit_shr_reg_imm(mod, EDX, high_shift);
-                    if (expr->kind == EXPR_DIV) {
-                        emit_mov_reg_reg(mod, EAX, EDX);
-                    } else {
-                        emit_mov_reg_reg(mod, ECX, EDX);
-                        emit_shl_reg_imm(
-                            mod, ECX, divisor == 3u ? 1u : 2u);
-                        emit_add_reg_reg(mod, ECX, EDX);
+                    if (divisor == 7u) {
+                        /* For d=7, ceil(2^32/7) gives a high product one
+                         * step below the exact quotient for some inputs.
+                         * Correct it with ((x-q0)>>1)+q0, then shift twice. */
                         emit_pop_reg(mod, EAX);
-                        emit_sub_reg_reg(mod, EAX, ECX);
+                        emit_sub_reg_reg(mod, EAX, EDX);
+                        emit_shr_reg_imm(mod, EAX, 1u);
+                        emit_add_reg_reg(mod, EAX, EDX);
+                        emit_shr_reg_imm(mod, EAX, 2u);
+                        if (expr->kind == EXPR_MOD) {
+                            emit_pop_reg(mod, ECX);
+                            emit_mov_reg_reg(mod, EDX, EAX);
+                            emit_shl_reg_imm(mod, EAX, 3u);
+                            emit_sub_reg_reg(mod, EAX, EDX);
+                            emit_sub_reg_reg(mod, ECX, EAX);
+                            emit_mov_reg_reg(mod, EAX, ECX);
+                        }
+                    } else {
+                        emit_shr_reg_imm(mod, EDX, high_shift);
+                        if (expr->kind == EXPR_DIV) {
+                            emit_mov_reg_reg(mod, EAX, EDX);
+                        } else {
+                            emit_mov_reg_reg(mod, ECX, EDX);
+                            emit_shl_reg_imm(
+                                mod, ECX, divisor == 3u ? 1u : 2u);
+                            emit_add_reg_reg(mod, ECX, EDX);
+                            emit_pop_reg(mod, EAX);
+                            emit_sub_reg_reg(mod, EAX, ECX);
+                        }
                     }
                     break;
                 }

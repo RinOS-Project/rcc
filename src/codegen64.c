@@ -910,6 +910,12 @@ static bool gen64_unsigned_magic_divisor32(
         *high_shift = 2u;
         return true;
     }
+    if (constant == 7) {
+        *divisor = 7u;
+        *multiplier = UINT32_C(0x24924925);
+        *high_shift = 2u;
+        return true;
+    }
     return false;
 }
 
@@ -6281,18 +6287,41 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 if (gen64_unsigned_magic_divisor32(
                         expr, &divisor, &multiplier, &high_shift)) {
                     gen64_expr(mod, expr->binary_lhs);
-                    if (expr->kind == EXPR_MOD) emit64_push_reg(mod, RAX);
+                    if (divisor == 7u || expr->kind == EXPR_MOD) {
+                        emit64_push_reg(mod, RAX);
+                    }
+                    if (divisor == 7u && expr->kind == EXPR_MOD) {
+                        emit64_push_reg(mod, RAX);
+                    }
                     emit64_mov_reg_imm32(mod, RCX, multiplier);
                     emit64_mul_reg_width(mod, RCX, 4, false);
-                    emit64_shr_reg_imm32(mod, RDX, high_shift);
-                    if (expr->kind == EXPR_DIV) {
-                        emit64_mov_reg_reg(mod, RAX, RDX);
-                    } else {
-                        emit64_mov_reg_reg(mod, RCX, RDX);
-                        emit64_mov_reg_imm32(mod, RDX, divisor);
-                        emit64_imul_reg_reg(mod, RCX, RDX);
+                    if (divisor == 7u) {
+                        /* Correct the rounded-up reciprocal's one-step error
+                         * before the final two-bit quotient shift. */
                         emit64_pop_reg(mod, RAX);
-                        emit64_sub_reg_reg(mod, RAX, RCX);
+                        emit64_sub_reg_reg_width(mod, RAX, RDX, 4);
+                        emit64_shr_reg_imm32(mod, RAX, 1u);
+                        emit64_add_reg_reg_width(mod, RAX, RDX, 4);
+                        emit64_shr_reg_imm32(mod, RAX, 2u);
+                        if (expr->kind == EXPR_MOD) {
+                            emit64_pop_reg(mod, RCX);
+                            emit64_mov_reg_reg(mod, RDX, RAX);
+                            emit64_shl_reg_imm(mod, RAX, 3u);
+                            emit64_sub_reg_reg(mod, RAX, RDX);
+                            emit64_sub_reg_reg(mod, RCX, RAX);
+                            emit64_mov_reg_reg(mod, RAX, RCX);
+                        }
+                    } else {
+                        emit64_shr_reg_imm32(mod, RDX, high_shift);
+                        if (expr->kind == EXPR_DIV) {
+                            emit64_mov_reg_reg(mod, RAX, RDX);
+                        } else {
+                            emit64_mov_reg_reg(mod, RCX, RDX);
+                            emit64_mov_reg_imm32(mod, RDX, divisor);
+                            emit64_imul_reg_reg(mod, RCX, RDX);
+                            emit64_pop_reg(mod, RAX);
+                            emit64_sub_reg_reg(mod, RAX, RCX);
+                        }
                     }
                     break;
                 }
