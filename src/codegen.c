@@ -3210,6 +3210,8 @@ static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
 static void gen_call(Module* mod, Expr* expr);
 static void gen_lvalue(Module* mod, Expr* expr);
 static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression);
+static void codegen_push_call_temporary_cleanup32(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 static void emit_normalize_atomic_value(Module* mod, int reg,
                                          const Type* type);
 static void emit_atomic_cmpxchg_width(Module* mod, int desired, int address,
@@ -7377,6 +7379,14 @@ static bool gen_inline_close_call(Module* mod, Expr* expr) {
     gen_zero_local_storage(mod, expr->call_result_offset,
                            (size_t)expr->type->size);
     gen_expr(mod, lowering->handle);
+    if (expr->cxx_temporary_cleanups) {
+        emit_push_reg(mod, EDX);
+        emit_push_reg(mod, EAX);
+        codegen_push_call_temporary_cleanup32(
+            mod, NULL, expr->cxx_temporary_cleanups);
+        emit_pop_reg(mod, EAX);
+        emit_pop_reg(mod, EDX);
+    }
     if (method->field->type->size == 8) {
         uint64_t invalid = (uint64_t)method->constant;
         int active_label = new_label();
@@ -7423,6 +7433,12 @@ static bool gen_inline_method_call(Module* mod, Expr* expr) {
         return gen_inline_close_call(mod, expr);
     }
     if (!method || !gen_inline_method_address(mod, expr)) return false;
+    if (expr->cxx_temporary_cleanups) {
+        emit_push_reg(mod, EAX);
+        codegen_push_call_temporary_cleanup32(
+            mod, NULL, expr->cxx_temporary_cleanups);
+        emit_pop_reg(mod, EAX);
+    }
     if (expr->type &&
         (expr->type->kind == TYPE_STRUCT ||
          expr->type->kind == TYPE_UNION ||
@@ -9954,9 +9970,26 @@ static void gen_call(Module* mod, Expr* expr) {
                                                        argument)) {
                 Type* value_type = passed_type->base;
                 int value_offset = reference_temp_offsets[i];
-                if (!value_type || gen_aggregate_type32(value_type)) {
+                if (!value_type) {
                     rcc_error(argument->loc,
-                              "reference temporary requires a scalar type");
+                              "reference temporary has no referred-to type");
+                    continue;
+                }
+                if (gen_aggregate_type32(value_type)) {
+                    if (args[i]->cxx_temporary_owner) {
+                        gen_expr(mod, argument);
+                        emit_mov_mem_reg(
+                            mod, EBP,
+                            args[i]->cxx_temporary_owner->var_offset, EAX);
+                    } else {
+                        gen_lvalue(mod, argument);
+                    }
+                    gen_cxx_reference_adjustment32(mod, argument);
+                    emit_push_reg(mod, EAX);
+                    argument_bytes += 4;
+                    codegen_push_call_temporary_cleanup32(
+                        mod, args[i]->cxx_temporary_owner,
+                        args[i]->cxx_temporary_cleanups);
                     continue;
                 }
                 if (gen_is_floating(value_type)) {
@@ -10003,6 +10036,9 @@ static void gen_call(Module* mod, Expr* expr) {
                 }
                 emit_push_reg(mod, EAX);
                 argument_bytes += 4;
+                codegen_push_call_temporary_cleanup32(
+                    mod, args[i]->cxx_temporary_owner,
+                    args[i]->cxx_temporary_cleanups);
                 continue;
             }
             gen_lvalue(mod, argument);
@@ -10056,6 +10092,8 @@ static void gen_call(Module* mod, Expr* expr) {
             argument_bytes += 4;
         }
     }
+    codegen_push_call_temporary_cleanup32(
+        mod, NULL, expr->cxx_temporary_cleanups);
     if (expr->type && gen_aggregate_type32(expr->type)) {
         if (expr->call_result_offset >= 0) {
             rcc_error(expr->loc,
@@ -12434,6 +12472,12 @@ static int codegen_align_frame_bytes(int bytes, int alignment) {
     return (int)(value / alignment * alignment);
 }
 
+static ExprList* active_call_temporary_owners = NULL;
+
+ExprList* codegen_call_temporary_owners(void) {
+    return active_call_temporary_owners;
+}
+
 static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                          int stack_alignment) {
     if (!expression || !bytes || *bytes == INT_MAX) return;
@@ -12601,10 +12645,47 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             }
             codegen_assign_compound_expr(expression->call_func, bytes,
                                          stack_alignment);
+            if (expression->cxx_temporary_owner &&
+                expression->cxx_temporary_source) {
+                Expr* source = expression->cxx_temporary_source;
+                int temporary_offset = source->kind == EXPR_CALL
+                    ? source->call_result_offset
+                    : source->kind == EXPR_COMPOUND
+                        ? source->compound_offset : 0;
+                if (temporary_offset < 0) {
+                    expression->cxx_temporary_owner->var_offset =
+                        temporary_offset;
+                } else {
+                    rcc_error(source->loc,
+                              "class-prvalue member receiver has no assigned result slot");
+                }
+            }
             for (ExprList* argument = expression->call_args; argument;
                  argument = argument->next) {
                 codegen_assign_compound_expr(argument->expr, bytes,
                                              stack_alignment);
+                if (argument->cxx_temporary_owner) {
+                    Type* owner_type = argument->cxx_temporary_owner->type;
+                    int size = owner_type && owner_type->size > 0
+                        ? owner_type->size : stack_alignment;
+                    int alignment = owner_type && owner_type->align > 0
+                        ? owner_type->align : stack_alignment;
+                    int64_t extent;
+                    if (alignment < stack_alignment) {
+                        alignment = stack_alignment;
+                    }
+                    extent = (int64_t)*bytes + size;
+                    if (extent > INT_MAX) {
+                        *bytes = INT_MAX;
+                    } else {
+                        *bytes = codegen_align_frame_bytes((int)extent,
+                                                           alignment);
+                        argument->cxx_temporary_owner->var_offset = -*bytes;
+                        argument->cxx_temporary_next =
+                            active_call_temporary_owners;
+                        active_call_temporary_owners = argument;
+                    }
+                }
             }
             for (ExprList* argument = expression->call_new_args; argument;
                  argument = argument->next) {
@@ -12928,6 +13009,7 @@ int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
                                     int stack_alignment) {
     int bytes = initial_bytes < 0 ? INT_MAX : initial_bytes;
     if (stack_alignment < 1) stack_alignment = 1;
+    active_call_temporary_owners = NULL;
     codegen_assign_compound_stmt(statement, &bytes, stack_alignment);
     return bytes;
 }
@@ -13314,6 +13396,7 @@ static void gen_expr(Module* mod, Expr* expr) {
 typedef struct CleanupCodegen {
     Expr* expression;
     CxxCleanupPlan* plan;
+    Decl* temporary_owner;
     struct CleanupCodegen* previous;
     Decl* declaration;
     int exception_frame_offset;
@@ -13352,35 +13435,55 @@ static VLAScopeCodegen* active_vla_scopes = NULL;
 static VLAScopeCodegen* break_vla_marker = NULL;
 static VLAScopeCodegen* continue_vla_marker = NULL;
 
+static void gen_call_temporary_cleanup32(Module* mod,
+                                         CleanupCodegen* cleanup) {
+    int done_label = -1;
+    if (cleanup->temporary_owner) {
+        done_label = new_label();
+        emit_mov_reg_mem(mod, EAX, EBP,
+                         cleanup->temporary_owner->var_offset);
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, done_label);
+    }
+    if (cleanup->plan) {
+        gen_cxx_cleanup_plan32(mod, cleanup->plan,
+                               cleanup->exception_registered,
+                               cleanup->exception_frame_offset);
+    } else {
+        if (cleanup->exception_registered) {
+            gen_cxx_exception_unregister_cleanup32(mod, cleanup);
+        }
+        gen_expr(mod, cleanup->expression);
+    }
+    if (cleanup->temporary_owner) {
+        emit_mov_reg_imm(mod, EAX, 0u);
+        emit_mov_mem_reg(mod, EBP,
+                         cleanup->temporary_owner->var_offset, EAX);
+        emit_label(mod, done_label);
+    }
+}
+
+static void gen_clear_call_temporary_owners32(Module* mod) {
+    for (ExprList* argument = active_call_temporary_owners; argument;
+         argument = argument->cxx_temporary_next) {
+        if (!argument->cxx_temporary_owner) continue;
+        emit_mov_reg_imm(mod, EAX, 0u);
+        emit_mov_mem_reg(mod, EBP,
+                         argument->cxx_temporary_owner->var_offset, EAX);
+    }
+}
+
 static void gen_cleanups_until(Module* mod, CleanupCodegen* marker) {
     for (CleanupCodegen* item = active_cleanups; item && item != marker;
          item = item->previous) {
-        if (item->plan) {
-            gen_cxx_cleanup_plan32(mod, item->plan,
-                                   item->exception_registered,
-                                   item->exception_frame_offset);
-        } else {
-            if (item->exception_registered) {
-                gen_cxx_exception_unregister_cleanup32(mod, item);
-            }
-            gen_expr(mod, item->expression);
-        }
+        gen_call_temporary_cleanup32(mod, item);
     }
 }
 
 static bool gen_cleanup_count(Module* mod, unsigned count) {
     CleanupCodegen* item = active_cleanups;
     while (item && count > 0u) {
-        if (item->plan) {
-            gen_cxx_cleanup_plan32(mod, item->plan,
-                                   item->exception_registered,
-                                   item->exception_frame_offset);
-        } else {
-            if (item->exception_registered) {
-                gen_cxx_exception_unregister_cleanup32(mod, item);
-            }
-            gen_expr(mod, item->expression);
-        }
+        gen_call_temporary_cleanup32(mod, item);
         item = item->previous;
         --count;
     }
@@ -13402,11 +13505,7 @@ static void gen_cxx_exception_cleanups_until_throw32(
         /* Registered destructor cleanups are consumed by the runtime before
          * it longjmps.  Inline-only wrapper cleanups still need code here. */
         if (!item->exception_registered) {
-            if (item->plan) {
-                gen_cxx_cleanup_plan32(mod, item->plan, false, INT_MAX);
-            } else {
-                gen_expr(mod, item->expression);
-            }
+            gen_call_temporary_cleanup32(mod, item);
         }
     }
 }
@@ -13669,6 +13768,27 @@ static void gen_cxx_exception_register_plan32(
     gen_cxx_cleanup_plan_register_forward32(mod, plan, frame_offset);
 }
 
+static void codegen_push_call_temporary_cleanup32(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan) {
+    CleanupCodegen* cleanup;
+    if (!mod || !plan) return;
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    memset(cleanup, 0, sizeof(*cleanup));
+    cleanup->plan = plan;
+    cleanup->temporary_owner = temporary_owner;
+    cleanup->previous = active_cleanups;
+    cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset;
+    active_cleanups = cleanup;
+    if (cxx_exception_cleanup_registration_enabled &&
+        active_cxx_exception_cleanup_frame_offset != INT_MAX &&
+        gen_cxx_cleanup_plan_registerable32(cleanup->plan)) {
+        gen_cxx_exception_register_plan32(
+            mod, cleanup->plan, active_cxx_exception_cleanup_frame_offset);
+        cleanup->exception_registered = true;
+    }
+}
+
 static void gen_cxx_exception_unwind_cleanup32(Module* mod) {
     gen_cxx_exception_cleanups_until_throw32(
         mod, active_cxx_exception_cleanup_marker);
@@ -13901,6 +14021,7 @@ static void gen_cxx_try32(Module* mod, Stmt* stmt) {
     emit_jmp_label(mod, end_label);
 
     emit_label(mod, dispatch_label);
+    gen_clear_call_temporary_owners32(mod);
     for (CxxCatch* handler = stmt->try_catches; handler;
          handler = handler->next) {
         int next_handler = new_label();
@@ -14260,7 +14381,10 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
     switch (stmt->kind) {
         case STMT_EXPR:
             if (stmt->expr) {
+                CleanupCodegen* full_expression_marker = active_cleanups;
                 gen_expr(mod, stmt->expr);
+                gen_cleanups_until(mod, full_expression_marker);
+                discard_cleanups_until(full_expression_marker);
             }
             break;
 
@@ -14292,13 +14416,23 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
         }
 
         case STMT_IF: {
+            CleanupCodegen* full_expression_marker = active_cleanups;
+            int false_cleanup_label = new_label();
+            int then_label = new_label();
             int else_label = new_label();
             int end_label = new_label();
 
             gen_expr(mod, stmt->if_cond);
             emit_test_scalar_value(mod, stmt->if_cond->type);
-            emit_jcc_label(mod, CC_E, else_label);
+            emit_jcc_label(mod, CC_E, false_cleanup_label);
+            gen_cleanups_until(mod, full_expression_marker);
+            emit_jmp_label(mod, then_label);
+            emit_label(mod, false_cleanup_label);
+            gen_cleanups_until(mod, full_expression_marker);
+            emit_jmp_label(mod, else_label);
+            discard_cleanups_until(full_expression_marker);
 
+            emit_label(mod, then_label);
             gen_scoped_stmt(mod, stmt->if_then);
 
             if (stmt->if_else) {
@@ -14323,6 +14457,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             VLAScopeCodegen* old_continue_vla = continue_vla_marker;
             int start_label = new_label();
             int end_label = new_label();
+            int false_cleanup_label = new_label();
+            int body_label = new_label();
             int old_break = break_label;
             int old_continue = continue_label;
             break_label = end_label;
@@ -14333,10 +14469,18 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             continue_vla_marker = vla_loop_marker;
 
             emit_label(mod, start_label);
+            CleanupCodegen* full_expression_marker = active_cleanups;
             gen_expr(mod, stmt->while_cond);
             emit_test_scalar_value(mod, stmt->while_cond->type);
-            emit_jcc_label(mod, CC_E, end_label);
+            emit_jcc_label(mod, CC_E, false_cleanup_label);
+            gen_cleanups_until(mod, full_expression_marker);
+            emit_jmp_label(mod, body_label);
+            emit_label(mod, false_cleanup_label);
+            gen_cleanups_until(mod, full_expression_marker);
+            emit_jmp_label(mod, end_label);
+            discard_cleanups_until(full_expression_marker);
 
+            emit_label(mod, body_label);
             gen_scoped_stmt(mod, stmt->while_body);
 
             emit_jmp_label(mod, start_label);
@@ -14361,6 +14505,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             int start_label = new_label();
             int end_label = new_label();
             int cond_label = new_label();
+            int true_cleanup_label = new_label();
             int old_break = break_label;
             int old_continue = continue_label;
             break_label = end_label;
@@ -14374,9 +14519,16 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             gen_scoped_stmt(mod, stmt->while_body);
 
             emit_label(mod, cond_label);
+            CleanupCodegen* full_expression_marker = active_cleanups;
             gen_expr(mod, stmt->while_cond);
             emit_test_scalar_value(mod, stmt->while_cond->type);
-            emit_jcc_label(mod, CC_NE, start_label);
+            emit_jcc_label(mod, CC_NE, true_cleanup_label);
+            gen_cleanups_until(mod, full_expression_marker);
+            emit_jmp_label(mod, end_label);
+            emit_label(mod, true_cleanup_label);
+            gen_cleanups_until(mod, full_expression_marker);
+            emit_jmp_label(mod, start_label);
+            discard_cleanups_until(full_expression_marker);
 
             emit_label(mod, end_label);
 
@@ -14418,16 +14570,29 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             emit_label(mod, start_label);
 
             if (stmt->for_cond) {
+                CleanupCodegen* full_expression_marker = active_cleanups;
+                int false_cleanup_label = new_label();
+                int body_label = new_label();
                 gen_expr(mod, stmt->for_cond);
                 emit_test_scalar_value(mod, stmt->for_cond->type);
-                emit_jcc_label(mod, CC_E, end_label);
+                emit_jcc_label(mod, CC_E, false_cleanup_label);
+                gen_cleanups_until(mod, full_expression_marker);
+                emit_jmp_label(mod, body_label);
+                emit_label(mod, false_cleanup_label);
+                gen_cleanups_until(mod, full_expression_marker);
+                emit_jmp_label(mod, end_label);
+                discard_cleanups_until(full_expression_marker);
+                emit_label(mod, body_label);
             }
 
             gen_scoped_stmt(mod, stmt->for_body);
 
             emit_label(mod, inc_label);
             if (stmt->for_inc) {
+                CleanupCodegen* full_expression_marker = active_cleanups;
                 gen_expr(mod, stmt->for_inc);
+                gen_cleanups_until(mod, full_expression_marker);
+                discard_cleanups_until(full_expression_marker);
             }
 
             emit_jmp_label(mod, start_label);
@@ -14466,7 +14631,24 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
             /* Evaluate the controlling expression exactly once.  Wide i686
              * values use the established EDX:EAX scalar ABI. */
+            CleanupCodegen* full_expression_marker = active_cleanups;
             gen_expr(mod, stmt->switch_expr);
+            if (stmt->switch_expr && context.control_type &&
+                context.control_type->size == 8) {
+                emit_push_reg(mod, EAX);
+                emit_push_reg(mod, EDX);
+            } else {
+                emit_push_reg(mod, EAX);
+            }
+            gen_cleanups_until(mod, full_expression_marker);
+            discard_cleanups_until(full_expression_marker);
+            if (stmt->switch_expr && context.control_type &&
+                context.control_type->size == 8) {
+                emit_pop_reg(mod, EDX);
+                emit_pop_reg(mod, EAX);
+            } else {
+                emit_pop_reg(mod, EAX);
+            }
             for (SwitchCaseCodegen* item = context.cases; item;
                  item = item->next) {
                 if (context.control_type && context.control_type->size == 8) {
@@ -14535,6 +14717,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             break;
 
         case STMT_RETURN:
+            {
+            CleanupCodegen* full_expression_marker = active_cleanups;
             if (stmt->return_val) {
                 if (current_function_return_type &&
                     current_function_return_type->kind == TYPE_PTR &&
@@ -14602,6 +14786,15 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                         current_function_return_type);
                 }
             }
+            if (stmt->return_val && active_cleanups !=
+                    full_expression_marker) {
+                emit_push_reg(mod, EAX);
+                emit_push_reg(mod, EDX);
+                gen_cleanups_until(mod, full_expression_marker);
+                discard_cleanups_until(full_expression_marker);
+                emit_pop_reg(mod, EDX);
+                emit_pop_reg(mod, EAX);
+            }
             if (active_cxx_exception_frame_offset != INT_MAX) {
                 if (stmt->return_val) {
                     emit_push_reg(mod, EAX);
@@ -14634,6 +14827,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             emit_leave(mod);
             emit_ret(mod);
             break;
+            }
 
         case STMT_BREAK:
             if (break_label >= 0) {
@@ -14655,6 +14849,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR &&
                 (d->var_is_static_local || d->var_is_block_extern)) break;
+            CleanupCodegen* initializer_marker = active_cleanups;
             if (d->kind == DECL_VAR && !d->var_is_vla &&
                 d->var_vla_extent_count > 0) {
                 int extent_slot = 0;
@@ -14732,6 +14927,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 }
                 gen_local_vtable_init(mod, d->type, d->var_offset);
             }
+            gen_cleanups_until(mod, initializer_marker);
+            discard_cleanups_until(initializer_marker);
             if (d->kind == DECL_VAR && d->var_cleanup) {
                 CleanupCodegen* cleanup = rcc_alloc(sizeof(*cleanup));
                 cleanup->expression = d->var_cleanup;
@@ -14842,6 +15039,7 @@ static void gen_function(Module* mod, Decl* decl) {
     if (stack_size > 0) {
         emit_sub_reg_imm(mod, ESP, stack_size);
     }
+    gen_clear_call_temporary_owners32(mod);
 
     gen_vla_parameter_extents(mod, decl);
 

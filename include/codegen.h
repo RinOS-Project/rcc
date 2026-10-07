@@ -262,6 +262,7 @@ int codegen_assign_local_vla_extent_slots(Stmt* statement, int initial_bytes,
                                           int word_size);
 int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
                                     int stack_alignment);
+ExprList* codegen_call_temporary_owners(void);
 int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
                                           int stack_alignment);
 

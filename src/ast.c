@@ -662,6 +662,9 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_result_offset = 0;
     e->call_method = NULL;
     e->cxx_call_is_noexcept = false;
+    e->cxx_temporary_source = NULL;
+    e->cxx_temporary_owner = NULL;
+    e->cxx_temporary_cleanups = NULL;
     e->cxx_typeinfo_hash_code = false;
     e->cxx_typeinfo_name = false;
     e->cxx_typeinfo_before = false;
@@ -1241,6 +1244,9 @@ void ast_add_decl(AST* ast, Decl* decl) {
 ExprList* exprlist_new(Expr* expr) {
     ExprList* list = rcc_alloc(sizeof(ExprList));
     list->expr = expr;
+    list->cxx_temporary_owner = NULL;
+    list->cxx_temporary_cleanups = NULL;
+    list->cxx_temporary_next = NULL;
     list->next = NULL;
     return list;
 }

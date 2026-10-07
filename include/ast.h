@@ -432,6 +432,12 @@ typedef struct ExprList {
     InitDesignatorKind designator_kind;
     int64_t designator_index;
     const char* designator_field;
+    /* A class prvalue bound to a reference parameter lives through the
+     * complete containing full-expression.  The synthetic owner holds its
+     * caller-frame address so conditional paths can skip inactive cleanups. */
+    Decl* cxx_temporary_owner;
+    CxxCleanupPlan* cxx_temporary_cleanups;
+    struct ExprList* cxx_temporary_next;
     struct ExprList* next;
 } ExprList;
 
@@ -552,6 +558,12 @@ struct Expr {
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;
+    /* A class prvalue used as a member-call receiver is destroyed at the end
+     * of the containing full-expression.  The source keeps the caller-frame
+     * slot used by the cleanup plan. */
+    Expr* cxx_temporary_source;
+    Decl* cxx_temporary_owner;
+    CxxCleanupPlan* cxx_temporary_cleanups;
     /* Captures for a C++ lambda that are spliced into an immediate call. */
     ExprList* cxx_lambda_captures;
     /* A generic lambda keeps its dependent call operator until the call site

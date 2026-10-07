@@ -257,6 +257,44 @@ LifetimeExtendedTemporary make_lifetime_extended_temporary(int* events,
     return {events, value};
 }
 
+int read_lifetime_temporary_argument(
+        const LifetimeExtendedTemporary& value) {
+    return value.value;
+}
+
+int read_lifetime_temporary_rvalue_argument(
+        LifetimeExtendedTemporary&& value) {
+    return value.value;
+}
+
+int read_lifetime_base_argument(const LifetimeExtendedBase& value) {
+    return value.value;
+}
+
+int read_conditional_lifetime_argument(bool choose_first, int* events) {
+    return read_lifetime_temporary_argument(
+        choose_first
+            ? make_lifetime_extended_temporary(events, 8)
+            : make_lifetime_extended_temporary(events, 9));
+}
+
+int read_comma_lifetime_argument(int* events) {
+    return read_lifetime_temporary_argument(
+        (mark_comma(), make_lifetime_extended_temporary(events, 10)));
+}
+
+int conditional_lifetime_argument_branch(bool choose, int* events) {
+    return choose
+        ? read_lifetime_temporary_argument(
+              make_lifetime_extended_temporary(events, 11))
+        : 0;
+}
+
+int read_lifetime_temporary_and_return(int* events, int value) {
+    return read_lifetime_temporary_argument(
+        make_lifetime_extended_temporary(events, value));
+}
+
 int&& return_member_xvalue(ReferenceMemberValue&& object) {
     return static_cast<ReferenceMemberValue&&>(object).value;
 }
@@ -376,6 +414,70 @@ int main() {
             return 29;
     }
     if (temporary_lifetime_events != 65) return 27;
+    int argument_temporary_events = 0;
+    int argument_temporary_result =
+        read_lifetime_temporary_argument(
+            make_lifetime_extended_temporary(
+                &argument_temporary_events, 4)) +
+        (argument_temporary_events == 0 ? 1 : 0);
+    if (argument_temporary_result != 5 || argument_temporary_events != 4)
+        return 66;
+    argument_temporary_events = 0;
+    int rvalue_argument_result = read_lifetime_temporary_rvalue_argument(
+        make_lifetime_extended_temporary(&argument_temporary_events, 5));
+    if (rvalue_argument_result != 5 || argument_temporary_events != 5)
+        return 67;
+    int base_argument_temporary_events = 0;
+    int base_argument_result = read_lifetime_base_argument(
+        LifetimeExtendedDerived{&base_argument_temporary_events, 6});
+    if (base_argument_result != 6 || base_argument_temporary_events != 21)
+        return 68;
+    argument_temporary_events = 0;
+    read_lifetime_temporary_argument(make_lifetime_extended_temporary(
+        &argument_temporary_events, 7));
+    if (argument_temporary_events != 7) return 69;
+    argument_temporary_events = 0;
+    int compound_temporary_argument_result =
+        read_lifetime_temporary_argument(LifetimeExtendedTemporary{
+            &argument_temporary_events, 10});
+    if (compound_temporary_argument_result != 10 ||
+        argument_temporary_events != 10)
+        return 72;
+    argument_temporary_events = 0;
+    if (read_lifetime_temporary_argument(make_lifetime_extended_temporary(
+            &argument_temporary_events, 8))) {
+        if (argument_temporary_events != 8) return 70;
+    }
+    argument_temporary_events = 0;
+    int returned_temporary_argument = read_lifetime_temporary_and_return(
+        &argument_temporary_events, 9);
+    if (returned_temporary_argument != 9 || argument_temporary_events != 9)
+        return 71;
+    argument_temporary_events = 0;
+    if (read_conditional_lifetime_argument(
+            true, &argument_temporary_events) != 8 ||
+        argument_temporary_events != 8)
+        return 74;
+    argument_temporary_events = 0;
+    if (read_conditional_lifetime_argument(
+            false, &argument_temporary_events) != 9 ||
+        argument_temporary_events != 9)
+        return 75;
+    argument_temporary_events = 0;
+    comma_calls = 0;
+    if (read_comma_lifetime_argument(&argument_temporary_events) != 10 ||
+        argument_temporary_events != 10 || comma_calls != 1)
+        return 76;
+    argument_temporary_events = 0;
+    if (conditional_lifetime_argument_branch(
+            false, &argument_temporary_events) != 0 ||
+        argument_temporary_events != 0)
+        return 77;
+    argument_temporary_events = 0;
+    if (conditional_lifetime_argument_branch(
+            true, &argument_temporary_events) != 11 ||
+        argument_temporary_events != 11)
+        return 78;
     int converted_temporary_events = 0;
     {
         const LifetimeExtendedTemporary& converted_temporary =

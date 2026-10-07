@@ -7354,6 +7354,67 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
     return valid;
 }
 
+/* A class prvalue used as a reference argument or member-call receiver lives
+ * through the complete containing full-expression.  Keep a synthetic local
+ * owner so codegen binds cleanup to its caller-frame slot instead of
+ * reevaluating the producing expression. */
+static bool sema_prepare_class_prvalue_cleanup(
+    Expr* source, Decl** owner_out, CxxCleanupPlan** cleanups_out,
+    bool owner_stores_address, const char* unsupported_message) {
+    Type* object_type;
+    Expr* object;
+    CxxCleanupPlan* cleanups = NULL;
+    int cleanup_budget = 4096;
+    if (owner_out) *owner_out = NULL;
+    if (cleanups_out) *cleanups_out = NULL;
+    if (!rcc_parser_is_cxx_mode() || !source || !source->type ||
+        is_lvalue(source) || is_xvalue(source)) {
+        return false;
+    }
+    object_type = source->type;
+    if ((object_type->kind != TYPE_STRUCT &&
+         object_type->kind != TYPE_UNION) ||
+        !sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
+        return false;
+    }
+    if (!owner_stores_address && source->kind != EXPR_CALL &&
+        source->kind != EXPR_COMPOUND) {
+        rcc_error(source->loc, "%s", unsupported_message);
+        return true;
+    }
+    if (!owner_out || !cleanups_out) return true;
+    *owner_out = decl_var(
+        "__rcc_full_expression_temporary",
+        owner_stores_address ? type_reference(object_type, false)
+                             : object_type,
+        NULL, source->loc);
+    object = expr_ident((*owner_out)->name, source->loc);
+    object->ident_decl = *owner_out;
+    object->type = object_type;
+    if (!sema_cxx_append_object_cleanups(
+            NULL, object_type, object, &cleanups, 0, &cleanup_budget,
+            true, true) || !cleanups) {
+        *owner_out = NULL;
+        rcc_error(source->loc, "%s", unsupported_message);
+        return true;
+    }
+    *cleanups_out = cleanups;
+    return true;
+}
+
+static void sema_prepare_reference_argument_cleanup(ExprList* argument,
+                                                    Type* parameter_type) {
+    if (!argument || !argument->expr || !parameter_type ||
+        !parameter_type->is_reference) {
+        return;
+    }
+    sema_prepare_class_prvalue_cleanup(
+        argument->expr, &argument->cxx_temporary_owner,
+        &argument->cxx_temporary_cleanups,
+        true,
+        "class-prvalue reference argument cleanup is unsupported");
+}
+
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
     Expr* materialized_xvalue_source = NULL;
@@ -11182,6 +11243,18 @@ static Type* sema_expr(Expr* expr) {
                         /* Establish the source object's type before deciding
                          * whether an inherited-base conversion is needed. */
                         sema_expr(this_argument);
+                        if (member->kind != EXPR_PTR_MEMBER) {
+                            sema_prepare_class_prvalue_cleanup(
+                                member->member_base,
+                                &expr->cxx_temporary_owner,
+                                &expr->cxx_temporary_cleanups,
+                                false,
+                                "class-prvalue member receiver cleanup is unsupported");
+                            if (expr->cxx_temporary_owner) {
+                                expr->cxx_temporary_source =
+                                    member->member_base;
+                            }
+                        }
                         if (method->this_adjustment != 0) {
                             Expr* byte_pointer = expr_cast(
                                 type_ptr(type_char), this_argument,
@@ -11336,6 +11409,9 @@ static Type* sema_expr(Expr* expr) {
                         rcc_error(argument->expr->loc,
                                   "incompatible type for argument %d to '%s'",
                                   argument_index, function_name);
+                    } else {
+                        sema_prepare_reference_argument_cleanup(
+                            argument, parameter->type);
                     }
                     parameter = parameter->next;
                 } else if (ft->has_prototype && !ft->variadic &&

@@ -3799,6 +3799,8 @@ static void resolve_labels64(Module* mod) {
  * ═══════════════════════════════════════ */
 
 static void gen64_stmt(Module* mod, Stmt* stmt);
+static void gen64_push_call_temporary_cleanup(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 
 static void gen64_symbol_address(Module* mod, const char* symbol,
                                  uint32_t addend) {
@@ -4336,6 +4338,14 @@ static bool gen64_inline_close_call(Module* mod, Expr* expr) {
     gen64_zero_local_storage(mod, expr->call_result_offset,
                              (size_t)expr->type->size);
     gen64_expr(mod, lowering->handle);
+    if (expr->cxx_temporary_cleanups) {
+        emit64_sub_reg_imm(mod, RSP, 16);
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        gen64_push_call_temporary_cleanup(
+            mod, NULL, expr->cxx_temporary_cleanups);
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        emit64_add_reg_imm(mod, RSP, 16);
+    }
     emit64_compare_constant(mod, RAX, method->constant);
     emit64_jcc_label(mod, CC64_E, done_label);
 
@@ -4364,6 +4374,14 @@ static bool gen64_inline_method_call(Module* mod, Expr* expr) {
         return gen64_inline_close_call(mod, expr);
     }
     if (!method || !gen64_inline_method_address(mod, expr)) return false;
+    if (expr->cxx_temporary_cleanups) {
+        emit64_sub_reg_imm(mod, RSP, 16);
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        gen64_push_call_temporary_cleanup(
+            mod, NULL, expr->cxx_temporary_cleanups);
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        emit64_add_reg_imm(mod, RSP, 16);
+    }
     if (expr->type &&
         (expr->type->kind == TYPE_STRUCT ||
          expr->type->kind == TYPE_UNION ||
@@ -7127,12 +7145,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 }
                 if (argument->materialize_rvalue_reference) {
                     Type* value_type = argument_types[i]->base;
-                    if (!value_type || gen64_is_aggregate(value_type)) {
+                    if (!value_type) {
                         rcc_error(args[i]->expr->loc,
-                                  "reference temporary requires a scalar type");
+                                  "reference temporary has no referred-to type");
                     }
-                    argument->value_temp_offset = temp_bytes;
-                    temp_bytes += 8;
+                    if (value_type && gen64_is_aggregate(value_type)) {
+                        argument->value_temp_offset = -1;
+                    } else {
+                        argument->value_temp_offset = temp_bytes;
+                        temp_bytes += 8;
+                    }
                     argument->temp_offset = temp_bytes;
                     temp_bytes += 8;
                 } else {
@@ -7168,22 +7190,38 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 } else if (passed_type && passed_type->is_reference) {
                     if (layout->materialize_rvalue_reference) {
                         Type* value_type = passed_type->base;
-                        gen64_expr(mod, argument);
-                        if (gen64_is_floating(value_type)) {
-                            gen64_convert_to_float(mod, argument->type,
-                                                   value_type);
-                        } else if (type_is_integer(value_type) ||
-                                   (value_type &&
-                                    value_type->kind == TYPE_ENUM)) {
-                            emit64_normalize_atomic_value(mod, RAX,
-                                                          value_type);
+                        if (gen64_is_aggregate(value_type)) {
+                            if (args[i]->cxx_temporary_owner) {
+                                gen64_expr(mod, argument);
+                                emit64_mov_mem_reg(
+                                    mod, RBP,
+                                    args[i]->cxx_temporary_owner->var_offset,
+                                    RAX);
+                            } else {
+                                gen64_lvalue(mod, argument);
+                            }
+                            gen64_cxx_reference_adjustment(mod, argument);
+                        } else {
+                            gen64_expr(mod, argument);
+                            if (gen64_is_floating(value_type)) {
+                                gen64_convert_to_float(mod, argument->type,
+                                                       value_type);
+                            } else if (type_is_integer(value_type) ||
+                                       (value_type &&
+                                        value_type->kind == TYPE_ENUM)) {
+                                emit64_normalize_atomic_value(mod, RAX,
+                                                              value_type);
+                            }
+                            emit64_store_typed(mod, RSP,
+                                               layout->value_temp_offset, RAX,
+                                               value_type);
+                            emit64_lea(mod, RAX, RSP,
+                                       layout->value_temp_offset);
                         }
-                        emit64_store_typed(mod, RSP,
-                                           layout->value_temp_offset, RAX,
-                                           value_type);
-                        emit64_lea(mod, RAX, RSP,
-                                   layout->value_temp_offset);
                         emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
+                        gen64_push_call_temporary_cleanup(
+                            mod, args[i]->cxx_temporary_owner,
+                            args[i]->cxx_temporary_cleanups);
                     } else {
                         gen64_lvalue(mod, argument);
                         gen64_cxx_reference_adjustment(mod, argument);
@@ -7209,7 +7247,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                 }
             }
-
+            gen64_push_call_temporary_cleanup(
+                mod, NULL, expr->cxx_temporary_cleanups);
             if (stack_bytes + stack_padding) {
                 emit64_sub_reg_imm(mod, RSP, stack_bytes + stack_padding);
                 emit64_mov_reg_reg(mod, RAX, RSP);
@@ -7647,6 +7686,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
 typedef struct CleanupCodegen64 {
     Expr* expression;
     CxxCleanupPlan* plan;
+    Decl* temporary_owner;
     struct CleanupCodegen64* previous;
     Decl* declaration;
     int exception_frame_offset;
@@ -7684,35 +7724,55 @@ static VLAScopeCodegen64* active_vla_scopes64 = NULL;
 static VLAScopeCodegen64* break_vla_marker64 = NULL;
 static VLAScopeCodegen64* continue_vla_marker64 = NULL;
 
+static void gen64_call_temporary_cleanup(
+    Module* mod, CleanupCodegen64* cleanup) {
+    int done_label = -1;
+    if (cleanup->temporary_owner) {
+        done_label = new_label64();
+        emit64_mov_reg_mem(mod, RAX, RBP,
+                           cleanup->temporary_owner->var_offset);
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, done_label);
+    }
+    if (cleanup->plan) {
+        gen64_cxx_cleanup_plan(mod, cleanup->plan,
+                               cleanup->exception_registered,
+                               cleanup->exception_frame_offset);
+    } else {
+        if (cleanup->exception_registered) {
+            gen64_cxx_exception_unregister_cleanup(mod, cleanup);
+        }
+        gen64_expr(mod, cleanup->expression);
+    }
+    if (cleanup->temporary_owner) {
+        emit64_mov_reg_imm64(mod, RAX, 0u);
+        emit64_mov_mem_reg(mod, RBP,
+                           cleanup->temporary_owner->var_offset, RAX);
+        emit64_label(mod, done_label);
+    }
+}
+
+static void gen64_clear_call_temporary_owners(Module* mod) {
+    for (ExprList* argument = codegen_call_temporary_owners(); argument;
+         argument = argument->cxx_temporary_next) {
+        if (!argument->cxx_temporary_owner) continue;
+        emit64_mov_reg_imm64(mod, RAX, 0u);
+        emit64_mov_mem_reg(mod, RBP,
+                           argument->cxx_temporary_owner->var_offset, RAX);
+    }
+}
+
 static void gen64_cleanups_until(Module* mod, CleanupCodegen64* marker) {
     for (CleanupCodegen64* item = active_cleanups64;
          item && item != marker; item = item->previous) {
-        if (item->plan) {
-            gen64_cxx_cleanup_plan(mod, item->plan,
-                                   item->exception_registered,
-                                   item->exception_frame_offset);
-        } else {
-            if (item->exception_registered) {
-                gen64_cxx_exception_unregister_cleanup(mod, item);
-            }
-            gen64_expr(mod, item->expression);
-        }
+        gen64_call_temporary_cleanup(mod, item);
     }
 }
 
 static bool gen64_cleanup_count(Module* mod, unsigned count) {
     CleanupCodegen64* item = active_cleanups64;
     while (item && count > 0u) {
-        if (item->plan) {
-            gen64_cxx_cleanup_plan(mod, item->plan,
-                                   item->exception_registered,
-                                   item->exception_frame_offset);
-        } else {
-            if (item->exception_registered) {
-                gen64_cxx_exception_unregister_cleanup(mod, item);
-            }
-            gen64_expr(mod, item->expression);
-        }
+        gen64_call_temporary_cleanup(mod, item);
         item = item->previous;
         --count;
     }
@@ -7968,6 +8028,27 @@ static void gen64_cxx_exception_register_plan(
     gen64_cxx_exception_register_plan_forward(mod, plan, frame_offset);
 }
 
+static void gen64_push_call_temporary_cleanup(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan) {
+    CleanupCodegen64* cleanup;
+    if (!mod || !plan) return;
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    memset(cleanup, 0, sizeof(*cleanup));
+    cleanup->plan = plan;
+    cleanup->temporary_owner = temporary_owner;
+    cleanup->previous = active_cleanups64;
+    cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset64;
+    active_cleanups64 = cleanup;
+    if (cxx_exception_cleanup_registration_enabled64 &&
+        active_cxx_exception_cleanup_frame_offset64 != INT_MAX &&
+        gen64_cxx_cleanup_plan_registerable(cleanup->plan)) {
+        gen64_cxx_exception_register_plan(
+            mod, cleanup->plan, active_cxx_exception_cleanup_frame_offset64);
+        cleanup->exception_registered = true;
+    }
+}
+
 static void gen64_cxx_exception_cleanups_until_throw(
     Module* mod, CleanupCodegen64* marker) {
     for (CleanupCodegen64* item = active_cleanups64;
@@ -7975,11 +8056,7 @@ static void gen64_cxx_exception_cleanups_until_throw(
         /* Registered destructor callbacks are consumed by the runtime before
          * its longjmp.  Compiler-only wrapper cleanups remain inline. */
         if (!item->exception_registered) {
-            if (item->plan) {
-                gen64_cxx_cleanup_plan(mod, item->plan, false, INT_MAX);
-            } else {
-                gen64_expr(mod, item->expression);
-            }
+            gen64_call_temporary_cleanup(mod, item);
         }
     }
 }
@@ -8219,6 +8296,7 @@ static void gen64_cxx_try(Module* mod, Stmt* stmt) {
     emit64_jmp_label(mod, end_label);
 
     emit64_label(mod, dispatch_label);
+    gen64_clear_call_temporary_owners(mod);
     for (CxxCatch* handler = stmt->try_catches; handler;
          handler = handler->next) {
         int next_handler = new_label64();
@@ -9452,7 +9530,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
     switch (stmt->kind) {
         case STMT_EXPR:
             if (stmt->expr) {
+                CleanupCodegen64* full_expression_marker = active_cleanups64;
                 gen64_expr(mod, stmt->expr);
+                gen64_cleanups_until(mod, full_expression_marker);
+                discard64_cleanups_until(full_expression_marker);
             }
             break;
 
@@ -9484,13 +9565,23 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
         }
 
         case STMT_IF: {
+            CleanupCodegen64* full_expression_marker = active_cleanups64;
+            int false_cleanup_label = new_label64();
+            int then_label = new_label64();
             int else_label = new_label64();
             int end_label = new_label64();
 
             gen64_expr(mod, stmt->if_cond);
             emit64_test_reg_reg(mod, RAX, RAX);
-            emit64_jcc_label(mod, CC64_E, else_label);
+            emit64_jcc_label(mod, CC64_E, false_cleanup_label);
+            gen64_cleanups_until(mod, full_expression_marker);
+            emit64_jmp_label(mod, then_label);
+            emit64_label(mod, false_cleanup_label);
+            gen64_cleanups_until(mod, full_expression_marker);
+            emit64_jmp_label(mod, else_label);
+            discard64_cleanups_until(full_expression_marker);
 
+            emit64_label(mod, then_label);
             gen64_scoped_stmt(mod, stmt->if_then);
 
             if (stmt->if_else) {
@@ -9516,6 +9607,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             VLAScopeCodegen64* old_continue_vla = continue_vla_marker64;
             int start_label = new_label64();
             int end_label = new_label64();
+            int false_cleanup_label = new_label64();
+            int body_label = new_label64();
             int old_break = break_label64;
             int old_continue = continue_label64;
             break_label64 = end_label;
@@ -9526,10 +9619,18 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             continue_vla_marker64 = vla_loop_marker;
 
             emit64_label(mod, start_label);
+            CleanupCodegen64* full_expression_marker = active_cleanups64;
             gen64_expr(mod, stmt->while_cond);
             emit64_test_reg_reg(mod, RAX, RAX);
-            emit64_jcc_label(mod, CC64_E, end_label);
+            emit64_jcc_label(mod, CC64_E, false_cleanup_label);
+            gen64_cleanups_until(mod, full_expression_marker);
+            emit64_jmp_label(mod, body_label);
+            emit64_label(mod, false_cleanup_label);
+            gen64_cleanups_until(mod, full_expression_marker);
+            emit64_jmp_label(mod, end_label);
+            discard64_cleanups_until(full_expression_marker);
 
+            emit64_label(mod, body_label);
             gen64_scoped_stmt(mod, stmt->while_body);
 
             emit64_jmp_label(mod, start_label);
@@ -9555,6 +9656,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             int start_label = new_label64();
             int end_label = new_label64();
             int cond_label = new_label64();
+            int true_cleanup_label = new_label64();
             int old_break = break_label64;
             int old_continue = continue_label64;
             break_label64 = end_label;
@@ -9568,9 +9670,16 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             gen64_scoped_stmt(mod, stmt->while_body);
 
             emit64_label(mod, cond_label);
+            CleanupCodegen64* full_expression_marker = active_cleanups64;
             gen64_expr(mod, stmt->while_cond);
             emit64_test_reg_reg(mod, RAX, RAX);
-            emit64_jcc_label(mod, CC64_NE, start_label);
+            emit64_jcc_label(mod, CC64_NE, true_cleanup_label);
+            gen64_cleanups_until(mod, full_expression_marker);
+            emit64_jmp_label(mod, end_label);
+            emit64_label(mod, true_cleanup_label);
+            gen64_cleanups_until(mod, full_expression_marker);
+            emit64_jmp_label(mod, start_label);
+            discard64_cleanups_until(full_expression_marker);
 
             emit64_label(mod, end_label);
 
@@ -9613,16 +9722,29 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             emit64_label(mod, start_label);
 
             if (stmt->for_cond) {
+                CleanupCodegen64* full_expression_marker = active_cleanups64;
+                int false_cleanup_label = new_label64();
+                int body_label = new_label64();
                 gen64_expr(mod, stmt->for_cond);
                 emit64_test_reg_reg(mod, RAX, RAX);
-                emit64_jcc_label(mod, CC64_E, end_label);
+                emit64_jcc_label(mod, CC64_E, false_cleanup_label);
+                gen64_cleanups_until(mod, full_expression_marker);
+                emit64_jmp_label(mod, body_label);
+                emit64_label(mod, false_cleanup_label);
+                gen64_cleanups_until(mod, full_expression_marker);
+                emit64_jmp_label(mod, end_label);
+                discard64_cleanups_until(full_expression_marker);
+                emit64_label(mod, body_label);
             }
 
             gen64_scoped_stmt(mod, stmt->for_body);
 
             emit64_label(mod, inc_label);
             if (stmt->for_inc) {
+                CleanupCodegen64* full_expression_marker = active_cleanups64;
                 gen64_expr(mod, stmt->for_inc);
+                gen64_cleanups_until(mod, full_expression_marker);
+                discard64_cleanups_until(full_expression_marker);
             }
 
             emit64_jmp_label(mod, start_label);
@@ -9659,7 +9781,14 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             context.previous = old_switch;
             codegen64_collect_switch_cases(stmt->switch_body, &context);
 
+            CleanupCodegen64* full_expression_marker = active_cleanups64;
             gen64_expr(mod, stmt->switch_expr);
+            emit64_sub_reg_imm(mod, RSP, 16);
+            emit64_mov_mem_reg(mod, RSP, 0, RAX);
+            gen64_cleanups_until(mod, full_expression_marker);
+            discard64_cleanups_until(full_expression_marker);
+            emit64_mov_reg_mem(mod, RAX, RSP, 0);
+            emit64_add_reg_imm(mod, RSP, 16);
             for (SwitchCaseCodegen64* item = context.cases; item;
                  item = item->next) {
                 uint64_t signed_imm32 = (uint64_t)(int64_t)(int32_t)item->bits;
@@ -9722,6 +9851,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             break;
 
         case STMT_RETURN:
+            {
+            CleanupCodegen64* full_expression_marker = active_cleanups64;
             if (stmt->return_val) {
                 if (current_function_return_type64 &&
                     current_function_return_type64->kind == TYPE_PTR &&
@@ -9801,6 +9932,15 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                         mod, RAX, current_function_return_type64);
                 }
             }
+            if (stmt->return_val && active_cleanups64 !=
+                    full_expression_marker) {
+                emit64_push_reg(mod, RAX);
+                emit64_push_reg(mod, RDX);
+                gen64_cleanups_until(mod, full_expression_marker);
+                discard64_cleanups_until(full_expression_marker);
+                emit64_pop_reg(mod, RDX);
+                emit64_pop_reg(mod, RAX);
+            }
             if (active_cxx_exception_frame_offset64 != INT_MAX) {
                 if (stmt->return_val) {
                     emit64_push_reg(mod, RAX);
@@ -9834,6 +9974,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             emit64_leave(mod);
             emit64_ret(mod);
             break;
+            }
 
         case STMT_BREAK:
             if (break_label64 >= 0) {
@@ -9855,6 +9996,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR &&
                 (d->var_is_static_local || d->var_is_block_extern)) break;
+            CleanupCodegen64* initializer_marker = active_cleanups64;
             if (d->kind == DECL_VAR && !d->var_is_vla &&
                 d->var_vla_extent_count > 0) {
                 int extent_slot = 0;
@@ -9935,6 +10077,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 }
                 gen64_local_vtable_init(mod, d->type, d->var_offset);
             }
+            gen64_cleanups_until(mod, initializer_marker);
+            discard64_cleanups_until(initializer_marker);
             if (d->kind == DECL_VAR && d->var_cleanup) {
                 CleanupCodegen64* cleanup = rcc_alloc(sizeof(*cleanup));
                 cleanup->expression = d->var_cleanup;
@@ -10174,6 +10318,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     if (stack_size > 0) {
         emit64_sub_reg_imm(mod, RSP, stack_size);
     }
+    gen64_clear_call_temporary_owners(mod);
     if (memory_result) {
         emit64_mov_mem_reg(mod, RBP, -8, RDI);
     }

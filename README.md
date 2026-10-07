@@ -240,12 +240,14 @@ production RIN v3 validatorを組み合わせた統合試験もあります。
 conversion functions returning class references or class prvalues, preserves
 the returned value category, and applies derived-to-base reference adjustment.
 Generated implicit-object addresses now permit a class-prvalue receiver to be
-materialized for its conversion call. `test-cxx-function-template-references`
-passes i686/AMD64 generation and x64 execution for lvalue-reference,
-rvalue-reference, and class-prvalue conversion results, derived-to-base
-adjustment, cleanup order, and prvalue receivers. Static-storage reference
-temporaries and class-prvalue reference arguments remain open in
-[`TODO.md`](TODO.md).
+materialized for its conversion call. Receiver cleanup plans stay active
+through the containing full-expression, and class-prvalue reference arguments
+use caller-frame temporary storage and cleanup on both target backends.
+`test-cxx-function-template-references` covers lvalue-reference,
+rvalue-reference, and class-prvalue conversion results, reference arguments,
+derived-to-base adjustment, cleanup order, and prvalue receiver materialization.
+Dedicated nontrivial-receiver cleanup coverage and static-storage reference
+temporaries remain open in [`TODO.md`](TODO.md).
 
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、
