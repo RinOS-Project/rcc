@@ -762,6 +762,15 @@ static void codegen_defer_global_cleanup_plan(Module* mod,
     ++mod->global_finalizer_count;
 }
 
+static void codegen_defer_global_variable_cleanup(Module* mod,
+                                                  Decl* declaration) {
+    if (!mod || !declaration) return;
+    if (declaration->var_cleanup) {
+        codegen_defer_global_finalizer(mod, declaration->var_cleanup);
+    }
+    codegen_defer_global_cleanup_plan(mod, declaration->var_cleanups);
+}
+
 /* Evaluate the floating subset permitted in a static initializer.  Keeping
  * this separate from the integer evaluator avoids converting through a
  * machine integer and preserves the IEEE bit pattern that the data emitter
@@ -1624,6 +1633,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             if (declaration->var_is_inline || declaration->is_weak) {
                 module_mark_symbol_weak(mod, decl_link_name(declaration));
             }
+            codegen_defer_global_variable_cleanup(mod, declaration);
             continue;
         }
         if (!declaration->var_init) {
@@ -1643,6 +1653,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             if (declaration->var_is_inline || declaration->is_weak) {
                 module_mark_symbol_weak(mod, decl_link_name(declaration));
             }
+            codegen_defer_global_variable_cleanup(mod, declaration);
             continue;
         }
         while ((mod->data.size & (alignment - 1u)) != 0u) {
@@ -1667,11 +1678,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                           declaration->name);
             }
         }
-        if (declaration->var_cleanup) {
-            codegen_defer_global_finalizer(mod, declaration->var_cleanup);
-        }
-        codegen_defer_global_cleanup_plan(mod,
-                                          declaration->var_cleanups);
+        codegen_defer_global_variable_cleanup(mod, declaration);
         codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
                                    declaration->type);
         module_add_symbol(mod, decl_link_name(declaration), offset, true,

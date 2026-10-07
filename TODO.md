@@ -359,10 +359,11 @@
         registration/unregistration, global finalizers, and optimizer analyses.
         Verify with a 4101-element local array plus existing array/member/
         reference lifetime gates on both target codegens and x64 execution.
-  - [ ] Verify reverse-order runtime finalization for large initialized
-        namespace-scope arrays on both targets and the x64 host. Function-local
-        static and TLS destructor registration, plus globals requiring generated
-        default-constructor work, still lack lifetime registration.
+  - [ ] Verify reverse-order runtime finalization for large defined
+        namespace-scope arrays, including zero-initialized arrays without an
+        explicit initializer, on both targets and the x64 host. Function-local
+        static/TLS destructors and globals requiring generated default-constructor
+        work currently diagnose as unsupported.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,

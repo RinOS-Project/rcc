@@ -7335,10 +7335,19 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     }
     if (!object_type) return;
     if (!declaration->var_init &&
-        (declaration->var_is_global || declaration->var_is_static_local ||
-         declaration->var_is_block_extern)) {
+        (declaration->var_is_block_extern ||
+         (declaration->var_is_global &&
+          declaration->storage == STORAGE_EXTERN))) {
         return;
     }
+    if ((declaration->var_is_static_local ||
+         declaration->var_is_thread_local) &&
+        sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
+        rcc_error(declaration->loc,
+                  "static-local or thread-local destructor registration is unsupported");
+        return;
+    }
+    if (!declaration->var_init && declaration->var_is_static_local) return;
     if (!declaration->var_init &&
         sema_cxx_default_initialization_needs_lowering(object_type, 0)) {
         rcc_error(declaration->loc,
