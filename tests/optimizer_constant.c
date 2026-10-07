@@ -358,6 +358,19 @@ int* preserved_pointer_post_increment_side_effect_call(int** value)
     return inline_pointer_post_increment((*value)++);
 }
 
+static int* inline_pointer_update_sequence(int* value)
+{
+    ++value;
+    value--;
+    --value;
+    return value;
+}
+
+int* inlined_pointer_update_sequence_call(int* value)
+{
+    return inline_pointer_update_sequence(value);
+}
+
 static float inline_float_increment_mutations(float value)
 {
     float adjusted = value;
