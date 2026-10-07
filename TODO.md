@@ -325,7 +325,8 @@
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
   - [x] i686 cdeclの64-bit整数を、EDX:EAXのverified SSA return-pair、8-byte引数、
         local/global load、narrow cast、加減算のcarry/borrow、bitwise、
-        signed/unsigned比較、0..63-bit shift、direct call、div/modへ接続し、
+        signed/unsigned比較、0..63-bit shift、direct／間接function-pointer call、
+        div/modへ接続し、
         実行回帰で検証
   - [x] i686 wide-scalarを検証済みのlow/high i32 SSA pairとして扱い、pair
         invariant、符号／ゼロ拡張、narrow integer／pointer cast、64-bit shift

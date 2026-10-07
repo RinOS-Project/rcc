@@ -189,6 +189,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* mul_symbol;
     ObjSymbol* call_symbol;
     ObjSymbol* call_local_symbol;
+    ObjSymbol* indirect_call_symbol;
     ObjSymbol* expect_symbol;
     ObjSymbol* assignment_symbol;
     ObjSymbol* compound_symbol;
@@ -275,6 +276,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     call_symbol = objfile_find_symbol(object, "verified_wide_scalar_call");
     call_local_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_call_local");
+    indirect_call_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_indirect_call");
     expect_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_expect");
     assignment_symbol = objfile_find_symbol(
@@ -428,6 +431,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            call_local_symbol->type == SYM_GLOBAL &&
            call_local_symbol->binding == BIND_CODE &&
            call_local_symbol->section == 0);
+    assert(indirect_call_symbol != NULL &&
+           indirect_call_symbol->type == SYM_GLOBAL &&
+           indirect_call_symbol->binding == BIND_CODE &&
+           indirect_call_symbol->section == 0);
     assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
            expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
     assert(assignment_symbol != NULL &&
@@ -574,6 +581,9 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         unsigned long long RINOS_ABI (*mul_function)(unsigned long long);
         unsigned long long RINOS_ABI (*call_function)(unsigned long long);
         unsigned long long RINOS_ABI (*call_local_function)(unsigned long long);
+        unsigned long long RINOS_ABI (*indirect_call_function)(
+            unsigned long long RINOS_ABI (*)(unsigned long long),
+            unsigned long long);
         long long RINOS_ABI (*expect_function)(long long);
         unsigned long long RINOS_ABI (*assignment_function)(unsigned long long);
         unsigned long long RINOS_ABI (*compound_function)(unsigned long long);
@@ -637,6 +647,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&add_function, &address, sizeof(add_function));
         assert(add_function(0x1020304050607080ULL) ==
                0x1122334455667788ULL);
+        address = symbol_address(memory, indirect_call_symbol);
+        memcpy(&indirect_call_function, &address,
+               sizeof(indirect_call_function));
+        assert(indirect_call_function(add_function,
+                                      0x0000000200000002ULL) ==
+               0x010203060506070aULL);
         address = symbol_address(memory, carry_symbol);
         memcpy(&carry_function, &address, sizeof(carry_function));
         assert(carry_function(1ULL) == 0x0000000100000000ULL);

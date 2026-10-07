@@ -5198,17 +5198,38 @@ static bool lower_wide_scalar_call(
     RccIrInstruction* call;
     RccIrInstruction* capture;
     RccIrLowerValue address;
+    RccIrLowerValue indirect_callee = lower_invalid_value();
+    bool indirect = false;
     if (result) memset(result, 0, sizeof(*result));
     if (!context || !expression || !result ||
         expression->cxx_close_call || !expression->call_func ||
-        expression->call_func->kind != EXPR_IDENT ||
         !lower_i686_wide_scalar_type(expression->type)) {
         return false;
     }
-    callee = expression->call_func->ident_decl;
-    function_type = callee ? callee->type : NULL;
-    if (!callee || callee->kind != DECL_FUNC || !function_type ||
-        function_type->kind != TYPE_FUNC || function_type->variadic ||
+    callee = NULL;
+    if (expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_decl &&
+        expression->call_func->ident_decl->kind == DECL_FUNC) {
+        callee = expression->call_func->ident_decl;
+        function_type = callee->type;
+    } else {
+        function_type = expression->call_func->type;
+        if (!function_type || function_type->kind != TYPE_PTR ||
+            !function_type->base ||
+            function_type->base->kind != TYPE_FUNC) {
+            return false;
+        }
+        function_type = function_type->base;
+        indirect_callee = lower_expression(
+            context, expression->call_func);
+        if (!indirect_callee.valid ||
+            indirect_callee.type.kind != RCC_IR_TYPE_POINTER) {
+            return false;
+        }
+        indirect = true;
+    }
+    if (!function_type || function_type->kind != TYPE_FUNC ||
+        function_type->variadic ||
         !function_type->ret_type ||
         !lower_i686_wide_scalar_type(function_type->ret_type) ||
         !type_is_compatible(function_type->ret_type, expression->type)) {
@@ -5278,7 +5299,11 @@ static bool lower_wide_scalar_call(
         argument_count, NULL, 0u);
     rcc_free(operands);
     if (!call) return false;
-    rcc_ir_set_callee(call, decl_link_name(callee));
+    if (indirect) {
+        call->callee_value = indirect_callee.value;
+    } else {
+        rcc_ir_set_callee(call, decl_link_name(callee));
+    }
     capture = lower_append(
         context, RCC_IR_CAPTURE_RETURN_PAIR, rcc_ir_type_void(),
         &address.value, 1u, NULL, 0u);

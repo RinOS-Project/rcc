@@ -170,6 +170,15 @@ unsigned long long verified_wide_scalar_call_local(unsigned long long value)
     return local;
 }
 
+typedef unsigned long long (*VerifiedWideScalarUnary)(
+    unsigned long long);
+
+unsigned long long verified_wide_scalar_indirect_call(
+    VerifiedWideScalarUnary function, unsigned long long value)
+{
+    return function(value);
+}
+
 long long verified_wide_scalar_expect(long long value)
 {
     return __builtin_expect(value, 1LL);
