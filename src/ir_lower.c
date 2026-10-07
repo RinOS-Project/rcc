@@ -559,13 +559,7 @@ static bool lower_collect_labels(RccIrLowerContext* context,
             return lower_collect_labels(context, statement->for_init) &&
                 lower_collect_labels(context, statement->for_body);
         case STMT_SWITCH:
-            /* A goto may enter a switch through an ordinary label.  The
-             * switch lowerer owns case/default entry blocks, but it does not
-             * yet model arbitrary labels interleaved with those entries.  Do
-             * not pre-create unterminated verified blocks for that shape;
-             * lower_statement will report the label as outside the verified
-             * subset and the production AST backend will handle it. */
-            return true;
+            return lower_collect_labels(context, statement->switch_body);
         case STMT_CASE:
             return lower_collect_labels(context, statement->case_stmt);
         case STMT_DEFAULT:
@@ -7169,11 +7163,8 @@ static bool lower_collect_switch_labels(
             return lower_collect_switch_labels(
                 context, switch_context, statement->while_body);
         case STMT_LABEL:
-            if (lower_statement_has_switch_label(statement)) {
-                context->unsupported = true;
-                return false;
-            }
-            return true;
+            return lower_collect_switch_labels(
+                context, switch_context, statement->label_stmt);
         case STMT_FOR:
             return lower_collect_switch_labels(
                 context, switch_context, statement->for_body);

@@ -406,3 +406,17 @@ int verified_switch_for_case(int value)
     }
     return -1;
 }
+
+int verified_switch_labeled_case(int value)
+{
+    switch (value) {
+        case -1:
+            goto selected;
+selected:
+        case 1:
+            return 11;
+        default:
+            return 22;
+    }
+    return 33;
+}

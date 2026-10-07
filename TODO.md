@@ -363,6 +363,9 @@
   - [x] `switch`の`case`ラベルを`while`/`do`/`for`本体内から収集し、通常のswitch
         dispatchとloop backedgeを保ったverified SSA CFGへlowerする。i686/AMD64
         `-O2` emissionとx86_64通常／最適化後実行を回帰検証
+  - [x] `switch`内のgoto label配下にある`case`を収集し、前段caseからのgotoと
+        switch直dispatchを同じlabel/case CFGへ合流させる。両archの通常/O2で
+        fallbackなし、x86_64で両経路を実行検証
   - [x] i686 cdeclの64-bit整数を、EDX:EAXのverified SSA return-pair、8-byte引数、
         local/global load、narrow cast、加減算のcarry/borrow、bitwise、
         signed/unsigned比較、0..63-bit shift、direct／間接function-pointer call、

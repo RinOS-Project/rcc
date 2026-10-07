@@ -11428,18 +11428,18 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x64.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x64.log
-	$(GREP) -F -q 'Verified backend: 44 function(s) emitted' $(TEST_OUT)/verified-backend/x86.log
-	$(GREP) -F -q 'Verified backend: 44 function(s) emitted' $(TEST_OUT)/verified-backend/x64.log
+	$(GREP) -F -q 'Verified backend: 45 function(s) emitted' $(TEST_OUT)/verified-backend/x86.log
+	$(GREP) -F -q 'Verified backend: 45 function(s) emitted' $(TEST_OUT)/verified-backend/x64.log
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86-o2.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x86-o2.log
-	$(GREP) -F -q 'Verified backend: 44 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 45 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/x86-o2.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x64-o2.ro tests/verified_backend.c \
 		>$(TEST_OUT)/verified-backend/x64-o2.log
-	$(GREP) -F -q 'Verified backend: 44 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 45 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/x64-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
