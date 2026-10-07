@@ -380,6 +380,13 @@ static void emit64_shr_reg_imm(Module* mod, int reg, uint8_t amount) {
     emit_byte(mod, amount);
 }
 
+static void emit64_shr_reg_imm32(Module* mod, int reg, uint8_t amount) {
+    emit_rex(mod, false, 0, 0, reg);
+    emit_byte(mod, 0xC1);
+    emit_byte(mod, modrm64(3, 5, reg));
+    emit_byte(mod, amount);
+}
+
 static void emit64_sar_reg_imm(Module* mod, int reg, uint8_t amount) {
     emit_rex_w(mod, 0, reg);
     emit_byte(mod, 0xC1);
@@ -878,6 +885,33 @@ static void emit64_atomic_cmpxchg_width(Module* mod, int desired, int address,
                                         const Type* type);
 static void emit64_label(Module* mod, int label);
 static void emit64_jcc_label(Module* mod, int cc, int label);
+
+static bool gen64_unsigned_magic_divisor32(
+    const Expr* expression, uint32_t* divisor, uint32_t* multiplier,
+    uint8_t* high_shift) {
+    int64_t constant;
+    if (!expression || !divisor || !multiplier || !high_shift ||
+        (expression->kind != EXPR_DIV && expression->kind != EXPR_MOD) ||
+        !expression->type || !type_is_integer(expression->type) ||
+        !expression->type->is_unsigned || expression->type->size != 4 ||
+        !expression->binary_lhs || !expression->binary_rhs ||
+        !expr_eval_integer_constant(expression->binary_rhs, &constant)) {
+        return false;
+    }
+    if (constant == 3) {
+        *divisor = 3u;
+        *multiplier = UINT32_C(0xaaaaaaab);
+        *high_shift = 1u;
+        return true;
+    }
+    if (constant == 5) {
+        *divisor = 5u;
+        *multiplier = UINT32_C(0xcccccccd);
+        *high_shift = 2u;
+        return true;
+    }
+    return false;
+}
 
 /* Lower integer atomic bitwise compound assignments as a CAS loop.  This
  * keeps the lvalue and RHS single-evaluation guarantees while making the
@@ -6239,6 +6273,29 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 gen64_float_binary_raw(mod, 0x5E,
                                        gen64_float_width(expr->type));
                 break;
+            }
+            {
+                uint32_t divisor;
+                uint32_t multiplier;
+                uint8_t high_shift;
+                if (gen64_unsigned_magic_divisor32(
+                        expr, &divisor, &multiplier, &high_shift)) {
+                    gen64_expr(mod, expr->binary_lhs);
+                    if (expr->kind == EXPR_MOD) emit64_push_reg(mod, RAX);
+                    emit64_mov_reg_imm32(mod, RCX, multiplier);
+                    emit64_mul_reg_width(mod, RCX, 4, false);
+                    emit64_shr_reg_imm32(mod, RDX, high_shift);
+                    if (expr->kind == EXPR_DIV) {
+                        emit64_mov_reg_reg(mod, RAX, RDX);
+                    } else {
+                        emit64_mov_reg_reg(mod, RCX, RDX);
+                        emit64_mov_reg_imm32(mod, RDX, divisor);
+                        emit64_imul_reg_reg(mod, RCX, RDX);
+                        emit64_pop_reg(mod, RAX);
+                        emit64_sub_reg_reg(mod, RAX, RCX);
+                    }
+                    break;
+                }
             }
             gen64_expr(mod, expr->binary_lhs);
             emit64_push_reg(mod, RAX);

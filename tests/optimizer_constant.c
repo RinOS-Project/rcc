@@ -840,6 +840,31 @@ unsigned int strength_reduce_unsigned_mod(unsigned int value)
     return value % 8U;
 }
 
+unsigned int strength_reduce_unsigned_div_three(unsigned int value)
+{
+    return value / 3U;
+}
+
+unsigned int strength_reduce_unsigned_mod_three(unsigned int value)
+{
+    return value % 3U;
+}
+
+unsigned int strength_reduce_unsigned_div_five(unsigned int value)
+{
+    return value / 5U;
+}
+
+unsigned int strength_reduce_unsigned_mod_five(unsigned int value)
+{
+    return value % 5U;
+}
+
+unsigned int preserved_unsigned_mod_three_side_effect(unsigned int* value)
+{
+    return (*value += 1U) % 3U;
+}
+
 int strength_reduce_signed_div_two(int value)
 {
     return value / 2;

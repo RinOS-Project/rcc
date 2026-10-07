@@ -67,6 +67,23 @@ static bool function_contains_byte(ObjectFile* object, const char* name,
     return false;
 }
 
+static bool function_contains_sequence(ObjectFile* object, const char* name,
+                                       const uint8_t* sequence,
+                                       size_t sequence_size)
+{
+    ObjSection* code = code_section(object);
+    ObjSymbol* function = function_symbol(object, name);
+    uint64_t extent = function_extent(object, name);
+    if (!sequence || sequence_size == 0u || extent < sequence_size) {
+        return false;
+    }
+    for (uint64_t offset = 0u; offset <= extent - sequence_size; ++offset) {
+        if (memcmp(code->data + function->value + offset,
+                   sequence, sequence_size) == 0) return true;
+    }
+    return false;
+}
+
 static void verify_smaller(const char* unoptimized_path,
                            const char* optimized_path,
                            uint16_t architecture)
@@ -75,6 +92,9 @@ static void verify_smaller(const char* unoptimized_path,
     ObjectFile* optimized = objfile_read(optimized_path);
     ObjSection* unoptimized_code;
     ObjSection* optimized_code;
+    static const uint8_t magic_div3[] = {0xF7u, 0xE1u, 0xC1u, 0xEAu, 0x01u};
+    static const uint8_t magic_div5[] = {0xF7u, 0xE1u, 0xC1u, 0xEAu, 0x02u};
+    static const uint8_t hardware_div[] = {0xF7u, 0xF1u};
     assert(unoptimized != NULL && optimized != NULL);
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
     unoptimized_code = code_section(unoptimized);
@@ -445,6 +465,30 @@ static void verify_smaller(const char* unoptimized_path,
            function_extent(unoptimized, "strength_reduce_unsigned_div"));
     assert(function_extent(optimized, "strength_reduce_unsigned_mod") <
            function_extent(unoptimized, "strength_reduce_unsigned_mod"));
+    assert(function_contains_sequence(
+        optimized, "strength_reduce_unsigned_div_three",
+        magic_div3, sizeof(magic_div3)));
+    assert(function_contains_sequence(
+        optimized, "strength_reduce_unsigned_mod_three",
+        magic_div3, sizeof(magic_div3)));
+    assert(function_contains_sequence(
+        optimized, "strength_reduce_unsigned_div_five",
+        magic_div5, sizeof(magic_div5)));
+    assert(function_contains_sequence(
+        optimized, "strength_reduce_unsigned_mod_five",
+        magic_div5, sizeof(magic_div5)));
+    assert(!function_contains_sequence(
+        optimized, "strength_reduce_unsigned_div_three",
+        hardware_div, sizeof(hardware_div)));
+    assert(!function_contains_sequence(
+        optimized, "strength_reduce_unsigned_mod_three",
+        hardware_div, sizeof(hardware_div)));
+    assert(!function_contains_sequence(
+        optimized, "strength_reduce_unsigned_div_five",
+        hardware_div, sizeof(hardware_div)));
+    assert(!function_contains_sequence(
+        optimized, "strength_reduce_unsigned_mod_five",
+        hardware_div, sizeof(hardware_div)));
     assert(function_contains_byte(
         unoptimized, "strength_reduce_signed_div_two", 0xf7u));
     assert(!function_contains_byte(
@@ -594,6 +638,16 @@ int main(int argc, char** argv)
             object, "strength_reduce_unsigned_div");
         ObjSymbol* strength_reduce_unsigned_mod_symbol = function_symbol(
             object, "strength_reduce_unsigned_mod");
+        ObjSymbol* strength_reduce_unsigned_div_three_symbol =
+            function_symbol(object, "strength_reduce_unsigned_div_three");
+        ObjSymbol* strength_reduce_unsigned_mod_three_symbol =
+            function_symbol(object, "strength_reduce_unsigned_mod_three");
+        ObjSymbol* strength_reduce_unsigned_div_five_symbol =
+            function_symbol(object, "strength_reduce_unsigned_div_five");
+        ObjSymbol* strength_reduce_unsigned_mod_five_symbol =
+            function_symbol(object, "strength_reduce_unsigned_mod_five");
+        ObjSymbol* preserved_unsigned_mod_three_side_effect_symbol =
+            function_symbol(object, "preserved_unsigned_mod_three_side_effect");
         ObjSymbol* strength_reduce_signed_div_two_symbol = function_symbol(
             object, "strength_reduce_signed_div_two");
         ObjSymbol* strength_reduce_signed_div_eight_symbol = function_symbol(
@@ -742,6 +796,11 @@ int main(int argc, char** argv)
             uint32_t);
         uint32_t (*strength_reduce_unsigned_div)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_div_three)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_mod_three)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_div_five)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_mod_five)(uint32_t);
+        uint32_t (*preserved_unsigned_mod_three_side_effect)(uint32_t*);
         int (*strength_reduce_signed_div_two)(int);
         int (*strength_reduce_signed_div_eight)(int);
         int (*strength_reduce_signed_mod_two)(int);
@@ -1012,6 +1071,22 @@ int main(int argc, char** argv)
         address = mapping + strength_reduce_unsigned_mod_symbol->value;
         memcpy(&strength_reduce_unsigned_mod, &address,
                sizeof(strength_reduce_unsigned_mod));
+        address = mapping + strength_reduce_unsigned_div_three_symbol->value;
+        memcpy(&strength_reduce_unsigned_div_three, &address,
+               sizeof(strength_reduce_unsigned_div_three));
+        address = mapping + strength_reduce_unsigned_mod_three_symbol->value;
+        memcpy(&strength_reduce_unsigned_mod_three, &address,
+               sizeof(strength_reduce_unsigned_mod_three));
+        address = mapping + strength_reduce_unsigned_div_five_symbol->value;
+        memcpy(&strength_reduce_unsigned_div_five, &address,
+               sizeof(strength_reduce_unsigned_div_five));
+        address = mapping + strength_reduce_unsigned_mod_five_symbol->value;
+        memcpy(&strength_reduce_unsigned_mod_five, &address,
+               sizeof(strength_reduce_unsigned_mod_five));
+        address = mapping +
+            preserved_unsigned_mod_three_side_effect_symbol->value;
+        memcpy(&preserved_unsigned_mod_three_side_effect, &address,
+               sizeof(preserved_unsigned_mod_three_side_effect));
         address = mapping + strength_reduce_signed_div_two_symbol->value;
         memcpy(&strength_reduce_signed_div_two, &address,
                sizeof(strength_reduce_signed_div_two));
@@ -1511,6 +1586,42 @@ int main(int argc, char** argv)
                    UINT32_MAX) == UINT32_MAX - 254u);
         assert(strength_reduce_unsigned_div(123u) == 15u);
         assert(strength_reduce_unsigned_mod(123u) == 3u);
+        {
+            static const uint32_t division_inputs[] = {
+                0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u,
+                14u, 15u, 16u, 17u, 0x7fffffffu, 0x80000000u,
+                0xfffffffeu, UINT32_MAX
+            };
+            uint32_t seed = UINT32_C(0x91e10da5);
+            uint32_t side_effect_value = 8u;
+            for (size_t index = 0u;
+                 index < sizeof(division_inputs) / sizeof(division_inputs[0]);
+                 ++index) {
+                uint32_t input = division_inputs[index];
+                assert(strength_reduce_unsigned_div_three(input) ==
+                       input / 3u);
+                assert(strength_reduce_unsigned_mod_three(input) ==
+                       input % 3u);
+                assert(strength_reduce_unsigned_div_five(input) ==
+                       input / 5u);
+                assert(strength_reduce_unsigned_mod_five(input) ==
+                       input % 5u);
+            }
+            for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+                seed = seed * UINT32_C(1664525) + UINT32_C(1013904223);
+                assert(strength_reduce_unsigned_div_three(seed) ==
+                       seed / 3u);
+                assert(strength_reduce_unsigned_mod_three(seed) ==
+                       seed % 3u);
+                assert(strength_reduce_unsigned_div_five(seed) ==
+                       seed / 5u);
+                assert(strength_reduce_unsigned_mod_five(seed) ==
+                       seed % 5u);
+            }
+            assert(preserved_unsigned_mod_three_side_effect(
+                       &side_effect_value) == 0u);
+            assert(side_effect_value == 9u);
+        }
         assert(strength_reduce_signed_div_two(-17) == -8);
         assert(strength_reduce_signed_div_two(17) == 8);
         assert(strength_reduce_signed_div_eight(-17) == -2);

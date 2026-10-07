@@ -3206,6 +3206,33 @@ static void emit_convert_integer_value(Module* mod, int reg,
                                        const Type* source_type,
                                        const Type* target_type);
 
+static bool gen_unsigned_magic_divisor32(
+    const Expr* expression, uint32_t* divisor, uint32_t* multiplier,
+    uint8_t* high_shift) {
+    int64_t constant;
+    if (!expression || !divisor || !multiplier || !high_shift ||
+        (expression->kind != EXPR_DIV && expression->kind != EXPR_MOD) ||
+        !expression->type || !type_is_integer(expression->type) ||
+        !expression->type->is_unsigned || expression->type->size != 4 ||
+        !expression->binary_lhs || !expression->binary_rhs ||
+        !expr_eval_integer_constant(expression->binary_rhs, &constant)) {
+        return false;
+    }
+    if (constant == 3) {
+        *divisor = 3u;
+        *multiplier = UINT32_C(0xaaaaaaab);
+        *high_shift = 1u;
+        return true;
+    }
+    if (constant == 5) {
+        *divisor = 5u;
+        *multiplier = UINT32_C(0xcccccccd);
+        *high_shift = 2u;
+        return true;
+    }
+    return false;
+}
+
 /* Lower the integer atomic bitwise compound assignments with the same
  * compare/exchange retry semantics as the standard atomic bitwise builtins.
  * The address and RHS are each evaluated once; a failed exchange reloads the
@@ -10402,6 +10429,30 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
                 emit_x87_binary_stack(mod, arithmetic_type, EXPR_DIV);
                 break;
+            }
+            {
+                uint32_t divisor;
+                uint32_t multiplier;
+                uint8_t high_shift;
+                if (gen_unsigned_magic_divisor32(
+                        expr, &divisor, &multiplier, &high_shift)) {
+                    gen_expr(mod, expr->binary_lhs);
+                    if (expr->kind == EXPR_MOD) emit_push_reg(mod, EAX);
+                    emit_mov_reg_imm(mod, ECX, multiplier);
+                    emit_mul_reg(mod, ECX);
+                    emit_shr_reg_imm(mod, EDX, high_shift);
+                    if (expr->kind == EXPR_DIV) {
+                        emit_mov_reg_reg(mod, EAX, EDX);
+                    } else {
+                        emit_mov_reg_reg(mod, ECX, EDX);
+                        emit_shl_reg_imm(
+                            mod, ECX, divisor == 3u ? 1u : 2u);
+                        emit_add_reg_reg(mod, ECX, EDX);
+                        emit_pop_reg(mod, EAX);
+                        emit_sub_reg_reg(mod, EAX, ECX);
+                    }
+                    break;
+                }
             }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
