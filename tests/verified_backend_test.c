@@ -206,6 +206,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* smod_symbol;
     ObjSymbol* branch_assign_symbol;
     ObjSymbol* branch_read_symbol;
+    ObjSymbol* forward_goto_symbol;
+    ObjSymbol* backward_goto_symbol;
     ObjSymbol* while_loop_symbol;
     ObjSymbol* for_loop_symbol;
     ObjSymbol* do_loop_symbol;
@@ -307,6 +309,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_branch_assign");
     branch_read_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_branch_read");
+    forward_goto_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_forward_goto");
+    backward_goto_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_backward_goto");
     while_loop_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_while_loop");
     for_loop_symbol = objfile_find_symbol(
@@ -489,6 +495,14 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            branch_read_symbol->type == SYM_GLOBAL &&
            branch_read_symbol->binding == BIND_CODE &&
            branch_read_symbol->section == 0);
+    assert(forward_goto_symbol != NULL &&
+           forward_goto_symbol->type == SYM_GLOBAL &&
+           forward_goto_symbol->binding == BIND_CODE &&
+           forward_goto_symbol->section == 0);
+    assert(backward_goto_symbol != NULL &&
+           backward_goto_symbol->type == SYM_GLOBAL &&
+           backward_goto_symbol->binding == BIND_CODE &&
+           backward_goto_symbol->section == 0);
     assert(while_loop_symbol != NULL &&
            while_loop_symbol->type == SYM_GLOBAL &&
            while_loop_symbol->binding == BIND_CODE &&
@@ -610,6 +624,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
             int, unsigned long long);
         unsigned long long RINOS_ABI (*branch_read_function)(
             int, unsigned long long);
+        unsigned long long RINOS_ABI (*forward_goto_function)(
+            int, unsigned long long);
+        unsigned long long RINOS_ABI (*backward_goto_function)(
+            unsigned int, unsigned long long);
         unsigned long long RINOS_ABI (*while_loop_function)(
             unsigned long long, unsigned int);
         unsigned long long RINOS_ABI (*for_loop_function)(
@@ -847,6 +865,20 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
                sizeof(branch_read_function));
         assert(branch_read_function(1, 10ULL) == 22ULL);
         assert(branch_read_function(0, 10ULL) == 17ULL);
+        address = symbol_address(memory, forward_goto_symbol);
+        memcpy(&forward_goto_function, &address,
+               sizeof(forward_goto_function));
+        assert(forward_goto_function(1, 0x0000000200000002ULL) ==
+               0x000000020000000cULL);
+        assert(forward_goto_function(0, 0x0000000200000002ULL) ==
+               0x000000020000000eULL);
+        address = symbol_address(memory, backward_goto_symbol);
+        memcpy(&backward_goto_function, &address,
+               sizeof(backward_goto_function));
+        assert(backward_goto_function(0u, 0x0000000200000002ULL) ==
+               0x0000000200000002ULL);
+        assert(backward_goto_function(3u, 0x0000000200000002ULL) ==
+               0x0000000500000005ULL);
         address = symbol_address(memory, while_loop_symbol);
         memcpy(&while_loop_function, &address, sizeof(while_loop_function));
         assert(while_loop_function(0x0000000200000002ULL, 3u) ==

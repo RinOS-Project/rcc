@@ -294,6 +294,33 @@ unsigned long long verified_wide_scalar_branch_read(
     return local + 7ULL;
 }
 
+unsigned long long verified_wide_scalar_forward_goto(
+    int condition, unsigned long long value)
+{
+    unsigned long long local = value;
+    if (condition) {
+        local += 3ULL;
+        goto join;
+    }
+    local += 5ULL;
+join:
+    local += 7ULL;
+    return local;
+}
+
+unsigned long long verified_wide_scalar_backward_goto(
+    unsigned int count, unsigned long long value)
+{
+    unsigned long long local = value;
+again:
+    if (count == 0u) goto done;
+    local += 0x0000000100000001ULL;
+    --count;
+    goto again;
+done:
+    return local;
+}
+
 unsigned long long verified_wide_scalar_while_loop(
     unsigned long long value, unsigned int count)
 {
