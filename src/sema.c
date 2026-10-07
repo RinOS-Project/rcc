@@ -87,11 +87,15 @@ static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
 }
 
 static bool sema_decltype_auto_expression_is_xvalue(Expr* expression) {
-    return expression &&
-        ((expression->kind == EXPR_COND &&
-          expression->cxx_conditional_xvalue) ||
-         (expression->kind == EXPR_MEMBER &&
-          expression->cxx_member_xvalue));
+    if (!expression) return false;
+    if (expression->kind == EXPR_COMMA) {
+        return sema_decltype_auto_expression_is_xvalue(
+            expression->binary_rhs);
+    }
+    return (expression->kind == EXPR_COND &&
+            expression->cxx_conditional_xvalue) ||
+           (expression->kind == EXPR_MEMBER &&
+            expression->cxx_member_xvalue);
 }
 
 static bool sema_cxx_class_qualified_name(const CxxClass* cls,
@@ -1167,6 +1171,8 @@ static bool is_lvalue(Expr* e) {
             return !e->cxx_member_xvalue;
         case EXPR_COND:
             return e->cxx_conditional_lvalue;
+        case EXPR_COMMA:
+            return rcc_parser_is_cxx_mode() && is_lvalue(e->binary_rhs);
         case EXPR_CALL:
             return e->type && e->type->is_reference &&
                    !e->type->is_rvalue_reference;
@@ -1177,6 +1183,10 @@ static bool is_lvalue(Expr* e) {
 
 static bool is_xvalue(Expr* expression) {
     if (!expression) return false;
+    if (expression->kind == EXPR_COMMA) {
+        return rcc_parser_is_cxx_mode() &&
+               is_xvalue(expression->binary_rhs);
+    }
     if (expression->kind == EXPR_COND) {
         return expression->cxx_conditional_xvalue;
     }

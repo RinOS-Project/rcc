@@ -6144,6 +6144,9 @@ static bool gen_expr_is_lvalue(Expr* expression) {
             return !expression->cxx_member_xvalue;
         case EXPR_COND:
             return expression->cxx_conditional_lvalue;
+        case EXPR_COMMA:
+            return rcc_parser_is_cxx_mode() &&
+                   gen_expr_is_lvalue(expression->binary_rhs);
         case EXPR_CALL:
             return expression->type && expression->type->is_reference &&
                    !expression->type->is_rvalue_reference;
@@ -6153,6 +6156,10 @@ static bool gen_expr_is_lvalue(Expr* expression) {
 }
 
 static bool gen_expr_is_xvalue(Expr* expression) {
+    if (expression && expression->kind == EXPR_COMMA) {
+        return rcc_parser_is_cxx_mode() &&
+               gen_expr_is_xvalue(expression->binary_rhs);
+    }
     if (expression && expression->kind == EXPR_COND) {
         return expression->cxx_conditional_xvalue;
     }
@@ -6266,6 +6273,11 @@ static void gen_lvalue(Module* mod, Expr* expr) {
 
         case EXPR_DEREF:
             gen_expr(mod, expr->unary_operand);
+            break;
+
+        case EXPR_COMMA:
+            gen_expr(mod, expr->binary_lhs);
+            gen_lvalue(mod, expr->binary_rhs);
             break;
 
         case EXPR_CAST:
