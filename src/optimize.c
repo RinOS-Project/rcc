@@ -896,6 +896,21 @@ static bool inline_scalar_compound_operator(ExprKind assignment_operator,
     }
 }
 
+static bool inline_scalar_compound_type_supported(
+    Type* type, ExprKind assignment_operator) {
+    ExprKind binary_operator;
+    if (!type || !inline_scalar_compound_operator(assignment_operator,
+                                                  &binary_operator)) {
+        return false;
+    }
+    if (type_is_integer(type)) return type->size >= 4;
+    if (!type_is_floating(type)) return false;
+    return assignment_operator == EXPR_ADD_ASSIGN ||
+           assignment_operator == EXPR_SUB_ASSIGN ||
+           assignment_operator == EXPR_MUL_ASSIGN ||
+           assignment_operator == EXPR_DIV_ASSIGN;
+}
+
 static bool inline_scalar_increment_operator(ExprKind unary_operator,
                                              ExprKind* binary_operator) {
     if (!binary_operator) return false;
@@ -1030,8 +1045,8 @@ static bool collect_inline_scalar_body(
                 declaration->type->is_volatile ||
                 !type_is_scalar(declaration->type) ||
                 (compound_assignment &&
-                 (!type_is_integer(declaration->type) ||
-                  declaration->type->size < 4 ||
+                 (!inline_scalar_compound_type_supported(
+                      declaration->type, statement->expr->kind) ||
                   !type_is_compatible(declaration->type,
                                       statement->expr->binary_lhs->type))) ||
                 !type_is_compatible(declaration->type,
@@ -1641,7 +1656,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             ExprKind binary_operator;
             Expr* previous_value;
             Expr* combined;
-            if (!inline_scalar_compound_operator(
+            if (!inline_scalar_compound_type_supported(
+                    operation->declaration->type,
+                    operation->assignment_operator) ||
+                !inline_scalar_compound_operator(
                     operation->assignment_operator, &binary_operator)) {
                 return false;
             }

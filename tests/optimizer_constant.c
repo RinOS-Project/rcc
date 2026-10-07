@@ -286,6 +286,35 @@ short inlined_narrow_parameter_assignment_call(short value)
     return inline_narrow_parameter_assignment(value);
 }
 
+static float inline_local_float_compound(float value)
+{
+    float adjusted = value;
+    adjusted += 1.5f;
+    adjusted *= 2.0f;
+    adjusted -= 1.0f;
+    adjusted /= 2.0f;
+    return adjusted;
+}
+
+float inlined_local_float_compound_call(float value)
+{
+    return inline_local_float_compound(value);
+}
+
+static double inline_parameter_double_compound(double value, double delta)
+{
+    value += delta;
+    value *= 0.5;
+    value -= 1.0;
+    value /= 2.0;
+    return value;
+}
+
+double inlined_parameter_double_compound_call(double value, double delta)
+{
+    return inline_parameter_double_compound(value, delta);
+}
+
 static int inline_local_snapshot_before_mutation(int value)
 {
     int original = value;

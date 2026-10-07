@@ -179,6 +179,14 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(
         optimized, "inlined_narrow_parameter_assignment_call", 0xe8u));
     assert(function_contains_byte(
+        unoptimized, "inlined_local_float_compound_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_local_float_compound_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "inlined_parameter_double_compound_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_parameter_double_compound_call", 0xe8u));
+    assert(function_contains_byte(
         unoptimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
     assert(!function_contains_byte(
         optimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
@@ -701,6 +709,8 @@ int main(int argc, char** argv)
         int (*inlined_parameter_assignments_call)(int, int);
         int (*preserved_parameter_assignments_side_effect_call)(int*, int*);
         short (*inlined_narrow_parameter_assignment_call)(short);
+        float (*inlined_local_float_compound_call)(float);
+        double (*inlined_parameter_double_compound_call)(double, double);
         int (*inlined_local_snapshot_before_mutation_call)(int);
         int (*inlined_statement_conditional_return_call)(int);
         int (*preserved_nested_conditional_return_call)(int);
@@ -1031,6 +1041,20 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&inlined_narrow_parameter_assignment_call, &address,
                    sizeof(inlined_narrow_parameter_assignment_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_local_float_compound_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_local_float_compound_call, &address,
+                   sizeof(inlined_local_float_compound_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_parameter_double_compound_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_parameter_double_compound_call, &address,
+                   sizeof(inlined_parameter_double_compound_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -1387,6 +1411,8 @@ int main(int argc, char** argv)
         assert(inlined_parameter_assignments_call(4, 5) == 24);
         assert(inlined_narrow_parameter_assignment_call(5) == 7);
         assert(inlined_narrow_parameter_assignment_call(-4) == -2);
+        assert(inlined_local_float_compound_call(3.0f) == 4.0f);
+        assert(inlined_parameter_double_compound_call(2.0, 3.0) == 1.5);
         {
             int parameter_side_effect_value = 4;
             assert(preserved_parameter_increment_side_effect_call(
