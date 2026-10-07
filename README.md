@@ -236,6 +236,13 @@ production RIN v3 validatorを組み合わせた統合試験もあります。
 
 ## 完成条件
 
+2026-10-08 follow-up: reference initialization now considers public implicit
+conversion functions returning class references or class prvalues, preserves
+the returned value category, and applies derived-to-base reference adjustment.
+The compiler builds, but this path has no regression coverage yet. Static-storage
+reference temporaries and class-prvalue reference arguments remain open in
+[`TODO.md`](TODO.md).
+
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、
 RinOS上の32/64-bitセルフホストです。進捗は[`TODO.md`](TODO.md)を参照してください。

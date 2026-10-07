@@ -316,8 +316,14 @@
       semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
       function returns now have regressions that compile for both targets and
       execute on the x64 host. Source-level reference collapsing is covered;
-      user-defined conversions to class references, static-storage references,
-      and broader call/return ABI interactions still need systematic coverage.
+      static-storage references and broader call/return ABI interactions still
+      need systematic coverage.
+  - [ ] Verify public implicit conversion functions returning class lvalue
+        references, rvalue references, and class prvalues during class-reference
+        binding, including derived-to-base adjustment and lifetime cleanup.
+        Sema now lowers these conversion candidates and the compiler builds, but
+        no regression has run; class-prvalue call arguments and static-duration
+        temporaries remain unverified or unsupported.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
