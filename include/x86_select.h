@@ -62,6 +62,7 @@ struct RccX86Instruction {
     RccIrIntPredicate predicate;
     char* symbol;
     bool symbol_is_code;
+    bool symbol_is_tls;
     bool has_callee;
     RccMirLocation callee;
     /* Borrowed AST declaration for a source variable stack allocation. */

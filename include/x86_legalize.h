@@ -53,6 +53,7 @@ struct RccX86LegalInstruction {
     RccIrIntPredicate predicate;
     char* symbol;
     bool symbol_is_code;
+    bool symbol_is_tls;
     bool has_callee;
     RccX86Value callee;
     /* Borrowed AST declaration for a source variable stack allocation. */

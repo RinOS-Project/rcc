@@ -136,6 +136,7 @@ static RccMirInstruction* mir_append(
     instruction->type = type;
     instruction->definition = definition;
     instruction->symbol_is_code = false;
+    instruction->symbol_is_tls = false;
     instruction->callee_value = RCC_MIR_VREG_NONE;
     instruction->block = block;
     if (operand_count != 0u) {
@@ -326,6 +327,8 @@ static bool mir_verify_instruction_type(
         case RCC_MIR_SYMBOL_ADDRESS:
             return mir_shape(verifier, instruction, 0u, 0u) &&
                 instruction->type.kind == RCC_MIR_TYPE_POINTER &&
+                !(instruction->symbol_is_code &&
+                  instruction->symbol_is_tls) &&
                 instruction->callee && instruction->callee[0];
         case RCC_MIR_CALL:
             if (instruction->target_count != 0u ||
@@ -853,6 +856,7 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
             instruction->volatile_access =
                 ir_instruction->volatile_access;
             instruction->symbol_is_code = ir_instruction->symbol_is_code;
+            instruction->symbol_is_tls = ir_instruction->symbol_is_tls;
             if (ir_instruction->callee_value != RCC_IR_VALUE_NONE) {
                 instruction->callee_value = ir_instruction->callee_value;
             }

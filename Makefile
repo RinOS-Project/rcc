@@ -11420,7 +11420,7 @@ test-verified-volatile: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
 	@echo "Verified backend volatile scalar access tests completed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
@@ -11483,11 +11483,48 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		>$(TEST_OUT)/verified-backend/aggregate-return-x64.log
 	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/aggregate-return-x64.log
-	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
-		-o $(TEST_OUT)/verified-backend/fallback.ro \
+	$(RCC_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/tls-x86.ro \
 		tests/verified_backend_fallback.c \
-		>$(TEST_OUT)/verified-backend/fallback.log
-	$(GREP) -F -q 'Verified backend fallback: translation unit contains thread-local data' $(TEST_OUT)/verified-backend/fallback.log
+		>$(TEST_OUT)/verified-backend/tls-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/tls-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-x86.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/tls-x64.ro \
+		tests/verified_backend_fallback.c \
+		>$(TEST_OUT)/verified-backend/tls-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/tls-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-x64.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/tls-import-x86.ro \
+		tests/verified_backend_tls_import.c \
+		>$(TEST_OUT)/verified-backend/tls-import-x86.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/tls-import-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-import-x86.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/tls-import-x64.ro \
+		tests/verified_backend_tls_import.c \
+		>$(TEST_OUT)/verified-backend/tls-import-x64.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/tls-import-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-import-x64.log,0)
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e verified_fallback_read \
+		-o $(TEST_OUT)/verified-backend/tls-x86.rin \
+		$(TEST_OUT)/verified-backend/tls-x86.ro \
+		$(TEST_OUT)/verified-backend/tls-import-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e verified_fallback_read \
+		-o $(TEST_OUT)/verified-backend/tls-x64.rin \
+		$(TEST_OUT)/verified-backend/tls-x64.ro \
+		$(TEST_OUT)/verified-backend/tls-import-x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/verified-backend/tls-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/verified-backend/tls-x64.rin
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/switch-nested.ro \
 		tests/verified_backend_switch_fallback.c \
@@ -11615,6 +11652,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) test-verified-goto test-veri
 		$(TEST_OUT)/verified-backend/virtual-dispatch-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 --switch-loop-labels \
 		$(TEST_OUT)/verified-backend/x64-o2.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
+		$(TEST_OUT)/verified-backend/tls-x86.ro x86
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
+		$(TEST_OUT)/verified-backend/tls-x64.ro x64
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-import-object \
+		$(TEST_OUT)/verified-backend/tls-import-x86.ro x86
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-import-object \
+		$(TEST_OUT)/verified-backend/tls-import-x64.ro x64
 	@echo "Verified backend production object and fallback tests completed"
 
 test-assignment-constraints: $(RCC_TARGET) $(RCXX_TARGET)

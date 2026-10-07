@@ -533,6 +533,10 @@
   - [x] stack addressとnative-width indirect load/store encoding
   - [x] scaled GEPとscalar selectのalias-safe encoding
   - [x] C/C++の明示option付きverified `.ro v2` production経路、pointer更新・ptrdiff・短絡phi・switch・単一lvalue評価の両arch実行検証、translation-unit fallback
+  - [x] C17 global `_Thread_local` のread/write/updateをtyped SSAからi686/AMD64
+        local-exec TLS addressへlowerし、`-O2`でtranslation-unit fallbackなし、
+        `.ro`の`.tls`/`BIND_TLS`/`TLSOFF32S`とFS/GS thread-pointer命令列、
+        RLD後のRIN v3を`rinvalidate`が受理することを検証
   - [x] `__builtin_expect`を副作用順序付き値伝播へ、`__builtin_unreachable`／
         `__builtin_trap`をtyped-SSA終端と実UD2へlowerし、i686/AMD64の
         verified backend fallbackなし回帰を追加

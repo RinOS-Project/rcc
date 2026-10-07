@@ -2468,8 +2468,109 @@ static void verify_optimized_switch_loop_labels(const char* path)
     objfile_free(object);
 }
 
+static void verify_tls_object(const char* path, uint16_t arch,
+                              bool imported)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSection* tls;
+    ObjSymbol* symbol;
+    ObjSection* section_cursor;
+    int tls_section_index = 0;
+    size_t relocation_count = 0u;
+
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    tls = objfile_get_section(object, ".tls");
+    symbol = objfile_find_symbol(object, "verified_fallback_tls");
+    assert(text != NULL && text->type == SECT_CODE);
+    assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC |
+                           SECT_FLAG_WRITE)) ==
+           (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
+    if (imported) {
+        assert(tls == NULL);
+    } else {
+        assert(tls != NULL && tls->type == SECT_TLS);
+        assert((tls->flags & (SECT_FLAG_ALLOC | SECT_FLAG_WRITE)) ==
+               (SECT_FLAG_ALLOC | SECT_FLAG_WRITE));
+        for (section_cursor = object->sections;
+             section_cursor && section_cursor != tls;
+             section_cursor = section_cursor->next) {
+            ++tls_section_index;
+        }
+        assert(section_cursor == tls);
+    }
+    assert(symbol != NULL && symbol->binding == BIND_TLS);
+    if (imported) {
+        assert(symbol->type == SYM_UNDEF && symbol->section == -1);
+    } else {
+        assert(symbol->type == SYM_GLOBAL &&
+               symbol->section == tls_section_index);
+    }
+
+    for (ObjReloc* relocation = text->relocs; relocation;
+         relocation = relocation->next) {
+        size_t offset;
+        uint8_t modrm;
+        if (relocation->type != RELOC_TLSOFF32S) continue;
+        assert(relocation->symbol_name != NULL &&
+               strcmp(relocation->symbol_name,
+                      "verified_fallback_tls") == 0);
+        assert(relocation->offset <= text->size &&
+               sizeof(uint32_t) <= text->size - relocation->offset);
+        offset = (size_t)relocation->offset;
+        assert(text->data[offset] == 0u && text->data[offset + 1u] == 0u &&
+               text->data[offset + 2u] == 0u &&
+               text->data[offset + 3u] == 0u);
+        if (arch == ARCH_X64) {
+            assert(offset >= 12u);
+            assert(text->data[offset - 12u] == 0x64u);
+            assert(text->data[offset - 10u] == 0x8bu);
+            assert(text->data[offset - 8u] == 0x25u);
+            assert(text->data[offset - 7u] == 0u &&
+                   text->data[offset - 6u] == 0u &&
+                   text->data[offset - 5u] == 0u &&
+                   text->data[offset - 4u] == 0u);
+            assert(text->data[offset - 3u] == 0x48u ||
+                   text->data[offset - 3u] == 0x49u);
+            assert(text->data[offset - 2u] == 0x81u);
+            modrm = text->data[offset - 1u];
+        } else {
+            assert(arch == ARCH_X86 && offset >= 9u);
+            assert(text->data[offset - 9u] == 0x65u);
+            assert(text->data[offset - 8u] == 0x8bu);
+            assert((text->data[offset - 7u] & 0xc7u) == 0x05u);
+            assert(text->data[offset - 6u] == 0u &&
+                   text->data[offset - 5u] == 0u &&
+                   text->data[offset - 4u] == 0u &&
+                   text->data[offset - 3u] == 0u);
+            assert(text->data[offset - 2u] == 0x81u);
+            modrm = text->data[offset - 1u];
+        }
+        assert((modrm & 0xf8u) == 0xc0u);
+        ++relocation_count;
+    }
+    assert(relocation_count >= (imported ? 1u : 3u));
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
+    if (argc == 4 &&
+        (strcmp(argv[1], "--tls-object") == 0 ||
+         strcmp(argv[1], "--tls-import-object") == 0)) {
+        uint16_t arch;
+        bool imported = strcmp(argv[1], "--tls-import-object") == 0;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+        }
+        verify_tls_object(argv[2], arch, imported);
+        puts("Verified local-exec TLS object passed");
+        return 0;
+    }
     if (argc == 3 && strcmp(argv[1], "--switch-loop-labels") == 0) {
         verify_optimized_switch_loop_labels(argv[2]);
         puts("Verified optimized switch loop-label execution passed");

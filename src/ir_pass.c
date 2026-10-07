@@ -1015,6 +1015,7 @@ static void ir_pass_make_integer_constant(RccIrInstruction* instruction,
     instruction->target_count = 0u;
     instruction->callee = NULL;
     instruction->symbol_is_code = false;
+    instruction->symbol_is_tls = false;
     instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->opcode = RCC_IR_CONST_INT;
     instruction->immediate = value &
@@ -1037,6 +1038,7 @@ static void ir_pass_make_unconditional_branch(
     instruction->target_count = 1u;
     instruction->callee = NULL;
     instruction->symbol_is_code = false;
+    instruction->symbol_is_tls = false;
     instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->opcode = RCC_IR_BRANCH;
 }
@@ -1653,7 +1655,9 @@ static bool ir_pass_cse_equal(const RccIrInstruction* left,
         !rcc_ir_type_equal(left->type, right->type) ||
         left->operand_count != right->operand_count ||
         left->immediate != right->immediate ||
-        left->predicate != right->predicate) {
+        left->predicate != right->predicate ||
+        left->symbol_is_code != right->symbol_is_code ||
+        left->symbol_is_tls != right->symbol_is_tls) {
         return false;
     }
     if ((left->callee || right->callee) &&

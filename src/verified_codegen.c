@@ -907,15 +907,6 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
             "invalid verified object request");
     }
-    for (item = ast->decls; item; item = item->next) {
-        if (item->decl && item->decl->kind == DECL_VAR &&
-            item->decl->var_is_global &&
-            item->decl->var_is_thread_local) {
-            return verified_reason(
-                RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
-                "translation unit contains thread-local data");
-        }
-    }
     data_module = codegen_new();
     codegen_emit_global_data(data_module, (AST*)ast);
     verified_emit_typeinfo_ast(data_module, ast);

@@ -1406,9 +1406,48 @@ static bool x86_add_relocation(
         ? x86_emit_u64(encoder, 0u) : x86_emit_u32(encoder, 0u);
 }
 
+static bool x86_emit_tls_address_register(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    const char* symbol) {
+    bool is_64_bit = encoder->function->target ==
+        RCC_X86_TARGET_X86_64;
+    uint8_t segment_prefix = is_64_bit ? 0x64u : 0x65u;
+    if (!x86_emit_u8(encoder, segment_prefix) ||
+        !x86_emit_rex(encoder, is_64_bit, destination,
+                      RCC_X86_GPR_SP, false) ||
+        !x86_emit_u8(encoder, 0x8bu)) {
+        return false;
+    }
+    if (is_64_bit) {
+        /* SIB base=5 with mod=0 addresses FS:[0], not RIP-relative. */
+        if (!x86_emit_u8(encoder, x86_modrm(
+                0u, destination, RCC_X86_GPR_SP)) ||
+            !x86_emit_u8(encoder, 0x25u) ||
+            !x86_emit_u32(encoder, 0u)) {
+            return false;
+        }
+    } else if (!x86_emit_u8(encoder, x86_modrm(
+                   0u, destination, RCC_X86_GPR_BP)) ||
+               !x86_emit_u32(encoder, 0u)) {
+        return false;
+    }
+    if (!x86_emit_rex(encoder, is_64_bit, RCC_X86_GPR_AX,
+                      destination, false) ||
+        !x86_emit_u8(encoder, 0x81u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            3u, 0u, destination))) {
+        return false;
+    }
+    return x86_add_relocation(
+        encoder, symbol, RCC_X86_CODE_RELOC_TLSOFF32S);
+}
+
 static bool x86_emit_symbol_address_register(
     RccX86Encoder* encoder, RccX86HardwareGpr destination,
-    const char* symbol, bool symbol_is_code) {
+    const char* symbol, bool symbol_is_code, bool symbol_is_tls) {
+    if (symbol_is_tls) {
+        return x86_emit_tls_address_register(encoder, destination, symbol);
+    }
     RccX86CodeRelocationType type =
         encoder->function->target == RCC_X86_TARGET_X86_64
             ? (symbol_is_code ? RCC_X86_CODE_RELOC_CODE_ABS64
@@ -1436,12 +1475,12 @@ static bool x86_emit_symbol_address(
     if (destination.kind == RCC_X86_VALUE_GPR) {
         return x86_emit_symbol_address_register(
             encoder, destination.gpr, instruction->symbol,
-            instruction->symbol_is_code);
+            instruction->symbol_is_code, instruction->symbol_is_tls);
     }
     return x86_emit_push(encoder, RCC_X86_GPR_AX) &&
         x86_emit_symbol_address_register(
             encoder, RCC_X86_GPR_AX, instruction->symbol,
-            instruction->symbol_is_code) &&
+            instruction->symbol_is_code, instruction->symbol_is_tls) &&
         x86_emit_store(
             encoder, destination, RCC_X86_GPR_AX, size) &&
         x86_emit_pop(encoder, RCC_X86_GPR_AX);
@@ -1851,6 +1890,7 @@ bool rcc_x86_verify_encoded_function(
              relocation->type == RCC_X86_CODE_RELOC_CODE_ABS64)
             ? 8u : 4u;
         bool type_valid = relocation->type == RCC_X86_CODE_RELOC_REL32 ||
+            relocation->type == RCC_X86_CODE_RELOC_TLSOFF32S ||
             (relocation->type == RCC_X86_CODE_RELOC_ABS32U &&
              encoded->target == RCC_X86_TARGET_I686) ||
             (relocation->type == RCC_X86_CODE_RELOC_ABS64 &&

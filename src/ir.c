@@ -264,6 +264,7 @@ RccIrInstruction* rcc_ir_append(RccIrBlock* block, RccIrOpcode opcode,
     instruction->type = result_type;
     instruction->result = RCC_IR_VALUE_NONE;
     instruction->symbol_is_code = false;
+    instruction->symbol_is_tls = false;
     instruction->volatile_access = false;
     instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->block = block;
@@ -609,6 +610,8 @@ static bool ir_verify_instruction_types(
         case RCC_IR_SYMBOL_ADDRESS:
             if (!ir_require_shape(verifier, instruction, 0u, 0u) ||
                 instruction->type.kind != RCC_IR_TYPE_POINTER ||
+                (instruction->symbol_is_code &&
+                 instruction->symbol_is_tls) ||
                 !instruction->callee || !instruction->callee[0]) {
                 return ir_verify_error(
                     verifier,

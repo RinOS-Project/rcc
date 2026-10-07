@@ -81,6 +81,7 @@ struct RccMirInstruction {
     bool volatile_access;
     char* callee;
     bool symbol_is_code;
+    bool symbol_is_tls;
     RccMirVReg callee_value;
     /* Borrowed AST declaration owning a source stack allocation, if any. */
     const void* source_declaration;

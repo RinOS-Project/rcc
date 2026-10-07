@@ -72,10 +72,13 @@ bool rcc_x86_object_add_function(
         bool is_code_address =
             relocation->type == RCC_X86_CODE_RELOC_CODE_ABS32U ||
             relocation->type == RCC_X86_CODE_RELOC_CODE_ABS64;
+        bool is_tls =
+            relocation->type == RCC_X86_CODE_RELOC_TLSOFF32S;
         bool binding_valid = !target ||
             (is_call && target->binding == BIND_CODE) ||
+            (is_tls && target->binding == BIND_TLS) ||
             (!is_call && is_code_address && target->binding == BIND_CODE) ||
-            (!is_call && !is_code_address &&
+            (!is_call && !is_code_address && !is_tls &&
              (target->binding == BIND_DATA || target->binding == BIND_BSS));
         if (!binding_valid) {
             return x86_object_error(
@@ -124,14 +127,18 @@ bool rcc_x86_object_add_function(
         bool is_code_address =
             relocation->type == RCC_X86_CODE_RELOC_CODE_ABS32U ||
             relocation->type == RCC_X86_CODE_RELOC_CODE_ABS64;
+        bool is_tls =
+            relocation->type == RCC_X86_CODE_RELOC_TLSOFF32S;
         RelocType object_type = is_call ? RELOC_REL32
+            : is_tls ? RELOC_TLSOFF32S
             : (relocation->type == RCC_X86_CODE_RELOC_ABS64 ||
                relocation->type == RCC_X86_CODE_RELOC_CODE_ABS64)
                 ? RELOC_ABS64 : RELOC_ABS32U;
         if (!objfile_find_symbol(object, relocation->symbol)) {
             objfile_add_symbol(
                 object, relocation->symbol, SYM_UNDEF,
-                (is_call || is_code_address) ? BIND_CODE : BIND_DATA,
+                is_tls ? BIND_TLS
+                    : (is_call || is_code_address) ? BIND_CODE : BIND_DATA,
                 -1, 0u, 0u);
         }
         objfile_add_reloc(

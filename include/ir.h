@@ -104,6 +104,7 @@ struct RccIrInstruction {
     bool volatile_access;
     char* callee;
     bool symbol_is_code;
+    bool symbol_is_tls;
     RccIrValue callee_value;
     /* Borrowed AST declaration owning this stack allocation, when it is a
      * source variable or parameter rather than compiler scratch storage. */

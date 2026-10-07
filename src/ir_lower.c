@@ -1036,7 +1036,6 @@ static RccIrLowerValue lower_lvalue_address_impl(
             }
             if (declaration->kind != DECL_VAR ||
                 !declaration->var_is_global ||
-                declaration->var_is_thread_local ||
                 !declaration->type || declaration->type->size <= 0 ||
                 declaration->type->is_reference ||
                 declaration->type->cleanup_function) {
@@ -1048,6 +1047,7 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
             if (!address) return lower_invalid_value();
             rcc_ir_set_callee(address, decl_link_name(declaration));
+            address->symbol_is_tls = declaration->var_is_thread_local;
             return lower_value(
                 address->result, rcc_ir_type_pointer(0u), true);
         }

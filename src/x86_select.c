@@ -158,6 +158,7 @@ static RccX86Instruction* x86_append_instruction(
     instruction->opcode = opcode;
     instruction->type = type;
     instruction->symbol_is_code = false;
+    instruction->symbol_is_tls = false;
     if (destination) {
         instruction->has_destination = true;
         instruction->destination = *destination;
@@ -367,6 +368,7 @@ static bool x86_select_instruction(
     }
     if (instruction->callee) machine->symbol = rcc_strdup(instruction->callee);
     machine->symbol_is_code = instruction->symbol_is_code;
+    machine->symbol_is_tls = instruction->symbol_is_tls;
     if (instruction->callee_value != RCC_MIR_VREG_NONE) {
         machine->has_callee = true;
         machine->callee = allocation->locations[instruction->callee_value];

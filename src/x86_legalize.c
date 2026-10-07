@@ -450,6 +450,7 @@ static bool x86_legal_copy_selected_metadata(
     destination->predicate = source->predicate;
     destination->cycle_break = source->cycle_break;
     destination->symbol_is_code = source->symbol_is_code;
+    destination->symbol_is_tls = source->symbol_is_tls;
     destination->has_callee = source->has_callee;
     if (source->symbol) destination->symbol = rcc_strdup(source->symbol);
     return true;
