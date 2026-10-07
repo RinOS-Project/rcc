@@ -10467,6 +10467,88 @@ static Type* sema_expr(Expr* expr) {
             sema_validate_restrict_type(expr->cast_type, expr->loc);
             expr->type = expr->cast_type;
             expr->cxx_pointer_adjustment_valid = false;
+            expr->cxx_member_pointer_adjustment_valid = false;
+            if (source && expr->cast_type &&
+                ((source->kind == TYPE_PTR &&
+                  source->cxx_is_member_pointer) ||
+                 (expr->cast_type->kind == TYPE_PTR &&
+                  expr->cast_type->cxx_is_member_pointer))) {
+                Type* target = expr->cast_type;
+                bool source_member = source->kind == TYPE_PTR &&
+                                     source->cxx_is_member_pointer &&
+                                     !source->is_reference;
+                bool target_member = target->kind == TYPE_PTR &&
+                                     target->cxx_is_member_pointer &&
+                                     !target->is_reference;
+                if (expr->cxx_cast_kind != CXX_CAST_STATIC ||
+                    !target_member) {
+                    rcc_error(expr->loc,
+                              "this explicit pointer-to-member conversion is unsupported");
+                    break;
+                }
+                if (!source_member) {
+                    Type* converted = implicit_cast(expr->cast_expr, target);
+                    if (!converted) {
+                        rcc_error(expr->loc,
+                                  "static_cast requires a null pointer-to-member constant");
+                    } else {
+                        expr->is_cxx_nullptr =
+                            expr->cast_expr->is_cxx_nullptr;
+                    }
+                    break;
+                }
+                if (!source->base || !target->base ||
+                    source->base->kind == TYPE_FUNC ||
+                    target->base->kind == TYPE_FUNC ||
+                    !type_is_compatible(source->base, target->base) ||
+                    !sema_pointee_qualification_preserved(
+                        source->base, target->base)) {
+                    rcc_error(expr->loc,
+                              "static_cast requires compatible data-member pointer types");
+                    break;
+                }
+                if (expr->cast_expr->is_cxx_nullptr) {
+                    expr->is_cxx_nullptr = true;
+                    break;
+                }
+                if (type_is_compatible(source->cxx_member_pointer_owner,
+                                       target->cxx_member_pointer_owner)) {
+                    break;
+                }
+                {
+                    int base_adjustment = 0;
+                    int paths;
+                    if (!source->cxx_member_pointer_owner ||
+                        !target->cxx_member_pointer_owner) {
+                        paths = 0;
+                    } else {
+                        paths = sema_cxx_nonvirtual_public_base_paths(
+                            target->cxx_member_pointer_owner,
+                            source->cxx_member_pointer_owner,
+                            &base_adjustment, 0u);
+                        if (paths == 1) {
+                            expr->cxx_member_pointer_adjustment =
+                                base_adjustment;
+                        } else {
+                            paths = sema_cxx_nonvirtual_public_base_paths(
+                                source->cxx_member_pointer_owner,
+                                target->cxx_member_pointer_owner,
+                                &base_adjustment, 0u);
+                            if (paths == 1) {
+                                expr->cxx_member_pointer_adjustment =
+                                    -base_adjustment;
+                            }
+                        }
+                    }
+                    if (paths != 1) {
+                        rcc_error(expr->loc,
+                                  "static_cast requires one public non-virtual owner base path");
+                    } else {
+                        expr->cxx_member_pointer_adjustment_valid = true;
+                    }
+                }
+                break;
+            }
             if (rcc_parser_is_cxx_mode() && source && expr->cast_type &&
                 expr->cxx_cast_kind == CXX_CAST_STATIC &&
                 expr->cast_type->kind == TYPE_PTR &&

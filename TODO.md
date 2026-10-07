@@ -368,21 +368,22 @@
         `test-cxx-static-reference-conversions` with i686/AMD64 generation and
         x64 host execution.
   - [ ] Extend static-duration reference lifetime through
-        pointer-to-member-selected subobjects. The source now supports direct
-        public non-bit-field data-member pointers, lvalue/xvalue selection, and
-        one public non-virtual base application path across both native backends
-        and typed IR. `nullptr`/integer-zero initialization, equality with null,
-        and static zero-initialization use the member-pointer null sentinel.
-        Base-owner data-member pointers also convert to a derived owner along one
-        public non-virtual path; constant and runtime offsets are adjusted while
-        preserving null. These paths have not been regression-tested; the local
-        fixture and Makefile target remain untracked and unrun. Keep this open
-        until both-architecture generation, lifetime/destructor execution, and
-        RinOS integration are covered.
-  - [ ] Complete remaining pointer-to-member conversions and contexts: function
-        member pointers/calls, private/protected access where permitted, explicit
-        owner conversions, ambiguous base paths, and virtual-base representation.
-        Member-function pointers and virtual-base forms still diagnose.
+        pointer-to-member-selected data subobjects. Public non-bit-field
+        member pointers support `.*`/`->*`, lvalue/xvalue selection, member
+        assignment, floating-member loads, null/member-pointer comparisons,
+        and null initialization. Unique public non-virtual base application,
+        base-owner-to-derived implicit conversion, and explicit `static_cast`
+        owner conversion in either direction are wired through native and
+        typed-IR lowering; null is preserved. `build-rcc` succeeds, but the
+        member-pointer fixture is still unrun. Keep this open until regression
+        execution proves the static-reference lifetime and destruction order,
+        both target backends and typed IR, and RinOS runtime integration.
+  - [ ] Complete remaining pointer-to-member conversions and contexts:
+        private/protected-member access where permitted, pointer-to-member
+        function types/calls, ambiguous and virtual-base paths, and virtual-base
+        data-member-pointer representation. Owner conversions currently cover
+        only one public non-virtual base path; member-function and virtual-base
+        forms remain unsupported.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

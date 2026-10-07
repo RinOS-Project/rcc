@@ -260,17 +260,14 @@ x64 host execution for direct member subobjects, conditional/comma class
 sources, and explicit non-virtual/virtual base xvalue bindings, including
 exactly-once destruction order. A bounded direct public data-member pointer
 path now parses `T C::*`, `&C::member`, `object.*member`, and
-`pointer->*member` and reaches both native backends and typed IR. Application
-through one public, non-virtual base path now carries the required object
-adjustment through all three lowerings. Ambiguous and virtual-base paths remain
-unsupported. Base-owner data-member pointers now convert to a derived owner
-through one public non-virtual path, with the member displacement adjusted in
-constant and runtime values while preserving the null sentinel across native
-and typed-IR lowering. `nullptr`/zero initialization and null equality use the
-same representation. These paths have not been regression-tested. The local
-fixture and Makefile target are untracked and unrun. Pointer-selected static
-reference lifetime, virtual-base conversions, and member-function pointers
-remain open in [`TODO.md`](TODO.md).
+`pointer->*member` and reaches both native backends and typed IR. Owner
+conversions cover one public non-virtual base path, including explicit
+`static_cast` in both directions with null-preserving runtime and constant
+adjustment. `build-rcc` succeeds; a local regression fixture and Makefile
+target are present in the working tree but remain untracked and unrun.
+Pointer-to-member-selected static reference lifetime remains open, as do
+thread-local temporaries and the broader member-pointer ABI cases in
+[`TODO.md`](TODO.md).
 
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、

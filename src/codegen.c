@@ -582,12 +582,30 @@ static Decl* codegen_global_variable(AST* ast, const char* name) {
 static bool codegen_static_integer(Expr* expression, int64_t* value) {
     int64_t left;
     int64_t right;
+    int64_t member_pointer_adjustment = 0;
     while (expression && expression->kind == EXPR_CAST) {
+        if (expression->cxx_member_pointer_adjustment_valid) {
+            int64_t adjustment =
+                expression->cxx_member_pointer_adjustment;
+            if ((adjustment > 0 &&
+                 member_pointer_adjustment > INT64_MAX - adjustment) ||
+                (adjustment < 0 &&
+                 member_pointer_adjustment < INT64_MIN - adjustment)) {
+                return false;
+            }
+            member_pointer_adjustment += adjustment;
+        }
         expression = expression->cast_expr;
     }
     if (!expression || !value) return false;
     if (expression->kind == EXPR_INT_LIT) {
-        *value = expression->int_val;
+        if ((member_pointer_adjustment > 0 &&
+             expression->int_val > INT64_MAX - member_pointer_adjustment) ||
+            (member_pointer_adjustment < 0 &&
+             expression->int_val < INT64_MIN - member_pointer_adjustment)) {
+            return false;
+        }
+        *value = expression->int_val + member_pointer_adjustment;
         return true;
     }
     if (expression->kind == EXPR_CHAR_LIT) {
