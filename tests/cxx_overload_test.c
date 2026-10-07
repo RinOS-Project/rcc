@@ -49,7 +49,7 @@ static void verify_derived_base_references(const char* path,
     assert(text != NULL);
     assert(relocation_count(text, "_Z13take_ref_baseR7RefBase") == 1u);
     assert(relocation_count(text, "_Z16take_ref_derivedR10RefDerived") == 1u);
-    assert(relocation_count(text, "_Z19take_const_ref_baseR7RefBase") == 2u);
+    assert(relocation_count(text, "_Z19take_const_ref_baseRK7RefBase") == 2u);
     objfile_free(object);
 }
 

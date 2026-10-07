@@ -25,6 +25,25 @@ int double_value(int value) {
     return value + value;
 }
 
+int select_reference_overload(int&) {
+    return 1;
+}
+
+int select_reference_overload(int&&) {
+    return 2;
+}
+
+int select_reference_overload(const int&) {
+    return 3;
+}
+
+int comma_calls;
+
+int mark_comma() {
+    comma_calls += 1;
+    return 0;
+}
+
 int update_rvalue_reference_local(int&& value) {
     int&& local = static_cast<int&&>(value);
     local += 2;
@@ -48,9 +67,31 @@ int&& select_conditional_xvalue(bool choose_first, int&& first, int&& second) {
                         : static_cast<int&&>(second);
 }
 
+int& return_comma_lvalue(int& value) {
+    return (mark_comma(), value);
+}
+
+int&& return_comma_xvalue(int&& value) {
+    return (mark_comma(), static_cast<int&&>(value));
+}
+
 struct ReferenceMemberValue {
     int value;
 };
+
+struct LifetimeExtendedTemporary {
+    int* events;
+    int value;
+
+    ~LifetimeExtendedTemporary() {
+        *events = *events * 10 + value;
+    }
+};
+
+LifetimeExtendedTemporary make_lifetime_extended_temporary(int* events,
+                                                           int value) {
+    return {events, value};
+}
 
 int&& return_member_xvalue(ReferenceMemberValue&& object) {
     return static_cast<ReferenceMemberValue&&>(object).value;
@@ -87,6 +128,13 @@ int main() {
     const int constant = 7;
     int mutable_value = 4;
     int values[2] = {5, 6};
+    int overload_lvalue = 50;
+    const int overload_const_lvalue = 60;
+    if (select_reference_overload(overload_lvalue) != 1) return 30;
+    if (select_reference_overload(51) != 2) return 31;
+    if (select_reference_overload(overload_const_lvalue) != 3) return 32;
+    if (select_reference_overload(
+            static_cast<int&&>(overload_lvalue)) != 2) return 33;
     if (read_const_reference(constant) != 7) return 1;
     if (update_lvalue(mutable_value) != 7) return 2;
     if (mutable_value != 7) return 3;
@@ -105,6 +153,9 @@ int main() {
             false, mutable_value, other_value);
     selected_lvalue += 1;
     if (mutable_value != 12 || other_value != 21) return 8;
+    int& comma_lvalue = return_comma_lvalue(other_value);
+    comma_lvalue += 1;
+    if (other_value != 22 || comma_calls != 1) return 23;
     char small_first = 'a';
     char small_second = 'b';
     (true ? small_first : small_second) = 'z';
@@ -113,12 +164,16 @@ int main() {
             true, static_cast<int&&>(mutable_value),
             static_cast<int&&>(other_value));
     selected_xvalue += 2;
-    if (mutable_value != 14 || other_value != 21) return 10;
+    if (mutable_value != 14 || other_value != 22) return 10;
+    int&& comma_xvalue = return_comma_xvalue(
+            static_cast<int&&>(other_value));
+    comma_xvalue += 1;
+    if (other_value != 23 || comma_calls != 2) return 24;
     decltype(auto) deduced_xvalue = select_conditional_decltype_xvalue(
             false, static_cast<int&&>(mutable_value),
             static_cast<int&&>(other_value));
     deduced_xvalue += 3;
-    if (mutable_value != 14 || other_value != 24) return 11;
+    if (mutable_value != 14 || other_value != 26) return 11;
     ReferenceMemberValue member_value{};
     member_value.value = 25;
     int&& member_result = return_member_xvalue(
@@ -138,7 +193,28 @@ int main() {
             static_cast<int&&>(auto_xvalue_value);
     deduced_xvalue_reference += 2;
     if (auto_xvalue_value != 44) return 21;
+    int temporary_lifetime_events = 0;
+    {
+        const LifetimeExtendedTemporary& extended_object =
+                make_lifetime_extended_temporary(
+                        &temporary_lifetime_events, 5);
+        if (extended_object.value != 5 || temporary_lifetime_events != 0)
+            return 25;
+        if (double_value(4) != 8 || temporary_lifetime_events != 0)
+            return 26;
+        LifetimeExtendedTemporary const& trailing_cv_object =
+                make_lifetime_extended_temporary(
+                        &temporary_lifetime_events, 6);
+        if (trailing_cv_object.value != 6 ||
+            temporary_lifetime_events != 0)
+            return 28;
+        if (double_value(3) != 6 || temporary_lifetime_events != 0)
+            return 29;
+    }
+    if (temporary_lifetime_events != 65) return 27;
+    const int& extended_const_temporary = 47;
     if (read_rvalue(9) != 9) return 14;
+    if (extended_const_temporary != 47) return 22;
     if (read_rvalue(mutable_value) != 14) return 15;
     if (invoke(double_value, 6) != 12) return 16;
     if (copy_from_const_pointer(&constant) != 8) return 17;

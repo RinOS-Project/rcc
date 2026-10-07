@@ -1203,6 +1203,22 @@ static bool is_xvalue(Expr* expression) {
             expression->kind == EXPR_CALL);
 }
 
+/* Find a prvalue object materialized by a direct rvalue-reference cast.
+ * Named xvalues and calls returning references do not own a temporary here. */
+static Expr* sema_cxx_reference_temporary_source(Expr* expression) {
+    Type* cast_type;
+    Expr* source;
+    if (!expression || expression->kind != EXPR_CAST) return NULL;
+    cast_type = expression->cast_type;
+    source = expression->cast_expr;
+    if (!cast_type || !cast_type->is_reference ||
+        !cast_type->is_rvalue_reference || !source) {
+        return NULL;
+    }
+    if (!is_lvalue(source) && !is_xvalue(source)) return source;
+    return sema_cxx_reference_temporary_source(source);
+}
+
 static bool sema_cxx_same_glvalue_type(Type* left, Type* right,
                                        unsigned depth) {
     if (!left || !right || depth > 64u ||
@@ -6989,11 +7005,26 @@ static bool sema_cxx_default_initialization_needs_lowering(
     }
     cls = object_type->cxx_class;
     if (!cls) return false;
-    if (cls->has_user_constructor || cls->has_field_initializer ||
-        cls->base_count > 0 || cls->virtual_base_count > 0 ||
-        cls->vtable_size > 0 || cls->secondary_vtable_count > 0 ||
-        object_type->cxx_vtable_size > 0) {
+    /* Vtable/vbtable pointer installation is handled by the local-object
+     * backend path; it does not itself require a C++ constructor call. */
+    if (cls->has_user_constructor || cls->has_field_initializer) {
         return true;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type ||
+            sema_cxx_default_initialization_needs_lowering(
+                base->type, depth + 1)) {
+            return true;
+        }
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxClass* base = cls->virtual_bases[index].base;
+        if (!base || !base->type ||
+            sema_cxx_default_initialization_needs_lowering(
+                base->type, depth + 1)) {
+            return true;
+        }
     }
     for (TypeParam* parameter = cls->fields; parameter;
          parameter = parameter->next) {
@@ -7109,6 +7140,7 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
 
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
+    Expr* materialized_xvalue_source = NULL;
     Type* object_type;
     bool reference_temporary = false;
     int cleanup_budget = 4096;
@@ -7119,9 +7151,13 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     }
     object_type = declaration->type;
     if (object_type->kind == TYPE_PTR && object_type->is_reference) {
+        bool prvalue_initializer;
         if (!declaration->var_init) return;
-        if (!is_lvalue(declaration->var_init) &&
-            !is_xvalue(declaration->var_init) &&
+        materialized_xvalue_source =
+            sema_cxx_reference_temporary_source(declaration->var_init);
+        prvalue_initializer = !is_lvalue(declaration->var_init) &&
+                              !is_xvalue(declaration->var_init);
+        if ((prvalue_initializer || materialized_xvalue_source) &&
             (declaration->var_is_global ||
              declaration->var_is_static_local ||
              declaration->var_is_block_extern)) {
@@ -7129,13 +7165,27 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                       "static-storage reference temporary lifetime is unsupported");
             return;
         }
-        object_type = declaration->var_init->type;
+        object_type = materialized_xvalue_source
+            ? (declaration->var_init->type
+                   ? declaration->var_init->type->base : NULL)
+            : declaration->var_init->type;
         reference_temporary = object_type &&
             !declaration->var_is_global &&
             !declaration->var_is_static_local &&
             !declaration->var_is_block_extern &&
-            !is_lvalue(declaration->var_init) &&
-            !is_xvalue(declaration->var_init);
+            (prvalue_initializer || materialized_xvalue_source);
+        if (materialized_xvalue_source && object_type &&
+            (object_type->kind == TYPE_STRUCT ||
+             object_type->kind == TYPE_UNION) &&
+            materialized_xvalue_source->type &&
+            (materialized_xvalue_source->type->kind == TYPE_STRUCT ||
+             materialized_xvalue_source->type->kind == TYPE_UNION) &&
+            !type_is_compatible(materialized_xvalue_source->type,
+                                object_type)) {
+            rcc_error(declaration->loc,
+                      "lifetime extension for a converted class xvalue is unsupported");
+            return;
+        }
         if (!reference_temporary) return;
     }
     if (!object_type) return;

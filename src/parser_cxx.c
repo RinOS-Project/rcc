@@ -11576,6 +11576,20 @@ static Type* parse_cxx_type_spec(void) {
         t = is_unsigned ? type_uint : type_int;
     }
 
+    /* Match declaration-specifier grammar for qualifiers written after a
+     * named or built-in base type (for example, `Widget const&`).  These
+     * qualifiers belong to the base object and must be applied before any
+     * pointer/reference layers below are constructed. */
+    if (t && (check(TOK_CONST) || check(TOK_VOLATILE))) {
+        Type* qualified = ast_arena_alloc(sizeof(*qualified));
+        *qualified = *t;
+        while (match(TOK_CONST) || match(TOK_VOLATILE)) {
+            if (previous()->type == TOK_CONST) qualified->is_const = true;
+            else qualified->is_volatile = true;
+        }
+        t = qualified;
+    }
+
     /* Prefix cv-qualifiers apply to the base type, before pointer and
      * reference declarators are layered on top. */
     if ((is_const || is_volatile) && t) {
@@ -12396,10 +12410,21 @@ Stmt* rcc_parse_cxx_range_for_statement(void) {
             rcc_error(loc, "range-for storage name exceeds compiler limits");
             range_name[0] = '\0';
         }
-        range_decl = decl_var(rcc_intern(range_name), type_ptr(range_type),
-                              expr_unary(EXPR_ADDR, range, loc), loc);
-        range_storage = expr_unary(
-            EXPR_DEREF, expr_ident(range_decl->name, loc), loc);
+        if (range->kind == EXPR_COMPOUND &&
+            range->compound_type == range_type) {
+            /* Braced range-for initializers are prvalues, not addressable
+             * source expressions. Give their backing array automatic storage
+             * for the complete synthesized loop scope. */
+            range_decl = decl_var(rcc_intern(range_name), range_type,
+                                  range, loc);
+            rcc_parser_cxx_add_value_binding(range_decl->name, range_type);
+            range_storage = expr_ident(range_decl->name, loc);
+        } else {
+            range_decl = decl_var(rcc_intern(range_name), type_ptr(range_type),
+                                  expr_unary(EXPR_ADDR, range, loc), loc);
+            range_storage = expr_unary(
+                EXPR_DEREF, expr_ident(range_decl->name, loc), loc);
+        }
     }
 
     if (iterator_range) {

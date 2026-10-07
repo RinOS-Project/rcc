@@ -3041,6 +3041,8 @@ static Type* parser_atomic_type(Type* type, SourceLoc loc) {
 }
 
 static Type* parse_type_spec(void) {
+    Token* spec_start = parser.cur;
+    Token* spec_prev = parser.prev;
     Type* t = NULL;
     bool is_unsigned = false;
     bool saw_sign = false;
@@ -3226,6 +3228,16 @@ static Type* parse_type_spec(void) {
     } else if (parser_cxx_mode && rcc_parse_cxx_type_name &&
                (check(TOK_DECLTYPE) ||
                 (rcc_parse_cxx_type_start && rcc_parse_cxx_type_start()))) {
+        /* The C++ type parser owns cv-qualifiers and reference/pointer
+         * operators as one type-id.  Re-entering it after this common parser
+         * consumed a leading `const`/`volatile` incorrectly qualified the
+         * outer reference or pointer instead of its referred-to object. */
+        if (!is_atomic && !is_restrict && !saw_sign &&
+            long_count == 0 && !is_short) {
+            parser.cur = spec_start;
+            parser.prev = spec_prev;
+            return rcc_parse_cxx_type_name();
+        }
         t = rcc_parse_cxx_type_name();
     } else if (check(TOK_IDENT)) {
         const char* name = peek()->value.str_val;

@@ -6176,6 +6176,24 @@ static bool gen_expr_is_xvalue(Expr* expression) {
             expression->kind == EXPR_CALL);
 }
 
+/* Return the prvalue whose storage is extended through a direct && cast.
+ * Calls or names that already denote xvalues keep their own lifetime. */
+static Expr* gen_reference_temporary_source(Expr* expression) {
+    Type* cast_type;
+    Expr* source;
+    if (!expression || expression->kind != EXPR_CAST) return NULL;
+    cast_type = expression->cast_type;
+    source = expression->cast_expr;
+    if (!cast_type || !cast_type->is_reference ||
+        !cast_type->is_rvalue_reference || !source) {
+        return NULL;
+    }
+    if (!gen_expr_is_lvalue(source) && !gen_expr_is_xvalue(source)) {
+        return source;
+    }
+    return gen_reference_temporary_source(source);
+}
+
 static bool gen_reference_argument_needs_temporary(Type* passed_type,
                                                    Expr* argument) {
     if (!passed_type || !passed_type->is_reference || !argument ||
@@ -6279,11 +6297,6 @@ static void gen_lvalue(Module* mod, Expr* expr) {
 
         case EXPR_DEREF:
             gen_expr(mod, expr->unary_operand);
-            break;
-
-        case EXPR_COMMA:
-            gen_expr(mod, expr->binary_lhs);
-            gen_lvalue(mod, expr->binary_rhs);
             break;
 
         case EXPR_CAST:
@@ -6416,11 +6429,12 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 ? expr->cond_else : NULL;
             int else_label = expr->kind == EXPR_COND ? new_label() : -1;
             int end_label = expr->kind == EXPR_COND ? new_label() : -1;
-            bool conditional_glvalue = expr->kind == EXPR_COND &&
+            bool glvalue_result =
+                (expr->kind == EXPR_COND || expr->kind == EXPR_COMMA) &&
                 (gen_expr_is_lvalue(expr) || gen_expr_is_xvalue(expr));
             bool aggregate_result = gen_aggregate_type32(expr->type);
-            if ((!conditional_glvalue && !aggregate_result) ||
-                (!conditional_glvalue && expr->aggregate_offset >= 0) ||
+            if ((!glvalue_result && !aggregate_result) ||
+                (!glvalue_result && expr->aggregate_offset >= 0) ||
                 !then_expr ||
                 (expr->kind == EXPR_COND && !else_expr)) {
                 rcc_error(expr->loc, "aggregate expression has no automatic result slot");
@@ -6434,7 +6448,7 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 gen_expr(mod, expr->binary_lhs);
             }
             gen_lvalue(mod, then_expr);
-            if (!conditional_glvalue) {
+            if (!glvalue_result) {
                 gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
                                      expr->type->size);
             }
@@ -6442,13 +6456,13 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 emit_jmp_label(mod, end_label);
                 emit_label(mod, else_label);
                 gen_lvalue(mod, else_expr);
-                if (!conditional_glvalue) {
+                if (!glvalue_result) {
                     gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
                                          expr->type->size);
                 }
                 emit_label(mod, end_label);
             }
-            if (!conditional_glvalue) {
+            if (!glvalue_result) {
                 emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
                 emit_byte(mod, modrm(2, EAX, EBP));
                 emit_dword(mod, (uint32_t)expr->aggregate_offset);
@@ -12696,38 +12710,43 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
             if (statement->decl && statement->decl->kind == DECL_VAR) {
                 Decl* declaration = statement->decl;
                 Type* type = declaration->type;
+                Expr* temporary_source =
+                    gen_reference_temporary_source(declaration->var_init);
+                Expr* temporary_initializer = temporary_source
+                    ? temporary_source : declaration->var_init;
                 Type* temporary_type = type && type->is_reference
                     ? type->base : NULL;
                 codegen_assign_compound_expr(declaration->var_init, bytes,
                                              stack_alignment);
                 if (temporary_type &&
                     !codegen_reference_temporary_scalar(temporary_type) &&
-                    declaration->var_init && declaration->var_init->type &&
-                    (declaration->var_init->type->kind == TYPE_STRUCT ||
-                     declaration->var_init->type->kind == TYPE_UNION ||
-                     declaration->var_init->type->kind == TYPE_VECTOR)) {
+                    temporary_initializer && temporary_initializer->type &&
+                    (temporary_initializer->type->kind == TYPE_STRUCT ||
+                     temporary_initializer->type->kind == TYPE_UNION ||
+                     temporary_initializer->type->kind == TYPE_VECTOR)) {
                     temporary_type = declaration->var_reference_temporary_owner
                         ? declaration->var_reference_temporary_owner->type
-                        : declaration->var_init->type;
+                        : temporary_initializer->type;
                 }
                 if (declaration->var_reference_temporary_offset == 0 &&
                     !declaration->var_is_global &&
                     !declaration->var_is_static_local &&
                     !declaration->var_is_block_extern &&
                     type && type->kind == TYPE_PTR && type->is_reference &&
-                    temporary_type && declaration->var_init &&
-                    !gen_expr_is_lvalue(declaration->var_init) &&
-                    !gen_expr_is_xvalue(declaration->var_init) &&
+                    temporary_type && temporary_initializer &&
+                    (temporary_source ||
+                     (!gen_expr_is_lvalue(declaration->var_init) &&
+                      !gen_expr_is_xvalue(declaration->var_init))) &&
                     codegen_reference_temporary_local(
-                        temporary_type, declaration->var_init)) {
+                        temporary_type, temporary_initializer)) {
                     if (!codegen_reference_temporary_scalar(temporary_type) &&
-                        declaration->var_init->kind == EXPR_CALL &&
-                        declaration->var_init->call_result_offset < 0) {
+                        temporary_initializer->kind == EXPR_CALL &&
+                        temporary_initializer->call_result_offset < 0) {
                         /* The ABI result slot is already the materialized
                          * prvalue object.  Reuse it so extending a reference
                          * does not create a second class object. */
                         declaration->var_reference_temporary_offset =
-                            declaration->var_init->call_result_offset;
+                            temporary_initializer->call_result_offset;
                         if (declaration->var_reference_temporary_owner) {
                             declaration->var_reference_temporary_owner->var_offset =
                                 declaration->var_reference_temporary_offset;
@@ -14358,20 +14377,24 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 }
                 if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
+                    Expr* temporary_source =
+                        gen_reference_temporary_source(d->var_init);
+                    Expr* initializer = temporary_source
+                        ? temporary_source : d->var_init;
                     Type* temporary_type = d->var_reference_temporary_owner
                         ? d->var_reference_temporary_owner->type
                         : d->type->base;
                     if (!d->var_reference_temporary_owner &&
-                        d->var_init->type &&
-                        (d->var_init->type->kind == TYPE_STRUCT ||
-                         d->var_init->type->kind == TYPE_UNION ||
-                         d->var_init->type->kind == TYPE_VECTOR)) {
-                        temporary_type = d->var_init->type;
+                        initializer->type &&
+                        (initializer->type->kind == TYPE_STRUCT ||
+                         initializer->type->kind == TYPE_UNION ||
+                         initializer->type->kind == TYPE_VECTOR)) {
+                        temporary_type = initializer->type;
                     }
                     bool call_result_storage = temporary_type &&
                         !codegen_reference_temporary_scalar(temporary_type) &&
-                        d->var_init->kind == EXPR_CALL &&
-                        d->var_init->call_result_offset ==
+                        initializer->kind == EXPR_CALL &&
+                        initializer->call_result_offset ==
                             d->var_reference_temporary_offset;
                     if (!call_result_storage && temporary_type &&
                         (temporary_type->kind == TYPE_STRUCT ||
@@ -14382,9 +14405,9 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                             (size_t)temporary_type->size);
                     }
                     if (call_result_storage) {
-                        gen_expr(mod, d->var_init);
+                        gen_expr(mod, initializer);
                     } else if (!gen_local_initializer(
-                                   mod, temporary_type, d->var_init,
+                                   mod, temporary_type, initializer,
                                    d->var_reference_temporary_offset)) {
                         rcc_error(
                             d->loc,

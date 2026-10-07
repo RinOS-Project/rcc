@@ -324,10 +324,23 @@
   - [x] Deduce local `auto&&` bindings from both lvalue and xvalue initializers,
         preserve aliasing through reference collapsing, and verify i686/AMD64
         code generation plus x64 execution in `test-cxx-function-template-references`.
+  - [x] Materialize scalar prvalues bound to local references in stable
+        function-frame storage, including lifetime extension for `const T&`;
+        verify the value survives a subsequent call on i686/AMD64 codegen and
+        x64 execution in `test-cxx-function-template-references`.
+  - [x] Extend nontrivial aggregate prvalue lifetime for both `const T&` and
+        `T const&` local bindings, preserve the temporary across later calls,
+        and run destructors once in reverse declaration order at scope exit;
+        verify i686/AMD64 generation and x64 execution in
+        `test-cxx-function-template-references`.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,
         and narrow-character assignment in `test-cxx-function-template-references`.
+  - [x] Preserve C++ comma-expression lvalue/xvalue category in reference
+        returns while evaluating the left operand; verify aliasing and its side
+        effect on i686/AMD64 code generation and x64 execution in
+        `test-cxx-function-template-references`.
   - [x] Read bit-field metadata only from member-expression AST nodes in both
         assignment backends; conditional expressions share union storage with
         those fields and must not be misidentified as bit-fields.
