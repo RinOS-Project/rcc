@@ -904,11 +904,27 @@ static bool inline_scalar_compound_type_supported(
         return false;
     }
     if (type_is_integer(type)) return type->size >= 4;
+    if (type_is_pointer(type)) {
+        return assignment_operator == EXPR_ADD_ASSIGN ||
+               assignment_operator == EXPR_SUB_ASSIGN;
+    }
     if (!type_is_floating(type)) return false;
     return assignment_operator == EXPR_ADD_ASSIGN ||
            assignment_operator == EXPR_SUB_ASSIGN ||
            assignment_operator == EXPR_MUL_ASSIGN ||
            assignment_operator == EXPR_DIV_ASSIGN;
+}
+
+static bool inline_scalar_compound_rhs_supported(
+    Type* type, Type* rhs_type, ExprKind assignment_operator) {
+    if (!type || !rhs_type ||
+        !inline_scalar_compound_type_supported(type, assignment_operator)) {
+        return false;
+    }
+    if (type_is_pointer(type)) {
+        return type_is_integer(rhs_type);
+    }
+    return type_is_compatible(type, rhs_type);
 }
 
 static bool inline_scalar_increment_operator(ExprKind unary_operator,
@@ -1050,12 +1066,15 @@ static bool collect_inline_scalar_body(
                 declaration->type->is_volatile ||
                 !type_is_scalar(declaration->type) ||
                 (compound_assignment &&
-                 (!inline_scalar_compound_type_supported(
-                      declaration->type, statement->expr->kind) ||
+                 (!inline_scalar_compound_rhs_supported(
+                      declaration->type,
+                      statement->expr->binary_rhs->type,
+                      statement->expr->kind) ||
                   !type_is_compatible(declaration->type,
                                       statement->expr->binary_lhs->type))) ||
-                !type_is_compatible(declaration->type,
-                                    statement->expr->binary_rhs->type) ||
+                (!compound_assignment &&
+                 !type_is_compatible(declaration->type,
+                                     statement->expr->binary_rhs->type)) ||
                 expression_has_side_effect(statement->expr->binary_rhs)) {
                 return false;
             }
@@ -1634,8 +1653,14 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             continue;
         }
         if (!operation->declaration || !operation->expression ||
-            !type_is_compatible(operation->declaration->type,
-                                operation->expression->type) ||
+            ((operation->kind ==
+              INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT)
+                 ? !inline_scalar_compound_rhs_supported(
+                       operation->declaration->type,
+                       operation->expression->type,
+                       operation->assignment_operator)
+                 : !type_is_compatible(operation->declaration->type,
+                                       operation->expression->type)) ||
             expression_has_side_effect(operation->expression) ||
             !inline_scalar_expression_shape(operation->expression, bindings,
                                              binding_count)) {
@@ -1644,7 +1669,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         value = clone_inline_scalar_expression(
             operation->expression, bindings, binding_count);
         if (!value) return false;
-        value->type = operation->declaration->type;
+        if (operation->kind != INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT) {
+            value->type = operation->declaration->type;
+        }
         if (operation->kind == INLINE_SCALAR_LOCAL_INITIALIZER) {
             if (binding_count >= INLINE_SCALAR_BINDING_LIMIT) return false;
             bindings[binding_count].parameter = operation->declaration;
@@ -1663,8 +1690,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             ExprKind binary_operator;
             Expr* previous_value;
             Expr* combined;
-            if (!inline_scalar_compound_type_supported(
+            if (!inline_scalar_compound_rhs_supported(
                     operation->declaration->type,
+                    operation->expression->type,
                     operation->assignment_operator) ||
                 !inline_scalar_compound_operator(
                     operation->assignment_operator, &binary_operator)) {

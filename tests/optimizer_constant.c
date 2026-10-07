@@ -315,6 +315,22 @@ double inlined_parameter_double_compound_call(double value, double delta)
     return inline_parameter_double_compound(value, delta);
 }
 
+static int* inline_pointer_compound_offset(int* value, int offset)
+{
+    value += offset;
+    return value;
+}
+
+int* inlined_pointer_compound_offset_call(int* value, int offset)
+{
+    return inline_pointer_compound_offset(value, offset);
+}
+
+int* preserved_pointer_compound_side_effect_call(int* value, int* offset)
+{
+    return inline_pointer_compound_offset(value, (*offset)++);
+}
+
 static float inline_float_increment_mutations(float value)
 {
     float adjusted = value;
