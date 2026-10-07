@@ -203,6 +203,16 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(
         optimized, "inlined_pointer_compound_subtract_call", 0xe8u));
     assert(function_contains_byte(
+        unoptimized, "inlined_pointer_post_increment_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_pointer_post_increment_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_pointer_post_increment_side_effect_call",
+        0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_pointer_post_increment_side_effect_call",
+        0xe8u));
+    assert(function_contains_byte(
         unoptimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
     assert(!function_contains_byte(
         optimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
@@ -731,6 +741,8 @@ int main(int argc, char** argv)
         int* (*inlined_pointer_compound_offset_call)(int*, int);
         int* (*preserved_pointer_compound_side_effect_call)(int*, int*);
         int* (*inlined_pointer_compound_subtract_call)(int*, int);
+        int* (*inlined_pointer_post_increment_call)(int*);
+        int* (*preserved_pointer_post_increment_side_effect_call)(int**);
         int (*inlined_local_snapshot_before_mutation_call)(int);
         int (*inlined_statement_conditional_return_call)(int);
         int (*preserved_nested_conditional_return_call)(int);
@@ -1106,6 +1118,21 @@ int main(int argc, char** argv)
         }
         {
             ObjSymbol* symbol = function_symbol(
+                object, "inlined_pointer_post_increment_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_pointer_post_increment_call, &address,
+                   sizeof(inlined_pointer_post_increment_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "preserved_pointer_post_increment_side_effect_call");
+            address = mapping + symbol->value;
+            memcpy(&preserved_pointer_post_increment_side_effect_call,
+                   &address,
+                   sizeof(preserved_pointer_post_increment_side_effect_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
                 object, "inlined_local_snapshot_before_mutation_call");
             address = mapping + symbol->value;
             memcpy(&inlined_local_snapshot_before_mutation_call, &address,
@@ -1474,6 +1501,14 @@ int main(int argc, char** argv)
             assert(offset == 4);
             assert(inlined_pointer_compound_subtract_call(&values[3], 1) ==
                    &values[2]);
+            assert(inlined_pointer_post_increment_call(values) ==
+                   &values[1]);
+            {
+                int* pointer_value = values;
+                assert(preserved_pointer_post_increment_side_effect_call(
+                           &pointer_value) == &values[1]);
+                assert(pointer_value == &values[1]);
+            }
         }
         {
             int parameter_side_effect_value = 4;

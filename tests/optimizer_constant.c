@@ -342,6 +342,22 @@ int* inlined_pointer_compound_subtract_call(int* value, int offset)
     return inline_pointer_compound_subtract(value, offset);
 }
 
+static int* inline_pointer_post_increment(int* value)
+{
+    value++;
+    return value;
+}
+
+int* inlined_pointer_post_increment_call(int* value)
+{
+    return inline_pointer_post_increment(value);
+}
+
+int* preserved_pointer_post_increment_side_effect_call(int** value)
+{
+    return inline_pointer_post_increment((*value)++);
+}
+
 static float inline_float_increment_mutations(float value)
 {
     float adjusted = value;

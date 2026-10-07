@@ -941,7 +941,7 @@ static bool inline_scalar_increment_operator(ExprKind unary_operator,
 
 static bool inline_scalar_increment_type_supported(Type* type) {
     return (type_is_integer(type) && type->size >= 4) ||
-           type_is_floating(type);
+           type_is_floating(type) || type_is_pointer(type);
 }
 
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
@@ -1644,7 +1644,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             one = type_is_floating(operation->declaration->type)
                 ? expr_float(1.0, operation->expression->loc)
                 : expr_int(1, operation->expression->loc);
-            one->type = operation->declaration->type;
+            one->type = type_is_pointer(operation->declaration->type)
+                ? type_int : operation->declaration->type;
             combined = expr_binary(binary_operator, previous_value, one,
                                    operation->expression->loc);
             combined->type = operation->declaration->type;
