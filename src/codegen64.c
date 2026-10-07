@@ -4077,6 +4077,35 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
                     expr->cxx_dynamic_cast_runtime) {
                     gen64_cxx_dynamic_cast_runtime(mod, expr);
+                } else if (expr->cxx_cast_kind == CXX_CAST_STATIC &&
+                           expr->cxx_virtual_base_adjustment) {
+                    int end_label;
+                    if (!expr->cxx_virtual_base_source_class ||
+                        expr->cxx_virtual_base_pointer_offset < 0 ||
+                        expr->cxx_virtual_base_index < 0 ||
+                        expr->cxx_virtual_base_index >=
+                            expr->cxx_virtual_base_source_class
+                                ->virtual_base_count) {
+                        rcc_error(expr->loc,
+                                  "virtual-base reference cast has incomplete vbtable metadata");
+                        return;
+                    }
+                    end_label = new_label64();
+                    emit64_test_reg_reg(mod, RAX, RAX);
+                    emit64_jcc_label(mod, CC64_E, end_label);
+                    emit64_mov_reg_mem(
+                        mod, RDX, RAX,
+                        expr->cxx_virtual_base_pointer_offset);
+                    emit64_mov_reg_mem(
+                        mod, RCX, RDX,
+                        expr->cxx_virtual_base_index * 8);
+                    emit64_add_reg_reg(mod, RAX, RCX);
+                    if (expr->cxx_virtual_base_nested_adjustment != 0) {
+                        emit64_add_reg_imm(
+                            mod, RAX,
+                            expr->cxx_virtual_base_nested_adjustment);
+                    }
+                    emit64_label(mod, end_label);
                 } else if ((expr->cxx_cast_kind == CXX_CAST_STATIC ||
                             expr->cxx_cast_kind == CXX_CAST_DYNAMIC) &&
                     expr->cxx_pointer_adjustment_valid &&
@@ -5970,6 +5999,14 @@ static void gen64_cxx_delete(Module* mod, Expr* expr) {
 
 static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression) {
     if (!expression) return;
+    /* Explicit reference casts are already adjusted by gen64_lvalue() or by
+     * gen64_expr()'s post-lowering conversion path.  This helper is also used
+     * after argument/initializer lowering for implicit bindings. */
+    if (expression->kind == EXPR_CAST && expression->type &&
+        expression->type->is_reference &&
+        expression->cxx_cast_kind == CXX_CAST_STATIC) {
+        return;
+    }
     if (expression->cxx_virtual_base_adjustment) {
         int end_label;
         if (!expression->cxx_virtual_base_source_class ||
@@ -7405,6 +7442,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_CAST:
             if (expr->type && expr->type->is_reference &&
                 (expr->cxx_cast_kind == CXX_CAST_NONE ||
+                 (expr->cxx_cast_kind == CXX_CAST_STATIC &&
+                  expr->type->base &&
+                  (expr->type->base->kind == TYPE_STRUCT ||
+                   expr->type->base->kind == TYPE_UNION)) ||
                  expr->cxx_cast_kind == CXX_CAST_CONST ||
                  expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 /* Reference expressions carry an address, not the first
@@ -8339,11 +8380,21 @@ static void codegen_emit_global_fini64(Module* mod) {
     VLAScopeCodegen64* old_break_vla;
     VLAScopeCodegen64* old_continue_vla;
     uint32_t start;
+    int stack_size;
     if (!mod || !mod->global_finalizers) return;
+    stack_size = codegen_assign_global_cleanup_storage(
+        mod->global_finalizers, 8);
+    if (stack_size > INT_MAX - 15) {
+        rcc_error((SourceLoc){"<global-fini>", 0, 0},
+                  "global cleanup stack frame exceeds compiler limits");
+        return;
+    }
+    stack_size = (stack_size + 15) & ~15;
     start = code_offset(mod);
     add_func_def64(name, start);
     emit64_push_reg(mod, RBP);
     emit64_mov_reg_reg(mod, RBP, RSP);
+    if (stack_size > 0) emit64_sub_reg_imm(mod, RSP, stack_size);
     old_return_type = current_function_return_type64;
     current_function_return_type64 = NULL;
     old_cleanups = active_cleanups64;
@@ -8356,6 +8407,10 @@ static void codegen_emit_global_fini64(Module* mod) {
     continue_vla_marker64 = NULL;
     for (finalizer = mod->global_finalizers; finalizer;
          finalizer = finalizer->next) {
+        if (finalizer->plan) {
+            gen64_cxx_cleanup_plan(mod, finalizer->plan, false, INT_MAX);
+            continue;
+        }
         if (!finalizer->expression) {
             rcc_error((SourceLoc){"<global-fini>", 0, 0},
                       "cannot lower deferred global finalizer");

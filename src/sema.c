@@ -1851,7 +1851,6 @@ static Type* implicit_cast(Expr* e, Type* target) {
             int adjustment = 0;
             int virtual_index;
             int nested_adjustment;
-            e->cxx_virtual_base_adjustment = false;
             if (sema_cxx_virtual_object_conversion(
                     source, referred, &virtual_index, &nested_adjustment)) {
                 e->cxx_virtual_base_adjustment = true;
@@ -7376,7 +7375,8 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                                          &cleanup_budget, true,
                                          !declaration->var_is_global &&
                                          !declaration->var_is_static_local &&
-                                         !declaration->var_is_block_extern)) {
+                                         !declaration->var_is_block_extern &&
+                                         !declaration->var_is_thread_local)) {
         rcc_error(declaration->loc,
                   "C++ object lifetime cleanup metadata is incomplete");
     }
@@ -10017,6 +10017,48 @@ static Type* sema_expr(Expr* expr) {
                     if (!expr->cxx_virtual_base_adjustment) {
                         expr->cxx_pointer_adjustment_valid = adjustment != 0;
                         expr->cxx_pointer_adjustment = adjustment;
+                    }
+                }
+            }
+            if (rcc_parser_is_cxx_mode() &&
+                expr->cxx_cast_kind == CXX_CAST_STATIC && source &&
+                expr->cast_type && expr->cast_type->kind == TYPE_PTR &&
+                expr->cast_type->is_reference &&
+                expr->cast_type->base) {
+                Type* source_object = source->is_reference
+                    ? source->base : source;
+                Type* target_object = expr->cast_type->base;
+                if (source_object &&
+                    (source_object->kind == TYPE_STRUCT ||
+                     source_object->kind == TYPE_UNION) &&
+                    (target_object->kind == TYPE_STRUCT ||
+                     target_object->kind == TYPE_UNION)) {
+                    int reference_adjustment = 0;
+                    int virtual_index;
+                    int nested_adjustment;
+                    expr->cxx_virtual_base_adjustment = false;
+                    expr->cxx_pointer_adjustment_valid = false;
+                    if (sema_cxx_virtual_object_conversion(
+                            source_object, target_object, &virtual_index,
+                            &nested_adjustment)) {
+                        expr->cxx_virtual_base_adjustment = true;
+                        expr->cxx_virtual_base_index = virtual_index;
+                        expr->cxx_virtual_base_nested_adjustment =
+                            nested_adjustment;
+                        expr->cxx_virtual_base_source_class =
+                            source_object->cxx_class;
+                        expr->cxx_virtual_base_pointer_offset =
+                            source_object->cxx_class
+                                ? source_object->cxx_class
+                                      ->virtual_base_pointer_offset
+                                : -1;
+                    } else if (sema_cxx_unique_public_base(
+                                   source_object, target_object,
+                                   &reference_adjustment)) {
+                        expr->cxx_pointer_adjustment_valid =
+                            reference_adjustment != 0;
+                        expr->cxx_pointer_adjustment =
+                            reference_adjustment;
                     }
                 }
             }

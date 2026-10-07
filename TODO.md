@@ -316,12 +316,17 @@
       semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
       function returns now have regressions that compile for both targets and
       execute on the x64 host. Source-level reference collapsing is covered;
-      converted class xvalues, static-storage references, and broader
-      call/return ABI interactions still need systematic coverage.
+      user-defined conversions to class references, static-storage references,
+      and broader call/return ABI interactions still need systematic coverage.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
         returns and execution in `test-cxx-function-template-references`.
+  - [x] Preserve a named class xvalue through explicit `static_cast<T&&>` and
+        cv-qualified virtual-base reference binding; apply the vbtable adjustment
+        exactly once through local initialization and reference-parameter calls.
+        Verify both target codegens and x64 execution, including diamond layout
+        and destructor ordering, in `test-cxx-function-template-references`.
   - [x] Deduce local `auto&&` bindings from both lvalue and xvalue initializers,
         preserve aliasing through reference collapsing, and verify i686/AMD64
         code generation plus x64 execution in `test-cxx-function-template-references`.
@@ -354,6 +359,13 @@
         registration/unregistration, global finalizers, and optimizer analyses.
         Verify with a 4101-element local array plus existing array/member/
         reference lifetime gates on both target codegens and x64 execution.
+  - [ ] Verify reverse-order runtime finalization for large initialized
+        namespace-scope arrays on both targets and the x64 host. Function-local
+        static and TLS destructor registration, plus globals requiring generated
+        default-constructor work, still lack lifetime registration.
+  - [ ] Complete and verify explicit reference `static_cast` adjustment through
+        virtual bases; i686/AMD64 lowering and a virtual-diamond regression were
+        added, but no build or execution was run.
   - [x] Preserve C++ conditional-expression lvalue/xvalue category and exact
         cv-qualified result type when both operands match; lower the selected
         object address on i686/AMD64 and test reference returns, `decltype(auto)`,

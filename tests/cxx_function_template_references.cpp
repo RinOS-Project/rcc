@@ -193,6 +193,10 @@ int* lifetime_virtual_diamond_right_events(
     return object->events;
 }
 
+int read_virtual_diamond_xvalue(const LifetimeVirtualDiamondBase&& object) {
+    return object.events != 0;
+}
+
 LifetimeExtendedTemporary make_lifetime_extended_temporary(int* events,
                                                            int value) {
     return {events, value};
@@ -370,6 +374,32 @@ int main() {
     if (virtual_diamond_events != 4321 ||
         lifetime_virtual_diamond_cleanup_events != 4321)
         return 45;
+    lifetime_virtual_diamond_cleanup_events = 0;
+    virtual_diamond_events = 0;
+    {
+        LifetimeVirtualDiamondDerived named_diamond{&virtual_diamond_events};
+        const LifetimeVirtualDiamondBase&& named_virtual_xvalue =
+                static_cast<const LifetimeVirtualDiamondBase&&>(
+                    static_cast<LifetimeVirtualDiamondDerived&&>(
+                        named_diamond));
+        const LifetimeVirtualDiamondBase* named_virtual_pointer =
+                &named_virtual_xvalue;
+        const LifetimeVirtualDiamondBase* expected_virtual_pointer =
+                &named_diamond;
+        if (named_virtual_pointer != expected_virtual_pointer)
+            return 46;
+        if (named_virtual_pointer->events != &virtual_diamond_events)
+            return 48;
+        if (read_virtual_diamond_xvalue(
+                static_cast<LifetimeVirtualDiamondBase&&>(named_diamond)) != 1)
+            return 48;
+        if (virtual_diamond_events != 0 ||
+            lifetime_virtual_diamond_cleanup_events != 0)
+            return 49;
+    }
+    if (virtual_diamond_events != 4321 ||
+        lifetime_virtual_diamond_cleanup_events != 4321)
+        return 47;
     const int& extended_const_temporary = 47;
     if (read_rvalue(9) != 9) return 14;
     if (extended_const_temporary != 47) return 22;

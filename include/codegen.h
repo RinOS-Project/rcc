@@ -116,11 +116,12 @@ typedef struct GlobalInitializer {
     struct GlobalInitializer* next;
 } GlobalInitializer;
 
-/* A validated static-storage cleanup expression emitted into the module's
+/* A validated static-storage cleanup action emitted into the module's
  * finalizer callback.  The list is kept in reverse declaration order so
  * destruction follows C++ reverse construction order. */
 typedef struct GlobalFinalizer {
     Expr* expression;
+    CxxCleanupPlan* plan;
     struct GlobalFinalizer* next;
 } GlobalFinalizer;
 
@@ -261,6 +262,8 @@ int codegen_assign_local_vla_extent_slots(Stmt* statement, int initial_bytes,
                                           int word_size);
 int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
                                     int stack_alignment);
+int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
+                                          int stack_alignment);
 
 /* Object file output */
 struct ObjectFile;

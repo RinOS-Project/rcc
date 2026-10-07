@@ -753,15 +753,13 @@ static void codegen_defer_global_finalizer(Module* mod, Expr* expression) {
 
 static void codegen_defer_global_cleanup_plan(Module* mod,
                                              CxxCleanupPlan* plan) {
-    for (; plan; plan = plan->next) {
-        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
-            rcc_error(plan->expression ? plan->expression->loc
-                                       : (SourceLoc){"<global-cleanup>", 0, 0},
-                      "global cleanup plan cannot contain an automatic array loop");
-            continue;
-        }
-        codegen_defer_global_finalizer(mod, plan->expression);
-    }
+    GlobalFinalizer* finalizer;
+    if (!mod || !plan) return;
+    finalizer = rcc_alloc(sizeof(*finalizer));
+    finalizer->plan = plan;
+    finalizer->next = mod->global_finalizers;
+    mod->global_finalizers = finalizer;
+    ++mod->global_finalizer_count;
 }
 
 /* Evaluate the floating subset permitted in a static initializer.  Keeping
@@ -6318,6 +6316,35 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
                     expr->cxx_dynamic_cast_runtime) {
                     gen_cxx_dynamic_cast_runtime32(mod, expr);
+                } else if (expr->cxx_cast_kind == CXX_CAST_STATIC &&
+                           expr->cxx_virtual_base_adjustment) {
+                    int end_label;
+                    if (!expr->cxx_virtual_base_source_class ||
+                        expr->cxx_virtual_base_pointer_offset < 0 ||
+                        expr->cxx_virtual_base_index < 0 ||
+                        expr->cxx_virtual_base_index >=
+                            expr->cxx_virtual_base_source_class
+                                ->virtual_base_count) {
+                        rcc_error(expr->loc,
+                                  "virtual-base reference cast has incomplete vbtable metadata");
+                        return;
+                    }
+                    end_label = new_label();
+                    emit_test_reg_reg(mod, EAX, EAX);
+                    emit_jcc_label(mod, CC_E, end_label);
+                    emit_mov_reg_mem(
+                        mod, EDX, EAX,
+                        expr->cxx_virtual_base_pointer_offset);
+                    emit_mov_reg_mem(
+                        mod, ECX, EDX,
+                        expr->cxx_virtual_base_index * 4);
+                    emit_add_reg_reg(mod, EAX, ECX);
+                    if (expr->cxx_virtual_base_nested_adjustment != 0) {
+                        emit_add_reg_imm(
+                            mod, EAX,
+                            expr->cxx_virtual_base_nested_adjustment);
+                    }
+                    emit_label(mod, end_label);
                 } else if ((expr->cxx_cast_kind == CXX_CAST_STATIC ||
                             expr->cxx_cast_kind == CXX_CAST_DYNAMIC) &&
                     expr->cxx_pointer_adjustment_valid &&
@@ -9782,6 +9809,15 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
 
 static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression) {
     if (!expression) return;
+    /* Explicit reference casts apply their adjustment in gen_lvalue() (or in
+     * gen_expr() after lowering the cast).  Initializer and call lowering also
+     * invoke this helper for implicit bindings, so do not adjust that cast a
+     * second time. */
+    if (expression->kind == EXPR_CAST && expression->type &&
+        expression->type->is_reference &&
+        expression->cxx_cast_kind == CXX_CAST_STATIC) {
+        return;
+    }
     if (expression->cxx_virtual_base_adjustment) {
         int end_label;
         if (!expression->cxx_virtual_base_source_class ||
@@ -11287,6 +11323,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_CAST:
             if (expr->type && expr->type->is_reference &&
                 (expr->cxx_cast_kind == CXX_CAST_NONE ||
+                 (expr->cxx_cast_kind == CXX_CAST_STATIC &&
+                  expr->type->base &&
+                  (expr->type->base->kind == TYPE_STRUCT ||
+                   expr->type->base->kind == TYPE_UNION)) ||
                  expr->cxx_cast_kind == CXX_CAST_CONST ||
                  expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 /* Reference expressions use the pointer ABI.  Loading the
@@ -12628,6 +12668,16 @@ static void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,
         }
         codegen_assign_cleanup_plan(plan->body, bytes, stack_alignment);
     }
+}
+
+int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
+                                          int stack_alignment) {
+    int bytes = 0;
+    for (; finalizers; finalizers = finalizers->next) {
+        codegen_assign_cleanup_plan(finalizers->plan, &bytes,
+                                    stack_alignment);
+    }
+    return bytes;
 }
 
 static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
@@ -14038,11 +14088,21 @@ static void codegen_emit_global_fini32(Module* mod) {
     VLAScopeCodegen* old_break_vla;
     VLAScopeCodegen* old_continue_vla;
     uint32_t start;
+    int stack_size;
     if (!mod || !mod->global_finalizers) return;
+    stack_size = codegen_assign_global_cleanup_storage(
+        mod->global_finalizers, 4);
+    if (stack_size > INT_MAX - 15) {
+        rcc_error((SourceLoc){"<global-fini>", 0, 0},
+                  "global cleanup stack frame exceeds compiler limits");
+        return;
+    }
+    stack_size = (stack_size + 15) & ~15;
     start = code_offset(mod);
     add_func_def(name, start);
     emit_push_reg(mod, EBP);
     emit_mov_reg_reg(mod, EBP, ESP);
+    if (stack_size > 0) emit_sub_reg_imm(mod, ESP, stack_size);
     old_return_type = current_function_return_type;
     current_function_return_type = NULL;
     old_cleanups = active_cleanups;
@@ -14055,6 +14115,10 @@ static void codegen_emit_global_fini32(Module* mod) {
     continue_vla_marker = NULL;
     for (finalizer = mod->global_finalizers; finalizer;
          finalizer = finalizer->next) {
+        if (finalizer->plan) {
+            gen_cxx_cleanup_plan32(mod, finalizer->plan, false, INT_MAX);
+            continue;
+        }
         if (!finalizer->expression) {
             rcc_error((SourceLoc){"<global-fini>", 0, 0},
                       "cannot lower deferred global finalizer");
