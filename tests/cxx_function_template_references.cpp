@@ -48,6 +48,18 @@ int&& select_conditional_xvalue(bool choose_first, int&& first, int&& second) {
                         : static_cast<int&&>(second);
 }
 
+struct ReferenceMemberValue {
+    int value;
+};
+
+int&& return_member_xvalue(ReferenceMemberValue&& object) {
+    return static_cast<ReferenceMemberValue&&>(object).value;
+}
+
+decltype(auto) return_member_xvalue_auto(ReferenceMemberValue&& object) {
+    return (static_cast<ReferenceMemberValue&&>(object).value);
+}
+
 decltype(auto) select_conditional_decltype_xvalue(
         bool choose_first, int&& first, int&& second) {
     return (choose_first ? static_cast<int&&>(first)
@@ -107,11 +119,21 @@ int main() {
             static_cast<int&&>(other_value));
     deduced_xvalue += 3;
     if (mutable_value != 14 || other_value != 24) return 11;
-    if (read_rvalue(9) != 9) return 12;
-    if (read_rvalue(mutable_value) != 14) return 13;
-    if (invoke(double_value, 6) != 12) return 14;
-    if (copy_from_const_pointer(&constant) != 8) return 15;
-    if (default_type_copy(13) != 13) return 16;
-    if (read_array_element(values) != 6) return 17;
+    ReferenceMemberValue member_value{};
+    member_value.value = 25;
+    int&& member_result = return_member_xvalue(
+            static_cast<ReferenceMemberValue&&>(member_value));
+    member_result += 4;
+    if (member_value.value != 29) return 12;
+    decltype(auto) member_auto_result = return_member_xvalue_auto(
+            static_cast<ReferenceMemberValue&&>(member_value));
+    member_auto_result += 2;
+    if (member_value.value != 31) return 13;
+    if (read_rvalue(9) != 9) return 14;
+    if (read_rvalue(mutable_value) != 14) return 15;
+    if (invoke(double_value, 6) != 12) return 16;
+    if (copy_from_const_pointer(&constant) != 8) return 17;
+    if (default_type_copy(13) != 13) return 18;
+    if (read_array_element(values) != 6) return 19;
     return 0;
 }
