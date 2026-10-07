@@ -257,6 +257,24 @@ int preserved_parameter_increment_side_effect_call(int* value)
     return inline_parameter_increment_mutations((*value)++);
 }
 
+static int inline_parameter_assignments(int value, int delta)
+{
+    value = value + 3;
+    value += delta;
+    value *= 2;
+    return value;
+}
+
+int inlined_parameter_assignments_call(int value, int delta)
+{
+    return inline_parameter_assignments(value, delta);
+}
+
+int preserved_parameter_assignments_side_effect_call(int* value, int* delta)
+{
+    return inline_parameter_assignments((*value)++, (*delta)++);
+}
+
 static int inline_local_snapshot_before_mutation(int value)
 {
     int original = value;

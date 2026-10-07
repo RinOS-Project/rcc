@@ -1016,7 +1016,9 @@ static bool collect_inline_scalar_body(
                 statement->expr->kind, &binary_operator);
             const Decl* declaration =
                 statement->expr->binary_lhs->ident_decl;
-            bool is_prior_local = false;
+            bool is_prior_local = declaration->kind == DECL_PARAM &&
+                declaration->type && type_is_integer(declaration->type) &&
+                declaration->type->size >= 4;
             if (!simple_assignment && !compound_assignment) return false;
             for (size_t index = 0u; index < *operation_count; ++index) {
                 if (operations[index].kind ==
@@ -1632,7 +1634,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         }
         local_binding = inline_scalar_binding_index(
             operation->declaration, bindings, binding_count);
-        if (local_binding < parameter_count || local_binding >= binding_count) {
+        if (local_binding >= binding_count) {
             return false;
         }
         if (operation->kind ==
