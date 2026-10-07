@@ -432,6 +432,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-static-reference-retry-posix
 .PHONY: test-cxx-static-reference-subobjects \
 	test-cxx-static-reference-subobjects-posix
+.PHONY: test-cxx-static-reference-conversions \
+	test-cxx-static-reference-conversions-posix
 .PHONY: test-verified-volatile
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
@@ -507,6 +509,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-reference-temporaries \
 	test-cxx-static-reference-retry \
 	test-cxx-static-reference-subobjects \
+	test-cxx-static-reference-conversions \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
 	test-cxx-class-template-specialization-ambiguous \
@@ -2618,6 +2621,31 @@ test-cxx-static-reference-subobjects-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-static-reference-subobjects/x64-host
 	@echo "C++ static reference subobject lifetime tests passed for i686 and AMD64"
 
+test-cxx-static-reference-conversions-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-conversions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-conversions/x86.s \
+		tests/cxx_static_reference_conversions.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-conversions/x86.o \
+		$(TEST_OUT)/cxx-static-reference-conversions/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-conversions/x86.o \
+		> $(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-conversions/x64.s \
+		tests/cxx_static_reference_conversions.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-conversions/x64.o \
+		$(TEST_OUT)/cxx-static-reference-conversions/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-static-reference-conversions/x64.o
+	$(CC) $(CFLAGS) \
+		-o $(TEST_OUT)/cxx-static-reference-conversions/x64-host \
+		tests/cxx_static_reference_host.c \
+		$(TEST_OUT)/cxx-static-reference-conversions/x64.o
+	$(TEST_OUT)/cxx-static-reference-conversions/x64-host
+	@echo "C++ static reference conversion lifetime tests passed for i686 and AMD64"
+
 test-cxx-constraints-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -2811,6 +2839,18 @@ test-cxx-static-reference-subobjects: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-subobjects/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
 	$(TEST_OUT)/cxx-static-reference-subobjects/x64-host
 
+test-cxx-static-reference-conversions: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-conversions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-conversions/x86.s tests/cxx_static_reference_conversions.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-conversions/x86.o $(TEST_OUT)/cxx-static-reference-conversions/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-conversions/x86.o > $(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-conversions/x64.s tests/cxx_static_reference_conversions.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-conversions/x64.o $(TEST_OUT)/cxx-static-reference-conversions/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-conversions/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-conversions/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-conversions/x64.o
+	$(TEST_OUT)/cxx-static-reference-conversions/x64-host
+
 test-cxx-constraints: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constraints,cxx_constraints.cpp)
@@ -2841,6 +2881,7 @@ test-cxx-function-template-references: test-cxx-function-template-references-pos
 test-cxx-static-reference-temporaries: test-cxx-static-reference-temporaries-posix
 test-cxx-static-reference-retry: test-cxx-static-reference-retry-posix
 test-cxx-static-reference-subobjects: test-cxx-static-reference-subobjects-posix
+test-cxx-static-reference-conversions: test-cxx-static-reference-conversions-posix
 test-cxx-constraints: test-cxx-constraints-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix

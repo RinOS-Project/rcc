@@ -361,9 +361,14 @@
         `test-cxx-static-reference-subobjects` verifies full-object destructor
         order, exactly-once cleanup, and source-expression side effects on
         i686/AMD64 generation and x64 host execution.
-  - [ ] Extend static-duration reference lifetime to user-defined conversion
-        results and pointer-to-member-selected subobjects; these paths do not
-        yet have complete sema/codegen coverage.
+  - [x] Extend static-duration reference lifetime through user-defined
+        conversion functions returning class prvalues. Global and block-static
+        bindings verify conversion count, retained values, stable local address,
+        and reverse exactly-once destruction in
+        `test-cxx-static-reference-conversions` with i686/AMD64 generation and
+        x64 host execution.
+  - [ ] Extend static-duration reference lifetime through
+        pointer-to-member-selected subobjects; this path remains uncovered.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
